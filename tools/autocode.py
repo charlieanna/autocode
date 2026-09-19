@@ -1,0 +1,1059 @@
+#!/usr/bin/env python3
+"""A durable Astra → Terra → Sol loop using Codex or OpenCode.
+
+Astra requests completion; the runner enforces approved-goal and current-evidence
+gates. Terra is the only designated writer; review roles are checked for source drift.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any
+import copy
+import uuid
+try:
+    from . import autocode_support as support, autocode_goals as goals, autocode_opencode as opencode, autocode_process as processes
+except ImportError:
+    import autocode_support as support
+    import autocode_goals as goals
+    import autocode_opencode as opencode
+    import autocode_process as processes
+
+
+SCHEMA_DIR = Path(__file__).resolve().parent / "autocode-schemas"
+DEFAULT_ROLE_MODELS = {
+    "astra": "gpt-6-astra",
+    "terra": "gpt-5.6-terra",
+    "sol": "gpt-5.6-sol",
+}
+DEFAULT_ENGINE = "opencode"
+
+
+def now() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
+def write_json(path: Path, value: Any) -> None:
+    support.atomic_json(path, value)
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text())
+
+
+def slug(task: str) -> str:
+    value = re.sub(r"[^a-z0-9]+", "-", task.lower()).strip("-")
+    return (value or "task")[:48]
+
+
+def event_thread_id(jsonl: Path) -> str | None:
+    for event in support.events(jsonl):
+        if event.get("type") == "thread.started" and event.get("thread_id"):
+            return str(event["thread_id"])
+    return None
+
+
+def final_json(path: Path) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"Agent did not produce valid JSON at {path}: {error}") from error
+    if not isinstance(value, dict):
+        raise RuntimeError(f"Expected an object in {path}")
+    return value
+
+
+def account_stage(state, record):
+    """Charge a finished attempt once, including rejected/recovered responses."""
+    if not record.get("accounted"):
+        duration = record.get("duration_seconds")
+        if duration is None and record.get("started_at"):
+            started = dt.datetime.fromisoformat(record["started_at"]).timestamp()
+            events_path = Path(record["events"])
+            ended = (dt.datetime.fromisoformat(record["finished_at"]).timestamp() if record.get("finished_at")
+                     else events_path.stat().st_mtime if events_path.exists() else started)
+            duration = max(0, ended - started)
+            record["duration_seconds"] = duration
+        state["active_seconds"] = state.get("active_seconds", 0) + (duration or 0)
+        record["accounted"] = True
+
+
+def load_stage_report(record):
+    if record.get("engine") == "opencode":
+        # Raw provider events are authoritative, including during recovery.
+        value = opencode.final_report(record["events"])
+        support.validate_schema(value, read_json(Path(record["schema"])))
+        write_json(Path(record["output"]), value)
+    value = final_json(Path(record["output"]))
+    support.validate_schema(value, read_json(Path(record["schema"])))
+    return value
+
+
+def reject_completed_stage(state, run_dir, record, error):
+    account_stage(state, record)
+    originals = archive_rejected_stage(state, run_dir, record, error)
+    message = (f"Completed {record['stage']} output was rejected ({error}); attempt archived. "
+               "Resume explicitly with --resume-paused to retry with a fresh request.")
+    state.update(status="PAUSED_INVALID_OUTPUT", phase="PAUSED_OR_BLOCKED", stop_reason=message, paused_at=now())
+    write_json(run_dir / "state.json", state)
+    for artifact in originals:
+        artifact.unlink(missing_ok=True)
+    raise support.Paused("PAUSED_INVALID_OUTPUT", message)
+
+
+def run_role(
+    *, role: str, prompt: str, sandbox: str, workspace: Path, run_dir: Path,
+    state: dict[str, Any], schema: Path, model: str | None, allow_write: bool,
+    dry_run: bool,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    iteration = state["iteration"]
+    stage = state["next_stage"]
+    if state.get("version", 2) >= 3 and stage != "astra_discovery":
+        goals.execution_guard(state)
+    if stage == "astra_discovery" and (role != "astra" or allow_write or sandbox != "read-only"):
+        raise support.Paused("PAUSED_DISCOVERY_WRITE", "Discovery must be a read-only Astra request")
+    if not dry_run:
+        processes.process_table()  # fail before creating an active request
+    # New names cannot overwrite legacy finals or an uncertain provider request.
+    attempt = 1 + sum(r.get("stage") == stage and r.get("iteration") == iteration for r in state.get("stages", []))
+    base = run_dir / "iterations" / f"{iteration:03d}" / f"{stage}-{attempt:02d}"
+    output = base.with_suffix(".json")
+    events = base.with_suffix(".jsonl")
+    prompt_file = base.with_suffix(".prompt.md")
+    if output.exists() or events.exists() or prompt_file.exists():
+        raise support.Paused("PAUSED_UNCERTAIN_STAGE", f"Existing stage artifacts require reconciliation: {base}")
+    prompt_file.parent.mkdir(parents=True, exist_ok=True)
+    session = state.setdefault("sessions", {}).get(role)
+    engine = state["settings"].get("engine", "codex")
+    transport_args = support.transport_arguments(state["settings"])
+    effort = state["settings"]["roles"][role].get("reasoning_effort")
+    stage_timeout = state["settings"].get("limits", {}).get("stage_timeout_seconds")
+    child_options = {"start_new_session": True}
+    if engine == "opencode":
+        command, env, overrides = opencode.launch(role, workspace, run_dir, session, model, effort, allow_write)
+        child_options["env"] = env
+        prompt = opencode.prompt_for_schema(prompt, read_json(schema), events)
+        write_json(base.with_suffix(".opencode.json"), overrides)
+    else:
+        command = ["codex", "exec", "-C", str(workspace), "--sandbox", sandbox, *transport_args]
+        if effort:
+            command += ["-c", f'model_reasoning_effort="{effort}"']
+        provider = state["settings"]["roles"][role].get("provider")
+        if provider:
+            command += ["-c", f'model_provider="{provider}"']
+        if session:
+            command += ["resume", session]
+        command += ["-", "--json", "--output-schema", str(schema), "-o", str(output)]
+        if model:
+            command.extend(["--model", model])
+    prompt_file.write_text(prompt)
+
+    record = {"role": role, "stage": stage, "iteration": iteration, "started_at": now(), "command": command,
+              "prompt": str(prompt_file), "events": str(events), "output": str(output), "schema": str(schema),
+              "criteria_revision": state.get("criteria_revision"), "runner_calls": 1, "runner_retries": 0,
+              "headroom_enabled": state["settings"].get("headroom", {}).get("enabled", False),
+              "stage_timeout_seconds": stage_timeout, "expected_session": session}
+    record["engine"] = engine
+    if engine == "opencode":
+        record.update(permission_config=str(base.with_suffix(".opencode.json")),
+                      isolation="OpenCode tool permissions and workspace snapshot checks; no OS sandbox")
+    if state.get("goal_contract"):
+        record.update(contract_revision=state["goal_contract"]["revision"], contract_hash=state["goal_contract"]["hash"])
+    if state.get("current_task"):
+        record["task_id"] = state["current_task"]["id"]
+    if dry_run:
+        record.update({"dry_run": True, "finished_at": now(), "exit_code": 0})
+        return {"status": "DRY_RUN"}, record
+
+    before = support.snapshot(workspace)
+    write_json(base.with_suffix(".before.json"), before)
+    record["before_ref"] = str(base.with_suffix(".before.json"))
+    record["context"] = state.pop("pending_context_metrics", {})
+    state["active_stage"] = record
+    write_json(run_dir / "state.json", state)
+    started = time.monotonic()
+    timed_out = False
+    interrupted = False
+    cleanup_error = None
+    worker_path = workspace / ".autocode" / "active-processes.json"
+    print(f"{stage}: started; log={events}", flush=True)
+    with processes.interruption_handler(), prompt_file.open("r") as stdin, events.open("w") as stdout:
+        child = subprocess.Popen(command, cwd=workspace, stdin=stdin, stdout=stdout, stderr=subprocess.STDOUT,
+                                 text=True, **child_options)
+        record["pid"] = child.pid
+        def checkpoint(owned):
+            record["processes"] = owned
+            write_json(worker_path, {"run_dir": str(run_dir), "pid": child.pid, "processes": owned})
+            write_json(run_dir / "state.json", state)
+        try:
+            exit_code, timed_out = processes.wait_for_stage(child, stage_timeout, checkpoint)
+        except KeyboardInterrupt:
+            interrupted = True
+            exit_code = child.poll()
+        except processes.ProcessError as error:
+            cleanup_error = str(error)
+            exit_code = child.poll()
+            record["processes"] = getattr(error, "processes", record.get("processes", []))
+            write_json(worker_path, {"run_dir": str(run_dir), "pid": child.pid,
+                                    "processes": record.get("processes", []), "cleanup_error": cleanup_error})
+        else:
+            worker_path.unlink(missing_ok=True)
+        if interrupted:
+            worker_path.unlink(missing_ok=True)  # wait_for_stage cleaned up before propagating the interrupt
+    record.update(finished_at=now(), exit_code=exit_code, duration_seconds=time.monotonic() - started,
+                  metrics=support.event_metrics(events), timed_out=timed_out)
+    account_stage(state, record)
+    # Persist terminal subprocess evidence before parsing or advancing.
+    write_json(run_dir / "state.json", state)
+    if cleanup_error:
+        raise support.Paused("PAUSED_PROCESS_CLEANUP", cleanup_error)
+    if interrupted:
+        raise support.Paused("PAUSED_INTERRUPTED", "Provider stage interrupted; inspect saved artifacts before reconciliation")
+    if timed_out:
+        raise support.Paused("PAUSED_PROVIDER_TIMEOUT",
+                             f"{role} exceeded its {stage_timeout}-second stage timeout; reconcile {events}, no automatic replay")
+    if exit_code != 0:
+        raise support.Paused(support.failure_status(events), f"{role} exited {exit_code}; reconcile {events}, no automatic replay")
+    thread = event_thread_id(events)
+    if not thread or (session and thread != session):
+        raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Provider returned a missing or unexpected session ID")
+    if not session:
+        state["sessions"][role] = thread
+        record["thread_id"] = thread
+    if not any(e.get("type") == "turn.completed" for e in support.events(events)):
+        raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without turn.completed")
+    try:
+        value = load_stage_report(record)
+    except (ValueError, RuntimeError) as error:
+        reject_completed_stage(state, run_dir, record, error)
+    after = support.snapshot(workspace)
+    write_json(base.with_suffix(".after.json"), after)
+    record["after_ref"] = str(base.with_suffix(".after.json"))
+    record["source_revision"] = after["revision"]
+    record["changed_files"] = support.changed_paths(before, after)
+    diff_path = base.with_suffix(".diff")
+    with diff_path.open("w") as diff:
+        subprocess.run(["git", "diff", "--no-ext-diff", "--binary", "HEAD"], cwd=workspace, stdout=diff, check=True)
+    record["diff_ref"] = str(diff_path)
+    summary_path = base.with_suffix(".tools.json")
+    support.summarize_events(events, summary_path)
+    record["tool_evidence"] = str(summary_path)
+    if not allow_write and before["revision"] != after["revision"]:
+        raise support.Paused("PAUSED_STALE_VALIDATION", "Repository changed during read-only review; preserve result and revalidate")
+    return value, record
+
+
+def apply_result(state, stage, value, record, workspace, run_dir):
+    # Reject malformed/stale results without partially mutating authoritative state.
+    candidate = copy.deepcopy(state)
+    _apply_result(candidate, stage, value, record, workspace, run_dir)
+    state.clear()
+    state.update(candidate)
+
+
+def save_record(state, record):
+    state.setdefault("stages", []).append(record)
+    state.setdefault("history", []).append(record)
+    state["evidence_locations"] = [r["output"] for r in state["stages"][-3:]]
+    state.pop("active_stage", None)
+
+
+def _apply_result(state, stage, value, record, workspace, run_dir):
+    """Only the runner advances the state; final model text is a proposal."""
+    modern = state.get("version", 2) >= 3
+    if modern and stage == "astra_discovery":
+        schema = read_json(Path(record["schema"])) if record.get("schema") else goals.DISCOVERY_SCHEMA
+        support.validate_schema(value, schema)
+        legacy = not any(key in schema["properties"]["contract"]["properties"] for key in goals.BRIEF_FIELDS)
+        goals.install_draft(state, value["contract"], origin="astra_discovery", allow_legacy=legacy)
+        state["discovery_summary"] = value["summary"]
+        save_record(state, record)
+        return
+    if modern:
+        goals.execution_guard(state, value)
+        for entry in value.get("deferred_backlog", []):
+            if entry not in state.setdefault("deferred_backlog", []):
+                state["deferred_backlog"].append(entry)
+        if value["user_request"]["kind"] != "none":
+            if stage.startswith("astra"):
+                if value["status"] != "BLOCKED":
+                    raise ValueError("Astra must choose BLOCKED when requesting a user decision")
+                goals.wait_for_user(state, value["user_request"])
+                goals.record_decision(state, value)
+                state.pop("agent_request", None)
+                save_record(state, record)
+                return
+            state["agent_request"] = {"role": stage, "request": copy.deepcopy(value["user_request"])}
+            if stage == "terra":
+                state.update(implementation={**value, "source_revision": record.get("source_revision"),
+                                             "workspace": str(workspace)},
+                             changed_files=record.get("changed_files", []), source_snapshot=record.get("after_ref"),
+                             diff_ref=record.get("diff_ref"), next_stage="astra_review")
+                save_record(state, record)
+                return
+    if stage.startswith("astra"):
+        definitions = support.criteria_definition(value["acceptance_criteria"])
+        if len({c["id"] for c in definitions}) != len(definitions):
+            raise support.Paused("PAUSED_INVALID_OUTPUT", "Duplicate acceptance IDs")
+        old = state.get("acceptance_criteria", [])
+        if old and definitions != support.criteria_definition(old):
+            raise support.Paused("PAUSED_CRITERIA_CHANGE", "Astra proposed a criteria change; previous revision remains authoritative")
+        state["acceptance_criteria"] = value["acceptance_criteria"]
+        state["criteria_revision"] = support.digest(definitions)
+        state["plan"] = value.get("plan", [value["next_objective"]])
+        state["affected_paths"] = value.get("affected_paths", [])
+        if value["status"] in ("COMPLETE", "TASK_COMPLETE"):
+            current = support.snapshot(workspace)
+            if modern and goals.missing_human_reviews(state):
+                if not support.completion_ready(state, value, current, require_human_reviews=False):
+                    raise support.Paused("PAUSED_COMPLETION_GATE", "Artifact review requires current passing independent evidence first")
+                state.update(status="WAITING_FOR_USER", phase="WAITING_FOR_USER", next_stage="astra_review",
+                    user_request={"kind": "human_review", "criteria": goals.missing_human_reviews(state),
+                                  "decision_needed": "Review the current artifact and explicitly approve the listed criteria"})
+                goals.record_decision(state, value)
+                save_record(state, record)
+                return
+            if not support.completion_ready(state, value, current):
+                raise support.Paused("PAUSED_COMPLETION_GATE", "Completion rejected: missing, stale, failed or unverified independent evidence")
+            state.update(status="TASK_COMPLETE", completed_at=now(), final_decision=value, next_stage=None)
+            if modern:
+                state["phase"] = "COMPLETE"
+        elif value["status"] == "BLOCKED":
+            if modern:
+                raise support.Paused("PAUSED_INVALID_OUTPUT", "BLOCKED requires a structured user_request")
+            state.update(status="BLOCKED_HUMAN", stop_reason=value["blocker"], next_stage="astra_review")
+        elif value["status"] == "VALIDATE":
+            if stage == "astra_review":
+                state["iteration"] += 1
+            state.update(next_stage="sol")
+        else:
+            if not value["next_objective"].strip():
+                raise support.Paused("PAUSED_INVALID_OUTPUT", "CONTINUE requires an action")
+            if modern:
+                completion_probe = {**value, "status": "TASK_COMPLETE", "acceptance_criteria": [
+                    {**c, "status": "verified", "evidence": "Current Sol criterion evidence"}
+                    for c in state["acceptance_criteria"]]}
+                if support.completion_ready(state, completion_probe, support.snapshot(workspace)):
+                    state.update(status="PAUSED_COMPLETION_REVIEW", phase="PAUSED_OR_BLOCKED", next_stage="astra_review",
+                        stop_reason="All required criteria already pass; request completion instead of another implementation batch")
+                    state["iteration"] += 1
+                    goals.record_decision(state, value)
+                    save_record(state, record)
+                    return
+            if stage == "astra_review":
+                state["iteration"] += 1
+            kind = goals.assign_task(state, value, support.snapshot(workspace)) if modern else "implement"
+            state.update(next_action=value["next_objective"], next_stage="sol" if kind == "validate" else "terra")
+        if modern:
+            goals.record_decision(state, value)
+            state.pop("agent_request", None)
+    elif stage == "terra":
+        support.evidence_hashes(value["evidence_refs"], workspace, run_dir)
+        state.update(implementation={**value, "source_revision": record.get("source_revision"),
+                                     "workspace": str(workspace)},
+                     changed_files=record["changed_files"], source_snapshot=record["after_ref"],
+                     next_stage="sol", diff_ref=record.get("diff_ref"))
+        if not record["changed_files"]:
+            state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
+        else:
+            state["no_progress_batches"] = 0
+    else:
+        support.verify_checks(value["checks"], workspace, record["events"])
+        refs = [c["evidence_ref"] for c in value["checks"]]
+        for check in value["checks"]:
+            if not check["evidence_ref"].startswith("event:"):
+                receipt_path = Path(check["evidence_ref"])
+                receipt_path = receipt_path if receipt_path.is_absolute() else workspace / receipt_path
+                refs.append(read_json(receipt_path)["full_output"])
+        refs += [p for row in value["criterion_results"] for p in row["evidence_refs"]]
+        flow = value.get("end_to_end_result", {})
+        refs += flow.get("evidence_refs", [])
+        if flow.get("status") == "PASS" and (not flow.get("summary", "").strip() or not flow.get("evidence_refs")):
+            raise ValueError("End-to-end PASS requires a check description and evidence")
+        ids = [row["id"] for row in value["criterion_results"]]
+        known = {c["id"] for c in state["acceptance_criteria"]}
+        if len(ids) != len(set(ids)) or not set(ids) <= known:
+            raise ValueError("Sol criterion results must use unique approved IDs")
+        for ref in refs:
+            if ref.startswith("event:"):
+                event_id = ref.split(":", 1)[1]
+                matches = [e for e in support.events(record["events"]) if e.get("type") == "item.completed"
+                           and e.get("item", {}).get("id") == event_id
+                           and e["item"].get("type") == "command_execution"]
+                if len(matches) != 1:
+                    raise ValueError(f"Criterion evidence references a missing executed event: {event_id}")
+        refs = [record["events"] if p.startswith("event:") else p for p in refs]
+        pins = support.evidence_hashes(refs, workspace, run_dir) if refs else {}
+        validation = {**value, "evidence_hashes": pins, "criteria_revision": state["criteria_revision"],
+                      "source_revision": record["source_revision"], "output": record["output"]}
+        if value["verdict"] == "PASS" and (not value["checks"] or any(c["exit_code"] for c in value["checks"])):
+            raise support.Paused("PAUSED_INVALID_OUTPUT", "Sol PASS lacks successful executed checks")
+        if state.get("validation"):
+            state.setdefault("validation_archive", []).append({
+                "reason": "Superseded by another independent validation", "validation": state["validation"]})
+        state.update(validation=validation, unresolved_findings=value["findings"], next_stage="astra_review")
+        if modern:
+            state["human_reviews"] = {}
+            state.pop("displayed_review", None)
+    save_record(state, record)
+    state.pop("stop_reason", None) if state["status"] == "RUNNING" else None
+
+
+def archive_rejected_stage(state, run_dir, record, reason):
+    """Set aside a completed request whose output was rejected, so an explicit
+    resume starts a fresh numbered attempt instead of re-applying the same output."""
+    base = Path(record["output"]).with_suffix("")
+    archived = base.parent / f"archived-{base.name}-{uuid.uuid4().hex[:6]}"
+    archived.mkdir(parents=True, exist_ok=True)
+    originals = []
+    for suffix in (".json", ".jsonl", ".prompt.md", ".before.json", ".after.json", ".diff", ".tools.json", ".opencode.json"):
+        artifact = base.with_name(base.name + suffix)
+        if artifact.exists():
+            # Keep originals until the caller durably saves the archive pointers.
+            # A crash or disk error must leave the previous checkpoint readable.
+            shutil.copy2(artifact, archived / artifact.name)
+            originals.append(artifact)
+    for key in ("output", "events", "prompt", "before_ref", "after_ref", "diff_ref", "tool_evidence", "permission_config"):
+        if record.get(key) and Path(record[key]).parent == base.parent:
+            record[key] = str(archived / Path(record[key]).name)
+    record["rejected"] = True
+    record["rejection_reason"] = str(reason)
+    state.setdefault("stages", []).append(record)
+    state.setdefault("reconciliation_notes", []).append(
+        {"at": now(), "stage": record["stage"], "iteration": record["iteration"],
+         "archived": str(archived), "reason": str(reason)})
+    state.pop("active_stage", None)
+    return originals
+
+
+def assert_stage_stopped(record):
+    # A lost parent may have left a worker alive. Check without exposing args.
+    pid = record.get("pid")
+    if record.get("processes"):
+        if processes.live_processes(record["processes"]):
+            raise support.Paused("PAUSED_WORKSPACE_BUSY", "Recorded provider commands are still alive")
+    elif pid and record.get("exit_code") is None:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            pass
+        else:
+            raise support.Paused("PAUSED_WORKSPACE_BUSY", f"Stage process {pid} still exists; wait for it")
+
+
+def attempt_id(record):
+    return f"{record['iteration']:03d}/{Path(record['output']).stem}"
+
+
+def abandon_stage(state, run_dir, workspace, selected):
+    """Explicitly discard an uncertain response, retaining its edits and evidence."""
+    record = state.get("active_stage")
+    if not record or selected != attempt_id(record):
+        raise ValueError("--abandon-stage must match the active attempt_id shown by --status")
+    assert_stage_stopped(record)
+    record["metrics"] = support.event_metrics(record["events"])
+    account_stage(state, record)
+    before = read_json(Path(record["before_ref"]))
+    after = support.snapshot(workspace)
+    after_path = Path(record["output"]).with_suffix(".after.json")
+    write_json(after_path, after)
+    record.update(after_ref=str(after_path), source_revision=after["revision"],
+                  changed_files=support.changed_paths(before, after), abandoned=True)
+    originals = archive_rejected_stage(state, run_dir, record, "Operator abandoned uncertain response; workspace edits retained")
+    state["sessions"].pop(record["role"], None)
+    if state.get("validation"):
+        state.setdefault("validation_archive", []).append({
+            "reason": "Uncertain stage abandoned", "validation": state.pop("validation")})
+    state["human_reviews"] = {}
+    state.pop("displayed_review", None)
+    state.setdefault("user_events", []).append({"kind": "stage_abandoned", "at": now(),
+        "actor": "user_cli", "attempt_id": selected, "changed_files": record["changed_files"]})
+    state["recovery_context"] = {"attempt_id": selected, "role": record["role"],
+        "source_revision": after["revision"], "changed_files": record["changed_files"],
+        "events": record["events"], "source_snapshot": record["after_ref"],
+        "instruction": "This response was abandoned. Inspect partial work before assigning a task or validation; its report is not evidence of success."}
+    next_stage = record["stage"] if record["role"] == "astra" else "astra_review"
+    state.update(status="PAUSED_STAGE_ABANDONED", phase="PAUSED_OR_BLOCKED", next_stage=next_stage,
+                 stop_reason="Partial work retained. Resume explicitly for Astra to inspect it and choose the next step.")
+    write_json(run_dir / "state.json", state)
+    for artifact in originals:
+        artifact.unlink(missing_ok=True)
+
+
+def reconcile_active(state, run_dir, workspace):
+    record = state.get("active_stage")
+    if not record:
+        return
+    assert_stage_stopped(record)
+    rows = support.events(record["events"])
+    if not any(e.get("type") == "turn.completed" for e in rows) or record.get("exit_code") not in (None, 0):
+        raise support.Paused(support.failure_status(record["events"]),
+            f"Uncertain stage must be inspected, never automatically replayed. After review, "
+            f"use --abandon-stage {attempt_id(record)} to retain partial work and set aside this response.")
+    thread = event_thread_id(Path(record["events"]))
+    if (("expected_session" in record and not thread)
+            or (record.get("expected_session") and thread != record["expected_session"])):
+        raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Recovered response belongs to an unexpected session")
+    if thread:
+        state["sessions"][record["role"]] = thread
+    record["metrics"] = support.event_metrics(record["events"])
+    account_stage(state, record)
+    try:
+        value = load_stage_report(record)
+    except (ValueError, RuntimeError) as error:
+        reject_completed_stage(state, run_dir, record, error)
+    before = read_json(Path(record["before_ref"]))
+    after = support.snapshot(workspace)
+    if record["role"] != "terra" and before["revision"] != after["revision"]:
+        raise support.Paused("PAUSED_STALE_VALIDATION", "Read-only stage revision changed across interruption")
+    base = Path(record["output"]).with_suffix("")
+    write_json(base.with_suffix(".after.json"), after)
+    record.update(after_ref=str(base.with_suffix(".after.json")), source_revision=after["revision"],
+                  changed_files=support.changed_paths(before, after), recovered_at=now(), metrics=support.event_metrics(record["events"]))
+    thread = event_thread_id(Path(record["events"]))
+    if thread:
+        state["sessions"][record["role"]] = thread
+    try:
+        apply_result(state, record["stage"], value, record, workspace, run_dir)
+    except (ValueError, KeyError, support.Paused) as error:
+        reject_completed_stage(state, run_dir, record, error)
+    write_json(run_dir / "state.json", state)
+
+
+def capture_command(argv):
+    parser = argparse.ArgumentParser(description="Capture complete tool evidence with deterministic compact output")
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--no-compress", action="store_true")
+    parser.add_argument("command", nargs=argparse.REMAINDER)
+    args = parser.parse_args(argv)
+    command = args.command[1:] if args.command[:1] == ["--"] else args.command
+    if not command:
+        parser.error("command required")
+    path = args.output.resolve()
+    root = Path.cwd().resolve()
+    if not path.is_relative_to(root / ".autocode"):
+        parser.error("evidence output must be under this project's .autocode directory")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    raw = path.with_suffix(".log")
+    if path.exists() or raw.exists():
+        parser.error("use a unique evidence filename; existing evidence is immutable")
+    started = time.monotonic()
+    with raw.open("x") as handle:
+        result = subprocess.run(command, stdout=handle, stderr=subprocess.STDOUT, text=True)
+    full = raw.read_text(errors="replace")
+    try:
+        compact = support.compact_output(full, enabled=not args.no_compress)
+    except Exception as error:
+        compact = {"format": "text", "content": full, "compression_error": type(error).__name__, "fallback": "complete_original"}
+    receipt = {"command": command, "exit_code": result.returncode, "duration_seconds": time.monotonic()-started,
+               "full_output": str(raw), "full_output_sha256": support.file_hash(raw), "summary": compact}
+    write_json(path, receipt)
+    print(json.dumps(receipt))
+    return result.returncode
+
+
+def configure(args, state):
+    started = bool(state.get("settings") or state.get("sessions") or state.get("history"))
+    saved_engine = state.get("settings", {}).get("engine") or ("codex" if started else None)
+    engine = getattr(args, "engine", None) or saved_engine or DEFAULT_ENGINE
+    if started and engine != saved_engine:
+        raise ValueError("Start a new run to change engines; Codex and OpenCode session IDs are not interchangeable")
+    if engine == "opencode" and any(getattr(args, f"{r}_provider", None) for r in DEFAULT_ROLE_MODELS):
+        raise ValueError("For OpenCode use --<role>-model provider/model instead of --<role>-provider")
+    if state.get("settings"):
+        settings = json.loads(json.dumps(state["settings"]))
+        for role in ("astra", "terra", "sol"):
+            if getattr(args, f"{role}_model"):
+                settings["roles"][role]["model"] = getattr(args, f"{role}_model")
+            if getattr(args, f"{role}_provider", None):
+                settings["roles"][role]["provider"] = getattr(args, f"{role}_provider")
+            role_effort = getattr(args, f"{role}_reasoning_effort", None)
+            if role_effort or args.reasoning_effort:
+                settings["roles"][role]["reasoning_effort"] = role_effort or args.reasoning_effort
+        if args.headroom is not None:
+            settings["headroom"]["enabled"] = args.headroom == "on"
+        if args.context_soft_tokens is not None:
+            settings["context_soft_tokens"] = args.context_soft_tokens
+        if args.rotate_after_input_tokens is not None:
+            settings["rotation_after_input_tokens"] = args.rotate_after_input_tokens
+        for flag, name in (("max_iterations", "iteration_ceiling"), ("legacy_iteration_ceiling", "iteration_ceiling"),
+                           ("max_seconds", "max_seconds"), ("max_stage_seconds", "stage_timeout_seconds"),
+                           ("max_reported_tokens", "max_reported_tokens"),
+                           ("no_progress_limit", "no_progress_batches")):
+            selected = getattr(args, flag, None)
+            if selected is not None:
+                settings.setdefault("limits", {})[name] = selected
+        return settings
+    local = opencode.local_settings(state["workspace"]) if engine == "opencode" else support.local_settings()
+    models = {}
+    providers = {}
+    for record in state.get("history", []):
+        command = record.get("command", [])
+        if "--model" in command:
+            models[record["role"]] = command[command.index("--model")+1]
+        for index, item in enumerate(command[:-1]):
+            if item == "-c" and command[index+1].startswith('model_provider="'):
+                providers[record["role"]] = command[index+1][len('model_provider="'):-1]
+    defaults = opencode.DEFAULT_MODELS if engine == "opencode" else DEFAULT_ROLE_MODELS
+    roles = {r: {"model": getattr(args, f"{r}_model") or models.get(r) or defaults[r],
+                 "reasoning_effort": getattr(args, f"{r}_reasoning_effort", None) or args.reasoning_effort or local.get("model_reasoning_effort"),
+                 "provider": getattr(args, f"{r}_provider", None) or providers.get(r) or local.get("model_provider")}
+            for r in ("astra", "terra", "sol")}
+    return {"roles": roles, "transport_identity": local, "engine": engine,
+            "headroom": {"enabled": args.headroom == "on", "verified": False},
+            "context_soft_tokens": args.context_soft_tokens if args.context_soft_tokens is not None else 10000,
+            "rotation_after_input_tokens": args.rotate_after_input_tokens if args.rotate_after_input_tokens is not None else 1000000,
+            "limits": {"iteration_ceiling": args.legacy_iteration_ceiling if args.legacy_iteration_ceiling is not None
+                       else state.get("iteration", 0) + (args.max_iterations if args.max_iterations is not None else 15),
+                       "max_seconds": args.max_seconds,
+                       "stage_timeout_seconds": (getattr(args, "max_stage_seconds", None)
+                                                 if getattr(args, "max_stage_seconds", None) is not None else 300),
+                       "max_reported_tokens": args.max_reported_tokens,
+                       "no_progress_batches": args.no_progress_limit if args.no_progress_limit is not None else 3,
+                       "automatic_retries": 0}}
+
+
+def accept_completion(state: dict[str, Any], workspace: Path) -> None:
+    """Operator closes a run whose gates all verify independently but whose
+    completion report the model cannot produce in the required echo format."""
+    if state.get("status") == "TASK_COMPLETE":
+        raise ValueError("Run is already complete")
+    if not goals.approved(state):
+        raise ValueError("Completion acceptance requires an approved goal")
+    current = support.snapshot(workspace)
+    contract = state["goal_contract"]
+    probe = {"status": "TASK_COMPLETE", "contract_revision": contract["revision"], "contract_hash": contract["hash"],
+             "acceptance_criteria": [{**c, "status": "verified", "evidence": "Current Sol criterion evidence"}
+                                     for c in state["acceptance_criteria"]]}
+    if not support.completion_ready(state, probe, current):
+        raise ValueError("Completion acceptance requires current passing independent evidence for every criterion")
+    if goals.missing_human_reviews(state):
+        raise ValueError("Completion acceptance requires every required human review to be recorded")
+    failed = sum(1 for r in state.get("stages", []) if r.get("stage") == "astra_review" and r.get("rejected"))
+    state.setdefault("user_events", []).append({
+        "kind": "completion_accept", "actor": "user_cli", "at": now(),
+        "basis": f"runner-verified gates; {failed} completion-report attempts failed",
+        "criteria_revision": state.get("criteria_revision"),
+        "contract_revision": state["goal_contract"]["revision"],
+        "validation_digest": support.digest(state.get("validation") or {})})
+    state.update(status="TASK_COMPLETE", completed_at=now(), final_decision=probe,
+                 completion_actor="user_cli", next_stage=None, phase="COMPLETE")
+
+
+def recheck_completion(state, workspace):
+    if state.get("status") != "TASK_COMPLETE":
+        return
+    if support.completion_ready(state, state.get("final_decision", {}), support.snapshot(workspace)):
+        return
+    state.setdefault("completion_archive", []).append({
+        "completed_at": state.pop("completed_at", None), "decision": state.pop("final_decision", None)})
+    state.pop("completion_actor", None)
+    if state.get("validation"):
+        state.setdefault("validation_archive", []).append({
+            "reason": "Completed artifact or evidence changed", "validation": state.pop("validation")})
+    state["human_reviews"] = {}
+    state.pop("displayed_review", None)
+    state.update(status="PAUSED_STALE_VALIDATION", phase="PAUSED_OR_BLOCKED", next_stage="sol",
+        stop_reason="Completion is no longer current. Use --resume-paused for fresh independent validation.")
+
+
+def chat_checkpoint(state: dict[str, Any]) -> bool:
+    """Collect discovery answers and goal approval in a single terminal conversation."""
+    if state.get("discovery_summary") and state.get("phase") == "DISCOVERING":
+        print("\nAstra: " + state["discovery_summary"])
+    while state["status"] == "WAITING_FOR_USER":
+        if state.get("user_request", {}).get("kind") == "human_review":
+            print(goals.present(state))
+            for criterion in goals.missing_human_reviews(state):
+                try:
+                    reply = input(f"Approve artifact criterion {criterion} after reviewing its evidence? [y/N]: ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    print("\nChat paused; remaining artifact reviews are pending.")
+                    return False
+                if reply not in ("y", "yes"):
+                    print("Artifact review remains pending.")
+                    return False
+                goals.approve_review(state, criterion, state["displayed_review"],
+                                     support.snapshot(Path(state["workspace"])))
+            return state["status"] == "RUNNING"
+        if not state.get("pending_questions"):
+            print(goals.present(state))
+            return False
+        if state.get("user_request"):
+            print("Decision needed: " + json.dumps(state["user_request"], indent=2))
+        for question in list(state.get("pending_questions", [])):
+            print(f"\nAstra: {question['question']}")
+            print(f"Why: {question['why']}")
+            for option in question.get("options", []):
+                print(f"  - {option}")
+            default = question.get("proposed_default", "").strip()
+            if default:
+                print(f"Suggested default: {default}")
+            while True:
+                try:
+                    reply = input("You (/default, /feedback TEXT, or /pause): ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    print("\nChat paused; your prior answers are saved.")
+                    return False
+                if reply == "/pause":
+                    return False
+                if reply.startswith("/feedback ") and reply[len("/feedback "):].strip():
+                    goals.feedback(state, reply[len("/feedback "):])
+                    return True
+                if reply == "/default" and default:
+                    goals.answer(state, question["id"], "accept default", delegated=True)
+                    break
+                if reply:
+                    if reply.startswith("/"):
+                        print("Use /default, /feedback TEXT or /pause, or type your answer.")
+                        continue
+                    goals.answer(state, question["id"], reply)
+                    break
+                print("Please enter an answer, or /default when a suggested default is available.")
+    if state["status"] == "AWAITING_GOAL_APPROVAL":
+        print("\nAstra's proposed build brief:\n")
+        print(goals.present(state))
+        while True:
+            try:
+                reply = input("Approve this brief? [y/N], or type feedback for Astra: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\nChat paused; the brief remains available for approval.")
+                return False
+            if reply.lower() in ("y", "yes", "/approve"):
+                goals.approve(state, state["displayed_goal"])
+                return True
+            if reply.lower() in ("", "n", "no", "/pause"):
+                print("Brief not approved. Resume this run when you are ready.")
+                return False
+            if reply.startswith("/feedback "):
+                reply = reply[len("/feedback "):].strip()
+            elif reply.startswith("/"):
+                print("Use /approve, /feedback TEXT or /pause, or type your feedback.")
+                continue
+            if reply:
+                goals.feedback(state, reply)
+                return True
+    return state["status"] == "RUNNING"
+
+
+def rotate_if_needed(state, role, run_dir):
+    limit = state["settings"].get("rotation_after_input_tokens")
+    latest = next((r for r in reversed(state.get("stages", [])) if r.get("role", r.get("stage", "").split("_")[0]) == role), None)
+    tokens = (latest or {}).get("metrics", {}).get("provider_tokens", {}).get("input_tokens")
+    if limit and tokens and tokens >= limit and state.get("sessions", {}).get(role):
+        old = state["sessions"].pop(role)
+        state.setdefault("session_rotations", []).append({"role":role,"old_session":old,"at":now(),
+            "reason":"Previous stage cumulative reported input exceeded rotation threshold; not a context-window measurement"})
+        write_json(run_dir / "state.json", state)
+
+
+def main() -> int:
+    if sys.argv[1:2] == ["capture"]:
+        return capture_command(sys.argv[2:])
+    parser = argparse.ArgumentParser(description="Durable Astra → Terra → Sol loop using Codex or OpenCode")
+    parser.add_argument("task", nargs="?", help="Rough idea for Astra to turn into an approved build brief")
+    parser.add_argument("--workspace", type=Path, default=Path.cwd())
+    parser.add_argument("--run-dir", type=Path, help="Existing run directory to resume")
+    parser.add_argument("--engine", choices=["codex", "opencode"],
+                        help="Execution CLI (new-run default: opencode; resumes keep the saved engine)")
+    parser.add_argument("--max-iterations", type=int, help="Total iteration ceiling (new-run default: 15; resumes keep saved limits)")
+    for role, model in DEFAULT_ROLE_MODELS.items():
+        parser.add_argument(f"--{role}-model",
+                            help=f"Override the {role.title()} model (OpenCode default: {opencode.DEFAULT_MODELS[role]}; "
+                                 f"Codex default: {model}; resumes keep the saved model)")
+    parser.add_argument("--astra-provider", help="Codex model_provider override for Astra (e.g. ZAI); default is the local Codex login")
+    parser.add_argument("--terra-provider", help="Codex model_provider override for Terra (e.g. ZAI); default is the local Codex login")
+    parser.add_argument("--sol-provider", help="Codex model_provider override for Sol (e.g. ZAI); default is the local Codex login")
+    parser.add_argument("--reasoning-effort", choices=["low","medium","high","xhigh","max"])
+    parser.add_argument("--astra-reasoning-effort", choices=["low","medium","high","xhigh","max"],
+                        help="Override reasoning effort for Astra only (for example, xhigh for discovery/planning)")
+    parser.add_argument("--terra-reasoning-effort", choices=["low","medium","high","xhigh","max"],
+                        help="Override reasoning effort for Terra only")
+    parser.add_argument("--sol-reasoning-effort", choices=["low","medium","high","xhigh","max"],
+                        help="Override reasoning effort for Sol only")
+    parser.add_argument("--headroom", choices=["off","on"], default=None,
+                        help="Off by default; on fails closed until compatibility is verified")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--migrate-only", action="store_true")
+    parser.add_argument("--status", action="store_true")
+    parser.add_argument("--pause-after-stage", action="store_true")
+    parser.add_argument("--chat", action=argparse.BooleanOptionalAction, default=None,
+                        help="Converse with Astra and approve the brief here (default: on in an interactive terminal)")
+    parser.add_argument("--context-soft-tokens", type=int)
+    parser.add_argument("--rotate-after-input-tokens", type=int, help="0 disables checkpointed session rotation")
+    parser.add_argument("--legacy-iteration-ceiling", type=int)
+    parser.add_argument("--max-seconds", type=int)
+    parser.add_argument("--max-stage-seconds", type=int,
+                        help="Maximum seconds for one provider stage (new-run default: 300; 0 disables)")
+    parser.add_argument("--max-reported-tokens", type=int)
+    parser.add_argument("--no-progress-limit", type=int, help="Pause after this many unchanged batches (new-run default: 3)")
+    parser.add_argument("--resume-paused", action="store_true", help="Acknowledge a saved pause; uncertain stages still require reconciliation")
+    parser.add_argument("--abandon-stage", metavar="ATTEMPT_ID",
+                        help="Set aside exactly this stopped uncertain attempt, preserving edits and logs; no agent is launched")
+    parser.add_argument("--show-goal", action="store_true", help="Display the exact contract revision and approval token")
+    parser.add_argument("--answer", action="append", default=[], metavar="QUESTION_ID=TEXT")
+    parser.add_argument("--feedback", metavar="TEXT", help="Send brief feedback to Astra; never approves implementation")
+    parser.add_argument("--delegate", action="append", default=[], metavar="QUESTION_ID",
+                        help="Explicitly accept the proposed default and delegate this decision")
+    parser.add_argument("--approve-goal", metavar="TOKEN", help="Approve exactly a previously displayed revision")
+    parser.add_argument("--edit-goal", type=Path, help="Load a revised contract body JSON; invalidates approval")
+    parser.add_argument("--approve-review", action="append", default=[], metavar="CRITERION_ID")
+    parser.add_argument("--accept-completion", action="store_true",
+                        help="Operator-accept completion after the runner itself verifies every gate; use when the model's completion report cannot be produced")
+    parser.add_argument("--review-token", help="Exact displayed contract/artifact/validation token")
+    args = parser.parse_args()
+    if args.chat is None:
+        args.chat = sys.stdin.isatty() and sys.stdout.isatty()
+    for flag in ("max_iterations", "legacy_iteration_ceiling", "max_seconds", "max_stage_seconds", "max_reported_tokens", "no_progress_limit"):
+        if getattr(args, flag) is not None and getattr(args, flag) < 0:
+            parser.error(f"--{flag.replace('_', '-')} must be nonnegative")
+    actions = [args.status, args.dry_run, args.migrate_only, args.show_goal,
+               bool(args.answer or args.delegate), bool(args.approve_goal), bool(args.edit_goal), bool(args.approve_review),
+               args.feedback is not None, args.accept_completion, args.abandon_stage is not None]
+    if sum(bool(a) for a in actions) > 1:
+        parser.error("Choose one action per invocation; answering and approving are separate events")
+    if args.review_token and not args.approve_review:
+        parser.error("--review-token requires --approve-review")
+    if not args.run_dir and any(actions[2:]):
+        parser.error("User actions require an existing --run-dir")
+
+    workspace = args.workspace.resolve()
+    if not (workspace / ".git").exists():
+        parser.error(f"workspace is not a Git repository: {workspace}")
+    if args.run_dir:
+        run_dir = args.run_dir.resolve()
+        state_path = run_dir / "state.json"
+        state = read_json(state_path)
+        task = state["task"]
+    else:
+        if not args.task:
+            parser.error("task is required unless --run-dir is supplied")
+        task = args.task
+        run_dir = workspace / ".autocode" / "runs" / f"{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}-{slug(task)}-{uuid.uuid4().hex[:8]}"
+        state_path = run_dir / "state.json"
+        state = {"version": 2, "task": task, "workspace": str(workspace), "created_at": now(),
+                 "iteration": 1, "status": "RUNNING", "sessions": {}, "history": [], "stages": [],
+                 "next_stage": "astra_plan", "acceptance_criteria": []}
+        if args.legacy_iteration_ceiling is None:
+            args.legacy_iteration_ceiling = args.max_iterations if args.max_iterations is not None else 15
+
+    if state["workspace"] != str(workspace):
+        parser.error("workspace differs from checkpoint; use the original --workspace")
+    if not run_dir.is_relative_to(workspace / ".autocode" / "runs"):
+        parser.error("run-dir must belong to this project's .autocode/runs")
+    if args.status or args.dry_run:
+        active = state.get("active_stage")
+        completion_current = (support.completion_ready(state, state.get("final_decision", {}), support.snapshot(workspace))
+                              if state["status"] == "TASK_COMPLETE" else None)
+        print(json.dumps({"run_dir":str(run_dir), "status":state["status"], "iteration":state["iteration"],
+                          "engine":state.get("settings", {}).get("engine", "codex" if args.run_dir else args.engine or DEFAULT_ENGINE),
+                          "next_stage":state.get("next_stage", "legacy; inspect saved finals"), "sessions":state["sessions"],
+                          "phase":state.get("phase", "DISCOVERING" if not args.run_dir else "migration_required"),
+                          "contract_token":goals.token(state["goal_contract"]) if state.get("goal_contract") else None,
+                          "current_task":state.get("current_task"), "last_decision":state.get("last_decision"),
+                          "settings":state.get("settings"), "active_stage":active,
+                          "attempt_id":attempt_id(active) if active else None,
+                          "completion_current":completion_current}, indent=2))
+        return 0
+    # Legacy runner does not own our new lock; detect it before touching state.
+    support.assert_no_legacy_process(run_dir, workspace)
+    with support.workspace_lock(workspace):
+        support.assert_no_legacy_process(run_dir, workspace)
+        if args.run_dir:
+            # A competing user command may have finished between the first read
+            # and lock acquisition. Never overwrite its event with stale state.
+            state = read_json(state_path)
+            if state["workspace"] != str(workspace):
+                parser.error("workspace differs from the locked checkpoint")
+        settings = configure(args, state)
+        if state.get("settings") and settings != state["settings"]:
+            state.setdefault("configuration_changes", []).append({"at":now(),"previous":state["settings"],"selected":settings,
+                "reason":"Explicit launch arguments at a saved stage boundary"})
+            state["settings"] = settings
+            write_json(state_path, state)
+        state["settings"] = settings
+        if state.get("version",1) == 1:
+            backup = run_dir / "state.pre-v2.json"
+            if not backup.exists():
+                write_json(backup, state)
+            state = support.migrate_v1(state, run_dir, workspace, settings, SCHEMA_DIR)
+            if not state["stages"] and state["iteration"] == 0:
+                state["iteration"] = 1
+            write_json(state_path, state)
+        try:
+            if args.abandon_stage is not None:
+                try:
+                    abandon_stage(state, run_dir, workspace, args.abandon_stage)
+                except ValueError as error:
+                    print(f"Input rejected: {error}", file=sys.stderr)
+                    return 2
+                print(f"{state['status']}: {state['stop_reason']} No agent launched.")
+                return 0
+            # Recovery interprets terminal artifacts only. It never replays a model call.
+            reconcile_active(state, run_dir, workspace)
+            if state.get("uncertain_artifacts"):
+                raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Legacy partial stage remains unresolved: " + state["uncertain_artifacts"])
+            if state.get("version", 2) < 3:
+                backup = run_dir / "state.pre-v3.json"
+                if not backup.exists():
+                    write_json(backup, state)
+                goals.migrate(state)
+                write_json(state_path, state)
+            print(f"Run: {run_dir}", flush=True)
+            if args.migrate_only:
+                print("Migrated to an unapproved draft; saved work retained; no agent launched")
+                return 0
+            user_action = any((args.show_goal, args.answer, args.delegate, args.approve_goal, args.edit_goal,
+                               args.approve_review, args.feedback is not None, args.accept_completion))
+            if user_action:
+                candidate = copy.deepcopy(state)
+                try:
+                    for item in args.answer:
+                        question, sep, response = item.partition("=")
+                        if not sep:
+                            raise ValueError("--answer uses QUESTION_ID=TEXT")
+                        goals.answer(candidate, question, response)
+                    for question in args.delegate:
+                        goals.answer(candidate, question, "accept default", delegated=True)
+                    if args.feedback is not None:
+                        goals.feedback(candidate, args.feedback)
+                    if args.edit_goal:
+                        goals.install_draft(candidate, read_json(args.edit_goal), origin="user_cli_edit")
+                    if args.approve_goal:
+                        goals.approve(candidate, args.approve_goal)
+                    for criterion in args.approve_review:
+                        goals.approve_review(candidate, criterion, args.review_token, support.snapshot(workspace))
+                    if args.accept_completion:
+                        accept_completion(candidate, workspace)
+                except (ValueError, KeyError) as error:
+                    print(f"Input rejected: {error}", file=sys.stderr)
+                    return 2
+                rendered = goals.present(candidate)
+                write_json(state_path, candidate)
+                print(rendered)
+                print("Saved. Resume with the same --workspace and --run-dir; no agent launched by this action.")
+                return 0
+            if state["status"] == "TASK_COMPLETE":
+                recheck_completion(state, workspace)
+                if state["status"] != "TASK_COMPLETE":
+                    write_json(state_path, state)
+            if state["status"] == "TASK_COMPLETE":
+                print(goals.render_completion(state))
+                return 0
+            if state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
+                if args.chat:
+                    if not chat_checkpoint(state):
+                        write_json(state_path, state)
+                        return 2
+                    write_json(state_path, state)
+                else:
+                    rendered = goals.present(state)
+                    write_json(state_path, state)
+                    print(rendered)
+                    return 2
+            if state["status"] != "RUNNING":
+                if not args.resume_paused:
+                    print(f"{state['status']}: {state.get('stop_reason','explicit resume required')}")
+                    return 2
+                state.update(status="RUNNING", phase="DISCOVERING" if state["next_stage"] == "astra_discovery" else "READY_TO_EXECUTE")
+            if state.get("pending_questions"):
+                raise support.Paused("PAUSED_UNANSWERED_QUESTION", "Pending questions cannot be bypassed by resume")
+            if state["settings"].get("engine") == "opencode":
+                opencode.check_models(state["settings"]["roles"], workspace)
+            while state["status"] == "RUNNING":
+                if (run_dir / "pause-requested").exists():
+                    raise support.Paused("PAUSED_REQUESTED", "Pause requested; previous stage saved")
+                limits = state["settings"]["limits"]
+                if state["iteration"] > limits["iteration_ceiling"]:
+                    raise support.Paused("PAUSED_ITERATION_LIMIT", "Saved iteration ceiling reached")
+                if limits["max_seconds"] and state.get("active_seconds",0) >= limits["max_seconds"]:
+                    raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
+                if limits["max_reported_tokens"]:
+                    measured = [r.get("metrics",{}).get("provider_tokens",{}) for r in state.get("stages",[])]
+                    if any(m.get("input_tokens") is None or m.get("output_tokens") is None for m in measured):
+                        raise support.Paused("PAUSED_USAGE_UNKNOWN", "Cannot enforce requested token limit with unknown usage")
+                    if sum(m["input_tokens"]+m["output_tokens"] for m in measured) >= limits["max_reported_tokens"]:
+                        raise support.Paused("PAUSED_BUDGET", "Saved reported-token limit reached")
+                if limits["no_progress_batches"] and state.get("no_progress_batches",0) >= limits["no_progress_batches"]:
+                    raise support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review")
+                # Do not silently change auth/provider when local config changes.
+                using_opencode = state["settings"].get("engine") == "opencode"
+                current_settings = opencode.local_settings(workspace) if using_opencode else support.local_settings()
+                drifted = (opencode.transport_drift(current_settings, state["settings"]["transport_identity"]) if using_opencode else
+                           support.transport_drift(current_settings, state["settings"]["transport_identity"], state["settings"]["roles"]))
+                if drifted:
+                    raise support.Paused("PAUSED_TRANSPORT_CHANGED", "Local model/auth/provider settings differ from checkpoint")
+                if using_opencode and state["settings"]["transport_identity"].get("identity_version", 1) < 2:
+                    state.setdefault("configuration_changes", []).append({"at": now(),
+                        "reason": "Expanded OpenCode configuration identity; all previously recorded inputs match"})
+                    state["settings"]["transport_identity"] = current_settings
+                stage = state["next_stage"]
+                if stage != "astra_discovery":
+                    goals.execution_guard(state)
+                    state["phase"] = "EXECUTING"
+                else:
+                    state["phase"] = "DISCOVERING"
+                role = "astra" if stage.startswith("astra") else stage
+                rotate_if_needed(state, role, run_dir)
+                prompt, metrics = support.context_packet(state, stage, state_path)
+                state["pending_context_metrics"] = metrics
+                # Soft budget: keep exact requirements; don't silently truncate them.
+                if metrics["estimated_prompt_tokens"] > metrics["soft_budget_tokens"]:
+                    print("Context soft budget exceeded; preserving complete requirements", flush=True)
+                write_json(state_path, state)
+                schema_value = goals.DISCOVERY_SCHEMA if stage == "astra_discovery" else goals.role_schema(
+                    read_json(SCHEMA_DIR / "v2" / f"{role}-{'decision' if role=='astra' else 'report'}.schema.json"), role)
+                schema_path = run_dir / "schemas" / f"v3-{stage}.json"
+                write_json(schema_path, schema_value)
+                value, record = run_role(role=role, prompt=prompt, sandbox="workspace-write" if role=="terra" else "read-only",
+                    workspace=workspace, run_dir=run_dir, state=state,
+                    schema=schema_path,
+                    model=state["settings"]["roles"][role]["model"], allow_write=role=="terra", dry_run=False)
+                account_stage(state, record)
+                try:
+                    apply_result(state, stage, value, record, workspace, run_dir)
+                except (ValueError, KeyError, support.Paused) as error:
+                    reject_completed_stage(state, run_dir, record, error)
+                write_json(state_path, state)
+                print(f"{stage}: saved; next={state['next_stage']}; status={state['status']}", flush=True)
+                if args.chat and state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
+                    if not chat_checkpoint(state):
+                        write_json(state_path, state)
+                        return 2
+                    write_json(state_path, state)
+                if args.pause_after_stage and state["status"] == "RUNNING":
+                    raise support.Paused("PAUSED_REQUESTED", "--pause-after-stage checkpoint reached")
+        except (support.Paused, ValueError, RuntimeError, OSError) as error:
+            state.update(status=getattr(error,"status","PAUSED_INVALID_OUTPUT"), stop_reason=str(error), paused_at=now())
+            state["phase"] = "PAUSED_OR_BLOCKED"
+            write_json(state_path, state)
+            print(f"{state['status']}: {error}", file=sys.stderr)
+            return 2
+        if state["status"] == "TASK_COMPLETE":
+            print(goals.render_completion(state))
+        else:
+            rendered = goals.present(state)
+            write_json(state_path, state)
+            print(rendered)
+        return 0 if state["status"] == "TASK_COMPLETE" else 2
+
+
+def cli():
+    try:
+        return main()
+    except (RuntimeError, ValueError, OSError) as error:
+        print(f"autocode: {error}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(cli())

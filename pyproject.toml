@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autocode-supervisor"
+version = "0.5.4"
+description = "Conversation-first Astra/Terra/Sol runner for Codex and OpenCode"
+requires-python = ">=3.11"
+readme = "README.md"
+dependencies = []
+
+[project.scripts]
+autocode = "autocode_cli.autocode:cli"
+
+[tool.setuptools]
+packages = ["autocode_cli"]
+package-dir = {autocode_cli = "tools"}
+
+[tool.setuptools.package-data]
+autocode_cli = ["autocode-schemas/*.json", "autocode-schemas/v2/*.json"]
