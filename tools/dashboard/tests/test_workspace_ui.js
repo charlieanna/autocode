@@ -1,0 +1,27 @@
+// Verify the action state machine and preview boundary used by the real UI.
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const source=fs.readFileSync(require('node:path').join(__dirname,'../dashboard_app.js'),'utf8');
+const c=vm.createContext({URL,URLSearchParams});
+vm.runInContext(source.slice(source.indexOf('const basename ='),source.indexOf("document.addEventListener('focusin'"))+source.slice(source.indexOf('function concise('),source.indexOf('function badge('))+source.slice(source.indexOf('function jointPlanning('),source.indexOf('function setView('))+source.slice(source.indexOf('function interruptedAttempt('),source.indexOf('function renderPrimaryAction('))+source.slice(source.indexOf('function localPreviewUrl('),source.indexOf('function stopPreview(')),c);
+const active={status:'RUNNING',stage:'terra',active_stage:{stage:'terra',started_at:'2026-09-21T00:00:00Z'},monitor:{live:{state:'alive'}}};
+assert.equal(c.primaryAction(active).kind,'pause');
+assert.equal(c.primaryAction({...active,questions:[{id:'old'}]}).kind,'pause');
+assert.equal(c.primaryAction({...active,monitor:{live:{state:'unknown'}}}).kind,'pause');
+assert.equal(c.primaryAction({...active,monitor:{live:{state:'exited'}}}).kind,'continue');
+assert.equal(c.primaryAction({status:'WAITING_FOR_USER',questions:[{id:'Q1',question:'Which platform?'}]}).kind,'answer');
+assert.equal(c.primaryAction({status:'WAITING_FOR_USER',questions:[{id:'Q1'}]},true).disabled,true);
+const plan={status:'AWAITING_GOAL_APPROVAL',goal_token:'r2:hash',model_settings:{joint_planning:true},goal:{origin:'astra_finalize',approval_status:'draft'}};
+assert.equal(c.primaryAction(plan).kind,'plan');
+assert.equal(c.primaryAction({...plan,goal:{...plan.goal,origin:'glm_draft'}}).kind,'continue');
+assert.equal(c.primaryAction({...plan,goal:{...plan.goal,approval_status:'approved'}}).label,'Start building');
+assert.equal(c.primaryAction({status:'PAUSED_PROVIDER_UNCERTAIN',interventions:{attempt_id:'attempt'}}).kind,'recover');
+assert.equal(c.primaryAction({...plan,interventions:{mode:'unavailable'}}).disabled,true);
+assert.equal(c.primaryAction({status:'TASK_COMPLETE',questions:[{id:'historical'}]}).kind,'checks');
+const review={status:'WAITING_FOR_USER',user_request:{kind:'human_review'},review_token:'current',review_criteria:[{id:'C1'}]};
+assert.equal(c.primaryAction(review).kind,'checks');
+assert.equal(c.primaryAction({...review,human_reviews:{C1:{token:'old'}}}).kind,'checks');
+assert.equal(c.primaryAction({...review,human_reviews:{C1:{token:'current'}}}).label,'Finish task');
+assert.equal(c.primaryAction({...review,status:'RUNNING',user_request:null,human_reviews:{C1:{token:'current'}}}).label,'Finish task');
+assert.equal(c.localPreviewUrl('http://localhost:3000/demo','http://127.0.0.1:8767'),'http://localhost:3000/demo');
+for(const url of ['https://example.com','javascript:alert(1)','file:///tmp/test','http://localhost:8767/','http://127.0.0.1:8767/','http://user:secret@localhost:3000','http://localhost.evil.test:3000'])assert.throws(()=>c.localPreviewUrl(url,'http://127.0.0.1:8767/'));
+console.log('State-specific primary actions, stale questions, approval gates, and local preview boundaries passed.');

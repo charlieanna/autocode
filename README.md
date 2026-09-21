@@ -67,6 +67,38 @@ From inside any committed Git project, the normal invocation is simply:
 autocode "Your rough idea"
 ```
 
+## Browser dashboard
+
+Autocode includes a local browser dashboard for planning work with GLM, approving
+the Astra-reviewed plan, following active tasks, and sending feedback or a pause
+request at a safe boundary. It reads the same local run registry as the command
+line tool, so tasks started from a terminal appear automatically.
+
+After installing this checkout, start it from any directory:
+
+```sh
+autocode-dashboard --port 8767
+```
+
+Or run it directly from a checkout:
+
+```sh
+python3 tools/dashboard/agent_console.py --port 8767
+```
+
+Open the printed loopback URL. New conversations do not require a project: GLM
+can clarify the idea first, then the conversation can be attached to a Git
+workspace for joint GLM/Astra planning. A task’s **Now** view is the source of
+truth for its current stage, the exact user action required, plan-revision
+approval, and output-review approval. Archiving tasks, conversations, or
+projects only changes the dashboard’s local visibility; it never deletes source
+files or runner checkpoints.
+
+The dashboard uses `$AUTOCODE_HOME/dashboard` by default (or
+`$AUTOCODE_DASHBOARD_HOME`) for conversations and reversible archive settings.
+It binds only to `127.0.0.1`, starts no development server for task previews,
+and uses documented Autocode commands for task changes.
+
 ## Browser registry API
 
 Autocode automatically records every real new run and ordinary resumed run before a

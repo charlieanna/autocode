@@ -12,10 +12,12 @@ dependencies = []
 
 [project.scripts]
 autocode = "autocode_cli.autocode:cli"
+autocode-dashboard = "autocode_cli.dashboard.agent_console:main"
 
 [tool.setuptools]
-packages = ["autocode_cli"]
+packages = ["autocode_cli", "autocode_cli.dashboard"]
 package-dir = {autocode_cli = "tools"}
 
 [tool.setuptools.package-data]
 autocode_cli = ["autocode-schemas/*.json", "autocode-schemas/v2/*.json"]
+"autocode_cli.dashboard" = ["*.html", "*.css", "*.js"]

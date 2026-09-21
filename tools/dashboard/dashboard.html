@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Autocode dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" aria-label="Workspace navigation">
+    <a href="#inbox" class="brand" id="brand-home"><span class="brand-mark">a<span>·</span></span><span class="brand-name">autocode</span></a>
+    <button class="new-task-button" data-new-task aria-label="New conversation"><span aria-hidden="true">＋</span><span>New conversation</span><kbd>N</kbd></button>
+    <nav class="main-nav" aria-label="Main">
+      <button data-view="inbox" aria-label="Needs you"><span data-icon="inbox"></span><span>Needs you</span><span class="nav-count" id="inbox-count">0</span></button>
+      <button data-view="tasks" class="selected" aria-label="All work"><span data-icon="grid"></span><span>All work</span><span class="nav-count" id="all-count">0</span></button>
+      <span id="conversation-count" hidden>0</span>
+    </nav>
+    <div class="sidebar-label"><span>PROJECTS</span><span id="project-count">0</span></div>
+    <nav id="projects" class="project-nav" aria-label="Projects"></nav>
+    <div class="sidebar-bottom">
+      <button data-view="archived" aria-label="Archived"><span data-icon="folder"></span><span>Archived</span><span class="nav-count" id="archive-count">0</span></button>
+      <button data-view="settings" aria-label="Workspace settings"><span data-icon="settings"></span><span>Workspace settings</span></button>
+      <div class="local-status"><span class="status-dot"></span><span>Running locally<small>Only on your computer</small></span></div>
+    </div>
+  </aside>
+
+  <main class="main-area">
+    <header class="topbar"><button id="nav-toggle" class="icon-button" aria-label="Toggle navigation" aria-expanded="false"><span data-icon="grid"></span></button><div class="breadcrumb"><span>Workspace</span><span class="crumb-divider">/</span><strong id="breadcrumb-title">Needs you</strong></div><span class="sync-state" id="sync-state"><span class="status-dot"></span>Live updates</span></header>
+    <div id="dashboard-notice" class="notice error" role="alert" hidden></div>
+    <div class="toast-stack"><div id="project-notice" class="project-notice" role="status" aria-live="polite" hidden></div>
+    <div id="archive-notice" class="project-notice" role="status" aria-live="polite" hidden></div>
+    <div id="conversation-archive-notice" class="project-notice" role="status" aria-live="polite" hidden></div></div>
+    <section id="inbox" class="page" hidden><div class="page-heading"><div><p class="eyebrow">YOUR WORKSPACE</p><h1>Needs you</h1><p class="subtitle">The decisions that move your work forward.</p></div></div><div id="inbox-list" aria-live="polite"></div><div id="inbox-running" class="inbox-running"></div></section>
+    <section id="archived" class="page" hidden><p class="eyebrow">HISTORY</p><h1>Archived</h1><p class="subtitle">Restore work whenever you need it. Files and history stay saved.</p><h2 class="section-label">Tasks</h2><div id="archived-task-list"></div><details id="conversation-archives" class="settings-block"><summary id="conversation-archives-title">Archived conversations</summary><div id="archived-conversation-list"></div></details></section>
+    <section id="tasks" class="page workspace-page">
+      <div class="page-heading"><div><p class="eyebrow">YOUR WORKSPACE</p><h1 id="workspace-heading">All work</h1><p class="subtitle" id="workspace-description">From the first idea to the finished change.</p></div></div>
+      <details id="project-scope-menu" class="context-menu" hidden><summary>Project settings</summary><div id="project-scope-actions" class="project-scope-actions" hidden></div></details>
+      <section id="project-overview" class="project-overview" aria-label="Project status" hidden></section>
+      <div class="workspace-summary" id="workspace-summary"></div>
+      <div class="task-toolbar">
+        <div class="task-toolbar-controls"><label class="project-filter task-status-filter" for="task-status-filter" hidden><span>Status</span><select id="task-status-filter"><option value="all">All statuses</option><option value="attention">Waiting on you</option><option value="running">In progress</option><option value="stopped">Paused / issues</option><option value="complete">Completed</option><option value="other">Other saved</option></select></label><label class="project-filter" for="project-filter"><span>Project</span><select id="project-filter"><option value="">All projects</option></select></label><label class="search"><span data-icon="search"></span><input id="task-search" aria-label="Search tasks" placeholder="Search work…" autocomplete="off"></label></div>
+      </div>
+      <p id="task-scope-note" class="task-scope-note"></p>
+      <div id="runs" class="task-list" aria-live="polite"></div>
+      <p class="list-footnote"><span data-icon="check"></span> Tasks started in the browser or terminal appear here automatically.</p>
+    </section>
+
+    <section id="conversations" class="page conversations-page" hidden>
+      <div class="page-heading"><div><p class="eyebrow">ROOM TO THINK</p><h1>Conversations</h1><p class="subtitle">Shape an idea first. Bring in a project when you’re ready.</p></div><button class="primary" data-new-task>＋ New conversation</button></div>
+      <div id="conversation-list" class="conversation-list" aria-live="polite"></div>
+    </section>
+
+    <section id="new-task" class="page create-page" hidden>
+      <button class="text-button" data-view="tasks">← All work</button>
+      <p class="eyebrow">ROOM TO THINK</p><h1>What would you like to build?</h1><p class="subtitle" id="create-subtitle">Start a conversation with GLM. Explore the idea, work through questions, and shape a plan. No project needed yet.</p>
+      <form id="create">
+        <label class="field-label" for="new-goal">Your idea</label><textarea id="new-goal" name="goal" required placeholder="A rough idea is enough. What do you want to make or improve?" rows="5"></textarea>
+        <p id="create-error" class="error" role="alert" aria-live="polite" hidden></p>
+        <details class="advanced models-disclosure"><summary>Models <span>Joint planning by default · GLM + Astra</span></summary>
+        <section id="opencode-role-settings" class="role-settings" aria-labelledby="role-settings-title">
+          <div class="section-heading"><div><h2 id="role-settings-title">Who works on this task?</h2><p class="field-note">GLM drafts → Astra challenges → GLM revises → Astra finalizes → you approve.</p></div><button id="retry-models" type="button">Retry models</button></div>
+          <p id="model-catalogue-status" class="field-note" aria-live="polite">Loading available Z.ai models…</p>
+          <div class="role-selects">
+            <label for="glm-model">GLM <small>Conversation, draft and revisions · OpenCode / Z.ai</small><select id="glm-model" name="glm_model"><option value="">Default · GLM-5.3</option></select></label>
+            <label for="astra-model">Astra <small>Plan decisions and final review · Codex</small><select id="astra-model" name="astra_model"><option value="">Default · GPT-6 Astra</option><option>gpt-6-astra</option><option>gpt-5.6-sol</option><option>gpt-5.6-terra</option></select></label>
+            <label for="terra-model">Terra <small>Implementation · OpenCode / Z.ai</small><select id="terra-model" name="terra_model"><option value="">Default · GLM-5.3</option></select></label>
+            <label for="sol-model">Sol <small>Independent verification · Codex</small><select id="sol-model" name="sol_model"><option value="">Default · GPT-5.6 Sol</option><option>gpt-5.6-sol</option><option>gpt-6-astra</option><option>gpt-5.6-terra</option></select></label>
+          </div>
+        </section>
+        </details>
+        <div class="form-submit"><span class="astra-avatar" id="create-avatar">G</span><p><span id="create-conversation-label">Joint planning by default.</span><small>Start with GLM. Attach a project for GLM and Astra’s joint review.</small></p><button class="primary" type="submit" id="create-submit">Talk to GLM <span aria-hidden="true">↗</span></button></div>
+      </form>
+    </section>
+
+    <section id="draft-conversation" class="page draft-page" hidden>
+      <div class="task-detail-navigation"><button class="text-button" data-view="tasks">← All work</button><details class="context-menu"><summary aria-label="Conversation settings">•••</summary><div><button id="archive-conversation" type="button" disabled>Archive conversation</button></div></details></div>
+      <div id="conversation-archived-banner" class="project-notice" hidden></div>
+      <div class="draft-heading"><div><p class="eyebrow">PLANNING CONVERSATION</p><h1 id="draft-title">Your idea</h1><p class="subtitle" id="draft-subtitle">GLM helps you work through the idea.</p></div><span id="draft-status" class="badge">Saved</span></div>
+      <div id="draft-scroll" class="thread-scroll"><div id="draft-messages" class="draft-messages" aria-live="polite"></div></div>
+      <div id="draft-problem" class="conversation-problem" role="alert" hidden></div>
+      <form id="draft-form" class="draft-composer"><label for="draft-text">Message GLM</label><div class="composer"><textarea id="draft-text" rows="3" placeholder="Answer a question, add detail, or ask GLM to revise the plan…"></textarea><div class="composer-bottom"><span id="draft-delivery">Your conversation is saved locally.</span><button id="draft-send" class="primary" type="submit">Send ↑</button></div></div></form>
+      <section class="attach-section"><div id="attachment-status" aria-live="polite"></div><details id="attach-disclosure"><summary>＋ Attach a project <span>when you’re ready for repository review</span></summary><p class="field-note">Your conversation continues here. You approve the reviewed plan before coding.</p><form id="attach-form"><label for="attach-mode">Project</label><select id="attach-mode"><option value="existing">Use an existing project</option><option value="new">Create a new project</option></select><div id="existing-project-field"><label for="workspaces">Choose a project</label><select name="workspace" id="workspaces"></select></div><div id="attach-path-field" hidden><label for="project-path" id="attach-path-label">Existing project folder</label><input id="project-path" name="project" autocomplete="off" placeholder="/absolute/path/to/project"></div><p id="attach-error" class="error" role="alert"></p><button id="attach-submit" type="submit">Attach for review →</button></form></details></section>
+    </section>
+
+    <section id="task-detail" class="page detail-page" hidden>
+      <div class="task-detail-navigation"><button class="text-button" id="task-back">← All work</button><details class="context-menu"><summary aria-label="Task settings">•••</summary><div><h3>Models by step</h3><div id="task-models" class="field-note"></div><details class="task-project-details"><summary>Project details</summary><div id="task-project-actions" class="project-scope-actions"></div></details><button id="archive-task" type="button" disabled>Archive task</button></div></details></div>
+      <div class="detail-heading"><div><p id="task-project" class="eyebrow"></p><h1 id="task-title">Select a task</h1></div><div id="task-status"></div></div>
+      <div class="task-now"><div><p id="task-subtitle" class="current-step" aria-live="polite"></p><p id="task-objective" class="field-note"></p></div><div class="task-actions"><button id="pause-run" title="Pause after the current stage" hidden>Pause</button><button id="continue-run" class="primary" disabled>Loading…</button></div></div>
+      <div id="task-removed-banner" class="removed-project-panel" role="status" hidden></div>
+      <div class="detail-toolbar"><nav class="detail-tabs" aria-label="Task views"><button data-tab="now" class="selected">Now</button><button data-tab="interview">Conversation</button><button data-tab="plan">Current plan</button><button data-tab="changes">Changes</button><button data-tab="preview">Preview</button><button data-tab="execution">Checks</button><button data-tab="overview">History</button></nav></div>
+      <div class="detail-grid" id="detail-grid">
+        <div class="task-content">
+          <section id="now" class="inspector-content task-now-view" aria-label="Current state and decisions"></section>
+          <section id="interview" class="thread-scroll"><div class="conversation-title" hidden><span id="conversation-avatar">G</span><h2 id="conversation-heading">Conversation</h2><p id="conversation-description"></p></div><div id="conversation"></div><div id="thread-checkpoint"></div><section id="task-attention" class="task-attention" aria-label="Task next action" aria-live="polite" hidden></section></section>
+          <section id="plan" class="inspector-content" hidden><div id="brief-current"></div><details class="plan-history-disclosure"><summary>Earlier drafts &amp; assignment history</summary><p class="field-note">Saved history. Approval applies only to the current plan revision shown above.</p><div id="plan-full"></div></details></section>
+          <section id="changes" class="inspector-content" hidden><div class="section-heading"><h2>Saved changes</h2><button id="refresh-changes">Refresh</button></div><p class="field-note">Snapshots from completed steps. A snapshot can include earlier changes in the same project.</p><div id="changes-content" aria-live="polite"></div></section>
+          <section id="preview" class="inspector-content" hidden><h2>App preview</h2><p class="field-note">Open the running app for this task. Use its local development address.</p><form id="preview-form"><label for="preview-url">Local app address</label><div class="preview-address"><input id="preview-url" type="url" placeholder="http://127.0.0.1:3000" required><button class="primary" type="submit">Open preview</button></div></form><p id="preview-error" class="error" role="alert"></p><div id="preview-content"></div></section>
+          <section id="execution" hidden><button id="continue" hidden>Continue</button><div id="execution_view"></div><details class="logs-panel"><summary>Command output <span>Current dashboard session</span></summary><div id="actions"></div></details></section>
+          <section id="task-overview" class="status-overview inspector-content" aria-label="Current task status" hidden></section>
+          <section id="live-controls" class="composer-section" hidden><p id="selected-task" hidden></p><div id="change-history" aria-live="polite"></div><p id="live-error" class="error" role="alert"></p><form id="change-form"><label for="question-target" id="question-target-label" hidden>Reply to</label><select id="question-target" hidden></select><label for="change-text" id="change-label">Message your team</label><div class="composer"><textarea id="change-text" rows="3" placeholder="Answer a question or tell your team what you’d like to change…"></textarea><div class="composer-bottom"><span id="task-delivery">Feedback stays with this conversation.</span><button id="send-change" class="primary" type="submit">Send <span aria-hidden="true">↑</span></button></div></div></form><p id="live-mode" class="field-note"></p></section>
+        </div>
+        <aside id="goal" class="plan-rail" aria-label="Task plan" hidden></aside>
+      </div>
+    </section>
+
+    <section id="settings" class="page settings-page" hidden><p class="eyebrow">WORKSPACE</p><h1>Connected projects</h1><p class="subtitle">New Autocode tasks are registered automatically, wherever you start them.</p><div class="settings-block"><h2>Projects in your dashboard</h2><p class="field-note">Remove a project to hide its tasks and linked conversations here. Its folder, history, and running tasks stay intact.</p><div id="managed-projects" class="managed-projects"></div></div><div class="settings-block"><h2>Removed projects</h2><p class="field-note">Restore a project to show it again. New tasks in a removed project stay hidden until you restore it.</p><div id="removed-projects" class="managed-projects"></div></div><div class="settings-block"><h2>Automatic discovery</h2><p id="registry-location" class="field-note"></p><p class="field-note">The task registry connects your local projects. Unavailable projects stay visible so you can resolve them.</p></div><div class="settings-block"><h2>Legacy watch roots</h2><p class="field-note">Add a directory to discover older tasks. Runtime roots last for this dashboard session; CLI roots are protected.</p><form id="watch-root"><label>Directory to scan<input name="path" required autocomplete="off" placeholder="/absolute/parent-directory"></label><button type="submit">Add watch root</button></form><div id="watch-root-error" role="alert"></div><div id="watch-roots"></div></div></section>
+  </main>
+</div>
+<dialog id="project-removal-dialog" class="project-removal-dialog" aria-labelledby="project-removal-title" aria-describedby="project-removal-description">
+  <p class="eyebrow">DASHBOARD PROJECT</p><h2 id="project-removal-title">Remove project?</h2><p id="project-removal-name" class="removal-project-name"></p><p id="project-removal-path" class="project-path"></p>
+  <p id="project-removal-description">Hides this project, its tasks and linked conversations from this dashboard. Files and history stay on disk. Running tasks keep going. New tasks stay hidden until you restore the project.</p>
+  <p id="project-removal-error" class="error" role="alert" hidden></p>
+  <div class="dialog-actions"><button id="project-removal-cancel" type="button">Cancel</button><button id="project-removal-confirm" type="button" class="remove-project-button">Remove project</button></div>
+</dialog>
+<dialog id="task-archive-dialog" class="project-removal-dialog" aria-labelledby="task-archive-title" aria-describedby="task-archive-description"><p class="eyebrow">TASK VISIBILITY</p><h2 id="task-archive-title">Archive this task?</h2><p id="task-archive-name"></p><p id="task-archive-project" class="project-path"></p><p id="task-archive-description" class="subtitle">Hides only this task and its linked conversation from active lists. Your project, other tasks, files and history stay intact. A running worker keeps running. Restore it anytime from Archived tasks.</p><p id="task-archive-error" class="error" role="alert" hidden></p><div class="dialog-actions"><button id="task-archive-cancel" type="button">Cancel</button><button id="task-archive-confirm" type="button" class="primary">Archive task</button></div></dialog>
+<dialog id="conversation-archive-dialog" class="project-removal-dialog" aria-labelledby="conversation-archive-title" aria-describedby="conversation-archive-description"><p class="eyebrow">CONVERSATION VISIBILITY</p><h2 id="conversation-archive-title">Archive this conversation?</h2><p id="conversation-archive-name"></p><p id="conversation-archive-description">Hide this conversation from the active list. Messages and project links stay saved. Any reply already in progress can finish. Linked tasks keep running. Restore it from Archived conversations.</p><p id="conversation-archive-error" class="error" role="alert" hidden></p><div class="dialog-actions"><button id="conversation-archive-cancel" type="button">Cancel</button><button id="conversation-archive-confirm" type="button" class="primary">Archive conversation</button></div></dialog>
+<script src="/static/app.js"></script>
+</body>
+</html>
