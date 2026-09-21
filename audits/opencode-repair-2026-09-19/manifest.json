@@ -1,0 +1,40 @@
+{
+  "autocode_version": "0.5.4",
+  "opencode_version": "1.18.31",
+  "verified_at": "2026-09-19T20:10:23.064947+00:00",
+  "source_suite": {
+    "passed": 120,
+    "seconds": 73.57
+  },
+  "installed_wheel_workflows": {
+    "passed": 3,
+    "seconds": 13.725
+  },
+  "global_cli_workflows": {
+    "passed": 1,
+    "seconds": 3.752
+  },
+  "global_cli": "/Users/ankurkothari/.local/bin/autocode",
+  "installation": "editable",
+  "hosted_model_requests": 0,
+  "source_sha256": {
+    "tools/autocode.py": "01019b47c70508fd1be28ed1ccb17a9ca5f1405a5a6597efee82dbc22283610a",
+    "tools/autocode_support.py": "20e3ed7552f0fd27b95a0c70bf2b2e4494d18612240e5bb8a5b087dce85c950a",
+    "tools/autocode_goals.py": "81bd253ca5ce912d6f5c3ef9f4010997252d6dcf124f82b78e3f9a5251b9b349",
+    "tools/autocode_opencode.py": "36226677e48d668ca1d6370c93b425707d03530764e270ae308b099eb2283fa0",
+    "tools/autocode_process.py": "95385055e85ddb63e12275663749961ce4ca699d97cd39d02140f7404ca54bcb",
+    "tools/test_autocode.py": "fce4740f1cea49ce168bd3510dbfeefc5776b8f93d799a19741247a719db8f05",
+    "tools/test_goals.py": "bfd07175dbc00d6422a0c5ca324d5b1d460a463b4e3121aed50fdd93c67c92c6",
+    "tools/test_subprocess.py": "a7ca124ec8c23d1d00847534af23ced9cfedec63b4d342e192df238af2f16ec7",
+    "tools/test_opencode.py": "93df471d63b121b464bca8664928b3905bf54f29b64b21d9b80b1c1e9eb45376",
+    "tools/test_process.py": "2842bf0ba113672dd96b0716ef74ca5810bc41bd1436541bd508afb0a3f8d7ae",
+    "tools/fake_codex.py": "13c65f814c8d89cba293de7a70014564976f8607baca6d124e6f9f0ff8978dda",
+    "tools/fake_opencode.py": "a7fbee2a8e37902e4c0d898c981ada095df54ccdda34157b3ace3e6053389138",
+    "pyproject.toml": "fb9a63affab421bcf6bd042eb52ee6097a69bb3c9ebaf5bddd22906b58a1d21e",
+    "README.md": "77bfd43df1d115f1874d144eec47cfea169381bcebf97c838912d89d2edfc116"
+  },
+  "wheel": {
+    "path": "dist/autocode_supervisor-0.5.4-py3-none-any.whl",
+    "sha256": "b39ecf393a575d402c90f7b9dae2469afd578c975da8d91bbe59f96ca4ddeb18"
+  }
+}

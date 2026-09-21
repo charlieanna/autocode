@@ -1,3 +1,18 @@
+# Activity-aware timeout validation — 2026-09-20
+
+Separate inactivity/tool deadlines, preserved hard caps, live activity diagnostics
+and bounded recovery are implemented. The final offline suite passed **323 tests**;
+three installed-wheel workflows also passed. See [the validation record](audits/activity-timeouts-2026-09-20/RESULTS.md)
+for coverage, source fingerprints, deployment behavior and transport limitations.
+
+# Milestone checkpoint validation — 2026-09-20
+
+Enforced milestone evidence, bounded replanning, milestone budgets, status and
+safe adoption are implemented. The full offline suite passed 261 tests; the final
+targeted milestone suite passed 19 tests, and three installed-wheel workflow tests
+passed. See [the validation and rollout record](audits/milestone-checkpoints-2026-09-20/RESULTS.md)
+for exact coverage, limits, and the IdleCampus/ddia-tutor migration state.
+
 # Repair validation — Autocode 0.5.4 — 2026-09-19
 
 All five audited OpenCode integration defects are fixed. The runner also rechecks

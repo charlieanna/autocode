@@ -5,6 +5,7 @@ from contextlib import contextmanager
 import os
 import signal
 import subprocess
+import threading
 import time
 
 
@@ -128,28 +129,139 @@ def interruption_handler():
         signal.signal(signal.SIGTERM, previous)
 
 
-def wait_for_stage(child, timeout, checkpoint):
+def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkpoint=None):
     tree = ProcessTree(child.pid, checkpoint)
     deadline = time.monotonic() + timeout if timeout else None
-    timed_out = False
+    stopped = threading.Event()
+    watchdog_fired = threading.Event()
+    firing = threading.Lock()
+    # Only the owner thread samples processes and persists state. The independent
+    # event reader consumes bounded chunks; deadline enforcement never waits on
+    # that I/O, ps, or a checkpoint write. Assign whole snapshots across threads.
+    live = []
+    latest_activity = None
+    latest_observation = (time.monotonic(), {
+        "idle_seconds": 0, "tool_elapsed_seconds": None,
+        "idle_limit_seconds": getattr(activity, "idle_limit", 0),
+        "tool_limit_seconds": getattr(activity, "tool_limit", 0)})
+    watchdog_errors = []
+    last_publish = 0
+    last_activity_key = None
+
+    def stop_at_deadline(reason):
+        nonlocal latest_activity
+        with firing:
+            if stopped.is_set() or watchdog_fired.is_set() or child.poll() is not None:
+                return
+            if activity is not None:
+                activity.timeout = reason
+                # Never acquire the monitor's lock on the termination path: a
+                # blocked log read must not prevent the independent hard cap.
+                latest_activity = {**(latest_activity or {}),
+                                   "activity": "stalled" if reason["kind"] == "idle" else "timed_out",
+                                   "timeout_kind": reason["kind"], "timeout_reason": reason["reason"]}
+            watchdog_fired.set()
+        try:
+            # Providers are launched with start_new_session=True, so their pid
+            # is a private process-group leader.  Recheck that invariant before
+            # signalling a group; a mock or non-conforming child only receives
+            # a direct signal.
+            if os.getpgid(child.pid) == child.pid:
+                os.killpg(child.pid, signal.SIGTERM)
+            else:
+                os.kill(child.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    def observe():
+        nonlocal latest_activity, latest_observation
+        try:
+            while not stopped.is_set() and not watchdog_fired.is_set() and child.poll() is None:
+                observed_at = time.monotonic()
+                observed = activity.poll(processes=live, root_pid=child.pid)
+                with firing:
+                    if stopped.is_set() or watchdog_fired.is_set():
+                        return
+                    latest_activity = observed
+                    latest_observation = (observed_at, observed)
+                if stopped.wait(.05):
+                    return
+        except Exception as error:
+            # A monitor failure cannot leave a worker running without supervision.
+            watchdog_errors.append(error)
+            stop_at_deadline({"kind": "monitor", "reason": "Activity supervision failed"})
+
+    def supervise():
+        while not stopped.is_set() and not watchdog_fired.is_set() and child.poll() is None:
+            current = time.monotonic()
+            if deadline is not None and current >= deadline:
+                stop_at_deadline({"kind": "stage", "reason": f"Stage exceeded its {timeout:g}-second hard runtime limit"})
+                return
+            observed_at, snapshot = latest_observation
+            lag = max(0, current - observed_at)
+            tool_elapsed = snapshot.get("tool_elapsed_seconds")
+            kind = "tool" if tool_elapsed is not None else "idle"
+            elapsed = tool_elapsed if kind == "tool" else snapshot.get("idle_seconds", 0)
+            limit = snapshot.get(kind + "_limit_seconds", 0)
+            if limit and elapsed + lag >= limit:
+                description = "Tool execution exceeded its fixed time limit" if kind == "tool" else "No new provider activity within the inactivity limit"
+                stop_at_deadline({"kind": kind, "reason": f"{description} ({limit:g} seconds)"})
+                return
+            if stopped.wait(.05):
+                return
+
+    def publish_activity(*, force=False):
+        nonlocal last_publish, last_activity_key
+        snapshot = latest_activity
+        if snapshot is None or activity_checkpoint is None:
+            return
+        key = (snapshot.get("activity"), snapshot.get("detail"), snapshot.get("timeout_kind"))
+        current = time.monotonic()
+        if force or key != last_activity_key or current - last_publish >= 1:
+            activity_checkpoint(dict(snapshot))
+            last_publish, last_activity_key = current, key
+
+    # The hard limit never depends on event parsing, process sampling or writes.
+    hard_timer = threading.Timer(timeout, stop_at_deadline, args=({
+        "kind": "stage", "reason": f"Stage exceeded its {timeout:g}-second hard runtime limit"},)) if timeout else None
+    if hard_timer:
+        hard_timer.daemon = True
+        hard_timer.start()
+    watchdog = threading.Thread(target=supervise, daemon=True) if activity is not None else None
+    observer = threading.Thread(target=observe, daemon=True) if activity is not None else None
+    if observer:
+        observer.start()
+    if watchdog:
+        watchdog.start()
     try:
-        tree.sample(initial=True)
+        live = tree.sample(initial=True)
+        publish_activity()
         while child.poll() is None:
-            tree.sample()
-            if deadline is not None and time.monotonic() >= deadline:
-                timed_out = True
+            live = tree.sample()
+            publish_activity()
+            if watchdog_fired.is_set():
                 break
             try:
                 child.wait(timeout=min(.2, max(.001, deadline - time.monotonic())) if deadline else .2)
             except subprocess.TimeoutExpired:
                 pass
     finally:
+        stopped.set()
+        if hard_timer:
+            hard_timer.cancel()
+        if watchdog:
+            watchdog.join(timeout=1)
+        if observer:
+            observer.join(timeout=1)
         # This includes normal exits: a bounded stage must not leave background
         # writers running after its final source snapshot or workspace unlock.
         handlers = {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGINT, signal.SIGTERM)}
         try:
             try:
-                tree.stop(child)
+                try:
+                    publish_activity(force=True)
+                finally:
+                    tree.stop(child)
             except ProcessError as error:
                 error.processes = list(tree.known.values())
                 if child.poll() is None:
@@ -159,4 +271,6 @@ def wait_for_stage(child, timeout, checkpoint):
         finally:
             for sig, handler in handlers.items():
                 signal.signal(sig, handler)
-    return child.wait(timeout=1), timed_out
+    if watchdog_errors:
+        raise ProcessError("Activity supervision failed; tracked workers have been stopped") from watchdog_errors[0]
+    return child.wait(timeout=1), watchdog_fired.is_set()

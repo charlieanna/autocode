@@ -1,0 +1,78 @@
+{
+  "slow_polling": {
+    "response_delay_seconds": 2.4,
+    "delay_observed_over_seconds": 32.6,
+    "subtitle": "Loading current task state\u2026",
+    "continue_enabled": false,
+    "connection_label": "Live updates"
+  },
+  "canonical_path": {
+    "entered_suffix": "other-project/",
+    "created": true,
+    "still_on_new_task": true,
+    "inline_error": false
+  },
+  "project_precedence": {
+    "dropdown": "project",
+    "retained_typed_path": "other-project/",
+    "actual_created_workspace": "other-project"
+  },
+  "filtered_counts": {
+    "selected_project": "other-project",
+    "visible_tasks": 2,
+    "displayed_needs_input": 6,
+    "displayed_completed": 1
+  },
+  "feedback_uncertainty": {
+    "status": "uncertain",
+    "history_visible": false,
+    "top_error_visible": false,
+    "inline_error": ""
+  },
+  "unavailable_recovery": {
+    "error": "Selected run unavailable: run unavailable",
+    "recovery_button_visible": true,
+    "recovery_button_enabled": true
+  },
+  "contrast_on_white": {
+    "task_subtitle": {
+      "rgb": [
+        119,
+        129,
+        123
+      ],
+      "font_px": 11,
+      "ratio": 4.03
+    },
+    "conversation_subtitle": {
+      "rgb": [
+        152,
+        160,
+        137
+      ],
+      "font_px": 10,
+      "ratio": 2.72
+    },
+    "planner_label": {
+      "rgb": [
+        147,
+        161,
+        131
+      ],
+      "font_px": 8,
+      "ratio": 2.74
+    }
+  },
+  "responsive": {
+    "mobile_width": 390,
+    "mobile_scroll_width": 390,
+    "mobile_tabs_font_px": 9,
+    "mobile_tabs_height_px": 27.9453125,
+    "desktop_width": 1440
+  },
+  "baseline_tests": {
+    "count": 61,
+    "result": "pass",
+    "providers": "fake runner scripts only"
+  }
+}

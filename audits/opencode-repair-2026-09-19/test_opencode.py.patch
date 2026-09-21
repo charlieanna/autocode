@@ -1,0 +1,103 @@
+--- before/tools/test_opencode.py
++++ tools/test_opencode.py
+@@ -96,6 +96,67 @@
+     def test_engine_cannot_reuse_other_engines_sessions(self):
+         with self.assertRaisesRegex(ValueError, "not interchangeable"):
+             runner.configure(SimpleNamespace(engine="opencode"), {"settings": {"roles": {}}, "sessions": {"astra": "old"}})
++
++    def test_inline_role_denies_and_patterns_survive_launch(self):
++        for policy in ("deny", {"bash":"deny", "webfetch":"deny"},
++                       {"bash":{"*":"ask", "git push*":"deny"}, "edit":{"*":"ask"}}):
++            with self.subTest(policy=policy), patch.dict(os.environ, {"OPENCODE_CONFIG_CONTENT":json.dumps({
++                "agent":{"autocode_sol":{"permission":policy,"temperature":0.2}}})}):
++                _, env, _ = oc.launch("sol",Path("/workspace"),Path("/run"),None,"test/model",None,False)
++                role = json.loads(env["OPENCODE_CONFIG_CONTENT"])["agent"]["autocode_sol"]
++                expected = {"*":"deny"} if isinstance(policy,str) else policy
++                for key, value in expected.items():
++                    if key != "edit":
++                        self.assertEqual(value,role["permission"][key])
++                self.assertEqual("deny",role["permission"]["edit"])
++                self.assertEqual(0.2,role["temperature"])
++
++    def test_model_preflight_uses_target_workspace(self):
++        with patch.object(oc.subprocess,"run",return_value=subprocess.CompletedProcess([],0,stdout="fixture/model\n")) as call:
++            oc.check_models({"sol":{"model":"fixture/model"}},Path("/target/repo"))
++        self.assertEqual(Path("/target/repo"),call.call_args.kwargs["cwd"])
++
++    def test_custom_config_and_agent_changes_are_detected(self):
++        with tempfile.TemporaryDirectory() as temp:
++            root=Path(temp); (root/".git").mkdir()
++            custom=root/"custom"; (custom/"agents").mkdir(parents=True)
++            config=custom/"opencode.json"; config.write_text('{"permission":{"bash":"deny"}}')
++            with patch.dict(os.environ,{"OPENCODE_CONFIG_DIR":str(custom)}), \
++                 patch.object(oc.subprocess,"run",return_value=subprocess.CompletedProcess([],0,stdout="1.18.31\n")), \
++                 patch.object(oc.shutil,"which",return_value="/bin/opencode"):
++                first=oc.local_settings(root)
++                config.write_text('{"permission":{"bash":"allow"}}')
++                second=oc.local_settings(root)
++                self.assertTrue(oc.transport_drift(second,first))
++                (custom/"agents/autocode_sol.md").write_text('---\npermission:\n  bash: deny\n---\nReview')
++                self.assertTrue(oc.transport_drift(oc.local_settings(root),second))
++                # A coverage upgrade retains all checks present in old checkpoints.
++                old={k:v for k,v in first.items() if k!='identity_version'}
++                self.assertTrue(oc.transport_drift(second,old))
++                self.assertFalse(oc.transport_drift(first,old))
++
++    def test_invalid_completed_report_archives_and_charges_attempt_once(self):
++        for report in ('Not JSON', '{"summary":"Missing fields"}'):
++            with self.subTest(report=report), tempfile.TemporaryDirectory() as temp:
++                root=Path(temp); run=root/".autocode/runs/fixture"; run.mkdir(parents=True)
++                base=run/"terra-01"
++                log=base.with_suffix(".jsonl")
++                log.write_text('\n'.join(json.dumps(row) for row in [event("text",text=report),terminal()]))
++                state={"sessions":{},"stages":[],"active_seconds":2,
++                    "active_stage":{"engine":"opencode","role":"terra","stage":"terra","iteration":1,
++                        "events":str(log),"output":str(base.with_suffix(".json")),"exit_code":0,
++                        "schema":str(runner.SCHEMA_DIR/"v2/terra-report.schema.json"),"duration_seconds":3}}
++                with self.assertRaises(support.Paused) as error:
++                    runner.reconcile_active(state,run,root)
++                self.assertEqual("PAUSED_INVALID_OUTPUT",error.exception.status)
++                self.assertNotIn("active_stage",state)
++                self.assertEqual(5,state["active_seconds"])
++                archived=state["stages"][0]
++                self.assertTrue(Path(archived["events"]).is_file())
++                self.assertEqual(20,archived["metrics"]["provider_tokens"]["input_tokens"])
++                runner.reconcile_active(state,run,root)
++                runner.account_stage(state,archived)
++                self.assertEqual(5,state["active_seconds"])
+ 
+     def test_metadata_timeouts_are_reported_without_launching_an_agent(self):
+         with patch.object(oc.shutil, "which", return_value="/bin/opencode"), \
+@@ -149,6 +210,32 @@
+             self.assertEqual("ses_fixture", state["sessions"]["terra"])
+             self.assertEqual(report, json.loads(base.with_suffix(".json").read_text()))
+ 
++    def test_archive_checkpoint_failure_leaves_original_evidence_recoverable(self):
++        with tempfile.TemporaryDirectory() as temp:
++            root = Path(temp)
++            run = root / ".autocode/runs/fixture"
++            run.mkdir(parents=True)
++            log = run / "terra-01.jsonl"
++            log.write_text('\n'.join(json.dumps(row) for row in [event("text", text="Not JSON"), terminal()]))
++            state = {"sessions":{}, "stages":[], "active_seconds":2,
++                "active_stage":{"engine":"opencode", "role":"terra", "stage":"terra", "iteration":1,
++                    "events":str(log), "output":str(log.with_suffix(".json")), "exit_code":0,
++                    "schema":str(runner.SCHEMA_DIR / "v2/terra-report.schema.json"), "duration_seconds":3}}
++            support.atomic_json(run / "state.json", state)
++            with patch.object(runner, "write_json", side_effect=OSError("fixture disk full")):
++                with self.assertRaises(OSError):
++                    runner.reconcile_active(state, run, root)
++            self.assertTrue(log.exists())
++            recovered = support.read(run / "state.json")
++            with self.assertRaises(support.Paused):
++                runner.reconcile_active(recovered, run, root)
++            saved = support.read(run / "state.json")
++            self.assertEqual("PAUSED_INVALID_OUTPUT", saved["status"])
++            self.assertEqual(5, saved["active_seconds"])
++            self.assertEqual(1, len(saved["stages"]))
++            self.assertNotIn("active_stage", saved)
++            self.assertTrue(Path(saved["stages"][0]["events"]).exists())
++
+     def test_config_identity_detects_changes_without_opening_credentials(self):
+         with tempfile.TemporaryDirectory() as temp:
+             root = Path(temp)

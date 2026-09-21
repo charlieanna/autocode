@@ -10,8 +10,10 @@ import uuid
 
 try:
     from . import autocode_support as s
+    from . import autocode_milestones as checkpoints
 except ImportError:
     import autocode_support as s
+    import autocode_milestones as checkpoints
 
 
 def obj(properties):
@@ -47,6 +49,13 @@ BRIEF_FIELDS = {
 }
 BODY_SCHEMA["properties"].update(BRIEF_FIELDS)
 BODY_SCHEMA["required"] += list(BRIEF_FIELDS)
+INITIAL_TASK = obj({"objective": STRING, "affected_paths": STRINGS,
+                    "kind": {"type": "string", "enum": ["implement", "validate", "none"]},
+                    "milestone_id": STRING, "requirements": STRINGS,
+                    "acceptance_criteria": STRINGS, "validation_plan": STRINGS})
+PLANNING_BODY_SCHEMA = copy.deepcopy(BODY_SCHEMA)
+PLANNING_BODY_SCHEMA["properties"]["initial_task"] = INITIAL_TASK
+PLANNING_BODY_SCHEMA["required"].append("initial_task")
 DISCOVERY_SCHEMA = obj({"contract": BODY_SCHEMA, "summary": STRING})
 USER_REQUEST = obj({"kind": {"type": "string", "enum": [
     "none", "clarification", "contradiction", "infeasible", "permission", "goal_change", "blocker"]},
@@ -109,7 +118,10 @@ def approved(state):
 
 def validate_body(state, body, *, ready=False, allow_legacy=False):
     legacy = allow_legacy and not any(key in body for key in BRIEF_FIELDS)
-    s.validate_schema(body, LEGACY_BODY_SCHEMA if legacy else BODY_SCHEMA)
+    s.validate_schema(body, PLANNING_BODY_SCHEMA if "initial_task" in body else LEGACY_BODY_SCHEMA if legacy else BODY_SCHEMA)
+    if "initial_task" in body and not (body["initial_task"]["kind"] == "none" and body["open_blocking_questions"]):
+        probe = {"goal_contract": {"body": body, "revision": 0, "hash": "draft"}}
+        assign_task(probe, initial_decision(body), {"revision": "draft"})
     questions = body["open_blocking_questions"]
     criteria = body["acceptance_criteria"]
     milestones = body.get("milestones", [])
@@ -190,6 +202,13 @@ def install_draft(state, body, *, origin, allow_legacy=False):
     state.update(status="WAITING_FOR_USER" if state["pending_questions"] else "AWAITING_GOAL_APPROVAL",
                  phase="DISCOVERING" if state["pending_questions"] else "AWAITING_GOAL_APPROVAL",
                  next_stage="astra_discovery" if state["pending_questions"] else "astra_plan")
+    if state.get("settings", {}).get("joint_planning") and origin in ("glm_draft", "user_cli_edit"):
+        if not state["pending_questions"]:
+            try:
+                from . import autocode_planning as planning
+            except ImportError:
+                import autocode_planning as planning
+            planning.start(state)
 
 
 def migrate(state):
@@ -224,17 +243,19 @@ def render(state):
     lines = [f"Build brief r{contract['revision']} ({contract['approval_status']})",
              f"Approval token: {token(contract)}"]
     if state.get("discovery_summary"):
-        lines += ["", "Astra: " + state["discovery_summary"]]
+        lines += ["", "Planning: " + state["discovery_summary"]]
     display_order = ("intended_user", "intended_outcome", "end_to_end_flow", "deliverables", "scope_exclusions",
                      "constraints", "permission_boundaries", "accepted_assumptions", "delegated_decisions",
                      "required_behaviors", "important_failure_cases", "acceptance_criteria", "technical_approach",
-                     "milestones", "open_blocking_questions")
+                      "milestones", "initial_task", "open_blocking_questions")
     for key in display_order:
         if key not in body:
             continue
         value = body[key]
         lines += ["", key.replace("_", " ").capitalize() + ":"]
-        if not isinstance(value, list):
+        if isinstance(value, dict):
+            lines.append(json.dumps(value, indent=2))
+        elif not isinstance(value, list):
             lines.append(value)
         elif not value:
             lines.append("  (none declared)")
@@ -270,6 +291,14 @@ def render(state):
     if state.get("user_request"):
         lines += ["", "Decision needed:", json.dumps(state["user_request"], indent=2)]
         lines += [f"Answer ID: {q['id']} — {q['question']}" for q in state.get("pending_questions", [])]
+    if state.get("planning"):
+        lines += ["", f"Joint planning: {state['planning']['astra_calls']}/2 Astra calls used"]
+        for stage, report in state["planning"]["reports"].items():
+            lines.append(f"  {stage}: {report['output']}")
+        final = state["planning"]["reports"].get("astra_finalize", {}).get("report", {})
+        for decision in final.get("decisions", []):
+            lines += [f"  [{decision['concern_id']}] {decision['decision']}",
+                      "    Why: " + decision["rationale"], "    Test: " + decision["acceptance_test"]]
     review = review_token(state)
     if review:
         lines += ["", f"Review token (current validated artifact): {review}",
@@ -293,15 +322,31 @@ def approve(state, selected):
     validate_body(state, contract["body"], ready=True, allow_legacy=True)
     if contract["body"]["open_blocking_questions"] or state.get("pending_questions"):
         raise ValueError("Blocking questions still need answers")
+    joint = state.get("settings", {}).get("joint_planning")
+    if joint and (state.get("planning", {}).get("final_token") != selected or "initial_task" not in contract["body"]):
+        raise ValueError("Joint planning requires Astra's final plan before approval")
+    current = s.snapshot(Path(state["workspace"])) if joint else None
     event = {"kind": "goal_approval", "actor": "user_cli", "at": s.now(), "token": selected}
     state.setdefault("user_events", []).append(event)
     contract.update(approval_status="approved", approval_event=event)
     state.update(phase="READY_TO_EXECUTE", status="RUNNING", next_stage="astra_plan")
+    if joint:
+        decision = initial_decision(contract["body"])
+        kind = assign_task(state, decision, current)
+        state.update(next_action=decision["next_objective"], affected_paths=decision["affected_paths"],
+                     next_stage="sol" if kind == "validate" else "terra")
+        record_decision(state, decision)
+
+
+def initial_decision(body):
+    spec = body["initial_task"]
+    return {"status": "CONTINUE", "next_objective": spec["objective"], "affected_paths": spec["affected_paths"],
+            "next_task": {k: v for k, v in spec.items() if k not in ("objective", "affected_paths")}}
 
 
 def feedback(state, text):
     """A free-form brief correction is input to Astra, never authorization to build."""
-    if state["status"] not in ("AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER") or not text.strip():
+    if state["status"] not in ("AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER", "PAUSED_PLANNING_BUDGET") or not text.strip():
         raise ValueError("Brief feedback needs nonempty text at a conversation checkpoint")
     if state.get("user_request", {}).get("kind") == "human_review":
         raise ValueError("Record the artifact review with --approve-review, not brief feedback")
@@ -312,6 +357,28 @@ def feedback(state, text):
     state["goal_contract"].update(approval_status="draft", approval_event=None)
     invalidate(state, "Brief feedback requires a refreshed draft and explicit approval")
     state.update(status="RUNNING", phase="DISCOVERING", next_stage="astra_discovery", pending_questions=[])
+
+
+def apply_intervention_feedback(state, receipt, applied_receipt):
+    """Save runner-applied feedback without treating it as a checkpoint approval."""
+    contract = state.get("goal_contract")
+    event = {"kind": "brief_feedback", "id": "intervention-" + receipt["id"], "actor": "user_intervention",
+             "at": applied_receipt["applied_at"], "text": receipt["text"],
+             "contract_token": receipt.get("observed_goal_token"), "receipt_id": receipt["id"],
+             "retained_work": {"current_task": copy.deepcopy(state.get("current_task")),
+                               "stages": len(state.get("stages", []))}}
+    state.setdefault("user_events", []).append(event)
+    state.setdefault("brief_feedback", []).append(event)
+    if state.get("status") == "TASK_COMPLETE":
+        state.setdefault("completion_archive", []).append({
+            "completed_at": state.pop("completed_at", None), "decision": state.pop("final_decision", None),
+            "reason": "Queued feedback arrived before later execution"})
+        state.pop("completion_actor", None)
+    if contract:
+        contract.update(approval_status="draft", approval_event=None)
+    invalidate(state, "Queued feedback requires Astra review, refreshed approval and validation")
+    state.update(status="PAUSED_INTERVENTION", phase="PAUSED_OR_BLOCKED", next_stage="astra_discovery",
+                 pending_questions=[], stop_reason="Queued feedback was applied; explicitly continue to Astra discovery.")
 
 
 def answer(state, question_id, text, *, delegated=False):
@@ -332,6 +399,25 @@ def answer(state, question_id, text, *, delegated=False):
     # Answers are inputs to a new draft, never goal approvals.
     state["goal_contract"].update(approval_status="draft", approval_event=None)
     invalidate(state, "A new user answer requires a reviewed draft")
+
+
+def resolve_permission(state, question_id, text):
+    """Record a scoped permission response without revising an approved goal."""
+    if state.get("user_request", {}).get("kind") != "permission" or not approved(state):
+        raise ValueError("A permission response requires the current approved goal contract")
+    matches = [q for q in state.get("pending_questions", []) if q["id"] == question_id]
+    if len(matches) != 1 or question_id in state.get("answers", {}) or not text.strip():
+        raise ValueError("Permission response must address one unresolved question with nonempty text")
+    q = matches[0]
+    event = {"kind": "permission_answer", "actor": "user_cli", "at": s.now(),
+             "question_id": question_id, "question": q, "text": text,
+             "contract_token": token(state["goal_contract"])}
+    state.setdefault("user_events", []).append(event)
+    state.setdefault("answers", {})[question_id] = event
+    state["pending_questions"] = [row for row in state["pending_questions"] if row["id"] != question_id]
+    state.pop("user_request", None)
+    if not state["pending_questions"]:
+        state.update(status="RUNNING", phase="READY_TO_EXECUTE")
 
 
 def wait_for_user(state, request):
@@ -377,6 +463,7 @@ def assign_task(state, decision, current):
     if milestones and (spec["milestone_id"] not in milestones or
             not set(ids) <= set(milestones[spec["milestone_id"]]["acceptance_criteria"])):
         raise ValueError("Task must belong to an approved milestone and its acceptance criteria")
+    checkpoints.before_assignment(state, decision, current)
     if state.get("current_task"):
         state.setdefault("task_archive", []).append(copy.deepcopy(state["current_task"]))
     contract = state["goal_contract"]
@@ -384,6 +471,9 @@ def assign_task(state, decision, current):
         "objective": decision["next_objective"], "affected_paths": decision["affected_paths"],
         "contract_revision": contract["revision"], "contract_hash": contract["hash"],
         "assigned_at": s.now(), "source_revision": current["revision"], "decision": decision["status"]}
+    if checkpoints.enabled(state):
+        checkpoints.progress(state)["rejected_advances"] = 0
+        state.pop("milestone_blocker", None)
     return spec["kind"]
 
 
@@ -471,9 +561,35 @@ def approve_review(state, criterion, selected, current):
     event = {"kind": "human_review", "actor": "user_cli", "at": s.now(), "criterion": criterion, "token": selected}
     state.setdefault("user_events", []).append(event)
     state.setdefault("human_reviews", {})[criterion] = event
-    if not missing_human_reviews(state) and state.get("user_request", {}).get("kind") == "human_review":
+    requested = set(state.get("user_request", {}).get("criteria", []))
+    if not requested.intersection(missing_human_reviews(state)) and state.get("user_request", {}).get("kind") == "human_review":
         state.pop("user_request", None)
         state.update(status="RUNNING", phase="READY_TO_EXECUTE", next_stage="astra_review")
+
+
+DECISION_PROVENANCE = """Decision provenance is mandatory for every contract:
+- Explicit requirements and corrections inside task/original conversation context use
+  basis=original_request with answer_id="". Conversation IDs and message labels are not saved feedback IDs.
+- Use basis=user_answer only for IDs present in saved_answers/answers; delegated
+  requires a saved answer explicitly marked delegated.
+- Use basis=user_feedback only for an exact saved brief_feedback event ID that also
+  exists in user_events. If no such event exists, do not use user_feedback.
+- Your suggestions and model-written drafts are basis=agent_proposed, answer_id="";
+  they are not user approval. Never invent an answer ID or a feedback event.
+- delegated_decisions may contain ONLY basis=delegated rows tied to actual saved
+  delegated answers. Otherwise return delegated_decisions=[]. Put proposed defaults
+  (layout, file structure, question counts, etc.) in accepted_assumptions with
+  basis=agent_proposed, not in delegated_decisions.
+"""
+
+CONTRACT_REFERENCES = """Contract reference rules:
+Define acceptance_criteria as objects with stable IDs (for example AC1, AC2).
+Each milestones[].acceptance_criteria must contain ONLY those existing ID strings,
+for example ["AC1", "AC2"], never descriptions of checks or shell commands.
+Every milestone needs a nonempty objective and at least one acceptance criterion ID;
+together the milestones must cover all defined acceptance criteria.
+Put the check descriptions in acceptance_criteria[].criterion and verification_method.
+"""
 
 
 DISCOVERY_PROMPT = """You are ASTRA, the product lead, technical planner and final reviewer.
@@ -500,7 +616,7 @@ per stable criterion ID and flag criteria needing actual human review.
 The versioned brief must include intended_user and intended_outcome; the ordered
 end_to_end_flow; deliverables and scope_exclusions; constraints, permissions and
 assumptions; observable acceptance criteria with verification methods; a minimal
-technical_approach; and small milestones with IDs, objectives and acceptance_criteria
+technical_approach; and substantial, coherent milestones with IDs, objectives and acceptance_criteria
 IDs. Every required criterion must belong to at least one milestone.
 Return the complete revised contract, including at most three open blocking questions.
 The user can send feedback to revise your draft. Use that feedback without inventing
@@ -518,6 +634,9 @@ plan inside the goal; a validation task sends preserved implementation straight 
 Terra implements only the authorized batch. Sol validates the actual current artifact
 and reports evidence for every criterion and an explicit blocking flag on each finding.
 Echo current_task.id as task_id, or the empty string when no task exists yet.
+A CONTINUE/REWORK next_task must set milestone_id to an approved milestone id whose
+acceptance_criteria list contains every criterion id the task cites; requirements,
+acceptance_criteria and validation_plan must all be nonempty.
 Human approvals come only from runner user events. Tests alone do not prove behaviors
 they do not cover. Unknown/untested/skipped is NOT_VERIFIED, never PASS.
 Put optional improvements in deferred_backlog; they cannot delay completion.

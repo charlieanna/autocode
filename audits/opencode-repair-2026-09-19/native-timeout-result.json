@@ -1,0 +1,107 @@
+{
+  "fixture": "/private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/opencode-audit-probes-4nzuzsld",
+  "timeout_seconds": 8,
+  "runner_status": "PAUSED_PROVIDER_TIMEOUT",
+  "runner_error": "terra exceeded its 8-second stage timeout; reconcile /private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/opencode-audit-probes-4nzuzsld/project/.autocode/runs/timeout-probe/iterations/001/terra-01.jsonl, no automatic replay",
+  "worker_started_before_pause": true,
+  "worker_finished_at_pause": false,
+  "worker_alive_after_pause": false,
+  "worker_wrote_after_pause": false,
+  "workspace_lock_reacquired": true,
+  "requests": [
+    {
+      "path": "/v1/chat/completions",
+      "tool_names": [
+        "bash",
+        "edit",
+        "glob",
+        "grep",
+        "read",
+        "skill",
+        "todowrite",
+        "webfetch",
+        "write"
+      ]
+    }
+  ],
+  "active_stage": {
+    "role": "terra",
+    "stage": "terra",
+    "iteration": 1,
+    "started_at": "2026-09-19T19:52:39.618732+00:00",
+    "command": [
+      "opencode",
+      "run",
+      "--dir",
+      "/private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/opencode-audit-probes-4nzuzsld/project",
+      "--format",
+      "json",
+      "--agent",
+      "autocode_terra",
+      "--model",
+      "audit-fixture/audit-model",
+      "--title",
+      "Autocode terra: /private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/opencode-audit-probes-4nzuzsld/project/.autocode/runs/timeout-probe"
+    ],
+    "prompt": "/private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/opencode-audit-probes-4nzuzsld/project/.autocode/runs/timeout-probe/iterations/001/terra-01.prompt.md",
+    "events": "/private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/opencode-audit-probes-4nzuzsld/project/.autocode/runs/timeout-probe/iterations/001/terra-01.jsonl",
+    "output": "/private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/opencode-audit-probes-4nzuzsld/project/.autocode/runs/timeout-probe/iterations/001/terra-01.json",
+    "schema": "/Users/ankurkothari/Documents/workspace/autocode/tools/autocode-schemas/v2/terra-report.schema.json",
+    "criteria_revision": null,
+    "runner_calls": 1,
+    "runner_retries": 0,
+    "headroom_enabled": false,
+    "stage_timeout_seconds": 8,
+    "expected_session": null,
+    "engine": "opencode",
+    "permission_config": "/private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/opencode-audit-probes-4nzuzsld/project/.autocode/runs/timeout-probe/iterations/001/terra-01.opencode.json",
+    "isolation": "OpenCode tool permissions and workspace snapshot checks; no OS sandbox",
+    "before_ref": "/private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/opencode-audit-probes-4nzuzsld/project/.autocode/runs/timeout-probe/iterations/001/terra-01.before.json",
+    "context": {},
+    "pid": 85414,
+    "processes": [
+      {
+        "pid": 85414,
+        "started": "Sat Sep 19 12:52:39 2026",
+        "group": 85414
+      },
+      {
+        "pid": 85427,
+        "started": "Sat Sep 19 12:52:40 2026",
+        "group": 85427
+      },
+      {
+        "pid": 85445,
+        "started": "Sat Sep 19 12:52:41 2026",
+        "group": 85445
+      },
+      {
+        "pid": 85464,
+        "started": "Sat Sep 19 12:52:41 2026",
+        "group": 85464
+      },
+      {
+        "pid": 85468,
+        "started": "Sat Sep 19 12:52:42 2026",
+        "group": 85468
+      }
+    ],
+    "finished_at": "2026-09-19T19:52:47.959548+00:00",
+    "exit_code": -15,
+    "duration_seconds": 8.315385584020987,
+    "metrics": {
+      "provider_tokens": {
+        "input_tokens": null,
+        "cached_input_tokens": null,
+        "output_tokens": null,
+        "reasoning_output_tokens": null
+      },
+      "provider_requests": null,
+      "provider_retries": null,
+      "completed_turns": 0,
+      "headroom_transformed": null
+    },
+    "timed_out": true,
+    "accounted": true
+  }
+}

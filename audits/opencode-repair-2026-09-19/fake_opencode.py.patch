@@ -1,0 +1,11 @@
+--- before/tools/fake_opencode.py
++++ tools/fake_opencode.py
+@@ -30,6 +30,8 @@
+ data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+ assert data["execution_engine"] == "opencode"
+ session = sys.argv[sys.argv.index("--session") + 1] if "--session" in sys.argv else "ses_" + uuid.uuid4().hex
++if os.environ.get("AUTOCODE_FIXTURE_SESSION_DRIFT"):
++    session = "ses_" + uuid.uuid4().hex
+ message = "msg_" + uuid.uuid4().hex
+ 
+ def emit(kind, part):

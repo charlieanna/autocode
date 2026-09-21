@@ -1,0 +1,14 @@
+--- before/tools/fake_codex.py
++++ tools/fake_codex.py
+@@ -20,7 +20,10 @@
+           "task_id": (data.get("current_task") or {}).get("id", ""),
+           "deferred_backlog": ["Optional web UI"], "user_request": {"kind": "none", "discovered": "", "impact": "",
+               "decision_needed": "", "options": [], "proposed_delta": ""}}
+-print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}))
++session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
++if os.environ.get("AUTOCODE_FIXTURE_SESSION_DRIFT"):
++    session = str(uuid.uuid4())
++print(json.dumps({"type": "thread.started", "thread_id": session}))
+ if stage == "astra_discovery":
+     draft = body(questions=not data["saved_answers"], human=mode == "standard")
+     if data["saved_answers"]:

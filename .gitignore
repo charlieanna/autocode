@@ -5,3 +5,8 @@ build/
 dist/
 .venv/
 .autocode/
+
+# Nested target workspaces used for local Autocode runs
+.tmp-*/
+learner-loop/
+engineering-readiness-cli/

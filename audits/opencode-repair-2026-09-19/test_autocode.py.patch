@@ -1,0 +1,137 @@
+--- before/tools/test_autocode.py
++++ tools/test_autocode.py
+@@ -1,5 +1,7 @@
+ """Isolated tests: no model calls, credentials, learner data or course writes."""
+ import copy
++import contextlib
++import io
+ import json
+ import os
+ from pathlib import Path
+@@ -265,6 +267,77 @@
+         self.assertNotEqual(current["revision"],s.snapshot(self.root)["revision"])
+         self.assertFalse(s.completion_ready(self.state,self.decision("TASK_COMPLETE"),s.snapshot(self.root)))
+ 
++    def test_executable_mode_invalidates_validation(self):
++        script = self.root / "start.sh"
++        script.write_text("#!/bin/sh\nexit 0\n")
++        script.chmod(0o644)
++        current = self.valid_completion()
++        script.chmod(0o755)
++        self.assertNotEqual(current["revision"], s.snapshot(self.root)["revision"])
++        self.assertFalse(s.completion_ready(self.state, self.decision("TASK_COMPLETE"), s.snapshot(self.root)))
++
++    def test_submodule_edits_invalidate_validation(self):
++        source = self.root / ".autocode/module-source"
++        subprocess.run(["git", "init", "-q", str(source)], check=True)
++        (source / "code.py").write_text("value = 1\n")
++        subprocess.run(["git", "-C", str(source), "add", "."], check=True)
++        subprocess.run(["git", "-C", str(source), "-c", "user.name=Fixture", "-c", "user.email=f@example.test",
++                        "commit", "-qm", "fixture"], check=True)
++        subprocess.run(["git", "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(source), "module"],
++                       cwd=self.root, check=True)
++        current = self.valid_completion()
++        (self.root / "module/code.py").write_text("value = 2\n")
++        self.assertNotEqual(current["revision"], s.snapshot(self.root)["revision"])
++        self.assertFalse(s.completion_ready(self.state, self.decision("TASK_COMPLETE"), s.snapshot(self.root)))
++
++    def test_completion_acceptance_is_an_exclusive_existing_run_action(self):
++        for args in (["--accept-completion"], ["--accept-completion", "--show-goal", "--run-dir", str(self.run)]):
++            with patch.object(sys, "argv", ["autocode", *args]), contextlib.redirect_stderr(io.StringIO()):
++                with self.assertRaises(SystemExit) as caught:
++                    runner.main()
++                self.assertEqual(2, caught.exception.code)
++
++    def test_fresh_dry_run_reports_default_engine_without_writes(self):
++        out = io.StringIO()
++        before = list((self.root / ".autocode/runs").iterdir())
++        with patch.object(sys, "argv", ["autocode", "idea", "--workspace", str(self.root), "--dry-run"]), contextlib.redirect_stdout(out):
++            self.assertEqual(0, runner.main())
++        self.assertEqual("opencode", json.loads(out.getvalue())["engine"])
++        self.assertEqual(before, list((self.root / ".autocode/runs").iterdir()))
++
++    def test_abandon_uncertain_attempt_retains_edits_and_clears_session(self):
++        before = self.valid_completion()
++        base = self.run / "iterations/005/terra-01"
++        base.parent.mkdir(parents=True)
++        s.atomic_json(base.with_suffix(".before.json"), before)
++        base.with_suffix(".jsonl").write_text('{"type":"thread.started","thread_id":"t-session"}\n')
++        (self.root / "partial.py").write_text("# preserved partial implementation\n")
++        record = {"role":"terra", "stage":"terra", "iteration":5, "duration_seconds":8,
++                  "output":str(base.with_suffix(".json")), "events":str(base.with_suffix(".jsonl")),
++                  "before_ref":str(base.with_suffix(".before.json")), "exit_code":-15}
++        self.state["active_stage"] = record
++        unchanged = copy.deepcopy(self.state)
++        with self.assertRaises(ValueError):
++            runner.abandon_stage(self.state, self.run, self.root, "005/terra-02")
++        self.assertEqual(unchanged, self.state)
++        record["processes"] = [{"pid":123, "started":"fixture", "group":123}]
++        with patch.object(runner.processes, "live_processes", return_value=[{"pid":123}]):
++            with self.assertRaises(s.Paused):
++                runner.abandon_stage(self.state, self.run, self.root, "005/terra-01")
++        with patch.object(runner.processes, "live_processes", return_value=[]):
++            runner.abandon_stage(self.state, self.run, self.root, "005/terra-01")
++        self.assertEqual("PAUSED_STAGE_ABANDONED", self.state["status"])
++        self.assertEqual("astra_review", self.state["next_stage"])
++        self.assertNotIn("active_stage", self.state)
++        self.assertNotIn("terra", self.state["sessions"])
++        self.assertNotIn("validation", self.state)
++        self.assertEqual(8, self.state["active_seconds"])
++        self.assertTrue((self.root / "partial.py").exists())
++        archived = self.state["stages"][-1]
++        self.assertTrue(archived["abandoned"])
++        self.assertEqual(["partial.py"], archived["changed_files"])
++        self.assertTrue(Path(archived["events"]).is_file())
++
+     def test_missing_evidence_and_outside_project_rejected(self):
+         for refs in ([],["nope"],["/etc/hosts"]):
+             with self.assertRaises(ValueError): s.evidence_hashes(refs,self.root,self.run)
+@@ -307,12 +380,15 @@
+             def __init__(child, command, **kwargs):
+                 commands.append(command)
+                 Path(command[command.index("-o")+1]).write_text(json.dumps(value))
++                kwargs["stdout"].write('{"type":"thread.started","thread_id":"t-session"}\n')
+                 kwargs["stdout"].write(json.dumps({"type":"turn.completed","usage":{"input_tokens":9,"cached_input_tokens":3,"output_tokens":2}})+"\n")
+             def wait(child): return 0
+         with patch.object(runner.subprocess,"Popen",Child):
+             # Snapshot/diff need real subprocesses, so mock those independent
+             # filesystem observations rather than making Popen handle git too.
+-            with patch.object(s,"snapshot",return_value={"head":"h","files":{},"revision":"r"}), patch.object(runner.subprocess,"run"):
++            with patch.object(s,"snapshot",return_value={"head":"h","files":{},"revision":"r"}), patch.object(runner.subprocess,"run"), \
++                 patch.object(runner.processes,"process_table",return_value={}), \
++                 patch.object(runner.processes,"wait_for_stage",return_value=(0,False)):
+                 self.settings["roles"]["terra"]["provider"]="ZAI"
+                 value,record=runner.run_role(role="terra",prompt="small handoff",sandbox="workspace-write",workspace=self.root,run_dir=self.run,
+                     state=self.state,schema=runner.SCHEMA_DIR/"v2/terra-report.schema.json",model="gpt-5.6-terra",allow_write=True,dry_run=False)
+@@ -330,27 +406,20 @@
+         self.settings["limits"] = {"stage_timeout_seconds": 1}
+         class Child:
+             pid = 12345
+-            terminated = False
+             def __init__(child, command, **kwargs): pass
+-            def wait(child, timeout=None):
+-                if child.terminated:
+-                    return -15
+-                raise subprocess.TimeoutExpired("codex", timeout)
+-            def terminate(child):
+-                type(child).terminated = True
+-            def kill(child):
+-                raise AssertionError("terminate should end this fixture process")
+         with patch.object(runner.subprocess, "Popen", Child), \
+-             patch.object(s, "snapshot", return_value={"head":"h", "files":{}, "revision":"r"}):
++             patch.object(s, "snapshot", return_value={"head":"h", "files":{}, "revision":"r"}), \
++             patch.object(runner.processes, "process_table", return_value={}), \
++             patch.object(runner.processes, "wait_for_stage", return_value=(-15,True)):
+             with self.assertRaises(s.Paused) as caught:
+                 runner.run_role(role="terra", prompt="small handoff", sandbox="workspace-write", workspace=self.root,
+                     run_dir=self.run, state=self.state, schema=runner.SCHEMA_DIR/"v2/terra-report.schema.json",
+                     model="gpt-5.6-terra", allow_write=True, dry_run=False)
+         self.assertEqual("PAUSED_PROVIDER_TIMEOUT", caught.exception.status)
+-        self.assertTrue(Child.terminated)
+         active = s.read(self.run / "state.json")["active_stage"]
+         self.assertTrue(active["timed_out"])
+         self.assertEqual(1, active["stage_timeout_seconds"])
++        self.assertTrue(active["accounted"])
+ 
+     def test_crash_after_completed_terra_reconciles_without_reexecution(self):
+         before=s.snapshot(self.root)

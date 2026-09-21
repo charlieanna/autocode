@@ -1,0 +1,85 @@
+{
+  "custom_config_drift": {
+    "fixture": "/private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/opencode-audit-probes-ddu9iutm",
+    "effective": {
+      "deny": {
+        "bash_enabled": false,
+        "rules": [
+          {
+            "permission": "*",
+            "action": "allow",
+            "pattern": "*"
+          },
+          {
+            "permission": "bash",
+            "action": "deny",
+            "pattern": "*"
+          }
+        ]
+      },
+      "allow": {
+        "bash_enabled": true,
+        "rules": [
+          {
+            "permission": "*",
+            "action": "allow",
+            "pattern": "*"
+          },
+          {
+            "permission": "bash",
+            "action": "allow",
+            "pattern": "*"
+          }
+        ]
+      }
+    },
+    "identity_equal_after_permission_change": true
+  },
+  "project_model_context": {
+    "fixture": "/private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/opencode-audit-probes-465ll9rs",
+    "target_listing_exit": 0,
+    "target_model_present": true,
+    "adapter_check_from_other_cwd": "Models unavailable in OpenCode: audit-fixture/audit-model"
+  },
+  "malformed_report_recovery": {
+    "report": "The implementation is finished.",
+    "attempts": [
+      {
+        "error": "OpenCode final message is not a JSON report; inspect the saved raw events",
+        "active_stage_retained": true,
+        "archived_attempts": 0
+      },
+      {
+        "error": "OpenCode final message is not a JSON report; inspect the saved raw events",
+        "active_stage_retained": true,
+        "archived_attempts": 0
+      }
+    ]
+  },
+  "wrong_schema_recovery": {
+    "report": "{\"summary\":\"missing required fields\"}",
+    "attempts": [
+      {
+        "error": "$: missing changed_files",
+        "active_stage_retained": true,
+        "archived_attempts": 0
+      },
+      {
+        "error": "$: missing changed_files",
+        "active_stage_retained": true,
+        "archived_attempts": 0
+      }
+    ]
+  },
+  "inline_permission_override": {
+    "fixture": "/private/var/folders/n2/dv1vdhq91fj3dzzffg704bjh0000gn/T/opencode-audit-probes-bn0uf6dk",
+    "before": {
+      "bash": false,
+      "webfetch": false
+    },
+    "after": {
+      "bash": true,
+      "webfetch": true
+    }
+  }
+}

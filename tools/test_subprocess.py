@@ -28,7 +28,7 @@ class SubprocessFlow(unittest.TestCase):
             shutil.copy2(source / filename, bin_dir / ("codex" if filename == "fake_codex.py" else filename))
         (bin_dir / "codex").chmod(0o755)
         self.env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
-                    "PYTHONDONTWRITEBYTECODE": "1"}
+                    "PYTHONDONTWRITEBYTECODE": "1", "AUTOCODE_HOME": str(self.root / "registry-home")}
         self.entry = [os.environ["AUTOCODE_TEST_CLI"]] if os.environ.get("AUTOCODE_TEST_CLI") else [sys.executable, str(source / "autocode.py")]
 
     def launch(self, args, expected, *, answers=None):
@@ -42,6 +42,58 @@ class SubprocessFlow(unittest.TestCase):
     def saved(self):
         run = next((self.project / ".autocode/runs").iterdir())
         return run, json.loads((run / "state.json").read_text())
+
+    def test_two_milestones_require_independent_evidence_before_advancing(self):
+        self.env['AUTOCODE_FIXTURE_MODE'] = 'milestones'
+        self.launch(['Build greeting and goodbye', '--chat'], 0, answers='CLI\nyes\n')
+        run, state = self.saved()
+        self.assertEqual('TASK_COMPLETE', state['status'])
+        execution = [r['stage'] for r in state['stages'] if r['stage'] != 'astra_discovery']
+        self.assertEqual(['astra_plan', 'terra', 'sol', 'astra_review', 'terra', 'sol', 'astra_review'], execution)
+        self.assertEqual({'M1', 'M2'}, {r['id'] for r in state['milestone_progress'].values() if r['accepted']})
+        first = next(r for r in state['milestone_progress'].values() if r['id'] == 'M1')
+        self.assertEqual('NOT_VERIFIED', first['accepted_validation']['criterion_results'][1]['status'])
+        unchanged = (run / 'state.json').read_bytes()
+        status = json.loads(self.launch(['--run-dir', str(run), '--status'], 0).stdout)
+        self.assertTrue(status['milestone_checkpoint']['enabled'])
+        self.assertGreater(status['milestone_checkpoint']['seconds_by_role']['sol'], 0)
+        self.assertEqual(unchanged, (run / 'state.json').read_bytes())
+
+    def test_changing_code_with_repeated_failed_checks_stops_after_one_replan(self):
+        self.env['AUTOCODE_FIXTURE_MODE'] = 'stalled'
+        self.launch(['Build greeting', '--chat'], 2, answers='CLI\nyes\n')
+        _, state = self.saved()
+        self.assertEqual('PAUSED_MILESTONE_STALLED', state['status'])
+        progress = next(iter(state['milestone_progress'].values()))
+        self.assertEqual(1, progress['replans'])
+        self.assertEqual(6, len(progress['reviews']))
+        self.assertEqual(6, sum(r['stage'] == 'terra' for r in state['stages']))
+
+    def test_queued_checkpoint_migration_preserves_work_and_never_launches_on_activation(self):
+        self.env['AUTOCODE_FIXTURE_MODE'] = 'no-human'
+        self.launch(['Build greeting', '--chat'], 2, answers='CLI\nno\n')
+        run, state = self.saved()
+        args = ['--run-dir', str(run), '--no-chat']
+        self.launch([*args, '--approve-goal', state['displayed_goal']], 0)
+        self.launch([*args, '--pause-after-stage'], 2)
+        self.launch([*args, '--resume-paused', '--pause-after-stage'], 2)
+        _, state = self.saved()
+        state['settings'].pop('milestone_checkpoints')
+        state['settings']['workflow'] = {'mode': 'glm_final_audit_v2'}
+        (run / 'state.json').write_text(json.dumps(state))
+        original = (run / 'state.json').read_bytes()
+        self.launch([*args, '--request-milestone-checkpoints'], 0)
+        self.assertEqual(original, (run / 'state.json').read_bytes())
+        status = json.loads(self.launch([*args, '--status'], 0).stdout)
+        self.assertTrue(status['milestone_activation_pending'])
+        self.launch([*args, '--show-goal'], 0)
+        _, migrated = self.saved()
+        self.assertEqual(state['goal_contract'], migrated['goal_contract'])
+        self.assertEqual(len(state['stages']), len(migrated['stages']))
+        self.assertEqual('sol', migrated['next_stage'])
+        self.assertNotIn('workflow', migrated['settings'])
+        self.launch([*args, '--resume-paused'], 0)
+        self.assertEqual('TASK_COMPLETE', self.saved()[1]['status'])
 
     def test_chat_brief_feedback_approval_and_autonomous_rework(self):
         self.env["AUTOCODE_FIXTURE_MODE"] = "rework"
@@ -70,6 +122,65 @@ class SubprocessFlow(unittest.TestCase):
         before = (run / "state.json").read_bytes()
         self.launch(["--run-dir", str(run)], 0)
         self.assertEqual(before, (run / "state.json").read_bytes())
+
+    def test_new_and_resumed_runs_register_without_launch_flags(self):
+        probe = self.root / "registry-launches.jsonl"
+        self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
+        self.launch(["Build a greeting tool"], 2)
+        run, _ = self.saved()
+        listed = subprocess.run([*self.entry, "registry", "list", "--json"], cwd=self.root, env=self.env,
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(0, listed.returncode, listed.stdout + listed.stderr)
+        runs = json.loads(listed.stdout)["runs"]
+        self.assertEqual([str(run.resolve())], [item["run_dir"] for item in runs])
+        self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
+        # A different isolated registry proves that an ordinary resume re-registers
+        # the saved checkpoint before it can consider another provider stage.
+        resumed_home = self.root / "resumed-registry-home"
+        self.env["AUTOCODE_HOME"] = str(resumed_home)
+        self.launch(["--run-dir", str(run)], 2)
+        resumed = subprocess.run([*self.entry, "registry", "list"], cwd=self.root, env=self.env,
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(0, resumed.returncode, resumed.stdout + resumed.stderr)
+        self.assertEqual([str(run.resolve())], [item["run_dir"] for item in json.loads(resumed.stdout)["runs"]])
+        observed = [json.loads(line) for line in probe.read_text().splitlines()]
+        self.assertEqual(2, len(observed))
+        self.assertTrue(all(str(run.resolve()) in item["runs"] for item in observed))
+
+    def test_registry_failure_preserves_new_run_for_retry_without_a_stage_launch(self):
+        blocked_home = self.root / "blocked-registry"
+        blocked_home.write_text("not a directory")
+        self.env["AUTOCODE_HOME"] = str(blocked_home)
+        self.launch(["Build a greeting tool"], 2)
+        run, state = self.saved()
+        self.assertEqual("PAUSED_REGISTRY", state["status"])
+        self.assertEqual([], list((run / "iterations").glob("*")) if (run / "iterations").exists() else [])
+        self.env["AUTOCODE_HOME"] = str(self.root / "retry-registry-home")
+        probe = self.root / "retry-launches.jsonl"
+        self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
+        self.launch(["--run-dir", str(run), "--resume-paused"], 2)
+        registered = subprocess.run([*self.entry, "registry", "list"], cwd=self.root, env=self.env,
+                                   capture_output=True, text=True, timeout=30)
+        self.assertEqual(0, registered.returncode, registered.stdout + registered.stderr)
+        self.assertEqual(str(run.resolve()), json.loads(registered.stdout)["runs"][0]["run_dir"])
+        self.assertEqual(["astra_discovery"], [json.loads(line)["stage"] for line in probe.read_text().splitlines()])
+
+    def test_read_only_commands_do_not_create_or_register_storage(self):
+        run = self.project / ".autocode/runs/read-only"
+        run.mkdir(parents=True)
+        state = {"version": 2, "workspace": str(self.project), "task": "Read only", "status": "RUNNING",
+                 "iteration": 1, "sessions": {}, "history": [], "stages": [], "next_stage": "astra_plan"}
+        state_path = run / "state.json"
+        state_path.write_text(json.dumps(state))
+        before = state_path.read_bytes()
+        self.assertFalse(Path(self.env["AUTOCODE_HOME"]).exists())
+        self.launch(["--run-dir", str(run), "--status"], 0)
+        self.launch(["--run-dir", str(run), "--dry-run"], 0)
+        help_result = subprocess.run([*self.entry, "--help"], cwd=self.root, env=self.env,
+                                     capture_output=True, text=True, timeout=30)
+        self.assertEqual(0, help_result.returncode, help_result.stdout + help_result.stderr)
+        self.assertFalse(Path(self.env["AUTOCODE_HOME"]).exists())
+        self.assertEqual(before, state_path.read_bytes())
 
     def test_chat_pause_before_approval_resumes_same_brief(self):
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"

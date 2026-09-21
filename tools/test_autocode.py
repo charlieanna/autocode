@@ -24,7 +24,10 @@ class RetrofitTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
+        self.registry_environment = patch.dict(os.environ, {"AUTOCODE_HOME": str(self.root / "registry-home")})
+        self.registry_environment.start()
+        self.addCleanup(self.registry_environment.stop)
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         subprocess.run(["git", "-C", str(self.root), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "--allow-empty", "-qm", "fixture"], check=True)
         self.run = self.root / ".autocode/runs/fixture"
@@ -214,6 +217,16 @@ class RetrofitTest(unittest.TestCase):
         self.assertIn("specific bug",text)
         self.assertIn("repair the full cohort",text)
         self.assertGreater(metrics["estimated_prompt_tokens"],0)
+
+    def test_context_packet_includes_only_runner_provided_private_source_exceptions(self):
+        self.state["private_source_exceptions"]=[{
+            "sourceId":"fixture-source", "workspacePath":".autocode/private/source.pdf",
+            "canonicalPath":"/outside/source.pdf", "sha256":"a" * 64,
+            "access":"READ_ONLY_PRIVATE_CACHE"
+        }]
+        text,_=s.context_packet(self.state,"terra",self.run/"state.json")
+        self.assertIn("fixture-source",text)
+        self.assertIn("READ_ONLY_PRIVATE_CACHE",text)
 
     def test_compaction_keeps_all_errors_and_test_totals(self):
         text="ok\nok\n.....\nError first\nframe.rb:9\nError second\n3 tests, 2 failures\n"
@@ -420,6 +433,71 @@ class RetrofitTest(unittest.TestCase):
         self.assertTrue(active["timed_out"])
         self.assertEqual(1, active["stage_timeout_seconds"])
         self.assertTrue(active["accounted"])
+
+    def test_automatic_timeout_recovery_archives_stopped_terra_and_continues_glm(self):
+        before = s.snapshot(self.root)
+        base = self.run / "iterations/005/terra-01"
+        base.parent.mkdir(parents=True)
+        s.atomic_json(base.with_suffix(".before.json"), before)
+        base.with_suffix(".jsonl").write_text('{"type":"thread.started","thread_id":"expired-session"}\n')
+        (self.root / "partial.py").write_text("# retained timeout work\n")
+        self.state.update(status="RUNNING", phase="EXECUTING")
+        self.state["settings"]["workflow"]={"mode":runner.workflow.FINAL_MODE}
+        record = {"role":"terra", "stage":"terra", "iteration":5, "duration_seconds":3,
+                  "output":str(base.with_suffix(".json")), "events":str(base.with_suffix(".jsonl")),
+                  "before_ref":str(base.with_suffix(".before.json")), "exit_code":-15, "timed_out":True,
+                  "processes":[]}
+        self.state["active_stage"] = record
+        # Startup reconciliation classifies incomplete provider logs as uncertain;
+        # the durable timed_out record, not that later wording, authorizes recovery.
+        error = s.Paused("PAUSED_PROVIDER_UNCERTAIN", "timed out")
+        self.assertTrue(runner.automatically_recover_timed_out_stage(self.state, self.run, self.root, error))
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertEqual("terra", self.state["next_stage"])
+        self.assertNotIn("active_stage", self.state)
+        self.assertNotIn("terra", self.state["sessions"])
+        self.assertTrue((self.root / "partial.py").exists())
+        archived = self.state["stages"][-1]
+        self.assertTrue(archived["automatic_recovery"])
+        self.assertEqual(["partial.py"], archived["changed_files"])
+        self.assertEqual(1, len(self.state["automatic_timeout_recoveries"]))
+        self.assertEqual(1, self.state["no_progress_batches"])
+
+    def test_automatic_timeout_recovery_refuses_terminal_attempt(self):
+        before = s.snapshot(self.root)
+        base = self.run / "iterations/005/terra-01"
+        base.parent.mkdir(parents=True)
+        s.atomic_json(base.with_suffix(".before.json"), before)
+        base.with_suffix(".jsonl").write_text('{"type":"turn.completed"}\n')
+        record = {"role":"terra", "stage":"terra", "iteration":5,
+                  "output":str(base.with_suffix(".json")), "events":str(base.with_suffix(".jsonl")),
+                  "before_ref":str(base.with_suffix(".before.json")), "exit_code":-15, "timed_out":True}
+        self.state["active_stage"] = record
+        original = copy.deepcopy(self.state)
+        error = s.Paused("PAUSED_PROVIDER_TIMEOUT", "timed out")
+        self.assertFalse(runner.automatically_recover_timed_out_stage(self.state, self.run, self.root, error))
+        self.assertEqual(original, self.state)
+
+    def test_automatic_external_directory_denial_retries_workspace_only(self):
+        before = s.snapshot(self.root)
+        base = self.run / "iterations/005/terra-01"
+        base.parent.mkdir(parents=True)
+        s.atomic_json(base.with_suffix(".before.json"), before)
+        base.with_suffix(".jsonl").write_text(
+            '{"type":"thread.started","thread_id":"t-session"}\n'
+            'permission requested: external_directory (/tmp/*); auto-rejecting\n')
+        record = {"role":"terra", "stage":"terra", "iteration":5, "duration_seconds":1,
+                  "output":str(base.with_suffix(".json")), "events":str(base.with_suffix(".jsonl")),
+                  "before_ref":str(base.with_suffix(".before.json")), "exit_code":0, "timed_out":False,
+                  "processes":[]}
+        self.state["active_stage"] = record
+        error = s.Paused("PAUSED_UNCERTAIN_STAGE", "missing terminal turn")
+        self.assertTrue(runner.automatically_recover_external_directory_denial(self.state, self.run, self.root, error))
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertEqual("terra", self.state["next_stage"])
+        self.assertNotIn("active_stage", self.state)
+        self.assertEqual(1, len(self.state["automatic_permission_recoveries"]))
+        self.assertIn("workspace-contained", self.state["recovery_context"]["instruction"])
 
     def test_crash_after_completed_terra_reconciles_without_reexecution(self):
         before=s.snapshot(self.root)

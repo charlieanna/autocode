@@ -1,0 +1,34 @@
+{
+  "foreign_get_host": {
+    "status": 200,
+    "task_count": 5
+  },
+  "creation_failure": {
+    "workspace_action": {
+      "id": "7834dd1094f84173a74e6efaf9264dba",
+      "label": "Create OpenCode task",
+      "command": [
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "/private/tmp/dashboard-audit-20260920/fake_runner.py",
+        "--workspace",
+        "/private/tmp/dashboard-audit-20260920/project",
+        "Create failure audit",
+        "--engine",
+        "opencode",
+        "--no-chat"
+      ],
+      "queued_at": 1789887813.990836,
+      "status": "failed",
+      "started_at": 1789887813.9910452,
+      "stdout": "",
+      "stderr": "Fixture provider failed before it could ask a question.\n",
+      "exit_status": 1,
+      "finished_at": 1789887815.0303621
+    },
+    "task_action_count": 0,
+    "task_status": "RUNNING"
+  },
+  "null_workspace": {
+    "exception": "RemoteDisconnected"
+  }
+}

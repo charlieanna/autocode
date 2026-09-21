@@ -77,6 +77,7 @@ class OpenCodeTests(unittest.TestCase):
         prompt = oc.prompt_for_schema("Task\nCURRENT HANDOFF DATA\n{}", {"type": "object"}, Path("/tmp/events.jsonl"))
         self.assertIn("strict filesystem boundary", prompt)
         self.assertIn("ancestor AGENTS.md", prompt)
+        self.assertIn("private_source_exceptions", prompt)
 
     def test_launch_restricts_reviews_preserves_config_and_resumes_exact_session(self):
         original = {"provider": {"custom": {"models": {"m": {}}}}, "permission": {"bash": "ask"}}
@@ -257,36 +258,43 @@ class OpenCodeTests(unittest.TestCase):
             self.assertNotIn("auth.json", calls)
 
 
-class OpenCodeFlow(subprocess_tests.SubprocessFlow):
-    # Exercise the product default rather than passing --engine opencode.
+class OpenCodeFlow(unittest.TestCase):
+    # Product default is joint planning. Codex-only coverage stays in SubprocessFlow.
     new_run_engine_args = ()
+    launch = subprocess_tests.SubprocessFlow.launch
+    saved = subprocess_tests.SubprocessFlow.saved
 
     def setUp(self):
-        super().setUp()
+        subprocess_tests.SubprocessFlow.setUp(self)
         source = Path(__file__).resolve().parent
         target = self.root / "fixture-bin/opencode"
         shutil.copy2(source / "fake_opencode.py", target)
         target.chmod(0o755)
+        self.env.update(CODEX_HOME=str(self.root / "codex-config"),
+                        XDG_CONFIG_HOME=str(self.root / "config"))
+        for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL", "OPENCODE_CONFIG_CONTENT"):
+            self.env.pop(key, None)
 
     def test_standalone_cli_full_interview_approval_review_and_completion(self):
         self.launch(["Greeting tool", "--chat"], 0, answers="CLI\nyes\nyes\n")
         _, state = self.saved()
         self.assertEqual("opencode", state["settings"]["engine"])
-        self.assertEqual(oc.DEFAULT_MODELS, {role: settings["model"] for role, settings in state["settings"]["roles"].items()})
+        self.assertTrue(state["settings"]["joint_planning"])
+        self.assertEqual("glm", state["stages"][0]["role"])
+        expected = {"glm": "zai-coding-plan/glm-5.3", "astra": "gpt-6-astra",
+                    "terra": "zai-coding-plan/glm-5.3", "sol": "gpt-5.6-sol"}
+        self.assertEqual(expected, {role: settings["model"] for role, settings in state["settings"]["roles"].items()})
         self.assertEqual("COMPLETE", state["phase"])
         self.assertNotEqual(state["sessions"]["terra"], state["sessions"]["sol"])
-        sessions = {}
+        self.assertNotEqual(state["sessions"]["astra"], state["sessions"]["sol"])
+        engines = {"glm": "opencode", "terra": "opencode", "astra": "codex", "sol": "codex"}
         for record in state["stages"]:
             command = record["command"]
-            self.assertEqual("opencode", command[0])
-            self.assertNotIn("--sandbox", command)
-            self.assertNotIn("--auto", command)
             role = record["role"]
-            if role in sessions:
-                self.assertEqual(sessions[role], command[command.index("--session") + 1])
-            else:
-                sessions[role] = record["thread_id"]
-            self.assertEqual(oc.DEFAULT_MODELS[role], command[command.index("--model") + 1])
+            self.assertEqual(engines[role], record["engine"])
+            self.assertEqual(engines[role], command[0])
+            self.assertNotIn("--auto", command)
+            self.assertEqual(expected[role], command[command.index("--model") + 1])
 
 
 if __name__ == "__main__":

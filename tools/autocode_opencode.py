@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import uuid
 
 
 DEFAULT_MODELS = {
@@ -101,16 +102,25 @@ def check_models(roles, workspace=None):
         raise RuntimeError("Models unavailable in OpenCode: " + ", ".join(sorted(set(missing))))
 
 
-def launch(role, workspace, run_dir, session, model, effort, allow_write):
+def launch(role, workspace, run_dir, session, model, effort, allow_write, *, planning=False):
     if not model or "/" not in model or any(c.isspace() for c in model):
         raise ValueError("OpenCode model must use provider/model, e.g. zai-coding-plan/glm-5.3")
     agent = "autocode_" + role
+    if planning:
+        # Fresh name prevents deep-merged configured role/tool allows from
+        # surviving our read-tools-only policy.
+        agent += "_plan_" + uuid.uuid4().hex
     # Only restrict permissions here. Do not replace a user's denies/asks with
     # allows, and never enable OpenCode's --auto blanket permission approval.
     permissions = {"task": "deny", "question": "deny", "plan_enter": "deny", "plan_exit": "deny"}
     if not allow_write:
         permissions["edit"] = "deny"
-    overrides = {"share": "disabled", "autoupdate": False,
+    if planning:
+        # An explicit read-tools-only planning agent: no shell, delegation, MCP,
+        # plugins' tools or edit escape hatch. The runner persists its report.
+        permissions = {"*": "deny", "read": "allow", "glob": "allow", "grep": "allow", "list": "allow",
+                       "edit": "deny", "bash": "deny", "task": "deny", "question": "deny", "external_directory": "deny"}
+    overrides = {"$schema": "https://opencode.ai/config.json", "share": "disabled", "autoupdate": False,
                  "agent": {agent: {"description": f"Autocode {role} role", "mode": "primary",
                                     "permission": permissions}}}
     env = dict(os.environ)
@@ -149,12 +159,20 @@ def prompt_for_schema(prompt, schema, events):
         "tool_use rows where part.tool is bash and part.state.status is completed. "
         "Cite event:<part.id>, copy part.state.input.command exactly, and report "
         "part.state.metadata.exit. Never invent event IDs or exit codes.\n"
+        "An evidence_refs entry must contain only a file path or the exact event:<part.id>; "
+        "never append a command, exit code, punctuation or explanation to a reference. "
+        "Do not cite a step_finish or text part ID. Terra should prefer the saved capture "
+        "JSON/log file paths in evidence_refs, and list commands separately in commands_run.\n"
         "OpenCode tool permissions apply. Do not modify application code in Astra or Sol, "
         "including via shell commands or external tools. If a required operation is denied, "
         "report a blocker; do not bypass the permission.\n"
         "Treat the workspace in CURRENT HANDOFF DATA as a strict filesystem boundary. Do not "
         "read, list, search, or modify parent directories, sibling projects, or external "
-        "configuration files, including any ancestor AGENTS.md.\n"
+        "configuration files, including any ancestor AGENTS.md. The only source-file exceptions "
+        "are the exact read-only workspace cache records in CURRENT HANDOFF DATA under "
+        "private_source_exceptions. Use their workspacePath only, preserve their canonicalPath, "
+        "sourceId, and SHA-256 identity, and do not treat this as permission to access the "
+        "external canonical location or any other external file.\n"
         + json.dumps(schema, indent=2) + "\n")
     return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
 
@@ -239,9 +257,25 @@ def final_report(path):
     try:
         report = json.loads(final)
     except ValueError:
+        # OpenCode can emit commentary and the final report as distinct text
+        # parts under the same completed message. Accept the final complete JSON
+        # part only when there is exactly one JSON-object part in that message.
+        parts = [text.strip() for text in texts.values() if text.strip()]
+        parsed_parts = []
+        for index, part_text in enumerate(parts):
+            try:
+                candidate = json.loads(part_text)
+            except ValueError:
+                continue
+            if isinstance(candidate, dict):
+                parsed_parts.append((index, candidate))
+        if len(parsed_parts) == 1 and parsed_parts[0][0] == len(parts) - 1:
+            report = parsed_parts[0][1]
         # Models may wrap the report in commentary despite the schema instruction;
         # accept an explicitly fenced JSON block, but never a bare fragment in prose.
         for candidate in reversed(re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", final, re.S)):
+            if report is not None:
+                break
             try:
                 report = json.loads(candidate)
                 break

@@ -1,0 +1,14 @@
+{
+  "tools/autocode.py": "a02f09db69eaf80d6ca0bb7e6b294a47c7ec08d07dbe44836ee4a531fc5434cd",
+  "tools/autocode_milestones.py": "c7eea9a53060803d4f2f356cd07f0561ba6c357d7f0bdb1a7a1fba27739a3c99",
+  "tools/autocode_goals.py": "c859164bfa5e9a13ba350bd55507d4db135d0e8ab4cde0f34cb6f71690be71d3",
+  "tools/autocode_support.py": "54456479c3efbd00234d3c16b9def941b19c090c70697435700c5e4dc41b83f7",
+  "tools/autocode_workflow.py": "b73bc8a0c9918a212f0188198c0222044533c5aea6b15b3b9bbda8e026899db2",
+  "tools/test_milestone_checkpoints.py": "0dd846c5c950bb867cccfbfe5bea1b7b20e05bbd79ee051b6feb4f23cd35a5cf",
+  "tools/test_subprocess.py": "78942935172bf8021548b12aef9265e826188129bacf50cabd0dbac4ecbe81a1",
+  "tools/fake_codex.py": "c00d775041ef04202a5374becb24ebb4fed87fea5030e86c6b1caa7349e492fb",
+  "tools/test_workflow.py": "63c635dcb490fe20d64587ba6b1059fc6a463dd6b97ea70e75e734b03c6dedf8",
+  "tools/test_autocode.py": "b71991dc68e9e4a395f6ba28b220c474f8bd4527bcb2858efaa8dae0fda05328",
+  "tools/test_process.py": "85910319168735da4631bb20402801ca4202b5ff4865879f190f1969fb5700b4",
+  "README.md": "f30e60fd29c49003b8496d69115176586f6e838a68c89189ca8a9a801c784c39"
+}

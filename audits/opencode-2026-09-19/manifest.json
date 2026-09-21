@@ -1,0 +1,13 @@
+{
+  "autocode_version": "0.5.3",
+  "opencode_version": "1.18.31",
+  "baseline_command": "python3 -m unittest tools/test_autocode.py tools/test_goals.py tools/test_subprocess.py tools/test_opencode.py",
+  "baseline_tests_passed": 101,
+  "baseline_duration_seconds": 31.564,
+  "source_sha256": {
+    "tools/autocode.py": "ddd356cfad4a2b8f2d6ee97436753ff3eb827572c912b65aa4a62d9a613d3393",
+    "tools/autocode_opencode.py": "c14c8d3670d8ed34567428b6d369a7eee285bfbce52ec8dd36f7a6e0075a0082",
+    "tools/autocode_support.py": "c01d48e8a1a2520d2f21a0e3c8b4e75190a95e40abfbea8c92b08b459230d044"
+  },
+  "hosted_model_requests": 0
+}

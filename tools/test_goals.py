@@ -3,6 +3,7 @@ import copy
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -12,6 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode as runner
+import autocode_interventions as interventions
 import autocode_support as s
 import autocode_goals as g
 from goal_fixtures import body, envelope
@@ -22,6 +24,9 @@ class GoalTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
+        self.registry_environment = patch.dict(os.environ, {"AUTOCODE_HOME": str(self.root / "registry-home")})
+        self.registry_environment.start()
+        self.addCleanup(self.registry_environment.stop)
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         subprocess.run(["git", "-C", str(self.root), "-c", "user.name=Fixture", "-c", "user.email=f@example.test",
                         "commit", "--allow-empty", "-qm", "fixture"], check=True)
@@ -98,6 +103,21 @@ class GoalTests(unittest.TestCase):
         self.assertIn('"text": "CLI"', prompt)
         with self.assertRaisesRegex(ValueError, "already answered"):
             self.draft(questions=True)
+
+    def test_permission_response_keeps_the_approved_goal_and_evidence(self):
+        self.approve()
+        contract = copy.deepcopy(self.state["goal_contract"])
+        self.state["validation"] = {"verdict": "FAIL", "source_revision": "pinned"}
+        self.state.update(status="WAITING_FOR_USER", phase="WAITING_FOR_USER", next_stage="astra_review",
+                          user_request={"kind":"permission", "decision_needed":"Authorize bounded repair", "impact":"Limit reached", "options":[], "proposed_delta":"limit only"},
+                          pending_questions=[{"id":"decision-limit", "question":"Authorize bounded repair", "why":"Limit reached", "options":[], "proposed_default":""}])
+        g.resolve_permission(self.state, "decision-limit", "Approve the saved limit change")
+        self.assertEqual(contract, self.state["goal_contract"])
+        self.assertEqual({"verdict": "FAIL", "source_revision": "pinned"}, self.state["validation"])
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertEqual("astra_review", self.state["next_stage"])
+        self.assertNotIn("user_request", self.state)
+        self.assertEqual("permission_answer", self.state["answers"]["decision-limit"]["kind"])
 
     def test_answer_is_never_approval_and_resume_does_not_bypass_remaining_question(self):
         draft = body(questions=True)
@@ -249,6 +269,36 @@ class GoalTests(unittest.TestCase):
         with patch.object(s, "workspace_lock", concurrent_update):
             self.assertEqual(0, self.invoke("--show-goal"))
         self.assertIn({"kind": "concurrent-user-event"}, self.state["user_events"])
+
+    def test_safe_boundary_feedback_is_applied_once_and_requires_explicit_continue(self):
+        self.approve()
+        s.atomic_json(self.run / "state.json", self.state)
+        receipt = interventions.submit(self.root, self.run, request_id="change-1", kind="feedback",
+                                       text="Retain the partial implementation")
+        self.assertTrue(runner.consume_interventions(self.state, self.run, self.root))
+        self.assertEqual("PAUSED_INTERVENTION", self.state["status"])
+        self.assertEqual("astra_discovery", self.state["next_stage"])
+        self.assertFalse(g.approved(self.state))
+        self.assertEqual("intervention-change-1", self.state["brief_feedback"][-1]["id"])
+        self.assertEqual(["change-1"], [item["id"] for item in self.state["applied_interventions"]])
+        self.assertEqual([], interventions.inspect(self.root, self.run)["requests"])
+        self.assertFalse(runner.consume_interventions(self.state, self.run, self.root))
+        self.assertEqual(receipt["receipt"]["text"], self.state["applied_interventions"][0]["text"])
+
+    def test_pause_only_preserves_approval_and_has_an_acknowledgement_lifecycle(self):
+        self.approve()
+        prior_stage = self.state["next_stage"]
+        s.atomic_json(self.run / "state.json", self.state)
+        interventions.submit(self.root, self.run, request_id="pause-1", kind="pause", text="")
+        self.assertTrue(runner.consume_interventions(self.state, self.run, self.root))
+        self.assertEqual("PAUSED_INTERVENTION", self.state["status"])
+        self.assertEqual(prior_stage, self.state["next_stage"])
+        self.assertTrue(g.approved(self.state))
+        self.assertIsNone(self.state["pause_intent"]["acknowledged_at"])
+        self.assertEqual(2, self.invoke())
+        (self.run / "pause-requested").write_text("fixture")
+        self.assertEqual(2, self.invoke("--resume-paused"))
+        self.assertIsNotNone(self.state["pause_intent"]["acknowledged_at"])
 
     def test_stale_role_result_and_criterion_weakening_are_transactionally_rejected(self):
         self.approve()
