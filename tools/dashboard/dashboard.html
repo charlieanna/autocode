@@ -27,6 +27,7 @@
 
   <main class="main-area">
     <header class="topbar"><button id="nav-toggle" class="icon-button" aria-label="Toggle navigation" aria-expanded="false"><span data-icon="grid"></span></button><div class="breadcrumb"><span>Workspace</span><span class="crumb-divider">/</span><strong id="breadcrumb-title">Needs you</strong></div><span class="sync-state" id="sync-state"><span class="status-dot"></span>Live updates</span></header>
+    <div class="display-controls" aria-label="Dashboard display"><span>LOCAL ONLY · AUTOCODE</span><button id="focus-toggle" hidden>Focus view</button><button id="theme-toggle" aria-pressed="true">Light theme</button></div>
     <div id="dashboard-notice" class="notice error" role="alert" hidden></div>
     <div class="toast-stack"><div id="project-notice" class="project-notice" role="status" aria-live="polite" hidden></div>
     <div id="archive-notice" class="project-notice" role="status" aria-live="polite" hidden></div>
@@ -84,6 +85,7 @@
     </section>
 
     <section id="task-detail" class="page detail-page" hidden>
+      <div id="task-load-notice" class="notice error" role="alert" hidden><p id="task-load-message"></p><button id="retry-task">Retry status</button></div>
       <div class="task-detail-navigation"><button class="text-button" id="task-back">← All work</button><details class="context-menu"><summary aria-label="Task settings">•••</summary><div><h3>Models by step</h3><div id="task-models" class="field-note"></div><details class="task-project-details"><summary>Project details</summary><div id="task-project-actions" class="project-scope-actions"></div></details><button id="archive-task" type="button" disabled>Archive task</button></div></details></div>
       <div class="detail-heading"><div><p id="task-project" class="eyebrow"></p><h1 id="task-title">Select a task</h1></div><div id="task-status"></div></div>
       <div class="task-now"><div><p id="task-subtitle" class="current-step" aria-live="polite"></p><p id="task-objective" class="field-note"></p></div><div class="task-actions"><button id="pause-run" title="Pause after the current stage" hidden>Pause</button><button id="continue-run" class="primary" disabled>Loading…</button></div></div>

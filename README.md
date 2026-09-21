@@ -88,8 +88,8 @@ python3 tools/dashboard/agent_console.py --port 8767
 
 Open the printed loopback URL. New conversations do not require a project: GLM
 can clarify the idea first, then the conversation can be attached to a Git
-workspace for joint GLM/Astra planning. A task’s **Now** view is the source of
-truth for its current stage, the exact user action required, plan-revision
+workspace for joint GLM/Astra planning. A task’s **Now** view presents the runner's
+saved current stage, the exact user action required, plan-revision
 approval, and output-review approval. Archiving tasks, conversations, or
 projects only changes the dashboard’s local visibility; it never deletes source
 files or runner checkpoints.
@@ -98,6 +98,60 @@ The dashboard uses `$AUTOCODE_HOME/dashboard` by default (or
 `$AUTOCODE_DASHBOARD_HOME`) for conversations and reversible archive settings.
 It binds only to `127.0.0.1`, starts no development server for task previews,
 and uses documented Autocode commands for task changes.
+
+### One local dashboard, two layouts
+
+The **Now** tab combines the live monitor with the project/task console:
+verified worker identity, exact saved role/model settings, current objective,
+filtered tool activity, review findings, acceptance counts, and artifact progress.
+**Focus view** hides navigation without starting a different server. Dark and
+light themes are local browser preferences. A focused link can append `&focus=1`
+to the existing `#task=…&run=…` URL.
+
+Saved status, worker liveness, artifact timestamps, and task-read freshness are
+separate signals. A disconnected task retains its last successful view, labels it
+stale, disables mutations, and offers **Retry status**. Refreshing the project list
+does not make a failed task read look current. HTTP read failures never resume,
+restart, or retry an agent stage.
+
+Project-specific counters are optional. Declare a read-only projection in the
+project's `.autocode/dashboard.json` (not in runner state):
+
+```json
+{
+  "version": 1,
+  "metrics": [{
+    "id": "mapping", "label": "Mapping coverage", "runs": ["EXACT-RUN-DIRECTORY-NAME"],
+    "description": "Dispositioned records, not completion or mastery.",
+    "source": "artifacts/coverage.json", "groups_pointer": "/areas",
+    "completed_field": "done", "total_field": "total"
+  }]
+}
+```
+
+The referenced object contains named groups, each with integer counters or lists
+whose lengths are counted. Sources must remain inside that project (including
+after symlink resolution). Invalid/missing data is **unavailable**, never zero or
+PASS. The artifact modification time is shown prominently. A cached projection
+avoids repeatedly parsing large files; changes to the file or config invalidate
+it. No commands, imports, provider requests, or raw content are executed by these
+metric declarations. Removing the config removes the panel. An exact run-name
+allowlist prevents another task inheriting unrelated progress.
+
+Dashboard verification, with localhost socket access:
+
+```sh
+python3 -m unittest discover -s tools/dashboard/tests -p 'test_*.py'
+for test_file in tools/dashboard/tests/test_*.js; do node "$test_file" || exit 1; done
+python3 tools/dashboard/tests/unified_browser_fixture.py
+```
+
+The browser fixture uses disposable workspaces and cannot launch agents. The
+packaged-import regression tests the installed entry-point layout, not just the
+source-directory import path. Updating files does not reload a running dashboard:
+restart only its server at an idle boundary, preserving the same environment and
+storage paths. Do not interrupt queued dashboard actions or provider requests.
+The autonomous runner is independent and does not need restarting.
 
 ## Browser registry API
 

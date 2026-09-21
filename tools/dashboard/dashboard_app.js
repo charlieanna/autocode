@@ -5,6 +5,7 @@ let evidenceRequest = 0, evidenceRun = '', previewRun = '', scrollThreadToEnd = 
 let taskReturn = {view:'inbox',filter:'all',project:''};
 const evidenceCache = new Map();
 let latestData = null, latestRun = null, actionProblem = '', newTaskPending = null;
+let taskReadError = '', taskReadAt = null;
 let activeConversation = null, latestConversation = null, refreshPromise = null, refreshAgain = false, refreshTimer = null;
 let creatingConversation = false, conversationRequest = null;
 const conversationPending = new Set(), conversationRetries = new Map(), taskChatPending = new Map(), taskChatErrors = new Map();
@@ -73,7 +74,9 @@ function disclosure(label, key, children, run = chosen?.run || '') {
   return element;
 }
 async function api(url, options) {
-  const response = await fetch(url, options), data = await response.json();
+  // Only reads have a client deadline. Never replay an uncertain mutation.
+  const request = options || {cache:'no-store',signal:AbortSignal.timeout(20000)};
+  const response = await fetch(url, request), data = await response.json();
   if (!response.ok) throw Error(data.error || 'The request could not be completed.');
   return data;
 }
@@ -296,9 +299,9 @@ function taskOverviewState(run) {
 function workflowCards(run, state) {
   const mode=run.monitor?.workflow_mode,finalOnly=mode==='glm_final_audit_v2',glmFirst=finalOnly||mode==='glm_first_v1';
   const config=glmFirst?[['terra','GLM','Plan & implement'],['sol','Sol','Targeted escalation only'],['astra','Astra',finalOnly?'Final full-task audit only':'Milestone review']]:
-    [...(jointPlanning(run)?[['glm','GLM','Draft & revise']]:[]),['astra','Astra','Plan & direct'],['terra','Terra','Implement'],['sol','Sol','Review']];
+    [...(jointPlanning(run)&&(state.role==='glm'||run.goal?.approval_status!=='approved')?[['glm','GLM','Draft & revise']]:[]),['astra','Astra','Plan & direct'],['terra',String(run.monitor?.roles?.terra?.model||run.model_settings?.roles?.terra||'').includes('glm')?'GLM · Implementer':'Terra','Implement'],['sol','Sol','Review']];
   const host=card('','workflow-cards');host.setAttribute('aria-label','Agent workflow');
-  for(const [role,name,duty]of config){const selected=state.active&&state.role===role,item=card('','workflow-card'+(selected?' active':''));
+  for(const [role,name,duty]of config){const selected=state.active&&state.role===role,item=card('','workflow-card'+(selected&&state.verified?' active':''));
     item.append(Object.assign(n('p',duty),{className:'monitor-kicker'}),n('h3',name));
     const saved=run.monitor?.roles?.[role]||{},model=saved.model||run.model_settings?.roles?.[role];
     item.append(Object.assign(n('p',model||'Model not recorded'),{className:'workflow-model'}));
@@ -314,7 +317,8 @@ function monitorPanel(run, compact=false) {
   main.append(Object.assign(n('p',evidence),{className:'monitor-evidence'}));
   const iteration=card('','monitor-iteration');iteration.append(n('strong',Number.isFinite(run.iteration)?run.iteration:'—'),n('span','iteration'+(monitor.limits_known?(monitor.iteration_limit==null?' · unlimited':' / '+monitor.iteration_limit):'')));
   hero.append(main,iteration);host.append(hero,workflowCards(run,state));
-  const objective=card('','monitor-objective');objective.append(Object.assign(n('p','CURRENT OBJECTIVE'),{className:'monitor-kicker'}),n('p',compact?concise(state.objective,300):state.objective));host.append(objective);
+  const objective=card('','monitor-objective');objective.append(Object.assign(n('p','CURRENT OBJECTIVE'),{className:'monitor-kicker'}),n('p',concise(state.objective,650)));
+  if(state.objective.length>650)objective.append(disclosure('Read full objective','monitor-objective',[n('p',state.objective)],run.run));host.append(objective);
   const needs=card('','monitor-next');needs.append(Object.assign(n('p','YOUR NEXT ACTION'),{className:'monitor-kicker'}),n('p',state.info.group==='attention'||state.info.group==='stopped'?state.info.reason:state.info.group==='complete'?'No reply needed. The runner recorded this task as complete.':'No reply requested. You can send feedback in the conversation.'));
   if(!compact)needs.append(focusKey(button(state.info.group==='attention'?state.info.action+' →':'Open conversation →',()=>activateTab(state.info.group==='attention'?state.info.tab:'interview'),'text-button'),'overview-conversation'));
   host.append(needs);
@@ -322,16 +326,29 @@ function monitorPanel(run, compact=false) {
   if(!compact){
     const details=card('','monitor-details'),activity=card('','monitor-activity'),history=card('','monitor-history');
     activity.append(n('h3','Latest activity'),Object.assign(n('p','Recent tool events. A quiet log alone does not mean the worker is stuck.'),{className:'monitor-caption'}));
-    for(const entry of monitor.activity||[]){const row=card('','monitor-event');row.append(n('span',entry.label),n('small',human(entry.status)+(entry.exit_code!=null?' · exit '+entry.exit_code:'')));activity.append(row);}
+    for(const entry of monitor.activity||[]){const row=card('','monitor-event');row.append(n('span',entry.label),n('small',human(entry.status)+(entry.exit_code!=null?' · exit '+entry.exit_code:'')));if(entry.test_summary)row.append(Object.assign(n('p',entry.test_summary),{className:'monitor-test-summary'}));activity.append(row);}
+    activity.append(Object.assign(n('p','Latest six events from a bounded log window. Numeric test totals are tool-reported, not a task verdict. Full evidence is in Checks.'),{className:'monitor-caption'}));
     if(!monitor.activity?.length)activity.append(n('p','No recent tool events are available.'));
-    history.append(n('h3','Recent steps'),Object.assign(n('p','Saved stage outcomes; a successful command does not mark the task complete.'),{className:'monitor-caption'}));
-    for(const step of monitor.history||[]){const row=card('','monitor-event'),outcome=step.interrupted?'Interrupted':step.timed_out?'Timed out':step.rejected?'Rejected':step.exit_code===0?'Finished':step.exit_code!=null?'Exit '+step.exit_code:'Recorded';row.append(n('span',human(step.stage)),n('small',outcome+(step.iteration!=null?' · iteration '+step.iteration:'')));history.append(row);}
-    if(!monitor.history?.length)history.append(n('p','No completed steps have been recorded.'));details.append(activity,history);host.append(details);
+    history.append(n('h3','Review findings'),Object.assign(n('p','Latest saved review'+(monitor.validation_verdict?' · '+monitor.validation_verdict:'')+'. Fixes in progress may not yet be revalidated.'),{className:'monitor-caption'}));
+    for(const finding of monitor.findings||[]){const row=card('','monitor-event');row.append(n('span',finding.finding||'Finding details unavailable'),n('small',human(finding.severity)));history.append(row);}
+    if(!monitor.findings?.length)history.append(n('p','No unresolved findings recorded. This is not proof of completion.'));details.append(activity,history);host.append(details);
+    for(const metric of monitor.metrics||[])host.append(metricPanel(metric));
     const counts=run.counts||{},criteria=card('','monitor-criteria');criteria.append(n('h3','Acceptance checks'),n('p',(counts.pass||0)+' passed · '+(counts.fail||0)+' failed or blocked · '+(counts.unknown||0)+' unverified'),button('View evidence & reviews →',()=>activateTab('execution'),'text-button'));host.append(criteria);
   }return host;
 }
-function renderTaskOverview(run) {const host=$('#task-overview');host.replaceChildren(monitorPanel(run));if(run.interventions)host.append(disclosure('Saved controls & delivery history','runtime-controls',[renderDocument(run.interventions)],run.run));host.hidden=currentTab!=='overview';}
-function markMonitorStale(){document.querySelectorAll('.monitor-panel').forEach(panel=>panel.classList.add('monitor-stale'));}
+function metricPanel(metric){
+  const host=card('','metric-panel');host.append(n('h3',metric.label||'Project progress'));
+  if(metric.error){host.append(Object.assign(n('p',metric.error),{className:'error'}));return host;}
+  const fmt=value=>Number.isFinite(value)?value.toLocaleString():'Unknown';
+  host.append(Object.assign(n('p',fmt(metric.done)+' / '+fmt(metric.total)),{className:'metric-total'}),n('p',metric.description||'Artifact counters, not a task-completion verdict.'),Object.assign(n('p','Artifact snapshot · '+new Date(metric.updated).toLocaleString()+' · '+statusAge(metric.updated)),{className:'monitor-caption'}));
+  const areas=card('','metric-areas');for(const area of metric.areas||[]){const item=card('','metric-area'),bar=n('progress','');bar.max=area.total||1;bar.value=area.done;bar.setAttribute('aria-label',area.name);item.append(n('span',human(area.name)),n('strong',fmt(area.done)+' / '+fmt(area.total)),bar);areas.append(item);}host.append(areas,n('code',metric.source));return host;
+}
+function renderTaskOverview(run) {
+  const host=$('#task-overview');host.replaceChildren(n('h2','Recent saved steps'),n('p','Stage exits are not task-completion verdicts. Full evidence remains in Checks.'));
+  for(const step of run.monitor?.history||[]){const row=card('','monitor-event');row.append(n('span',human(step.stage)+' · iteration '+(step.iteration??'?')),n('small',(step.rejected?'Rejected':step.interrupted?'Interrupted':step.timed_out?'Timed out':step.exit_code===0?'Finished':'Recorded')+' · '+(step.finished_at||'Time not recorded')));host.append(row);}
+  if(run.interventions)host.append(disclosure('Saved controls & delivery history','runtime-controls',[renderDocument(run.interventions)],run.run));host.hidden=currentTab!=='overview';
+}
+function markMonitorStale(){document.querySelectorAll('.monitor-panel').forEach(panel=>{panel.classList.add('monitor-stale');const title=panel.querySelector('.monitor-state h2');if(title)title.textContent='Status unverified';const freshness=panel.querySelector('.monitor-freshness');if(freshness)freshness.textContent='Live checks unavailable. The details below are from the last successful read.';panel.querySelectorAll('.workflow-card.active').forEach(card=>card.classList.remove('active'));});}
 function renderProjectOverview(scope) {
   const host=$('#project-overview');host.replaceChildren();host.hidden=!projectFilter;if(!projectFilter)return;
   const actual=scope.filter(run=>run.run&&!run.error),summary=projectRunSummary(actual);
@@ -344,6 +361,10 @@ function renderProjectOverview(scope) {
 function setView(view) {
   if (currentView !== view) seq++;
   currentView = view;
+  document.body.classList.toggle('monitor-focus',view==='task-detail'&&stored('focus')==='1');
+  $('#focus-toggle').hidden=view!=='task-detail';
+  $('#focus-toggle').textContent=stored('focus')==='1'?'Show navigation':'Focus view';
+  $('#focus-toggle').setAttribute('aria-pressed',String(stored('focus')==='1'));
   if(['tasks','inbox','conversations','settings','new-task','archived'].includes(view))rememberSelection(view==='new-task'?'new':view==='tasks'?taskSelection():view);
   for (const id of ['inbox','tasks','new-task','task-detail','settings','conversations','draft-conversation','archived']) $('#'+id).hidden = id !== view;
   $('#breadcrumb-title').textContent = view==='inbox'?'Needs you':view==='archived'?'Archived':view === 'tasks' ? taskScopeTitle() : view === 'new-task' ? 'New conversation' : view === 'settings' ? 'Settings' : ['conversations','draft-conversation'].includes(view)?'Conversation':basename(chosen?.workspace);
@@ -365,6 +386,7 @@ function activateTab(tab) {
   if(latestRun)renderPrimaryAction(latestRun);
   if(changed&&tab==='interview'&&scrollThreadToEnd)settleThreadScroll();
   document.querySelectorAll('[data-tab]').forEach(element => { element.classList.toggle('selected',element.dataset.tab === tab); element.setAttribute('aria-current',element.dataset.tab === tab ? 'page' : 'false'); });
+  if(taskReadError)disableStaleControls();
 }
 function openRun(run, tab = 'now') {
   $('#archive-task').disabled=true;
@@ -373,6 +395,7 @@ function openRun(run, tab = 'now') {
   const changed = chosen?.run !== run.run;
   if(changed){$('#task-overview').hidden=true;$('#now').dataset.rendered='';$('#now').replaceChildren(n('p','Loading current state…'));scrollThreadToEnd=true;stopPreview();evidenceRun='';evidenceRequest++;$('#changes-content').replaceChildren();$('#thread-checkpoint').replaceChildren();$('#task-objective').textContent='';$('#conversation').dataset.rendered='';}
   chosen = {workspace:run.workspace,run:run.run}; activeConversation = null; latestRun = null; seq++;
+  taskReadError='';taskReadAt=null;$('#task-load-notice').hidden=true;
   rememberSelection('task='+encodeURIComponent(run.workspace)+'&run='+encodeURIComponent(run.run));
   renderTaskProjectActions(run.workspace);$('#task-removed-banner').hidden=true;$('#detail-grid').hidden=false;
   if (changed) { $('#conversation').replaceChildren(); $('#brief-current').replaceChildren(); $('#plan-full').replaceChildren(); $('#goal').replaceChildren(); $('#live-controls').hidden=true; $('#task-attention').hidden=true; $('#continue-run').disabled=true; $('#pause-run').disabled=true; $('#task-project').textContent=basename(run.workspace); $('#task-title').textContent=taskTitle(run); $('#task-subtitle').textContent='Loading current task state…'; $('#task-models').textContent=''; $('#task-status').replaceChildren(); }
@@ -826,7 +849,7 @@ function taskSentence(run,busy=false){
   if(info.group==='running'){
     const phrases={astra_discovery:'drafting the plan',astra_challenge:'reviewing the draft plan',glm_revise:'revising the plan',astra_finalize:'finalizing the plan',terra:'implementing the current step',sol:'verifying the changes',astra_checkpoint:'auditing the completed work',astra_review:'reviewing the latest results',astra:'assigning the next step'};
     const sentence=role+' is '+(phrases[stage]||'working on the current step');
-    return run.monitor?.live?.state==='alive'?sentence:'Last reported: '+sentence.charAt(0).toLowerCase()+sentence.slice(1);
+    return run.monitor?.live?.state==='alive'?sentence:'Last reported: '+sentence;
   }
   return info.label==='Answer needed'?'Your answer is needed to continue':info.label==='Approve plan'?'The plan is ready for your approval':info.label==='Review output'?'Your review is needed before completion':info.label==='Ready to finish'?'Your review is saved. Ready to finish.':info.group==='complete'?'The task is complete':info.label==='Planning needs retry'?'Planning stopped. A fresh draft is needed.':info.label==='Ready to continue'?'Ready for the next step':info.label==='Interrupted'?'An interrupted attempt needs review':info.group==='attention'?'Your decision is needed':info.label==='Worker stopped'?'The worker stopped at a saved checkpoint':'The task is paused';
 }
@@ -863,18 +886,13 @@ function taskPosition(run){
 }
 function renderTaskNow(run){
   const host=$('#now'),decision=taskDecision(run,taskActionBusy(run)),phase=taskPhase(run),assignment=run.astra_plan?.current_assignment;
-  const signature=JSON.stringify([run.run,run.status,run.stage,run.iteration,run.goal_token,run.goal?.approval_status,run.questions,run.user_request,run.stop_reason,run.monitor?.live,run.monitor?.history,assignment,decision]);
+  const signature=JSON.stringify([run.run,run.status,run.stage,run.iteration,run.goal_token,run.goal?.approval_status,run.questions,run.user_request,run.stop_reason,run.monitor,assignment,decision]);
   if(host.dataset.rendered===signature)return;host.dataset.rendered=signature;host.replaceChildren();
   const path=n('ol','');path.className='task-path';path.setAttribute('aria-label','Workflow stage');
   for(const [key,label]of [['planning','Plan'],['approval','Your approval'],['implementation','Build'],['review','Review'],['complete','Complete']]){const item=n('li',label);if(key===phase){item.className='current';item.setAttribute('aria-current','step');}path.append(item);}host.append(path);
-  const decisionCard=card('','decision-card'+(decision.required?' needs-decision':''));decisionCard.append(Object.assign(n('p','YOUR NEXT ACTION'),{className:'eyebrow'}),n('h2',decision.title),n('p',decision.description),Object.assign(n('p',decision.after),{className:'decision-after'}));host.append(decisionCard);
-  const work=card('','current-work');work.append(Object.assign(n('p','CURRENT STEP'),{className:'eyebrow'}));
-  const nextStage=run.monitor?.next_stage||run.stage||'',step=stageName({...run,stage:nextStage});
-  work.append(n('h2',run.status==='TASK_COMPLETE'?'Work complete':(statusInfo(run).group==='stopped'?'Next · ':'')+step),n('p',assignment?.objective||run.monitor?.objective||'No implementation assignment has been recorded yet.'));
-  if(assignment){const detail=disclosure('Assignment scope & checks','current-assignment:'+assignment.id,[renderDocument(assignment)],run.run);work.append(detail);}
-  const meta=card('','current-work-meta');meta.append(n('span',run.monitor?.live?.state==='alive'?'Worker is running':statusInfo(run).group==='running'?'Activity reported; worker not confirmed':'No work in progress at this saved checkpoint'));
-  if(Number.isFinite(run.iteration))meta.append(n('span','Iteration '+run.iteration+(run.monitor?.limits_known&&run.monitor.iteration_limit!=null?' / '+run.monitor.iteration_limit:'')));
-  work.append(meta,n('p','Iterations count work cycles, not completed milestones.'));work.lastChild.className='field-note';host.append(work);
+  if(decision.required){const decisionCard=card('','decision-card needs-decision');decisionCard.append(Object.assign(n('p','YOUR NEXT ACTION'),{className:'eyebrow'}),n('h2',decision.title),n('p',decision.description),Object.assign(n('p',decision.after),{className:'decision-after'}));host.append(decisionCard);}
+  host.append(monitorPanel(run));
+  if(assignment)host.append(disclosure('Assignment scope & checks','current-assignment:'+assignment.id,[renderDocument(assignment)],run.run));
   const context=card('','current-context'),plan=card('','');plan.append(n('h3','Current plan'),n('p',run.goal?.revision!=null?'Revision '+run.goal.revision+' · '+(run.goal.approval_status==='approved'?'Approved':decision.action.kind==='plan'?'Ready for review':'Draft'):'No plan revision saved'),button('Read current plan →',()=>activateTab('plan'),'text-button'));context.append(plan);
   const checkpoint=card('',''),latest=[...(run.monitor?.history||[])].sort((a,b)=>Date.parse(b.finished_at)-Date.parse(a.finished_at))[0];checkpoint.append(n('h3','Last saved step'));
   if(latest){checkpoint.append(n('p',stageName({...run,stage:latest.stage})+' · iteration '+(latest.iteration??'?')),n('p',(latest.rejected?'Output rejected':latest.interrupted?'Interrupted':latest.timed_out?'Timed out':latest.exit_code===0?'Step finished':'Step stopped')+' · '+new Date(latest.finished_at).toLocaleString()));}else checkpoint.append(n('p','No completed step recorded.'));
@@ -976,7 +994,17 @@ function renderLiveControls(run){
   if(sending)host.append(Object.assign(n('p','Saving your message…'),{className:'field-note'}));
   if(data.pause_intent&&!data.pause_intent.acknowledged_at&&statusInfo(run).group==='running')host.append(Object.assign(n('p','Pause requested. The current step will finish first.'),{className:'field-note'}));
 }
-function unavailableRun(message){$('#archive-task').disabled=true;$('#task-overview').hidden=true;$('#task-attention').replaceChildren();$('#task-attention').hidden=true;$('#now').dataset.rendered='';for(const id of ['now','conversation','brief-current','goal','plan-full','execution_view','actions'])$('#'+id).replaceChildren(Object.assign(n('p',message),{className:'error'}));$('#continue').disabled=true;$('#continue-run').disabled=true;$('#pause-run').disabled=true;$('#live-controls').hidden=true;}
+function disableStaleControls(){
+  document.querySelectorAll('#task-detail button, #task-detail input, #task-detail textarea, #task-detail select').forEach(control=>{if(!control.dataset.tab&&!['task-back','retry-task'].includes(control.id)){if(control.dataset.staleDisabled===undefined)control.dataset.staleDisabled=String(control.disabled);control.disabled=true;}});
+}
+function unavailableRun(message){
+  taskReadError=message;$('#sync-state').textContent='Task status unavailable';$('#task-status').replaceChildren(Object.assign(n('span','Status unverified'),{className:'badge failed'}));
+  $('#task-load-notice').hidden=false;$('#task-load-message').textContent=message+(taskReadAt?' Showing the last successful read from '+new Date(taskReadAt).toLocaleTimeString()+'.':' No current task data is available.')+' Controls are disabled until a successful refresh.';
+  // openRun clears latestRun on task changes. The server may canonicalize a
+  // symlinked workspace path; textual URL equality is not a freshness test.
+  if(!latestRun){$('#now').replaceChildren(n('p','Task status has not loaded. Retry to read the saved checkpoint.'));}
+  markMonitorStale();disableStaleControls();$('#continue').disabled=true;$('#live-controls').hidden=true;
+}
 function showRemovedRun(run) {
   stopPreview();evidenceRequest++;evidenceRun='';
   $('#archive-task').disabled=true;
@@ -997,6 +1025,8 @@ function showArchivedRun(run){
   renderTaskProjectActions(run.workspace);
 }
 function showRun(run,focus){
+  taskReadError='';taskReadAt=Date.now();$('#task-load-notice').hidden=true;$('#sync-state').textContent='Task checked just now';
+  document.querySelectorAll('[data-stale-disabled]').forEach(control=>{control.disabled=control.dataset.staleDisabled==='true';delete control.dataset.staleDisabled;});
   if(run.task_archived){showArchivedRun(run);restoreFocus(focus);return;}
   if(run.project_removed||removedProject(run.workspace)){showRemovedRun(run);restoreFocus(focus);return;}
   $('#task-removed-banner').hidden=true;$('#detail-grid').hidden=false;renderTaskProjectActions(run.workspace);
@@ -1030,11 +1060,11 @@ async function refreshOnce(){
   const mine=seq,selected=currentView==='task-detail'?chosen:null,conversationId=currentView==='draft-conversation'?activeConversation:null;
   try{
     const data=await api('/api/runs');if(mine!==seq)return;latestData=data;setup(data);const focus=captureControls();renderTasks(data);renderConversations(data);renderInbox(data);expireNotices();restoreFocus(focus);
-    $('#sync-state').replaceChildren(Object.assign(n('span',''),{className:'status-dot'}),document.createTextNode('Updated just now'));
+    if(!selected)$('#sync-state').replaceChildren(Object.assign(n('span',''),{className:'status-dot'}),document.createTextNode('Task list checked just now'));
     if(mine!==seq)return;
     if(conversationId){try{const doc=await api('/api/conversation?id='+encodeURIComponent(conversationId));if(mine!==seq||activeConversation!==conversationId||currentView!=='draft-conversation')return;renderDraftConversation(doc);}catch(error){if(mine===seq&&activeConversation===conversationId){latestConversation=null;$('#attach-submit').disabled=true;$('#draft-problem').replaceChildren(Object.assign(n('p',error.message),{className:'error'}));$('#draft-problem').hidden=false;$('#draft-send').disabled=true;}}}
     if(selected){try{const run=await api('/api/run?workspace='+encodeURIComponent(selected.workspace)+'&run='+encodeURIComponent(selected.run));if(mine!==seq||chosen?.run!==selected.run||currentView!=='task-detail')return;if(run.state_error)unavailableRun('Selected run unavailable: '+run.state_error);else showRun(run,captureControls());}catch(error){if(mine===seq&&chosen?.run===selected.run)unavailableRun('Selected run unavailable: '+error.message);}}
-  }catch(error){$('#sync-state').textContent='Connection interrupted';markMonitorStale();dashboardNotice(actionProblem||error.message);}
+  }catch(error){if(selected&&mine===seq)unavailableRun('Selected run unavailable: '+error.message);else $('#sync-state').textContent='Connection interrupted';markMonitorStale();dashboardNotice(actionProblem||error.message);}
 }
 async function refresh(){
   if(refreshPromise){refreshAgain=true;return refreshPromise;}
@@ -1044,11 +1074,18 @@ async function refresh(){
 }
 function restoreSelection() {
   const selection=location.hash.slice(1)||stored('selection','inbox'),params=new URLSearchParams(selection);
+  if(params.get('focus')==='1')persist('focus','1');
   if(params.get('conversation'))openConversation(params.get('conversation'));
   else if(params.get('task')&&params.get('run'))openRun({workspace:params.get('task'),run:params.get('run')});
   else if(selection==='tasks'||selection.startsWith('tasks&')){const filter=params.get('filter')||'all';filterTasks(['all',...taskGroups().map(group=>group[0])].includes(filter)?filter:'all',params.get('project')||'');}
   else setView(['inbox','conversations','settings','archived'].includes(selection)?selection:selection==='new'?'new-task':'inbox');
 }
 window.addEventListener('hashchange',restoreSelection);
+function applyTheme(theme){document.documentElement.dataset.theme=theme;$('#theme-toggle').textContent=theme==='dark'?'Light theme':'Dark theme';$('#theme-toggle').setAttribute('aria-pressed',String(theme==='dark'));}
+applyTheme(stored('theme','dark'));
+$('#theme-toggle').onclick=()=>{const theme=document.documentElement.dataset.theme==='dark'?'light':'dark';persist('theme',theme);applyTheme(theme);};
+$('#focus-toggle').onclick=()=>{const focus=stored('focus')!=='1';persist('focus',focus?'1':'0');document.body.classList.toggle('monitor-focus',focus);$('#focus-toggle').textContent=focus?'Show navigation':'Focus view';$('#focus-toggle').setAttribute('aria-pressed',String(focus));};
+$('#focus-toggle').textContent=stored('focus')==='1'?'Show navigation':'Focus view';
+$('#retry-task').onclick=()=>refresh();
 restoreSelection();
 refresh();

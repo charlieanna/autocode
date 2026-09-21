@@ -117,6 +117,7 @@ def activity_log(path):
         if kind in ('command_execution', 'file_change'):
             entry = {'label': 'Terminal command' if kind == 'command_execution' else 'File changes',
                      'status': item.get('status') or event.get('type'), 'exit_code': item.get('exit_code')}
+            output = item.get('aggregated_output')
         elif event.get('type') == 'tool_use':
             part = mapping(event.get('part')); tool = part.get('tool'); info = mapping(part.get('state'))
             if tool not in ('bash', 'read', 'grep', 'glob', 'edit', 'write', 'apply_patch'):
@@ -126,12 +127,19 @@ def activity_log(path):
             name = name if re.fullmatch(r'[A-Za-z0-9_.-]{1,100}', name) else ''
             entry = {'label': 'Terminal command' if tool == 'bash' else tool.title() + ': ' + (name or 'workspace files'),
                      'status': info.get('status'), 'exit_code': mapping(info.get('metadata')).get('exit')}
+            output = info.get('output') if tool == 'bash' else None
         else:
             continue
         if isinstance(ident, str):
             # Status is also an allow-list, not arbitrary provider text.
             entry['status'] = entry['status'] if entry['status'] in ('running', 'pending', 'completed', 'failed', 'error', 'in_progress', 'item.started', 'item.completed') else 'recorded'
             entry['exit_code'] = entry['exit_code'] if type(entry['exit_code']) is int else None
+            # Extract numeric test totals only; never expose raw logs, commands,
+            # failing-test names, source snippets, secrets, or model reasoning.
+            if isinstance(output, str):
+                totals = re.findall(r'(?m)^\s*(\d+ runs, \d+ assertions, \d+ failures, \d+ errors, \d+ skips|\d+ examples, \d+ failures(?:, \d+ pending)?|Ran \d+ tests? in [\d.]+s)\s*$', output)
+                if totals:
+                    entry['test_summary'] = ' · '.join(dict.fromkeys(totals[-3:]))
             found[ident] = entry
     return list(found.values())[-6:][::-1]
 
@@ -156,6 +164,9 @@ def snapshot(state, run, detailed=False):
               'objective': mapping(state.get('current_task')).get('objective') or state.get('next_action'),
               'active_role': active.get('role'), 'next_stage': state.get('next_stage')}
     if detailed:
+        result['findings'] = [{key: row.get(key) for key in ('severity', 'finding')}
+                              for row in rows(state.get('unresolved_findings')) if isinstance(row, dict)]
+        result['validation_verdict'] = mapping(state.get('validation')).get('verdict')
         result['activity'] = activity_log(path)
         result['history'] = [{k: s.get(k) for k in ('stage', 'role', 'iteration', 'finished_at', 'exit_code', 'rejected', 'interrupted', 'timed_out')} for s in stages[-6:]][::-1]
     return result

@@ -429,6 +429,11 @@ class Handler(BaseHTTPRequestHandler):
  def do_GET(self):
   try:return self.get_request()
   except (OSError,ValueError,TypeError) as error:return self.reply(503,{'error':str(error)})
+  except Exception as error:
+   # A failed view must not close the socket or look like a fresh checkpoint.
+   # Do not send state, credentials, or arbitrary exception text to the browser.
+   print('Dashboard GET failed: '+type(error).__name__,file=sys.stderr,flush=True)
+   return self.reply(500,{'error':'Task status could not be loaded. Saved work is unchanged; retry or check the dashboard server log.'})
  def get_request(self):
   p=urlparse(self.path)
   if not self.same_origin():return self.reply(403,{'error':'cross-origin request rejected'})

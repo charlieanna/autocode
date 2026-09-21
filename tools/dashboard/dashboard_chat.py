@@ -12,6 +12,13 @@ import threading
 import time
 import uuid
 
+try:
+    from .dashboard_monitor import snapshot
+    from .dashboard_metrics import project_metrics
+except ImportError:  # Direct source launch, as well as the installed entry point.
+    from dashboard_monitor import snapshot
+    from dashboard_metrics import project_metrics
+
 
 def object_value(value):
     return value if isinstance(value, dict) else {}
@@ -318,13 +325,13 @@ class ConversationMixin:
             return copy.deepcopy(self._save_chat(run, row))
 
     def task_view(self, workspace, run):
-        from dashboard_monitor import snapshot
         try:
             state = json.loads((run / 'state.json').read_text())
             if not isinstance(state, dict):
                 raise ValueError('State is not an object')
             view = self.view(workspace, run, state)
             view['monitor'] = snapshot(state, run, detailed=True)
+            view['monitor']['metrics'] = project_metrics(workspace, run)
         except (OSError, ValueError):
             view = self.view(workspace, run)
         actions = self.action_log(workspace, run)
