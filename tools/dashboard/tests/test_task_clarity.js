@@ -34,6 +34,13 @@ assert.equal(context.taskOverviewState(exited).active, false);
 assert.equal(context.taskOverviewState({...live,status:'TASK_COMPLETE'}).verified, false);
 assert.equal(context.taskOverviewState({...live,status:'PAUSED_INTERVENTION'}).verified, false);
 assert.equal(context.taskOverviewState(activity).verified, false);
+const savedPause={status:'PAUSED_INTERVENTION',stage:'astra_challenge',model_settings:{joint_planning:true},
+  monitor:{next_stage:'astra_challenge',live:{state:'none'}},
+  stages:[{stage:'astra_discovery',finished_at:'2026-09-21T19:09:12Z',exit_code:0}]};
+assert.equal(context.taskOverviewState(savedPause).step,'Next step · Astra · Challenging the plan');
+assert.equal(context.taskOverviewState({...savedPause,monitor:{live:{state:'none'}}}).step,'Last completed step · GLM · Planning');
+assert.equal(context.taskOverviewState({...savedPause,monitor:{},stages:[]}).step,'No active step');
+assert.equal(context.taskOverviewState(exited).step,'Last reported active step · GLM · Implementing');
 assert.equal(classify(activity).group, 'running');
 assert.match(classify(activity).reason, /Terra.*recorded/);
 assert.ok(classify(activity).reason.includes(new Date(activity.active_stage.started_at).toLocaleString()));
@@ -96,6 +103,18 @@ assert.equal(context.taskStarted({stages: [{started_at: 'invalid'}, {started_at:
 assert.match(context.taskIdentity({run: '/repo/.autocode/runs/20260920-080000-first-task'}), /^Saved task · 20260920-080000/);
 assert.notEqual(context.taskIdentity({created_at: '2026-09-20T08:00:01Z'}), context.taskIdentity({created_at: '2026-09-20T08:00:02Z'}));
 
+// New dashboard links use only the stable run suffix. The full legacy route
+// remains available whenever a short key cannot identify exactly one run.
+const shortA={workspace:'/work/a',run:'/work/a/.autocode/runs/20260921-132731-task-deadbeef'};
+const shortB={workspace:'/work/b',run:'/work/b/.autocode/runs/20260921-132732-task-cafebabe'};
+assert.equal(context.shortRunKey(shortA),'r-deadbeef');
+assert.equal(context.runSelection(shortA,[shortA,shortB]),'run=r-deadbeef');
+assert.equal(context.matchingShortRuns('r-cafebabe',[shortA,shortB]).length,1);
+const collision={workspace:'/work/c',run:'/work/c/.autocode/runs/20260921-132733-other-deadbeef'};
+assert.equal(context.runSelection(shortA,[shortA,collision]),'task='+encodeURIComponent(shortA.workspace)+'&run='+encodeURIComponent(shortA.run));
+assert.equal(context.matchingShortRuns('r-deadbeef',[shortA,collision]).length,2);
+assert.equal(context.runSelection({workspace:'/work/old',run:'/work/old/.autocode/runs/legacy'},[shortA]),'task=%2Fwork%2Fold&run=%2Fwork%2Fold%2F.autocode%2Fruns%2Flegacy');
+
 // Project and status filter both survive route serialization and restoration.
 const project = '/Users/dev/workspace/Research & Design';
 const route = context.taskSelection('attention', project);
@@ -119,4 +138,14 @@ assert.deepEqual(restored.pop(), ['attention', project]);
 context.location.hash = '#tasks&filter=invalid&project=' + encodeURIComponent(project);
 context.restoreSelection();
 assert.deepEqual(restored.pop(), ['all', project]);
+context.location={hash:'#run=r-deadbeef'};
+context.latestData=null;
+context.pendingShortRun='';
+const shortOpened=[];
+context.openRun=run=>shortOpened.push(run);
+context.restoreSelection();
+assert.equal(context.pendingShortRun,'r-deadbeef');
+assert.equal(shortOpened.length,0);
+assert.equal(context.restorePendingShortRun({runs:[shortA,shortB]}),true);
+assert.equal(shortOpened[0].run,shortA.run);
 console.log('Task classification, concise identity, and project/filter route checks passed.');

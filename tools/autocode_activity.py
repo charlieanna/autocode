@@ -3,8 +3,9 @@
 Liveness is evidence of activity, never evidence that the task is correct.  Tool
 output and repeated events do not buy more execution time.  Process fallback is
 deliberately conservative: identity metadata cannot distinguish a quiet tool
-from a persistent provider wrapper. Its bounded interval renews only when a new
-tool completion arrives; unknown concurrent tools cannot be timed individually.
+from a persistent provider wrapper. Recognizable MCP server executables are not
+tool evidence on their own. The bounded interval renews only when a new tool
+completion arrives; unknown concurrent tools cannot be timed individually.
 """
 from __future__ import annotations
 
@@ -280,6 +281,15 @@ class ActivityMonitor:
             return
         self._consume(data, now)
 
+    @staticmethod
+    def _mcp_helper(row):
+        # An idle MCP server can live for the whole provider session. Its
+        # existence does not prove a call is running; real starts still do.
+        # Unknown executables (including node-hosted servers) stay conservative.
+        executable = row.get("executable")
+        name = Path(executable).name if isinstance(executable, str) else ""
+        return name == "mcp-server" or name.startswith("mcp-server-")
+
     def poll(self, processes=None, root_pid=None):
         with self._lock:
             now = self.clock()
@@ -288,7 +298,8 @@ class ActivityMonitor:
                 rows = processes.values() if isinstance(processes, dict) else processes
                 descendants = any(isinstance(row, dict) and row.get("pid") != root_pid
                                   and row.get("pid") is not None
-                                  and not str(row.get("state", "")).startswith("Z") for row in rows)
+                                  and not str(row.get("state", "")).startswith("Z")
+                                  and not self._mcp_helper(row) for row in rows)
                 if descendants and self._fallback_started is None:
                     self._fallback_started = now
                 elif not descendants and self._fallback_started is not None:

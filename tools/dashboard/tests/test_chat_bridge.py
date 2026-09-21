@@ -26,6 +26,11 @@ def arg(flag): return args[args.index(flag) + 1]
 def read(name, default):
  p = root / name
  return json.loads(p.read_text()) if p.exists() else default
+def write(path, value):
+ # Match the real runner's atomic checkpoints while the dashboard polls.
+ temporary=path.with_suffix('.tmp')
+ temporary.write_text(json.dumps(value))
+ temporary.replace(path)
 def emit(value): print(json.dumps(value))
 if args[:2] == ['registry', 'location']:
  emit({'registry_version':1,'operation':'location','registry_path':str(root/'registry.json')})
@@ -47,7 +52,7 @@ elif args[:2] == ['intervention', 'submit']:
   duplicate=bool(receipt)
   if not receipt:
    receipt={'id':ident,'text':text,'kind':arg('--kind'),'order':len(inbox)+1,'submitted_at':'2026-09-20T00:00:00Z'}
-   inbox.append(receipt);(root/'inbox.json').write_text(json.dumps(inbox))
+   inbox.append(receipt);write(root/'inbox.json',inbox)
   emit({'version':1,'operation':'submit','accepted':True,'receipt':receipt,'idempotent':duplicate})
 else:
  with (root/'commands.jsonl').open('a') as handle: handle.write(json.dumps(args)+'\n')
@@ -61,7 +66,7 @@ else:
   state={'workspace':str(workspace),'task':goal,'status':'WAITING_FOR_USER','phase':'discovery',
    'settings':{'joint_planning':'--joint-planning' in args,'engine':'opencode','roles':roles},'pending_questions':[],
    'intervention_capability':{'supported':True,'version':1}}
-  (run/'state.json').write_text(json.dumps(state))
+  write(run/'state.json',state)
   if (root/'fail-after-checkpoint').exists():
    print('fixture provider unavailable after checkpoint',file=sys.stderr);raise SystemExit(1)
  else:
@@ -73,7 +78,7 @@ else:
    state.setdefault('answers',{})[ident]=text
    state['pending_questions']=[q for q in state.get('pending_questions',[]) if q['id']!=ident]
   else: state['continued']=state.get('continued',0)+1
-  path.write_text(json.dumps(state))
+  write(path,state)
  print('fixture saved')
 '''
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import os
+from pathlib import Path
 import signal
 import subprocess
 import threading
@@ -14,10 +15,10 @@ class ProcessError(RuntimeError):
 
 
 def process_table():
-    """Read process identity/ancestry only; never collect command lines or secrets."""
+    """Read identity, ancestry and executable names; never command arguments."""
     try:
         result = subprocess.run(
-            ["ps", "-axo", "pid=,ppid=,pgid=,lstart=,stat="], capture_output=True,
+            ["ps", "-axo", "pid=,ppid=,pgid=,lstart=,stat=,comm="], capture_output=True,
             text=True, timeout=5, env={**os.environ, "LC_ALL": "C"})
     except (OSError, subprocess.TimeoutExpired) as error:
         raise ProcessError("Cannot inspect provider subprocesses; refusing an unsafe launch or cleanup") from error
@@ -25,12 +26,13 @@ def process_table():
         raise ProcessError("Cannot inspect provider subprocesses; refusing an unsafe launch or cleanup")
     table = {}
     for line in result.stdout.splitlines():
-        fields = line.split()
-        if len(fields) != 9:
+        fields = line.split(None, 9)
+        if len(fields) != 10:
             raise ProcessError("Unexpected process metadata format")
         pid, parent, group = map(int, fields[:3])
         table[pid] = {"pid": pid, "parent": parent, "group": group,
-                      "started": " ".join(fields[3:8]), "state": fields[8]}
+                      "started": " ".join(fields[3:8]), "state": fields[8],
+                      "executable": Path(fields[9]).name}
     return table
 
 

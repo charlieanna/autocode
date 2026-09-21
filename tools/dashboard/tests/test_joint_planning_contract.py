@@ -1,7 +1,7 @@
 """Check dashboard commands against the real runner without starting any run.
 
-Uses the sibling Autocode checkout, or AUTOCODE_RUNNER_SOURCE when the two
-projects are checked out elsewhere. Parsing stops before runner.main can create
+Uses the bundled runner, a sibling Autocode checkout, or AUTOCODE_RUNNER_SOURCE
+for a separate checkout. Parsing stops before runner.main can create
 files, register work, inspect credentials, or launch providers.
 """
 import argparse
@@ -27,6 +27,7 @@ class JointPlanningContractTests(unittest.TestCase):
     def setUpClass(cls):
         explicit = os.environ.get('AUTOCODE_RUNNER_SOURCE')
         candidates = ([Path(explicit)] if explicit else [
+            Path(__file__).resolve().parents[2] / 'autocode.py',
             Path(__file__).resolve().parents[2] / 'autocode/tools/autocode.py',
             Path.cwd() / 'tools/autocode.py',
         ])
@@ -51,7 +52,8 @@ class JointPlanningContractTests(unittest.TestCase):
         self.addCleanup(worker.stop)
         catalogue = patch.object(self.console.catalogue, 'fetch', return_value={
             'usable': True, 'error': None,
-            'models': ['zai-coding-plan/glm-5.3', 'zai-coding-plan/glm-5.3-flash'],
+            'models': ['zai-coding-plan/glm-5.3', 'zai-coding-plan/glm-5.3-flash',
+                       'openai/gpt-6-astra', 'openai/gpt-5.6-sol'],
         })
         catalogue.start()
         self.addCleanup(catalogue.stop)
@@ -81,21 +83,25 @@ class JointPlanningContractTests(unittest.TestCase):
         self.assertEqual(self.workspace, args.workspace)
         self.assertEqual('Plan a small feature', args.task)
         with patch.object(self.runner.opencode, 'local_settings', return_value={'engine': 'opencode'}), \
-                patch.object(self.runner.support, 'local_settings', return_value={'auth_mode': 'ChatGPT'}):
+                patch.object(self.runner.support, 'local_settings', return_value={'auth_mode': 'ChatGPT'}) as codex_login:
             settings = self.runner.configure(args, {'workspace': str(self.workspace), 'iteration': 0})
+        if settings['engine'] == 'opencode':
+            codex_login.assert_not_called()
         self.assertFalse((self.workspace / '.autocode').exists())
         return settings
 
     def assert_joint_routes(self, settings, *, glm='zai-coding-plan/glm-5.3', terra='zai-coding-plan/glm-5.3'):
         self.assertTrue(settings['joint_planning'])
+        self.assertEqual('opencode', settings['engine'])
+        self.assertEqual({'opencode'}, set(settings['transport_identities']))
         state = {'settings': settings}
         expected_stages = {
             'astra_discovery': ('glm', 'opencode', glm),
-            'astra_challenge': ('astra', 'codex', 'gpt-6-astra'),
+            'astra_challenge': ('astra', 'opencode', 'openai/gpt-6-astra'),
             'glm_revise': ('glm', 'opencode', glm),
-            'astra_finalize': ('astra', 'codex', 'gpt-6-astra'),
+            'astra_finalize': ('astra', 'opencode', 'openai/gpt-6-astra'),
             'terra': ('terra', 'opencode', terra),
-            'sol': ('sol', 'codex', 'gpt-5.6-sol'),
+            'sol': ('sol', 'opencode', 'openai/gpt-5.6-sol'),
         }
         for stage, (expected_role, expected_engine, expected_model) in expected_stages.items():
             with self.subTest(stage=stage):
@@ -103,8 +109,7 @@ class JointPlanningContractTests(unittest.TestCase):
                 self.assertEqual(expected_role, role)
                 self.assertEqual(expected_engine, self.runner.planning.engine_for(settings, role))
                 self.assertEqual(expected_model, settings['roles'][role]['model'])
-                self.assertEqual('openai' if expected_engine == 'codex' else None,
-                                 settings['roles'][role]['provider'])
+                self.assertIsNone(settings['roles'][role]['provider'])
 
     def test_default_browser_creation_routes_discovery_to_glm_and_review_to_astra(self):
         self.assert_joint_routes(self.create_settings())
@@ -114,6 +119,11 @@ class JointPlanningContractTests(unittest.TestCase):
             engine='opencode', glm_model='zai-coding-plan/glm-5.3-flash',
             astra_model='gpt-6-astra', terra_model='zai-coding-plan/glm-5.3-flash', sol_model='gpt-5.6-sol')
         self.assert_joint_routes(settings, glm='zai-coding-plan/glm-5.3-flash', terra='zai-coding-plan/glm-5.3-flash')
+
+    def test_explicit_opencode_model_ids_are_preserved_without_double_prefixes(self):
+        settings = self.create_settings(
+            engine='opencode', astra_model='openai/gpt-6-astra', sol_model='openai/gpt-5.6-sol')
+        self.assert_joint_routes(settings)
 
     def test_explicit_legacy_codex_choice_does_not_inherit_opencode_default(self):
         settings = self.create_settings(engine='codex')

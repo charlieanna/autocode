@@ -8,7 +8,7 @@ from urllib.parse import parse_qs,urlparse
 sys.dont_write_bytecode=True
 CODEX_DEFAULT_MODELS={'astra':'gpt-6-astra','terra':'gpt-5.6-terra','sol':'gpt-5.6-sol'}
 GLM_MODELS={'astra':'glm-5.3','terra':'glm-5.3-flash','sol':'glm-5.3'}
-MODEL_ID=re.compile(r'^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$',re.I)
+MODEL_ID=re.compile(r'^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._:/-]{0,120}$',re.I)
 def obj(x): return x if isinstance(x,dict) else {}
 def items(x): return x if isinstance(x,list) else []
 def json_file(p):
@@ -321,7 +321,23 @@ class LegacyConsole:
  def _execute(self,key,ws,x,on_complete=None):
   x['status']='running';x['started_at']=time.time()
   try:
-   p=subprocess.Popen(x['command'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,errors='replace');out,err=p.communicate();x.update(stdout=out,stderr=err,exit_status=p.returncode,status='finished' if p.returncode==0 else 'failed')
+   # A dashboard restart must not disconnect the runner's output or kill its
+   # process group. Full logs live beside the workspace's runner metadata;
+   # only bounded tails are copied into the dashboard response.
+   logs=Path(ws)/'.autocode'/'dashboard-actions'/x['id'];logs.mkdir(parents=True,mode=0o700)
+   out_path,err_path=logs/'stdout.log',logs/'stderr.log'
+   x.update(stdout_path=str(out_path),stderr_path=str(err_path))
+   with out_path.open('xb') as out,err_path.open('xb') as err:
+    os.chmod(out_path,0o600);os.chmod(err_path,0o600)
+    p=subprocess.Popen(x['command'],stdin=subprocess.DEVNULL,stdout=out,stderr=err,start_new_session=True)
+    x['pid']=p.pid
+    (logs/'action.json').write_text(json.dumps(x),encoding='utf8')
+    code=p.wait()
+   def tail(path):
+    with path.open('rb') as handle:
+     handle.seek(0,os.SEEK_END);size=handle.tell();handle.seek(max(0,size-131072))
+     return ('[Earlier output is in the saved log]\n' if size>131072 else '')+handle.read().decode('utf8',errors='replace')
+   x.update(stdout=tail(out_path),stderr=tail(err_path),exit_status=code,status='finished' if code==0 else 'failed')
   except Exception as e:x.update(stdout='',stderr=str(e),exit_status=None,status='launch_failed',uncertain=True)
   finally:
    x['finished_at']=time.time()
@@ -337,11 +353,12 @@ class LegacyConsole:
   explicit={role:d.get(role+'_model','') for role in ('glm','astra','terra','sol')}
   if any(not isinstance(value,str) for value in explicit.values()):raise ValueError('Model choices must be strings')
   chosen={role:value for role,value in explicit.items() if value}
-  for role in ('astra','sol'):
-   if role in chosen and chosen[role] not in CODEX_DEFAULT_MODELS.values():raise ValueError(role.title()+' uses a supported bare Codex model name')
-  opencode_choices={role:value for role,value in chosen.items() if role in ('glm','terra')}
+  # Retain bare OpenAI aliases in older conversations. The runner expands them
+  # to openai/model on OpenCode; they never select a separate Codex login.
+  opencode_choices={role:value for role,value in chosen.items()
+                    if not (role in ('astra','sol') and value in CODEX_DEFAULT_MODELS.values())}
   for role,value in opencode_choices.items():
-   if not MODEL_ID.fullmatch(value) or not value.startswith('zai-coding-plan/'):raise ValueError(role.title()+' requires a zai-coding-plan provider/model identifier')
+   if not MODEL_ID.fullmatch(value):raise ValueError(role.title()+' requires an OpenCode provider/model identifier')
   if opencode_choices:
    catalogue=self.catalogue.fetch()
    if not catalogue['usable']:raise ValueError(catalogue['error'] or 'Model catalogue is unavailable; reset role choices to Use Autocode default')

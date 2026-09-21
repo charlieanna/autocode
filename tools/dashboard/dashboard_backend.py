@@ -56,7 +56,7 @@ class RegistryInterventionMixin:
         with self.registry_lock:
             if time.monotonic() - self.registry_cache['at'] < 2:
                 return self.registry_cache
-            result = {'at': time.monotonic(), 'workspaces': [], 'runs': {}, 'diagnostics': [], 'error': None, 'location': None}
+            result = {'workspaces': [], 'runs': {}, 'diagnostics': [], 'error': None, 'location': None}
             location, error = self._json_command(['registry', 'location', '--json'])
             if error:
                 result['error'] = error['message']
@@ -93,6 +93,9 @@ class RegistryInterventionMixin:
                         except (KeyError, OSError, TypeError, ValueError) as failure:
                             result['diagnostics'].append({'workspace': str(item.get('workspace', 'registry')),
                                                           'run': item.get('run_dir'), 'error': str(failure)})
+            # Loading and validating a large registry can exceed the cache TTL.
+            # Give every completed result, including errors, a full reuse window.
+            result['at'] = time.monotonic()
             self.registry_cache = result
             return result
 
@@ -102,8 +105,11 @@ class RegistryInterventionMixin:
 
     @property
     def workspaces(self):
+        return self._workspaces_for_registry(self._registered())
+
+    def _workspaces_for_registry(self, registry):
         return list(dict.fromkeys([*self.explicit, *self.created_workspaces,
-                                   *sorted(self._discovered(), key=str), *self._registered()['workspaces']]))
+                                   *sorted(self._discovered(), key=str), *registry['workspaces']]))
 
     def _contained_run(self, workspace, raw, identity=False):
         if not workspace or not isinstance(raw, str):
@@ -125,19 +131,22 @@ class RegistryInterventionMixin:
                 return None
         return run
 
-    def run_for(self, workspace, raw):
+    def run_for(self, workspace, raw, *, registry=None):
         run = self._contained_run(workspace, raw)
         if not run:
             return None
         if workspace in self.explicit or workspace in self.created_workspaces or workspace in self._discovered():
             return run
-        return run if self._registered()['runs'].get(run) == workspace else None
+        registry = self._registered() if registry is None else registry
+        return run if registry['runs'].get(run) == workspace else None
 
     def discover(self):
         registry = self._registered()
         result = self.root_error_rows() + list(registry['diagnostics'])
         seen = set()
-        for workspace in self.workspaces:
+        # One traversal uses one membership snapshot even if its reads outlast
+        # the TTL. run_for still checks each current path and checkpoint identity.
+        for workspace in self._workspaces_for_registry(registry):
             root = workspace / '.autocode/runs'
             try:
                 children = list(root.iterdir()) if root.is_dir() else []
@@ -147,7 +156,7 @@ class RegistryInterventionMixin:
             for child in children:
                 if not child.is_dir():
                     continue
-                run = self.run_for(workspace, str(child))
+                run = self.run_for(workspace, str(child), registry=registry)
                 if not run:
                     # A registry-only project grants access only to its registered runs.
                     if workspace in self.explicit or workspace in self.created_workspaces or workspace in self._discovered():

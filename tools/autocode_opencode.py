@@ -102,6 +102,30 @@ def check_models(roles, workspace=None):
         raise RuntimeError("Models unavailable in OpenCode: " + ", ".join(sorted(set(missing))))
 
 
+def check_subscription_routes(roles, workspace=None):
+    """Check OpenCode's nonsecret CLI auth summary, never its credential file.
+
+    OpenAI selections in the subscription workflow must use the existing OAuth
+    connection. Unrecognized output is not permission to switch to API billing.
+    Other providers retain their existing configured authentication.
+    """
+    if not any(config.get("model", "").startswith("openai/") for config in roles.values()):
+        return
+    if any(key in os.environ for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL")):
+        raise RuntimeError("OpenAI API-key or endpoint environment overrides are present; "
+                           "subscription selection will not silently change billing routes")
+    try:
+        result = subprocess.run(["opencode", "auth", "list"], cwd=workspace,
+                                capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError("Cannot verify OpenCode's OpenAI OAuth connection; no provider request was launched") from error
+    summary = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", result.stdout + result.stderr)
+    modes = re.findall(r"^\s*[●•]\s+OpenAI\s+(\S+)\s*$", summary, re.MULTILINE)
+    if result.returncode or modes != ["oauth"]:
+        raise RuntimeError("OpenCode OpenAI models require a ChatGPT OAuth connection. Use OpenCode /connect → "
+                           "OpenAI → ChatGPT Plus/Pro; API-key fallback is disabled")
+
+
 def launch(role, workspace, run_dir, session, model, effort, allow_write, *, planning=False):
     if not model or "/" not in model or any(c.isspace() for c in model):
         raise ValueError("OpenCode model must use provider/model, e.g. zai-coding-plan/glm-5.3")
@@ -191,6 +215,16 @@ def raw_events(path):
     return rows
 
 
+def _session_parts(rows, session):
+    # Repeated updates replace a part's value without moving it past newer parts.
+    parts = {}
+    for row in rows:
+        part = row.get("part", {})
+        if row.get("sessionID") == session and part.get("id"):
+            parts[part["id"]] = row
+    return parts
+
+
 def normalized_events(rows):
     """Adapt real transport events; never interpret a model's prose as tool proof."""
     sessions = {r["sessionID"] for r in rows if isinstance(r.get("sessionID"), str)}
@@ -199,14 +233,8 @@ def normalized_events(rows):
     session = next(iter(sessions))
     normalized = [{"type": "thread.started", "thread_id": session}]
     # Some versions repeat completed part updates; a part is still one operation.
-    parts = {}
-    errors = []
-    for row in rows:
-        if row.get("type") == "error":
-            errors.append({"type": "error", "error": row.get("error")})
-        part = row.get("part", {})
-        if row.get("sessionID") == session and part.get("id"):
-            parts[part["id"]] = row
+    parts = _session_parts(rows, session)
+    errors = [{"type": "error", "error": row.get("error")} for row in rows if row.get("type") == "error"]
     steps = []
     for row in parts.values():
         part = row["part"]
@@ -221,10 +249,16 @@ def normalized_events(rows):
         elif row.get("type") == "step_finish":
             steps.append(part)
     normalized += errors
-    phases = [row for row in rows if row.get("type") in ("step_start", "step_finish")]
-    if steps and phases[-1].get("type") == "step_finish" and steps[-1].get("reason") == "stop" and not errors:
+    # Use the same unique-part ordering for terminal evidence and usage. A
+    # replayed older finish must not close a newer, still-unfinished step.
+    phase_types = ("step_start", "step_finish")
+    if any(not row.get("part", {}).get("id") for row in rows if row.get("type") in phase_types):
+        return normalized
+    phases = [row for row in parts.values() if row.get("type") in phase_types]
+    if steps and phases[-1].get("type") == "step_finish" and steps[-1].get("reason") in ("stop", "length"):
         def total(field, subfield=None):
-            values = [p.get("tokens", {}).get(field) for p in steps]
+            containers = [p.get("tokens") for p in steps]
+            values = [tokens.get(field) if isinstance(tokens, dict) else None for tokens in containers]
             if subfield:
                 values = [v.get(subfield) if isinstance(v, dict) else None for v in values]
             return sum(values) if all(type(v) is int and v >= 0 for v in values) else None
@@ -236,7 +270,16 @@ def normalized_events(rows):
                  "cached_input_tokens": total("cache", "read"),
                  "output_tokens": sum(output_parts) if all(v is not None for v in output_parts) else None,
                  "reasoning_output_tokens": total("reasoning")}
-        normalized.append({"type": "turn.completed", "usage": {k: v for k, v in usage.items() if v is not None}})
+        usage = {k: v for k, v in usage.items() if v is not None}
+        if steps[-1].get("reason") == "length":
+            # A successful process exit can still be an incomplete model turn.
+            # Preserve reported consumption without granting completion evidence.
+            normalized.append({"type": "turn.failed", "usage": usage, "error": {
+                "code": "output_token_limit",
+                "message": "OpenCode exhausted its output token limit (finish reason: length). "
+                           "The attempt is incomplete; review saved work before recovery."}})
+        elif not errors:
+            normalized.append({"type": "turn.completed", "usage": usage})
     return normalized
 
 
@@ -245,7 +288,8 @@ def final_report(path):
     normalized = normalized_events(rows)
     if not any(row.get("type") == "turn.completed" for row in normalized):
         raise RuntimeError("OpenCode turn has no successful terminal step; preserve it without automatic retry")
-    last_step = [row["part"] for row in rows if row.get("type") == "step_finish"][-1]
+    parts = _session_parts(rows, normalized[0]["thread_id"])
+    last_step = [row["part"] for row in parts.values() if row.get("type") == "step_finish"][-1]
     message = last_step.get("messageID")
     texts = {}
     for row in rows:

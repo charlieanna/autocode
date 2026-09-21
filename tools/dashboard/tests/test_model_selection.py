@@ -128,18 +128,38 @@ class ModelSelectionTests(unittest.TestCase):
         self.wait()
         launches = len(self.console.action_log(self.workspace))
         for role in ('glm', 'terra'):
-            for value in ('bad model', 'openai/gpt-6-astra', 'zai-coding-plan/not-listed', 'glm-5.3'):
+            for value in ('bad model', 'zai-coding-plan/not-listed', 'glm-5.3'):
                 with self.subTest(role=role, value=value), self.assertRaisesRegex(ValueError, 'provider/model|catalogue'):
                     self.console.create({'project': str(self.workspace), 'goal': 'reject', 'engine': 'opencode', role+'_model': value})
         for role in ('astra', 'sol'):
-            for value in ('openai/gpt-6-astra', 'zai-coding-plan/glm-5.3', 'glm-5.3', 'unknown'):
-                with self.subTest(role=role, value=value), self.assertRaisesRegex(ValueError, 'bare Codex model'):
+            for value in ('openai/unlisted', 'zai-coding-plan/unlisted', 'glm-5.3', 'unknown'):
+                with self.subTest(role=role, value=value), self.assertRaisesRegex(ValueError, 'provider/model|catalogue'):
                     self.console.create({'project': str(self.workspace), 'goal': 'reject', 'engine': 'opencode', role+'_model': value})
         for role in ('glm', 'astra', 'terra', 'sol'):
             for value in [None, ['not', 'a', 'string'], {}, False, 42]:
                 with self.assertRaisesRegex(ValueError, 'must be strings'):
                     self.console.create({'project': str(self.workspace), 'goal': 'reject', 'engine': 'opencode', role+'_model': value})
         self.assertEqual(launches, len(self.console.action_log(self.workspace)))
+
+    def test_every_role_uses_actual_opencode_catalogue_for_all_providers(self):
+        values = ['openai/gpt-5.6-terra', 'openai/new-model', 'another-provider/model-v1', 'local/model:32b']
+        with patch.object(self.console.catalogue, 'fetch', return_value={'usable':True,'models':values}) as fetch:
+            for role in ('glm', 'astra', 'terra', 'sol'):
+                for model in values:
+                    action = self.console.create({'project': str(self.workspace), 'goal': 'mixed subscriptions',
+                                                  role+'_model': model})
+                    self.assertEqual(['--engine', 'opencode', '--joint-planning', '--no-chat', '--'+role+'-model', model],
+                                     action['command'][-6:])
+                    self.wait()
+            self.assertEqual(4 * len(values), fetch.call_count)
+        with self.assertRaisesRegex(ValueError, 'catalogue'):
+            self.console.create({'project': str(self.workspace), 'goal': 'not a known Codex choice',
+                                 'terra_model': 'openai/unlisted-model'})
+        with self.assertRaisesRegex(ValueError, 'provider/model'):
+            self.console.create({'project': str(self.workspace), 'goal': 'wrong transport', 'terra_model': 'gpt-5.6-terra'})
+        with patch.object(self.console.catalogue, 'fetch', return_value={'usable':False,'error':'offline','models':values}):
+            with self.assertRaisesRegex(ValueError, 'offline'):
+                self.console.create({'project': str(self.workspace), 'goal': 'catalogue unavailable', 'terra_model': values[0]})
 
     def test_fake_runner_records_explicit_and_inherited_role_settings(self):
         self.runner.write_text("""import json,sys
@@ -221,10 +241,10 @@ run.mkdir(parents=True,exist_ok=True)
 
     def test_served_form_has_prominent_isolated_role_selectors_and_retention_logic(self):
         from agent_console import APP, INDEX
-        self.assertIn('GLM <small>Conversation, draft and revisions · OpenCode / Z.ai</small>', INDEX)
-        self.assertIn('Astra <small>Plan decisions and final review · Codex</small>', INDEX)
-        self.assertIn('Terra <small>Implementation · OpenCode / Z.ai</small>', INDEX)
-        self.assertIn('Sol <small>Independent verification · Codex</small>', INDEX)
+        self.assertIn('GLM <small>Conversation, draft and revisions · OpenCode providers</small>', INDEX)
+        self.assertIn('Astra <small>Plan decisions and final review · Choose a model</small>', INDEX)
+        self.assertIn('Terra <small>Implementation · OpenCode providers</small>', INDEX)
+        self.assertIn('Sol <small>Independent verification · Choose a model</small>', INDEX)
         self.assertIn('Default · GLM-5.3', INDEX)
         self.assertIn('id="create-error"', INDEX)
         self.assertIn("['glm','astra','terra','sol'].map", APP)

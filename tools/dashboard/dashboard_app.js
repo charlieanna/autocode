@@ -4,7 +4,7 @@ let currentView = 'inbox', currentTab = 'now', taskFilter = 'all', projectFilter
 let evidenceRequest = 0, evidenceRun = '', previewRun = '', scrollThreadToEnd = false;
 let taskReturn = {view:'inbox',filter:'all',project:''};
 const evidenceCache = new Map();
-let latestData = null, latestRun = null, actionProblem = '', newTaskPending = null;
+let latestData = null, latestRun = null, actionProblem = '', newTaskPending = null, pendingShortRun = '';
 let taskReadError = '', taskReadAt = null;
 let activeConversation = null, latestConversation = null, refreshPromise = null, refreshAgain = false, refreshTimer = null;
 let creatingConversation = false, conversationRequest = null;
@@ -24,6 +24,28 @@ let modelRequest = 0;
 const draftKey = (id, run = chosen?.run || '') => run + '\0' + id;
 const basename = path => String(path || '').split('/').filter(Boolean).pop() || 'Unavailable project';
 const human = text => String(text || '').replace(/_/g, ' ').replace(/\b\w/g, value => value.toUpperCase());
+const legacyRunSelection = run => 'task='+encodeURIComponent(run.workspace)+'&run='+encodeURIComponent(run.run);
+function shortRunKey(run) {
+  const match=basename(run?.run).match(/-([a-f0-9]{8,64})$/i);
+  return match ? 'r-'+match[1].toLowerCase() : '';
+}
+function matchingShortRuns(key,runs=latestData?.runs||[]) {
+  return /^r-[a-f0-9]{8,64}$/.test(key||'') ? (runs||[]).filter(run=>shortRunKey(run)===key) : [];
+}
+function runSelection(run,runs=latestData?.runs||[]) {
+  const key=shortRunKey(run);
+  return key&&matchingShortRuns(key,runs).length===1 ? 'run='+encodeURIComponent(key) : legacyRunSelection(run);
+}
+function unavailableShortRun() {
+  dashboardNotice('This saved task link is unavailable or ambiguous. Choose the task from All work.');
+  setView('inbox');
+}
+function restorePendingShortRun(data) {
+  if(!pendingShortRun)return false;
+  const key=pendingShortRun,matches=matchingShortRuns(key,data?.runs||[]);pendingShortRun='';
+  if(matches.length===1){openRun(matches[0]);return true;}
+  unavailableShortRun();return false;
+}
 document.addEventListener('focusin', () => focusVersion++);
 function stored(key, fallback='') { try { return localStorage.getItem('autocode:'+key) ?? fallback; } catch { return fallback; } }
 function persist(key, value) { try { localStorage.setItem('autocode:'+key,value); } catch {} }
@@ -31,7 +53,7 @@ function newRequestId() { return crypto.randomUUID(); }
 function readSavedRequest(key) {try{return JSON.parse(stored(key,'null'));}catch{return null;}}
 function savedRequest(key,payload) {const previous=readSavedRequest(key),signature=JSON.stringify(payload);if(previous?.signature===signature)return previous;const request={id:newRequestId(),signature,payload};persist(key,JSON.stringify(request));return request;}
 function rememberSelection(value) { persist('selection',value); history.replaceState(null,'','#'+value); }
-function conversationStatus(doc) { return doc.attachment?.status==='linked'?'Attached':doc.attachment?.status==='starting'?'Connecting project':doc.status==='thinking'?'GLM is thinking':doc.status==='error'?'Needs attention':'Ready to continue'; }
+function conversationStatus(doc) { return doc.attachment?.status==='linked'?'Attached':doc.attachment?.status==='starting'?'Connecting project':doc.status==='thinking'?'Thinking…':doc.status==='error'?'Needs attention':'Planning'; }
 function conversationPayload(text, models, request_id) { return {text:text.trim(),models,request_id}; }
 function chatPayload(run,text,question_id,request_id,delegate=false) { return {workspace:run.workspace,run:run.run,text,request_id,...(question_id?{question_id}:{}),...(delegate?{delegate:true}:{})}; }
 function messageTime(entry) {const value=entry.created_at||entry.timestamp||entry.at;if(typeof value==='number')return value<1e12?value*1000:value;return Date.parse(value)||0;}
@@ -204,7 +226,7 @@ function statusInfo(run) {
   if(run.error||run.state_error)return info('stopped','failed','Unavailable','Inspect issue',run.error||run.state_error);
   if(status==='TASK_COMPLETE')return info('complete','complete','Completed','View result','The runner recorded this task as complete. No reply is needed.','execution');
   if(status==='DRY_RUN')return info('other','','Preview only','View preview','This is a saved dry run. It did not start implementation.','execution');
-  if(['PAUSED_PROVIDER_UNCERTAIN','PAUSED_UNCERTAIN_STAGE'].includes(status))return info('stopped','attention','Interrupted','Review interruption','A provider attempt ended without a confirmed result. Review saved work before continuing.');
+  if(['PAUSED_PROVIDER_UNCERTAIN','PAUSED_UNCERTAIN_STAGE'].includes(status))return info('stopped','attention','Interrupted','Review interruption',run.stop_reason||'A provider attempt ended without a confirmed result. Review saved work before continuing.');
   // Saved questions and user requests may remain after a stage resumes. Honor
   // the current paused/running state before interpreting these old fields.
   if(status==='RUNNING') {
@@ -292,8 +314,10 @@ function taskOverviewState(run) {
   const info=statusInfo(run),live=run.monitor?.live||{},active=run.active_stage||{};
   const ongoing=run.status==='RUNNING'&&active.stage&&!active.finished_at&&active.exit_code==null;
   const role=run.monitor?.active_role||active.role||(active.stage==='astra_discovery'&&jointPlanning(run)?'glm':active.stage?.split('_')[0]);
+  const next=run.monitor?.next_stage,last=(run.stages||[]).findLast(stage=>stage.finished_at&&stage.exit_code===0&&!stage.rejected&&!stage.interrupted);
+  const savedStep=ongoing?'Last reported active step · '+stageName({...run,stage:active.stage}):next?'Next step · '+stageName({...run,stage:next}):last?'Last completed step · '+stageName({...run,stage:last.stage}):'No active step';
   return {info,role,active:!!ongoing&&live.state!=='exited',verified:!!ongoing&&live.state==='alive',label:info.group==='attention'?'Waiting on you':info.label,
-    step:ongoing&&live.state==='alive'?'Current step · '+stageName(run):info.group==='complete'?'Work complete':info.group==='attention'?info.action:run.stage&&run.stage!=='unavailable'?'Last recorded step · '+stageName(run):'No active step',
+    step:ongoing&&live.state==='alive'?'Current step · '+stageName(run):info.group==='complete'?'Work complete':info.group==='attention'?info.action:savedStep,
     objective:run.monitor?.objective||run.astra_plan?.current_assignment?.objective||'No current objective has been recorded.'};
 }
 function workflowCards(run, state) {
@@ -396,7 +420,7 @@ function openRun(run, tab = 'now') {
   if(changed){$('#task-overview').hidden=true;$('#now').dataset.rendered='';$('#now').replaceChildren(n('p','Loading current state…'));scrollThreadToEnd=true;stopPreview();evidenceRun='';evidenceRequest++;$('#changes-content').replaceChildren();$('#thread-checkpoint').replaceChildren();$('#task-objective').textContent='';$('#conversation').dataset.rendered='';}
   chosen = {workspace:run.workspace,run:run.run}; activeConversation = null; latestRun = null; seq++;
   taskReadError='';taskReadAt=null;$('#task-load-notice').hidden=true;
-  rememberSelection('task='+encodeURIComponent(run.workspace)+'&run='+encodeURIComponent(run.run));
+  rememberSelection(runSelection(run));
   renderTaskProjectActions(run.workspace);$('#task-removed-banner').hidden=true;$('#detail-grid').hidden=false;
   if (changed) { $('#conversation').replaceChildren(); $('#brief-current').replaceChildren(); $('#plan-full').replaceChildren(); $('#goal').replaceChildren(); $('#live-controls').hidden=true; $('#task-attention').hidden=true; $('#continue-run').disabled=true; $('#pause-run').disabled=true; $('#task-project').textContent=basename(run.workspace); $('#task-title').textContent=taskTitle(run); $('#task-subtitle').textContent='Loading current task state…'; $('#task-models').textContent=''; $('#task-status').replaceChildren(); }
   $('#task-back').textContent='← '+(taskReturn.view==='inbox'?'Needs you':taskReturn.project?basename(taskReturn.project):'All work');
@@ -417,7 +441,18 @@ $('#task-search').oninput = event => { searchText = event.target.value; if (late
 document.addEventListener('keydown',event => { if (event.key.toLowerCase()==='n' && !$('#project-removal-dialog').open && !$('#task-archive-dialog').open && !$('#conversation-archive-dialog').open && !event.metaKey && !event.ctrlKey && !event.altKey && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) && !document.activeElement?.isContentEditable) { event.preventDefault(); showNewTask(); } });
 
 $('#interview').append($('#change-history'));
-for(const [input,form] of [['#change-text','#change-form'],['#draft-text','#draft-form']])$(input).addEventListener('keydown',event=>{if(event.key==='Enter'&&(event.metaKey||event.ctrlKey)&&!event.isComposing){event.preventDefault();const submit=$(form).querySelector('button[type="submit"]');if(!submit?.disabled)$(form).requestSubmit();}});
+function composerShouldSend(event) {return event.key==='Enter'&&!event.shiftKey&&!event.altKey&&!event.isComposing;}
+function draftSendBlocked(doc,pending,text) {return !doc||!!(doc.project_removed||doc.task_archived||doc.archived_at||pending||doc.status==='thinking'||doc.attachment||doc.status==='error')||!String(text||'').trim();}
+function resizeComposer(input) {input.style.height='auto';input.style.height=Math.min(160,Math.max(48,input.scrollHeight))+'px';}
+for(const [input,form] of [['#change-text','#change-form'],['#draft-text','#draft-form']]){
+  $(input).addEventListener('keydown',event=>{if(composerShouldSend(event)){event.preventDefault();const submit=$(form).querySelector('button[type="submit"]');if(submit&&!submit.disabled&&$(input).value.trim())$(form).requestSubmit();}});
+  $(input).addEventListener('input',()=>resizeComposer($(input)));
+}
+function updateDraftScroll(){const scroll=$('#draft-scroll');$('#draft-latest').hidden=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90;}
+function scrollDraftToEnd(){const scroll=$('#draft-scroll');scroll.scrollTop=scroll.scrollHeight;updateDraftScroll();}
+$('#draft-scroll').addEventListener('scroll',updateDraftScroll);
+new ResizeObserver(updateDraftScroll).observe($('#draft-scroll'));
+$('#draft-latest').onclick=scrollDraftToEnd;
 function syncWorkspaces(list) {
   const select = $('#workspaces'), keep = select.value;
   if (select.dataset.options === JSON.stringify(list)) return;
@@ -427,21 +462,31 @@ function syncWorkspaces(list) {
   if (keep && (list.includes(keep)||keep==='__custom__')) select.value=keep;
 }
 function syncModelOptions(data) {
-  const values = data.usable && Array.isArray(data.models) ? data.models.filter(value=>value.startsWith('zai-coding-plan/')) : [];
-  for (const role of ['glm','terra']) {
+  const catalogue = data.usable && Array.isArray(data.models) ? data.models.filter(value=>typeof value==='string') : [];
+  const defaults={glm:'GLM-5.3 · OpenCode',astra:'GPT-6 Astra · OpenCode',terra:'GLM-5.3 · OpenCode',sol:'GPT-5.6 Sol · OpenCode'};
+  for (const role of ['glm','astra','terra','sol']) {
     const select = $('#'+role+'-model'), previous = select.value;
-    select.replaceChildren(Object.assign(n('option','Default · GLM-5.3'),{value:''}));
-    for (const value of values) select.append(Object.assign(n('option',value),{value}));
+    const values=catalogue;
+    select.replaceChildren(Object.assign(n('option','Default · '+defaults[role]),{value:''}));
+    const groups=new Map();
+    for (const value of values) {
+      const provider=value.split('/')[0];
+      if(!groups.has(provider)){
+        const label=provider==='openai'?'OpenAI · ChatGPT OAuth':provider==='zai-coding-plan'?'Z.ai Coding Plan':provider;
+        const group=Object.assign(n('optgroup'),{label});groups.set(provider,group);select.append(group);
+      }
+      groups.get(provider).append(Object.assign(n('option',value),{value}));
+    }
     if (previous && !values.includes(previous)) select.append(Object.assign(n('option','Unavailable selection: '+previous),{value:previous}));
     select.value=previous;
   }
   const status=$('#model-catalogue-status');
-  status.textContent=data.error?data.error+' Your choices are preserved. Retry models, or choose the default.':data.loading?'Model lookup is still running. Retry shortly.':data.usable?values.length+' Z.ai models available for GLM and Terra. Astra and Sol use Codex through your ChatGPT login.':'No usable Z.ai catalogue was returned. Default roles remain available.';
+  status.textContent=(data.error?data.error+' Your choices are preserved. Retry models, or choose the default.':data.loading?'OpenCode model lookup is still running. Retry shortly.':data.usable?catalogue.length+' models from OpenCode available for every role.':'No usable OpenCode catalogue was returned.')+' Names identify workflow roles, not fixed models. Explicit selections run through OpenCode; Default keeps the labeled route. OpenAI choices require ChatGPT OAuth, not API-key billing. Existing runs keep their saved models.';
   status.className='field-note'+(data.error?' error':'');
 }
 async function loadModels(refresh=false) {
   const request=++modelRequest, status=$('#model-catalogue-status'), retry=$('#retry-models');
-  status.textContent=refresh?'Refreshing available Z.ai models…':'Loading available Z.ai models…';
+  status.textContent=refresh?'Refreshing models from OpenCode…':'Loading models from OpenCode…';
   status.className='field-note'; retry.disabled=true;
   try {
     const data=refresh?await api('/api/models/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}):await api('/api/models');
@@ -544,7 +589,7 @@ $('#create').onsubmit=async event=>{
     const doc=await api('/api/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(conversationPayload(text,models,conversationRequest.id))});
     if($('#new-goal').value.trim()===text){$('#new-goal').value='';persist('new-idea','');}conversationRequest=null;persist('create-request','');openConversation(doc);
   } catch(problem) {error.textContent=problem.message;error.hidden=false;}
-  finally {creatingConversation=false;$('#create-submit').disabled=false;$('#create-submit').textContent='Talk to GLM ↗';}
+  finally {creatingConversation=false;$('#create-submit').disabled=false;$('#create-submit').textContent='Start conversation ↗';}
 };
 $('#new-goal').value=stored('new-idea');
 $('#new-goal').oninput=event=>persist('new-idea',event.target.value);
@@ -618,28 +663,33 @@ function appendMessage(host,message) {
   const name=message.speaker||(message.role==='user'?'You':'GLM'),speaker=String(name).toLowerCase()==='glm'?'GLM':human(name);
   const text=message.text||'',body=message.role==='user'?n('p',text):messageBody(text);
   const at=messageTime(message),stamp=at?new Date(at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';
-  row.append(Object.assign(n('p',speaker+(message.planning_history?' · Planning discussion':'')+(stamp?' · '+stamp:'')),{className:'speaker'}));
-  if(text.length>1000||(message.planning_history&&text.length>320)){row.append(n('p',concise(text,260)),disclosure(message.planning_history?'Read saved planning discussion':'Read the full message','message:'+speaker+':'+text.slice(0,90),[body],chosen?.run||activeConversation||''));}else row.append(body);
-  if(message.role==='user'&&message.status)row.append(Object.assign(n('small',receiptLabel(message)),{className:'message-receipt'}));host.append(row);return row;
+  const meta=Object.assign(n('div',''),{className:'speaker'});
+  meta.append(n('strong',speaker));
+  if(message.planning_history)meta.append(n('span','Planning discussion'));
+  if(stamp){const time=n('time',new Date(at).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}));time.title=stamp;time.dateTime=new Date(at).toISOString();meta.append(time);}
+  row.append(meta);
+  if(!message.expanded&&(text.length>1000||(message.planning_history&&text.length>320))){row.append(n('p',concise(text,260)),disclosure(message.planning_history?'Read saved planning discussion':'Read the full message','message:'+speaker+':'+text.slice(0,90),[body],chosen?.run||activeConversation||''));}else row.append(body);
+  if(message.role==='user'&&message.status&&!['saved','received'].includes(message.status))row.append(Object.assign(n('small',receiptLabel(message)),{className:'message-receipt'}));host.append(row);return row;
 }
 function renderDraftConversation(doc) {
   if(doc.id!==activeConversation)return;latestConversation=doc;
   if(!doc.archived_at&&!doc.task_archived&&!doc.project_removed&&doc.attachment?.status==='linked'&&doc.attachment.run){
     const draft=stored('conversation-draft:'+doc.id),target=stored('task-draft:'+doc.attachment.run);
     if(draft&&!target){persist('task-draft:'+doc.attachment.run,draft);changeDrafts.set(doc.attachment.run,draft);}
-    openRun(doc.attachment);return;
+    openRun(doc.attachment,'interview');return;
   }
   const archiveControl=$('#archive-conversation');archiveControl.hidden=!!doc.archived_at;archiveControl.disabled=conversationArchivePending.has(doc.id);archiveControl.onclick=()=>reviewConversationArchive(doc);
   const archiveBanner=$('#conversation-archived-banner');archiveBanner.replaceChildren();archiveBanner.hidden=!doc.archived_at;
   if(doc.archived_at)archiveBanner.append(n('p','This conversation is archived. Restore it to continue.'),conversationArchiveButton(doc,'restore','Restore conversation'));
   $('#draft-title').textContent=concise(doc.title||'Your idea',86);$('#draft-status').textContent=doc.project_removed?'Project removed':conversationStatus(doc);
   const model=doc.models?.glm_model||doc.models?.glm||'zai-coding-plan/glm-5.3';
-  $('#draft-subtitle').textContent=doc.status==='thinking'?'GLM is working on your idea.':doc.attachment?.workspace?'Connecting '+basename(doc.attachment.workspace):'Explore the idea with GLM. Attach a project when you’re ready.';$('#draft-subtitle').title=model;
-  const host=$('#draft-messages'),signature=JSON.stringify(doc.messages||[]);
-  if(host.dataset.rendered!==signature){const scroll=$('#draft-scroll'),near=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90||!host.dataset.rendered;host.replaceChildren();renderMessageHistory(host,doc.messages||[],doc.id);host.dataset.rendered=signature;if(near)requestAnimationFrame(()=>scroll.scrollTop=scroll.scrollHeight);}
+  $('#draft-subtitle').textContent=doc.attachment?.workspace?'Connecting '+basename(doc.attachment.workspace):'Planning model: '+model+'. Bring in a project when you’re ready.';$('#draft-subtitle').title=model;
+  const host=$('#draft-messages'),signature=JSON.stringify([doc.messages||[],doc.status,conversationPending.has(doc.id)]);
+  if(host.dataset.rendered!==signature){const scroll=$('#draft-scroll'),near=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90||!host.dataset.rendered,position=scroll.scrollTop;host.replaceChildren();renderMessageHistory(host,doc.messages||[],doc.id);if(doc.status==='thinking'||conversationPending.has(doc.id)){const thinking=card('','chat-thinking');thinking.setAttribute('role','status');thinking.append(n('span','GLM'),n('span',doc.status==='thinking'?'Thinking through your reply…':'Sending your message…'));host.append(thinking);}host.dataset.rendered=signature;requestAnimationFrame(()=>{if(near)scrollDraftToEnd();else{scroll.scrollTop=position;updateDraftScroll();}});}
   const pending=conversationPending.has(doc.id),thinking=doc.status==='thinking',linked=doc.attachment?.status==='linked',attaching=doc.attachment?.status==='starting';
-  $('#draft-send').disabled=doc.project_removed||pending||thinking||!!doc.attachment||doc.status==='error';$('#draft-send').textContent=pending?'Sending…':thinking?'GLM is thinking…':'Send ↑';
-  $('#draft-delivery').textContent=thinking?'Working on your reply. Keep writing if you like.':doc.status==='error'?'Retry the saved message to continue.':doc.attachment?'Connecting the project…':'Saved locally · no project required';
+  $('#draft-send').disabled=draftSendBlocked(doc,pending,$('#draft-text').value);$('#draft-send').textContent=pending?'Sending…':'Send ↑';
+  $('#draft-delivery').textContent=thinking?'You can draft your next message while GLM replies.':doc.status==='error'?'Retry the saved message to continue.':doc.attachment?'Connecting the project…':'Enter to send · Shift + Enter for a new line';
+  requestAnimationFrame(()=>resizeComposer($('#draft-text')));
   const problem=$('#draft-problem'),retry=conversationRetries.get(doc.id);problem.replaceChildren();
   if(!doc.task_archived&&!doc.project_removed&&(doc.error||retry)){problem.append(Object.assign(n('p',retry?.error||doc.error),{className:'error'}));problem.append(button(retry?'Retry sending':'Retry GLM',()=>retry?sendDraftMessage(doc,retry):retryConversation(doc)));}problem.hidden=!problem.childElementCount;
   const attachment=$('#attachment-status');attachment.replaceChildren();
@@ -652,13 +702,13 @@ function renderDraftConversation(doc) {
   $('#draft-form').hidden=!!doc.archived_at;$('#draft-conversation .attach-section').hidden=!!doc.archived_at;
   if(doc.archived_at){$('#draft-status').textContent='Archived';$('#draft-send').disabled=true;$('#attach-submit').disabled=true;$('#draft-problem').hidden=true;}
 }
-$('#draft-text').oninput=event=>persist('conversation-draft:'+event.target.dataset.conversation,event.target.value);
+$('#draft-text').oninput=event=>{persist('conversation-draft:'+event.target.dataset.conversation,event.target.value);$('#draft-send').disabled=draftSendBlocked(latestConversation,conversationPending.has(activeConversation),event.target.value);};
 $('#draft-form').onsubmit=event=>{event.preventDefault();if(latestConversation?.id===activeConversation)sendDraftMessage(latestConversation);};
 async function sendDraftMessage(doc,retry) {
   if(conversationArchiveBlocked(doc)||doc.task_archived||taskArchiveBlocked(doc.attachment?.run)||doc.project_removed||projectBlocked(doc.attachment?.workspace)||conversationPending.has(doc.id)||doc.status==='thinking')return;
   const text=$('#draft-text').value.trim(),request=retry||{text,request_id:savedRequest('conversation-request:'+doc.id,{text}).id};if(!request.text)return;
   conversationPending.add(doc.id);conversationRetries.delete(doc.id);seq++;renderDraftConversation(doc);
-  try{const saved=await api('/api/conversation/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:doc.id,text:request.text,request_id:request.request_id})});persist('conversation-request:'+doc.id,'');if($('#draft-text').dataset.conversation===doc.id&&$('#draft-text').value.trim()===request.text){$('#draft-text').value='';persist('conversation-draft:'+doc.id,'');}renderDraftConversation(saved);}
+  try{const saved=await api('/api/conversation/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:doc.id,text:request.text,request_id:request.request_id})});persist('conversation-request:'+doc.id,'');if($('#draft-text').dataset.conversation===doc.id&&$('#draft-text').value.trim()===request.text){$('#draft-text').value='';persist('conversation-draft:'+doc.id,'');}renderDraftConversation(saved);if(activeConversation===doc.id)requestAnimationFrame(()=>{scrollDraftToEnd();$('#draft-text').focus();});}
   catch(error){conversationRetries.set(doc.id,{...request,error:error.message});}
   finally{conversationPending.delete(doc.id);if(activeConversation===doc.id)renderDraftConversation(latestConversation||doc);refresh();}
 }
@@ -720,7 +770,8 @@ function renderQuestion(host,question,run) {
 }
 function renderMessageHistory(host,messages,identity){
   const split=Math.max(0,messages.length-4),older=card('','earlier-content');
-  const render=(parent,entry)=>{const row=appendMessage(parent,{...entry,text:entry.text||(entry.delegate?'Accepted suggested answer':'Saved answer')});if(entry.question_text)row.prepend(Object.assign(n('p','In reply to: '+entry.question_text),{className:'reply-context'}));if(entry.error)row.append(Object.assign(n('p',entry.error),{className:'error'}));if(entry.role==='user'&&entry.status==='error'&&latestRun?.run===identity)row.append(button('Retry same message',()=>sendTaskChat(latestRun,{...entry,request_id:entry.id,retry:true})));};
+  const latestAssistant=messages.findLast(entry=>entry.role!=='user');
+  const render=(parent,entry)=>{const row=appendMessage(parent,{...entry,expanded:entry===latestAssistant||entry===messages.at(-1),text:entry.text||(entry.delegate?'Accepted suggested answer':'Saved answer')});if(entry.question_text)row.prepend(Object.assign(n('p','In reply to: '+entry.question_text),{className:'reply-context'}));if(entry.error)row.append(Object.assign(n('p',entry.error),{className:'error'}));if(entry.role==='user'&&entry.status==='error'&&latestRun?.run===identity)row.append(button('Retry same message',()=>sendTaskChat(latestRun,{...entry,request_id:entry.id,retry:true})));};
   for(const entry of messages.slice(0,split))render(older,entry);
   if(split){const history=disclosure('Earlier conversation · '+split+' messages','earlier-messages',[older],identity);history.className='earlier-messages';host.append(history);}
   for(const entry of messages.slice(split))render(host,entry);
@@ -973,7 +1024,6 @@ function renderLiveControls(run){
   if(input.dataset.run!==run.run){input.dataset.run=run.run;input.value=changeDrafts.get(run.run)??stored('task-draft:'+run.run);}
   const pendingRequest=readSavedRequest('task-request:'+run.run),confirmed=(run.chat_messages||[]).find(message=>message.id===pendingRequest?.id&&message.status!=='error');
   if(confirmed&&!taskChatPending.has(run.run)){if(input.value.trim()===pendingRequest.payload?.text){input.value='';changeDrafts.set(run.run,'');persist('task-draft:'+run.run,'');}persist('task-request:'+run.run,'');}
-  input.oninput=()=>{changeDrafts.set(input.dataset.run,input.value);persist('task-draft:'+input.dataset.run,input.value);};
   const questions=statusInfo(run).label==='Answer needed'?run.questions||[]:[],target=$('#question-target'),selected=target.value,signature=JSON.stringify(questions.map(question=>[question.id,question.question]));
   if(target.dataset.options!==signature){target.replaceChildren();for(const question of questions)target.append(Object.assign(n('option',question.question||question.id),{value:String(question.id)}));if(questions.some(question=>String(question.id)===selected))target.value=selected;target.dataset.options=signature;}
   target.hidden=questions.length<2;$('#question-target-label').hidden=target.hidden;
@@ -981,7 +1031,11 @@ function renderLiveControls(run){
   $('#change-label').textContent=questions.length?'Your reply':'Message your team';
   input.placeholder=questions.length?'Answer the question above…':'Give feedback, ask for a change, or add context…';
   const unavailable=data.mode==='unavailable',needsRecovery=!!interruptedAttempt(run),busy=taskActionBusy(run),sending=taskChatPending.has(run.run);
-  $('#send-change').disabled=run.status==='TASK_COMPLETE'||unavailable||sending||(questions.length>0&&busy)||((run.questions||[]).length>0&&!questions.length);$('#send-change').textContent=sending?'Sending…':questions.length?'Send answer ↑':'Send ↑';
+  const sendBlocked=run.status==='TASK_COMPLETE'||unavailable||sending||(questions.length>0&&busy)||((run.questions||[]).length>0&&!questions.length);
+  $('#send-change').disabled=sendBlocked||!input.value.trim();$('#send-change').textContent=sending?'Sending…':questions.length?'Send answer ↑':'Send ↑';
+  $('#send-change').title='Enter to send · Shift + Enter for a new line';
+  input.oninput=()=>{changeDrafts.set(input.dataset.run,input.value);persist('task-draft:'+input.dataset.run,input.value);$('#send-change').disabled=sendBlocked||!!taskReadError||!input.value.trim();};
+  requestAnimationFrame(()=>resizeComposer(input));
   $('#change-form').onsubmit=event=>{event.preventDefault();sendTaskChat(run);};renderPrimaryAction(run);renderTaskAttention(run);
   $('#task-delivery').textContent=sending?'Saving your message…':questions.length?'Work continues after your last answer.':run.status==='TASK_COMPLETE'?'This task is complete. Start a new conversation for more work.':'Saved now · applied at the next safe step';
   $('#live-mode').textContent=questions.length?'Final plan approval remains a separate step.':unavailable?'Live controls are unavailable.':statusInfo(run).group==='stopped'&&!busy?'Messages stay saved while this task is paused.':'';
@@ -1058,13 +1112,19 @@ function expireNotices(){
 }
 async function refreshOnce(){
   const mine=seq,selected=currentView==='task-detail'?chosen:null,conversationId=currentView==='draft-conversation'?activeConversation:null;
-  try{
-    const data=await api('/api/runs');if(mine!==seq)return;latestData=data;setup(data);const focus=captureControls();renderTasks(data);renderConversations(data);renderInbox(data);expireNotices();restoreFocus(focus);
-    if(!selected)$('#sync-state').replaceChildren(Object.assign(n('span',''),{className:'status-dot'}),document.createTextNode('Task list checked just now'));
-    if(mine!==seq)return;
-    if(conversationId){try{const doc=await api('/api/conversation?id='+encodeURIComponent(conversationId));if(mine!==seq||activeConversation!==conversationId||currentView!=='draft-conversation')return;renderDraftConversation(doc);}catch(error){if(mine===seq&&activeConversation===conversationId){latestConversation=null;$('#attach-submit').disabled=true;$('#draft-problem').replaceChildren(Object.assign(n('p',error.message),{className:'error'}));$('#draft-problem').hidden=false;$('#draft-send').disabled=true;}}}
-    if(selected){try{const run=await api('/api/run?workspace='+encodeURIComponent(selected.workspace)+'&run='+encodeURIComponent(selected.run));if(mine!==seq||chosen?.run!==selected.run||currentView!=='task-detail')return;if(run.state_error)unavailableRun('Selected run unavailable: '+run.state_error);else showRun(run,captureControls());}catch(error){if(mine===seq&&chosen?.run===selected.run)unavailableRun('Selected run unavailable: '+error.message);}}
-  }catch(error){if(selected&&mine===seq)unavailableRun('Selected run unavailable: '+error.message);else $('#sync-state').textContent='Connection interrupted';markMonitorStale();dashboardNotice(actionProblem||error.message);}
+  // Discovery is independent of the selected read: its latency and failures
+  // must never prevent a fresh task response or invalidate one already shown.
+  const listRead=(async()=>{
+    try{
+      const data=await api('/api/runs');if(mine!==seq)return;latestData=data;setup(data);if(restorePendingShortRun(data))return;const focus=captureControls();renderTasks(data);renderConversations(data);renderInbox(data);expireNotices();restoreFocus(focus);
+      if(!selected)$('#sync-state').replaceChildren(Object.assign(n('span',''),{className:'status-dot'}),document.createTextNode('Task list checked just now'));
+    }catch(error){if(mine!==seq)return;if(!selected)$('#sync-state').textContent='Task list unavailable';dashboardNotice(actionProblem||error.message);}
+  })();
+  const detailRead=(async()=>{
+    if(conversationId){try{const doc=await api('/api/conversation?id='+encodeURIComponent(conversationId));if(mine!==seq||activeConversation!==conversationId||currentView!=='draft-conversation')return;renderDraftConversation(doc);}catch(error){if(mine===seq&&activeConversation===conversationId&&currentView==='draft-conversation'){latestConversation=null;$('#attach-submit').disabled=true;$('#draft-problem').replaceChildren(Object.assign(n('p',error.message),{className:'error'}));$('#draft-problem').hidden=false;$('#draft-send').disabled=true;}}}
+    if(selected){try{const run=await api('/api/run?workspace='+encodeURIComponent(selected.workspace)+'&run='+encodeURIComponent(selected.run));if(mine!==seq||chosen?.run!==selected.run||currentView!=='task-detail')return;if(run.state_error)unavailableRun('Selected run unavailable: '+run.state_error);else showRun(run,captureControls());}catch(error){if(mine===seq&&chosen?.run===selected.run&&currentView==='task-detail')unavailableRun('Selected run unavailable: '+error.message);}}
+  })();
+  await Promise.all([listRead,detailRead]);
 }
 async function refresh(){
   if(refreshPromise){refreshAgain=true;return refreshPromise;}
@@ -1076,6 +1136,14 @@ function restoreSelection() {
   const selection=location.hash.slice(1)||stored('selection','inbox'),params=new URLSearchParams(selection);
   if(params.get('focus')==='1')persist('focus','1');
   if(params.get('conversation'))openConversation(params.get('conversation'));
+  else if(params.get('run')&&!params.get('task')){
+    const key=params.get('run'),matches=matchingShortRuns(key);
+    if(matches.length===1){pendingShortRun='';openRun(matches[0]);}
+    // Keep the compact hash intact until the first local registry snapshot
+    // arrives; setView('inbox') would overwrite it with #inbox.
+    else if(!latestData){pendingShortRun=key;}
+    else unavailableShortRun();
+  }
   else if(params.get('task')&&params.get('run'))openRun({workspace:params.get('task'),run:params.get('run')});
   else if(selection==='tasks'||selection.startsWith('tasks&')){const filter=params.get('filter')||'all';filterTasks(['all',...taskGroups().map(group=>group[0])].includes(filter)?filter:'all',params.get('project')||'');}
   else setView(['inbox','conversations','settings','archived'].includes(selection)?selection:selection==='new'?'new-task':'inbox');

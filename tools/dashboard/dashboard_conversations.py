@@ -23,6 +23,15 @@ import time
 import uuid
 import weakref
 
+try:
+    from .. import autocode_opencode as opencode_transport
+except ImportError:  # Direct script execution from any working directory.
+    import importlib.util
+    _transport_spec = importlib.util.spec_from_file_location(
+        '_autocode_dashboard_transport', Path(__file__).resolve().parents[1] / 'autocode_opencode.py')
+    opencode_transport = importlib.util.module_from_spec(_transport_spec)
+    _transport_spec.loader.exec_module(opencode_transport)
+
 DEFAULT_GLM_MODEL = 'zai-coding-plan/glm-5.3'
 MAX_MESSAGE_CHARS = 20_000
 MAX_CONTEXT_CHARS = 160_000
@@ -32,7 +41,7 @@ MAX_OUTPUT_BYTES = 1_048_576
 PROVIDER_TIMEOUT = 180
 _ID = re.compile(r'^[a-f0-9]{32}$')
 _REQUEST_ID = re.compile(r'^[A-Za-z0-9_.:-]{1,128}$')
-_MODEL = re.compile(r'^zai(?:-coding-plan)?/[A-Za-z0-9][A-Za-z0-9._:/-]{0,120}$')
+_MODEL = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._:/-]{0,120}$')
 
 
 class ConversationProviderError(RuntimeError):
@@ -71,13 +80,13 @@ def _models(value):
         raise ValueError('Model names must be short strings.')
     result = {'glm_model': DEFAULT_GLM_MODEL, **value}
     if not _MODEL.fullmatch(result['glm_model']):
-        raise ValueError('The conversation model must be a Z.ai provider/model, such as zai-coding-plan/glm-5.3.')
+        raise ValueError('The conversation model must be an OpenCode provider/model identifier.')
     return result
 
 
 def _prompt(messages):
     return (
-        'You are GLM, the planning partner in the Autocode browser dashboard. '
+        'You are the planning partner (GLM workflow role) in the Autocode browser dashboard. '
         'This is a project-free conversation. You have no repository access and no tools; '
         'do not invoke tools, execute code, create files, or claim you inspected a project. '
         'Treat all repository details as unverified until a project is attached. '
@@ -175,7 +184,11 @@ def _capture(command, env, cwd, prompt, timeout=PROVIDER_TIMEOUT, output_limit=M
 
 
 def opencode_provider(messages, model, workdir):
-    """Run one fresh, tool-free GLM turn. Never return raw diagnostics/config."""
+    """Run one fresh, tool-free planning turn. Never return raw diagnostics/config."""
+    try:
+        opencode_transport.check_subscription_routes({'glm': {'model': model}}, workdir)
+    except RuntimeError as error:
+        raise ConversationProviderError(str(error)) from error
     agent = 'autocode_conversation_' + uuid.uuid4().hex
     env = dict(os.environ)
     try:
@@ -571,6 +584,12 @@ class ConversationStore:
                 doc['messages'].append({'id': uuid.uuid4().hex, 'role': 'assistant', 'speaker': 'GLM',
                                         'text': response.strip(), 'created_at': _now(), 'status': 'received'})
             self._save(doc)
+            # Readers must not observe ready/error while the completed turn
+            # still owns its lease: a followup or retry can arrive immediately.
+            # Keep the outer cleanup for failures before this durable save.
+            lease = self._leases.pop((conversation_id, turn_id), None)
+            if lease:
+                lease.close()
 
     def close(self, wait=True):
         with self._guard():

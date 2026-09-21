@@ -208,12 +208,23 @@ def events(path):
 
 def event_metrics(path):
     rows = events(path)
-    usages = [r["usage"] for r in rows if r.get("type") == "turn.completed" and isinstance(r.get("usage"), dict)]
+    completed = [r for r in rows if r.get("type") == "turn.completed" and isinstance(r.get("usage"), dict)]
+    usages = [r["usage"] for r in rows if r.get("type") in ("turn.completed", "turn.failed")
+              and isinstance(r.get("usage"), dict)]
     keys = ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"]
     usage = {k: sum(u[k] for u in usages) if usages and all(k in u for u in usages) else None for k in keys}
     return {"provider_tokens": usage,
             "provider_requests": None, "provider_retries": None,
-            "completed_turns": len(usages), "headroom_transformed": None}
+            "completed_turns": len(completed), "headroom_transformed": None}
+
+
+def terminal_failure_reason(path):
+    """Expose recognized transport failures without interpreting model prose."""
+    for row in events(path):
+        error = row.get("error")
+        if row.get("type") == "turn.failed" and isinstance(error, dict) and error.get("code") == "output_token_limit":
+            return error.get("message")
+    return None
 
 
 def failure_status(path):

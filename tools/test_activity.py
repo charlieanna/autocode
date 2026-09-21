@@ -121,6 +121,57 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual('tool', self.monitor.expired()['kind'])
         self.assertTrue(self.monitor.snapshot()['process_fallback'])
 
+    def test_mcp_helpers_do_not_convert_provider_wait_to_tool_activity(self):
+        root = {'pid': 10, 'state': 'S', 'executable': 'opencode'}
+        helper = {'pid': 11, 'parent': 10, 'state': 'S', 'executable': 'mcp-server-darwin-arm64'}
+        observed = self.monitor.poll(processes=[root, helper], root_pid=10)
+        self.assertEqual('waiting_for_provider', observed['activity'])
+        self.assertFalse(observed['process_fallback'])
+        self.assertIsNone(observed['tool_elapsed_seconds'])
+        self.now = 4
+        self.monitor.poll(processes=[root, {**helper, 'pid': 12, 'executable': 'mcp-server'}], root_pid=10)
+        self.now = 5
+        self.assertEqual('idle', self.monitor.expired()['kind'])
+
+    def test_real_or_unknown_children_below_mcp_helper_keep_tool_grace(self):
+        for executable in ['sh', 'node', 'python3', None]:
+            with self.subTest(executable=executable):
+                self.now = 0
+                monitor = ActivityMonitor(self.path, idle_seconds=5, tool_seconds=20, clock=lambda: self.now)
+                helper = {'pid': 11, 'parent': 10, 'state': 'S', 'executable': 'mcp-server-darwin-arm64'}
+                command = {'pid': 12, 'parent': 11, 'state': 'S', 'executable': executable}
+                monitor.poll(processes=[helper, command], root_pid=10)
+                self.now = 6
+                observed = monitor.poll(processes=[helper, command], root_pid=10)
+                self.assertEqual('running_tool', observed['activity'])
+                self.assertTrue(observed['process_fallback'])
+                self.assertIsNone(monitor.expired())
+                self.now = 20
+                self.assertEqual('tool', monitor.expired()['kind'])
+
+    def test_explicit_mcp_call_still_receives_tool_deadline(self):
+        helper = {'pid': 11, 'state': 'S', 'executable': 'mcp-server-darwin-arm64'}
+        self.monitor.poll(processes=[helper], root_pid=10)
+        self.codex('started', kind='mcp_tool_call')
+        self.now = 6
+        observed = self.monitor.poll(processes=[helper], root_pid=10)
+        self.assertEqual('running_tool', observed['activity'])
+        self.assertEqual(1, observed['active_tool_count'])
+        self.assertFalse(observed['process_fallback'])
+        self.assertIsNone(self.monitor.expired())
+        self.now = 20
+        self.assertEqual('tool', self.monitor.expired()['kind'])
+
+    def test_finished_command_returns_to_idle_despite_mcp_helper(self):
+        helper = {'pid': 11, 'state': 'S', 'executable': 'mcp-server-darwin-arm64'}
+        self.monitor.poll(processes=[helper, {'pid': 12, 'executable': 'sh'}], root_pid=10)
+        self.now = 6
+        observed = self.monitor.poll(processes=[helper], root_pid=10)
+        self.assertFalse(observed['process_fallback'])
+        self.assertIsNone(observed['tool_elapsed_seconds'])
+        self.now = 11
+        self.assertEqual('idle', self.monitor.expired()['kind'])
+
     def test_new_completions_renew_fallback_for_persistent_helper_but_duplicates_do_not(self):
         self.monitor.poll(processes=[{'pid': 11}], root_pid=10)
         for index in range(1, 4):

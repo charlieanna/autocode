@@ -14,6 +14,10 @@ if sys.argv[1:] == ["--version"]:
 if sys.argv[1:] == ["models"]:
     print("openai/gpt-6-astra\nopenai/gpt-5.6-terra\nopenai/gpt-5.6-sol\nzai-coding-plan/glm-5.3")
     raise SystemExit(0)
+if sys.argv[1:] == ["auth", "list"]:
+    print("● OpenAI " + os.environ.get("AUTOCODE_FIXTURE_OPENAI_AUTH", "oauth"))
+    print("● Z.AI Coding Plan api")
+    raise SystemExit(0)
 
 assert sys.argv[1] == "run"
 assert sys.argv[sys.argv.index("--format") + 1] == "json"
@@ -44,6 +48,10 @@ with tempfile.TemporaryDirectory() as temp:
     result = subprocess.run([sys.executable, str(Path(__file__).with_name("codex")), "-o", str(report)],
                             input=prompt, text=True, capture_output=True)
     if result.returncode:
+        for line in result.stdout.splitlines():
+            event = json.loads(line)
+            if event.get("type") == "error":
+                print(json.dumps({"type": "error", "sessionID": session, "error": event["error"]}), flush=True)
         print(result.stderr, file=sys.stderr)
         raise SystemExit(result.returncode)
     for line in result.stdout.splitlines():

@@ -23,10 +23,15 @@ their prompts. The runner saves decisions, tasks and evidence so it can resume.
 
 Works against any committed Git workspace; no IdleCampus files or services are required.
 
-Requires Python 3.11+, Git, authenticated OpenCode 1.x, and Codex signed in with ChatGPT.
+Requires Python 3.11+, Git, and OpenCode 1.x connected to ChatGPT and Z.ai.
 macOS/Linux are supported; Windows needs WSL because the inherited process and lock
 mechanisms use POSIX APIs. There are no Python runtime dependencies. Installation does
 not change Codex or OpenCode settings. `--engine codex` still starts a Codex-only run.
+
+The current development priority is **reliable completion of agreed work**. Focus on
+completion, recovery, trustworthy status, and clear requests for human input. New
+features require an identified user need and an explicit scope decision; competitor
+feature parity is not a reason to expand scope. See [the reliability priorities](RELIABILITY.md).
 
 ## Run or install
 
@@ -57,9 +62,9 @@ redundant. `--engine codex` is the explicit single-CLI loop; it does not use joi
 | Role | CLI and billing route | Default model |
 | --- | --- | --- |
 | GLM — clarification, exploration, draft, evidence-backed revision | OpenCode / Z.ai Coding Plan | `zai-coding-plan/glm-5.3` |
-| Astra — challenge, final planning decisions, implementation reviews | Codex / ChatGPT login | `gpt-6-astra` |
+| Astra — challenge, final planning decisions, implementation reviews | OpenCode / ChatGPT login | `openai/gpt-6-astra` |
 | Terra — implementation | OpenCode / Z.ai Coding Plan | `zai-coding-plan/glm-5.3` |
-| Sol — independent validation, separate session | Codex / ChatGPT login | `gpt-5.6-sol` |
+| Sol — independent validation, separate session | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` |
 
 From inside any committed Git project, the normal invocation is simply:
 
@@ -105,8 +110,9 @@ The **Now** tab combines the live monitor with the project/task console:
 verified worker identity, exact saved role/model settings, current objective,
 filtered tool activity, review findings, acceptance counts, and artifact progress.
 **Focus view** hides navigation without starting a different server. Dark and
-light themes are local browser preferences. A focused link can append `&focus=1`
-to the existing `#task=…&run=…` URL.
+light themes are local browser preferences. Task links use compact local
+`#run=r-…` identifiers; old `#task=…&run=…` links remain supported. A focused
+link can append `&focus=1` to either form.
 
 Saved status, worker liveness, artifact timestamps, and task-read freshness are
 separate signals. A disconnected task retains its last successful view, labels it
@@ -289,7 +295,10 @@ role. Resuming keeps the saved engine, provider mapping and limits unless overri
 
 ## Joint GLM + Astra planning
 
-This is the new-run default. Saved runs keep their original routing.
+This is the new-run default. Older mixed-CLI OpenCode runs move their Codex roles
+to OpenCode when execution resumes at a recovered stage boundary. The runner saves
+a checkpoint backup and archives those Codex session IDs; approvals, task history,
+evidence, limits, and existing OpenCode sessions are preserved.
 
 ```sh
 autocode "Your rough idea"
@@ -307,9 +316,9 @@ GLM explores and drafts → Astra challenges → GLM investigates and revises
 | Role in this mode | CLI and billing route | Default model |
 | --- | --- | --- |
 | GLM — clarification, exploration, draft, evidence-backed revision | OpenCode / Z.ai Coding Plan | `zai-coding-plan/glm-5.3` |
-| Astra — challenge, final planning decisions, implementation reviews | Codex / ChatGPT login | `gpt-6-astra` |
+| Astra — challenge, final planning decisions, implementation reviews | OpenCode / ChatGPT login | `openai/gpt-6-astra` |
 | Terra — implementation | OpenCode / Z.ai Coding Plan | `zai-coding-plan/glm-5.3` |
-| Sol — independent validation, separate session | Codex / ChatGPT login | `gpt-5.6-sol` |
+| Sol — independent validation, separate session | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` |
 
 GLM can originate alternatives and push back on Astra using source evidence. Astra's
 concerns have stable IDs; every concern requires a GLM response and an Astra decision,
@@ -326,12 +335,27 @@ send `--feedback '...'` to request a new cycle. Answering final blockers, giving
 or editing the goal starts fresh joint review and requires fresh approval. Old exchanges
 remain archived. Ordinary resume preserves the cycle and its spent budget.
 
-Both CLIs must be installed and authenticated. Codex must report a ChatGPT login;
-API-key environment overrides, custom Codex provider selection and endpoint overrides
-are rejected. Astra and Sol launch with the OpenAI provider and `forced_login_method=chatgpt`,
-using separate sessions. GLM and Terra are pinned to the `zai-coding-plan/` provider.
-You may select another Coding Plan model with `--glm-model` or `--terra-model`;
-`--astra-model` and `--sol-model` take Codex model names. Usage/provider failures pause without silently switching to
+The default workflow uses OpenCode for every role. Astra and Sol use OpenCode's
+current ChatGPT OAuth connection; GLM and Terra use its Z.ai connection. Changing
+the account in ChatGPT's browser or desktop app does not change OpenCode's login.
+To switch this workflow's ChatGPT account, reconnect OpenAI in OpenCode.
+Every role can select any available provider/model
+from `opencode models`. The dashboard shows that live catalogue in all four
+pickers, grouped by provider, with each unchanged default route labeled explicitly.
+The role names describe responsibilities, not mandatory models.
+
+Explicit `provider/model` choices use OpenCode, including for Astra and Sol.
+For example, `--glm-model openai/gpt-5.6-sol --astra-model zai-coding-plan/glm-5.3
+--terra-model openai/gpt-5.6-terra --sol-model openai/gpt-6-astra` runs all four
+roles through OpenCode. No Codex login is required for the default workflow.
+Bare Astra/Sol model names in new runs are expanded to `openai/model` on OpenCode.
+Explicit legacy `--engine codex` runs retain their separate Codex routing.
+Before launching an OpenAI role, Autocode checks the nonsecret `opencode auth list`
+summary for OAuth; missing/unknown/API authentication or API environment overrides
+pause without fallback. This also applies before a project-free planning reply.
+Other providers retain their configured connections. No credentials are copied.
+Models in a catalogue are not proof of entitlement.
+Usage/provider failures pause without silently switching to
 separately billed API access. Actual subscription entitlements are managed by the CLIs.
 
 Planning requests use fresh sessions and focused handoffs: the current brief, code
@@ -351,15 +375,18 @@ move between CLIs. No global OpenCode or Codex configuration is changed.
 
 ## OpenCode adapter
 
-GLM and Terra use the connections already configured in OpenCode. `--engine opencode`
+GLM and the default Terra use the connections already configured in OpenCode. `--engine opencode`
 is accepted but is optional for new runs:
 
 ```sh
 python3 tools/autocode.py "Your rough idea" --workspace /path/to/project
 ```
 
-Override GLM or Terra with `--glm-model` or `--terra-model` using a `zai-coding-plan/`
-ID from `opencode models`. Astra and Sol stay on Codex model names. OpenCode reasoning
+Override any role with `--glm-model`, `--astra-model`, `--terra-model` or
+`--sol-model` using a provider/model ID from `opencode models`, including
+`openai/…` with an OpenCode ChatGPT OAuth connection. Saved runs retain their original role
+engines and sessions; no existing run is migrated by a dashboard selection.
+OpenCode reasoning
 variants can be selected with the existing role-specific reasoning-effort flags; no
 variant is forced by default. Provider credentials remain with OpenCode: Autocode does
 not read its auth file or change your global configuration.

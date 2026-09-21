@@ -16,7 +16,16 @@ from autocode_activity import ActivityMonitor
 
 
 class ProcessTests(unittest.TestCase):
-    def activity_child(self, body, *, idle=.45, tool=1.5, total=None, sample=None):
+    def test_process_table_retains_executable_name_without_changing_identity(self):
+        output = '101 90 101 Mon Sep 21 12:39:34 2026 S /Applications/Pencil App/mcp-server-darwin-arm64\n'
+        result = subprocess.CompletedProcess([], 0, stdout=output, stderr='')
+        with patch.object(processes.subprocess, 'run', return_value=result) as inspect:
+            row = processes.process_table()[101]
+        self.assertEqual('mcp-server-darwin-arm64', row['executable'])
+        self.assertEqual({'pid': 101, 'started': 'Mon Sep 21 12:39:34 2026', 'group': 101}, processes.identity(row))
+        self.assertEqual(['ps', '-axo', 'pid=,ppid=,pgid=,lstart=,stat=,comm='], inspect.call_args.args[0])
+
+    def activity_child(self, body, *, idle=.45, tool=1.5, total=None, sample=None, require_worker=False):
         """Run a real event-writing worker without making cleanup speed an assertion."""
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -42,6 +51,8 @@ class ProcessTests(unittest.TestCase):
                                 activity_checkpoint=lambda value: snapshots.append(value.copy()))
                     self.assertEqual([], processes.live_processes(owned))
                     self.assertFalse((root / 'late-write').exists())
+                    if require_worker:
+                        self.assertTrue((root / 'worker.pid').is_file(), 'The helper fixture must actually launch')
                     worker_pid = int((root / 'worker.pid').read_text()) if (root / 'worker.pid').exists() else None
                     if worker_pid is not None:
                         self.assertIn(worker_pid, [row['pid'] for row in owned])
@@ -208,6 +219,22 @@ emit({'type':'tool_use','sessionID':'one','part':{'id':'part1','tool':'bash','st
         self.assertEqual(0, code)
         self.assertFalse(expired)
         self.assertTrue(snapshots)
+
+    def test_idle_mcp_helper_does_not_delay_provider_inactivity_timeout(self):
+        body = """import shutil
+helper = Path('mcp-server-fixture')
+shutil.copyfile('/bin/sleep', helper)
+helper.chmod(0o700)
+worker = subprocess.Popen([str(helper.resolve()), '30'], start_new_session=True)
+Path('worker.pid').write_text(str(worker.pid))
+time.sleep(30)
+"""
+        code, expired, snapshots, reason = self.activity_child(body, idle=.6, tool=3, require_worker=True)
+        self.assertNotEqual(0, code)
+        self.assertTrue(expired)
+        self.assertEqual('idle', reason['kind'])
+        self.assertTrue(snapshots)
+        self.assertFalse(any(row.get('process_fallback') for row in snapshots))
 
     def test_tool_deadline_stops_detached_writer_and_retains_identity(self):
         body = """emit({'type':'item.started','item':{'id':'test','type':'command_execution','command':'stuck tests','status':'in_progress'}})

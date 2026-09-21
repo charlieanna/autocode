@@ -1,3 +1,30 @@
+# Reliable completion baseline — 2026-09-21
+
+The installed `autocode` command passed **10 workflow tests** in 80.909 seconds:
+
+```sh
+AUTOCODE_TEST_CLI=/Users/ankurkothari/.local/bin/autocode python3 -m unittest tools.test_planning.JointFlow tools.test_opencode.OpenCodeFlow
+```
+
+These exercise default joint planning, exact-plan approval, independent verification,
+rework, unresolved decisions, saved-stage recovery, explicit plan revision, provider
+quota handling, and completion. They use temporary Git projects and fake providers;
+no live application run or real model request was started. This is a mechanics
+baseline, not evidence of model-driven product delivery. Development priorities and
+the remaining live-trial evidence are recorded in [RELIABILITY.md](RELIABILITY.md).
+
+A separate source regression pass also passed **74 tests** in 117.777 seconds:
+
+```sh
+env -u AUTOCODE_TEST_CLI PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tools.test_subprocess tools.test_milestone_checkpoints tools.test_intervention_ordering tools.test_report_repair tools.test_final_workflow
+```
+
+It covers completion gates, milestone evidence, intervention ordering, invalid-report
+recovery, and saved workflow routing. The first sandboxed attempt could not inspect
+worker processes; the rerun passed with process inspection enabled. No guard was
+disabled. All projects and provider responses were isolated fixtures; no runtime fix
+was needed from these checks.
+
 # Activity-aware timeout validation — 2026-09-20
 
 Separate inactivity/tool deadlines, preserved hard caps, live activity diagnostics

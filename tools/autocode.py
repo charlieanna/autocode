@@ -372,7 +372,8 @@ def run_role(
         state["sessions"][role] = thread
         record["thread_id"] = thread
     if not any(e.get("type") == "turn.completed" for e in support.events(events)):
-        raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without turn.completed")
+        raise support.Paused("PAUSED_UNCERTAIN_STAGE",
+                             support.terminal_failure_reason(events) or "Process exited without turn.completed")
     after = support.snapshot(workspace)
     write_json(base.with_suffix(".after.json"), after)
     record["after_ref"] = str(base.with_suffix(".after.json"))
@@ -918,7 +919,9 @@ def reconcile_active(state, run_dir, workspace):
     assert_stage_stopped(record)
     rows = support.events(record["events"])
     if not any(e.get("type") == "turn.completed" for e in rows) or record.get("exit_code") not in (None, 0):
+        reason = support.terminal_failure_reason(record["events"])
         raise support.Paused(support.failure_status(record["events"]),
+            (f"{reason} " if reason else "") +
             f"Uncertain stage must be inspected, never automatically replayed. After review, "
             f"use --abandon-stage {attempt_id(record)} to retain partial work and set aside this response.")
     thread = event_thread_id(Path(record["events"]))
@@ -1114,26 +1117,70 @@ def configure_joint(settings, args, *, fresh):
     if fresh:
         settings["joint_planning"] = True
         for role in ("astra", "sol"):
-            settings["roles"][role].update(engine="codex", provider="openai",
-                model=getattr(args, f"{role}_model") or DEFAULT_ROLE_MODELS[role])
+            model = getattr(args, f"{role}_model") or DEFAULT_ROLE_MODELS[role]
+            # Bare OpenAI names from older dashboard conversations are aliases,
+            # never a reason to use a separate Codex login.
+            settings["roles"][role].update(engine="opencode", provider=None,
+                model=model if "/" in model else f"openai/{model}")
         settings["roles"]["terra"].update(engine="opencode", provider=None,
             model=args.terra_model or opencode.DEFAULT_MODELS["sol"])
         settings["roles"]["glm"] = {"engine": "opencode", "provider": None,
             "model": getattr(args, "glm_model", None) or opencode.DEFAULT_MODELS["sol"], "reasoning_effort": None}
-        codex = support.local_settings()
-        check_subscription(codex)
-        settings["transport_identities"] = {"codex": codex, "opencode": settings["transport_identity"]}
+        settings["transport_identities"] = {"opencode": settings["transport_identity"]}
     elif getattr(args, "glm_model", None):
         settings["roles"]["glm"]["model"] = args.glm_model
     for role, config in settings["roles"].items():
         if planning.engine_for(settings, role) == "codex":
             if "/" in config["model"]:
                 raise ValueError(f"Joint planning {role.title()} uses a Codex model name, e.g. {DEFAULT_ROLE_MODELS[role]}")
-        elif not config["model"].startswith("zai-coding-plan/"):
-            if role == "sol" and not fresh:
-                raise ValueError("This saved Sol session uses OpenCode. Start a new --joint-planning run "
-                                 "to use GPT Sol through Codex; session engines cannot be switched on resume")
-            raise ValueError(f"Joint planning pins {role} to OpenCode's zai-coding-plan provider")
+        else:
+            # Preserve OpenCode's catalogue identifier, not a Codex alias or a
+            # provider whitelist. check_models verifies actual availability.
+            if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,120}", config["model"]):
+                raise ValueError(f"{role.title()} requires an OpenCode provider/model identifier; "
+                                 "saved session engines cannot be switched on resume")
+
+
+def migrate_opencode_roles(state, run_dir, workspace):
+    """Move old mixed-CLI runs to OpenCode at a recovered, locked boundary."""
+    settings = state["settings"]
+    if settings.get("engine") != "opencode":
+        return False  # Explicit legacy --engine codex runs retain their contract.
+    roles = [role for role in settings["roles"] if planning.engine_for(settings, role) == "codex"]
+    if not roles:
+        return False
+    if any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts")):
+        raise support.Paused("PAUSED_TRANSPORT_MIGRATION", "Resolve the saved stage before moving its role to OpenCode")
+    candidate = copy.deepcopy(state)
+    selected = candidate["settings"]
+    for role in roles:
+        config = selected["roles"][role]
+        if config.get("provider") not in (None, "openai") or "/" in config["model"]:
+            raise support.Paused("PAUSED_TRANSPORT_MIGRATION",
+                                 f"Cannot map the saved {role} provider to OpenCode automatically")
+        config.update(engine="opencode", provider=None, model=f"openai/{config['model']}")
+    # Check availability and the existing OAuth route before changing a checkpoint.
+    opencode.check_models(selected["roles"], workspace)
+    opencode.check_subscription_routes(selected["roles"], workspace)
+    current = opencode.local_settings(workspace)
+    if opencode.transport_drift(current, settings["transport_identity"]):
+        raise support.Paused("PAUSED_TRANSPORT_CHANGED", "OpenCode configuration changed before role migration")
+    selected["transport_identities"] = {"opencode": settings["transport_identity"]}
+    at = now()
+    for role in roles:
+        old = candidate.setdefault("sessions", {}).pop(role, None)
+        if old:
+            candidate.setdefault("session_rotations", []).append({"role": role, "old_session": old, "at": at,
+                "reason": "Moved from Codex to OpenCode; saved handoffs and evidence retained"})
+    backup = Path(run_dir) / f"state.pre-opencode-{uuid.uuid4().hex[:8]}.json"
+    candidate.setdefault("configuration_changes", []).append({"at": at, "previous": settings,
+        "selected": copy.deepcopy(selected), "backup": str(backup),
+        "reason": "Use OpenCode and its current ChatGPT OAuth login for every role"})
+    write_json(backup, state)
+    write_json(Path(run_dir) / "state.json", candidate)
+    state.clear()
+    state.update(candidate)
+    return True
 
 
 def check_subscription(identity):
@@ -1146,11 +1193,19 @@ def check_subscription(identity):
 
 def check_joint_transports(state, workspace):
     identities = state["settings"]["transport_identities"]
-    codex = support.local_settings()
-    check_subscription(codex)
     roles = {role: config for role, config in state["settings"]["roles"].items()
              if planning.engine_for(state["settings"], role) == "codex"}
-    if (support.transport_drift(codex, identities["codex"], roles)
+    codex_changed = False
+    if roles:
+        codex = support.local_settings()
+        check_subscription(codex)
+        codex_changed = support.transport_drift(codex, identities["codex"], roles)
+    try:
+        opencode.check_subscription_routes({role: config for role, config in state["settings"]["roles"].items()
+                                           if planning.engine_for(state["settings"], role) == "opencode"}, workspace)
+    except RuntimeError as error:
+        raise support.Paused("PAUSED_BILLING_ROUTE", str(error)) from error
+    if (codex_changed
             or opencode.transport_drift(opencode.local_settings(workspace), identities["opencode"])):
         raise support.Paused("PAUSED_TRANSPORT_CHANGED", "A joint-planning CLI/auth/provider configuration changed")
 
@@ -1397,13 +1452,13 @@ def main() -> int:
                         help="New-run default is OpenCode joint planning; --engine codex is the single-CLI loop. Resumes keep the saved engine")
     parser.add_argument("--joint-planning", action="store_true",
                         help="Enabled by default for new OpenCode runs. GLM drafts → Astra challenges → GLM revises → Astra finalizes → you approve")
-    parser.add_argument("--glm-model", help="Joint-planning GLM model (default: zai-coding-plan/glm-5.3)")
+    parser.add_argument("--glm-model", help="Planning-role OpenCode provider/model (default: zai-coding-plan/glm-5.3)")
     parser.add_argument("--max-iterations", type=int, help="Total iteration ceiling (new-run default: 15; resumes keep saved limits)")
     parser.add_argument('--unlimited-iterations',action='store_true',help='Remove only the iteration ceiling; other safety and usage limits remain')
     for role, model in DEFAULT_ROLE_MODELS.items():
         parser.add_argument(f"--{role}-model",
                             help=f"Override the {role.title()} model (joint default: "
-                                 f"{'gpt-6-astra' if role=='astra' else 'zai-coding-plan/glm-5.3' if role=='terra' else 'gpt-5.6-sol'}; "
+                                 f"{'openai/gpt-6-astra' if role=='astra' else 'zai-coding-plan/glm-5.3' if role=='terra' else 'openai/gpt-5.6-sol'}; "
                                  f"Codex-only default: {model}; resumes keep the saved model)")
     parser.add_argument("--astra-provider", help="Codex model_provider override for Astra (e.g. ZAI); default is the local Codex login")
     parser.add_argument("--terra-provider", help="Codex model_provider override for Terra (e.g. ZAI); default is the local Codex login")
@@ -1683,6 +1738,8 @@ def main() -> int:
                     state.pop('stop_reason', None)
             if state.get("pending_questions"):
                 raise support.Paused("PAUSED_UNANSWERED_QUESTION", "Pending questions cannot be bypassed by resume")
+            if migrate_opencode_roles(state, run_dir, workspace):
+                print("Saved roles now use OpenCode; previous sessions archived and task progress retained.", flush=True)
             if state["settings"].get("engine") == "opencode":
                 opencode.check_models({r: config for r, config in state["settings"]["roles"].items()
                                        if planning.engine_for(state["settings"], r) == "opencode"}, workspace)

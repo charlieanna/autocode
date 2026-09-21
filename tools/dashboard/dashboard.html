@@ -26,8 +26,7 @@
   </aside>
 
   <main class="main-area">
-    <header class="topbar"><button id="nav-toggle" class="icon-button" aria-label="Toggle navigation" aria-expanded="false"><span data-icon="grid"></span></button><div class="breadcrumb"><span>Workspace</span><span class="crumb-divider">/</span><strong id="breadcrumb-title">Needs you</strong></div><span class="sync-state" id="sync-state"><span class="status-dot"></span>Live updates</span></header>
-    <div class="display-controls" aria-label="Dashboard display"><span>LOCAL ONLY · AUTOCODE</span><button id="focus-toggle" hidden>Focus view</button><button id="theme-toggle" aria-pressed="true">Light theme</button></div>
+    <header class="topbar"><button id="nav-toggle" class="icon-button" aria-label="Toggle navigation" aria-expanded="false"><span data-icon="grid"></span></button><div class="breadcrumb"><span>Workspace</span><span class="crumb-divider">/</span><strong id="breadcrumb-title">Needs you</strong></div><span class="sync-state" id="sync-state"><span class="status-dot"></span>Live updates</span><div class="display-controls" aria-label="Dashboard display"><button id="focus-toggle" hidden>Focus view</button><button id="theme-toggle" aria-pressed="true">Light theme</button></div></header>
     <div id="dashboard-notice" class="notice error" role="alert" hidden></div>
     <div class="toast-stack"><div id="project-notice" class="project-notice" role="status" aria-live="polite" hidden></div>
     <div id="archive-notice" class="project-notice" role="status" aria-live="polite" hidden></div>
@@ -54,33 +53,33 @@
 
     <section id="new-task" class="page create-page" hidden>
       <button class="text-button" data-view="tasks">← All work</button>
-      <p class="eyebrow">ROOM TO THINK</p><h1>What would you like to build?</h1><p class="subtitle" id="create-subtitle">Start a conversation with GLM. Explore the idea, work through questions, and shape a plan. No project needed yet.</p>
+      <p class="eyebrow">ROOM TO THINK</p><h1>What would you like to build?</h1><p class="subtitle" id="create-subtitle">Start a conversation with your chosen planning model. Explore the idea, work through questions, and shape a plan. No project needed yet.</p>
       <form id="create">
         <label class="field-label" for="new-goal">Your idea</label><textarea id="new-goal" name="goal" required placeholder="A rough idea is enough. What do you want to make or improve?" rows="5"></textarea>
         <p id="create-error" class="error" role="alert" aria-live="polite" hidden></p>
         <details class="advanced models-disclosure"><summary>Models <span>Joint planning by default · GLM + Astra</span></summary>
         <section id="opencode-role-settings" class="role-settings" aria-labelledby="role-settings-title">
           <div class="section-heading"><div><h2 id="role-settings-title">Who works on this task?</h2><p class="field-note">GLM drafts → Astra challenges → GLM revises → Astra finalizes → you approve.</p></div><button id="retry-models" type="button">Retry models</button></div>
-          <p id="model-catalogue-status" class="field-note" aria-live="polite">Loading available Z.ai models…</p>
+          <p id="model-catalogue-status" class="field-note" aria-live="polite">Loading models from OpenCode…</p>
           <div class="role-selects">
-            <label for="glm-model">GLM <small>Conversation, draft and revisions · OpenCode / Z.ai</small><select id="glm-model" name="glm_model"><option value="">Default · GLM-5.3</option></select></label>
-            <label for="astra-model">Astra <small>Plan decisions and final review · Codex</small><select id="astra-model" name="astra_model"><option value="">Default · GPT-6 Astra</option><option>gpt-6-astra</option><option>gpt-5.6-sol</option><option>gpt-5.6-terra</option></select></label>
-            <label for="terra-model">Terra <small>Implementation · OpenCode / Z.ai</small><select id="terra-model" name="terra_model"><option value="">Default · GLM-5.3</option></select></label>
-            <label for="sol-model">Sol <small>Independent verification · Codex</small><select id="sol-model" name="sol_model"><option value="">Default · GPT-5.6 Sol</option><option>gpt-5.6-sol</option><option>gpt-6-astra</option><option>gpt-5.6-terra</option></select></label>
+            <label for="glm-model">GLM <small>Conversation, draft and revisions · OpenCode providers</small><select id="glm-model" name="glm_model"><option value="">Default · GLM-5.3 · OpenCode</option></select></label>
+            <label for="astra-model">Astra <small>Plan decisions and final review · Choose a model</small><select id="astra-model" name="astra_model"><option value="">Default · GPT-6 Astra · OpenCode</option></select></label>
+            <label for="terra-model">Terra <small>Implementation · OpenCode providers</small><select id="terra-model" name="terra_model"><option value="">Default · GLM-5.3 · OpenCode</option></select></label>
+            <label for="sol-model">Sol <small>Independent verification · Choose a model</small><select id="sol-model" name="sol_model"><option value="">Default · GPT-5.6 Sol · OpenCode</option></select></label>
           </div>
         </section>
         </details>
-        <div class="form-submit"><span class="astra-avatar" id="create-avatar">G</span><p><span id="create-conversation-label">Joint planning by default.</span><small>Start with GLM. Attach a project for GLM and Astra’s joint review.</small></p><button class="primary" type="submit" id="create-submit">Talk to GLM <span aria-hidden="true">↗</span></button></div>
+        <div class="form-submit"><span class="astra-avatar" id="create-avatar">G</span><p><span id="create-conversation-label">Joint planning by default.</span><small>Start with your planning model. Attach a project for joint review.</small></p><button class="primary" type="submit" id="create-submit">Start conversation <span aria-hidden="true">↗</span></button></div>
       </form>
     </section>
 
     <section id="draft-conversation" class="page draft-page" hidden>
       <div class="task-detail-navigation"><button class="text-button" data-view="tasks">← All work</button><details class="context-menu"><summary aria-label="Conversation settings">•••</summary><div><button id="archive-conversation" type="button" disabled>Archive conversation</button></div></details></div>
       <div id="conversation-archived-banner" class="project-notice" hidden></div>
-      <div class="draft-heading"><div><p class="eyebrow">PLANNING CONVERSATION</p><h1 id="draft-title">Your idea</h1><p class="subtitle" id="draft-subtitle">GLM helps you work through the idea.</p></div><span id="draft-status" class="badge">Saved</span></div>
-      <div id="draft-scroll" class="thread-scroll"><div id="draft-messages" class="draft-messages" aria-live="polite"></div></div>
+      <div class="draft-heading"><div><h1 id="draft-title">Your idea</h1><p class="subtitle" id="draft-subtitle">Plan with GLM. Bring in a project when you’re ready.</p></div><span id="draft-status" class="badge">Planning</span></div>
+      <div class="thread-viewport"><div id="draft-scroll" class="thread-scroll" aria-label="Conversation messages"><div id="draft-messages" class="draft-messages" aria-live="polite"></div></div><button id="draft-latest" class="latest-message" type="button" hidden>↓ Latest message</button></div>
       <div id="draft-problem" class="conversation-problem" role="alert" hidden></div>
-      <form id="draft-form" class="draft-composer"><label for="draft-text">Message GLM</label><div class="composer"><textarea id="draft-text" rows="3" placeholder="Answer a question, add detail, or ask GLM to revise the plan…"></textarea><div class="composer-bottom"><span id="draft-delivery">Your conversation is saved locally.</span><button id="draft-send" class="primary" type="submit">Send ↑</button></div></div></form>
+      <form id="draft-form" class="draft-composer"><label for="draft-text" class="visually-hidden">Message GLM</label><div class="composer"><textarea id="draft-text" rows="1" placeholder="Message GLM…" aria-describedby="draft-delivery draft-shortcut"></textarea><div class="composer-bottom"><span id="draft-delivery">Enter to send · Shift + Enter for a new line</span><button id="draft-send" class="primary" type="submit" aria-label="Send message" disabled>Send ↑</button></div></div><span id="draft-shortcut" class="visually-hidden">Enter to send. Shift and Enter adds a new line.</span></form>
       <section class="attach-section"><div id="attachment-status" aria-live="polite"></div><details id="attach-disclosure"><summary>＋ Attach a project <span>when you’re ready for repository review</span></summary><p class="field-note">Your conversation continues here. You approve the reviewed plan before coding.</p><form id="attach-form"><label for="attach-mode">Project</label><select id="attach-mode"><option value="existing">Use an existing project</option><option value="new">Create a new project</option></select><div id="existing-project-field"><label for="workspaces">Choose a project</label><select name="workspace" id="workspaces"></select></div><div id="attach-path-field" hidden><label for="project-path" id="attach-path-label">Existing project folder</label><input id="project-path" name="project" autocomplete="off" placeholder="/absolute/path/to/project"></div><p id="attach-error" class="error" role="alert"></p><button id="attach-submit" type="submit">Attach for review →</button></form></details></section>
     </section>
 

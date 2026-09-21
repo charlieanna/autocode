@@ -36,7 +36,7 @@ assert.deepEqual(plain(payloadContext.chatPayload({workspace:'/repo',run:'/repo/
  {workspace:'/repo',run:'/repo/run',text:'Private',question_id:'Q2',request_id:'request-2'});
 assert.deepEqual(plain(payloadContext.chatPayload({workspace:'/repo',run:'/repo/run'},'Revise the plan',null,'request-3')),
  {workspace:'/repo',run:'/repo/run',text:'Revise the plan',request_id:'request-3'});
-assert.equal(payloadContext.conversationStatus({status:'thinking'}),'GLM is thinking');
+assert.equal(payloadContext.conversationStatus({status:'thinking'}),'Thinking…');
 assert.equal(payloadContext.conversationStatus({status:'ready',attachment:{status:'starting'}}),'Connecting project');
 assert.equal(payloadContext.conversationStatus({status:'error'}),'Needs attention');
 assert.deepEqual(plain(payloadContext.orderedMessages([

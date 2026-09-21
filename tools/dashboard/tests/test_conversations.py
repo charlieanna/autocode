@@ -80,6 +80,38 @@ class ConversationTests(unittest.TestCase):
         self.assertNotIn('messages', summary)
         self.assertEqual('Reply 2', summary['last_message'])
 
+    def test_ready_reply_accepts_followup_before_worker_cleanup(self):
+        for other_dashboard in (False, True):
+            with self.subTest(other_dashboard=other_dashboard):
+                store = self.store()
+                sender = self.store() if other_dashboard else store
+                reply_saved, release = threading.Event(), threading.Event()
+                self.addCleanup(release.set)
+                original = store._reply_locked
+
+                def delay_cleanup(conversation_id, turn_id):
+                    original(conversation_id, turn_id)
+                    if not reply_saved.is_set():
+                        reply_saved.set()
+                        if not release.wait(3):
+                            raise AssertionError('fixture cleanup release timed out')
+
+                # Hold the worker exactly between publishing its completed reply
+                # and its outer cleanup, where the old lease blocked new input.
+                with patch.object(store, '_reply_locked', delay_cleanup):
+                    initial = store.create('First message')
+                    try:
+                        self.assertTrue(reply_saved.wait(1))
+                        self.assertEqual('ready', sender.get(initial['id'])['status'])
+                        sent = sender.send(initial['id'], 'Immediate followup')
+                        self.assertEqual('thinking', sent['status'])
+                        done = self.finished(sender, initial['id'])
+                        self.assertEqual(['First message', 'Immediate followup'],
+                                         [row['text'] for row in done['messages'] if row['role'] == 'user'])
+                    finally:
+                        release.set()
+                        store.close()
+
     def test_create_and_send_are_idempotent_and_busy_turn_is_serialized(self):
         release = threading.Event()
         self.addCleanup(release.set)
@@ -230,7 +262,7 @@ class ConversationTests(unittest.TestCase):
         for invalid in ('', None, 3, 'a' * (chats.MAX_MESSAGE_CHARS + 1), 'null\x00byte'):
             with self.subTest(message=type(invalid).__name__), self.assertRaises(ValueError):
                 store.create(invalid)
-        for invalid in ({'glm_model': 'openai/gpt-6-astra'}, {'glm_model': 'zai/x y'}, {'glm_model': None}, []):
+        for invalid in ({'glm_model': 'gpt-6-astra'}, {'glm_model': 'zai/x y'}, {'glm_model': None}, []):
             with self.subTest(models=invalid), self.assertRaises(ValueError):
                 store.create('Idea', models=invalid)
         with self.assertRaises(ValueError):
@@ -272,6 +304,25 @@ class ConversationTests(unittest.TestCase):
 
 
 class ProviderTests(unittest.TestCase):
+    def test_selected_openai_planner_uses_its_oauth_connection_and_exact_model(self):
+        model = 'openai/gpt-5.6-sol'
+        directory = Path('/private/tmp/scratch')
+        with patch.object(chats.opencode_transport, 'check_subscription_routes') as auth, \
+             patch.object(chats, '_capture', return_value=(0, json.dumps({'type':'text','part':{'text':'A plan'}}))) as capture:
+            self.assertEqual('A plan', chats.opencode_provider([{'role':'user','text':'My idea'}], model, directory))
+        auth.assert_called_once_with({'glm':{'model':model}}, directory)
+        command = capture.call_args.args[0]
+        self.assertEqual(model, command[command.index('--model') + 1])
+        self.assertIn('--pure', command)
+        self.assertNotIn('--session', command)
+
+    def test_planner_billing_guard_stops_before_a_model_request(self):
+        with patch.object(chats.opencode_transport, 'check_subscription_routes', side_effect=RuntimeError('OAuth required')), \
+             patch.object(chats, '_capture') as capture:
+            with self.assertRaisesRegex(chats.ConversationProviderError, 'OAuth required'):
+                chats.opencode_provider([], 'openai/gpt-5.6-sol', Path('/private/tmp/scratch'))
+        capture.assert_not_called()
+
     def test_command_is_pure_tool_free_and_preserves_inline_provider_config(self):
         captured = []
         def capture(command, env, cwd, prompt):
