@@ -746,11 +746,30 @@ def abandon_stage(state, run_dir, workspace, selected):
         artifact.unlink(missing_ok=True)
 
 
+MAX_AUTOMATIC_RECOVERIES = 3
+
+
+def recovery_count(state):
+    # Older runs do not have the aggregate counter. Their consecutive counters
+    # record recent failures; the history arrays include recovered older runs.
+    return state.get("automatic_recoveries_since_resume",
+                     max(state.get("consecutive_timeout_recoveries", 0),
+                         state.get("no_progress_batches", 0)))
+
+
 def timeout_recovery_guard(state):
     limit = state.get("settings", {}).get("limits", {}).get("no_progress_batches", 3)
-    if limit and state.get("consecutive_timeout_recoveries", 0) >= limit:
+    exhausted = recovery_count(state) >= MAX_AUTOMATIC_RECOVERIES
+    consecutive = limit and state.get("consecutive_timeout_recoveries", 0) >= limit
+    if exhausted or consecutive:
+        cause = state.get("recovery_context", {}).get("timeout_reason") or state.get("recovery_context", {}).get("instruction", "Inspect saved provider logs")
         raise support.Paused("PAUSED_TIMEOUT_RECOVERY",
-                             "Repeated provider timeouts without an accepted stage; inspect activity and limits, then explicitly resume")
+            f"Automatic recovery budget exhausted; no further provider will launch. Last cause: {cause}. "
+            "Fix the cause, then explicitly resume. Accepted review reports and extended task budgets do not reset this limit.")
+
+
+def count_automatic_recovery(state):
+    state["automatic_recoveries_since_resume"] = recovery_count(state) + 1
 
 
 def automatically_recover_timed_out_stage(state, run_dir, workspace, error):
@@ -763,7 +782,7 @@ def automatically_recover_timed_out_stage(state, run_dir, workspace, error):
     consume the existing no-progress budget before another provider is launched.
     """
     record = state.get("active_stage")
-    if (not record or not record.get("timed_out")
+    if (error.status != "PAUSED_PROVIDER_TIMEOUT" or not record or not record.get("timed_out")
             or (run_dir / "pause-requested").exists()):
         return False
     events = support.events(Path(record["events"]))
@@ -806,6 +825,7 @@ def automatically_recover_timed_out_stage(state, run_dir, workspace, error):
                 "changed_files": record["changed_files"], "events": record["events"],
                 "source_snapshot": record["after_ref"], "next_stage": next_stage,
                 "instruction": "This timed-out request was archived after its workers stopped. Inspect retained partial work and evidence before continuing. Start a fresh request; do not treat the archived response as a completed report."}
+    count_automatic_recovery(state)
     state.setdefault("automatic_timeout_recoveries", []).append(recovery)
     state.setdefault("user_events", []).append({"kind": "automatic_timeout_recovery", "actor": "runner",
                                                    "at": recovery["at"], "attempt_id": recovery["attempt_id"],
@@ -869,6 +889,7 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
                 "changed_files": record["changed_files"], "events": record["events"],
                 "source_snapshot": record["after_ref"], "next_stage": next_stage,
                 "instruction": "The prior request was stopped by OpenCode's external_directory permission. Use only workspace-contained evidence paths; do not use /tmp, default mktemp paths, nohup, or detached processes. Inspect retained work and start a fresh request."}
+    count_automatic_recovery(state)
     state.setdefault("automatic_permission_recoveries", []).append(recovery)
     state.setdefault("user_events", []).append({"kind": "automatic_permission_recovery", "actor": "runner",
                                                    "at": recovery["at"], "attempt_id": recovery["attempt_id"],
@@ -1793,6 +1814,7 @@ def main() -> int:
                     resumed_at = now()
                     if state["status"] == "PAUSED_TIMEOUT_RECOVERY":
                         state["consecutive_timeout_recoveries"] = 0
+                        state["automatic_recoveries_since_resume"] = 0
                     if state.get("pause_intent") and not state["pause_intent"].get("acknowledged_at"):
                         state["pause_intent"]["acknowledged_at"] = resumed_at
                     for receipt in state.get("applied_interventions", []):

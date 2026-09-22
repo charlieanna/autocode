@@ -497,6 +497,7 @@ class RetrofitTest(unittest.TestCase):
         self.assertEqual("terra", self.state["next_stage"])
         self.assertNotIn("active_stage", self.state)
         self.assertEqual(1, len(self.state["automatic_permission_recoveries"]))
+        self.assertEqual(1, runner.recovery_count(self.state))
         self.assertIn("workspace-contained", self.state["recovery_context"]["instruction"])
 
     def test_crash_after_completed_terra_reconciles_without_reexecution(self):

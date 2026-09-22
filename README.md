@@ -25,8 +25,9 @@ Works against any committed Git workspace; no IdleCampus files or services are r
 
 Requires Python 3.11+, Git, and OpenCode 1.x connected to ChatGPT and Z.ai.
 macOS/Linux are supported; Windows needs WSL because the inherited process and lock
-mechanisms use POSIX APIs. There are no Python runtime dependencies. Installation does
-not change Codex or OpenCode settings. `--engine codex` still starts a Codex-only run.
+mechanisms use POSIX APIs. Native process supervision uses the psutil runtime
+dependency. Installation does not change Codex or OpenCode settings. `--engine codex`
+still starts a Codex-only run.
 
 The current development priority is **reliable completion of agreed work**. Focus on
 completion, recovery, trustworthy status, and clear requests for human input. New
@@ -777,10 +778,13 @@ edits/logs, clears the uncertain role session, and continues from a fresh recove
 checkpoint. It never replays that timed-out request. Each automatic recovery consumes
 the existing no-progress budget. Consecutive timeouts without an accepted stage also
 pause at that configured limit for every role, including Astra and Sol. An accepted
-stage resets this consecutive-timeout counter. Inspect the saved cause and adjust
-limits as needed; explicit `--resume-paused` acknowledges `PAUSED_TIMEOUT_RECOVERY`
-and resets that counter while retaining recovery history. Setting `--no-progress-limit 0`
-disables this recovery cap as well as the existing unchanged-batch limit.
+A successful stage resets the consecutive-timeout counter. A separate ceiling of
+three automatic recoveries covers timeouts and external-directory denials. Accepted
+intermediate reports and milestone-budget extensions do not reset this ceiling.
+Inspect the saved cause and adjust limits as needed; explicit `--resume-paused`
+acknowledges `PAUSED_TIMEOUT_RECOVERY` and resets recovery counters while retaining
+history. Setting `--no-progress-limit 0` disables the unchanged-batch limit, but
+never disables the three-recovery safety ceiling.
 A terminal response, live worker or requested pause remains paused for inspection.
 Other uncertain provider requests still require explicit reconciliation.
 `--resume-paused` acknowledges operational pauses only. Saved limits persist unless you
