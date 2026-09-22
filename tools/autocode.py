@@ -1045,6 +1045,10 @@ def configure(args, state):
             role_effort = getattr(args, f"{role}_reasoning_effort", None)
             if role_effort or args.reasoning_effort:
                 settings["roles"][role]["reasoning_effort"] = role_effort or args.reasoning_effort
+        if engine == "gocode":
+            glm_effort = getattr(args, "glm_reasoning_effort", None)
+            if glm_effort or args.reasoning_effort:
+                settings["roles"]["glm"]["reasoning_effort"] = glm_effort or args.reasoning_effort
         if args.headroom is not None:
             settings["headroom"]["enabled"] = args.headroom == "on"
         if args.context_soft_tokens is not None:
@@ -1166,7 +1170,10 @@ def configure_gocode_joint(settings, args, *, fresh):
         settings["joint_planning"] = True
         for role in ("glm", "astra", "terra", "sol"):
             model = getattr(args, f"{role}_model", None) or gocode.DEFAULT_MODELS[role]
-            settings["roles"].setdefault(role, {}).update(engine="gocode", provider=None, model=model)
+            effort = (getattr(args, "glm_reasoning_effort", None) if role == "glm"
+                      else getattr(args, f"{role}_reasoning_effort", None)) or args.reasoning_effort
+            settings["roles"].setdefault(role, {}).update(engine="gocode", provider=None, model=model,
+                                                           reasoning_effort=effort)
         settings["transport_identities"] = {"gocode": settings["transport_identity"]}
     for role, config in settings["roles"].items():
         if planning.engine_for(settings, role) != "gocode":
@@ -1491,6 +1498,8 @@ def main() -> int:
     parser.add_argument("--joint-planning", action="store_true",
                         help="Enabled by default for new GoCode/OpenCode runs. GLM drafts → Astra challenges → GLM revises → Astra finalizes → you approve")
     parser.add_argument("--glm-model", help="Planning-role model (GoCode default: gocode-openai/luna)")
+    parser.add_argument("--glm-reasoning-effort", choices=["low","medium","high","xhigh","max"],
+                        help="Override reasoning effort for the GoCode planning role only")
     parser.add_argument("--max-iterations", type=int, help="Total iteration ceiling (new-run default: 15; resumes keep saved limits)")
     parser.add_argument('--unlimited-iterations',action='store_true',help='Remove only the iteration ceiling; other safety and usage limits remain')
     for role, model in DEFAULT_ROLE_MODELS.items():

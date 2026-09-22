@@ -61,6 +61,7 @@ class GoCodeTransportTests(unittest.TestCase):
             legacy_iteration_ceiling=None, max_iterations=None, max_seconds=None,
             max_stage_seconds=None, max_idle_seconds=None, max_tool_seconds=None,
             max_reported_tokens=None, no_progress_limit=None, unlimited_iterations=False,
+            glm_reasoning_effort="xhigh",
         )
         with patch.object(gocode, "local_settings", return_value={"engine": "gocode"}):
             settings = runner.configure(args, {"workspace": "/fixture", "iteration": 0})
@@ -70,6 +71,7 @@ class GoCodeTransportTests(unittest.TestCase):
         self.assertEqual("gocode-openai/terra", settings["roles"]["terra"]["model"])
         self.assertEqual("gocode-openai/sol", settings["roles"]["sol"]["model"])
         self.assertEqual("gocode-openai/luna", settings["roles"]["glm"]["model"])
+        self.assertEqual("xhigh", settings["roles"]["glm"]["reasoning_effort"])
 
 
 class GoCodeSubprocessTests(unittest.TestCase):
