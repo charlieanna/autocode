@@ -1555,6 +1555,7 @@ def main() -> int:
         parser.error("workspace differs from checkpoint; use the original --workspace")
     if not run_dir.is_relative_to(workspace / ".autocode" / "runs"):
         parser.error("run-dir must belong to this project's .autocode/runs")
+    registry.configure_workspace_storage(workspace)
     if args.request_milestone_checkpoints:
         request = milestones.queue_activation(run_dir, args.max_milestone_seconds)
         print(json.dumps({'queued': True, 'run_dir': str(run_dir), 'request': request,

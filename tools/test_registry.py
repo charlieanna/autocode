@@ -50,6 +50,15 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual("registry_absent", listed["diagnostics"][0]["code"])
         self.assertFalse(self.home.exists())
 
+    def test_workspace_storage_defaults_to_workspace_and_preserves_explicit_shared_home(self):
+        workspace, _, _ = self.fixture("workspace")
+        with patch.dict(os.environ, {}, clear=True):
+            registry.configure_workspace_storage(workspace)
+            self.assertEqual(str(workspace / ".autocode" / "registry"), os.environ["AUTOCODE_HOME"])
+        with patch.dict(os.environ, {"AUTOCODE_HOME": str(self.home)}, clear=True):
+            registry.configure_workspace_storage(workspace)
+            self.assertEqual(str(self.home), os.environ["AUTOCODE_HOME"])
+
     def test_register_deduplicates_canonical_alias_and_lists_checkpoint_summary(self):
         workspace, run, state = self.fixture("workspace")
         first = registry.register_run(workspace, run, state)
