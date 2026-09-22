@@ -22,6 +22,17 @@ assert.equal(context.planReady({...joint,status:'AWAITING_GOAL_APPROVAL',goal:{o
 assert.equal(context.planningSpeaker({...joint,goal:{origin:'glm_draft'}}),'GLM');
 assert.equal(context.planningSpeaker({...joint,goal:{origin:'astra_finalize'}}),'Astra');
 assert.equal(context.planningSpeaker({}),'Astra');
+const approvedJoint={...joint,goal:{approval_status:'approved'},monitor:{roles:{
+  glm:{model:'gocode-anthropic/claude-opus-5'},
+  terra:{model:'gocode-openai/gpt-5.6-terra'},
+  sol:{model:'gocode-anthropic/claude-opus-5'}
+}}};
+assert.deepEqual(JSON.parse(JSON.stringify(context.workflowRoleConfig(approvedJoint,{role:'sol',active:true,verified:true}))),[
+ ['glm','GLM','Draft & revise'],
+ ['astra','Astra','Plan & direct'],
+ ['terra','Terra','Implement'],
+ ['sol','Sol','Review']
+]);
 console.log('Planning UI routing and approval checks passed.');
 
 // Payload boundaries: chatting needs no project; answering never invents an

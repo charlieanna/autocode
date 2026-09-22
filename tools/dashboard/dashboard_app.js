@@ -320,10 +320,13 @@ function taskOverviewState(run) {
     step:ongoing&&live.state==='alive'?'Current step · '+stageName(run):info.group==='complete'?'Work complete':info.group==='attention'?info.action:savedStep,
     objective:run.monitor?.objective||run.astra_plan?.current_assignment?.objective||'No current objective has been recorded.'};
 }
-function workflowCards(run, state) {
+function workflowRoleConfig(run, state) {
   const mode=run.monitor?.workflow_mode,finalOnly=mode==='glm_final_audit_v2',glmFirst=finalOnly||mode==='glm_first_v1';
-  const config=glmFirst?[['terra','GLM','Plan & implement'],['sol','Sol','Targeted escalation only'],['astra','Astra',finalOnly?'Final full-task audit only':'Milestone review']]:
-    [...(jointPlanning(run)&&(state.role==='glm'||run.goal?.approval_status!=='approved')?[['glm','GLM','Draft & revise']]:[]),['astra','Astra','Plan & direct'],['terra',String(run.monitor?.roles?.terra?.model||run.model_settings?.roles?.terra||'').includes('glm')?'GLM · Implementer':'Terra','Implement'],['sol','Sol','Review']];
+  return glmFirst?[['terra','GLM','Plan & implement'],['sol','Sol','Targeted escalation only'],['astra','Astra',finalOnly?'Final full-task audit only':'Milestone review']]:
+    [...(jointPlanning(run)?[['glm','GLM','Draft & revise']]:[]),['astra','Astra','Plan & direct'],['terra',String(run.monitor?.roles?.terra?.model||run.model_settings?.roles?.terra||'').includes('glm')?'GLM · Implementer':'Terra','Implement'],['sol','Sol','Review']];
+}
+function workflowCards(run, state) {
+  const config=workflowRoleConfig(run,state);
   const host=card('','workflow-cards');host.setAttribute('aria-label','Agent workflow');
   for(const [role,name,duty]of config){const selected=state.active&&state.role===role,item=card('','workflow-card'+(selected&&state.verified?' active':''));
     item.append(Object.assign(n('p',duty),{className:'monitor-kicker'}),n('h3',name));
