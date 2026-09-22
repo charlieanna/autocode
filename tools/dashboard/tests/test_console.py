@@ -148,6 +148,12 @@ class Tests(unittest.TestCase):
   with patch('dashboard_backend.monitor_process_table',return_value=None) as inspect:
    rows=[row for row in c.discover() if row.get('run')]
   self.assertEqual(2,len(rows));inspect.assert_called_once_with()
+ def test_dashboard_snapshot_pins_one_watch_root_scan(self):
+  root=Path(self.tmp.name).resolve()/'projects';self.make_ws(root/'project')
+  c=Console([],self.fake,lambda:'ZAI',watch_roots=[root],watch_depth=3,watch_ttl=0)
+  with patch.object(c,'_scan_watch_root',wraps=c._scan_watch_root) as inspect:
+   rows=[row for row in c.dashboard_snapshot()['runs'] if row.get('run')]
+  self.assertEqual(1,len(rows));inspect.assert_called_once_with(root)
  def test_watch_root_symlink_escape_rejected_like_explicit(self):
   base=Path(self.tmp.name).resolve();root=base/'wroot';root.mkdir();external=self.make_ws(base/'external')
   (root/'link').symlink_to(external,target_is_directory=True)

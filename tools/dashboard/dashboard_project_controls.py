@@ -103,7 +103,7 @@ class ProjectRemovalMixin:
         return {'action': action, 'workspace': workspace, 'removed': action == 'remove'}
 
     def _build_dashboard_snapshot(self):
-        with self.pin_registry():
+        with self.pin_registry(), self.pin_discovery():
             removed = self.removed_projects()
             visible = lambda raw: self.removed_project(raw, removed) is None
             workspaces = [path for path in self.workspaces if visible(path)]

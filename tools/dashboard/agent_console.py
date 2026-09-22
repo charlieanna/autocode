@@ -539,5 +539,5 @@ class Handler(BaseHTTPRequestHandler):
 def main():
   p=argparse.ArgumentParser();p.add_argument('--workspace',action='append',default=[]);p.add_argument('--watch-root',action='append',default=[]);p.add_argument('--watch-depth',type=int,default=3);p.add_argument('--runner',default=str(Path(__file__).resolve().parents[1]/'autocode.py'));p.add_argument('--port',type=int,default=8765);a=p.parse_args()
   if a.watch_depth<0:p.error('--watch-depth must be zero or greater')
-  c=Console(a.workspace,a.runner,watch_roots=a.watch_root,watch_depth=a.watch_depth);s=ThreadingHTTPServer(('127.0.0.1',a.port),Handler);s.console=c;s.hosts={'127.0.0.1:'+str(s.server_port),'localhost:'+str(s.server_port)};print('http://127.0.0.1:'+str(s.server_port),flush=True);s.serve_forever()
+  c=Console(a.workspace,a.runner,watch_roots=a.watch_root,watch_depth=a.watch_depth);c._discovered();s=ThreadingHTTPServer(('127.0.0.1',a.port),Handler);s.console=c;s.hosts={'127.0.0.1:'+str(s.server_port),'localhost:'+str(s.server_port)};print('http://127.0.0.1:'+str(s.server_port),flush=True);s.serve_forever()
 if __name__=='__main__':main()

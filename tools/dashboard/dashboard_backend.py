@@ -119,6 +119,37 @@ class RegistryInterventionMixin:
             else:
                 self.registry_scope.value = prior
 
+    @contextmanager
+    def pin_discovery(self):
+        """Reuse one watched-project set throughout a composite dashboard read."""
+        prior = getattr(self.registry_scope, 'discovered', None)
+        prior_errors = getattr(self.registry_scope, 'discovery_errors', None)
+        if prior is None:
+            self.registry_scope.discovered = super()._discovered()
+            with self.scan_lock:
+                self.registry_scope.discovery_errors = [
+                    {'workspace': str(root), 'error': entry['error']}
+                    for root in self.watch_roots
+                    if (entry := self.discovery_cache.get(str(root))) and entry.get('error')
+                ]
+        try:
+            yield self.registry_scope.discovered
+        finally:
+            if prior is None:
+                del self.registry_scope.discovered
+                del self.registry_scope.discovery_errors
+            else:
+                self.registry_scope.discovered = prior
+                self.registry_scope.discovery_errors = prior_errors
+
+    def _discovered(self):
+        pinned = getattr(self.registry_scope, 'discovered', None)
+        return pinned if pinned is not None else super()._discovered()
+
+    def root_error_rows(self):
+        pinned = getattr(self.registry_scope, 'discovery_errors', None)
+        return list(pinned) if pinned is not None else super().root_error_rows()
+
     def registry_status(self):
         registry = self._registered()
         return {'error': registry['error'], 'location': registry['location'], 'version': 1 if not registry['error'] else None}
