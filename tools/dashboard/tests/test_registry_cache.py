@@ -1,10 +1,12 @@
 """Registry polling stays bounded when refresh or discovery outlasts the TTL."""
 import copy
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -126,6 +128,28 @@ class RegistryCacheTests(unittest.TestCase):
             snapshot = self.console.dashboard_snapshot()
         self.assertEqual({str(run) for run in self.runs}, {row['run'] for row in snapshot['runs']})
         self.assertEqual(2, self.command.call_count)
+
+    def test_overlapping_dashboard_polls_share_one_snapshot_build(self):
+        original = self.console._build_dashboard_snapshot
+        started, release = threading.Event(), threading.Event()
+        calls = []
+
+        def slow_snapshot():
+            calls.append(True)
+            started.set()
+            self.assertTrue(release.wait(2))
+            return original()
+
+        with patch.object(self.console, '_build_dashboard_snapshot', side_effect=slow_snapshot):
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                first = pool.submit(self.console.dashboard_snapshot)
+                self.assertTrue(started.wait(2))
+                followers = [pool.submit(self.console.dashboard_snapshot) for _ in range(2)]
+                release.set()
+                snapshots = [first.result(), *(future.result() for future in followers)]
+        self.assertEqual(1, len(calls))
+        self.assertIs(snapshots[0], snapshots[1])
+        self.assertIs(snapshots[0], snapshots[2])
 
 
 if __name__ == '__main__':

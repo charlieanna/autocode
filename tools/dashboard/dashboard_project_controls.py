@@ -35,6 +35,10 @@ class ProjectRemovalMixin:
     def __init__(self, *args, project_store_root=None, **kwargs):
         self._project_store = None
         self._project_store_lock = threading.RLock()
+        self._dashboard_snapshot_condition = threading.Condition()
+        self._dashboard_snapshot_building = False
+        self._dashboard_snapshot_generation = 0
+        self._dashboard_snapshot_cache = None
         self._project_store_root = project_store_root
         if project_store_root is None and kwargs.get('conversation_root') is not None:
             self._project_store_root = Path(kwargs['conversation_root']).parent
@@ -98,7 +102,7 @@ class ProjectRemovalMixin:
             self.project_preferences.restore(workspace)
         return {'action': action, 'workspace': workspace, 'removed': action == 'remove'}
 
-    def dashboard_snapshot(self):
+    def _build_dashboard_snapshot(self):
         with self.pin_registry():
             removed = self.removed_projects()
             visible = lambda raw: self.removed_project(raw, removed) is None
@@ -114,6 +118,30 @@ class ProjectRemovalMixin:
                                   if visible((doc.get('attachment') or {}).get('workspace'))],
                 'removed_projects': removed,
             }
+
+    def dashboard_snapshot(self):
+        """Coalesce overlapping polls without making later reads stale."""
+        with self._dashboard_snapshot_condition:
+            generation = self._dashboard_snapshot_generation
+            if self._dashboard_snapshot_building:
+                while self._dashboard_snapshot_building and generation == self._dashboard_snapshot_generation:
+                    self._dashboard_snapshot_condition.wait()
+                if self._dashboard_snapshot_generation > generation and self._dashboard_snapshot_cache is not None:
+                    return self._dashboard_snapshot_cache
+            self._dashboard_snapshot_building = True
+        try:
+            snapshot = self._build_dashboard_snapshot()
+        except BaseException:
+            with self._dashboard_snapshot_condition:
+                self._dashboard_snapshot_building = False
+                self._dashboard_snapshot_condition.notify_all()
+            raise
+        with self._dashboard_snapshot_condition:
+            self._dashboard_snapshot_cache = snapshot
+            self._dashboard_snapshot_generation += 1
+            self._dashboard_snapshot_building = False
+            self._dashboard_snapshot_condition.notify_all()
+        return snapshot
 
     def discover(self):
         removed = self.removed_projects()

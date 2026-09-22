@@ -233,6 +233,8 @@ skips generated or internal trees such as `.git`, `.autocode`, `node_modules`,
 and virtual environments. List responses also keep only the compact stage data
 needed by the task index, so broad workspace roots remain safe to poll from the
 browser without serializing complete provider payloads or process histories.
+Overlapping task-index polls share the same in-progress snapshot instead of
+building a queue of duplicate scans.
 
 Open the printed loopback URL. New conversations do not require a project: the Requirements Planner
 can clarify the idea first, then the conversation can be attached to a Git
