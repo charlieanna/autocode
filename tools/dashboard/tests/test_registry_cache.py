@@ -31,7 +31,7 @@ class RegistryCacheTests(unittest.TestCase):
             'runs': [{'workspace': str(self.workspace), 'run_dir': str(run), 'availability': 'available'}
                      for run in self.runs],
         }
-        self.console = Console([], self.root / 'unused-runner.py', lambda: None)
+        self.console = Console([], self.root / 'unused-runner.py', lambda: None, registry_ttl=2)
         self.addCleanup(self.console.pool.shutdown, wait=True)
         self.now = 100.0
         self.command_delay = 0.0
@@ -113,6 +113,18 @@ class RegistryCacheTests(unittest.TestCase):
         with patch.object(self.console, 'run_for', side_effect=changed_run_for):
             found = self.console.discover()
         self.assertEqual({str(run) for run in self.runs if run != changed}, {row['run'] for row in found})
+        self.assertEqual(2, self.command.call_count)
+
+    def test_dashboard_snapshot_pins_registry_across_slow_composite_read(self):
+        original = self.console.run_for
+
+        def slow_run_for(workspace, raw, **kwargs):
+            self.now += 3
+            return original(workspace, raw, **kwargs)
+
+        with patch.object(self.console, 'run_for', side_effect=slow_run_for):
+            snapshot = self.console.dashboard_snapshot()
+        self.assertEqual({str(run) for run in self.runs}, {row['run'] for row in snapshot['runs']})
         self.assertEqual(2, self.command.call_count)
 
 

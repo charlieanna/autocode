@@ -228,6 +228,12 @@ Or run it directly from a checkout:
 python3 tools/dashboard/agent_console.py --port 8767
 ```
 
+When `--watch-root` is used, discovery stops at each Git project boundary and
+skips generated or internal trees such as `.git`, `.autocode`, `node_modules`,
+and virtual environments. List responses also keep only the compact stage data
+needed by the task index, so broad workspace roots remain safe to poll from the
+browser without serializing complete provider payloads or process histories.
+
 Open the printed loopback URL. New conversations do not require a project: the Requirements Planner
 can clarify the idea first, then the conversation can be attached to a Git
 workspace for joint requirements planning and review. A task’s **Now** view presents the runner's

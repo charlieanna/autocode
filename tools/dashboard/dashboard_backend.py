@@ -8,10 +8,11 @@ import sys
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 try:
-    from .dashboard_monitor import snapshot as monitor_snapshot
+    from .dashboard_monitor import process_table as monitor_process_table, snapshot as monitor_snapshot
 except ImportError:  # Support direct execution from this source directory.
-    from dashboard_monitor import snapshot as monitor_snapshot
+    from dashboard_monitor import process_table as monitor_process_table, snapshot as monitor_snapshot
 
 
 def mapping(value):
@@ -28,9 +29,11 @@ def capability(value):
 
 
 class RegistryInterventionMixin:
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, registry_ttl=30.0, **kwargs):
         super().__init__(*args, **kwargs)
         self.registry_lock = threading.RLock()
+        self.registry_scope = threading.local()
+        self.registry_ttl = max(0.0, float(registry_ttl))
         self.registry_cache = {'at': 0, 'workspaces': [], 'runs': {}, 'diagnostics': [], 'error': None, 'location': None}
         self.status_cache = {}
         self.intervention_actions = {}
@@ -53,8 +56,11 @@ class RegistryInterventionMixin:
         return data, None
 
     def _registered(self):
+        pinned = getattr(self.registry_scope, 'value', None)
+        if pinned is not None:
+            return pinned
         with self.registry_lock:
-            if time.monotonic() - self.registry_cache['at'] < 2:
+            if time.monotonic() - self.registry_cache['at'] < self.registry_ttl:
                 return self.registry_cache
             result = {'workspaces': [], 'runs': {}, 'diagnostics': [], 'error': None, 'location': None}
             location, error = self._json_command(['registry', 'location', '--json'])
@@ -98,6 +104,20 @@ class RegistryInterventionMixin:
             result['at'] = time.monotonic()
             self.registry_cache = result
             return result
+
+    @contextmanager
+    def pin_registry(self):
+        """Reuse one membership snapshot throughout a composite dashboard read."""
+        prior = getattr(self.registry_scope, 'value', None)
+        if prior is None:
+            self.registry_scope.value = self._registered()
+        try:
+            yield self.registry_scope.value
+        finally:
+            if prior is None:
+                del self.registry_scope.value
+            else:
+                self.registry_scope.value = prior
 
     def registry_status(self):
         registry = self._registered()
@@ -144,6 +164,7 @@ class RegistryInterventionMixin:
         registry = self._registered()
         result = self.root_error_rows() + list(registry['diagnostics'])
         seen = set()
+        process_snapshot, process_snapshot_loaded = None, False
         # One traversal uses one membership snapshot even if its reads outlast
         # the TTL. run_for still checks each current path and checkpoint identity.
         for workspace in self._workspaces_for_registry(registry):
@@ -170,7 +191,11 @@ class RegistryInterventionMixin:
                     if not isinstance(state, dict):
                         raise ValueError('State is not an object')
                     view = super().view(workspace, run, state)
-                    view['monitor'] = monitor_snapshot(mapping(state), run)
+                    active = mapping(state.get('active_stage'))
+                    if type(active.get('pid')) is int and not process_snapshot_loaded:
+                        process_snapshot = monitor_process_table()
+                        process_snapshot_loaded = True
+                    view['monitor'] = monitor_snapshot(mapping(state), run, process_snapshot=process_snapshot)
                 except (OSError, ValueError):
                     view = super().view(workspace, run)
                 if view.get('state_error'):

@@ -121,6 +121,33 @@ class Tests(unittest.TestCase):
  def test_watch_root_itself_is_eligible_workspace(self):
   root=self.make_ws(Path(self.tmp.name).resolve()/'rootws');c=Console([],self.fake,lambda:'ZAI',watch_roots=[root])
   rows=[r for r in c.discover() if r.get('run')];self.assertEqual([str(root)],sorted(r['workspace'] for r in rows));self.assertEqual([str(root/'.autocode/runs/r')],[r['run'] for r in rows])
+ def test_discovery_stops_at_git_project_and_skips_generated_trees(self):
+  root=Path(self.tmp.name).resolve()/'projects';project=self.make_ws(root/'project')
+  nested=self.make_ws(project/'node_modules'/'dependency'/'nested-project')
+  generated=self.make_ws(project/'.autocode'/'worktrees'/'generated-project')
+  c=Console([],self.fake,lambda:'ZAI',watch_roots=[root],watch_depth=8,watch_ttl=0)
+  rows=[r for r in c.discover() if r.get('run')]
+  self.assertEqual([str(project)],[r['workspace'] for r in rows])
+  self.assertNotIn(str(nested),str(rows));self.assertNotIn(str(generated),str(rows))
+ def test_task_list_snapshot_omits_bulky_stage_internals(self):
+  self.state['active_stage'].update(processes=[{'pid':number,'detail':'x'*200} for number in range(1000)])
+  self.state['stages'][0]['provider_payload']='y'*1000000
+  (self.run/'state.json').write_text(json.dumps(self.state))
+  row=self.c.dashboard_snapshot()['runs'][0]
+  self.assertNotIn('processes',row['active_stage']);self.assertNotIn('provider_payload',row['stages'][0])
+  self.assertEqual('terra',row['active_stage']['stage']);self.assertEqual('astra',row['stages'][0]['stage'])
+  self.assertLess(len(json.dumps(row)),50000)
+  detail=self.c.task_view(self.ws,self.run)
+  self.assertIn('processes',detail['active_stage']);self.assertIn('provider_payload',detail['stages'][0])
+ def test_one_discovery_reuses_one_process_table_snapshot(self):
+  self.state['active_stage']['pid']=123
+  (self.run/'state.json').write_text(json.dumps(self.state))
+  other=self.make_ws(Path(self.tmp.name)/'other');other_state={**self.state,'active_stage':{**self.state['active_stage'],'pid':456}}
+  (other/'.autocode/runs/r/state.json').write_text(json.dumps(other_state))
+  c=Console([self.ws,other],self.fake,lambda:'ZAI')
+  with patch('dashboard_backend.monitor_process_table',return_value=None) as inspect:
+   rows=[row for row in c.discover() if row.get('run')]
+  self.assertEqual(2,len(rows));inspect.assert_called_once_with()
  def test_watch_root_symlink_escape_rejected_like_explicit(self):
   base=Path(self.tmp.name).resolve();root=base/'wroot';root.mkdir();external=self.make_ws(base/'external')
   (root/'link').symlink_to(external,target_is_directory=True)

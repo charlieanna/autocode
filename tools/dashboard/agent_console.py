@@ -264,7 +264,12 @@ class LegacyConsole:
  def _scan_watch_root(self,root):
   found=set()
   try:
-   if (root/'.git').exists() and (root/'.autocode/runs').is_dir():found.add(root)
+   # A Git repository is a discovery boundary. Descending into repositories
+   # makes a broad watch root walk dependency trees, build output and every
+   # saved Autocode artifact on each cache refresh.
+   if (root/'.git').exists():
+    if (root/'.autocode/runs').is_dir():found.add(root)
+    return found,None
    stack=[(root,0)]
    while stack:
     base,level=stack.pop()
@@ -273,10 +278,12 @@ class LegacyConsole:
      if level==0:return found,'watch root unavailable: '+str(e)
      continue
     for entry in entries:
-     if entry.name=='.git' or level>=self.watch_depth:continue
+     if entry.name in ('.git','.autocode','node_modules','.next','.venv','venv','__pycache__') or level>=self.watch_depth:continue
      try:
       isdir=entry.is_dir(follow_symlinks=False);resolved=Path(entry.path).resolve();resolved.relative_to(root)
-      if (resolved/'.git').exists() and (resolved/'.autocode/runs').is_dir():found.add(resolved)
+      if (resolved/'.git').exists():
+       if (resolved/'.autocode/runs').is_dir():found.add(resolved)
+       continue
       if isdir:stack.append((Path(entry.path),level+1))
      except (OSError,ValueError):continue
   except OSError as e:return found,'watch root unavailable: '+str(e)

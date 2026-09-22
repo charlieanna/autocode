@@ -25,6 +25,7 @@ def stamp(value):
 _lock = threading.Lock()
 _table = None
 _checked = 0
+_PROCESS_TABLE_UNSET = object()
 
 
 def process_table():
@@ -144,11 +145,15 @@ def activity_log(path):
     return list(found.values())[-6:][::-1]
 
 
-def snapshot(state, run, detailed=False):
+def snapshot(state, run, detailed=False, process_snapshot=_PROCESS_TABLE_UNSET):
     settings = mapping(state.get('settings')); active = mapping(state.get('active_stage'))
     stages = [s for s in rows(state.get('stages')) if isinstance(s, dict)]
     ongoing = bool(active.get('stage') and not active.get('finished_at') and active.get('exit_code') is None)
-    live = worker_status(active, run, process_table() if type(active.get('pid')) is int else None) if ongoing else {'state': 'none', 'label': 'No active worker recorded'}
+    if ongoing and type(active.get('pid')) is int:
+        table = process_table() if process_snapshot is _PROCESS_TABLE_UNSET else process_snapshot
+        live = worker_status(active, run, table)
+    else:
+        live = worker_status(active, run, None) if ongoing else {'state': 'none', 'label': 'No active worker recorded'}
     path = local_file(run, active.get('events') or next((s.get('events') for s in reversed(stages) if s.get('events')), None))
     def modified(file):
         try:
