@@ -156,13 +156,14 @@ def snapshot(state, run, detailed=False):
         except OSError:
             return None
     roles = {role: {key: value.get(key) for key in ('model', 'reasoning_effort') if isinstance(value.get(key), str)}
-             for role, value in mapping(settings.get('roles')).items() if role in ('glm', 'astra', 'terra', 'sol') and isinstance(value, dict)}
+             for role, value in mapping(settings.get('roles')).items()
+             if role in ('glm', 'astra', 'terra', 'sol', 'completion') and isinstance(value, dict)}
     result = {'checked_at': stamp(time.time()), 'live': live, 'checkpoint_updated': modified(run / 'state.json'),
               'log_updated': modified(path), 'workflow_mode': mapping(settings.get('workflow')).get('mode'),
               'roles': roles, 'iteration_limit': mapping(settings.get('limits')).get('iteration_ceiling'),
               'limits_known': 'iteration_ceiling' in mapping(settings.get('limits')),
               'objective': mapping(state.get('current_task')).get('objective') or state.get('next_action'),
-              'active_role': active.get('role'), 'next_stage': state.get('next_stage')}
+              'active_role': active.get('route_role') or active.get('role'), 'next_stage': state.get('next_stage')}
     if detailed:
         result['findings'] = [{key: row.get(key) for key in ('severity', 'finding')}
                               for row in rows(state.get('unresolved_findings')) if isinstance(row, dict)]

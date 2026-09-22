@@ -60,6 +60,7 @@ const formatting = vm.createContext({
   n: (tag, text) => new Element(tag, text),
   card: (_, className) => Object.assign(new Element('div'), {className}),
   human: text => String(text),
+  roleDisplayName: text => ({GLM: 'Requirements planner', Astra: 'Plan reviewer', Terra: 'Builder', Sol: 'Validator'})[String(text)] || String(text),
   concise: (text, limit) => String(text).slice(0, limit),
   messageTime: () => 0,
   messageBody: text => Object.assign(new Element('div', text), {className: 'message-body'}),

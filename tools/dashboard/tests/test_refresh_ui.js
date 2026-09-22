@@ -22,7 +22,7 @@ function fixture(view='task-detail') {
     dashboardNotice(message){$('#dashboard-notice').textContent=message;},markMonitorStale(){events.push(['stale']);},
     removedProject:()=>false,renderTaskProjectActions(){},reviewTaskArchive(){},renderTaskOverview(){},basename:value=>value,
     taskTitle:run=>run.task,taskSentence:()=> 'Paused',taskActionBusy:()=>false,badge:()=>new Element(),taskPosition:()=> 'Paused',jointPlanning:()=>false,
-    renderConversation(){},renderBrief(){},renderAstraPlan(){},renderExecution(){},renderLiveControls(){},renderTaskNow(){},renderThreadCheckpoint(){},activateTab(){},settleThreadScroll(){},
+    renderTaskReasoning(){},renderConversation(){},renderBrief(){},renderAstraPlan(){},renderExecution(){},renderLiveControls(){},renderTaskNow(){},renderThreadCheckpoint(){},activateTab(){},settleThreadScroll(){},
     renderDraftConversation(doc){vm.runInContext('latestConversation=receivedConversation',Object.assign(context,{receivedConversation:doc}));$('#draft-send').disabled=false;$('#attach-submit').disabled=false;events.push(['conversation',doc]);}
   });
   vm.runInContext(`let seq=1,currentView=${JSON.stringify(view)},chosen={workspace:'/p',run:'/p/task'},activeConversation='draft-one',latestData=null,latestRun={workspace:'/p',run:'/p/task'},latestConversation={id:'draft-one'},taskReadError='',taskReadAt=1,actionProblem='',currentTab='now';const archivePending=new Set();`,context);

@@ -9,11 +9,11 @@ class Element {
   querySelector(selector){return this.children.find(child=>child.provider==='codex')||null;}
   querySelectorAll(){return this.children.flatMap(child=>child.tag==='option'?[child]:child.querySelectorAll());}
 }
-const glm=new Element('select'),astra=new Element('select'),terra=new Element('select'),sol=new Element('select'),status=new Element('p');
+const glm=new Element('select'),astra=new Element('select'),terra=new Element('select'),sol=new Element('select'),completion=new Element('select'),status=new Element('p');
 assert.ok(!html.match(/<select id="terra-model".*?<\/select>/s)[0].includes('gpt-'));
-const roles={glm,astra,terra,sol};
+const roles={glm,astra,terra,sol,completion};
 for(const select of Object.values(roles))select.value='openai/new-model';
-const context=vm.createContext({$:id=>({'#glm-model':glm,'#astra-model':astra,'#terra-model':terra,'#sol-model':sol,'#model-catalogue-status':status}[id]),n:(tag,text)=>new Element(tag,text)});
+const context=vm.createContext({$:id=>({'#glm-model':glm,'#astra-model':astra,'#terra-model':terra,'#sol-model':sol,'#completion-model':completion,'#model-catalogue-status':status}[id]),n:(tag,text)=>new Element(tag,text)});
 vm.runInContext(source.slice(source.indexOf('function syncModelOptions('),source.indexOf('async function loadModels(')),context);
 const values=select=>select.querySelectorAll().map(option=>option.value);
 const models=['zai-coding-plan/glm-5.3','openai/gpt-5.6-terra','openai/new-model','other-provider/new-model'];
@@ -21,8 +21,10 @@ context.syncModelOptions({usable:true,models});
 assert.equal(terra.value,'openai/new-model');
 assert.deepEqual(values(terra),['',...models]);
 for(const select of Object.values(roles))assert.deepEqual(values(select),['',...models]);
-assert.match(astra.children[0].textContent,/GPT-6 Astra · OpenCode/);
-assert.match(sol.children[0].textContent,/GPT-5.6 Sol · OpenCode/);
+assert.match(astra.children[0].textContent,/GPT-5.6 Sol · high/);
+assert.match(terra.children[0].textContent,/GPT-5.6 Terra · medium/);
+assert.match(sol.children[0].textContent,/GPT-5.6 Sol · high/);
+assert.match(completion.children[0].textContent,/GPT-5.6 Sol · medium/);
 assert.match(glm.children[0].textContent,/GLM-5.3 · OpenCode/);
 assert.deepEqual(terra.children.filter(child=>child.tag==='optgroup').map(child=>child.label),['Z.ai Coding Plan','OpenAI · ChatGPT OAuth','other-provider']);
 for(const data of [{error:'OpenCode unavailable'},{loading:true},{usable:false,models}]){
@@ -44,4 +46,4 @@ terra.value='zai-coding-plan/removed-model';
 context.syncModelOptions({error:'No catalogue'});
 assert.equal(terra.value,'zai-coding-plan/removed-model');
 assert.equal(terra.querySelectorAll().find(option=>option.value===terra.value).textContent,'Unavailable selection: zai-coding-plan/removed-model');
-console.log('All four roles use the live provider catalogue; distinct defaults and selections survive refresh/failure.');
+console.log('All five roles use the live provider catalogue; distinct defaults and selections survive refresh/failure.');

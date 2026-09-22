@@ -116,7 +116,7 @@ class ModelSelectionTests(unittest.TestCase):
         joint = ['--engine', 'opencode', '--joint-planning', '--no-chat']
         self.assertEqual(prefix + ['default'] + joint, default['command'])
         self.wait()
-        for role, model in [('glm', 'zai-coding-plan/glm-5.3'), ('astra', 'gpt-6-astra'), ('terra', 'zai-coding-plan/glm-5.3-flash'), ('sol', 'gpt-5.6-sol')]:
+        for role, model in [('glm', 'zai-coding-plan/glm-5.3'), ('astra', 'gpt-6-astra'), ('terra', 'zai-coding-plan/glm-5.3-flash'), ('sol', 'gpt-5.6-sol'), ('completion', 'gpt-5.6-sol')]:
             each = self.console.create({'project': str(self.workspace), 'goal': role, 'engine': 'opencode', role+'_model': model})
             self.assertEqual(prefix + [role] + joint + ['--'+role+'-model', model], each['command'])
             self.wait()
@@ -167,12 +167,12 @@ from pathlib import Path
 args=sys.argv[1:]
 workspace=Path(args[args.index('--workspace')+1])
 assert '--joint-planning' in args and '--no-chat' in args
-models={'glm':'zai-coding-plan/glm-5.3','astra':'gpt-6-astra','terra':'zai-coding-plan/glm-5.3','sol':'gpt-5.6-sol'}
+models={'glm':'zai-coding-plan/glm-5.3','astra':'gpt-6-astra','terra':'zai-coding-plan/glm-5.3','sol':'gpt-5.6-sol','completion':'gpt-5.6-sol'}
 for role in models:
  if '--'+role+'-model' in args: models[role]=args[args.index('--'+role+'-model')+1]
 run=workspace/'.autocode/runs/created'
 run.mkdir(parents=True,exist_ok=True)
-(run/'state.json').write_text(json.dumps({'task':'created','settings':{'engine':'opencode','joint_planning':True,'roles':{role:{'model':model,'engine':'codex' if role in ('astra','sol') else 'opencode'} for role,model in models.items()}}}))
+(run/'state.json').write_text(json.dumps({'task':'created','settings':{'engine':'opencode','joint_planning':True,'roles':{role:{'model':model,'engine':'codex' if role in ('astra','sol','completion') else 'opencode'} for role,model in models.items()}}}))
 """)
         self.console.create({'project': str(self.workspace), 'goal': 'persisted', 'engine': 'opencode', 'terra_model': 'zai-coding-plan/glm-5.3-flash'})
         self.assertEqual(0, self.wait()['exit_status'])
@@ -181,8 +181,8 @@ run.mkdir(parents=True,exist_ok=True)
         self.addCleanup(reopened.pool.shutdown, wait=True)
         saved = reopened.view(self.workspace, run)['model_settings']
         self.assertTrue(saved['joint_planning'])
-        self.assertEqual({'glm': 'zai-coding-plan/glm-5.3', 'astra': 'gpt-6-astra', 'terra': 'zai-coding-plan/glm-5.3-flash', 'sol': 'gpt-5.6-sol'}, saved['roles'])
-        self.assertEqual({'glm': 'opencode', 'astra': 'codex', 'terra': 'opencode', 'sol': 'codex'}, saved['role_engines'])
+        self.assertEqual({'glm': 'zai-coding-plan/glm-5.3', 'astra': 'gpt-6-astra', 'terra': 'zai-coding-plan/glm-5.3-flash', 'sol': 'gpt-5.6-sol', 'completion': 'gpt-5.6-sol'}, saved['roles'])
+        self.assertEqual({'glm': 'opencode', 'astra': 'codex', 'terra': 'opencode', 'sol': 'codex', 'completion': 'codex'}, saved['role_engines'])
 
     def test_default_creation_survives_catalogue_failure_but_override_does_not(self):
         self.catalogue.write_text('raise SystemExit(2)\n')
@@ -196,7 +196,7 @@ run.mkdir(parents=True,exist_ok=True)
             self.console.create({'project': str(self.workspace), 'goal': 'blocked', 'engine': 'opencode', 'glm_model': 'zai-coding-plan/glm-5.3'})
 
     def test_saved_effective_models_are_projected_without_inference(self):
-        state = {'task': 'saved', 'settings': {'engine': 'opencode', 'roles': {'astra': {'model': 'openai/gpt-6-astra'}, 'terra': {'model': 'openai/gpt-5.6-terra'}}}}
+        state = {'task': 'saved', 'settings': {'engine': 'opencode', 'roles': {'astra': {'model': 'openai/gpt-6-astra', 'reasoning_effort': 'xhigh'}, 'terra': {'model': 'openai/gpt-5.6-terra'}}}}
         (self.run / 'state.json').write_text(json.dumps(state))
         settings = self.console.view(self.workspace, self.run)['model_settings']
         self.assertEqual('opencode', settings['engine'])
@@ -205,6 +205,7 @@ run.mkdir(parents=True,exist_ok=True)
         self.assertNotIn('glm', settings['roles'])
         self.assertFalse(settings['joint_planning'])
         self.assertEqual({'astra': 'opencode', 'terra': 'opencode', 'sol': None}, settings['role_engines'])
+        self.assertEqual({'astra': 'xhigh', 'terra': None, 'sol': None}, settings['role_efforts'])
         self.assertEqual({'astra': None, 'terra': None, 'sol': None}, saved_models({})['role_engines'])
         old_joint = saved_models({'settings': {'engine': 'opencode', 'joint_planning': True, 'roles': {'astra': {'model': 'gpt-6-astra', 'engine': 'codex'}, 'sol': {'model': 'zai-coding-plan/glm-5.3', 'engine': 'opencode'}, 'glm': {'model': 'zai-coding-plan/glm-5.3'}}}})
         self.assertEqual('opencode', old_joint['role_engines']['sol'])
@@ -212,7 +213,7 @@ run.mkdir(parents=True,exist_ok=True)
 
     def test_legacy_codex_creation_has_explicit_engine_and_never_enables_joint(self):
         action = self.console.create({'project': str(self.workspace), 'goal': 'legacy', 'engine': 'codex'})
-        self.assertEqual([sys.executable, str(self.runner.resolve()), '--workspace', str(self.workspace.resolve()), 'legacy', '--engine', 'codex', '--no-chat', '--astra-model', 'gpt-6-astra', '--terra-model', 'gpt-5.6-terra', '--sol-model', 'gpt-5.6-sol', '--reasoning-effort', 'high'], action['command'])
+        self.assertEqual([sys.executable, str(self.runner.resolve()), '--workspace', str(self.workspace.resolve()), 'legacy', '--engine', 'codex', '--no-chat', '--astra-model', 'gpt-5.6-sol', '--terra-model', 'gpt-5.6-terra', '--sol-model', 'gpt-5.6-sol', '--completion-model', 'gpt-5.6-sol', '--astra-reasoning-effort', 'high', '--terra-reasoning-effort', 'medium', '--sol-reasoning-effort', 'high', '--completion-reasoning-effort', 'medium'], action['command'])
         self.assertNotIn('--joint-planning', action['command'])
         self.wait()
         with self.assertRaisesRegex(ValueError, 'joint-planning'):
@@ -241,13 +242,21 @@ run.mkdir(parents=True,exist_ok=True)
 
     def test_served_form_has_prominent_isolated_role_selectors_and_retention_logic(self):
         from agent_console import APP, INDEX
-        self.assertIn('GLM <small>Conversation, draft and revisions · OpenCode providers</small>', INDEX)
-        self.assertIn('Astra <small>Plan decisions and final review · Choose a model</small>', INDEX)
-        self.assertIn('Terra <small>Implementation · OpenCode providers</small>', INDEX)
-        self.assertIn('Sol <small>Independent verification · Choose a model</small>', INDEX)
+        self.assertIn('Requirements planner <small>Drafts the requirements plan and applies reviewer feedback</small>', INDEX)
+        self.assertIn('Plan reviewer <small>Sol High challenges and finalizes the requirements plan', INDEX)
+        self.assertIn('Builder <small>Medium: bounded coding', INDEX)
+        self.assertIn('Independent verifier <small>A separate Sol session checks the implementation and evidence</small>', INDEX)
+        self.assertIn('Completion owner <small>Sol Medium decides complete or rework', INDEX)
         self.assertIn('Default · GLM-5.3', INDEX)
+        self.assertIn('id="astra-reasoning-effort"', INDEX)
+        self.assertIn('id="terra-reasoning-effort"', INDEX)
+        self.assertIn('id="sol-reasoning-effort"', INDEX)
+        self.assertIn('id="completion-reasoning-effort"', INDEX)
         self.assertIn('id="create-error"', INDEX)
-        self.assertIn("['glm','astra','terra','sol'].map", APP)
+        self.assertIn("['glm','astra','terra','sol','completion'].map", APP)
+        self.assertIn("models[role+'_reasoning_effort']", APP)
+        self.assertIn("action:'set_reasoning'", APP)
+        self.assertIn('id="task-reasoning-form"', INDEX)
         self.assertIn("conversationPayload(text,models,conversationRequest.id)", APP)
         self.assertIn('No project needed yet.', INDEX)
         self.assertIn("Unavailable selection: ", APP)

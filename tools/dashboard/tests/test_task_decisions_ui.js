@@ -9,7 +9,7 @@ assert.equal(context.taskDecision(approved).action.label,'Resume task');
 assert.match(context.taskDecision(approved).after,/already|approved plan/);
 assert.equal(context.taskPhase(approved),'implementation');
 assert.equal(context.taskPosition(approved),'Plan r4 · approved  /  Iteration 16 of 18');
-assert.equal(context.stageName(approved),'GLM · Implementing');
+assert.equal(context.stageName(approved),'Builder · Implementing');
 const running={...approved,status:'RUNNING',active_stage:{stage:'terra'},monitor:{...approved.monitor,live:{state:'alive'}}};
 assert.equal(context.taskDecision(running).required,false);
 assert.equal(context.taskDecision(running).action.kind,'pause');

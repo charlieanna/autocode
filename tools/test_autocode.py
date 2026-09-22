@@ -134,7 +134,8 @@ class RetrofitTest(unittest.TestCase):
         kept=runner.configure(SimpleNamespace(astra_model=None,terra_model=None,sol_model=None,
             reasoning_effort=None,headroom=None,context_soft_tokens=None,rotate_after_input_tokens=None),resumed)
         self.assertEqual("ZAI",kept["roles"]["terra"]["provider"])
-        self.assertEqual({r:f"model-{r}" for r in ("astra","terra","sol")},
+        self.assertEqual({**{r:f"model-{r}" for r in ("astra","terra","sol")},
+                          "completion": "gpt-5.6-sol"},
                          {r:settings["model"] for r,settings in kept["roles"].items()})
 
     def test_model_and_provider_precedence_on_new_run(self):
@@ -148,7 +149,7 @@ class RetrofitTest(unittest.TestCase):
             legacy_iteration_ceiling=None,max_iterations=15,max_seconds=None,max_reported_tokens=None,no_progress_limit=3)
         with patch.object(s,"local_settings",return_value=local):
             result=runner.configure(args,state)
-        self.assertEqual("gpt-6-astra",result["roles"]["astra"]["model"])  # role default, not local-model
+        self.assertEqual("gpt-5.6-sol",result["roles"]["astra"]["model"])  # role default, not local-model
         self.assertEqual("custom-terra",result["roles"]["terra"]["model"])  # explicit flag
         self.assertEqual("glm-5.3",result["roles"]["sol"]["model"])         # saved legacy launch
         self.assertEqual("ZAI",result["roles"]["terra"]["provider"])   # explicit flag

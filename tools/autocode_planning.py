@@ -43,6 +43,20 @@ def role_for(state, stage):
     return "astra" if stage.startswith("astra") else stage
 
 
+def route_for(state, stage, role=None):
+    """Return the saved model route for a semantic workflow role.
+
+    Completion remains an Astra-format decision stage, but it intentionally has
+    its own model, reasoning level, and session so plan review and completion
+    ownership can be tuned independently.
+    """
+    role = role or role_for(state, stage)
+    roles = state.get("settings", {}).get("roles", {})
+    if stage in ("astra_review", "astra_checkpoint") and "completion" in roles:
+        return "completion"
+    return role
+
+
 def engine_for(settings, role):
     return settings.get("roles", {}).get(role, {}).get("engine", settings.get("engine", "codex"))
 

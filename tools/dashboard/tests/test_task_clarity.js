@@ -25,9 +25,9 @@ const activity = {status: 'RUNNING', stage: 'terra', active_stage: {stage: 'terr
 const live = {...activity, monitor: {live: {state: 'alive'}, workflow_mode: 'glm_final_audit_v2', active_role: 'terra', objective: 'Finish validation'}};
 assert.equal(classify(live).label, 'Running');
 assert.equal(context.taskOverviewState(live).verified, true);
-assert.equal(context.taskOverviewState(live).step, 'Current step · GLM · Implementing');
+assert.equal(context.taskOverviewState(live).step, 'Current step · Builder · Implementing');
 assert.equal(context.taskOverviewState(live).objective, 'Finish validation');
-assert.equal(context.planningMode(live), 'GLM builds · Astra final audit');
+assert.equal(context.planningMode(live), 'Builder-led · Completion owner final audit');
 const exited = {...live, monitor: {...live.monitor, live: {state: 'exited'}}};
 assert.equal(classify(exited).group, 'stopped');
 assert.equal(context.taskOverviewState(exited).active, false);
@@ -37,12 +37,12 @@ assert.equal(context.taskOverviewState(activity).verified, false);
 const savedPause={status:'PAUSED_INTERVENTION',stage:'astra_challenge',model_settings:{joint_planning:true},
   monitor:{next_stage:'astra_challenge',live:{state:'none'}},
   stages:[{stage:'astra_discovery',finished_at:'2026-09-21T19:09:12Z',exit_code:0}]};
-assert.equal(context.taskOverviewState(savedPause).step,'Next step · Astra · Challenging the plan');
-assert.equal(context.taskOverviewState({...savedPause,monitor:{live:{state:'none'}}}).step,'Last completed step · GLM · Planning');
+assert.equal(context.taskOverviewState(savedPause).step,'Next step · Plan reviewer · Challenging the plan');
+assert.equal(context.taskOverviewState({...savedPause,monitor:{live:{state:'none'}}}).step,'Last completed step · Requirements planner · Planning');
 assert.equal(context.taskOverviewState({...savedPause,monitor:{},stages:[]}).step,'No active step');
-assert.equal(context.taskOverviewState(exited).step,'Last reported active step · GLM · Implementing');
+assert.equal(context.taskOverviewState(exited).step,'Last reported active step · Builder · Implementing');
 assert.equal(classify(activity).group, 'running');
-assert.match(classify(activity).reason, /Terra.*recorded/);
+assert.match(classify(activity).reason, /Builder.*recorded/);
 assert.ok(classify(activity).reason.includes(new Date(activity.active_stage.started_at).toLocaleString()));
 assert.match(context.taskGroups().find(group => group[0] === 'running')[2], /does not confirm.*process/);
 for (const finished of [{finished_at: '2026-09-20T07:01:00Z'}, {exit_code: 0}, {exit_code: -15}]) {

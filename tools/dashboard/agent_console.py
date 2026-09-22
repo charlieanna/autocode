@@ -6,8 +6,11 @@ from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs,urlparse
 sys.dont_write_bytecode=True
-CODEX_DEFAULT_MODELS={'astra':'gpt-6-astra','terra':'gpt-5.6-terra','sol':'gpt-5.6-sol'}
-GLM_MODELS={'astra':'glm-5.3','terra':'glm-5.3-flash','sol':'glm-5.3'}
+CODEX_DEFAULT_MODELS={'astra':'gpt-5.6-sol','terra':'gpt-5.6-terra','sol':'gpt-5.6-sol','completion':'gpt-5.6-sol'}
+GLM_MODELS={'astra':'glm-5.3','terra':'glm-5.3-flash','sol':'glm-5.3','completion':'glm-5.3'}
+DEFAULT_REASONING_EFFORTS={'astra':'high','terra':'medium','sol':'high','completion':'medium'}
+REASONING_EFFORTS={'low','medium','high','xhigh','max'}
+BARE_OPENAI_ALIASES={'gpt-5.6-sol','gpt-5.6-terra','gpt-6-astra'}
 MODEL_ID=re.compile(r'^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._:/-]{0,120}$',re.I)
 def obj(x): return x if isinstance(x,dict) else {}
 def items(x): return x if isinstance(x,list) else []
@@ -23,15 +26,17 @@ def configured_zai(config_path=None):
  return None
 def string_list(x):return [v for v in items(x) if isinstance(v,str)]
 def saved_models(state):
- state=obj(state);settings=obj(state.get('settings'));roles=obj(settings.get('roles'));models=obj(state.get('models'));result={};engines={}
+ state=obj(state);settings=obj(state.get('settings'));roles=obj(settings.get('roles'));models=obj(state.get('models'));result={};engines={};efforts={}
  engine=settings.get('engine') if isinstance(settings.get('engine'),str) else state.get('engine') if isinstance(state.get('engine'),str) else None
- names=['astra','terra','sol']+(['glm'] if 'glm' in roles or 'glm' in models else [])
+ names=['astra','terra','sol']+(['completion'] if 'completion' in roles or 'completion' in models else [])+(['glm'] if 'glm' in roles or 'glm' in models else [])
  for role in names:
   config=obj(roles.get(role));value=config.get('model')
   if not isinstance(value,str):value=models.get(role)
   result[role]=value if isinstance(value,str) else None
   engines[role]=config.get('engine') if isinstance(config.get('engine'),str) else engine if config or result[role] is not None else None
- return {'engine':engine,'joint_planning':settings.get('joint_planning') is True,'roles':result,'role_engines':engines}
+  effort=config.get('reasoning_effort')
+  efforts[role]=effort if isinstance(effort,str) else None
+ return {'engine':engine,'joint_planning':settings.get('joint_planning') is True,'roles':result,'role_engines':engines,'role_efforts':efforts}
 def discovery_role(state):
  state=obj(state);joint=obj(state.get('settings')).get('joint_planning') is True
  for record in reversed(items(state.get('stages'))):
@@ -354,13 +359,13 @@ class LegacyConsole:
   except OSError:key=str(run or ws)
   return list(self.actions.get(key,[]))
  def joint_models(self,d):
-  explicit={role:d.get(role+'_model','') for role in ('glm','astra','terra','sol')}
+  explicit={role:d.get(role+'_model','') for role in ('glm','astra','terra','sol','completion')}
   if any(not isinstance(value,str) for value in explicit.values()):raise ValueError('Model choices must be strings')
   chosen={role:value for role,value in explicit.items() if value}
   # Retain bare OpenAI aliases in older conversations. The runner expands them
   # to openai/model on OpenCode; they never select a separate Codex login.
   opencode_choices={role:value for role,value in chosen.items()
-                    if not (role in ('astra','sol') and value in CODEX_DEFAULT_MODELS.values())}
+                    if not (role in ('astra','sol','completion') and value in BARE_OPENAI_ALIASES)}
   for role,value in opencode_choices.items():
    if not MODEL_ID.fullmatch(value):raise ValueError(role.title()+' requires an OpenCode provider/model identifier')
   if opencode_choices:
@@ -369,6 +374,11 @@ class LegacyConsole:
    for value in opencode_choices.values():
     if value not in catalogue['models']:raise ValueError('Choose a current provider/model identifier from the catalogue')
   return chosen
+ def joint_efforts(self,d):
+  explicit={role:d.get(role+'_reasoning_effort','') for role in ('astra','terra','sol','completion')}
+  if any(not isinstance(value,str) for value in explicit.values()):raise ValueError('Reasoning choices must be strings')
+  if any(value and value not in REASONING_EFFORTS for value in explicit.values()):raise ValueError('Choose a supported reasoning level')
+  return {role:value for role,value in explicit.items() if value}
  def create(self,d):
   raw=d.get('project') if isinstance(d.get('project'),str) and d.get('project').strip() else d.get('workspace','');ws=self.selected_workspace(raw);goal=d.get('goal','');engine=d.get('engine','opencode')
   if not ws:raise ValueError('Select or enter an existing Git workspace')
@@ -376,16 +386,20 @@ class LegacyConsole:
   if engine not in ('opencode','codex'):raise ValueError('Unsupported engine')
   if ws not in self.created_workspaces and ws not in self.explicit:self.created_workspaces.append(ws)
   if engine=='opencode':
-   chosen=self.joint_models(d)
+   chosen=self.joint_models(d);efforts=self.joint_efforts(d)
    extra=[goal,'--engine','opencode','--joint-planning','--no-chat']
    for role,value in chosen.items():extra+=['--'+role+'-model',value]
+   for role,value in efforts.items():extra+=['--'+role+'-reasoning-effort',value]
    return self.enqueue(ws,None,'Create OpenCode task',extra)
   if d.get('glm_model'):raise ValueError('GLM discovery requires the default joint-planning engine')
   models={r:d.get(r+'_model',v) for r,v in CODEX_DEFAULT_MODELS.items()};provider=self.zai_probe()
   for r,m in models.items():
    if m not in (CODEX_DEFAULT_MODELS[r],GLM_MODELS[r]):raise ValueError('Unsupported model')
    if m==GLM_MODELS[r] and not provider:raise ValueError('Z.ai is not configured in local Codex')
-  extra=[goal,'--engine','codex','--no-chat','--astra-model',models['astra'],'--terra-model',models['terra'],'--sol-model',models['sol'],'--reasoning-effort','high']
+  efforts={**DEFAULT_REASONING_EFFORTS,**self.joint_efforts(d)}
+  extra=[goal,'--engine','codex','--no-chat']
+  for role,model in models.items():extra+=['--'+role+'-model',model]
+  for role,value in efforts.items():extra+=['--'+role+'-reasoning-effort',value]
   for r,m in models.items():
    if m==GLM_MODELS[r]:extra+=['--'+r+'-provider',provider]
   return self.enqueue(ws,None,'Create Codex task',extra)
@@ -409,6 +423,13 @@ class LegacyConsole:
    ident,token=str(d.get('id','')),d.get('token','')
    if ident not in {str(c.get('id')) for c in v['review_criteria']} or not isinstance(token,str) or token!=v['review_token']:raise ValueError('Displayed review token changed or criterion is not eligible')
    return self.enqueue(ws,run,'Approve review '+ident,['--approve-review',ident,'--review-token',token])
+  if action=='set_reasoning':
+   efforts=self.joint_efforts(d)
+   if not efforts:raise ValueError('Choose at least one reasoning level')
+   if v.get('active_stage'):raise ValueError('Wait for the current model step to finish before changing reasoning')
+   extra=[]
+   for role,value in efforts.items():extra+=['--'+role+'-reasoning-effort',value]
+   return self.enqueue(ws,run,'Save reasoning settings',extra+['--show-goal','--no-chat'])
   if action=='continue':return self.enqueue(ws,run,'Continue',[])
   raise ValueError('Unknown action')
 try:

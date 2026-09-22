@@ -13,9 +13,21 @@ import uuid
 
 
 DEFAULT_MODELS = {
-    "astra": "openai/gpt-6-astra",
+    "glm": "zai-coding-plan/glm-5.3",
+    # Role names are stable workflow identifiers, not fixed model names.  The
+    # normal lead/reviewer starts on Sol and escalates to Astra only when the
+    # task warrants it.
+    "astra": "openai/gpt-5.6-sol",
     "terra": "openai/gpt-5.6-terra",
-    "sol": "zai-coding-plan/glm-5.3",
+    "sol": "openai/gpt-5.6-sol",
+    "completion": "openai/gpt-5.6-sol",
+}
+
+DEFAULT_REASONING_EFFORTS = {
+    "astra": "high",
+    "terra": "medium",
+    "sol": "high",
+    "completion": "medium",
 }
 
 

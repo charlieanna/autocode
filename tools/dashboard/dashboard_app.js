@@ -289,21 +289,24 @@ function taskSelection(filter=taskFilter,project=projectFilter) {
 function taskScopeTitle() {return projectFilter?basename(projectFilter):taskFilter==='all'?'All work':taskGroups().find(group=>group[0]===taskFilter)?.[1]||'All work';}
 function badge(run) { const info = statusInfo(run), element = n('span',info.label); element.className = 'badge '+info.tone; element.title = run.status || run.error || ''; return element; }
 function jointPlanning(run) { return run.model_settings?.joint_planning === true; }
-function planningMode(run) { return run.monitor?.workflow_mode==='glm_final_audit_v2'?'GLM builds · Astra final audit':run.monitor?.workflow_mode==='glm_first_v1'?'GLM builds · Astra milestone reviews':jointPlanning(run)?'Joint planning · GLM + Astra':run.model_settings?.engine?'Legacy Astra planning':'Saved workflow unavailable'; }
-function planningSpeaker(run) { return jointPlanning(run) && run.goal?.origin !== 'astra_finalize' ? 'GLM' : 'Astra'; }
+function planningMode(run) { return run.monitor?.workflow_mode==='glm_final_audit_v2'?'Builder-led · Completion owner final audit':run.monitor?.workflow_mode==='glm_first_v1'?'Builder-led · Completion owner milestone reviews':jointPlanning(run)?'Requirements planning · Independent review':run.model_settings?.engine?'Legacy planning':'Saved workflow unavailable'; }
+function planningSpeaker(run) { return jointPlanning(run) && run.goal?.origin !== 'astra_finalize' ? 'Requirements planner' : 'Plan reviewer'; }
+function roleDisplayName(name) {
+  const key=String(name||'').trim().toLowerCase().replaceAll('_',' ');
+  return ({glm:'Requirements planner',astra:'Plan reviewer',terra:'Builder',sol:'Validator',completion:'Completion owner'})[key]||human(name);
+}
 function planReady(run) { return !jointPlanning(run) || (run.status==='AWAITING_GOAL_APPROVAL' && run.goal?.origin==='astra_finalize'); }
 function stageName(run) {
   const stage=(run.stage||'').replace(/_report_repair$/,'');
   const mode=run.monitor?.workflow_mode,glmFirst=['glm_first_v1','glm_final_audit_v2'].includes(mode);
-  if(glmFirst&&/terra/.test(stage))return 'GLM · Implementing';
-  if(glmFirst&&/sol/.test(stage))return 'Sol · Targeted review';
-  if(glmFirst&&stage==='astra_checkpoint')return mode==='glm_final_audit_v2'?'Astra · Final audit':'Astra · Milestone review';
+  if(glmFirst&&/terra/.test(stage))return 'Builder · Implementing';
+  if(glmFirst&&/sol/.test(stage))return 'Validator · Targeted review';
+  if(glmFirst&&stage==='astra_checkpoint')return mode==='glm_final_audit_v2'?'Completion owner · Final audit':'Completion owner · Milestone review';
   if(jointPlanning(run)) {
-    const labels={astra_discovery:'GLM · Planning',astra_challenge:'Astra · Challenging the plan',glm_revise:'GLM · Revising the plan',astra_finalize:'Astra · Finalizing the plan'};
+    const labels={astra_discovery:'Requirements planner · Planning',astra_challenge:'Plan reviewer · Challenging the plan',glm_revise:'Requirements planner · Revising the plan',astra_finalize:'Plan reviewer · Finalizing the plan'};
     if(labels[stage])return labels[stage];
   }
-  const builder=String(run.monitor?.roles?.terra?.model||run.model_settings?.roles?.terra||'').toLowerCase().includes('glm')?'GLM':'Terra';
-  return /astra_discovery/.test(stage)?'Astra · Planning':stage==='astra_review'?'Astra · Reviewing results':stage==='astra_checkpoint'?'Astra · Auditing results':/astra/.test(stage)?'Astra · Direction':/terra/.test(stage)?builder+' · Implementing':/sol/.test(stage)?'Sol · Reviewing':stage==='unavailable'?'Step unavailable':human(stage)||'Not started';
+  return /astra_discovery/.test(stage)?'Plan reviewer · Planning':stage==='astra_review'?'Completion owner · Deciding complete or rework':stage==='astra_checkpoint'?'Completion owner · Auditing results':/astra/.test(stage)?'Plan reviewer · Direction':/terra/.test(stage)?'Builder · Implementing':/sol/.test(stage)?'Validator · Reviewing':stage==='unavailable'?'Step unavailable':human(stage)||'Not started';
 }
 function statusAge(value) {
   const at=Date.parse(value);if(!Number.isFinite(at))return 'Not recorded';
@@ -320,10 +323,13 @@ function taskOverviewState(run) {
     step:ongoing&&live.state==='alive'?'Current step · '+stageName(run):info.group==='complete'?'Work complete':info.group==='attention'?info.action:savedStep,
     objective:run.monitor?.objective||run.astra_plan?.current_assignment?.objective||'No current objective has been recorded.'};
 }
-function workflowCards(run, state) {
+function workflowConfig(run, state) {
   const mode=run.monitor?.workflow_mode,finalOnly=mode==='glm_final_audit_v2',glmFirst=finalOnly||mode==='glm_first_v1';
-  const config=glmFirst?[['terra','GLM','Plan & implement'],['sol','Sol','Targeted escalation only'],['astra','Astra',finalOnly?'Final full-task audit only':'Milestone review']]:
-    [...(jointPlanning(run)&&(state.role==='glm'||run.goal?.approval_status!=='approved')?[['glm','GLM','Draft & revise']]:[]),['astra','Astra','Plan & direct'],['terra',String(run.monitor?.roles?.terra?.model||run.model_settings?.roles?.terra||'').includes('glm')?'GLM · Implementer':'Terra','Implement'],['sol','Sol','Review']];
+  return glmFirst?[['terra','Builder','Plan & implement'],['sol','Validator','Targeted escalation only'],['astra','Plan reviewer',finalOnly?'Final full-task audit only':'Milestone review']]:
+    [...(jointPlanning(run)?[['glm','Requirements planner','Draft & revise']]:[['astra','Requirements planner','Draft plan']]),['astra','Plan reviewer',jointPlanning(run)?'Challenge & finalize':'Review & direct'],['terra','Builder','Implement'],['sol','Validator','Review'],['completion','Completion owner','Complete / rework']];
+}
+function workflowCards(run, state) {
+  const config=workflowConfig(run,state);
   const host=card('','workflow-cards');host.setAttribute('aria-label','Agent workflow');
   for(const [role,name,duty]of config){const selected=state.active&&state.role===role,item=card('','workflow-card'+(selected&&state.verified?' active':''));
     item.append(Object.assign(n('p',duty),{className:'monitor-kicker'}),n('h3',name));
@@ -463,8 +469,8 @@ function syncWorkspaces(list) {
 }
 function syncModelOptions(data) {
   const catalogue = data.usable && Array.isArray(data.models) ? data.models.filter(value=>typeof value==='string') : [];
-  const defaults={glm:'GLM-5.3 · OpenCode',astra:'GPT-6 Astra · OpenCode',terra:'GLM-5.3 · OpenCode',sol:'GPT-5.6 Sol · OpenCode'};
-  for (const role of ['glm','astra','terra','sol']) {
+  const defaults={glm:'GLM-5.3 · OpenCode',astra:'GPT-5.6 Sol · high',terra:'GPT-5.6 Terra · medium',sol:'GPT-5.6 Sol · high',completion:'GPT-5.6 Sol · medium'};
+  for (const role of ['glm','astra','terra','sol','completion']) {
     const select = $('#'+role+'-model'), previous = select.value;
     const values=catalogue;
     select.replaceChildren(Object.assign(n('option','Default · '+defaults[role]),{value:''}));
@@ -570,7 +576,7 @@ function renderTasks(data) {
     }host.append(section);
   }
   if(projectFilter&&removedProject(projectFilter)){host.append(emptyState('This project was removed.','Restore it to show its tasks and linked conversations again. Files and history stay on disk.'));}
-  else if(!host.childElementCount)host.append(emptyState(actual.length?'No tasks match this view.':'Make room for your next idea.',actual.length?'Try a different status, project, or search.':'Start a conversation with GLM. Your terminal tasks will appear here too.',!actual.length));
+  else if(!host.childElementCount)host.append(emptyState(actual.length?'No tasks match this view.':'Make room for your next idea.',actual.length?'Try a different status, project, or search.':'Start a conversation with the requirements planner. Your terminal tasks will appear here too.',!actual.length));
 }
 function renderRoots(roots) {
   const host=$('#watch-roots');host.replaceChildren();
@@ -581,7 +587,8 @@ $('#watch-root').onsubmit=event=>{event.preventDefault();rootAction('add',event.
 $('#create').onsubmit=async event=>{
   event.preventDefault();if(creatingConversation)return;
   const text=$('#new-goal').value.trim(),error=$('#create-error');if(!text)return;
-  const models=Object.fromEntries(['glm','astra','terra','sol'].map(role=>[role+'_model',$('#'+role+'-model').value]));
+  const models=Object.fromEntries(['glm','astra','terra','sol','completion'].map(role=>[role+'_model',$('#'+role+'-model').value]));
+  for(const role of ['astra','terra','sol','completion'])models[role+'_reasoning_effort']=$('#'+role+'-reasoning-effort').value;
   const signature=JSON.stringify({text,models});
   if(!conversationRequest||conversationRequest.signature!==signature)conversationRequest=savedRequest('create-request',{text,models});
   creatingConversation=true;$('#create-submit').disabled=true;$('#create-submit').textContent='Starting conversation…';error.hidden=true;
@@ -593,7 +600,8 @@ $('#create').onsubmit=async event=>{
 };
 $('#new-goal').value=stored('new-idea');
 $('#new-goal').oninput=event=>persist('new-idea',event.target.value);
-for(const role of ['glm','astra','terra','sol']){const select=$('#'+role+'-model'),value=stored('model:'+role);if(value&&!Array.from(select.options).some(option=>option.value===value))select.append(Object.assign(n('option',value),{value}));select.value=value;select.onchange=()=>persist('model:'+role,select.value);}
+for(const role of ['glm','astra','terra','sol','completion']){const select=$('#'+role+'-model'),value=stored('model:'+role);if(value&&!Array.from(select.options).some(option=>option.value===value))select.append(Object.assign(n('option',value),{value}));select.value=value;select.onchange=()=>persist('model:'+role,select.value);}
+for(const role of ['astra','terra','sol','completion']){const select=$('#'+role+'-reasoning-effort'),value=stored('reasoning:'+role);if(value&&Array.from(select.options).some(option=>option.value===value))select.value=value;select.onchange=()=>persist('reasoning:'+role,select.value);}
 
 function openConversation(doc) {
   $('#archive-conversation').disabled=true;$('#conversation-archived-banner').hidden=true;
@@ -638,7 +646,7 @@ function renderConversations(data) {
   const docs=data.conversations||[];$('#conversation-count').textContent=docs.length;
   const host=$('#conversation-list');host.replaceChildren();
   for(const doc of docs){const row=button('',()=>openConversation(doc.id),'conversation-row');const copy=card('','conversation-row-copy');copy.append(n('h2',doc.title||'Untitled conversation'),n('p',doc.attachment?.workspace?basename(doc.attachment.workspace):'No project attached'));row.append(Object.assign(n('span','G'),{className:'astra-avatar'}),copy,Object.assign(n('span',conversationStatus(doc)),{className:'badge '+(doc.status==='error'?'attention':'')}),n('span','›'));host.append(row);}
-  if(!docs.length)host.append(emptyState('Start with a conversation.','Explore an idea with GLM. Your conversations are saved here, even before you choose a project.',true));
+  if(!docs.length)host.append(emptyState('Start with a conversation.','Explore an idea with the requirements planner. Your conversations are saved here, even before you choose a project.',true));
 }
 function inlineText(host,text) {
   const pieces=String(text).split(/(\*\*[^*\n]+\*\*|`[^`\n]+`)/g);
@@ -660,7 +668,7 @@ function messageBody(text) {
 }
 function appendMessage(host,message) {
   const row=card('','chat-message '+(message.role==='user'?'learner':'assistant'));
-  const name=message.speaker||(message.role==='user'?'You':'GLM'),speaker=String(name).toLowerCase()==='glm'?'GLM':human(name);
+  const name=message.speaker||(message.role==='user'?'You':'Requirements planner'),speaker=message.role==='user'?'You':roleDisplayName(name);
   const text=message.text||'',body=message.role==='user'?n('p',text):messageBody(text);
   const at=messageTime(message),stamp=at?new Date(at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';
   const meta=Object.assign(n('div',''),{className:'speaker'});
@@ -685,13 +693,13 @@ function renderDraftConversation(doc) {
   const model=doc.models?.glm_model||doc.models?.glm||'zai-coding-plan/glm-5.3';
   $('#draft-subtitle').textContent=doc.attachment?.workspace?'Connecting '+basename(doc.attachment.workspace):'Planning model: '+model+'. Bring in a project when you’re ready.';$('#draft-subtitle').title=model;
   const host=$('#draft-messages'),signature=JSON.stringify([doc.messages||[],doc.status,conversationPending.has(doc.id)]);
-  if(host.dataset.rendered!==signature){const scroll=$('#draft-scroll'),near=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90||!host.dataset.rendered,position=scroll.scrollTop;host.replaceChildren();renderMessageHistory(host,doc.messages||[],doc.id);if(doc.status==='thinking'||conversationPending.has(doc.id)){const thinking=card('','chat-thinking');thinking.setAttribute('role','status');thinking.append(n('span','GLM'),n('span',doc.status==='thinking'?'Thinking through your reply…':'Sending your message…'));host.append(thinking);}host.dataset.rendered=signature;requestAnimationFrame(()=>{if(near)scrollDraftToEnd();else{scroll.scrollTop=position;updateDraftScroll();}});}
+  if(host.dataset.rendered!==signature){const scroll=$('#draft-scroll'),near=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90||!host.dataset.rendered,position=scroll.scrollTop;host.replaceChildren();renderMessageHistory(host,doc.messages||[],doc.id);if(doc.status==='thinking'||conversationPending.has(doc.id)){const thinking=card('','chat-thinking');thinking.setAttribute('role','status');thinking.append(n('span','Requirements planner'),n('span',doc.status==='thinking'?'Thinking through your reply…':'Sending your message…'));host.append(thinking);}host.dataset.rendered=signature;requestAnimationFrame(()=>{if(near)scrollDraftToEnd();else{scroll.scrollTop=position;updateDraftScroll();}});}
   const pending=conversationPending.has(doc.id),thinking=doc.status==='thinking',linked=doc.attachment?.status==='linked',attaching=doc.attachment?.status==='starting';
   $('#draft-send').disabled=draftSendBlocked(doc,pending,$('#draft-text').value);$('#draft-send').textContent=pending?'Sending…':'Send ↑';
-  $('#draft-delivery').textContent=thinking?'You can draft your next message while GLM replies.':doc.status==='error'?'Retry the saved message to continue.':doc.attachment?'Connecting the project…':'Enter to send · Shift + Enter for a new line';
+  $('#draft-delivery').textContent=thinking?'You can draft your next message while the requirements planner replies.':doc.status==='error'?'Retry the saved message to continue.':doc.attachment?'Connecting the project…':'Enter to send · Shift + Enter for a new line';
   requestAnimationFrame(()=>resizeComposer($('#draft-text')));
   const problem=$('#draft-problem'),retry=conversationRetries.get(doc.id);problem.replaceChildren();
-  if(!doc.task_archived&&!doc.project_removed&&(doc.error||retry)){problem.append(Object.assign(n('p',retry?.error||doc.error),{className:'error'}));problem.append(button(retry?'Retry sending':'Retry GLM',()=>retry?sendDraftMessage(doc,retry):retryConversation(doc)));}problem.hidden=!problem.childElementCount;
+  if(!doc.task_archived&&!doc.project_removed&&(doc.error||retry)){problem.append(Object.assign(n('p',retry?.error||doc.error),{className:'error'}));problem.append(button(retry?'Retry sending':'Retry planner',()=>retry?sendDraftMessage(doc,retry):retryConversation(doc)));}problem.hidden=!problem.childElementCount;
   const attachment=$('#attachment-status');attachment.replaceChildren();
   if(doc.task_archived){attachment.append(n('h3','This task is archived.'),n('p','Restore the task to continue its saved conversation.'),archiveButton(doc.attachment,'restore','Restore task'));$('#draft-send').disabled=true;}
   else if(doc.project_removed){attachment.append(n('h3','This project was removed from the dashboard.'),n('p','Your conversation and draft are saved. Restore the project to continue.'),Object.assign(n('p',doc.attachment?.workspace||''),{className:'project-path'}),projectActionButton(doc.attachment?.workspace,'restore','Restore project'));}
@@ -741,7 +749,7 @@ function renderAstraPlan(run) {
   const data=run.astra_plan||{},rail=$('#goal'),full=$('#plan-full');rail.replaceChildren();full.replaceChildren();
   const heading=card('','rail-heading');heading.append(n('h2','The plan'),icon('plan'));rail.append(heading);
   rail.append(Object.assign(n('p','CURRENT ASSIGNMENT'),{className:'rail-kicker'}));
-  rail.append(Object.assign(n('p',data.current_assignment?.objective||(jointPlanning(run)?'GLM and Astra are shaping the plan.':'Astra is shaping the next step.')),{className:'assignment-summary'}));
+  rail.append(Object.assign(n('p',data.current_assignment?.objective||(jointPlanning(run)?'The requirements planner and plan reviewer are shaping the plan.':'The plan reviewer is shaping the next step.')),{className:'assignment-summary'}));
   const initialLabel=data.initial_plan_approval==='approved'?'Initial approved plan (recorded)':data.initial_plan_approval==='historically approved/inactive'?'Initial historically approved plan (inactive)':'Initial plan (approval unavailable)';
   rail.append(Object.assign(n('p',data.current_plan?.length?'CURRENT PLAN':'INITIAL PLAN'),{className:'rail-kicker'}),planList(data.current_plan?.length?data.current_plan:data.initial_plan));
   rail.append(Object.assign(n('p','Current plan approval status: '+(data.current_plan_approval||'unavailable')),{className:'rail-status'}));
@@ -752,12 +760,12 @@ function renderAstraPlan(run) {
   const history=card('','history-section');history.append(n('h2','Intermediate assignments & decisions'));
   for(const entry of data.history||[])if(!data.current_assignment||entry.id!==data.current_assignment.id||entry.brief_revision!==data.current_assignment.brief_revision)history.append(assignmentCard(entry,run.run));
   for(const [index,entry]of (data.decisions||[]).entries())history.append(disclosure((entry.status?human(entry.status):'Plan update')+' · '+(entry.timestamp||'Time unavailable'),'decision:'+index+':'+entry.timestamp,[renderDocument(entry)],run.run));
-  if(history.childElementCount===1)history.append(Object.assign(n('p','Updates will appear as Astra assigns and reviews the work.'),{className:'field-note'}));full.append(history);
+  if(history.childElementCount===1)history.append(Object.assign(n('p','Updates will appear as the team assigns and reviews the work.'),{className:'field-note'}));full.append(history);
   const briefs=card('','history-section');briefs.append(n('h2','Brief revisions'));
   for(const [index,brief]of (data.briefs||[]).entries()){const context=brief.current?(brief.approval_status==='approved'?'current · approved':'current · awaiting its own approval'):brief.historically_approved?'historically approved/inactive':'superseded';briefs.append(disclosure('Brief r'+(brief.revision??'?')+' · '+context,'brief:'+index+':'+brief.revision,[renderDocument(brief.body)],run.run));}
   if(briefs.childElementCount===1)briefs.append(n('p','Historical brief bodies unavailable.'));full.append(briefs);
 }
-function waitingMessage(request){const lines=[];for(const [label,key]of [['Decision needed','decision_needed'],['Question','question'],['Discovered','discovered'],['Impact','impact'],['Options','options'],['Proposed change','proposed_delta']]){let value=request[key];if(Array.isArray(value))value=value.join(' · ');if(typeof value==='string'&&value.trim())lines.push(label+': '+value);}return lines.length?lines.join('\n'):'Astra is waiting for your input. Details are unavailable in the saved state.';}
+function waitingMessage(request){const lines=[];for(const [label,key]of [['Decision needed','decision_needed'],['Question','question'],['Discovered','discovered'],['Impact','impact'],['Options','options'],['Proposed change','proposed_delta']]){let value=request[key];if(Array.isArray(value))value=value.join(' · ');if(typeof value==='string'&&value.trim())lines.push(label+': '+value);}return lines.length?lines.join('\n'):'The plan reviewer is waiting for your input. Details are unavailable in the saved state.';}
 function renderQuestion(host,question,run) {
   const id=String(question.id),element=card('','chat-message pending');element.dataset.questionCard=id;
   element.append(Object.assign(n('p',planningSpeaker(run)+' · Needs your answer'),{className:'speaker'}),n('p',question.question||'Question unavailable'));
@@ -779,7 +787,7 @@ function renderMessageHistory(host,messages,identity){
 function taskMessages(run){
   const receipts=run.chat_messages||[],answered=new Set(receipts.filter(entry=>entry.question_id).map(entry=>String(entry.question_id)));
   const answers=Object.entries(run.answers||{}).filter(([id])=>!answered.has(id)).map(([id,answer])=>({role:'user',speaker:'You',id,created_at:answer.at||answer.created_at,question_text:answer.question?.question,text:answer.text||answer.answer||'Saved answer',status:'saved'}));
-  const plans=(run.planning_messages?.length?run.planning_messages:run.discovery_summary?[{speaker:run.discovery_role||planningSpeaker(run),text:run.discovery_summary}]:[]).map(entry=>({role:'assistant',...entry,planning_history:true}));
+  const plans=(run.planning_messages?.length?run.planning_messages:run.discovery_summary?[{speaker:run.discovery_role||planningSpeaker(run),text:run.discovery_summary}]:[]).map(entry=>({role:'assistant',...entry,speaker:roleDisplayName(entry.speaker),planning_history:true}));
   return orderedMessages([...(run.draft_messages||[]),...answers,...plans,...receipts.map(entry=>({role:'user',speaker:'You',...entry}))]);
 }
 function settleThreadScroll(){if(scrollThreadToEnd&&currentTab==='interview'){scrollThreadToEnd=false;requestAnimationFrame(()=>{if(currentTab==='interview')$('#interview').scrollTop=$('#interview').scrollHeight;});}}
@@ -787,12 +795,12 @@ function renderConversation(run) {
   const root=$('#conversation'),signature=JSON.stringify([run.run,run.draft_messages,run.planning_messages,run.discovery_summary,run.answers,run.questions,run.chat_messages,run.user_request,run.status,run.goal?.approval_status,taskChatPending.has(run.run)]);
   $('#conversation-heading').textContent='Conversation';
   $('#conversation-avatar').textContent=planningSpeaker(run).slice(0,1);
-  $('#conversation-description').textContent=jointPlanning(run)?'GLM drafts and revises. Astra reviews. Your direction stays in the conversation.':'Shape the work, then let your team build.';
+  $('#conversation-description').textContent=jointPlanning(run)?'The requirements planner drafts and revises. The plan reviewer challenges and finalizes. Your direction stays in the conversation.':'Shape the work, then let your team build.';
   if(root.dataset.rendered===signature)return;const scroll=$('#interview');scrollThreadToEnd=scrollThreadToEnd||scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90;root.dataset.rendered=signature;root.replaceChildren();
   const context=card('','conversation-context');context.append(n('strong','Conversation history'),n('p','Earlier drafts and requests remain here as history. Now shows what currently needs your decision.'),button('See current state →',()=>activateTab('now'),'text-button'));root.append(context);
   renderMessageHistory(root,taskMessages(run),run.run);
   if(statusInfo(run).label==='Answer needed')for(const question of run.questions||[])renderQuestion(root,question,run);
-  if(statusInfo(run).group==='attention'&&run.user_request&&!(run.questions||[]).length)appendMessage(root,{speaker:'Astra',text:waitingMessage(run.user_request)});
+  if(statusInfo(run).group==='attention'&&run.user_request&&!(run.questions||[]).length)appendMessage(root,{speaker:'Plan reviewer',text:waitingMessage(run.user_request)});
   if(!root.childElementCount)appendMessage(root,{text:run.goal?.approval_status==='approved'?'The plan is approved. Follow the work here and send direction whenever you need to.':run.goal?.body?'Here’s the proposed plan. Review it and approve it when it reflects what you want to build.':planningSpeaker(run)+'’s questions and plan will appear here.'});
 }
 async function copyText(text,element){try{await navigator.clipboard.writeText(text);element.textContent='Copied';}catch{dashboardNotice('Select the displayed token to copy it. Clipboard access is unavailable.');}}
@@ -971,6 +979,19 @@ async function submitTaskAction(run,action,extra={}){
   try{await post('/api/action',{workspace:run.workspace,run:run.run,action,...extra});}
   finally{taskActionPending.delete(run.run);if(chosen?.run===run.run){renderLiveControls(latestRun||run);renderBrief(latestRun||run);renderExecution(latestRun||run);renderTaskNow(latestRun||run);}}
 }
+function renderTaskReasoning(run){
+  const efforts=run.model_settings?.role_efforts||{},active=!!Object.keys(run.active_stage||{}).length,blocked=active||taskActionBusy(run)||['running','complete'].includes(statusInfo(run).group);
+  for(const role of ['astra','terra','sol','completion']){$('#task-'+role+'-reasoning').value=efforts[role]||'';$('#task-'+role+'-reasoning').disabled=blocked;}
+  $('#save-task-reasoning').disabled=blocked;$('#task-reasoning-status').textContent=blocked?(statusInfo(run).group==='running'?'Reasoning can be changed after the current step finishes.':statusInfo(run).group==='complete'?'This task is complete.':'Wait for the current step to finish.'):'Changes apply to the next model step and preserve existing sessions.';$('#task-reasoning-status').className='field-note';
+}
+$('#task-reasoning-form').onsubmit=async event=>{
+  event.preventDefault();const run=latestRun;if(!run||taskActionBusy(run)||Object.keys(run.active_stage||{}).length)return;
+  const payload={workspace:run.workspace,run:run.run,action:'set_reasoning'};
+  for(const role of ['astra','terra','sol','completion']){const value=$('#task-'+role+'-reasoning').value;if(value)payload[role+'_reasoning_effort']=value;}
+  const status=$('#task-reasoning-status'),button=$('#save-task-reasoning');button.disabled=true;status.textContent='Saving reasoning settings…';status.className='field-note';
+  try{await post('/api/action',payload);status.textContent='Reasoning change queued. It will apply to the next model step.';await refresh();}
+  catch(error){status.textContent=error.message;status.className='error';button.disabled=false;}
+};
 function renderTaskAttention(run){
   const host=$('#task-attention');host.replaceChildren();
   const next=statusInfo(run);
@@ -1091,9 +1112,9 @@ function showRun(run,focus){
   const task=String(run.task||'Untitled task');$('#task-title').textContent=taskTitle(run);$('#task-title').title=task;
   $('#task-subtitle').textContent=taskSentence(run,taskActionBusy(run));$('#task-status').replaceChildren(badge(run));
   $('#task-objective').textContent=taskPosition(run);
-  const settings=run.model_settings||{},roles=settings.roles||{},roleNames=jointPlanning(run)?['glm','astra','terra','sol']:['astra','terra','sol'];
-  const models=$('#task-models');models.replaceChildren();for(const role of roleNames){const item=n('p','');item.append(n('strong',({glm:'Draft & revision',astra:'Plan review & direction',terra:'Implementation',sol:'Verification'})[role]),n('span',(roles[role]||'Model not recorded')+' · '+(settings.role_engines?.[role]||settings.engine||'Saved provider')));models.append(item);}
-  renderConversation(run);renderBrief(run);renderAstraPlan(run);renderExecution(run);renderLiveControls(run);renderTaskNow(run);renderThreadCheckpoint(run);activateTab(currentTab);settleThreadScroll();restoreFocus(focus);
+  const settings=run.model_settings||{},roles=settings.roles||{},roleNames=jointPlanning(run)?['glm','astra','terra','sol','completion']:['astra','terra','sol','completion'];
+  const models=$('#task-models'),efforts=settings.role_efforts||{};models.replaceChildren();for(const role of roleNames){const item=n('p',''),detail=[roles[role]||'Model not recorded',efforts[role]?efforts[role]+' reasoning':null,settings.role_engines?.[role]||settings.engine||'Saved provider'].filter(Boolean).join(' · ');item.append(n('strong',({glm:'Requirements planning',astra:'Plan review',terra:'Implementation',sol:'Verification',completion:'Completion decision'})[role]),n('span',detail));models.append(item);}
+  renderTaskReasoning(run);renderConversation(run);renderBrief(run);renderAstraPlan(run);renderExecution(run);renderLiveControls(run);renderTaskNow(run);renderThreadCheckpoint(run);activateTab(currentTab);settleThreadScroll();restoreFocus(focus);
 }
 function renderThreadCheckpoint(run){
   const host=$('#thread-checkpoint');host.replaceChildren();host.className='thread-checkpoint';

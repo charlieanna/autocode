@@ -42,10 +42,10 @@ class AllRoleModelTests(unittest.TestCase):
             args = self.configure_args(sol_model='zai-coding-plan/glm-5.3')
             settings = runner.configure(args, {'workspace':'/fixture','iteration':0})
         self.assertEqual('opencode', settings['roles']['astra']['engine'])
-        self.assertEqual('openai/gpt-6-astra', settings['roles']['astra']['model'])
+        self.assertEqual('openai/gpt-5.6-sol', settings['roles']['astra']['model'])
         self.assertEqual('opencode', settings['roles']['sol']['engine'])
         self.assertEqual('zai-coding-plan/glm-5.3', settings['roles']['glm']['model'])
-        self.assertEqual('zai-coding-plan/glm-5.3', settings['roles']['terra']['model'])
+        self.assertEqual('openai/gpt-5.6-terra', settings['roles']['terra']['model'])
         state = {'settings':settings,'sessions':{'astra':'opencode-astra','sol':'opencode-sol'}}
         before = copy.deepcopy(state)
         for override in ({'astra_model':'gpt-6-astra'}, {'sol_model':'gpt-5.6-sol'}):
@@ -64,7 +64,8 @@ class AllRoleSubprocessTests(unittest.TestCase):
     def test_selected_roles_survive_approval_implementation_validation_and_resume(self):
         self.prepare('rework')
         models = {'glm':'openai/gpt-5.6-sol','astra':'zai-coding-plan/glm-5.3',
-                  'terra':'openai/gpt-5.6-terra','sol':'openai/gpt-6-astra'}
+                  'terra':'openai/gpt-5.6-terra','sol':'openai/gpt-6-astra',
+                  'completion':'openai/gpt-5.6-sol'}
         flags = [arg for role, model in models.items() for arg in ('--'+role+'-model',model)]
         self.launch(['Build a greeting tool','--no-chat',*flags], 2)
         run, state = self.saved()
@@ -92,7 +93,8 @@ class AllRoleSubprocessTests(unittest.TestCase):
         for stage in final['stages']:
             self.assertEqual('opencode', stage['engine'])
             self.assertEqual('opencode', stage['command'][0])
-            self.assertEqual(models[stage['role']], stage['command'][stage['command'].index('--model')+1])
+            route = stage.get('route_role', stage['role'])
+            self.assertEqual(models[route], stage['command'][stage['command'].index('--model')+1])
         builds = [row for row in final['stages'] if row['stage']=='terra']
         audits = [row for row in final['stages'] if row['stage']=='sol']
         self.assertEqual(2, len(builds))

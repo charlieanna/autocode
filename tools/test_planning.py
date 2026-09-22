@@ -113,7 +113,8 @@ class PlanningTests(unittest.TestCase):
                     "transport_identity": {"engine": "opencode"}}
         with patch.object(support, "local_settings", side_effect=AssertionError("No Codex login required")):
             runner.configure_joint(settings, args, fresh=True)
-        self.assertEqual({"engine": "opencode", "provider": None, "model": "openai/gpt-5.6-sol"}, settings["roles"]["sol"])
+        self.assertEqual({"engine": "opencode", "provider": None, "model": "openai/gpt-5.6-sol",
+                          "reasoning_effort": "high"}, settings["roles"]["sol"])
         settings["roles"]["sol"] = {"engine": "opencode", "provider": None, "model": "zai-coding-plan/glm-5.3"}
         saved = copy.deepcopy(settings)
         runner.configure_joint(settings, args, fresh=False)
@@ -145,11 +146,18 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual("opencode", settings["engine"])
         self.assertEqual("glm", planning.role_for({"settings": settings}, "astra_discovery"))
         self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["glm"]["model"])
-        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["terra"]["model"])
-        self.assertEqual({"engine": "opencode", "provider": None, "model": "openai/gpt-6-astra"},
+        self.assertEqual("openai/gpt-5.6-terra", settings["roles"]["terra"]["model"])
+        self.assertEqual({"engine": "opencode", "provider": None, "model": "openai/gpt-5.6-sol"},
                          {key: settings["roles"]["astra"][key] for key in ("engine", "provider", "model")})
         self.assertEqual({"engine": "opencode", "provider": None, "model": "openai/gpt-5.6-sol"},
                          {key: settings["roles"]["sol"][key] for key in ("engine", "provider", "model")})
+        self.assertEqual({'astra': 'high', 'terra': 'medium', 'sol': 'high', 'completion': 'medium'},
+                         {role: settings['roles'][role]['reasoning_effort']
+                          for role in ('astra', 'terra', 'sol', 'completion')})
+        routed = {'settings': settings}
+        self.assertEqual('astra', planning.route_for(routed, 'astra_finalize'))
+        self.assertEqual('completion', planning.route_for(routed, 'astra_review'))
+        self.assertEqual('completion', planning.route_for(routed, 'astra_checkpoint'))
 
     def test_codex_engine_stays_single_cli_and_saved_non_joint_runs_do_not_switch(self):
         state = {"workspace": "/tmp/fixture", "iteration": 0}
@@ -177,7 +185,7 @@ class PlanningTests(unittest.TestCase):
                 settings = runner.configure(self.configure_args(terra_model="openai/gpt-5.6-terra",
                     terra_reasoning_effort=effort), {"workspace": "/tmp/fixture", "iteration": 0})
             self.assertEqual({"engine": "opencode", "provider": None, "model": "openai/gpt-5.6-terra",
-                              "reasoning_effort": effort}, settings["roles"]["terra"])
+                              "reasoning_effort": effort or 'medium'}, settings["roles"]["terra"])
             self.assertEqual("glm", planning.role_for({"settings": settings}, "astra_discovery"))
             self.assertEqual("opencode", planning.engine_for(settings, "glm"))
             self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["glm"]["model"])
@@ -260,9 +268,16 @@ class JointFlow(unittest.TestCase):
         self.assertEqual(["opencode"] * 3, [r["engine"] for r in final["stages"][5:]])
         sol = final["stages"][6]
         self.assertEqual("openai/gpt-5.6-sol", sol["command"][sol["command"].index("--model") + 1])
+        self.assertEqual("high", sol["command"][sol["command"].index("--variant") + 1])
         config = json.loads(Path(sol["output"]).with_suffix(".opencode.json").read_text())
         self.assertEqual("deny", config["agent"]["autocode_sol"]["permission"]["edit"])
-        self.assertNotEqual(final["sessions"]["astra"], final["sessions"]["sol"])
+        completion = final["stages"][7]
+        self.assertEqual("astra", completion["role"])
+        self.assertEqual("completion", completion["route_role"])
+        self.assertEqual("openai/gpt-5.6-sol", completion["command"][completion["command"].index("--model") + 1])
+        self.assertEqual("medium", completion["command"][completion["command"].index("--variant") + 1])
+        self.assertIn("autocode_completion", completion["command"])
+        self.assertEqual(3, len({final["sessions"][role] for role in ("astra", "sol", "completion")}))
         self.assertEqual(2, final["planning"]["astra_calls"])
 
     def test_gpt_sol_revalidates_terras_rework_in_its_own_opencode_session(self):

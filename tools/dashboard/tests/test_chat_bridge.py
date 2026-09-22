@@ -62,7 +62,7 @@ else:
   if (root/'fail-before-checkpoint').exists():
    print('fixture startup failed before checkpoint',file=sys.stderr);raise SystemExit(1)
   run=workspace/'.autocode/runs/created';run.mkdir(parents=True)
-  roles={role:{'model':arg('--'+role+'-model')} for role in ('glm','astra','terra','sol') if '--'+role+'-model' in args}
+  roles={role:{'model':arg('--'+role+'-model')} for role in ('glm','astra','terra','sol','completion') if '--'+role+'-model' in args}
   state={'workspace':str(workspace),'task':goal,'status':'WAITING_FOR_USER','phase':'discovery',
    'settings':{'joint_planning':'--joint-planning' in args,'engine':'opencode','roles':roles},'pending_questions':[],
    'intervention_capability':{'supported':True,'version':1}}
@@ -172,7 +172,10 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
 
     def test_attachment_carries_full_transcript_models_joint_flag_and_canonical_project(self):
         models = {'glm_model': 'zai-coding-plan/glm-5.3', 'astra_model': 'gpt-6-astra',
-                  'terra_model': 'zai-coding-plan/glm-5.3-flash', 'sol_model': 'gpt-5.6-sol'}
+                  'terra_model': 'zai-coding-plan/glm-5.3-flash', 'sol_model': 'gpt-5.6-sol',
+                  'completion_model': 'gpt-5.6-sol',
+                  'astra_reasoning_effort': 'xhigh', 'terra_reasoning_effort': 'medium',
+                  'sol_reasoning_effort': 'high', 'completion_reasoning_effort': 'medium'}
         doc = self.create_conversation(models=models)
         doc = self.ready(self.console.conversations.send(doc['id'], 'Actually include review notes', 'revise-request'))
         alias = self.root / 'project-alias'

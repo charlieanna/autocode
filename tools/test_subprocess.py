@@ -271,7 +271,8 @@ class SubprocessFlow(unittest.TestCase):
     def test_standalone_cli_full_interview_approval_review_and_completion(self):
         project, launch = self.project, self.launch
         launch(["Build a useful greeting tool", "--reasoning-effort", "high", "--terra-provider", "ZAI"], 2)
-        expected_models = {"astra": "gpt-6-astra", "terra": "gpt-5.6-terra", "sol": "gpt-5.6-sol"}
+        expected_models = {"astra": "gpt-5.6-sol", "terra": "gpt-5.6-terra",
+                           "sol": "gpt-5.6-sol", "completion": "gpt-5.6-sol"}
         run = next((project / ".autocode/runs").iterdir())
         args = ["--run-dir", str(run)]
         def state(): return json.loads((run / "state.json").read_text())

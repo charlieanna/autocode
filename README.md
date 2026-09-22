@@ -1,23 +1,24 @@
 # Autocode
 
-Start with a rough idea and discuss it with GLM. GLM helps define the smallest
+Start with a rough idea and discuss it with the Requirements Planner. It helps define the smallest
 useful end-to-end product, asks focused questions, and drafts a versioned build brief.
-Astra challenges that draft; GLM revises; Astra finalizes. You can revise the brief
+The Plan Reviewer challenges that draft; the Requirements Planner revises; the Plan Reviewer finalizes. You can revise the brief
 in the same conversation. Implementation starts only after you explicitly approve it.
 
 After approval, Autocode handles the handoffs:
 
 ```text
-You ↔ GLM: rough idea → clarification → draft brief
-GLM explores → Astra challenges → GLM revises → Astra finalizes → your approval
+You ↔ Requirements Planner: rough idea → clarification → draft brief
+Requirements Planner → Plan Reviewer → Requirements Planner → Plan Reviewer → your approval
 
-Astra assigns → Terra builds → Sol verifies → Astra decides
-                    ↑                            |
-                    └──── CONTINUE / REWORK ─────┘
+Builder → Validator → Completion Owner
+   ↑                       |
+   └──────── REWORK ───────┘
 ```
 
-Astra owns the final planning decisions and the completion decision. Terra implements
-one bounded task. Sol independently inspects and tests the actual code. They all work
+The Plan Reviewer owns final planning decisions. The Builder implements one bounded
+task. A separate Validator independently inspects and tests the actual code, then the
+Completion Owner decides complete or rework. They all work
 from the same approved brief; you do not explain the product to each agent or relay
 their prompts. The runner saves decisions, tasks and evidence so it can resume.
 
@@ -56,15 +57,21 @@ python3 -m venv .venv
 .venv/bin/autocode "Build a greeting CLI" --workspace /path/to/project
 ```
 
-New runs use joint GLM/Astra planning by default. `--joint-planning` is accepted and
+New runs use joint Requirements Planner/Plan Reviewer work by default. `--joint-planning` is accepted and
 redundant. `--engine codex` is the explicit single-CLI loop; it does not use joint planning.
 
-| Role | CLI and billing route | Default model |
-| --- | --- | --- |
-| GLM — clarification, exploration, draft, evidence-backed revision | OpenCode / Z.ai Coding Plan | `zai-coding-plan/glm-5.3` |
-| Astra — challenge, final planning decisions, implementation reviews | OpenCode / ChatGPT login | `openai/gpt-6-astra` |
-| Terra — implementation | OpenCode / Z.ai Coding Plan | `zai-coding-plan/glm-5.3` |
-| Sol — independent validation, separate session | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` |
+| Role | CLI and billing route | Default model | Default reasoning |
+| --- | --- | --- | --- |
+| Requirements Planner — clarification, exploration, draft, evidence-backed revision | OpenCode / Z.ai Coding Plan | `zai-coding-plan/glm-5.3` | Provider default |
+| Plan Reviewer (the legacy `astra` workflow role) — challenge and final planning decisions | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` | High |
+| Builder — implementation | OpenCode / ChatGPT login | `openai/gpt-5.6-terra` | Medium |
+| Validator — independent validation, separate session | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` | High |
+| Completion Owner — complete/rework decision, separate session | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` | Medium |
+
+Set Builder reasoning to `high` for complex multi-file implementation, `xhigh` for difficult
+concurrency, state, migration, or debugging work, and `max` only for exceptionally
+hard implementation. These tiers are available in the browser and through
+`--terra-reasoning-effort`.
 
 From inside any committed Git project, the normal invocation is simply:
 
@@ -200,8 +207,9 @@ merge the branch when ready. Autocode does not automatically merge or delete the
 
 ## Browser dashboard
 
-Autocode includes a local browser dashboard for planning work with GLM, approving
-the Astra-reviewed plan, following active tasks, and sending feedback or a pause
+Autocode includes a local browser dashboard for planning work with the Requirements Planner, approving
+the lead-reviewed plan, choosing each execution role's model and reasoning level,
+following active tasks, and sending feedback or a pause
 request at a safe boundary. It reads the same local run registry as the command
 line tool, so tasks started from a terminal appear automatically.
 
@@ -217,13 +225,18 @@ Or run it directly from a checkout:
 python3 tools/dashboard/agent_console.py --port 8767
 ```
 
-Open the printed loopback URL. New conversations do not require a project: GLM
+Open the printed loopback URL. New conversations do not require a project: the Requirements Planner
 can clarify the idea first, then the conversation can be attached to a Git
-workspace for joint GLM/Astra planning. A task’s **Now** view presents the runner's
+workspace for joint requirements planning and review. A task’s **Now** view presents the runner's
 saved current stage, the exact user action required, plan-revision
 approval, and output-review approval. Archiving tasks, conversations, or
 projects only changes the dashboard’s local visibility; it never deletes source
 files or runner checkpoints.
+
+Choose initial reasoning under **Models & reasoning** when starting a conversation.
+For a saved task, open its **•••** menu and use **Reasoning for next steps**. The
+dashboard changes the saved per-role setting only at a stage boundary; it never
+interrupts or mutates an in-flight provider request.
 
 The dashboard uses `$AUTOCODE_HOME/dashboard` by default (or
 `$AUTOCODE_DASHBOARD_HOME`) for conversations and reversible archive settings.
@@ -416,10 +429,11 @@ run-local `pause-requested` file continue to stop at saved boundaries. `--status
 read-only and adds `interventions` with inspector versus recorded-runner capability,
 pending IDs/count, pause intent, applied receipts, inbox errors and blocked conditions.
 
-Use `--astra-model`, `--terra-model`, or `--sol-model` to explicitly override a
-role. Resuming keeps the saved engine, provider mapping and limits unless overridden.
+Use `--astra-model`, `--terra-model`, `--sol-model`, or `--completion-model` to
+explicitly override a role. Resuming keeps the saved engine, provider mapping and
+limits unless overridden.
 
-## Joint GLM + Astra planning
+## Joint requirements planning and review
 
 This is the new-run default. Older mixed-CLI OpenCode runs move their Codex roles
 to OpenCode when execution resumes at a recovered stage boundary. The runner saves
@@ -433,27 +447,28 @@ autocode "Your rough idea" --workspace /path/to/project
 ```
 
 ```text
-You ↔ GLM: clarify outcome, scope, constraints and definition of done
-GLM explores and drafts → Astra challenges → GLM investigates and revises
-    → Astra resolves and finalizes → you approve that exact plan
-    → Terra builds → Sol verifies → Astra reviews
+You ↔ Requirements Planner: clarify outcome, scope, constraints and definition of done
+Requirements Planner → Plan Reviewer → Requirements Planner → Plan Reviewer
+    → you approve that exact plan
+    → Builder → Validator → Completion Owner
 ```
 
-| Role in this mode | CLI and billing route | Default model |
-| --- | --- | --- |
-| GLM — clarification, exploration, draft, evidence-backed revision | OpenCode / Z.ai Coding Plan | `zai-coding-plan/glm-5.3` |
-| Astra — challenge, final planning decisions, implementation reviews | OpenCode / ChatGPT login | `openai/gpt-6-astra` |
-| Terra — implementation | OpenCode / Z.ai Coding Plan | `zai-coding-plan/glm-5.3` |
-| Sol — independent validation, separate session | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` |
+| Role in this mode | CLI and billing route | Default model | Default reasoning |
+| --- | --- | --- | --- |
+| Requirements Planner — clarification, exploration, draft, evidence-backed revision | OpenCode / Z.ai Coding Plan | `zai-coding-plan/glm-5.3` | Provider default |
+| Plan Reviewer (the legacy `astra` workflow role) — challenge and final planning decisions | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` | High |
+| Builder — implementation | OpenCode / ChatGPT login | `openai/gpt-5.6-terra` | Medium |
+| Validator — independent validation, separate session | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` | High |
+| Completion Owner — complete/rework decision, separate session | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` | Medium |
 
-GLM can originate alternatives and push back on Astra using source evidence. Astra's
-concerns have stable IDs; every concern requires a GLM response and an Astra decision,
+The Requirements Planner can originate alternatives and push back on the Plan Reviewer using source evidence.
+Reviewer concerns have stable IDs; every concern requires a Requirements Planner response and a reviewer decision,
 including a concrete acceptance test. The final displayed brief includes the technical
 approach, milestones, and **first bounded implementation task**, all covered by its
-revision/hash. Approval dispatches that task directly, without a third Astra planning
-call. Astra's later implementation reviews use the normal execution budget.
+revision/hash. Approval dispatches that task directly, without a third Plan Reviewer
+call. The separate Completion Owner's later decisions use the normal execution budget.
 
-Planning is bounded to **two Astra request attempts per cycle**, including failed or
+Planning is bounded to **two Plan Reviewer request attempts per cycle**, including failed or
 abandoned attempts. There is no automatic debate loop, retry or provider fallback.
 Unresolved final decisions return to you as blocking questions. If the budget is
 exhausted, the run pauses at `PAUSED_PLANNING_BUDGET`; inspect the exchange and explicitly
@@ -461,20 +476,22 @@ send `--feedback '...'` to request a new cycle. Answering final blockers, giving
 or editing the goal starts fresh joint review and requires fresh approval. Old exchanges
 remain archived. Ordinary resume preserves the cycle and its spent budget.
 
-The default workflow uses OpenCode for every role. Astra and Sol use OpenCode's
-current ChatGPT OAuth connection; GLM and Terra use its Z.ai connection. Changing
+The default workflow uses OpenCode for every role. The Plan Reviewer, Builder, Validator,
+and Completion Owner use OpenCode's current ChatGPT OAuth connection; the Requirements Planner uses its Z.ai connection. Changing
 the account in ChatGPT's browser or desktop app does not change OpenCode's login.
 To switch this workflow's ChatGPT account, reconnect OpenAI in OpenCode.
 Every role can select any available provider/model
 from `opencode models`. The dashboard shows that live catalogue in all four
-pickers, grouped by provider, with each unchanged default route labeled explicitly.
+pickers, grouped by provider, plus explicit reasoning selectors for the Plan Reviewer,
+Builder, Validator, and Completion Owner. Each unchanged default route is labeled explicitly.
 The role names describe responsibilities, not mandatory models.
 
-Explicit `provider/model` choices use OpenCode, including for Astra and Sol.
+Explicit `provider/model` choices use OpenCode for every role.
 For example, `--glm-model openai/gpt-5.6-sol --astra-model zai-coding-plan/glm-5.3
---terra-model openai/gpt-5.6-terra --sol-model openai/gpt-6-astra` runs all four
-roles through OpenCode. No Codex login is required for the default workflow.
-Bare Astra/Sol model names in new runs are expanded to `openai/model` on OpenCode.
+--terra-model openai/gpt-5.6-terra --sol-model openai/gpt-6-astra` overrides four
+routes through OpenCode; the Completion Owner keeps its default. No Codex login is
+required for the default workflow. Bare model names for the legacy `astra` and `sol`
+CLI roles are expanded to `openai/model` on OpenCode.
 Explicit legacy `--engine codex` runs retain their separate Codex routing.
 Before launching an OpenAI role, Autocode checks the nonsecret `opencode auth list`
 summary for OAuth; missing/unknown/API authentication or API environment overrides
@@ -493,28 +510,32 @@ checked. These OpenCode restrictions are tool permissions, not an OS sandbox.
 
 The existing `--chat`, `--answer`, `--feedback`, `--show-goal`, `--approve-goal`, status
 and resume commands work in this mode. Intermediate drafts cannot be approved. The
-saved `planning` object records the exchange, final approval token and Astra call count;
+saved `planning` object records the exchange, final approval token and Plan Reviewer call count;
 `planning_history` retains prior cycles. Existing runs keep their original routing,
-including earlier OpenCode-only runs and joint-planning runs that used GLM for Sol.
+including earlier OpenCode-only runs and joint-planning runs that used the Requirements Planner model for validation.
 Start a new run to use the current GPT Sol default in that case; saved sessions cannot
 move between CLIs. No global OpenCode or Codex configuration is changed.
 
 ## OpenCode adapter
 
-GLM and the default Terra use the connections already configured in OpenCode. `--engine opencode`
+The Requirements Planner and default Builder use the connections already configured in OpenCode. `--engine opencode`
 is accepted but is optional for new runs:
 
 ```sh
 python3 tools/autocode.py "Your rough idea" --workspace /path/to/project
 ```
 
-Override any role with `--glm-model`, `--astra-model`, `--terra-model` or
-`--sol-model` using a provider/model ID from `opencode models`, including
+Override any role with `--glm-model`, `--astra-model`, `--terra-model`,
+`--sol-model`, or `--completion-model` using a provider/model ID from `opencode models`, including
 `openai/…` with an OpenCode ChatGPT OAuth connection. Saved runs retain their original role
 engines and sessions; no existing run is migrated by a dashboard selection.
-OpenCode reasoning
-variants can be selected with the existing role-specific reasoning-effort flags; no
-variant is forced by default. Provider credentials remain with OpenCode: Autocode does
+OpenCode reasoning variants can be selected in the browser or with the existing
+role-specific reasoning-effort flags. New joint runs use GLM for requirements planning,
+Sol High for the Plan Reviewer, Terra Medium for the Builder, Sol High for the
+Validator, and a separate Sol Medium session for the Completion Owner. Builder
+reasoning can be raised to High for complex multi-file work, Extra High for difficult
+concurrency, state, migration, or debugging work, and Max for exceptionally hard
+implementation. Provider credentials remain with OpenCode: Autocode does
 not read its auth file or change your global configuration.
 
 The same approval, task, independent-evidence and completion gates apply. The adapter
@@ -525,7 +546,7 @@ permission overrides are saved alongside the checkpoint. Token limits include ca
 reads/writes and reasoning tokens. Malformed, truncated or uncertain results pause;
 the runner does not automatically replay the provider request.
 
-OpenCode has a different isolation boundary: GLM planning agents and other
+OpenCode has a different isolation boundary: Requirements Planner sessions and other
 read-only OpenCode roles have edit tools denied and their workspace snapshots
 checked, but OpenCode tool permissions are **not an OS sandbox**. Shell commands
 and configured external tools retain OpenCode's native permission policy. Autocode
@@ -681,34 +702,34 @@ their usual explicit resume. Use `--show-goal` to apply and inspect without laun
 a provider. Preexisting operator pause
 markers are preserved. Migration keeps models, sessions, the approved contract and
 artifacts; final-only or combined-review overrides are archived in the user event,
-and existing bounded work goes to Sol first. Legacy briefs retain their current
+and existing bounded work goes to the Validator first. Legacy briefs retain their current
 task's criterion scope without rewriting or implicitly approving a new contract.
 If an old stage first needs report-only repair, the upgrade remains queued. An
 explicit `--resume-paused` can finish that bounded read-only repair under the old
-schema, then apply the upgrade and continue to Sol. It never repeats implementation to migrate.
+schema, then apply the upgrade and continue to the Validator. It never repeats implementation to migrate.
 
-Astra plans/reviews, Terra implements one bounded task, and Sol independently validates
+The Plan Reviewer finalizes the plan, the Builder implements one bounded task, and the Validator independently validates
 actual source with evidence per criterion. Each task records its milestone, requirements,
 applicable criteria and validation plan. Every role receives the complete approved
-contract and current task and echoes the contract revision/hash and task ID. Sol gets
-Terra's full implementation report, workspace/revision and actual changes. Astra gets
+contract and current task and echoes the contract revision/hash and task ID. The Validator gets
+the Builder's full implementation report, workspace/revision and actual changes. The Completion Owner gets
 both reports, milestone status and references to prior validation evidence.
 
-Astra chooses `CONTINUE`, `REWORK`, `BLOCKED` or `COMPLETE`. The first two require a
+The Completion Owner chooses `CONTINUE`, `REWORK`, `BLOCKED` or `COMPLETE`. The first two require a
 concrete next task; rework describes the smallest correction for a verified defect.
-A `CONTINUE` task with `kind=validate` sends existing work directly to Sol when it only
+A `CONTINUE` task with `kind=validate` sends existing work directly to the Validator when it only
 needs revalidation. Required behaviors and success cannot be changed by a plan.
 
 A material ambiguity, contradiction, infeasible constraint, scope change or extra
-permission need is reported to Astra at a safe stage boundary. Astra presents a
+permission need is reported to the Plan Reviewer at a safe stage boundary. The Plan Reviewer presents a
 `BLOCKED` decision in `WAITING_FOR_USER` when user input is required, with
 the discovery, impact, smallest decision, options and proposed delta. Answers return
 to discovery; a revised goal needs new approval. Useful partial work is retained.
 
-Completion requires the current approved revision, Sol PASS on the current artifact,
+Completion requires the current approved revision, a Validator PASS on the current artifact,
 passing evidence for every required criterion, no blocking findings, intact evidence
-hashes, actual human approvals where required, and Astra's completion request against
-that same revision. New build briefs also require Sol's explicit end-to-end flow result
+hashes, actual human approvals where required, and the Completion Owner's completion request against
+that same revision. New build briefs also require the Validator's explicit end-to-end flow result
 and its pinned evidence on the current source revision. Completion prints each criterion
 with its evidence and any agreed limitations. Unknown, skipped and untested results cannot pass. Green tests
 cannot substitute for missing criterion results.

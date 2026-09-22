@@ -90,7 +90,10 @@ class ConversationMixin:
         if not isinstance(models, dict):
             raise ValueError('Models must be an object')
         chosen = self.joint_models(models)
-        return self.conversations.create(data.get('text'), models={key + '_model': value for key, value in chosen.items()}, request_id=data.get('request_id'))
+        efforts = self.joint_efforts(models)
+        settings = {key + '_model': value for key, value in chosen.items()}
+        settings.update({key + '_reasoning_effort': value for key, value in efforts.items()})
+        return self.conversations.create(data.get('text'), models=settings, request_id=data.get('request_id'))
 
     def _attachment_state(self, doc):
         attachment = object_value(doc.get('attachment'))
@@ -190,6 +193,7 @@ class ConversationMixin:
             if doc.get('status') != 'ready':
                 raise ValueError('Wait for GLM’s reply before attaching a project')
             self.joint_models(doc.get('models', {}))
+            self.joint_efforts(doc.get('models', {}))
             raw = data.get('project') or data.get('workspace')
             if not isinstance(raw, str) or not raw.strip():
                 raise ValueError('Choose an existing project or enter a new project path')

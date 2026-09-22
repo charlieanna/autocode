@@ -51,8 +51,9 @@ class OpenCodeRoutingTests(unittest.TestCase):
             with patch.object(support, "local_settings", side_effect=AssertionError("Codex must not be used")):
                 settings = runner.configure(args, {"workspace": str(self.run), "iteration": 0})
             self.assertEqual({"opencode"}, {c["engine"] for c in settings["roles"].values()})
-            self.assertEqual("openai/gpt-6-astra", settings["roles"]["astra"]["model"])
-            self.assertEqual("openai/gpt-5.6-sol", settings["roles"]["sol"]["model"])
+            self.assertEqual("openai/gpt-6-astra" if overrides else "openai/gpt-5.6-sol", settings["roles"]["astra"]["model"])
+            expected_sol = "openai/gpt-5.6-sol"
+            self.assertEqual(expected_sol, settings["roles"]["sol"]["model"])
             self.assertEqual({"opencode"}, set(settings["transport_identities"]))
 
     def test_migration_preserves_approved_work_and_archives_only_codex_sessions(self):

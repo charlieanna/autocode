@@ -57,6 +57,17 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(result['workflow_mode'], 'glm_final_audit_v2')
         self.assertNotIn('secret', json.dumps(result))
 
+    def test_completion_route_is_projected_as_the_active_owner(self):
+        state = {'active_stage': {**self.active, 'stage': 'astra_review', 'role': 'astra',
+                                  'route_role': 'completion'},
+                 'settings': {'roles': {'completion': {'model': 'openai/gpt-5.6-sol',
+                                                       'reasoning_effort': 'medium'}}}}
+        with patch.object(monitor, 'process_table', return_value={123: self.worker}):
+            result = monitor.snapshot(state, self.run)
+        self.assertEqual('completion', result['active_role'])
+        self.assertEqual({'model': 'openai/gpt-5.6-sol', 'reasoning_effort': 'medium'},
+                         result['roles']['completion'])
+
     def test_process_table_parser_and_cache(self):
         result = type('Result', (), {'returncode': 0, 'stdout': '123 12 Sun Sep 20 01:00:00 2026 02:00 S codex exec work\n'})()
         with patch.object(monitor, '_checked', 0), patch.object(monitor.subprocess, 'run', return_value=result) as command:
