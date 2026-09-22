@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autocode-supervisor"
-version = "0.5.4"
+version = "0.6.0"
 description = "Conversation-first Astra/Terra/Sol runner for Codex and OpenCode"
 requires-python = ">=3.11"
 readme = "README.md"
@@ -13,6 +13,7 @@ dependencies = []
 [project.scripts]
 autocode = "autocode_cli.autocode:cli"
 autocode-dashboard = "autocode_cli.dashboard.agent_console:main"
+autocode-ui = "autocode_cli.autocode_ui:cli"
 
 [tool.setuptools]
 packages = ["autocode_cli", "autocode_cli.dashboard"]

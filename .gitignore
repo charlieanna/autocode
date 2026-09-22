@@ -10,3 +10,6 @@ dist/
 .tmp-*/
 learner-loop/
 engineering-readiness-cli/
+
+.autocode-ui/
+.DS_Store

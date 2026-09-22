@@ -32,10 +32,14 @@ except ImportError:
     import autocode_planning as planning
 
 try:
+    from . import autocode_workspaces as task_workspaces
+    from . import autocode_figma as figma
     from . import autocode_workflow as workflow
     from . import autocode_milestones as milestones
     from .autocode_activity import ActivityMonitor
 except ImportError:
+    import autocode_workspaces as task_workspaces
+    import autocode_figma as figma
     import autocode_workflow as workflow
     import autocode_milestones as milestones
     from autocode_activity import ActivityMonitor
@@ -1000,6 +1004,19 @@ def configure(args, state):
     started = bool(state.get("settings") or state.get("sessions") or state.get("history"))
     saved_engine = state.get("settings", {}).get("engine") or ("codex" if started else None)
     engine = getattr(args, "engine", None) or saved_engine or DEFAULT_ENGINE
+    figma_file = getattr(args, "figma_file", None)
+    saved_figma = state.get("settings", {}).get("figma_file")
+    if (figma_file or saved_figma) and engine != "codex":
+        raise ValueError("Figma integration requires the Codex engine")
+    if figma_file or saved_figma:
+        for role in DEFAULT_ROLE_MODELS:
+            model = getattr(args, f"{role}_model", None)
+            if model and not re.fullmatch(r"gpt-[a-zA-Z0-9.-]+", model):
+                raise ValueError("Figma workflow uses ChatGPT GPT models through Codex")
+            if getattr(args, f"{role}_provider", None) not in (None, "openai"):
+                raise ValueError("Figma workflow uses the OpenAI provider through Codex")
+    if started and figma_file and figma_file != saved_figma:
+        raise ValueError("Start a new run to change its Figma reference")
     saved_joint = bool(state.get("settings", {}).get("joint_planning"))
     requested_joint = getattr(args, "joint_planning", False)
     if started:
@@ -1097,6 +1114,11 @@ def configure(args, state):
                        "max_reported_tokens": args.max_reported_tokens,
                        "no_progress_batches": args.no_progress_limit if args.no_progress_limit is not None else 3,
                         "automatic_retries": 0}}
+    if figma_file:
+        figma.require_chatgpt(local)
+        for config in settings["roles"].values():
+            config["provider"] = "openai"
+        settings.update(figma_file=figma.design_url(figma_file), figma_review=getattr(args, "figma_review", None) or "automatic")
     if joint:
         configure_joint(settings, args, fresh=True)
     if getattr(args,'unlimited_iterations',False):
@@ -1438,6 +1460,12 @@ def rotate_if_needed(state, role, run_dir):
 
 
 def main() -> int:
+    if sys.argv[1:2] == ["ui"]:
+        try:
+            from . import autocode_ui
+        except ImportError:
+            import autocode_ui
+        return autocode_ui.cli(sys.argv[2:])
     if sys.argv[1:2] == ["capture"]:
         return capture_command(sys.argv[2:])
     if sys.argv[1:2] == ["registry"]:
@@ -1448,6 +1476,10 @@ def main() -> int:
     parser.add_argument("task", nargs="?", help="Rough idea for GLM and Astra to turn into an approved build brief")
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
     parser.add_argument("--run-dir", type=Path, help="Existing run directory to resume")
+    parser.add_argument("--in-place", action="store_true", help="Use this checkout directly; otherwise new tasks get independent worktrees from HEAD")
+    parser.add_argument("--figma-file", help="Figma Design URL to implement using the connected Codex plugin")
+    parser.add_argument("--ui-run", type=Path, help="Accepted autocode-ui run to implement")
+    parser.add_argument("--figma-review", choices=["automatic", "human"], help="Visual review policy for new Figma runs (default: automatic)")
     parser.add_argument("--engine", choices=["codex", "opencode"],
                         help="New-run default is OpenCode joint planning; --engine codex is the single-CLI loop. Resumes keep the saved engine")
     parser.add_argument("--joint-planning", action="store_true",
@@ -1531,6 +1563,21 @@ def main() -> int:
         print("Input rejected: Feedback must be nonempty", file=sys.stderr)
         return 2
 
+    if args.ui_run and args.figma_file:
+        parser.error("Choose --ui-run or --figma-file")
+    if args.run_dir and (args.ui_run or args.figma_review):
+        parser.error("Figma inputs and review policy are fixed for a saved run")
+    if args.ui_run:
+        handoff = figma.load_handoff(args.ui_run)
+        args.figma_file = handoff["figma_file"]
+        args.task = (args.task or handoff["task"]) + "\n\nAccepted UI brief:\n" + handoff["brief"]
+    if args.figma_file:
+        args.figma_file = figma.design_url(args.figma_file)
+        if args.engine not in (None, "codex"):
+            parser.error("Figma implementation uses --engine codex")
+        args.engine = "codex"
+    elif args.figma_review:
+        parser.error("--figma-review requires --figma-file or --ui-run")
     workspace = args.workspace.resolve()
     if not (workspace / ".git").exists():
         parser.error(f"workspace is not a Git repository: {workspace}")
@@ -1539,15 +1586,25 @@ def main() -> int:
         state_path = run_dir / "state.json"
         state = read_json(state_path)
         task = state["task"]
+        workspace = task_workspaces.resume_workspace(workspace, state)
     else:
         if not args.task:
             parser.error("task is required unless --run-dir is supplied")
         task = args.task
+        if not args.in_place and not args.dry_run and not args.status:
+            isolated = task_workspaces.create(workspace, task)
+            workspace = Path(isolated["workspace"])
+            print(f"Task worktree: {workspace}\nBranch: {isolated['branch']}\nStarting from committed HEAD; the original checkout is unchanged.", flush=True)
         run_dir = workspace / ".autocode" / "runs" / f"{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}-{slug(task)}-{uuid.uuid4().hex[:8]}"
         state_path = run_dir / "state.json"
         state = {"version": 2, "task": task, "workspace": str(workspace), "created_at": now(),
                  "iteration": 1, "status": "RUNNING", "sessions": {}, "history": [], "stages": [],
                  "next_stage": "astra_plan", "acceptance_criteria": []}
+        isolated = task_workspaces.metadata(workspace)
+        if isolated:
+            state.update(project_workspace=isolated["project_workspace"], task_branch=isolated["branch"])
+        if args.ui_run:
+            state["ui_run"] = str(args.ui_run.resolve())
         if args.legacy_iteration_ceiling is None:
             args.legacy_iteration_ceiling = args.max_iterations if args.max_iterations is not None else 15
 
@@ -1564,7 +1621,7 @@ def main() -> int:
         active = state.get("active_stage")
         completion_current = (support.completion_ready(state, state.get("final_decision", {}), support.snapshot(workspace))
                               if state["status"] == "TASK_COMPLETE" else None)
-        print(json.dumps({"run_dir":str(run_dir), "status":state["status"], "iteration":state["iteration"],
+        print(json.dumps({"run_dir":str(run_dir), "workspace":str(workspace), "project_workspace":state.get("project_workspace", str(workspace)), "task_branch":state.get("task_branch"), "status":state["status"], "iteration":state["iteration"],
                           "engine":state.get("settings", {}).get("engine", "codex" if args.run_dir else args.engine or DEFAULT_ENGINE),
                           "next_stage":state.get("next_stage", "legacy; inspect saved finals"), "sessions":state["sessions"],
                           "phase":state.get("phase", "DISCOVERING" if not args.run_dir else "migration_required"),

@@ -72,6 +72,78 @@ From inside any committed Git project, the normal invocation is simply:
 autocode "Your rough idea"
 ```
 
+## Figma design and implementation
+
+The Figma workflow uses Codex with the connected Figma plugin and the ChatGPT
+Astra, Terra, and Sol models. OpenCode is not needed for this path. The plugin must
+be available in Codex CLI sessions; a connection only in another app is insufficient.
+
+```sh
+# Design only (both commands are equivalent):
+autocode-ui "Design a responsive team operations dashboard"
+autocode ui "Design a responsive team operations dashboard"
+
+# Design, review, then hand the accepted Figma result to the implementation runner:
+autocode ui "Build a responsive team operations dashboard" --build
+
+# Refine a selected file:
+autocode-ui "Refine the project detail layout" --figma-file "https://www.figma.com/design/FILEKEY/Project"
+
+# Implement an existing file, or import a completed design run:
+autocode "Build the supplied design" --figma-file "https://www.figma.com/design/FILEKEY/Project"
+autocode --ui-run /path/to/project/.autocode-ui/runs/RUN
+```
+
+Astra writes the UI brief → Terra edits native Figma nodes → Sol independently
+inspects the canvas → Astra accepts or sends bounded rework. The default is two
+rework rounds. Every attempt has separate prompts, event logs and structured
+reports under `.autocode-ui/runs/`. Failed reviews cannot produce a build handoff.
+An accepted handoff records the Figma URL and hashes of the brief and review reports;
+modified or incomplete artifacts are rejected when imported. The implementation
+roles inspect the live Figma reference again, since the file can change after design.
+
+`--build` starts the normal implementation brief and orchestration in Codex. Its
+initial product brief still needs approval. Subsequent visual checks use Figma
+comparisons and independent validation by default; they do not require another
+human visual approval. Add `--figma-review human` to a new implementation run if
+that review is wanted. Explicitly supplied review requirements still take precedence.
+The workflow uses the connected Figma editing tools, not an assumed Figma Make API.
+
+`autocode ui "Preview the workflow" --dry-run` writes prompts without model calls or
+Figma edits and never emits an accepted handoff. If a design stage is interrupted,
+inspect its saved reports and Figma file before starting a fresh run with
+`--figma-file`; existing run directories are never overwritten.
+
+## Multiple tasks in one project
+
+New implementation tasks automatically get separate Git worktrees and branches,
+so two terminal commands or dashboard conversations can use the same project:
+
+```sh
+autocode "Add billing history" --workspace /path/to/project
+autocode "Fix search navigation" --workspace /path/to/project
+```
+
+Each task starts from the project's **committed HEAD**, on an `autocode/<task>-<id>`
+branch under `.autocode/worktrees/`. The original checkout and its uncommitted
+changes are retained. Commit changes first if new tasks should include them.
+Dependencies and ignored environment files are not copied into the new worktree.
+The command prints the task workspace and branch; the dashboard discovers its run
+through the registry. Each worktree has its own runner lock, checkpoints, and code.
+Two writers still cannot operate on the same worktree.
+
+Resume with the printed run path and either the original project or task workspace:
+
+```sh
+autocode --workspace /path/to/project \
+  --run-dir /path/to/project/.autocode/worktrees/TASK/.autocode/runs/RUN
+```
+
+Existing runs retain their original checkout. `--in-place` explicitly starts a new
+task in the selected checkout and retains its single-writer lock. Worktrees and
+branches remain available after a task ends; inspect and commit their changes, then
+merge the branch when ready. Autocode does not automatically merge or delete them.
+
 ## Browser dashboard
 
 Autocode includes a local browser dashboard for planning work with GLM, approving

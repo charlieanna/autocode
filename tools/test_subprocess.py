@@ -34,6 +34,8 @@ class SubprocessFlow(unittest.TestCase):
     def launch(self, args, expected, *, answers=None):
         if "--run-dir" not in args and "--engine" not in args:
             args = [*self.new_run_engine_args, *args]
+        if "--run-dir" not in args and "--in-place" not in args:
+            args = [*args, "--in-place"]
         result = subprocess.run([*self.entry, "--workspace", str(self.project), *args], cwd=self.root, env=self.env,
                                 input=answers, capture_output=True, text=True, timeout=30)
         self.assertEqual(expected, result.returncode, result.stdout + result.stderr)

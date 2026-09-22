@@ -295,7 +295,7 @@ class LegacyConsole:
   for c in criteria:
    status=result.get(str(obj(c).get('id')),'unknown');counts['pass' if status in ('pass','verified') else 'fail' if status in ('fail','blocked') else 'unknown']+=1
   active=obj(s.get('active_stage'))
-  return {'workspace':str(ws),'run':str(run),'created_at':s.get('created_at'),'task':s.get('task','unavailable'),'phase':s.get('phase','unavailable'),'status':s.get('status','unavailable'),'stage':active.get('stage') or s.get('stage') or s.get('next_stage') or 'unavailable','iteration':s.get('iteration','unavailable'),'state_error':s.get('_console_error'),'stop_reason':s.get('stop_reason'),'goal':contract,'goal_token':s.get('displayed_goal') if isinstance(s.get('displayed_goal'),str) else '','criteria':criteria,'counts':counts,'questions':items(s.get('pending_questions')),'answers':obj(s.get('answers')),'discovery_summary':s.get('discovery_summary') if isinstance(s.get('discovery_summary'),str) else '','discovery_role':discovery_role(s),'stages':[x for x in items(s.get('stages')) if isinstance(x,dict)],'active_stage':active,'plan':items(s.get('plan')),'astra_plan':astra_plan_state(s),'user_request':s.get('user_request') if isinstance(s.get('user_request'),dict) else None,'review_token':s.get('displayed_review') if isinstance(s.get('displayed_review'),str) else '','review_criteria':[obj(c) for c in criteria if obj(c).get('human_review')],'human_reviews':obj(s.get('human_reviews')),'zai':bool(self.zai_probe()),'model_settings':saved_models(s)}
+  return {'workspace':str(ws),'project_workspace':s.get('project_workspace',str(ws)),'task_branch':s.get('task_branch'),'run':str(run),'created_at':s.get('created_at'),'task':s.get('task','unavailable'),'phase':s.get('phase','unavailable'),'status':s.get('status','unavailable'),'stage':active.get('stage') or s.get('stage') or s.get('next_stage') or 'unavailable','iteration':s.get('iteration','unavailable'),'state_error':s.get('_console_error'),'stop_reason':s.get('stop_reason'),'goal':contract,'goal_token':s.get('displayed_goal') if isinstance(s.get('displayed_goal'),str) else '','criteria':criteria,'counts':counts,'questions':items(s.get('pending_questions')),'answers':obj(s.get('answers')),'discovery_summary':s.get('discovery_summary') if isinstance(s.get('discovery_summary'),str) else '','discovery_role':discovery_role(s),'stages':[x for x in items(s.get('stages')) if isinstance(x,dict)],'active_stage':active,'plan':items(s.get('plan')),'astra_plan':astra_plan_state(s),'user_request':s.get('user_request') if isinstance(s.get('user_request'),dict) else None,'review_token':s.get('displayed_review') if isinstance(s.get('displayed_review'),str) else '','review_criteria':[obj(c) for c in criteria if obj(c).get('human_review')],'human_reviews':obj(s.get('human_reviews')),'zai':bool(self.zai_probe()),'model_settings':saved_models(s)}
  def discover(self):
   rows=self.root_error_rows()
   for ws in self.workspaces:
@@ -313,11 +313,13 @@ class LegacyConsole:
   with self.lock:self.actions.setdefault(key,[]).append(x)
   return x
  def enqueue(self,ws,run,label,extra,on_complete=None):
-  key=str(run or ws)
+  isolated=run is None
+  key=str(run) if run else str(ws)+':new:'+uuid.uuid4().hex
   with self.lock:
-   if key in self.pending or str(ws) in self.workspace_busy:raise ValueError('A run or workspace action is already queued or running')
-   self.pending.add(key);self.workspace_busy.add(str(ws))
-  cmd=[sys.executable,self.runner,'--workspace',str(ws)]+(['--run-dir',str(run)] if run else [])+list(extra);x=self._record(key,label,cmd);self.pool.submit(self._execute,key,str(ws),x,on_complete);return x
+   if key in self.pending or (not isolated and str(ws) in self.workspace_busy):raise ValueError('A run or workspace action is already queued or running')
+   self.pending.add(key)
+   if not isolated:self.workspace_busy.add(str(ws))
+  cmd=[sys.executable,self.runner,'--workspace',str(ws)]+(['--run-dir',str(run)] if run else [])+list(extra);x=self._record(str(run or ws),label,cmd);x['isolated_task']=isolated;self.pool.submit(self._execute,key,str(ws),x,on_complete);return x
  def _execute(self,key,ws,x,on_complete=None):
   x['status']='running';x['started_at']=time.time()
   try:
@@ -341,7 +343,9 @@ class LegacyConsole:
   except Exception as e:x.update(stdout='',stderr=str(e),exit_status=None,status='launch_failed',uncertain=True)
   finally:
    x['finished_at']=time.time()
-   with self.lock:self.pending.discard(key);self.workspace_busy.discard(ws)
+   with self.lock:
+    self.pending.discard(key)
+    if not x.get('isolated_task'):self.workspace_busy.discard(ws)
   if on_complete:
    try:on_complete(x)
    except Exception as error:x['callback_error']=str(error)

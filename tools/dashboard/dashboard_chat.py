@@ -99,29 +99,52 @@ class ConversationMixin:
         workspace = self.selected_workspace(attachment.get('workspace'))
         if not workspace:
             return self.conversations.update(doc['id'], attachment={**attachment, 'status': 'failed', 'error': 'The attached project is unavailable.'})
-        found = []
-        root = workspace / '.autocode/runs'
         try:
-            root.resolve().relative_to(workspace)
+            (workspace / '.autocode/runs').resolve().relative_to(workspace)
         except ValueError:
             return self.conversations.update(doc['id'], attachment={**attachment, 'status': 'failed', 'error': 'Task storage escapes the attached project. Fix the project storage path before retrying.'})
-        for path in root.iterdir() if root.is_dir() else []:
-            if path.is_symlink() or not path.is_dir() or not self._contained_run(workspace, str(path), identity=True):
+        found = []
+        candidates = [workspace]
+        # New CLI tasks live in independent worktrees. Include them after a
+        # dashboard restart, before relying on registry discovery or action logs.
+        worktrees = workspace / '.autocode/worktrees'
+        safe_storage = worktrees.resolve().is_relative_to(workspace)
+        for child in worktrees.iterdir() if safe_storage and worktrees.is_dir() else []:
+            if child.is_symlink() or not child.is_dir():
                 continue
-            path = path.resolve()
             try:
-                state_path = path / 'state.json'
-                if state_path.is_symlink():
+                metadata_path = child / '.autocode/task-workspace.json'
+                if metadata_path.is_symlink() or not metadata_path.resolve().is_relative_to(child.resolve()):
                     continue
-                state = json.loads(state_path.read_text())
-                if isinstance(state.get('task'), str) and hashlib.sha256(state['task'].encode()).hexdigest() == attachment.get('goal_hash') and state.get('workspace') == str(workspace):
-                    found.append(path)
+                meta = json.loads(metadata_path.read_text())
+                if meta.get('project_workspace') == str(workspace) and meta.get('workspace') == str(child.resolve()):
+                    candidates.append(child.resolve())
             except (OSError, ValueError):
                 continue
+        for candidate in candidates:
+            root = candidate / '.autocode/runs'
+            try:
+                root.resolve().relative_to(candidate)
+            except ValueError:
+                continue
+            for path in root.iterdir() if root.is_dir() else []:
+                if path.is_symlink() or not path.is_dir() or not self._contained_run(candidate, str(path), identity=True):
+                    continue
+                path = path.resolve()
+                try:
+                    state_path = path / 'state.json'
+                    if state_path.is_symlink():
+                        continue
+                    state = json.loads(state_path.read_text())
+                    if isinstance(state.get('task'), str) and hashlib.sha256(state['task'].encode()).hexdigest() == attachment.get('goal_hash') and state.get('workspace') == str(candidate):
+                        found.append((candidate, path))
+                except (OSError, ValueError):
+                    continue
         if len(found) == 1:
-            if workspace not in self.created_workspaces:
-                self.created_workspaces.append(workspace)
-            return self.conversations.update(doc['id'], attachment={**attachment, 'status': 'linked', 'run': str(found[0]), 'error': None})
+            candidate, run = found[0]
+            if candidate not in self.created_workspaces:
+                self.created_workspaces.append(candidate)
+            return self.conversations.update(doc['id'], attachment={**attachment, 'status': 'linked', 'project_workspace': str(workspace), 'workspace': str(candidate), 'run': str(run), 'error': None})
         if len(found) > 1:
             return self.conversations.update(doc['id'], attachment={**attachment, 'status': 'uncertain', 'error': 'Multiple task checkpoints match this conversation. Inspect the project before starting anything else.'})
         action = next((a for a in self.action_log(workspace) if a['id'] == attachment.get('action_id')), None)

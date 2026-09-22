@@ -138,7 +138,7 @@ def snapshot(workspace):
     ).decode().split("\0")
     files = {}
     for name in sorted(set(filter(None, names))):
-        if name.startswith((".autocode/", "tools/__pycache__/")):
+        if name.startswith((".autocode/", ".autocode-ui/", "tools/__pycache__/")):
             continue
         path = root / name
         if path.is_symlink():
@@ -649,6 +649,9 @@ def context_packet(state, stage, state_path):
     base.update(workspace=state["workspace"], source_revision=current["revision"], git_head=current["head"],
                 current_task=state.get("current_task"), execution_limits=state["settings"].get("limits", {}),
                 execution_engine=planning.engine_for(state["settings"], planning.role_for(state, stage)))
+    figma_file = state["settings"].get("figma_file")
+    if figma_file:
+        base["figma_file"] = figma_file
     if stage == "terra":
         base.update(affected_paths=state.get("affected_paths", []), actionable_findings=state.get("unresolved_findings", []))
     elif stage in ("sol", "astra_checkpoint"):
@@ -666,6 +669,12 @@ def context_packet(state, stage, state_path):
     import sys
     base["capture_command"] = shlex.join([sys.executable, str(Path(__file__).with_name("autocode.py")), "capture"])
     instruction = STABLE.get(stage, "")
+    if figma_file:
+        try:
+            from . import autocode_figma as figma
+        except ImportError:
+            import autocode_figma as figma
+        instruction += figma.instructions(state["settings"])
     if stage == "sol" and base["execution_engine"] == "codex":
         instruction += ("Read this stage's events .jsonl. Cite the item.id (item_N) of a completed "
                         "command_execution item.completed event, with its full command and exit_code. "

@@ -153,7 +153,14 @@ def context(state, stage, state_path):
               "stage": stage, "goal_contract": state.get("goal_contract"),
               "saved_answers": state.get("answers", {}), "brief_feedback": state.get("brief_feedback", []),
               "planning": exchange, "budget": "two Astra calls per explicitly requested cycle"}
+    if state["settings"].get("figma_file"):
+        packet["figma_file"] = state["settings"]["figma_file"]
     packet['user_events'] = state.get('user_events', [])
-    prompt = PROMPTS[stage] + goals.DECISION_PROVENANCE + goals.CONTRACT_REFERENCES + s.MILESTONE_POLICY + s.COMMON + "\nWork read-only; return the report, the runner saves it.\nCURRENT HANDOFF DATA\n" + json.dumps(packet, indent=2)
+    try:
+        from . import autocode_figma as figma
+    except ImportError:
+        import autocode_figma as figma
+    figma_instruction = figma.instructions(state["settings"])
+    prompt = PROMPTS[stage] + figma_instruction + goals.DECISION_PROVENANCE + goals.CONTRACT_REFERENCES + s.MILESTONE_POLICY + s.COMMON + "\nWork read-only; return the report, the runner saves it.\nCURRENT HANDOFF DATA\n" + json.dumps(packet, indent=2)
     return prompt, {"estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
                     "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000)}
