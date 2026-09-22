@@ -18,6 +18,13 @@ DEFAULT_MODELS = {
     "sol": "gocode-openai/sol",
 }
 
+API_MODELS = {
+    "astra": "gpt-6-astra",
+    "terra": "gpt-5.6-terra",
+    "sol": "gpt-5.6-sol",
+    "luna": "gpt-5.6-luna",
+}
+
 
 def local_settings(workspace: Path) -> dict:
     """Return non-secret GoCode identity or fail before any provider request."""
@@ -51,21 +58,26 @@ def transport_drift(current: dict, checkpoint: dict) -> bool:
     return current != checkpoint
 
 
-def validate_model(model: str) -> None:
-    """Keep every role on an explicit managed GoCode OpenAI route."""
-    if not isinstance(model, str) or not model.startswith("gocode-openai/") or len(model) <= len("gocode-openai/"):
+def validate_model(model: str) -> str:
+    """Resolve an explicit GoCode display route to its API model name."""
+    if not isinstance(model, str) or not model.startswith("gocode-openai/"):
         raise ValueError("GoCode roles require a gocode-openai/<model> identifier")
+    selected = model.removeprefix("gocode-openai/")
+    resolved = API_MODELS.get(selected, selected)
+    if resolved not in API_MODELS.values():
+        raise ValueError("Unknown GoCode GPT model; select Astra, Terra, Sol or Luna explicitly")
+    return resolved
 
 
 def launch(*, role: str, workspace: Path, session: str | None, model: str,
            effort: str | None, sandbox: str, schema: Path, output: Path) -> list[str]:
     """Construct a direct GoCode-to-Codex invocation without an OpenCode hop."""
     del role
-    validate_model(model)
+    api_model = validate_model(model)
     command = ["gocode", "exec", "codex", "exec", "-C", str(workspace), "--sandbox", sandbox]
     if effort:
         command += ["-c", f'model_reasoning_effort="{effort}"']
     if session:
         command += ["resume", session]
-    command += ["-", "--json", "--output-schema", str(schema), "-o", str(output), "--model", model]
+    command += ["-", "--json", "--output-schema", str(schema), "-o", str(output), "--model", api_model]
     return command

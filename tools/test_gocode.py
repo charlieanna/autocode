@@ -25,9 +25,27 @@ class GoCodeTransportTests(unittest.TestCase):
             schema=Path("/schema.json"), output=Path("/output.json"),
         )
         self.assertEqual(["gocode", "exec", "codex", "exec"], command[:4])
-        self.assertIn("gocode-openai/terra", command)
+        self.assertEqual("gpt-5.6-terra", command[command.index("--model") + 1])
         self.assertIn('model_reasoning_effort="high"', command)
         self.assertNotIn("opencode", command)
+
+    def test_display_aliases_resolve_to_the_same_gocode_api_model(self):
+        for alias, api_model in (("astra", "gpt-6-astra"), ("terra", "gpt-5.6-terra"),
+                                 ("luna", "gpt-5.6-luna"), ("sol", "gpt-5.6-sol"),
+                                 ("gpt-6-astra", "gpt-6-astra")):
+            with self.subTest(alias=alias):
+                command = gocode.launch(role="astra", workspace=Path("/workspace"), session=None,
+                    model="gocode-openai/" + alias, effort="high", sandbox="read-only",
+                    schema=Path("/schema.json"), output=Path("/output.json"))
+                self.assertEqual(api_model, command[command.index("--model") + 1])
+
+    def test_unknown_routes_fail_before_launch(self):
+        for model in ("openai/gpt-6-astra", "gocode-openai/", "gocode-openai/astra\nother",
+                      "gocode-openai/astra/other", "gocode-openai/unknown"):
+            with self.subTest(model=model), self.assertRaises(ValueError):
+                gocode.launch(role="astra", workspace=Path("/workspace"), session=None,
+                    model=model, effort="high", sandbox="read-only", schema=Path("/schema.json"),
+                    output=Path("/output.json"))
 
     def test_managed_gocode_identity_requires_a_credential_bundle(self):
         status = "\n".join(("gocode version: fixture", "mode: managed", "credential bundle: present"))

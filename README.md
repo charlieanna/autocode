@@ -75,6 +75,9 @@ The GoCode-native four-role route is explicit and model-pinned:
 Override a role only with another `gocode-openai/<model>` identifier. The
 runner checks GoCode's managed identity before dispatch and stores it in the
 checkpoint, so a resumed run cannot silently switch routes.
+The saved display names resolve to the API's exact model IDs: `astra` to
+`gpt-6-astra`, and `terra`, `sol`, and `luna` to their `gpt-5.6-*` IDs.
+The `gocode-openai/` display prefix is never sent as part of the API model ID.
 
 | Role | CLI and billing route | Default model |
 | --- | --- | --- |
