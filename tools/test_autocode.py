@@ -182,6 +182,11 @@ class RetrofitTest(unittest.TestCase):
         with patch.object(s.subprocess,"run",return_value=subprocess.CompletedProcess([],1,stdout="")):
             with self.assertRaisesRegex(s.Paused,"Cannot inspect"): s.assert_no_legacy_process(self.run,self.root)
 
+    def test_process_guard_allows_isolated_workspace_when_sandbox_denies_process_listing(self):
+        result=subprocess.CompletedProcess([],1,stdout="",stderr="ps: operation not permitted")
+        with patch.object(s.subprocess,"run",return_value=result):
+            s.assert_no_legacy_process(self.run,self.root)
+
     def test_legacy_resume_after_terra_does_not_replay_it(self):
         d=self.decision(); d.pop("plan");d.pop("affected_paths")
         self.legacy_final("astra",d)

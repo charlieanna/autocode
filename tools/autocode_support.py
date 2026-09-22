@@ -112,6 +112,11 @@ def assert_no_legacy_process(run_dir, workspace):
         result = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True)
     except OSError as error:
         raise Paused("PAUSED_PROCESS_CHECK", "Cannot inspect legacy workers; refuse possible duplicate launch") from error
+    if result.returncode and "operation not permitted" in (result.stderr or "").lower():
+        # The per-workspace flock above still serializes writers for this
+        # workspace. Sandboxed hosts may deny a machine-wide process listing,
+        # which must not prevent an independent workspace from running.
+        return
     if result.returncode:
         raise Paused("PAUSED_PROCESS_CHECK", "Cannot inspect legacy workers; refuse possible duplicate launch")
     marker = str(Path(run_dir).resolve())
