@@ -60,18 +60,21 @@ python3 -m venv .venv
 New runs use joint Requirements Planner/Plan Reviewer work by default. `--joint-planning` is accepted and
 redundant. `--engine codex` is the explicit single-CLI loop; it does not use joint planning.
 
-| Role | CLI and billing route | Default model | Default reasoning |
-| --- | --- | --- | --- |
-| Requirements Planner — clarification, exploration, draft, evidence-backed revision | OpenCode / Z.ai Coding Plan | `zai-coding-plan/glm-5.3` | Provider default |
-| Plan Reviewer (the legacy `astra` workflow role) — challenge and final planning decisions | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` | High |
-| Builder — implementation | OpenCode / ChatGPT login | `openai/gpt-5.6-terra` | Medium |
-| Validator — independent validation, separate session | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` | High |
-| Completion Owner — complete/rework decision, separate session | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` | Medium |
+| Role | CLI and billing route | Automatic escalation ladder |
+| --- | --- | --- |
+| Requirements Planner — clarification, exploration, draft, evidence-backed revision | OpenCode / Z.ai Coding Plan | Provider default |
+| Plan Reviewer (the legacy `astra` workflow role) — challenge and final planning decisions | OpenCode / ChatGPT login | Sol High → Sol XHigh → Astra High |
+| Builder — implementation | OpenCode / ChatGPT login | Terra Medium → Terra High → Terra XHigh → Terra Max |
+| Validator — independent validation, separate session | OpenCode / ChatGPT login | Sol High → Sol XHigh → Astra High |
+| Completion Owner — complete/rework decision, separate session | OpenCode / ChatGPT login | Sol Medium → Sol High → Astra High |
 
-Set Builder reasoning to `high` for complex multi-file implementation, `xhigh` for difficult
-concurrency, state, migration, or debugging work, and `max` only for exceptionally
-hard implementation. These tiers are available in the browser and through
-`--terra-reasoning-effort`.
+Autocode advances exactly one rung after durable evidence that the current role
+struggled: an invalid completed response after report repair is exhausted, an
+operator-abandoned uncertain response, a Builder batch with no source progress, or
+failed validation routed back for implementation or revalidation. The next request
+uses the stronger rung and a fresh role session. Autocode does not silently replay
+the failed request, advances at most once for the same failed iteration, and never
+overwrites an explicit custom model/provider route.
 
 From inside any committed Git project, the normal invocation is simply:
 
@@ -453,13 +456,13 @@ Requirements Planner → Plan Reviewer → Requirements Planner → Plan Reviewe
     → Builder → Validator → Completion Owner
 ```
 
-| Role in this mode | CLI and billing route | Default model | Default reasoning |
-| --- | --- | --- | --- |
-| Requirements Planner — clarification, exploration, draft, evidence-backed revision | OpenCode / Z.ai Coding Plan | `zai-coding-plan/glm-5.3` | Provider default |
-| Plan Reviewer (the legacy `astra` workflow role) — challenge and final planning decisions | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` | High |
-| Builder — implementation | OpenCode / ChatGPT login | `openai/gpt-5.6-terra` | Medium |
-| Validator — independent validation, separate session | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` | High |
-| Completion Owner — complete/rework decision, separate session | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` | Medium |
+| Role in this mode | CLI and billing route | Automatic escalation ladder |
+| --- | --- | --- |
+| Requirements Planner — clarification, exploration, draft, evidence-backed revision | OpenCode / Z.ai Coding Plan | Provider default |
+| Plan Reviewer (the legacy `astra` workflow role) — challenge and final planning decisions | OpenCode / ChatGPT login | Sol High → Sol XHigh → Astra High |
+| Builder — implementation | OpenCode / ChatGPT login | Terra Medium → Terra High → Terra XHigh → Terra Max |
+| Validator — independent validation, separate session | OpenCode / ChatGPT login | Sol High → Sol XHigh → Astra High |
+| Completion Owner — complete/rework decision, separate session | OpenCode / ChatGPT login | Sol Medium → Sol High → Astra High |
 
 The Requirements Planner can originate alternatives and push back on the Plan Reviewer using source evidence.
 Reviewer concerns have stable IDs; every concern requires a Requirements Planner response and a reviewer decision,
@@ -530,12 +533,11 @@ Override any role with `--glm-model`, `--astra-model`, `--terra-model`,
 `openai/…` with an OpenCode ChatGPT OAuth connection. Saved runs retain their original role
 engines and sessions; no existing run is migrated by a dashboard selection.
 OpenCode reasoning variants can be selected in the browser or with the existing
-role-specific reasoning-effort flags. New joint runs use GLM for requirements planning,
-Sol High for the Plan Reviewer, Terra Medium for the Builder, Sol High for the
-Validator, and a separate Sol Medium session for the Completion Owner. Builder
-reasoning can be raised to High for complex multi-file work, Extra High for difficult
-concurrency, state, migration, or debugging work, and Max for exceptionally hard
-implementation. Provider credentials remain with OpenCode: Autocode does
+role-specific reasoning-effort flags. New joint runs start with GLM for requirements
+planning, Sol High for the Plan Reviewer, Terra Medium for the Builder, Sol High for
+the Validator, and a separate Sol Medium session for the Completion Owner. The four
+execution roles then follow the automatic ladders documented above. Provider
+credentials remain with OpenCode: Autocode does
 not read its auth file or change your global configuration.
 
 The same approval, task, independent-evidence and completion gates apply. The adapter
@@ -870,7 +872,7 @@ refuse migration. No migration was applied to the original IdleCampus run.
 ## Tests and evidence
 
 ```sh
-python3 -m unittest tools/test_autocode.py tools/test_goals.py tools/test_subprocess.py tools/test_opencode.py tools/test_process.py
+python3 -m unittest tools/test_escalation.py tools/test_autocode.py tools/test_goals.py tools/test_subprocess.py tools/test_opencode.py tools/test_process.py
 ```
 
 The unit suite uses isolated Git fixtures. The subprocess test drives the actual CLI,

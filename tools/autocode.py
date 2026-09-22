@@ -22,7 +22,7 @@ from typing import Any
 import copy
 import uuid
 try:
-    from . import autocode_support as support, autocode_goals as goals, autocode_interventions as interventions, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning
+    from . import autocode_support as support, autocode_goals as goals, autocode_interventions as interventions, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation
 except ImportError:
     import autocode_support as support
     import autocode_goals as goals
@@ -31,6 +31,7 @@ except ImportError:
     import autocode_process as processes
     import autocode_registry as registry
     import autocode_planning as planning
+    import autocode_escalation as escalation
 
 try:
     from . import autocode_workspaces as task_workspaces
@@ -197,6 +198,8 @@ def reject_completed_stage(state, run_dir, record, error):
             for artifact in originals:
                 artifact.unlink(missing_ok=True)
             raise ReportRepairQueued()
+    escalation.advance(state, record.get("route_role", record["role"]),
+                       trigger="rejected_output", detail=error)
     message = (f"Completed {record['stage']} output was rejected ({error}); attempt archived. "
                "Resume explicitly with --resume-paused to retry with a fresh request.")
     state.update(status="PAUSED_INVALID_OUTPUT", phase="PAUSED_OR_BLOCKED", stop_reason=message, paused_at=now())
@@ -604,6 +607,12 @@ def _apply_result(state, stage, value, record, workspace, run_dir):
                 goals.record_decision(state, value)
                 save_record(state, record)
                 return
+            validation_verdict = state.get("validation", {}).get("verdict")
+            if validation_verdict in ("FAIL", "BLOCKED"):
+                escalation.advance(state, "sol" if kind == "validate" else "terra",
+                                   trigger="validation_rework",
+                                   detail=f"{validation_verdict}: {value['next_objective']}",
+                                   struggle_id=f"iteration:{record.get('iteration', state.get('iteration', 0))}")
             state.update(next_action=value["next_objective"], next_stage=workflow.review_stage(state) if kind == "validate" else "terra")
         if modern:
             goals.record_decision(state, value)
@@ -616,6 +625,9 @@ def _apply_result(state, stage, value, record, workspace, run_dir):
                      next_stage=workflow.review_stage(state), diff_ref=record.get("diff_ref"))
         if not record["changed_files"]:
             state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
+            escalation.advance(state, "terra", trigger="no_progress",
+                               detail="Builder completed a batch without source changes",
+                               struggle_id=f"iteration:{record.get('iteration', state.get('iteration', 0))}")
         else:
             state["no_progress_batches"] = 0
         if workflow.final_only(state):
@@ -730,6 +742,8 @@ def abandon_stage(state, run_dir, workspace, selected):
     record.update(after_ref=str(after_path), source_revision=after["revision"],
                   changed_files=support.changed_paths(before, after), abandoned=True)
     originals = archive_rejected_stage(state, run_dir, record, "Operator abandoned uncertain response; workspace edits retained")
+    escalation.advance(state, record.get("route_role", record["role"]),
+                       trigger="abandoned_attempt", detail="Operator abandoned an uncertain response")
     state["sessions"].pop(record.get("route_role", record["role"]), None)
     if state.get("validation"):
         state.setdefault("validation_archive", []).append({
@@ -1668,6 +1682,7 @@ def main() -> int:
                           "contract_token":goals.token(state["goal_contract"]) if state.get("goal_contract") else None,
                           "current_task":state.get("current_task"), "last_decision":state.get("last_decision"),
                            "settings":state.get("settings"), "active_stage":active,
+                           "reasoning_escalations":state.get("reasoning_escalations", []),
                            "attempt_id":attempt_id(active) if active else None,
                            "completion_current":completion_current,
                            "milestone_checkpoint": milestones.summary(state),

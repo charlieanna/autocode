@@ -196,7 +196,8 @@ run.mkdir(parents=True,exist_ok=True)
             self.console.create({'project': str(self.workspace), 'goal': 'blocked', 'engine': 'opencode', 'glm_model': 'zai-coding-plan/glm-5.3'})
 
     def test_saved_effective_models_are_projected_without_inference(self):
-        state = {'task': 'saved', 'settings': {'engine': 'opencode', 'roles': {'astra': {'model': 'openai/gpt-6-astra', 'reasoning_effort': 'xhigh'}, 'terra': {'model': 'openai/gpt-5.6-terra'}}}}
+        state = {'task': 'saved', 'reasoning_escalations': [{'role':'astra','selected':{'profile':'Astra High'}}],
+                 'settings': {'engine': 'opencode', 'roles': {'astra': {'model': 'openai/gpt-6-astra', 'reasoning_effort': 'xhigh'}, 'terra': {'model': 'openai/gpt-5.6-terra'}}}}
         (self.run / 'state.json').write_text(json.dumps(state))
         settings = self.console.view(self.workspace, self.run)['model_settings']
         self.assertEqual('opencode', settings['engine'])
@@ -206,6 +207,7 @@ run.mkdir(parents=True,exist_ok=True)
         self.assertFalse(settings['joint_planning'])
         self.assertEqual({'astra': 'opencode', 'terra': 'opencode', 'sol': None}, settings['role_engines'])
         self.assertEqual({'astra': 'xhigh', 'terra': None, 'sol': None}, settings['role_efforts'])
+        self.assertEqual('Astra High', self.console.view(self.workspace, self.run)['reasoning_escalations'][0]['selected']['profile'])
         self.assertEqual({'astra': None, 'terra': None, 'sol': None}, saved_models({})['role_engines'])
         old_joint = saved_models({'settings': {'engine': 'opencode', 'joint_planning': True, 'roles': {'astra': {'model': 'gpt-6-astra', 'engine': 'codex'}, 'sol': {'model': 'zai-coding-plan/glm-5.3', 'engine': 'opencode'}, 'glm': {'model': 'zai-coding-plan/glm-5.3'}}}})
         self.assertEqual('opencode', old_joint['role_engines']['sol'])
@@ -243,10 +245,10 @@ run.mkdir(parents=True,exist_ok=True)
     def test_served_form_has_prominent_isolated_role_selectors_and_retention_logic(self):
         from agent_console import APP, INDEX
         self.assertIn('Requirements planner <small>Drafts the requirements plan and applies reviewer feedback</small>', INDEX)
-        self.assertIn('Plan reviewer <small>Sol High challenges and finalizes the requirements plan', INDEX)
-        self.assertIn('Builder <small>Medium: bounded coding', INDEX)
-        self.assertIn('Independent verifier <small>A separate Sol session checks the implementation and evidence</small>', INDEX)
-        self.assertIn('Completion owner <small>Sol Medium decides complete or rework', INDEX)
+        self.assertIn('Plan reviewer <small>Automatic ladder: Sol High → Sol XHigh → Astra High', INDEX)
+        self.assertIn('Builder <small>Automatic ladder: Terra Medium → Terra High → Terra XHigh → Terra Max', INDEX)
+        self.assertIn('Validator <small>Automatic ladder: Sol High → Sol XHigh → Astra High', INDEX)
+        self.assertIn('Completion owner <small>Automatic ladder: Sol Medium → Sol High → Astra High', INDEX)
         self.assertIn('Default · GLM-5.3', INDEX)
         self.assertIn('id="astra-reasoning-effort"', INDEX)
         self.assertIn('id="terra-reasoning-effort"', INDEX)
@@ -257,6 +259,7 @@ run.mkdir(parents=True,exist_ok=True)
         self.assertIn("models[role+'_reasoning_effort']", APP)
         self.assertIn("action:'set_reasoning'", APP)
         self.assertIn('id="task-reasoning-form"', INDEX)
+        self.assertIn('later struggle advances the automatic ladder', APP)
         self.assertIn("conversationPayload(text,models,conversationRequest.id)", APP)
         self.assertIn('No project needed yet.', INDEX)
         self.assertIn("Unavailable selection: ", APP)

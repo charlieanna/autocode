@@ -982,7 +982,8 @@ async function submitTaskAction(run,action,extra={}){
 function renderTaskReasoning(run){
   const efforts=run.model_settings?.role_efforts||{},active=!!Object.keys(run.active_stage||{}).length,blocked=active||taskActionBusy(run)||['running','complete'].includes(statusInfo(run).group);
   for(const role of ['astra','terra','sol','completion']){$('#task-'+role+'-reasoning').value=efforts[role]||'';$('#task-'+role+'-reasoning').disabled=blocked;}
-  $('#save-task-reasoning').disabled=blocked;$('#task-reasoning-status').textContent=blocked?(statusInfo(run).group==='running'?'Reasoning can be changed after the current step finishes.':statusInfo(run).group==='complete'?'This task is complete.':'Wait for the current step to finish.'):'Changes apply to the next model step and preserve existing sessions.';$('#task-reasoning-status').className='field-note';
+  const latest=(run.reasoning_escalations||[]).at(-1),escalated=latest?.selected?.profile?' Last automatic escalation: '+roleDisplayName(latest.role)+' → '+latest.selected.profile+'.':'';
+  $('#save-task-reasoning').disabled=blocked;$('#task-reasoning-status').textContent=(blocked?(statusInfo(run).group==='running'?'Reasoning can be changed after the current step finishes.':statusInfo(run).group==='complete'?'This task is complete.':'Wait for the current step to finish.'):'Changes apply to the next model step; later struggle advances the automatic ladder.')+escalated;$('#task-reasoning-status').className='field-note';
 }
 $('#task-reasoning-form').onsubmit=async event=>{
   event.preventDefault();const run=latestRun;if(!run||taskActionBusy(run)||Object.keys(run.active_stage||{}).length)return;

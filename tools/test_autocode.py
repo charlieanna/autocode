@@ -61,6 +61,29 @@ class RetrofitTest(unittest.TestCase):
         self.assertEqual({"old":True},s.read(p))
         self.assertEqual([],list(self.run.glob(".checkpoint-*")))
 
+    def test_builder_no_progress_advances_automatic_ladder(self):
+        self.state["settings"]["engine"] = "opencode"
+        self.state["settings"]["roles"]["terra"].update(
+            engine="opencode", provider=None, model="openai/gpt-5.6-terra", reasoning_effort="medium")
+        record = {"role":"terra", "stage":"terra", "output":str(self.run/"terra.json"),
+                  "events":str(self.run/"terra.jsonl"), "source_revision":"same",
+                  "changed_files":[], "after_ref":str(self.run/"after.json"), "diff_ref":None}
+        runner._apply_result(self.state, "terra", {"evidence_refs":[str(self.evidence)]}, record, self.root, self.run)
+        self.assertEqual("high", self.state["settings"]["roles"]["terra"]["reasoning_effort"])
+        self.assertEqual("Terra High", self.state["reasoning_escalations"][-1]["selected"]["profile"])
+        self.assertNotIn("terra", self.state["sessions"])
+
+    def test_failed_validation_rework_advances_builder_ladder(self):
+        self.state["settings"]["engine"] = "opencode"
+        self.state["settings"]["roles"]["terra"].update(
+            engine="opencode", provider=None, model="openai/gpt-5.6-terra", reasoning_effort="high")
+        self.state["validation"] = {"verdict":"FAIL"}
+        record = {"role":"astra", "route_role":"completion", "stage":"astra_review",
+                  "output":str(self.run/"decision.json")}
+        runner._apply_result(self.state, "astra_review", self.decision(), record, self.root, self.run)
+        self.assertEqual("xhigh", self.state["settings"]["roles"]["terra"]["reasoning_effort"])
+        self.assertEqual("Terra XHigh", self.state["reasoning_escalations"][-1]["selected"]["profile"])
+
     def test_process_guard_targets_only_real_runner_processes(self):
         marker=".autocode/runs/run-x"
         # Wrapper shells carry the invocation text but are not runners themselves.
