@@ -67,6 +67,11 @@ class FigmaWorkflow(unittest.TestCase):
         state = json.loads((root / 'state.json').read_text())
         self.assertEqual(4, len(state['stages']))
         self.assertEqual(URL, state['figma_file'])
+        self.assertEqual(['astra_brief', 'terra', 'sol', 'astra_review'],
+                         [stage['stage'] for stage in state['stages']])
+
+    def test_ui_and_code_use_the_same_orchestration_driver(self):
+        self.assertIs(runner.orchestrator.drive, ui.orchestrator.drive)
 
     def test_astra_accept_cannot_override_failed_sol(self):
         code, root, build = self.run_ui(('FAIL',), max_reworks=0, build=True)

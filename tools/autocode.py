@@ -34,12 +34,14 @@ except ImportError:
 try:
     from . import autocode_workspaces as task_workspaces
     from . import autocode_figma as figma
+    from . import autocode_orchestrator as orchestrator
     from . import autocode_workflow as workflow
     from . import autocode_milestones as milestones
     from .autocode_activity import ActivityMonitor
 except ImportError:
     import autocode_workspaces as task_workspaces
     import autocode_figma as figma
+    import autocode_orchestrator as orchestrator
     import autocode_workflow as workflow
     import autocode_milestones as milestones
     from autocode_activity import ActivityMonitor
@@ -1597,7 +1599,7 @@ def main() -> int:
             print(f"Task worktree: {workspace}\nBranch: {isolated['branch']}\nStarting from committed HEAD; the original checkout is unchanged.", flush=True)
         run_dir = workspace / ".autocode" / "runs" / f"{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}-{slug(task)}-{uuid.uuid4().hex[:8]}"
         state_path = run_dir / "state.json"
-        state = {"version": 2, "task": task, "workspace": str(workspace), "created_at": now(),
+        state = {"version": 2, "target": "code", "task": task, "workspace": str(workspace), "created_at": now(),
                  "iteration": 1, "status": "RUNNING", "sessions": {}, "history": [], "stages": [],
                  "next_stage": "astra_plan", "acceptance_criteria": []}
         isolated = task_workspaces.metadata(workspace)
@@ -1800,115 +1802,124 @@ def main() -> int:
             if state["settings"].get("engine") == "opencode":
                 opencode.check_models({r: config for r, config in state["settings"]["roles"].items()
                                        if planning.engine_for(state["settings"], r) == "opencode"}, workspace)
-            while state["status"] == "RUNNING":
+            def before_code_stage(current):
                 try:
-                    if consume_interventions(state, run_dir, workspace):
-                        print(f"{state['status']}: {state['stop_reason']}")
-                        return 2
+                    if consume_interventions(current, run_dir, workspace):
+                        print(f"{current['status']}: {current['stop_reason']}")
+                        raise orchestrator.LoopExit(2)
                 except interventions.InterventionError as error:
                     raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
-                if milestones.apply_queued_activation(state, run_dir):
+                if milestones.apply_queued_activation(current, run_dir):
                     print("Milestone checkpoints enabled at a safe boundary; continuing with independent validation.", flush=True)
-                workflow.guard(state)
-                repairing_before_upgrade = (args.resume_paused and state.get('pending_report_repair')
+                workflow.guard(current)
+                repairing_before_upgrade = (args.resume_paused and current.get('pending_report_repair')
                                             and milestones.owns_pause(run_dir))
                 if (run_dir / "pause-requested").exists() and not repairing_before_upgrade:
                     raise support.Paused("PAUSED_REQUESTED", "Pause requested; previous stage saved")
-                limits = state["settings"]["limits"]
-                timeout_recovery_guard(state)
-                if iteration_limit_reached(state["iteration"], limits["iteration_ceiling"]):
+                limits = current["settings"]["limits"]
+                timeout_recovery_guard(current)
+                if iteration_limit_reached(current["iteration"], limits["iteration_ceiling"]):
                     raise support.Paused("PAUSED_ITERATION_LIMIT", "Saved iteration ceiling reached")
-                if limits["max_seconds"] and state.get("active_seconds",0) >= limits["max_seconds"]:
+                if limits["max_seconds"] and current.get("active_seconds",0) >= limits["max_seconds"]:
                     raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
                 if limits["max_reported_tokens"]:
-                    measured = [r.get("metrics",{}).get("provider_tokens",{}) for r in state.get("stages",[])]
+                    measured = [r.get("metrics",{}).get("provider_tokens",{}) for r in current.get("stages",[])]
                     if any(m.get("input_tokens") is None or m.get("output_tokens") is None for m in measured):
                         raise support.Paused("PAUSED_USAGE_UNKNOWN", "Cannot enforce requested token limit with unknown usage")
                     if sum(m["input_tokens"]+m["output_tokens"] for m in measured) >= limits["max_reported_tokens"]:
                         raise support.Paused("PAUSED_BUDGET", "Saved reported-token limit reached")
-                if (not repairing_before_upgrade and (not milestones.enabled(state) or state.get('next_stage') == 'terra') and limits["no_progress_batches"]
-                        and state.get("no_progress_batches",0) >= limits["no_progress_batches"]):
+                if (not repairing_before_upgrade and (not milestones.enabled(current) or current.get('next_stage') == 'terra') and limits["no_progress_batches"]
+                        and current.get("no_progress_batches",0) >= limits["no_progress_batches"]):
                     raise support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review")
                 # Do not silently change auth/provider when local config changes.
-                using_opencode = state["settings"].get("engine") == "opencode"
-                if planning.enabled(state):
-                    check_joint_transports(state, workspace)
+                using_opencode = current["settings"].get("engine") == "opencode"
+                if planning.enabled(current):
+                    check_joint_transports(current, workspace)
                 current_settings = opencode.local_settings(workspace) if using_opencode else support.local_settings()
-                drifted = (opencode.transport_drift(current_settings, state["settings"]["transport_identity"]) if using_opencode else
-                           support.transport_drift(current_settings, state["settings"]["transport_identity"], state["settings"]["roles"]))
+                drifted = (opencode.transport_drift(current_settings, current["settings"]["transport_identity"]) if using_opencode else
+                           support.transport_drift(current_settings, current["settings"]["transport_identity"], current["settings"]["roles"]))
                 if drifted:
                     raise support.Paused("PAUSED_TRANSPORT_CHANGED", "Local model/auth/provider settings differ from checkpoint")
-                if using_opencode and state["settings"]["transport_identity"].get("identity_version", 1) < 2:
-                    state.setdefault("configuration_changes", []).append({"at": now(),
+                if using_opencode and current["settings"]["transport_identity"].get("identity_version", 1) < 2:
+                    current.setdefault("configuration_changes", []).append({"at": now(),
                         "reason": "Expanded OpenCode configuration identity; all previously recorded inputs match"})
-                    state["settings"]["transport_identity"] = current_settings
-                if state.get('pending_report_repair'):
+                    current["settings"]["transport_identity"] = current_settings
+                if current.get('pending_report_repair'):
                     try:
-                        execute_report_repair(state, run_dir, workspace)
+                        execute_report_repair(current, run_dir, workspace)
                     except ReportRepairQueued:
                         pass
-                    continue
-                stage = state["next_stage"]
-                milestones.dispatch_guard(state, stage)
-                workflow.dispatch_guard(state,stage,workspace)
-                joint_stage = planning.is_planning(state, stage)
+                    return orchestrator.SKIP
+
+            def dispatch_code_stage(current, stage):
+                milestones.dispatch_guard(current, stage)
+                workflow.dispatch_guard(current,stage,workspace)
+                joint_stage = planning.is_planning(current, stage)
                 if stage != "astra_discovery" and not joint_stage:
-                    goals.execution_guard(state)
-                    state["phase"] = "EXECUTING"
+                    goals.execution_guard(current)
+                    current["phase"] = "EXECUTING"
                 else:
-                    state["phase"] = "PLANNING" if joint_stage else "DISCOVERING"
-                role = planning.role_for(state, stage)
-                rotate_if_needed(state, role, run_dir)
-                prompt, metrics = (planning.context(state, stage, state_path) if joint_stage else
-                                   support.context_packet(state, stage, state_path))
-                state["pending_context_metrics"] = metrics
+                    current["phase"] = "PLANNING" if joint_stage else "DISCOVERING"
+                role = planning.role_for(current, stage)
+                rotate_if_needed(current, role, run_dir)
+                prompt, metrics = (planning.context(current, stage, state_path) if joint_stage else
+                                   support.context_packet(current, stage, state_path))
+                current["pending_context_metrics"] = metrics
                 # Soft budget: keep exact requirements; don't silently truncate them.
                 if metrics["estimated_prompt_tokens"] > metrics["soft_budget_tokens"]:
                     print("Context soft budget exceeded; preserving complete requirements", flush=True)
-                write_json(state_path, state)
+                write_json(state_path, current)
                 schema_value = planning.SCHEMAS[stage] if joint_stage else goals.DISCOVERY_SCHEMA if stage == "astra_discovery" else goals.role_schema(
                     read_json(SCHEMA_DIR / "v2" / f"{role}-{'decision' if role=='astra' else 'report'}.schema.json"), role)
                 if stage == "astra_checkpoint":
                     schema_value = workflow.checkpoint_schema(SCHEMA_DIR)
-                elif stage == 'terra' and workflow.final_only(state):
+                elif stage == 'terra' and workflow.final_only(current):
                     schema_value = workflow.implementation_schema(SCHEMA_DIR)
                 schema_path = run_dir / "schemas" / f"v3-{stage}.json"
                 write_json(schema_path, schema_value)
                 try:
                     value, record = run_role(role=role, prompt=prompt, sandbox="workspace-write" if role=="terra" else "read-only",
-                        workspace=workspace, run_dir=run_dir, state=state,
+                        workspace=workspace, run_dir=run_dir, state=current,
                         schema=schema_path,
-                        model=state["settings"]["roles"][role]["model"], allow_write=role=="terra", dry_run=False)
-                    account_stage(state, record)
+                        model=current["settings"]["roles"][role]["model"], allow_write=role=="terra", dry_run=False)
+                    account_stage(current, record)
                     try:
-                        commit_stage_result(state, stage, value, record, workspace, run_dir)
+                        commit_stage_result(current, stage, value, record, workspace, run_dir)
                     except (ValueError, KeyError, support.Paused) as error:
-                        reject_completed_stage(state, run_dir, record, error)
+                        reject_completed_stage(current, run_dir, record, error)
                 except ReportRepairQueued:
-                    continue
+                    return orchestrator.SKIP
                 except support.Paused as error:
-                    if (automatically_recover_timed_out_stage(state, run_dir, workspace, error)
-                            or automatically_recover_external_directory_denial(state, run_dir, workspace, error)):
+                    if (automatically_recover_timed_out_stage(current, run_dir, workspace, error)
+                            or automatically_recover_external_directory_denial(current, run_dir, workspace, error)):
                         print(f"{stage}: non-terminal attempt archived; continuing from recovery checkpoint", flush=True)
-                        continue
+                        return orchestrator.SKIP
                     raise
-                write_json(state_path, state)
-                print(f"{stage}: saved; next={state['next_stage']}; status={state['status']}", flush=True)
-                if milestones.enabled(state):
-                    print(milestones.status_line(state), flush=True)
+                return record
+
+            def after_code_stage(current, stage, _record):
+                print(f"{stage}: saved; next={current['next_stage']}; status={current['status']}", flush=True)
+                if milestones.enabled(current):
+                    print(milestones.status_line(current), flush=True)
                 try:
-                    if consume_interventions(state, run_dir, workspace):
-                        print(f"{state['status']}: {state['stop_reason']}")
-                        return 2
+                    if consume_interventions(current, run_dir, workspace):
+                        print(f"{current['status']}: {current['stop_reason']}")
+                        raise orchestrator.LoopExit(2)
                 except interventions.InterventionError as error:
                     raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
-                if args.chat and state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
-                    if not chat_checkpoint(state, run_dir):
-                        write_json(state_path, state)
-                        return 2
-                    write_json(state_path, state)
-                if args.pause_after_stage and state["status"] == "RUNNING":
+                if args.chat and current["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
+                    if not chat_checkpoint(current, run_dir):
+                        write_json(state_path, current)
+                        raise orchestrator.LoopExit(2)
+                    write_json(state_path, current)
+                if args.pause_after_stage and current["status"] == "RUNNING":
                     raise support.Paused("PAUSED_REQUESTED", "--pause-after-stage checkpoint reached")
+            try:
+                orchestrator.drive(state, dispatch_code_stage, before=before_code_stage,
+                                   persist=lambda current: write_json(state_path, current),
+                                   after=after_code_stage)
+            except orchestrator.LoopExit as stopped:
+                return stopped.code
         except (support.Paused, ValueError, RuntimeError, OSError) as error:
             state.update(status=getattr(error,"status","PAUSED_INVALID_OUTPUT"), stop_reason=str(error), paused_at=now())
             state["phase"] = "PAUSED_OR_BLOCKED"

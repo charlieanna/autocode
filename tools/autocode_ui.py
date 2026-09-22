@@ -12,10 +12,12 @@ import sys
 import uuid
 try:
     from . import autocode_figma as figma, autocode_support as support, autocode_workspaces as workspaces
+    from . import autocode_orchestrator as orchestrator
 except ImportError:
     import autocode_figma as figma
     import autocode_support as support
     import autocode_workspaces as workspaces
+    import autocode_orchestrator as orchestrator
 
 DEFAULT_MODELS = {'astra': 'gpt-6-astra', 'terra': 'gpt-5.6-terra', 'sol': 'gpt-5.6-sol'}
 
@@ -95,54 +97,82 @@ def run_stage(name, model, text, workspace, run_dir, schema=None, dry_run=False)
 def execute(args, workspace, run_dir):
     state = {'version': 2, 'task': args.task, 'workspace': str(workspace), 'run_dir': str(run_dir),
              'figma_file': args.figma_file, 'created_at': support.now(), 'status': 'RUNNING',
-             'models': {role: getattr(args, role + '_model') for role in DEFAULT_MODELS}, 'stages': []}
+             'next_stage': 'astra_brief', 'iteration': 0, 'target': 'figma',
+             'models': {role: getattr(args, role + '_model') for role in DEFAULT_MODELS},
+             'stages': [], 'outputs': {}, 'reports': {}}
     def save():
         support.atomic_json(run_dir / 'state.json', state)
-    def stage(name, role, inputs, statuses=None):
-        state['active_stage'] = name
+    names = {'astra_brief': lambda: 'astra-brief',
+             'terra': lambda: f'terra-{state["iteration"]:02}',
+             'sol': lambda: f'sol-{state["iteration"]:02}',
+             'astra_review': lambda: f'astra-decision-{state["iteration"]:02}'}
+    roles = {'astra_brief': 'astra-brief', 'terra': 'terra', 'sol': 'sol', 'astra_review': 'astra-decision'}
+    statuses = {'terra': ['COMPLETE', 'BLOCKED'], 'sol': ['PASS', 'FAIL', 'BLOCKED'],
+                'astra_review': ['ACCEPT', 'REWORK', 'BLOCKED']}
+
+    def dispatch(current, stage):
+        name, role = names[stage](), roles[stage]
+        current['active_stage'] = {'stage': stage, 'name': name, 'iteration': current['iteration']}
         save()
-        output, report = run_stage(name, state['models']['astra' if role.startswith('astra') else role],
-                                   prompt(role, args.task, run_dir, state['figma_file'], inputs),
-                                   run_dir, run_dir, report_schema(statuses) if statuses else None, args.dry_run)
-        state['stages'].append({'name': name, 'output': str(output), 'finished_at': support.now()})
-        state.pop('active_stage')
-        save()
-        return output, report
+        inputs = {key: Path(value) for key, value in current['outputs'].items()}
+        model_role = 'astra' if role.startswith('astra') else role
+        return name, role, run_stage(name, current['models'][model_role],
+                                    prompt(role, args.task, run_dir, current['figma_file'], inputs),
+                                    run_dir, run_dir, report_schema(statuses[stage]) if stage in statuses else None,
+                                    args.dry_run)
+
+    def apply(current, stage, outcome):
+        name, role, (output, report) = outcome
+        current['stages'].append({'stage': stage, 'role': role, 'name': name,
+                                  'iteration': current['iteration'], 'output': str(output),
+                                  'finished_at': support.now()})
+        current.pop('active_stage', None)
+        if stage == 'astra_brief':
+            current['outputs']['brief'] = str(output)
+            current['next_stage'] = 'terra'
+            return
+        current['reports'][stage] = report
+        current['outputs'][{'terra': 'terra', 'sol': 'sol', 'astra_review': 'astra'}[stage]] = str(output)
+        if args.dry_run:
+            if stage == 'astra_review':
+                current.update(status='DRY_RUN', next_stage=None, finished_at=support.now())
+            else:
+                current['next_stage'] = {'terra': 'sol', 'sol': 'astra_review'}[stage]
+            return
+        if stage == 'terra':
+            if report['status'] != 'COMPLETE' or not report['figma_file'] or not report['evidence'] or report['required_changes']:
+                raise ValueError('Terra did not produce a completed editable Figma result')
+            if current['figma_file'] and url_key(report['figma_file']) != url_key(current['figma_file']):
+                raise ValueError('Terra returned a different Figma file than the selected target')
+            current.update(figma_file=report['figma_file'], next_stage='sol')
+            return
+        if stage == 'sol':
+            if report['status'] == 'BLOCKED':
+                raise ValueError('Figma review is blocked; inspect the saved reports')
+            current['next_stage'] = 'astra_review'
+            return
+        audit = current['reports']['sol']
+        if report['status'] == 'BLOCKED':
+            raise ValueError('Figma review is blocked; inspect the saved reports')
+        accepted = (audit['status'] == 'PASS' and report['status'] == 'ACCEPT'
+                    and all(item['evidence'] and not item['required_changes']
+                            and item['figma_file'] == current['figma_file'] for item in (audit, report)))
+        if accepted:
+            refs = {key: Path(current['outputs'][key]) for key in ('brief', 'terra', 'sol', 'astra')}
+            handoff = {'version': 1, 'task': args.task, 'figma_file': current['figma_file'],
+                       'artifacts': {key: {'path': path.name, 'sha256': support.file_hash(path)}
+                                     for key, path in refs.items()}}
+            support.atomic_json(run_dir / 'handoff.json', handoff)
+            current.update(status='COMPLETE', next_stage=None, finished_at=support.now())
+        elif current['iteration'] >= args.max_reworks:
+            current.update(status='REWORK_REQUIRED', next_stage=None, finished_at=support.now())
+        else:
+            current['iteration'] += 1
+            current['next_stage'] = 'terra'
+
     save()
     try:
-        brief, _ = stage('astra-brief', 'astra-brief', {})
-        inputs = {'brief': brief}
-        for round_number in range(args.max_reworks + 1):
-            terra, built = stage(f'terra-{round_number:02}', 'terra', inputs, ['COMPLETE', 'BLOCKED'])
-            if built:
-                if built['status'] != 'COMPLETE' or not built['figma_file'] or not built['evidence'] or built['required_changes']:
-                    raise ValueError('Terra did not produce a completed editable Figma result')
-                if state['figma_file'] and url_key(built['figma_file']) != url_key(state['figma_file']):
-                    raise ValueError('Terra returned a different Figma file than the selected target')
-                state['figma_file'] = built['figma_file']
-            inputs.update(terra=terra)
-            sol, audit = stage(f'sol-{round_number:02}', 'sol', inputs, ['PASS', 'FAIL', 'BLOCKED'])
-            inputs.update(sol=sol)
-            decision, accepted = stage(f'astra-decision-{round_number:02}', 'astra-decision', inputs, ['ACCEPT', 'REWORK', 'BLOCKED'])
-            inputs.update(astra=decision)
-            if args.dry_run:
-                state['status'] = 'DRY_RUN'
-                break
-            if audit['status'] == 'BLOCKED' or accepted['status'] == 'BLOCKED':
-                raise ValueError('Figma review is blocked; inspect the saved reports')
-            if (audit['status'] == 'PASS' and accepted['status'] == 'ACCEPT'
-                    and all(r['evidence'] and not r['required_changes'] and r['figma_file'] == state['figma_file']
-                            for r in (audit, accepted))):
-                refs = {'brief': brief, 'terra': terra, 'sol': sol, 'astra': decision}
-                handoff = {'version': 1, 'task': args.task, 'figma_file': state['figma_file'],
-                           'artifacts': {role: {'path': path.name, 'sha256': support.file_hash(path)} for role, path in refs.items()}}
-                support.atomic_json(run_dir / 'handoff.json', handoff)
-                state['status'] = 'COMPLETE'
-                break
-        else:
-            state['status'] = 'REWORK_REQUIRED'
-        state['finished_at'] = support.now()
-        save()
+        orchestrator.drive(state, dispatch, apply=apply, persist=lambda _: save())
     except (OSError, ValueError, KeyError, KeyboardInterrupt) as error:
         state.update(status='BLOCKED', error=str(error), finished_at=support.now())
         save()

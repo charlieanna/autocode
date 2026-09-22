@@ -109,6 +109,12 @@ human visual approval. Add `--figma-review human` to a new implementation run if
 that review is wanted. Explicitly supplied review requirements still take precedence.
 The workflow uses the connected Figma editing tools, not an assumed Figma Make API.
 
+The Figma and code paths use the same durable Autocode stage driver. `autocode-ui`
+is an installed alias for `autocode ui`, not a separate orchestration product. Each
+target supplies its own prompts, report schemas and acceptance rules while sharing
+stage selection, checkpoint persistence, retry/skip behavior and terminal-state
+handling. With `--build`, the accepted Figma target hands off to the code target.
+
 `autocode ui "Preview the workflow" --dry-run` writes prompts without model calls or
 Figma edits and never emits an accepted handoff. If a design stage is interrupted,
 inspect its saved reports and Figma file before starting a fresh run with
