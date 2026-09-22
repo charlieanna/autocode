@@ -22,18 +22,30 @@ def load_handoff(run_dir):
     root = Path(run_dir).resolve()
     state = json.loads((root / 'state.json').read_text())
     handoff = json.loads((root / 'handoff.json').read_text())
-    if state.get('status') != 'COMPLETE' or handoff.get('version') != 1:
+    version = handoff.get('version')
+    if state.get('status') != 'COMPLETE' or version not in (1, 2):
         raise ValueError('Only a completed, accepted Autocode UI run can be built')
     design_url(handoff['figma_file'])
     refs = handoff['artifacts']
-    for role in ('brief', 'terra', 'sol', 'astra'):
+    required = (('brief', 'terra', 'sol', 'astra') if version == 1 else
+                ('requirements_draft', 'plan_reviewer', 'brief', 'plan_finalizer',
+                 'builder', 'validator', 'decision_owner'))
+    for role in required:
         ref = refs[role]
         path = root / ref['path']
         if path.is_symlink() or not path.resolve().is_relative_to(root) or not path.is_file():
             raise ValueError('UI handoff artifact is missing or outside the run')
         if support.file_hash(path) != ref['sha256']:
             raise ValueError('UI handoff changed after acceptance; rerun its review')
-    for role, expected in (('terra', 'COMPLETE'), ('sol', 'PASS'), ('astra', 'ACCEPT')):
+    execution = (('terra', 'COMPLETE'), ('sol', 'PASS'), ('astra', 'ACCEPT')) if version == 1 else (
+        ('builder', 'COMPLETE'), ('validator', 'PASS'), ('decision_owner', 'ACCEPT'))
+    if version == 2:
+        for role, allowed in (('plan_reviewer', ('PASS', 'REVISE')), ('plan_finalizer', ('ACCEPT',))):
+            report = json.loads((root / refs[role]['path']).read_text())
+            if (report.get('status') not in allowed or not report.get('evidence')
+                    or (role == 'plan_finalizer' and report.get('required_changes'))):
+                raise ValueError('UI handoff does not contain an accepted requirements plan')
+    for role, expected in execution:
         report = json.loads((root / refs[role]['path']).read_text())
         if (report.get('status') != expected or report.get('figma_file') != handoff['figma_file']
                 or report.get('required_changes') or not report.get('evidence')):

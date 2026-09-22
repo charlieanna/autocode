@@ -94,10 +94,13 @@ autocode "Build the supplied design" --figma-file "https://www.figma.com/design/
 autocode --ui-run /path/to/project/.autocode-ui/runs/RUN
 ```
 
-Astra writes the UI brief → Terra edits native Figma nodes → Sol independently
-inspects the canvas → Astra accepts or sends bounded rework. The default is two
-rework rounds. Every attempt has separate prompts, event logs and structured
-reports under `.autocode-ui/runs/`. Failed reviews cannot produce a build handoff.
+The UI path first runs a complete planning exchange: a Requirements Planner drafts
+the brief, an independent Plan Reviewer challenges it, the planner revises it, and
+a Plan Finalizer accepts it or requests bounded rework. It then runs Figma Builder →
+Design Validator → Completion Owner, with bounded build/review rework. Models remain
+configurable separately from these role names. Every attempt has separate prompts,
+event logs and structured reports under `.autocode-ui/runs/`. Failed planning or
+design reviews cannot produce a build handoff.
 An accepted handoff records the Figma URL and hashes of the brief and review reports;
 modified or incomplete artifacts are rejected when imported. The implementation
 roles inspect the live Figma reference again, since the file can change after design.
@@ -119,6 +122,51 @@ handling. With `--build`, the accepted Figma target hands off to the code target
 Figma edits and never emits an accepted handoff. If a design stage is interrupted,
 inspect its saved reports and Figma file before starting a fresh run with
 `--figma-file`; existing run directories are never overwritten.
+
+## Connected task lanes
+
+Use `autocode tasks` (or `autocode-tasks`) when several complete Autocode tasks must
+run in order or independently. Tasks inside one lane run sequentially in the same
+worktree, so later tasks see earlier source changes. Different lanes use different
+worktrees and may run concurrently. Every item invokes the normal UI or code loop;
+the task runner does not replace planning, validation or completion gates.
+
+```json
+{
+  "version": 1,
+  "name": "dashboard release",
+  "lanes": [
+    {
+      "id": "application",
+      "tasks": [
+        {"id": "design", "mode": "ui", "task": "Design the operations dashboard"},
+        {"id": "build", "mode": "code", "task": "Build the dashboard", "ui_from": "design"},
+        {"id": "polish", "mode": "code", "task": "Polish loading and error states"}
+      ]
+    },
+    {
+      "id": "documentation",
+      "tasks": [
+        {"id": "guide", "mode": "code", "task": "Write the operator guide"}
+      ]
+    }
+  ]
+}
+```
+
+```sh
+autocode tasks flow.json --workspace /path/to/project --max-parallel 2
+```
+
+The command saves its checkpoint under `.autocode/task-flows/`. A code task can
+pause at its normal plan-approval or intervention boundary; its `run_dir` appears in
+the JSON result. Review or resume that ordinary Autocode run, then invoke the same
+task-flow command again. Completed UI tasks can feed a later code task through
+`ui_from`. `--dry-run` validates and previews the lanes without creating worktrees.
+
+Parallel lanes intentionally remain separate branches. Autocode does not guess how
+to merge parallel source changes. Put dependent tasks in one lane, or explicitly
+merge completed branches before starting a task that combines them.
 
 ## Multiple tasks in one project
 

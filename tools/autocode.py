@@ -1462,6 +1462,12 @@ def rotate_if_needed(state, role, run_dir):
 
 
 def main() -> int:
+    if sys.argv[1:2] == ["tasks"]:
+        try:
+            from . import autocode_tasks
+        except ImportError:
+            import autocode_tasks
+        return autocode_tasks.cli(sys.argv[2:])
     if sys.argv[1:2] == ["ui"]:
         try:
             from . import autocode_ui

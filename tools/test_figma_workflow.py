@@ -26,6 +26,7 @@ class FigmaWorkflow(unittest.TestCase):
     def run_ui(self, outcomes=('PASS',), **options):
         run = self.root / ('run-' + str(len(list(self.root.iterdir()))))
         args = ['Design a dashboard', '--workspace', str(self.root), '--run-dir', str(run)]
+        plan_outcomes = options.pop('plan_outcomes', ('ACCEPT',))
         if options.pop('build', False):
             ui.workspaces.git(self.root, 'init', '-q')
             ui.workspaces.git(self.root, '-c', 'user.name=Test', '-c', 'user.email=t@example.test',
@@ -41,12 +42,16 @@ class FigmaWorkflow(unittest.TestCase):
             if not schema:
                 path.write_text('The complete dashboard brief')
                 return path, path.read_text()
-            round_number = int(name[-2:])
-            status = ('COMPLETE' if name.startswith('terra') else outcomes[min(round_number, len(outcomes)-1)]
-                      if name.startswith('sol') else 'ACCEPT')
-            report = {'status': status, 'figma_file': URL, 'summary': 'Inspected canvas',
-                      'evidence': ['Node 1:2 screenshot and component audit'],
+            round_number = int(name[-2:]) if name[-2:].isdigit() else 0
+            status = ('PASS' if name == 'plan-review' else
+                      plan_outcomes[min(round_number, len(plan_outcomes)-1)] if name.startswith('plan-finalization') else
+                      'COMPLETE' if name.startswith('builder') else
+                      outcomes[min(round_number, len(outcomes)-1)] if name.startswith('validator') else 'ACCEPT')
+            report = {'status': status, 'summary': 'Inspected requirements and canvas',
+                      'evidence': ['Brief sections and Node 1:2 screenshot audit'],
                       'required_changes': ['Repair missing mobile layout'] if status == 'FAIL' else []}
+            if name.startswith(('builder', 'validator', 'decision')):
+                report['figma_file'] = URL
             path.write_text(json.dumps(report))
             return path, report
         with patch.object(ui, 'run_stage', side_effect=stage), patch.object(ui, 'subprocess') as process, contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -65,9 +70,11 @@ class FigmaWorkflow(unittest.TestCase):
         self.assertIn('--no-chat', command)
         self.assertEqual('gpt-5.6-terra', command[command.index('--terra-model')+1])
         state = json.loads((root / 'state.json').read_text())
-        self.assertEqual(4, len(state['stages']))
+        self.assertEqual(7, len(state['stages']))
         self.assertEqual(URL, state['figma_file'])
-        self.assertEqual(['astra_brief', 'terra', 'sol', 'astra_review'],
+        self.assertEqual('gpt-5.6-sol', state['models']['planner'])
+        self.assertEqual(['requirements_planner', 'plan_reviewer', 'requirements_revision', 'plan_finalizer',
+                          'builder', 'validator', 'decision_owner'],
                          [stage['stage'] for stage in state['stages']])
 
     def test_ui_and_code_use_the_same_orchestration_driver(self):
@@ -82,21 +89,52 @@ class FigmaWorkflow(unittest.TestCase):
     def test_rework_receives_previous_findings_and_decision(self):
         code, root, _ = self.run_ui(('FAIL', 'PASS'))
         self.assertEqual(0, code)
-        rework = next(text for name, text in self.calls if name == 'terra-01')
-        self.assertIn('sol-00.json', rework)
-        self.assertIn('astra-decision-00.json', rework)
+        rework = next(text for name, text in self.calls if name == 'builder-01')
+        self.assertIn('validator-00.json', rework)
+        self.assertIn('decision-00.json', rework)
         self.assertIn(URL, rework)
-        self.assertEqual('sol-01.json', figma.load_handoff(root)['artifacts']['sol']['path'])
+        self.assertEqual('validator-01.json', figma.load_handoff(root)['artifacts']['validator']['path'])
+
+    def test_plan_rework_returns_to_requirements_planner_before_figma_build(self):
+        code, root, _ = self.run_ui(plan_outcomes=('REWORK', 'ACCEPT'))
+        self.assertEqual(0, code)
+        state = json.loads((root / 'state.json').read_text())
+        self.assertEqual(1, state['planning_iteration'])
+        revision = next(text for name, text in self.calls if name == 'requirements-revision-01')
+        self.assertIn('plan-finalization-00.json', revision)
+        stages = [stage['stage'] for stage in state['stages']]
+        self.assertEqual(2, stages.count('requirements_revision'))
+        self.assertLess(stages.index('plan_finalizer'), stages.index('builder'))
 
     def test_modified_report_and_incomplete_run_cannot_be_imported(self):
         _, root, _ = self.run_ui()
-        (root / 'sol-00.json').write_text('{}')
+        (root / 'validator-00.json').write_text('{}')
         with self.assertRaisesRegex(ValueError, 'changed after acceptance'):
             figma.load_handoff(root)
         state = json.loads((root / 'state.json').read_text()); state['status'] = 'DRY_RUN'
         (root / 'state.json').write_text(json.dumps(state))
         with self.assertRaisesRegex(ValueError, 'completed, accepted'):
             figma.load_handoff(root)
+
+    def test_handoff_requires_accepted_plan_and_keeps_version_one_compatibility(self):
+        _, root, _ = self.run_ui()
+        handoff = json.loads((root / 'handoff.json').read_text())
+        final = root / handoff['artifacts']['plan_finalizer']['path']
+        report = json.loads(final.read_text()); report['status'] = 'REWORK'; report['required_changes'] = ['Clarify mobile']
+        final.write_text(json.dumps(report))
+        handoff['artifacts']['plan_finalizer']['sha256'] = support.file_hash(final)
+        (root / 'handoff.json').write_text(json.dumps(handoff))
+        with self.assertRaisesRegex(ValueError, 'accepted requirements plan'):
+            figma.load_handoff(root)
+
+        _, legacy_root, _ = self.run_ui()
+        current = json.loads((legacy_root / 'handoff.json').read_text())
+        current['version'] = 1
+        current['artifacts'] = {old: current['artifacts'][new] for old, new in
+                                {'brief': 'brief', 'terra': 'builder', 'sol': 'validator',
+                                 'astra': 'decision_owner'}.items()}
+        (legacy_root / 'handoff.json').write_text(json.dumps(current))
+        self.assertEqual(URL, figma.load_handoff(legacy_root)['figma_file'])
 
     def test_dry_run_uses_real_cli_without_starting_providers_or_emitting_handoff(self):
         root = self.root / 'dry'
@@ -110,7 +148,7 @@ class FigmaWorkflow(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual('DRY_RUN', json.loads((root / 'state.json').read_text())['status'])
         self.assertFalse((root / 'handoff.json').exists())
-        self.assertEqual(4, len(list(root.glob('*.prompt.md'))))
+        self.assertEqual(7, len(list(root.glob('*.prompt.md'))))
 
     def test_figma_policy_uses_independent_review_without_forging_human_approval(self):
         text = figma.instructions({'figma_file': URL})
