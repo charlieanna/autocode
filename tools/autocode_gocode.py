@@ -6,7 +6,6 @@ executes a role.
 """
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 import shutil
 import subprocess
@@ -27,7 +26,7 @@ def local_settings(workspace: Path) -> dict:
     if not executable:
         raise RuntimeError("GoCode is not on PATH; no agent was launched")
     try:
-        result = subprocess.run([executable, "status"], capture_output=True, text=True, timeout=15)
+        result = subprocess.run([executable, "status"], capture_output=True, text=True, timeout=45)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise RuntimeError("GoCode status check failed; no agent was launched") from error
     summary = result.stdout + result.stderr
@@ -40,7 +39,10 @@ def local_settings(workspace: Path) -> dict:
         "engine": "gocode",
         "executable": executable,
         "mode": "managed" if managed else "unmanaged",
-        "status_sha256": hashlib.sha256(summary.encode()).hexdigest(),
+        # Status includes changing usage, key rotation and connectivity details.
+        # Those are diagnostics, not a change to the selected CLI route.
+        "version": next((line.removeprefix("gocode version: ").strip()
+                         for line in summary.splitlines() if line.startswith("gocode version: ")), None),
     }
 
 

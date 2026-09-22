@@ -51,6 +51,26 @@ class GoCodeTransportTests(unittest.TestCase):
             identity = gocode.local_settings(Path("/workspace"))
         self.assertEqual("gocode", identity["engine"])
 
+    def test_usage_and_service_health_changes_do_not_change_transport_identity(self):
+        stable = "gocode version: fixture\nmode: unmanaged\nGoCode authentication: ok via GoCode Client Service"
+        first = SimpleNamespace(returncode=0, stdout=stable + "\nlive budget: spent $1\nGoCode Inference Endpoint: reachable", stderr="")
+        later = SimpleNamespace(returncode=0, stdout=stable + "\nlive budget: spent $2\nGoCode Inference Endpoint: unreachable", stderr="")
+        with patch.object(gocode.shutil, "which", return_value="/fixture/gocode"), \
+             patch.object(gocode.subprocess, "run", side_effect=[first, later]):
+            before = gocode.local_settings(Path("/workspace"))
+            after = gocode.local_settings(Path("/workspace"))
+        self.assertFalse(gocode.transport_drift(after, before))
+
+    def test_version_changes_still_invalidate_transport_identity(self):
+        stable = "mode: unmanaged\nGoCode authentication: ok via GoCode Client Service"
+        first = SimpleNamespace(returncode=0, stdout="gocode version: 1\n" + stable, stderr="")
+        later = SimpleNamespace(returncode=0, stdout="gocode version: 2\n" + stable, stderr="")
+        with patch.object(gocode.shutil, "which", return_value="/fixture/gocode"), \
+             patch.object(gocode.subprocess, "run", side_effect=[first, later]):
+            before = gocode.local_settings(Path("/workspace"))
+            after = gocode.local_settings(Path("/workspace"))
+        self.assertTrue(gocode.transport_drift(after, before))
+
     def test_gocode_joint_settings_assign_all_four_roles_without_opencode(self):
         args = SimpleNamespace(
             engine="gocode", joint_planning=False, glm_model=None, astra_model=None,
