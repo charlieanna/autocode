@@ -1,5 +1,6 @@
 """Real POSIX process-tree regressions; no inference or network access."""
 import os
+import select
 import signal
 from pathlib import Path
 import subprocess
@@ -8,7 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode_process as processes
@@ -16,39 +17,72 @@ from autocode_activity import ActivityMonitor
 
 
 class ProcessTests(unittest.TestCase):
-    def test_process_table_retains_executable_name_without_changing_identity(self):
-        output = '101 90 101 Mon Sep 21 12:39:34 2026 S /Applications/Pencil App/mcp-server-darwin-arm64\n'
-        result = subprocess.CompletedProcess([], 0, stdout=output, stderr='')
-        with patch.object(processes.subprocess, 'run', return_value=result) as inspect:
+    def test_process_id_enumeration_retries_transient_macos_sysctl_denial(self):
+        with patch.object(processes.psutil, 'pids',
+                          side_effect=[PermissionError('sysctl table refresh'), [101]]):
+            self.assertEqual([101], processes.process_ids())
+
+    def test_native_process_table_uses_birth_identity_without_shell_commands(self):
+        process = MagicMock()
+        process.create_time.return_value = 1790019574.123
+        process.ppid.return_value = 90
+        process.status.return_value = 'sleeping'
+        process.name.return_value = 'mcp-server-darwin-arm64'
+        with patch.object(processes.psutil, 'Process', return_value=process), \
+             patch.object(processes.os, 'getpgid', return_value=101), \
+             patch.object(processes.psutil, 'pids', return_value=[101]):
             row = processes.process_table()[101]
         self.assertEqual('mcp-server-darwin-arm64', row['executable'])
-        self.assertEqual({'pid': 101, 'started': 'Mon Sep 21 12:39:34 2026', 'group': 101}, processes.identity(row))
-        self.assertEqual(['ps', '-axo', 'pid=,ppid=,pgid=,lstart=,stat=,comm='], inspect.call_args.args[0])
+        self.assertEqual(1790019574.123, processes.identity(row)['birth_time'])
+        self.assertTrue(processes.matches(processes.identity(row), row))
+        self.assertFalse(processes.matches({**processes.identity(row), 'birth_time': 0}, row))
+        legacy = {key: value for key, value in processes.identity(row).items() if key != 'birth_time'}
+        self.assertTrue(processes.matches(legacy, row))
 
-    def activity_child(self, body, *, idle=.45, tool=1.5, total=None, sample=None, require_worker=False):
+    def test_owned_access_denial_fails_closed_and_a_vanished_pid_is_safe(self):
+        with patch.object(processes.psutil, 'Process', side_effect=processes.psutil.AccessDenied(101)):
+            with self.assertRaisesRegex(processes.ProcessError, '101.*access denied'):
+                processes.process_table({101})
+        with patch.object(processes.psutil, 'Process', side_effect=processes.psutil.NoSuchProcess(101)):
+            self.assertEqual({}, processes.process_table({101}))
+
+    def wait_ready(self, root, child):
+        deadline = time.monotonic() + 15
+        while not (root / 'ready').exists():
+            if child.poll() is not None or time.monotonic() >= deadline:
+                self.fail('Provider fixture failed to initialize')
+            time.sleep(.01)
+        (root / 'go').touch()
+
+    def activity_child(self, body, *, idle=.45, tool=1.5, total=None, sample=None, require_worker=False,
+                       startup_grace=0):
         """Run a real event-writing worker without making cleanup speed an assertion."""
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             events = root / 'events.jsonl'
             worker = root / 'provider.py'
             worker.write_text('import json,os,subprocess,sys,time\nfrom pathlib import Path\n'
-                              'def emit(row): print(json.dumps(row), flush=True)\n' + body)
+                              'def emit(row): print(json.dumps(row), flush=True)\n'
+                              "Path('ready').touch()\nwhile not Path('go').exists(): time.sleep(.01)\n" + body)
             snapshots = []
             owned = []
             with events.open('w') as stream:
                 child = subprocess.Popen([sys.executable, str(worker)], cwd=root, stdout=stream,
                                          start_new_session=True)
-                monitor = ActivityMonitor(events, idle_seconds=idle, tool_seconds=tool)
                 try:
+                    self.wait_ready(root, child)
+                    monitor = ActivityMonitor(events, idle_seconds=idle, tool_seconds=tool)
                     if sample is None:
                         code, expired = processes.wait_for_stage(child, total,
                             lambda rows: owned.__setitem__(slice(None), rows), activity=monitor,
-                            activity_checkpoint=lambda value: snapshots.append(value.copy()))
+                            activity_checkpoint=lambda value: snapshots.append(value.copy()),
+                            startup_grace=startup_grace)
                     else:
                         with patch.object(processes.ProcessTree, 'sample', sample(child)):
                             code, expired = processes.wait_for_stage(child, total,
                                 lambda rows: owned.__setitem__(slice(None), rows), activity=monitor,
-                                activity_checkpoint=lambda value: snapshots.append(value.copy()))
+                                activity_checkpoint=lambda value: snapshots.append(value.copy()),
+                                startup_grace=startup_grace)
                     self.assertEqual([], processes.live_processes(owned))
                     self.assertFalse((root / 'late-write').exists())
                     if require_worker:
@@ -65,9 +99,9 @@ class ProcessTests(unittest.TestCase):
     def test_meaningful_events_keep_a_long_provider_alive(self):
         body = """for index in range(9):
     emit({'type':'item.completed','item':{'id':str(index),'type':'command_execution','command':'true','exit_code':0}})
-    time.sleep(.12)
+    time.sleep(.4)
 """
-        code, expired, snapshots, _ = self.activity_child(body)
+        code, expired, snapshots, _ = self.activity_child(body, idle=2, tool=5)
         self.assertEqual(0, code)
         self.assertFalse(expired)
         self.assertTrue(snapshots)
@@ -77,7 +111,7 @@ class ProcessTests(unittest.TestCase):
 time.sleep(.8)
 emit({'type':'item.completed','item':{'id':'test','type':'command_execution','command':'quiet tests','exit_code':0}})
 """
-        code, expired, snapshots, _ = self.activity_child(body, idle=.3, tool=1.8)
+        code, expired, snapshots, _ = self.activity_child(body, idle=2, tool=5)
         self.assertEqual(0, code)
         self.assertFalse(expired)
         self.assertTrue(any(row.get('active_tool_count', 0) for row in snapshots))
@@ -210,26 +244,31 @@ while True:
 
     def test_quiet_descendant_without_start_event_gets_bounded_tool_grace(self):
         # OpenCode currently emits a completed tool row but no start row.
-        body = """worker = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(.8)'], start_new_session=True)
+        body = """worker = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(3)'], start_new_session=True)
 Path('worker.pid').write_text(str(worker.pid))
 worker.wait()
 emit({'type':'tool_use','sessionID':'one','part':{'id':'part1','tool':'bash','state':{'status':'completed','input':{'command':'quiet tests'},'metadata':{'exit':0}}}})
 """
-        code, expired, snapshots, _ = self.activity_child(body, idle=.4, tool=1.8)
+        code, expired, snapshots, _ = self.activity_child(body, idle=2, tool=8)
         self.assertEqual(0, code)
         self.assertFalse(expired)
         self.assertTrue(snapshots)
 
+    def test_startup_grace_allows_a_brief_unreported_launch(self):
+        code, expired, _, _ = self.activity_child('time.sleep(.7)\n', idle=.2, tool=2,
+                                                  startup_grace=1)
+        self.assertEqual(0, code)
+        self.assertFalse(expired)
+
     def test_idle_mcp_helper_does_not_delay_provider_inactivity_timeout(self):
-        body = """import shutil
-helper = Path('mcp-server-fixture')
-shutil.copyfile('/bin/sleep', helper)
-helper.chmod(0o700)
+        body = """helper = Path('mcp-server-fixture')
+helper.symlink_to('/bin/sleep')
 worker = subprocess.Popen([str(helper.resolve()), '30'], start_new_session=True)
 Path('worker.pid').write_text(str(worker.pid))
 time.sleep(30)
 """
-        code, expired, snapshots, reason = self.activity_child(body, idle=.6, tool=3, require_worker=True)
+        with patch.object(processes.psutil.Process, 'name', return_value='mcp-server-fixture'):
+            code, expired, snapshots, reason = self.activity_child(body, idle=3, tool=5, require_worker=True)
         self.assertNotEqual(0, code)
         self.assertTrue(expired)
         self.assertEqual('idle', reason['kind'])
@@ -242,7 +281,7 @@ worker = subprocess.Popen([sys.executable, '-c', "import time; from pathlib impo
 Path('worker.pid').write_text(str(worker.pid))
 time.sleep(30)
 """
-        code, expired, _, reason = self.activity_child(body, idle=.4, tool=.8)
+        code, expired, _, reason = self.activity_child(body, idle=2, tool=4)
         self.assertNotEqual(0, code)
         self.assertTrue(expired)
         self.assertEqual('tool', reason['kind'])
@@ -300,6 +339,58 @@ time.sleep(30)
             if child.poll() is None:
                 child.kill()
                 child.wait()
+
+    def test_hard_cap_escalates_when_provider_ignores_term(self):
+        script = "import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); print('ready',flush=True); time.sleep(30)"
+        child = subprocess.Popen([sys.executable, '-u', '-c', script], stdout=subprocess.PIPE,
+                                 text=True, start_new_session=True)
+        original = processes.ProcessTree.sample
+        observed_exit = []
+
+        def stalled(tree, *args, **kwargs):
+            if kwargs.get('initial'):
+                time.sleep(3)
+                observed_exit.append(child.poll())
+            return original(tree, *args, **kwargs)
+
+        try:
+            self.assertTrue(select.select([child.stdout], [], [], 15)[0])
+            self.assertEqual('ready', child.stdout.readline().strip())
+            with patch.object(processes.ProcessTree, 'sample', stalled):
+                code, expired = processes.wait_for_stage(child, .05, lambda _rows: None)
+            self.assertTrue(expired)
+            self.assertEqual(-signal.SIGKILL, code)
+            self.assertEqual([code], observed_exit)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=3)
+            child.stdout.close()
+
+    def test_cleanup_scan_failure_kills_previously_frozen_workers(self):
+        child = subprocess.Popen(['/bin/sleep', '30'], start_new_session=True)
+        tree = processes.ProcessTree(child.pid, lambda _rows: None)
+        try:
+            tree.sample(initial=True)
+            original = tree.sample
+            calls = 0
+
+            def fail_during_cleanup(**kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise processes.ProcessError('fixture ancestry failure')
+                return original(**kwargs)
+
+            with patch.object(tree, 'sample', side_effect=fail_during_cleanup):
+                with self.assertRaisesRegex(processes.ProcessError, 'fixture ancestry failure'):
+                    tree.stop(child)
+            child.wait(timeout=3)
+            self.assertEqual([], processes.live_processes(list(tree.known.values())))
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=3)
 
     def test_normal_provider_exit_stops_background_writers(self):
         code, expired = self.exercise_tree(.8, 5)

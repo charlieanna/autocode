@@ -51,6 +51,30 @@ class RepairTests(unittest.TestCase):
         self.assertEqual('PAUSED_REPORT_REPAIR_LIMIT', err.exception.status)
         launch.assert_not_called()
 
+    def test_explicit_execution_retry_archives_exhausted_repairs_and_rotates_session(self):
+        pending = self.queue()
+        pending['attempts'] = 2
+        self.state.update(status='PAUSED_REPORT_REPAIR_LIMIT', next_stage='terra')
+        self.state['sessions']['terra'] = 'failed-session'
+        self.assertTrue(runner.prepare_exhausted_execution_report_retry(self.state, self.run))
+        self.assertNotIn('pending_report_repair', self.state)
+        self.assertNotIn('terra', self.state['sessions'])
+        self.assertEqual(2, self.state['report_repair_archive'][-1]['repair']['attempts'])
+        self.assertEqual('failed-session', self.state['session_rotations'][-1]['old_session'])
+
+    def test_execution_retry_requires_an_exhausted_clean_execution_checkpoint(self):
+        pending = self.queue()
+        pending['attempts'] = 2
+        self.state.update(status='PAUSED_REPORT_REPAIR_LIMIT', next_stage='astra_plan')
+        before = copy.deepcopy(self.state)
+        self.assertFalse(runner.prepare_exhausted_execution_report_retry(self.state, self.run))
+        self.assertEqual(before, self.state)
+        self.state['next_stage'] = 'terra'
+        self.state['active_stage'] = {'stage': 'terra'}
+        before = copy.deepcopy(self.state)
+        self.assertFalse(runner.prepare_exhausted_execution_report_retry(self.state, self.run))
+        self.assertEqual(before, self.state)
+
     def test_goal_change_refuses_dispatch(self):
         self.queue()
         self.state['goal_contract'] = {'hash':'new-goal'}

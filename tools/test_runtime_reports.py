@@ -64,6 +64,28 @@ class RuntimeReportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             support.implementation_evidence_paths(['event:command-one'], self.log)
 
+    def test_cursor_shell_output_can_attest_a_capture_receipt_only(self):
+        raw = self.run / 'captured.log'
+        raw.write_text('1 test, 0 failures\n')
+        receipt = {'command': ['python', '-m', 'unittest'], 'exit_code': 0,
+                   'duration_seconds': 1, 'full_output': str(raw),
+                   'full_output_sha256': support.file_hash(raw),
+                   'summary': {'format': 'text', 'content': raw.read_text(),
+                               'omitted_progress_lines': 0, 'repeated_lines': {}}}
+        receipt_path = self.workspace / '.autocode/evidence/cursor-check.json'
+        receipt_path.parent.mkdir(parents=True)
+        receipt_path.write_text(json.dumps(receipt))
+        self.rows[1]['part'].update(tool='shell', state={
+            'status': 'completed',
+            'input': {'command': 'autocode capture --output .autocode/evidence/cursor-check.json -- python -m unittest'},
+            'metadata': {}, 'output': json.dumps(receipt)})
+        self.save()
+        support.verify_checks([{'command': 'python -m unittest', 'exit_code': 0,
+                                'evidence_ref': str(receipt_path)}], self.workspace, self.log)
+        with self.assertRaises(ValueError):
+            support.verify_checks([{'command': 'python -m unittest', 'exit_code': 0,
+                                    'evidence_ref': 'event:command-one'}], self.workspace, self.log)
+
     def test_evidence_advances_only_to_independent_validation_without_approval_changes(self):
         state = {'version': 2, 'workspace': str(self.workspace), 'task': 'Fixture task',
                  'status': 'RUNNING', 'iteration': 1, 'stages': [], 'history': [],
