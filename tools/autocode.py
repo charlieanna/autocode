@@ -289,7 +289,7 @@ def run_role(
     timed_out = False
     interrupted = False
     cleanup_error = None
-    worker_path = workspace / ".autocode" / "active-processes.json"
+    worker_path = run_dir / "active-processes.json"
     with processes.interruption_handler(), prompt_file.open("r") as stdin, events.open("w") as stdout:
         try:
             # Preparation can be slow. Linearize immediately before the durable
@@ -1580,7 +1580,7 @@ def main() -> int:
         return 0
     # Legacy runner does not own our new lock; detect it before touching state.
     support.assert_no_legacy_process(run_dir, workspace)
-    with support.workspace_lock(workspace):
+    with support.run_lock(run_dir):
         support.assert_no_legacy_process(run_dir, workspace)
         if args.run_dir:
             # A competing user command may have finished between the first read
