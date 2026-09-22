@@ -1,0 +1,67 @@
+"""GoCode-managed direct Codex transport.
+
+This adapter intentionally has no OpenCode dependency. GoCode supplies the
+managed environment and routes model aliases; Codex is the only agent CLI that
+executes a role.
+"""
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+import shutil
+import subprocess
+
+
+DEFAULT_MODELS = {
+    "glm": "gocode-openai/luna",
+    "astra": "gocode-openai/astra",
+    "terra": "gocode-openai/terra",
+    "sol": "gocode-openai/sol",
+}
+
+
+def local_settings(workspace: Path) -> dict:
+    """Return non-secret GoCode identity or fail before any provider request."""
+    del workspace
+    executable = shutil.which("gocode")
+    if not executable:
+        raise RuntimeError("GoCode is not on PATH; no agent was launched")
+    try:
+        result = subprocess.run([executable, "status"], capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError("GoCode status check failed; no agent was launched") from error
+    summary = result.stdout + result.stderr
+    if result.returncode or "mode: managed" not in summary:
+        raise RuntimeError("GoCode is not in managed mode; no agent was launched")
+    if "credential bundle: present" not in summary:
+        raise RuntimeError("GoCode credential bundle is unavailable; no agent was launched")
+    return {
+        "engine": "gocode",
+        "executable": executable,
+        "status_sha256": hashlib.sha256(summary.encode()).hexdigest(),
+    }
+
+
+def transport_drift(current: dict, checkpoint: dict) -> bool:
+    """Require the same managed GoCode identity when resuming a run."""
+    return current != checkpoint
+
+
+def validate_model(model: str) -> None:
+    """Keep every role on an explicit managed GoCode OpenAI route."""
+    if not isinstance(model, str) or not model.startswith("gocode-openai/") or len(model) <= len("gocode-openai/"):
+        raise ValueError("GoCode roles require a gocode-openai/<model> identifier")
+
+
+def launch(*, role: str, workspace: Path, session: str | None, model: str,
+           effort: str | None, sandbox: str, schema: Path, output: Path) -> list[str]:
+    """Construct a direct GoCode-to-Codex invocation without an OpenCode hop."""
+    del role
+    validate_model(model)
+    command = ["gocode", "exec", "codex", "exec", "-C", str(workspace), "--sandbox", sandbox]
+    if effort:
+        command += ["-c", f'model_reasoning_effort="{effort}"']
+    if session:
+        command += ["resume", session]
+    command += ["-", "--json", "--output-schema", str(schema), "-o", str(output), "--model", model]
+    return command

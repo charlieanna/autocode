@@ -23,7 +23,10 @@ their prompts. The runner saves decisions, tasks and evidence so it can resume.
 
 Works against any committed Git workspace; no IdleCampus files or services are required.
 
-Requires Python 3.11+, Git, and OpenCode 1.x connected to ChatGPT and Z.ai.
+Requires Python 3.11+ and Git. The legacy OpenCode route remains available for
+existing runs. For a GoCode-native run, GoCode must be in managed mode with its
+credential bundle available; the runner launches `gocode exec codex exec` and
+does not launch OpenCode.
 macOS/Linux are supported; Windows needs WSL because the inherited process and lock
 mechanisms use POSIX APIs. There are no Python runtime dependencies. Installation does
 not change Codex or OpenCode settings. `--engine codex` still starts a Codex-only run.
@@ -39,7 +42,7 @@ Run directly from this checkout:
 
 ```sh
 python3 /path/to/autocode/tools/autocode.py "Build a greeting CLI" \
-  --workspace /path/to/project --reasoning-effort high
+  --workspace /path/to/project --engine gocode --reasoning-effort high
 ```
 
 Install the command once with `pipx` to invoke it from any project:
@@ -56,8 +59,22 @@ python3 -m venv .venv
 .venv/bin/autocode "Build a greeting CLI" --workspace /path/to/project
 ```
 
-New runs use joint GLM/Astra planning by default. `--joint-planning` is accepted and
+New GoCode runs use joint GLM/Astra planning. `--joint-planning` is accepted and
 redundant. `--engine codex` is the explicit single-CLI loop; it does not use joint planning.
+`--engine opencode` remains the compatibility route for existing OpenCode runs.
+
+The GoCode-native four-role route is explicit and model-pinned:
+
+| Role | GoCode model |
+| --- | --- |
+| GLM — planning and revision | `gocode-openai/luna` |
+| Astra — challenge and final review | `gocode-openai/astra` |
+| Terra — implementation | `gocode-openai/terra` |
+| Sol — independent validation | `gocode-openai/sol` |
+
+Override a role only with another `gocode-openai/<model>` identifier. The
+runner checks GoCode's managed identity before dispatch and stores it in the
+checkpoint, so a resumed run cannot silently switch routes.
 
 | Role | CLI and billing route | Default model |
 | --- | --- | --- |
