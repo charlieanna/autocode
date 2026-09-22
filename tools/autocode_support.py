@@ -109,8 +109,8 @@ def assert_no_legacy_process(run_dir, workspace):
         if not owned or processes.live_processes(owned):
             raise Paused("PAUSED_WORKSPACE_BUSY", "Provider commands from an earlier stage may still be alive; inspect its checkpoint")
     try:
-        result = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True)
-    except OSError as error:
+        result = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as error:
         raise Paused("PAUSED_PROCESS_CHECK", "Cannot inspect legacy workers; refuse possible duplicate launch") from error
     if result.returncode:
         raise Paused("PAUSED_PROCESS_CHECK", "Cannot inspect legacy workers; refuse possible duplicate launch")

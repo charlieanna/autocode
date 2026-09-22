@@ -301,11 +301,28 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual(0, self.state.get('consecutive_timeout_recoveries', 0))
         self.assertEqual('sol', self.state['next_stage'])
 
-    def test_zero_no_progress_budget_explicitly_disables_timeout_recovery_cap(self):
+    def test_zero_no_progress_budget_does_not_disable_aggregate_recovery_ceiling(self):
         self.state['settings']['limits']['no_progress_batches'] = 0
-        self.state['consecutive_timeout_recoveries'] = 100
+        self.state['consecutive_timeout_recoveries'] = 0
+        self.state['automatic_recoveries_since_resume'] = 3
+        with self.assertRaises(support.Paused):
+            runner.timeout_recovery_guard(self.state)
+
+    def test_legacy_recent_failures_seed_the_aggregate_recovery_ceiling(self):
+        self.state['settings']['limits']['no_progress_batches'] = 0
+        self.state.update(consecutive_timeout_recoveries=1, no_progress_batches=3,
+                          automatic_timeout_recoveries=[{}, {}],
+                          automatic_permission_recoveries=[{}])
+        self.assertEqual(3, runner.recovery_count(self.state))
+        with self.assertRaises(support.Paused):
+            runner.timeout_recovery_guard(self.state)
+
+    def test_legacy_recovered_history_does_not_exhaust_a_new_resume(self):
+        self.state.update(consecutive_timeout_recoveries=0, no_progress_batches=0,
+                          automatic_timeout_recoveries=[{}, {}, {}],
+                          automatic_recoveries_since_resume=0)
+        self.assertEqual(0, runner.recovery_count(self.state))
         runner.timeout_recovery_guard(self.state)
-        self.assertEqual(100, self.state['consecutive_timeout_recoveries'])
 
     def test_explicit_resume_reopens_recovery_budget_without_erasing_history(self):
         self.start_task()
@@ -313,12 +330,13 @@ class ActivityRuntimeTests(unittest.TestCase):
                    for n in range(1, 4)]
         self.state.update(status='PAUSED_TIMEOUT_RECOVERY', next_stage='astra_review',
                           consecutive_timeout_recoveries=3, no_progress_batches=3,
-                          automatic_timeout_recoveries=copy.deepcopy(history))
+                          automatic_timeout_recoveries=copy.deepcopy(history), automatic_recoveries_since_resume=3)
         calls = []
 
         def inspect(**kwargs):
             calls.append(kwargs['role'])
             self.assertEqual(0, kwargs['state'].get('consecutive_timeout_recoveries', 0))
+            self.assertEqual(0, runner.recovery_count(kwargs['state']))
             self.assertEqual(history, kwargs['state']['automatic_timeout_recoveries'])
             raise support.Paused('PAUSED_TEST', 'Offline dispatch inspected')
 

@@ -3,49 +3,70 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import os
-from pathlib import Path
 import signal
 import subprocess
 import threading
 import time
+
+import psutil
 
 
 class ProcessError(RuntimeError):
     pass
 
 
-def process_table():
-    """Read identity, ancestry and executable names; never command arguments."""
-    try:
-        result = subprocess.run(
-            ["ps", "-axo", "pid=,ppid=,pgid=,lstart=,stat=,comm="], capture_output=True,
-            text=True, timeout=5, env={**os.environ, "LC_ALL": "C"})
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise ProcessError("Cannot inspect provider subprocesses; refusing an unsafe launch or cleanup") from error
-    if result.returncode:
-        raise ProcessError("Cannot inspect provider subprocesses; refusing an unsafe launch or cleanup")
+def process_ids():
+    last_error = None
+    for attempt in range(3):
+        try:
+            return psutil.pids()
+        except (psutil.Error, OSError) as error:
+            last_error = error
+            if attempt < 2:
+                time.sleep(.05 * (attempt + 1))
+    raise ProcessError("Cannot enumerate provider processes; refusing an unsafe launch or cleanup") from last_error
+
+
+def process_table(pids=None):
+    """Read native process metadata; never inspect command arguments."""
+    selected = process_ids() if pids is None else set(pids)
     table = {}
-    for line in result.stdout.splitlines():
-        fields = line.split(None, 9)
-        if len(fields) != 10:
-            raise ProcessError("Unexpected process metadata format")
-        pid, parent, group = map(int, fields[:3])
-        table[pid] = {"pid": pid, "parent": parent, "group": group,
-                      "started": " ".join(fields[3:8]), "state": fields[8],
-                      "executable": Path(fields[9]).name}
+    for pid in selected:
+        try:
+            process = psutil.Process(pid)
+            with process.oneshot():
+                born = process.create_time()
+                parent = process.ppid()
+                status = process.status()
+                executable = process.name()
+                group = os.getpgid(pid)
+            table[pid] = {"pid": pid, "parent": parent, "group": group,
+                          "started": " ".join(time.ctime(born).split()),
+                          "birth_time": born,
+                          "state": "Z" if status == psutil.STATUS_ZOMBIE else status,
+                          "executable": executable}
+        except (psutil.NoSuchProcess, ProcessLookupError):
+            continue
+        except (psutil.AccessDenied, PermissionError) as error:
+            if pids is not None:
+                raise ProcessError(f"Cannot inspect owned process {pid}: access denied; workspace remains blocked") from error
+        except (psutil.Error, OSError) as error:
+            raise ProcessError(f"Cannot inspect process {pid}: {type(error).__name__}; workspace remains blocked") from error
     return table
 
 
 def identity(row):
-    return {key: row[key] for key in ("pid", "started", "group")}
+    return {key: row[key] for key in ("pid", "started", "group", "birth_time") if key in row}
 
 
 def matches(saved, current):
-    return bool(current and saved["pid"] == current["pid"] and saved["started"] == current["started"])
+    if not current or saved["pid"] != current["pid"] or saved["started"] != current["started"]:
+        return False
+    return "birth_time" not in saved or saved["birth_time"] == current.get("birth_time")
 
 
 def live_processes(saved, table=None):
-    table = process_table() if table is None else table
+    table = process_table({p["pid"] for p in saved}) if table is None else table
     return [table[p["pid"]] for p in saved
             if matches(p, table.get(p["pid"])) and not table[p["pid"]]["state"].startswith("Z")]
 
@@ -57,10 +78,61 @@ class ProcessTree:
         self.checkpoint = checkpoint
 
     def sample(self, *, initial=False, notify=True):
-        table = process_table()
-        if initial and self.pid in table:
+        table = process_table(set(self.known) | {self.pid})
+        if self.pid in table and self.pid not in self.known:
             self.known[self.pid] = identity(table[self.pid])
         owned = {pid for pid, saved in self.known.items() if matches(saved, table.get(pid))}
+        covered = set()
+        for pid in sorted(owned, key=lambda value: value != self.pid):
+            if pid in covered or table[pid]["state"].startswith("Z"):
+                continue
+            try:
+                parent = psutil.Process(pid)
+                if parent.create_time() != table[pid].get("birth_time"):
+                    continue
+                descendants = parent.children(recursive=True)
+                candidates = {child.pid: child.create_time() for child in descendants}
+            except psutil.NoSuchProcess:
+                continue
+            except PermissionError:
+                # macOS can deny sysctl's process-list allocation under table
+                # pressure. Recover ancestry with scoped ppid reads; do not
+                # abandon the descendants of an already verified provider.
+                candidates = {}
+                for candidate in process_ids():
+                    try:
+                        child = psutil.Process(candidate)
+                        if child.ppid() == pid:
+                            candidates[candidate] = child.create_time()
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        continue
+                found = process_table(candidates)
+                found = {child_pid: row for child_pid, row in found.items()
+                         if row["birth_time"] == candidates[child_pid]}
+                table.update(found)
+                owned.update(found)
+                covered.update(found)
+            except psutil.Error as error:
+                raise ProcessError(f"Cannot inspect descendants of owned process {pid}: {type(error).__name__}") from error
+            found = process_table(candidates)
+            found = {child_pid: row for child_pid, row in found.items()
+                     if row["birth_time"] == candidates[child_pid]}
+            table.update(found)
+            owned.update(found)
+            covered.update(found)
+        groups = {table[pid]["group"] for pid in owned if table[pid]["group"] == pid}
+        if groups:
+            candidates = set()
+            for candidate in process_ids():
+                try:
+                    if os.getpgid(candidate) in groups and candidate not in table:
+                        candidates.add(candidate)
+                except ProcessLookupError:
+                    pass
+            found = process_table(candidates)
+            found = {child_pid: row for child_pid, row in found.items() if row["group"] in groups}
+            table.update(found)
+            owned.update(found)
         while True:
             # A group is owned only while a recorded group leader has the same
             # process identity. This avoids signalling an unrelated reused PID.
@@ -79,7 +151,7 @@ class ProcessTree:
 
     def signal(self, rows, sig):
         # Recheck birth identity immediately before a signalling batch.
-        table = process_table()
+        table = process_table({row["pid"] for row in rows})
         for row in rows:
             if row["pid"] in (os.getpid(), os.getppid()) or not matches(row, table.get(row["pid"])):
                 continue
@@ -89,34 +161,45 @@ class ProcessTree:
                 pass
 
     def stop(self, child):
-        # Freeze parents and newly discovered descendants before termination so a
-        # tool cannot be orphaned in the interval between discovery and signalling.
-        frozen = set()
-        for _ in range(8):
+        # Freeze the verified tree before termination. Always resume anything
+        # we may have stopped, even when an ancestry scan or signal fails.
+        frozen = {}
+        try:
+            for _ in range(8):
+                rows = self.sample(notify=False)
+                fresh = [r for r in rows if (r["pid"], r["started"]) not in frozen]
+                if not fresh:
+                    break
+                frozen.update({(r["pid"], r["started"]): r for r in fresh})
+                self.signal(fresh, signal.SIGSTOP)
             rows = self.sample(notify=False)
-            fresh = [r for r in rows if (r["pid"], r["started"]) not in frozen]
-            if not fresh:
-                break
-            self.signal(fresh, signal.SIGSTOP)
-            frozen.update((r["pid"], r["started"]) for r in fresh)
-        rows = self.sample(notify=False)
-        self.signal(rows, signal.SIGTERM)
-        self.signal(rows, signal.SIGCONT)
-        deadline = time.monotonic() + 2
-        while time.monotonic() < deadline:
-            child.poll()  # reap the direct child; orphan zombies are not writers
-            rows = self.sample(notify=False)
-            if not rows:
-                return
-            time.sleep(.05)
-        self.signal(rows, signal.SIGKILL)
-        deadline = time.monotonic() + 2
-        while time.monotonic() < deadline:
-            child.poll()
-            if not self.sample(notify=False):
-                return
-            time.sleep(.05)
-        raise ProcessError("Provider commands remain alive after cleanup; the workspace remains blocked")
+            self.signal(rows, signal.SIGTERM)
+            self.signal(rows, signal.SIGCONT)
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                child.poll()
+                rows = self.sample(notify=False)
+                if not rows:
+                    if child.poll() is None:
+                        child.wait(timeout=1)
+                    return
+                time.sleep(.05)
+            self.signal(rows, signal.SIGKILL)
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                child.poll()
+                if not self.sample(notify=False):
+                    if child.poll() is None:
+                        child.wait(timeout=1)
+                    return
+                time.sleep(.05)
+            raise ProcessError("Provider commands remain alive after cleanup; the workspace remains blocked")
+        except ProcessError:
+            # A failed discovery pass must not strand recorded workers stopped.
+            self.signal(list(self.known.values()), signal.SIGKILL)
+            raise
+        finally:
+            self.signal(list(frozen.values()), signal.SIGCONT)
 
 
 @contextmanager
@@ -149,9 +232,25 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
     watchdog_errors = []
     last_publish = 0
     last_activity_key = None
+    escalation_timer = None
+
+    def signal_provider(sig):
+        if child.poll() is not None:
+            return
+        try:
+            # Providers are launched with start_new_session=True, so their pid
+            # is a private process-group leader.  Recheck that invariant before
+            # signalling a group; a mock or non-conforming child only receives
+            # a direct signal.
+            if os.getpgid(child.pid) == child.pid:
+                os.killpg(child.pid, sig)
+            else:
+                os.kill(child.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            pass
 
     def stop_at_deadline(reason):
-        nonlocal latest_activity
+        nonlocal latest_activity, escalation_timer
         with firing:
             if stopped.is_set() or watchdog_fired.is_set() or child.poll() is not None:
                 return
@@ -163,17 +262,10 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
                                    "activity": "stalled" if reason["kind"] == "idle" else "timed_out",
                                    "timeout_kind": reason["kind"], "timeout_reason": reason["reason"]}
             watchdog_fired.set()
-        try:
-            # Providers are launched with start_new_session=True, so their pid
-            # is a private process-group leader.  Recheck that invariant before
-            # signalling a group; a mock or non-conforming child only receives
-            # a direct signal.
-            if os.getpgid(child.pid) == child.pid:
-                os.killpg(child.pid, signal.SIGTERM)
-            else:
-                os.kill(child.pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            pass
+        escalation_timer = threading.Timer(2, signal_provider, args=(signal.SIGKILL,))
+        escalation_timer.daemon = True
+        escalation_timer.start()
+        signal_provider(signal.SIGTERM)
 
     def observe():
         nonlocal latest_activity, latest_observation
@@ -271,6 +363,8 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
                     child.wait(timeout=2)
                 raise
         finally:
+            if escalation_timer:
+                escalation_timer.cancel()
             for sig, handler in handlers.items():
                 signal.signal(sig, handler)
     if watchdog_errors:
