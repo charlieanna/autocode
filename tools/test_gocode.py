@@ -41,8 +41,15 @@ class GoCodeTransportTests(unittest.TestCase):
         status = "\n".join(("gocode version: fixture", "mode: managed", "credential bundle: absent"))
         with patch.object(gocode.shutil, "which", return_value="/fixture/gocode"), \
              patch.object(gocode.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=status, stderr="")), \
-             self.assertRaisesRegex(RuntimeError, "credential bundle"):
+             self.assertRaisesRegex(RuntimeError, "authenticated managed route"):
             gocode.local_settings(Path("/workspace"))
+
+    def test_authenticated_unmanaged_gocode_is_a_valid_direct_route(self):
+        status = "\n".join(("gocode version: fixture", "mode: unmanaged", "GoCode authentication: ok via GoCode Client Service"))
+        with patch.object(gocode.shutil, "which", return_value="/fixture/gocode"), \
+             patch.object(gocode.subprocess, "run", return_value=SimpleNamespace(returncode=0, stdout=status, stderr="")):
+            identity = gocode.local_settings(Path("/workspace"))
+        self.assertEqual("gocode", identity["engine"])
 
     def test_gocode_joint_settings_assign_all_four_roles_without_opencode(self):
         args = SimpleNamespace(

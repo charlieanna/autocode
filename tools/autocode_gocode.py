@@ -31,13 +31,15 @@ def local_settings(workspace: Path) -> dict:
     except (OSError, subprocess.TimeoutExpired) as error:
         raise RuntimeError("GoCode status check failed; no agent was launched") from error
     summary = result.stdout + result.stderr
-    if result.returncode or "mode: managed" not in summary:
-        raise RuntimeError("GoCode is not in managed mode; no agent was launched")
-    if "credential bundle: present" not in summary:
-        raise RuntimeError("GoCode credential bundle is unavailable; no agent was launched")
+    managed = "mode: managed" in summary and "credential bundle: present" in summary
+    unmanaged_authenticated = ("mode: unmanaged" in summary
+                               and "GoCode authentication: ok" in summary)
+    if result.returncode or not (managed or unmanaged_authenticated):
+        raise RuntimeError("GoCode has no authenticated managed route; no agent was launched")
     return {
         "engine": "gocode",
         "executable": executable,
+        "mode": "managed" if managed else "unmanaged",
         "status_sha256": hashlib.sha256(summary.encode()).hexdigest(),
     }
 
