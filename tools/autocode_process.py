@@ -214,9 +214,11 @@ def interruption_handler():
         signal.signal(signal.SIGTERM, previous)
 
 
-def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkpoint=None):
+def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkpoint=None,
+                   startup_grace=0):
     tree = ProcessTree(child.pid, checkpoint)
     deadline = time.monotonic() + timeout if timeout else None
+    startup_deadline = time.monotonic() + max(0, float(startup_grace))
     stopped = threading.Event()
     watchdog_fired = threading.Event()
     firing = threading.Lock()
@@ -291,6 +293,10 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
             if deadline is not None and current >= deadline:
                 stop_at_deadline({"kind": "stage", "reason": f"Stage exceeded its {timeout:g}-second hard runtime limit"})
                 return
+            if current < startup_deadline:
+                if stopped.wait(.05):
+                    return
+                continue
             observed_at, snapshot = latest_observation
             lag = max(0, current - observed_at)
             tool_elapsed = snapshot.get("tool_elapsed_seconds")

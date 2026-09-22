@@ -58,8 +58,11 @@ python3 -m venv .venv
 .venv/bin/autocode "Build a greeting CLI" --workspace /path/to/project
 ```
 
-New runs use joint Requirements Planner/Plan Reviewer work by default. `--joint-planning` is accepted and
-redundant. `--engine codex` is the explicit single-CLI loop; it does not use joint planning.
+New runs use joint Requirements Planner/Plan Reviewer work by default. An approved
+three-role OpenCode run can add GLM planning at a clean execution boundary with
+`--joint-planning --resume-paused`. Its approved work and existing sessions remain;
+GLM joins the next brief revision. `--engine codex` is the explicit single-CLI
+loop; it does not use joint planning.
 
 | Role | CLI and billing route | Automatic escalation ladder |
 | --- | --- | --- |
@@ -834,7 +837,15 @@ Rejected and recovered attempts count toward the active-time budget.
 A completed response with invalid JSON or an invalid report is archived and pauses;
 `--resume-paused` starts a new explicit attempt. Timeouts with no terminal response
 receive the bounded automatic recovery above; other uncertain responses need inspection
-first. To retain partial edits and set aside a stopped attempt manually:
+first.
+
+An execution report whose two read-only repairs are exhausted can be retried with
+`--resume-paused`. Autocode archives the rejected reports and starts a fresh role
+session; it does not replay implementation or planning. A transport-change pause
+can be resumed with `--resume-paused --accept-transport-change` after Autocode checks
+that the current OpenCode models and subscription routes are available.
+
+To retain partial edits and set aside a stopped attempt manually:
 
 ```sh
 autocode --workspace /path/to/project --run-dir /path/to/run --status

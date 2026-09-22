@@ -477,12 +477,16 @@ class Handler(BaseHTTPRequestHandler):
   return p.scheme=='http' and p.netloc==hosts[0] and p.hostname is not None and p.username is None and p.password is None and not(p.path or p.params or p.query or p.fragment)
  def do_GET(self):
   try:return self.get_request()
-  except (OSError,ValueError,TypeError) as error:return self.reply(503,{'error':str(error)})
+  except (BrokenPipeError,ConnectionResetError):return
+  except (OSError,ValueError,TypeError) as error:
+   try:return self.reply(503,{'error':str(error)})
+   except (BrokenPipeError,ConnectionResetError):return
   except Exception as error:
    # A failed view must not close the socket or look like a fresh checkpoint.
    # Do not send state, credentials, or arbitrary exception text to the browser.
    print('Dashboard GET failed: '+type(error).__name__,file=sys.stderr,flush=True)
-   return self.reply(500,{'error':'Task status could not be loaded. Saved work is unchanged; retry or check the dashboard server log.'})
+   try:return self.reply(500,{'error':'Task status could not be loaded. Saved work is unchanged; retry or check the dashboard server log.'})
+   except (BrokenPipeError,ConnectionResetError):return
  def get_request(self):
   p=urlparse(self.path)
   if not self.same_origin():return self.reply(403,{'error':'cross-origin request rejected'})
@@ -535,7 +539,10 @@ class Handler(BaseHTTPRequestHandler):
     else:raise ValueError('Unknown watch-root action')
    else:raise ValueError('not found')
    self.reply(202,x)
-  except (ValueError,TypeError,OSError,json.JSONDecodeError) as e:self.reply(400,{'error':str(e)})
+  except (BrokenPipeError,ConnectionResetError):return
+  except (ValueError,TypeError,OSError,json.JSONDecodeError) as e:
+   try:self.reply(400,{'error':str(e)})
+   except (BrokenPipeError,ConnectionResetError):return
 def main():
   p=argparse.ArgumentParser();p.add_argument('--workspace',action='append',default=[]);p.add_argument('--watch-root',action='append',default=[]);p.add_argument('--watch-depth',type=int,default=3);p.add_argument('--runner',default=str(Path(__file__).resolve().parents[1]/'autocode.py'));p.add_argument('--port',type=int,default=8765);a=p.parse_args()
   if a.watch_depth<0:p.error('--watch-depth must be zero or greater')

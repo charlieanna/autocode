@@ -348,7 +348,8 @@ def run_role(
             write_json(run_dir / "state.json", state)
         try:
             exit_code, timed_out = processes.wait_for_stage(
-                child, stage_timeout, checkpoint, activity=activity, activity_checkpoint=activity_checkpoint)
+                child, stage_timeout, checkpoint, activity=activity, activity_checkpoint=activity_checkpoint,
+                startup_grace=min(5, tool_timeout or 5))
         except KeyboardInterrupt:
             interrupted = True
             exit_code = child.poll()
@@ -742,6 +743,9 @@ def abandon_stage(state, run_dir, workspace, selected):
     record.update(after_ref=str(after_path), source_revision=after["revision"],
                   changed_files=support.changed_paths(before, after), abandoned=True)
     originals = archive_rejected_stage(state, run_dir, record, "Operator abandoned uncertain response; workspace edits retained")
+    if record.get("report_only") and state.get("pending_report_repair"):
+        state.setdefault("report_repair_archive", []).append({
+            "reason": "Report repair attempt abandoned", "repair": state.pop("pending_report_repair")})
     escalation.advance(state, record.get("route_role", record["role"]),
                        trigger="abandoned_attempt", detail="Operator abandoned an uncertain response")
     state["sessions"].pop(record.get("route_role", record["role"]), None)
@@ -957,6 +961,35 @@ def prepare_planning_retry(state, run_dir):
     return True
 
 
+def prepare_exhausted_execution_report_retry(state, run_dir):
+    """Allow an explicit fresh execution report after bounded repairs fail."""
+    if state.get('status') != 'PAUSED_REPORT_REPAIR_LIMIT' or state.get('active_stage'):
+        return False
+    pending = state.get('pending_report_repair')
+    original = pending.get('original') if isinstance(pending, dict) else None
+    if not isinstance(original, dict):
+        return False
+    stage = original.get('stage')
+    if (stage != state.get('next_stage') or stage == 'astra_discovery'
+            or planning.is_planning(state, stage)
+            or pending.get('attempts') != repair_limit(state)):
+        return False
+    state.setdefault('report_repair_archive', []).append({
+        'at': now(), 'reason': 'Explicit fresh execution retry after exhausted report repairs',
+        'repair': state.pop('pending_report_repair')})
+    role = original.get('route_role') or original.get('role')
+    old = state.setdefault('sessions', {}).pop(role, None) if role else None
+    if old:
+        state.setdefault('session_rotations', []).append({
+            'role': role, 'old_session': old, 'at': now(),
+            'reason': 'Explicit fresh execution retry after exhausted report repairs'})
+    state.setdefault('reconciliation_notes', []).append({
+        'at': now(), 'stage': stage, 'iteration': original.get('iteration'),
+        'reason': 'Explicit fresh execution retry; rejected reports retained'})
+    write_json(run_dir / 'state.json', state)
+    return True
+
+
 def reconcile_active(state, run_dir, workspace):
     record = state.get("active_stage")
     if not record:
@@ -1063,10 +1096,20 @@ def configure(args, state):
         raise ValueError("Start a new run to change its Figma reference")
     saved_joint = bool(state.get("settings", {}).get("joint_planning"))
     requested_joint = getattr(args, "joint_planning", False)
+    enable_saved_joint = started and requested_joint and not saved_joint
     if started:
-        if requested_joint and not saved_joint:
-            raise ValueError("Start a new run to enable joint planning; saved role sessions cannot switch engines")
-        joint = saved_joint
+        if enable_saved_joint:
+            saved = state.get("settings", {})
+            if engine != "opencode" or saved_engine != "opencode" or any(
+                    planning.engine_for(saved, role) != "opencode" for role in saved.get("roles", {})):
+                raise ValueError("Start a new OpenCode run to enable joint planning across different session engines")
+            if any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts")):
+                raise ValueError("Resolve the saved provider attempt before enabling joint planning")
+            if (state.get("version", 1) < 3 or not goals.approved(state)
+                    or state.get("next_stage") not in ("astra_plan", "terra", "sol", "astra_review", "astra_checkpoint")
+                    or state.get("status") != "RUNNING" and not str(state.get("status", "")).startswith("PAUSED_")):
+                raise ValueError("Start a new run or reach an approved execution boundary before enabling joint planning")
+        joint = saved_joint or enable_saved_joint
     elif engine == "codex":
         if requested_joint:
             raise ValueError("--joint-planning uses OpenCode with Codex routes for Astra and Sol; omit --engine codex")
@@ -1123,6 +1166,14 @@ def configure(args, state):
             selected = getattr(args, flag, None)
             if selected is not None:
                 settings.setdefault("limits", {})[name] = selected
+        if enable_saved_joint:
+            settings["joint_planning"] = True
+            settings["roles"]["glm"] = {"engine": "opencode", "provider": None,
+                "model": getattr(args, "glm_model", None) or opencode.DEFAULT_MODELS["glm"],
+                "reasoning_effort": None}
+            settings.setdefault("transport_identities", {})["opencode"] = settings["transport_identity"]
+            opencode.check_models(settings["roles"], Path(state["workspace"]))
+            opencode.check_subscription_routes(settings["roles"], Path(state["workspace"]))
         if joint:
             configure_joint(settings, args, fresh=False)
         if getattr(args,'unlimited_iterations',False):
@@ -1132,6 +1183,19 @@ def configure(args, state):
                 raise ValueError("Enable --milestone-checkpoints before setting its budget")
             if milestones.enabled({"settings": settings}):
                 settings['milestone_checkpoints']['max_seconds'] = args.max_milestone_seconds
+        if getattr(args, "accept_transport_change", False):
+            if engine != "opencode" or state.get("status") != "PAUSED_TRANSPORT_CHANGED":
+                raise ValueError("--accept-transport-change requires an OpenCode run paused for a transport change")
+            if any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts")):
+                raise ValueError("Resolve the saved provider attempt before accepting a transport change")
+            workspace = Path(state["workspace"])
+            current = opencode.local_settings(workspace)
+            routed = {role: config for role, config in settings["roles"].items()
+                      if planning.engine_for(settings, role) == "opencode"}
+            opencode.check_models(routed, workspace)
+            opencode.check_subscription_routes(routed, workspace)
+            settings["transport_identity"] = current
+            settings.setdefault("transport_identities", {})["opencode"] = current
         return settings
     local = opencode.local_settings(state["workspace"]) if engine == "opencode" else support.local_settings()
     models = {}
@@ -1553,7 +1617,7 @@ def main() -> int:
     parser.add_argument("--engine", choices=["codex", "opencode"],
                         help="New-run default is OpenCode joint planning; --engine codex is the single-CLI loop. Resumes keep the saved engine")
     parser.add_argument("--joint-planning", action="store_true",
-                        help="Enabled by default for new OpenCode runs. GLM drafts → Astra challenges → GLM revises → Astra finalizes → you approve")
+                        help="Default for new OpenCode runs; add GLM planning to an approved saved OpenCode run at a clean execution boundary")
     parser.add_argument("--glm-model", help="Planning-role OpenCode provider/model (default: zai-coding-plan/glm-5.3)")
     parser.add_argument("--max-iterations", type=int, help="Total iteration ceiling (new-run default: 15; resumes keep saved limits)")
     parser.add_argument('--unlimited-iterations',action='store_true',help='Remove only the iteration ceiling; other safety and usage limits remain')
@@ -1604,6 +1668,8 @@ def main() -> int:
     parser.add_argument("--max-reported-tokens", type=int)
     parser.add_argument("--no-progress-limit", type=int, help="Pause after this many unchanged batches (new-run default: 3)")
     parser.add_argument("--resume-paused", action="store_true", help="Acknowledge a saved pause; uncertain stages still require reconciliation")
+    parser.add_argument("--accept-transport-change", action="store_true",
+                        help="With --resume-paused, accept the current validated OpenCode configuration at a clean transport-change pause")
     parser.add_argument("--abandon-stage", metavar="ATTEMPT_ID",
                         help="Set aside exactly this stopped uncertain attempt, preserving edits and logs; no agent is launched")
     parser.add_argument("--show-goal", action="store_true", help="Display the exact contract revision and approval token")
@@ -1620,6 +1686,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.unlimited_iterations and (args.max_iterations is not None or args.legacy_iteration_ceiling is not None):
         parser.error('--unlimited-iterations cannot be combined with an explicit iteration ceiling')
+    if args.accept_transport_change and (not args.run_dir or not args.resume_paused):
+        parser.error("--accept-transport-change requires --run-dir and --resume-paused")
     if args.chat is None:
         args.chat = sys.stdin.isatty() and sys.stdout.isatty()
     for flag in ("max_iterations", "legacy_iteration_ceiling", "max_seconds", "max_stage_seconds", "max_idle_seconds", "max_tool_seconds", "max_reported_tokens", "no_progress_limit", "max_milestone_seconds"):
@@ -1720,6 +1788,16 @@ def main() -> int:
             state = read_json(state_path)
             if state["workspace"] != str(workspace):
                 parser.error("workspace differs from the locked checkpoint")
+            recovery = state.get("recovery_context") or {}
+            archived = (state.get("stages") or [{}])[-1]
+            if (args.resume_paused and not state.get("active_stage")
+                    and state.get("pending_report_repair")
+                    and archived.get("abandoned") and archived.get("report_only")
+                    and recovery.get("attempt_id") == attempt_id(archived)):
+                state.setdefault("report_repair_archive", []).append({
+                    "reason": "Reconciled previously abandoned report repair",
+                    "repair": state.pop("pending_report_repair")})
+                write_json(state_path, state)
         settings = configure(args, state)
         # A new checkpoint must exist before it is registered, so a failed registry
         # update leaves the same run directory available for an explicit retry.
@@ -1734,6 +1812,13 @@ def main() -> int:
             write_json(state_path, state)
             raise support.Paused("PAUSED_REGISTRY", message) from error
         if state.get("settings") and settings != state["settings"]:
+            previous_settings = state["settings"]
+            if settings.get("joint_planning") and not previous_settings.get("joint_planning"):
+                backup = run_dir / f"state.pre-joint-planning-{uuid.uuid4().hex[:8]}.json"
+                write_json(backup, state)
+                state.setdefault("planning_migrations", []).append({"at": now(), "backup": str(backup),
+                    "goal_token": goals.token(state["goal_contract"]), "next_stage": state.get("next_stage"),
+                    "reason": "Explicitly added GLM for future planning; existing approved work and sessions retained"})
             state.setdefault("configuration_changes", []).append({"at":now(),"previous":state["settings"],"selected":settings,
                 "reason":"Explicit launch arguments at a saved stage boundary"})
             state["settings"] = settings
@@ -1761,6 +1846,7 @@ def main() -> int:
             try:
                 if args.resume_paused:
                     prepare_planning_retry(state, run_dir)
+                    prepare_exhausted_execution_report_retry(state, run_dir)
                 reconcile_active(state, run_dir, workspace)
             except ReportRepairQueued:
                 pass  # Durable pending repair is dispatched below, not original work.

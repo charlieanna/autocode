@@ -265,6 +265,16 @@ run.mkdir(parents=True,exist_ok=True)
         self.assertIn("Unavailable selection: ", APP)
         self.assertIn("loadModels(true)", APP)
 
+    def test_cancelled_browser_response_does_not_attempt_a_second_error_response(self):
+        class Disconnected:
+            def get_request(self):
+                raise BrokenPipeError("browser stopped reading")
+
+            def reply(self, *_args, **_kwargs):
+                raise AssertionError("must not write another response")
+
+        Handler.do_GET(Disconnected())
+
 
 if __name__ == '__main__':
     unittest.main()

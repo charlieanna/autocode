@@ -433,7 +433,8 @@ def verify_checks(checks, workspace, event_path):
     the on-disk command receipt, and its complete output hash.
     """
     tool_outputs = [e["item"].get("aggregated_output", "") for e in events(event_path)
-                    if e.get("type") == "item.completed" and e.get("item", {}).get("type") == "command_execution"]
+                    if e.get("type") == "item.completed"
+                    and e.get("item", {}).get("type") in ("command_execution", "tool_output")]
     import shlex
     for check in checks:
         if check["evidence_ref"].startswith("event:"):

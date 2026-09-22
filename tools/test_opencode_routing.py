@@ -103,6 +103,20 @@ class OpenCodeRoutingTests(unittest.TestCase):
             runner.migrate_opencode_roles(self.state, self.run, self.run)
         self.assertEqual(before, self.state)
 
+    def test_explicit_transport_acceptance_uses_validated_current_identity_only_at_clean_pause(self):
+        current = {**self.identity, "version": "1.18.32", "config_hashes": {"cursor-acp": "current"}}
+        self.state["status"] = "PAUSED_TRANSPORT_CHANGED"
+        self.state["workspace"] = str(self.run)
+        args = test_planning.PlanningTests.configure_args(
+            self, resume_paused=True, accept_transport_change=True)
+        with patch.object(oc, "local_settings", return_value=current):
+            settings = runner.configure(args, self.state)
+        self.assertEqual(current, settings["transport_identity"])
+        self.assertEqual(current, settings["transport_identities"]["opencode"])
+        self.state["status"] = "RUNNING"
+        with self.assertRaisesRegex(ValueError, "paused for a transport change"):
+            runner.configure(args, self.state)
+
 
 class OpenCodeMigrationFlow(unittest.TestCase):
     setUp = test_planning.JointFlow.setUp

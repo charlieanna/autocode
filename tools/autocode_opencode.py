@@ -191,10 +191,14 @@ def prompt_for_schema(prompt, schema, events):
         "Return your final report as exactly one JSON object matching the following schema. "
         "Do not wrap it in explanation. OpenCode's --format json emits transport events; "
         "it does not validate your report. The runner validates every required field.\n"
-        "Your raw stage events are at " + str(events) + ". For command evidence, read the "
-        "tool_use rows where part.tool is bash and part.state.status is completed. "
-        "Cite event:<part.id>, copy part.state.input.command exactly, and report "
-        "part.state.metadata.exit. Never invent event IDs or exit codes.\n"
+        "Your raw stage events are at " + str(events) + ". A command event may be cited only when "
+        "part.tool is bash, part.state.status is completed, and part.state.metadata.exit is an integer. "
+        "Cite event:<part.id>, copy part.state.input.command exactly, and report that exit code. "
+        "Never invent event IDs or exit codes.\n"
+        "Some OpenCode provider bridges expose completed shell output without an exit code. That output "
+        "is not command evidence. For checks run through such a shell, use the capture_command in "
+        "CURRENT HANDOFF DATA with --output .autocode/evidence/<unique-name>.json -- <command>, "
+        "then cite that receipt path in checks and criterion evidence. Never create or edit a receipt manually.\n"
         "An evidence_refs entry must contain only a file path or the exact event:<part.id>; "
         "never append a command, exit code, punctuation or explanation to a reference. "
         "Do not cite a step_finish or text part ID. Terra should prefer the saved capture "
@@ -250,7 +254,7 @@ def normalized_events(rows):
     steps = []
     for row in parts.values():
         part = row["part"]
-        if row.get("type") == "tool_use" and part.get("tool") == "bash":
+        if row.get("type") == "tool_use" and part.get("tool") in ("bash", "shell"):
             state = part.get("state", {})
             command = state.get("input", {}).get("command")
             code = state.get("metadata", {}).get("exit")
@@ -258,6 +262,11 @@ def normalized_events(rows):
                 normalized.append({"type": "item.completed", "item": {
                     "type": "command_execution", "id": part["id"], "command": command,
                     "exit_code": code, "aggregated_output": state.get("output", "")}})
+            elif (part.get("tool") == "shell" and state.get("status") == "completed"
+                  and isinstance(command, str) and isinstance(state.get("output"), str)):
+                normalized.append({"type": "item.completed", "item": {
+                    "type": "tool_output", "id": part["id"], "command": command,
+                    "aggregated_output": state["output"]}})
         elif row.get("type") == "step_finish":
             steps.append(part)
     normalized += errors

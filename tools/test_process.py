@@ -54,7 +54,8 @@ class ProcessTests(unittest.TestCase):
             time.sleep(.01)
         (root / 'go').touch()
 
-    def activity_child(self, body, *, idle=.45, tool=1.5, total=None, sample=None, require_worker=False):
+    def activity_child(self, body, *, idle=.45, tool=1.5, total=None, sample=None, require_worker=False,
+                       startup_grace=0):
         """Run a real event-writing worker without making cleanup speed an assertion."""
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -74,12 +75,14 @@ class ProcessTests(unittest.TestCase):
                     if sample is None:
                         code, expired = processes.wait_for_stage(child, total,
                             lambda rows: owned.__setitem__(slice(None), rows), activity=monitor,
-                            activity_checkpoint=lambda value: snapshots.append(value.copy()))
+                            activity_checkpoint=lambda value: snapshots.append(value.copy()),
+                            startup_grace=startup_grace)
                     else:
                         with patch.object(processes.ProcessTree, 'sample', sample(child)):
                             code, expired = processes.wait_for_stage(child, total,
                                 lambda rows: owned.__setitem__(slice(None), rows), activity=monitor,
-                                activity_checkpoint=lambda value: snapshots.append(value.copy()))
+                                activity_checkpoint=lambda value: snapshots.append(value.copy()),
+                                startup_grace=startup_grace)
                     self.assertEqual([], processes.live_processes(owned))
                     self.assertFalse((root / 'late-write').exists())
                     if require_worker:
@@ -250,6 +253,12 @@ emit({'type':'tool_use','sessionID':'one','part':{'id':'part1','tool':'bash','st
         self.assertEqual(0, code)
         self.assertFalse(expired)
         self.assertTrue(snapshots)
+
+    def test_startup_grace_allows_a_brief_unreported_launch(self):
+        code, expired, _, _ = self.activity_child('time.sleep(.7)\n', idle=.2, tool=2,
+                                                  startup_grace=1)
+        self.assertEqual(0, code)
+        self.assertFalse(expired)
 
     def test_idle_mcp_helper_does_not_delay_provider_inactivity_timeout(self):
         body = """helper = Path('mcp-server-fixture')
