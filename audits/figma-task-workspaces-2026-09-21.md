@@ -52,6 +52,13 @@ The wheel was installed in a disposable virtual environment; both UI entrypoints
 design dry-run behavior, concurrent CLI launches, and accepted-handoff execution
 were checked against the packaged command.
 
+Results: 174 dashboard Python tests and 13 JavaScript test files passed. All 16
+Figma/worktree tests passed against the packaged command. The core discovery run
+completed 372 cases with 371 passes and one existing activity fixture timing out
+at its 0.4-second inactivity deadline. All 34 activity/process tests passed when
+rerun without concurrent test workloads. The final added Figma auth, preflight,
+and full CLI handoff tests also passed in the targeted 11-test Figma suite.
+
 ## Practical limits
 
 Task worktrees start from committed HEAD. Ignored dependencies, environment files
