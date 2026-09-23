@@ -1,15 +1,15 @@
-# Autocode GoCode Adapter
+# Autocode Provider Adapter
 
 This package runs a pinned, unchanged `charlieanna/autocode` checkout while
-substituting GoCode for its provider transport. Autocode still owns its workflow,
+selecting a provider transport. Autocode still owns its workflow,
 prompts, schemas, gates, retries, state, dashboard handlers, UI, and storage.
 
 ## Install and pin upstream
 
 ```sh
 python3 -m venv .venv
-.venv/bin/pip install /path/to/gocode_adapter
-.venv/bin/autocode-gocode sync \
+.venv/bin/pip install /path/to/autocode_provider_adapter
+.venv/bin/autocode-provider sync \
   --upstream /path/to/clean/autocode-clone \
   --checkout /path/to/pinned-autocode \
   --record /path/to/adapter-state/pin.json
@@ -20,7 +20,8 @@ creates or reuses a clean detached worktree. It never changes upstream source or
 its remotes. The old sync-only invocation without the `sync` word remains
 supported.
 
-GoCode must be in managed mode with a current broker login:
+The built-in provider is OpenCode. Select GoCode explicitly when needed; it must
+be in managed mode with a current broker login:
 
 ```sh
 gocode mode managed
@@ -30,15 +31,20 @@ gocode auth login
 ## Run from any project folder
 
 ```sh
-/path/to/.venv/bin/autocode-gocode run \
+/path/to/.venv/bin/autocode-provider run \
   --checkout /path/to/pinned-autocode --record /path/to/adapter-state/pin.json -- \
+  "Describe the task" --workspace "$PWD"
+
+# Or select GoCode.
+/path/to/.venv/bin/autocode-provider run \
+  --provider gocode --checkout /path/to/pinned-autocode --record /path/to/adapter-state/pin.json -- \
   "Describe the task" --workspace "$PWD"
 ```
 
 Resume with the same command and Autocode's normal run directory:
 
 ```sh
-/path/to/.venv/bin/autocode-gocode run \
+/path/to/.venv/bin/autocode-provider run \
   --checkout /path/to/pinned-autocode --record /path/to/adapter-state/pin.json -- \
   --run-dir /absolute/path/to/.autocode/runs/RUN
 ```
@@ -46,7 +52,7 @@ Resume with the same command and Autocode's normal run directory:
 Launch the original dashboard through the same pin and transport:
 
 ```sh
-/path/to/.venv/bin/autocode-gocode dashboard \
+/path/to/.venv/bin/autocode-provider dashboard \
   --checkout /path/to/pinned-autocode --record /path/to/adapter-state/pin.json -- \
   --workspace "$PWD" --port 8765
 ```
@@ -55,6 +61,11 @@ The default routes are Sol medium for `glm`, Sol high for the legacy `astra`
 role, Terra medium for `terra`, and Sol high for `sol` and completion. The legacy
 terminal alias `openai/gpt-6-astra` resolves to the manifest-pinned GoCode Claude
 Opus 5 shim; it never invokes Anthropic or OpenCode directly.
+
+Provider names other than `opencode` and `gocode` are plug-ins. Install a package
+named `autocode-provider-<name>` which exports `create_facade(manifest)` to add a
+provider such as KiloCode; the launcher then accepts `--provider <name>` without
+changing Autocode stages or roles.
 
 ## Boundaries
 

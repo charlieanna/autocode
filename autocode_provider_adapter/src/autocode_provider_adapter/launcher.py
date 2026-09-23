@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 from pathlib import Path
@@ -10,7 +11,7 @@ import subprocess
 import sys
 
 from .compatibility import CompatibilityError, CompatibilityManifest
-from .runtime import GoCodeFacade, load_upstream_runner
+from .runtime import GoCodeFacade, load_native_upstream_runner, load_upstream_runner
 from .sync import SyncError, UpstreamSynchronizer
 from .transport import GoCodeTransport, TransportError
 
@@ -36,16 +37,27 @@ def _verify_record(checkout: Path, record: Path, manifest: CompatibilityManifest
         raise SyncError(f"upstream checkout must remain pinned to {expected_commit}; found {current or 'unknown'}")
 
 
-def _runner(checkout: Path, record: Path):
+def _runner(checkout: Path, record: Path, provider: str):
     checkout = checkout.resolve()
     manifest = CompatibilityManifest.default()
     _verify_record(checkout, record.resolve(), manifest)
     manifest.verify(checkout)
-    return load_upstream_runner(checkout, GoCodeFacade(_transport()))
+    if provider == "opencode":
+        return load_native_upstream_runner(checkout)
+    if provider == "gocode":
+        return load_upstream_runner(checkout, GoCodeFacade(_transport()))
+    try:
+        plugin = importlib.import_module("autocode_provider_" + provider)
+        facade = plugin.create_facade(manifest)
+    except (ImportError, AttributeError) as error:
+        raise TransportError(
+            f"provider plugin {provider!r} is unavailable; install autocode-provider-{provider}"
+        ) from error
+    return load_upstream_runner(checkout, facade)
 
 
-def _run(checkout: Path, record: Path, arguments: list[str]) -> int:
-    module = _runner(checkout, record)
+def _run(checkout: Path, record: Path, provider: str, arguments: list[str]) -> int:
+    module = _runner(checkout, record, provider)
     sys.argv = [str(checkout.resolve() / "tools/autocode.py"), *arguments]
     return int(module.cli())
 
@@ -55,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     # Preserve the original sync-only CLI for existing local scripts.
     if argv and argv[0].startswith("--") and argv[0] not in {"--help", "-h"}:
         argv.insert(0, "sync")
-    parser = argparse.ArgumentParser(description="Use unchanged Autocode through GoCode")
+    parser = argparse.ArgumentParser(description="Use unchanged Autocode through a selectable provider")
     subparsers = parser.add_subparsers(dest="command", required=True)
     sync = subparsers.add_parser("sync", help="fetch and compatibility-check an upstream pin")
     sync.add_argument("--upstream", type=Path, required=True, help="clean Git checkout with the configured upstream remote")
@@ -65,12 +77,15 @@ def main(argv: list[str] | None = None) -> int:
     run = subparsers.add_parser("run", help="run or resume the pinned upstream CLI")
     run.add_argument("--checkout", type=Path, required=True)
     run.add_argument("--record", type=Path, required=True)
+    run.add_argument("--provider", default="opencode", help="opencode, gocode, or an installed provider plugin")
     run.add_argument("arguments", nargs=argparse.REMAINDER)
     models = subparsers.add_parser("models", help="print dashboard-compatible GoCode models")
+    models.add_argument("--provider", default="gocode")
     models.add_argument("--workspace", type=Path, default=Path.cwd())
     dashboard = subparsers.add_parser("dashboard", help="run the unchanged upstream dashboard")
     dashboard.add_argument("--checkout", type=Path, required=True)
     dashboard.add_argument("--record", type=Path, required=True)
+    dashboard.add_argument("--provider", default="opencode")
     dashboard.add_argument("arguments", nargs=argparse.REMAINDER)
     arguments = parser.parse_args(argv)
     try:
@@ -83,27 +98,38 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if arguments.command == "run":
             forwarded = arguments.arguments[1:] if arguments.arguments[:1] == ["--"] else arguments.arguments
-            return _run(arguments.checkout, arguments.record, forwarded)
+            return _run(arguments.checkout, arguments.record, arguments.provider, forwarded)
         if arguments.command == "models":
+            if arguments.provider != "gocode":
+                raise TransportError("model listing currently requires the selected provider's plug-in")
             for model in _transport().dashboard_catalogue(arguments.workspace.resolve()):
                 print("openai/" + model)
             return 0
         if arguments.command == "dashboard":
-            return _dashboard(arguments.checkout, arguments.record, arguments.arguments)
+            return _dashboard(arguments.checkout, arguments.record, arguments.provider, arguments.arguments)
         raise AssertionError(arguments.command)
     except (CompatibilityError, SyncError, TransportError, OSError, RuntimeError, ValueError) as error:
         parser.error(str(error))
 
 
-def _dashboard(checkout: Path, record: Path, arguments: list[str]) -> int:
+def _dashboard(checkout: Path, record: Path, provider: str, arguments: list[str]) -> int:
     checkout = checkout.resolve()
     manifest = CompatibilityManifest.default()
     _verify_record(checkout, record.resolve(), manifest)
     manifest.verify(checkout)
-    facade = GoCodeFacade(_transport())
-    load_upstream_runner(checkout, facade)
+    if provider == "opencode":
+        load_native_upstream_runner(checkout)
+    elif provider == "gocode":
+        facade = GoCodeFacade(_transport())
+        load_upstream_runner(checkout, facade)
+    else:
+        raise TransportError(f"dashboard provider plugin {provider!r} is unavailable")
     module = __import__("tools.dashboard.agent_console", fromlist=["main"])
     conversations = __import__("tools.dashboard.dashboard_conversations", fromlist=["_prompt"])
+    if provider == "opencode":
+        forwarded = arguments[1:] if arguments[:1] == ["--"] else arguments
+        sys.argv = [str(checkout / "tools/dashboard/agent_console.py"), *forwarded]
+        return int(module.main() or 0)
     os.environ["AUTOCODE_GOCODE_CHECKOUT"] = str(checkout)
     os.environ["AUTOCODE_GOCODE_PIN_RECORD"] = str(record.resolve())
     runner = Path(__file__).with_name("dashboard_runner.py")

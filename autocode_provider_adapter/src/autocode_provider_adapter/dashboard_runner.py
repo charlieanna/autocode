@@ -8,7 +8,7 @@ import sys
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from autocode_gocode_adapter.launcher import main
+from autocode_provider_adapter.launcher import main
 
 
 if __name__ == "__main__":

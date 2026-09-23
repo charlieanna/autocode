@@ -10,9 +10,9 @@ import subprocess
 
 import pytest
 
-from autocode_gocode_adapter.compatibility import CompatibilityManifest
-import autocode_gocode_adapter.transport as transport_module
-from autocode_gocode_adapter.transport import (
+from autocode_provider_adapter.compatibility import CompatibilityManifest
+import autocode_provider_adapter.transport as transport_module
+from autocode_provider_adapter.transport import (
     APPROVED_GPT_MODELS,
     CLAUDE_MODEL,
     CommandResult,

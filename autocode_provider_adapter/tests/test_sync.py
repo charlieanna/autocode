@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from autocode_gocode_adapter.compatibility import CompatibilityError, CompatibilityManifest
-from autocode_gocode_adapter.launcher import main
-from autocode_gocode_adapter.sync import SyncError, UpstreamSynchronizer
+from autocode_provider_adapter.compatibility import CompatibilityError, CompatibilityManifest
+from autocode_provider_adapter.launcher import main
+from autocode_provider_adapter.sync import SyncError, UpstreamSynchronizer
 
 
 def git(path: Path, *args: str) -> str:

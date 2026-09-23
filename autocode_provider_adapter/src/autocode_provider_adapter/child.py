@@ -22,7 +22,7 @@ def _load(path: Path):
 def main(argv=None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if len(arguments) != 1:
-        raise SystemExit("usage: autocode-gocode-child LAUNCH.json")
+        raise SystemExit("usage: autocode-provider-child LAUNCH.json")
     request, route, checkpoint = _load(Path(arguments[0]))
     transport = GoCodeTransport(CompatibilityManifest.default())
     current, managed_route = transport._current(request.workspace, checkpoint, request.run_dir)

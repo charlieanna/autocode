@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from autocode_gocode_adapter import launcher
+from autocode_provider_adapter import launcher
 
 
 def test_run_forwards_arguments_to_the_untouched_runner(monkeypatch, tmp_path: Path) -> None:
@@ -15,12 +15,24 @@ def test_run_forwards_arguments_to_the_untouched_runner(monkeypatch, tmp_path: P
         def cli():
             calls.append(list(launcher.sys.argv))
             return 7
-    monkeypatch.setattr(launcher, "_runner", lambda _checkout, _record: Runner)
+    monkeypatch.setattr(launcher, "_runner", lambda _checkout, _record, _provider: Runner)
     record = tmp_path / "pin.json"
     result = launcher.main(["run", "--checkout", str(tmp_path), "--record", str(record),
                             "--", "task", "--workspace", "/work"])
     assert result == 7
     assert calls == [[str(tmp_path / "tools/autocode.py"), "task", "--workspace", "/work"]]
+
+
+def test_opencode_is_a_native_provider_and_other_providers_use_plugins(monkeypatch, tmp_path: Path) -> None:
+    manifest = launcher.CompatibilityManifest.default()
+    monkeypatch.setattr(launcher, "_verify_record", lambda *_args: None)
+    monkeypatch.setattr(launcher.CompatibilityManifest, "verify", lambda _self, _checkout: None)
+    monkeypatch.setattr(launcher.CompatibilityManifest, "default", lambda: manifest)
+    sentinel = object()
+    monkeypatch.setattr(launcher, "load_native_upstream_runner", lambda _checkout: sentinel)
+    assert launcher._runner(tmp_path, tmp_path / "pin.json", "opencode") is sentinel
+    with pytest.raises(launcher.TransportError, match="provider plugin"):
+        launcher._runner(tmp_path, tmp_path / "pin.json", "kilocode")
 
 
 def test_models_print_provider_qualified_catalogue(monkeypatch, tmp_path: Path, capsys) -> None:

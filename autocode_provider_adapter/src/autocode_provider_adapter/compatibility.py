@@ -115,7 +115,7 @@ class CompatibilityManifest:
     def default(cls) -> "CompatibilityManifest":
         """Load the reviewed M1 seam manifest shipped by this adapter."""
         value = json.loads(
-            files("autocode_gocode_adapter").joinpath("compatibility-manifest-v1.json").read_text(encoding="utf-8")
+            files("autocode_provider_adapter").joinpath("compatibility-manifest-v1.json").read_text(encoding="utf-8")
         )
         return cls.from_dict(value)
 

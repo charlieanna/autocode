@@ -8,9 +8,9 @@ import sys
 
 import pytest
 
-from autocode_gocode_adapter.compatibility import CompatibilityManifest
-from autocode_gocode_adapter.runtime import GoCodeFacade, load_upstream_runner
-from autocode_gocode_adapter.transport import LaunchSpec, RoleRoute
+from autocode_provider_adapter.compatibility import CompatibilityManifest
+from autocode_provider_adapter.runtime import GoCodeFacade, load_upstream_runner
+from autocode_provider_adapter.transport import LaunchSpec, RoleRoute
 
 
 class FakeTransport:
@@ -48,7 +48,7 @@ def test_facade_completes_the_upstream_launch_seam_without_copying_run_role(tmp_
     events.parent.mkdir(parents=True)
     prompt = subject.prompt_for_schema("work", {"type": "object"}, events)
     assert prompt == "adapted:work"
-    assert command[:3] == [sys.executable, "-m", "autocode_gocode_adapter.child"]
+    assert command[:3] == [sys.executable, "-m", "autocode_provider_adapter.child"]
     descriptor = Path(command[3])
     document = json.loads(descriptor.read_text())
     assert document["request"]["workspace"] == str(tmp_path)
@@ -56,7 +56,7 @@ def test_facade_completes_the_upstream_launch_seam_without_copying_run_role(tmp_
     assert document["request"]["sandbox"] == "workspace-write"
     assert document["route"] == {"requested_model": "gpt-5.6-terra", "resolved_model": "gpt-5.6-terra", "effort": "medium"}
     assert "OPENAI_API_KEY" not in json.dumps(document)
-    assert environment["PYTHONPATH"].split(os.pathsep)[0].endswith("gocode_adapter/src")
+    assert environment["PYTHONPATH"].split(os.pathsep)[0].endswith("autocode_provider_adapter/src")
     assert overrides["transport"] == "gocode"
 
 

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from autocode_gocode_adapter.compatibility import CompatibilityError, CompatibilityManifest
+from autocode_provider_adapter.compatibility import CompatibilityError, CompatibilityManifest
 
 
 def test_manifest_identity_is_stable_and_probes_are_versioned(tmp_path: Path) -> None:

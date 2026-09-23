@@ -3,17 +3,17 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "autocode-gocode-adapter"
+name = "autocode-provider-adapter"
 version = "0.1.0"
-description = "External GoCode transport launcher for untouched Autocode checkouts"
+description = "Provider-neutral launcher for untouched Autocode checkouts"
 requires-python = ">=3.11"
 readme = "README.md"
 
 [project.scripts]
-autocode-gocode = "autocode_gocode_adapter.launcher:main"
+autocode-provider = "autocode_provider_adapter.launcher:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-autocode_gocode_adapter = ["compatibility-manifest-v1.json"]
+autocode_provider_adapter = ["compatibility-manifest-v1.json"]

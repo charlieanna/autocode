@@ -67,7 +67,7 @@ class GoCodeFacade(types.ModuleType):
         directory = run_dir / ".gocode-adapter"
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         descriptor = directory / ("launch-" + uuid.uuid4().hex + ".json")
-        command = [sys.executable, "-m", "autocode_gocode_adapter.child", str(descriptor)]
+        command = [sys.executable, "-m", "autocode_provider_adapter.child", str(descriptor)]
         environment = dict(os.environ)
         source_root = str(Path(__file__).resolve().parents[1])
         environment["PYTHONPATH"] = source_root + (os.pathsep + environment["PYTHONPATH"] if environment.get("PYTHONPATH") else "")
@@ -164,4 +164,11 @@ def load_upstream_runner(checkout: Path, facade: GoCodeFacade):
     checkout = Path(checkout).resolve()
     sys.path.insert(0, str(checkout))
     sys.modules["tools.autocode_opencode"] = facade
+    return importlib.import_module("tools.autocode")
+
+
+def load_native_upstream_runner(checkout: Path):
+    """Load the untouched built-in OpenCode provider path."""
+    checkout = Path(checkout).resolve()
+    sys.path.insert(0, str(checkout))
     return importlib.import_module("tools.autocode")
