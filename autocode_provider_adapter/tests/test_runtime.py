@@ -16,6 +16,7 @@ from autocode_provider_adapter.transport import LaunchSpec, RoleRoute
 class FakeTransport:
     def __init__(self) -> None:
         self.requests = []
+        self.validated_roles = []
 
     def identity(self, _workspace):
         return {"engine": "gocode", "version": "test", "route_fingerprint": "fingerprint"}
@@ -24,6 +25,7 @@ class FakeTransport:
         return current != checkpoint
 
     def validate_roles(self, roles):
+        self.validated_roles.append(roles)
         result = {}
         for role, config in roles.items():
             model = config.get("model", "openai/gpt-5.6-sol").removeprefix("openai/")
@@ -72,6 +74,14 @@ def test_facade_defaults_and_report_use_real_upstream_artifacts(tmp_path: Path) 
     events.write_text('{"type":"thread.started","thread_id":"abc"}\n', encoding="utf-8")
     events.with_suffix(".json").write_text('{"status":"PASS"}\n', encoding="utf-8")
     assert subject.final_report(events) == {"status": "PASS"}
+
+
+def test_facade_maps_plan_reviewer_to_the_supported_sol_route() -> None:
+    transport = FakeTransport()
+    subject = GoCodeFacade(transport)
+    routes = subject._routes({"plan_reviewer": {"model": "openai/gpt-5.6-sol", "reasoning_effort": "high"}})
+    assert routes["plan_reviewer"] == RoleRoute("gpt-5.6-sol", "gpt-5.6-sol", "high")
+    assert transport.validated_roles == [{"sol": {"model": "gpt-5.6-sol", "reasoning_effort": "high"}}]
 
 
 def test_runner_loader_injects_facade_and_does_not_modify_upstream(tmp_path: Path) -> None:

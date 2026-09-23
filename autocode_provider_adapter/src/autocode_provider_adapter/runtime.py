@@ -40,10 +40,16 @@ class GoCodeFacade(types.ModuleType):
 
     def _routes(self, roles):
         normalized = {}
+        aliases = {}
         for role, config in roles.items():
             model = config.get("model")
-            normalized[role] = {**config, "model": model.removeprefix("openai/") if isinstance(model, str) else model}
-        return self.transport.validate_roles(normalized)
+            transport_role = "sol" if role == "plan_reviewer" else role
+            aliases[role] = transport_role
+            normalized[transport_role] = {
+                **config, "model": model.removeprefix("openai/") if isinstance(model, str) else model,
+            }
+        routes = self.transport.validate_roles(normalized)
+        return {role: routes[transport_role] for role, transport_role in aliases.items()}
 
     def check_models(self, roles, workspace=None):
         routes = self._routes(roles)
