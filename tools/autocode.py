@@ -23,11 +23,12 @@ from typing import Any
 import copy
 import uuid
 try:
-    from . import autocode_support as support, autocode_goals as goals, autocode_interventions as interventions, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation
+    from . import autocode_support as support, autocode_goals as goals, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation
 except ImportError:
     import autocode_support as support
     import autocode_goals as goals
     import autocode_interventions as interventions
+    import autocode_providers
     import autocode_opencode as opencode
     import autocode_process as processes
     import autocode_registry as registry
@@ -1092,8 +1093,17 @@ def capture_command(argv):
 
 def configure(args, state):
     started = bool(state.get("settings") or state.get("sessions") or state.get("history"))
+    saved_provider = dict(state.get("settings") or {})
+    # Checkpoints created before provider selection shipped were necessarily
+    # OpenCode runs.  Treating that as explicit prevents an unsafe transport
+    # switch when they are resumed.
+    if started and "provider" not in saved_provider:
+        saved_provider["provider"] = "opencode"
+    provider_name = autocode_providers.select(getattr(args, "provider", None), saved_provider)
     saved_engine = state.get("settings", {}).get("engine") or ("codex" if started else None)
     engine = getattr(args, "engine", None) or saved_engine or DEFAULT_ENGINE
+    if engine == "codex" and provider_name != "opencode":
+        raise ValueError("--provider requires the OpenCode engine; --engine codex uses its native transport")
     figma_file = getattr(args, "figma_file", None)
     saved_figma = state.get("settings", {}).get("figma_file")
     if (figma_file or saved_figma) and engine != "codex":
@@ -1139,6 +1149,7 @@ def configure(args, state):
         raise ValueError("For OpenCode use --<role>-model provider/model instead of --<role>-provider")
     if state.get("settings"):
         settings = json.loads(json.dumps(state["settings"]))
+        settings.setdefault("provider", provider_name)
         # v0.5.4 introduced bounded report-only repairs.  Existing runs retain
         # their model, auth and limit settings while gaining the safe default
         # used by every newly-created run.
@@ -1240,7 +1251,7 @@ def configure(args, state):
             for r in DEFAULT_ROLE_MODELS}
     for role in getattr(args, "pin_model_role", []):
         roles[role]["model_pinned"] = True
-    settings = {"roles": roles, "transport_identity": local, "engine": engine,
+    settings = {"roles": roles, "transport_identity": local, "engine": engine, "provider": provider_name,
             "report_repair": {"max_attempts": 2},
             "milestone_checkpoints": {**milestones.DEFAULTS,
                 "max_seconds": getattr(args, 'max_milestone_seconds', None)
@@ -1621,6 +1632,7 @@ def rotate_if_needed(state, role, run_dir):
 
 
 def main() -> int:
+    global opencode
     if sys.argv[1:2] == ["tasks"]:
         try:
             from . import autocode_tasks
@@ -1649,6 +1661,8 @@ def main() -> int:
     parser.add_argument("--figma-review", choices=["automatic", "human"], help="Visual review policy for new Figma runs (default: automatic)")
     parser.add_argument("--engine", choices=["codex", "opencode"],
                         help="New-run default is OpenCode joint planning; --engine codex is the single-CLI loop. Resumes keep the saved engine")
+    parser.add_argument("--provider", default=None,
+                        help="OpenCode transport provider (default: opencode); external providers are installed plug-ins")
     parser.add_argument("--joint-planning", action="store_true",
                         help="Default for new OpenCode runs; add GLM planning to an approved saved OpenCode run at a clean execution boundary")
     parser.add_argument("--glm-model", help="Planning-role OpenCode provider/model (default: zai-coding-plan/glm-5.3)")
@@ -1817,6 +1831,14 @@ def main() -> int:
                            "milestone_activation_pending": (run_dir / 'milestone-checkpoints-requested.json').exists(),
                            "interventions": intervention_metadata(workspace, run_dir, state)}, indent=2))
         return 0
+    saved_provider = dict(state.get("settings") or {})
+    if state.get("settings") and "provider" not in saved_provider:
+        saved_provider["provider"] = "opencode"
+    try:
+        selected_provider = autocode_providers.select(args.provider, saved_provider)
+        opencode = autocode_providers.resolve(selected_provider)
+    except (RuntimeError, ValueError) as error:
+        parser.error(str(error))
     # Legacy runner does not own our new lock; detect it before touching state.
     support.assert_no_legacy_process(run_dir, workspace)
     with support.workspace_lock(workspace):
