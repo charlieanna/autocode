@@ -224,6 +224,18 @@ def _route_fingerprint(route: Mapping[str, str]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _catalogue_models(output: str) -> set[str]:
+    """Read either legacy bare model rows or GoCode's human table output."""
+    selected: set[str] = set()
+    for line in output.splitlines():
+        fields = line.split()
+        if len(fields) == 1 and fields[0] in APPROVED_GPT_MODELS:
+            selected.add(fields[0])
+        elif len(fields) >= 2 and fields[1] == "openai" and fields[0] in APPROVED_GPT_MODELS:
+            selected.add(fields[0])
+    return selected
+
+
 def _event_stream(path: Path):
     """Open the caller-owned event file without following a final-path symlink."""
     if not hasattr(os, "O_NOFOLLOW"):
@@ -742,8 +754,8 @@ class GoCodeTransport:
             raise TransportError("GoCode model catalogue is unavailable") from error
         if result.returncode:
             raise TransportError("GoCode model catalogue is unavailable")
-        models = {line.strip() for line in result.stdout.splitlines() if line.strip()}
-        if not models or not models <= APPROVED_GPT_MODELS:
+        models = _catalogue_models(result.stdout)
+        if not models:
             raise TransportError("GoCode model catalogue contains unsupported or ambiguous routes")
         return sorted(models)
 

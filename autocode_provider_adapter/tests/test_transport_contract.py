@@ -48,6 +48,7 @@ class FakeGoCode:
         self.authenticated = True
         self.exports: str | None = None
         self.catalogue = sorted(APPROVED_GPT_MODELS)
+        self.catalogue_output: str | None = None
         self.calls: list[tuple[str, ...]] = []
 
     def __call__(self, command: list[str], **_kwargs: object) -> CommandResult:
@@ -71,7 +72,7 @@ class FakeGoCode:
         if arguments == ["env", "--shell", "bash"]:
             return CommandResult(0, self.exports or f"export OPENAI_API_KEY=managed-token\nexport OPENAI_BASE_URL={self.endpoint}\n", "")
         if arguments == ["models"]:
-            return CommandResult(0, "\n".join(self.catalogue), "")
+            return CommandResult(0, self.catalogue_output or "\n".join(self.catalogue), "")
         raise AssertionError(command)
 
 
@@ -323,6 +324,20 @@ def test_unmanaged_gocode_accepts_reachable_certificate_route(
     runner.mode = "unmanaged"
     runner.authenticated = False
     assert subject.identity(tmp_path)["engine"] == "gocode"
+
+
+def test_dashboard_catalogue_reads_gocode_table_output(
+    transport: tuple[GoCodeTransport, FakeGoCode, Path, Path], tmp_path: Path,
+) -> None:
+    subject, runner, _codex, _shim = transport
+    runner.catalogue_output = "\n".join((
+        "MODEL                    PROVIDER       INPUT $/1M",
+        "-----------------------------------------------------",
+        "gpt-5.6-sol              openai                -",
+        "gpt-5.6-terra            openai                -",
+        "gpt-5.6-luna             openai                -",
+    ))
+    assert subject.dashboard_catalogue(tmp_path) == ["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"]
 
 
 def test_identity_rejects_untrusted_canonical_target_and_unknown_shim_digest(
