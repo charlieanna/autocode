@@ -58,6 +58,27 @@ def create(project, task):
     return data
 
 
+def bootstrap(selected, task):
+    """Create a local Git-backed task project without taking over user files.
+
+    An empty folder is a safe project root. A populated folder (including a
+    home directory) receives a new child project, leaving its existing files
+    and Git state untouched.
+    """
+    selected = Path(selected).resolve()
+    selected.mkdir(parents=True, exist_ok=True)
+    if any(selected.iterdir()):
+        name = (re.sub('[^a-z0-9]+', '-', task.lower()).strip('-') or 'task')[:40]
+        project = selected / 'autocode-projects' / f'{name}-{uuid.uuid4().hex[:8]}'
+        project.mkdir(parents=True)
+    else:
+        project = selected
+    git(project, 'init', '-q')
+    git(project, '-c', 'user.name=Autocode', '-c', 'user.email=autocode@localhost',
+        'commit', '--allow-empty', '-qm', 'Autocode project baseline')
+    return project
+
+
 def resume_workspace(selected, state):
     selected = Path(selected).resolve()
     saved = Path(state['workspace']).resolve()

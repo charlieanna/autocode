@@ -1781,9 +1781,9 @@ def main() -> int:
     elif args.figma_review:
         parser.error("--figma-review requires --figma-file or --ui-run")
     workspace = args.workspace.resolve()
-    if not (workspace / ".git").exists():
-        parser.error(f"workspace is not a Git repository: {workspace}")
     if args.run_dir:
+        if not (workspace / ".git").exists():
+            parser.error(f"workspace is not a Git repository: {workspace}")
         run_dir = args.run_dir.resolve()
         state_path = run_dir / "state.json"
         state = read_json(state_path)
@@ -1793,6 +1793,12 @@ def main() -> int:
         if not args.task:
             parser.error("task is required unless --run-dir is supplied")
         task = args.task
+        if not (workspace / ".git").exists():
+            workspace = task_workspaces.bootstrap(workspace, task)
+            # A new task project is already private to this task. Avoid a
+            # second hidden worktree so users can find the generated files.
+            args.in_place = True
+            print(f"Created task project: {workspace}", flush=True)
         if not args.in_place and not args.dry_run and not args.status:
             isolated = task_workspaces.create(workspace, task)
             workspace = Path(isolated["workspace"])
