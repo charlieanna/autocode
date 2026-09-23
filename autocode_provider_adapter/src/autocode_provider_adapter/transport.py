@@ -36,6 +36,7 @@ ROLE_DEFAULTS = {
 }
 REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh", "max"})
 TERMINAL_CLAUDE_ROLES = frozenset({"astra", "sol", "completion"})
+ROUTE_CHECK_TIMEOUT_SECONDS = 60
 
 
 class TransportError(RuntimeError):
@@ -526,9 +527,9 @@ class GoCodeTransport:
         if str(gocode["sha256"]) not in {identity.gocode_sha256 for identity in self.manifest.gocode_identities}:
             raise TransportError("untrusted GoCode executable digest; no provider process was launched")
         try:
-            status = self._run([str(gocode["path"]), "status"], cwd=str(workspace), timeout=45)
+            status = self._run([str(gocode["path"]), "status"], cwd=str(workspace), timeout=ROUTE_CHECK_TIMEOUT_SECONDS)
             exported = self._run(
-                [str(gocode["path"]), "env", "--shell", "bash"], cwd=str(workspace), timeout=15,
+                [str(gocode["path"]), "env", "--shell", "bash"], cwd=str(workspace), timeout=ROUTE_CHECK_TIMEOUT_SECONDS,
             )
         except (OSError, subprocess.TimeoutExpired) as error:
             raise TransportError("GoCode route check failed; no provider process was launched") from error
@@ -596,7 +597,7 @@ class GoCodeTransport:
         if not isinstance(expected_fingerprint, str):
             raise TransportError("GoCode transport checkpoint has no route fingerprint")
         try:
-            exported = self._run([gocode_path, "env", "--shell", "bash"], cwd=str(workspace), timeout=15)
+            exported = self._run([gocode_path, "env", "--shell", "bash"], cwd=str(workspace), timeout=ROUTE_CHECK_TIMEOUT_SECONDS)
         except (OSError, subprocess.TimeoutExpired, TypeError) as error:
             raise TransportError("GoCode could not revalidate its managed route before process creation") from error
         if exported.returncode:

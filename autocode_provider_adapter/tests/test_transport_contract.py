@@ -50,9 +50,11 @@ class FakeGoCode:
         self.catalogue = sorted(APPROVED_GPT_MODELS)
         self.catalogue_output: str | None = None
         self.calls: list[tuple[str, ...]] = []
+        self.timeouts: list[object] = []
 
-    def __call__(self, command: list[str], **_kwargs: object) -> CommandResult:
+    def __call__(self, command: list[str], **kwargs: object) -> CommandResult:
         self.calls.append(tuple(command))
+        self.timeouts.append(kwargs.get("timeout"))
         descriptor_index = next((index for index, value in enumerate(command) if value.startswith("/dev/fd/")), None)
         arguments = command[descriptor_index + 1:] if descriptor_index is not None else command[1:]
         if arguments == ["status"]:
@@ -324,6 +326,7 @@ def test_unmanaged_gocode_accepts_reachable_certificate_route(
     runner.mode = "unmanaged"
     runner.authenticated = False
     assert subject.identity(tmp_path)["engine"] == "gocode"
+    assert all(timeout == 60 for timeout in runner.timeouts[:2])
 
 
 def test_dashboard_catalogue_reads_gocode_table_output(
