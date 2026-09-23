@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "probes": [
+    {
+      "path": "tools/providers/opencode.py",
+      "contains": "def launch(",
+      "parameters": ["role", "workspace", "run_dir", "session", "model", "effort", "allow_write", "planning"]
+    },
+    {
+      "path": "tools/providers/opencode.py",
+      "contains": "def final_report(",
+      "parameters": ["path"]
+    },
+    {
+      "path": "tools/autocode.py",
+      "contains": "def run_role(",
+      "parameters": ["role", "prompt", "sandbox", "workspace", "run_dir", "state", "schema", "model", "allow_write", "dry_run", "report_only"]
+    },
+    {
+      "path": "tools/autocode.py",
+      "contains": "def cli(",
+      "parameters": []
+    },
+    {
+      "path": "tools/dashboard/agent_console.py",
+      "contains": "class Console("
+    },
+    {
+      "path": "tools/dashboard/agent_console.py",
+      "contains": "class Handler("
+    },
+    {
+      "path": "tools/dashboard/agent_console.py",
+      "contains": "def main(",
+      "parameters": []
+    },
+    {
+      "path": "tools/dashboard/dashboard_conversations.py",
+      "contains": "def _prompt(",
+      "parameters": ["messages"]
+    }
+  ],
+  "gocode": [
+    {
+      "version": "0.1.310",
+      "gocode_sha256": "06f364874ed8b4b064e432c9fb1c4a6083dc590cbee60779e1b2eec2003b1750",
+      "gocode_real_path": "/Users/akothari/.gocode/versions/0.1.310/gocode-dev.app/Contents/MacOS/gocode",
+      "gocode_real_sha256": "09bad9e3bbbe7f0092e0c7391e0335a933ce1a328fb03a7bd27c64856ae15926",
+      "codex_path": "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js",
+      "codex_sha256": "61b0194f3bb6534439c8d26a3ed57d0805f84b884588b761795323eeb92fcf70",
+      "shim_path_regex": "^/Users/akothari/\\.gocode/shims/claude$",
+      "shim_sha256": "3176fce2c8dc89e59f8a9a67012da9c6f8173882412d5a6c25f8f4cd58deaa1e"
+    }
+  ]
+}
