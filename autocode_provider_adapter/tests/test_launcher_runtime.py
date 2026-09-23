@@ -30,6 +30,26 @@ def test_run_forwards_arguments_to_the_untouched_runner(monkeypatch, tmp_path: P
     assert calls == [[str(tmp_path / "tools/autocode.py"), "--provider", "gocode", "task", "--workspace", "/work"]]
 
 
+def test_dashboard_runner_forwards_the_dashboard_provider(monkeypatch, tmp_path: Path) -> None:
+    import runpy
+    import sys
+    calls = []
+    monkeypatch.setattr(launcher, "main", lambda argv: calls.append(list(argv)) or 0)
+    monkeypatch.setenv("AUTOCODE_GOCODE_CHECKOUT", str(tmp_path / "checkout"))
+    monkeypatch.setenv("AUTOCODE_GOCODE_PIN_RECORD", str(tmp_path / "pin.json"))
+    monkeypatch.setenv("AUTOCODE_PROVIDER", "gocode")
+    runner = Path(launcher.__file__).with_name("dashboard_runner.py")
+    for argv in (["--workspace", "/work", "--run-dir", "/work/.autocode/runs/r"], ["--models"]):
+        monkeypatch.setattr(sys, "argv", [str(runner), *argv])
+        with pytest.raises(SystemExit) as exit_info:
+            runpy.run_path(str(runner), run_name="__main__")
+        assert exit_info.value.code == 0
+    assert calls[0] == ["run", "--provider", "gocode", "--checkout", str(tmp_path / "checkout"),
+                        "--record", str(tmp_path / "pin.json"), "--",
+                        "--workspace", "/work", "--run-dir", "/work/.autocode/runs/r"]
+    assert calls[1][:3] == ["models", "--provider", "gocode"]
+
+
 def test_opencode_is_a_native_provider_and_other_providers_use_plugins(monkeypatch, tmp_path: Path) -> None:
     manifest = launcher.CompatibilityManifest.default()
     monkeypatch.setattr(launcher, "_verify_record", lambda *_args: None)

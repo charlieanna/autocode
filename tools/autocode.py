@@ -1794,7 +1794,12 @@ def main() -> int:
             parser.error("task is required unless --run-dir is supplied")
         task = args.task
         if not (workspace / ".git").exists():
-            workspace = task_workspaces.bootstrap(workspace, task)
+            if args.dry_run or args.status:
+                parser.error(f"workspace is not a Git repository: {workspace}")
+            try:
+                workspace = task_workspaces.bootstrap(workspace, task)
+            except ValueError as error:
+                parser.error(str(error))
             # A new task project is already private to this task. Avoid a
             # second hidden worktree so users can find the generated files.
             args.in_place = True

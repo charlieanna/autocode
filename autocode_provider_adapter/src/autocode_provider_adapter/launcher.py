@@ -129,6 +129,7 @@ def _dashboard(checkout: Path, record: Path, provider: str, arguments: list[str]
         return int(module.main() or 0)
     os.environ["AUTOCODE_GOCODE_CHECKOUT"] = str(checkout)
     os.environ["AUTOCODE_GOCODE_PIN_RECORD"] = str(record.resolve())
+    os.environ["AUTOCODE_PROVIDER"] = provider
     runner = Path(__file__).with_name("dashboard_runner.py")
     base_console = module.Console
     catalogue_command = (sys.executable, str(runner), "--models")

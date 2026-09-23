@@ -54,11 +54,21 @@ class TaskWorkspaces(unittest.TestCase):
         self.assertFalse((empty / '.autocode').exists())
 
     def test_non_git_folder_bootstraps_a_safe_task_project(self):
-        empty = self.root / 'new-project'
+        empty = self.root / 'new-project'; empty.mkdir()
         project = w.bootstrap(empty, 'Build calculator')
         self.assertEqual(empty.resolve(), project)
         self.assertTrue((project / '.git').is_dir())
         self.assertTrue(w.git(project, 'rev-parse', '--verify', 'HEAD'))
+
+    def test_bootstrap_refuses_missing_paths_and_folders_inside_a_repository(self):
+        missing = self.root / 'mistyped'
+        with self.assertRaisesRegex(ValueError, 'does not exist'):
+            w.bootstrap(missing, 'Build calculator')
+        self.assertFalse(missing.exists())
+        nested = self.project / 'src'; nested.mkdir()
+        with self.assertRaisesRegex(ValueError, 'inside the Git repository'):
+            w.bootstrap(nested, 'Build calculator')
+        self.assertEqual([], list(nested.iterdir()))
 
     def test_populated_folder_gets_a_child_project_without_becoming_a_repository(self):
         populated = self.root / 'home-like'; populated.mkdir()
@@ -90,6 +100,25 @@ class IsolatedCli(unittest.TestCase):
         self.assertEqual(1, len(projects))
         self.assertTrue((projects[0] / '.git').is_dir())
         self.assertFalse((folder / '.git').exists())
+
+    def test_read_only_commands_never_bootstrap_a_plain_folder(self):
+        flow = test_subprocess.SubprocessFlow(); flow.setUp()
+        self.addCleanup(flow.doCleanups)
+        folder = flow.root / 'plain-folder'; folder.mkdir()
+        (folder / 'keep.txt').write_text('preserve parent files')
+        for flag in ('--dry-run', '--status'):
+            result = subprocess.run([*flow.entry, '--workspace', str(folder), '--engine', 'codex', flag,
+                                     'Build calculator'], cwd=flow.root, env=flow.env,
+                                    capture_output=True, text=True, timeout=35)
+            self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+            self.assertIn('not a Git repository', result.stderr)
+        missing = flow.root / 'mistyped'
+        result = subprocess.run([*flow.entry, '--workspace', str(missing), '--engine', 'codex', '--no-chat',
+                                 'Build calculator'], cwd=flow.root, env=flow.env,
+                                capture_output=True, text=True, timeout=35)
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        self.assertEqual(['keep.txt'], [p.name for p in folder.iterdir()])
+        self.assertFalse(missing.exists())
 
     def test_two_concurrent_cli_tasks_and_resume_from_original_project(self):
         flow = test_subprocess.SubprocessFlow(); flow.setUp()
