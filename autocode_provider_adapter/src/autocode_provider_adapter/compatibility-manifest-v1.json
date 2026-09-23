@@ -2,12 +2,12 @@
   "version": 1,
   "probes": [
     {
-      "path": "tools/autocode_opencode.py",
+      "path": "tools/providers/opencode.py",
       "contains": "def launch(",
       "parameters": ["role", "workspace", "run_dir", "session", "model", "effort", "allow_write", "planning"]
     },
     {
-      "path": "tools/autocode_opencode.py",
+      "path": "tools/providers/opencode.py",
       "contains": "def final_report(",
       "parameters": ["path"]
     },

@@ -1,8 +1,8 @@
 # Autocode Provider Adapter
 
-This package runs a pinned, unchanged `charlieanna/autocode` checkout while
-selecting a provider transport. Autocode still owns its workflow,
-prompts, schemas, gates, retries, state, dashboard handlers, UI, and storage.
+This package supplies the independently installable GoCode provider for
+`charlieanna/autocode`. Autocode owns provider selection, workflow, prompts,
+schemas, gates, retries, state, dashboard handlers, UI, and storage.
 
 ## Install and pin upstream
 
@@ -20,12 +20,13 @@ creates or reuses a clean detached worktree. It never changes upstream source or
 its remotes. The old sync-only invocation without the `sync` word remains
 supported.
 
-The built-in provider is OpenCode. Select GoCode explicitly when needed; it must
-be in managed mode with a current broker login:
+The built-in provider is OpenCode. Select GoCode explicitly when needed. The
+normal local installation uses the GoCode **unmanaged** certificate route; the
+adapter accepts it only when GoCode reports both client service and inference
+endpoint as reachable. It does not change your GoCode mode or login:
 
 ```sh
-gocode mode managed
-gocode auth login
+gocode status
 ```
 
 ## Run from any project folder
@@ -35,9 +36,17 @@ gocode auth login
   --checkout /path/to/pinned-autocode --record /path/to/adapter-state/pin.json -- \
   "Describe the task" --workspace "$PWD"
 
-# Or select GoCode.
+# Or select GoCode. The wrapper validates the pin, then forwards the provider
+# choice to upstream Autocode's own --provider option.
 /path/to/.venv/bin/autocode-provider run \
   --provider gocode --checkout /path/to/pinned-autocode --record /path/to/adapter-state/pin.json -- \
+  "Describe the task" --workspace "$PWD"
+```
+
+Once this package is installed, the wrapper is optional:
+
+```sh
+python /path/to/pinned-autocode/tools/autocode.py --provider gocode \
   "Describe the task" --workspace "$PWD"
 ```
 
@@ -62,18 +71,18 @@ role, Terra medium for `terra`, and Sol high for `sol` and completion. The legac
 terminal alias `openai/gpt-6-astra` resolves to the manifest-pinned GoCode Claude
 Opus 5 shim; it never invokes Anthropic or OpenCode directly.
 
-Provider names other than `opencode` and `gocode` are plug-ins. Install a package
-named `autocode-provider-<name>` which exports `create_facade(manifest)` to add a
-provider such as KiloCode; the launcher then accepts `--provider <name>` without
-changing Autocode stages or roles.
+Provider names other than `opencode` are plug-ins. Install a package named
+`autocode-provider-<name>` which exports `create_provider()` to add a provider
+such as KiloCode; upstream Autocode then accepts `--provider <name>` without
+changing stages or role names. KiloCode has no bundled driver yet, so selecting
+it fails before an agent launch until that plug-in is installed.
 
 ## Boundaries
 
 The compatibility manifest pins the GoCode shim, its delegated native binary,
-the canonical Codex script, and the Claude shim by path and SHA-256. Authentication,
-endpoint, bearer-route fingerprint, and every executable identity are rechecked
-before launch. Credentials are injected only into the child environment and are
-never written to launch descriptors, reports, or pin records.
+the canonical Codex script, and the Claude shim by path and SHA-256. Authentication
+and route health, plus every executable identity, are rechecked before launch.
+Credentials are never written to launch descriptors, reports, or pin records.
 
 macOS does not provide a supported atomic validate-and-exec operation for the
 installed Node script. The adapter therefore executes canonical installed paths
@@ -83,5 +92,5 @@ is explicit rather than hidden behind a non-working `/dev/fd` or copied-binary
 scheme.
 
 Planning conversations use the upstream-authored conversation prompt and a
-managed Responses request with `tools: []`; they do not receive a repository or
-model tools.
+GoCode-routed Responses request with `tools: []`; they do not receive a
+repository or model tools.

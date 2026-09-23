@@ -521,9 +521,13 @@ class GoCodeTransport:
         except (OSError, subprocess.TimeoutExpired) as error:
             raise TransportError("GoCode route check failed; no provider process was launched") from error
         fields = _status_fields(status.stdout + "\n" + status.stderr)
-        if (status.returncode or exported.returncode or fields.get("mode", "").lower() != "managed"
-                or fields.get("gocode authentication", "").lower() != "ok"):
-            raise TransportError("GoCode has no authenticated managed route; no provider process was launched")
+        mode = fields.get("mode", "").lower()
+        managed = mode == "managed" and fields.get("gocode authentication", "").lower() == "ok"
+        unmanaged = (mode == "unmanaged"
+                     and fields.get("gocode client service", "").lower().startswith("reachable")
+                     and fields.get("gocode inference endpoint", "").lower().startswith("reachable"))
+        if status.returncode or exported.returncode or not (managed or unmanaged):
+            raise TransportError("GoCode has no authenticated verified managed or unmanaged route; no provider process was launched")
         version = fields.get("gocode version")
         codex_raw = fields.get("codex real")
         shim_raw = fields.get("claude shim")

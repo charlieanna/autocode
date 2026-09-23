@@ -32,7 +32,7 @@ def test_bundled_manifest_defines_runner_and_dashboard_seams() -> None:
     manifest = CompatibilityManifest.default()
     paths = {probe.path for probe in manifest.probes}
     assert manifest.version == 1
-    assert "tools/autocode_opencode.py" in paths
+    assert "tools/providers/opencode.py" in paths
     assert "tools/dashboard/agent_console.py" in paths
 
 

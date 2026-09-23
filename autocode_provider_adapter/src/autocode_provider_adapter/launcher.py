@@ -42,23 +42,20 @@ def _runner(checkout: Path, record: Path, provider: str):
     manifest = CompatibilityManifest.default()
     _verify_record(checkout, record.resolve(), manifest)
     manifest.verify(checkout)
-    if provider == "opencode":
-        return load_native_upstream_runner(checkout)
-    if provider == "gocode":
-        return load_upstream_runner(checkout, GoCodeFacade(_transport()))
-    try:
-        plugin = importlib.import_module("autocode_provider_" + provider)
-        facade = plugin.create_facade(manifest)
-    except (ImportError, AttributeError) as error:
-        raise TransportError(
-            f"provider plugin {provider!r} is unavailable; install autocode-provider-{provider}"
-        ) from error
-    return load_upstream_runner(checkout, facade)
+    if provider != "opencode":
+        try:
+            plugin = importlib.import_module("autocode_provider_" + provider)
+            plugin.create_provider()
+        except (ImportError, AttributeError) as error:
+            raise TransportError(
+                f"provider plugin {provider!r} is unavailable; install autocode-provider-{provider}"
+            ) from error
+    return load_native_upstream_runner(checkout)
 
 
 def _run(checkout: Path, record: Path, provider: str, arguments: list[str]) -> int:
     module = _runner(checkout, record, provider)
-    sys.argv = [str(checkout.resolve() / "tools/autocode.py"), *arguments]
+    sys.argv = [str(checkout.resolve() / "tools/autocode.py"), "--provider", provider, *arguments]
     return int(module.cli())
 
 

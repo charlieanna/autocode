@@ -61,6 +61,8 @@ class FakeGoCode:
                     "GoCode version: 1.2.3",
                     f"Mode: {self.mode}",
                     "GoCode authentication: ok" if self.authenticated else "GoCode authentication: unavailable",
+                    "GoCode Client Service: reachable (HTTP 200)",
+                    "GoCode Inference Endpoint: reachable (HTTP 200)",
                     f"Codex real: {self.codex}",
                     f"Claude shim: {self.shim}",
                 )),
@@ -216,7 +218,7 @@ def test_native_opencode_and_gocode_expose_the_same_external_contract_surface(
 
 
 def test_native_contract_is_backed_by_the_untouched_upstream_module(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    source = Path(os.environ["AUTOCODE_TEST_UPSTREAM"]) / "tools" / "autocode_opencode.py"
+    source = Path(os.environ["AUTOCODE_TEST_UPSTREAM"]) / "tools" / "providers" / "opencode.py"
     spec = importlib.util.spec_from_file_location("untouched_opencode_for_contract", source)
     assert spec and spec.loader
     upstream = importlib.util.module_from_spec(spec)
@@ -312,6 +314,15 @@ def test_identity_rejects_untrusted_or_changed_executables_and_bad_routes(
     runner.exports = "export OPENAI_API_KEY=first\nexport OPENAI_API_KEY=second\nexport OPENAI_BASE_URL=https://managed.example.test/v1\n"
     with pytest.raises(TransportError, match="ambiguous"):
         subject.identity(tmp_path)
+
+
+def test_unmanaged_gocode_accepts_reachable_certificate_route(
+    transport: tuple[GoCodeTransport, FakeGoCode, Path, Path], tmp_path: Path
+) -> None:
+    subject, runner, _codex, _shim = transport
+    runner.mode = "unmanaged"
+    runner.authenticated = False
+    assert subject.identity(tmp_path)["engine"] == "gocode"
 
 
 def test_identity_rejects_untrusted_canonical_target_and_unknown_shim_digest(
@@ -520,7 +531,7 @@ def test_gocode_spawn_preserves_the_complete_request_stream_bindings(
 def test_native_spawn_uses_the_same_prompt_and_event_stream_bindings_as_gocode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, planning: bool, report_repair: bool, sandbox: str,
 ) -> None:
-    source = Path(os.environ["AUTOCODE_TEST_UPSTREAM"]) / "tools" / "autocode_opencode.py"
+    source = Path(os.environ["AUTOCODE_TEST_UPSTREAM"]) / "tools" / "providers" / "opencode.py"
     spec = importlib.util.spec_from_file_location("untouched_opencode_stream_contract", source)
     assert spec and spec.loader
     upstream = importlib.util.module_from_spec(spec)

@@ -8,6 +8,13 @@ import pytest
 from autocode_provider_adapter import launcher
 
 
+def test_gocode_plugin_exposes_the_core_provider_factory() -> None:
+    import autocode_provider_gocode
+    provider = autocode_provider_gocode.create_provider()
+    assert provider.DEFAULT_MODELS["terra"] == "openai/gpt-5.6-terra"
+    assert callable(provider.launch)
+
+
 def test_run_forwards_arguments_to_the_untouched_runner(monkeypatch, tmp_path: Path) -> None:
     calls = []
     class Runner:
@@ -18,9 +25,9 @@ def test_run_forwards_arguments_to_the_untouched_runner(monkeypatch, tmp_path: P
     monkeypatch.setattr(launcher, "_runner", lambda _checkout, _record, _provider: Runner)
     record = tmp_path / "pin.json"
     result = launcher.main(["run", "--checkout", str(tmp_path), "--record", str(record),
-                            "--", "task", "--workspace", "/work"])
+                            "--provider", "gocode", "--", "task", "--workspace", "/work"])
     assert result == 7
-    assert calls == [[str(tmp_path / "tools/autocode.py"), "task", "--workspace", "/work"]]
+    assert calls == [[str(tmp_path / "tools/autocode.py"), "--provider", "gocode", "task", "--workspace", "/work"]]
 
 
 def test_opencode_is_a_native_provider_and_other_providers_use_plugins(monkeypatch, tmp_path: Path) -> None:

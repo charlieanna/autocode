@@ -27,7 +27,7 @@ class GoCodeFacade(types.ModuleType):
     DEFAULT_REASONING_EFFORTS = {"astra": "high", "terra": "medium", "sol": "high", "completion": "high"}
 
     def __init__(self, transport: GoCodeTransport, *, urlopen=urlopen) -> None:
-        super().__init__("tools.autocode_opencode")
+        super().__init__("autocode_provider_gocode")
         self.transport = transport
         self._pending = threading.local()
         self._urlopen = urlopen
