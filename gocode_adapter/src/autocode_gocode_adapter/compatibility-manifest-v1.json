@@ -3,11 +3,23 @@
   "probes": [
     {
       "path": "tools/autocode_opencode.py",
-      "contains": "def launch("
+      "contains": "def launch(",
+      "parameters": ["role", "workspace", "run_dir", "session", "model", "effort", "allow_write", "planning"]
     },
     {
       "path": "tools/autocode_opencode.py",
-      "contains": "def final_report("
+      "contains": "def final_report(",
+      "parameters": ["path"]
+    },
+    {
+      "path": "tools/autocode.py",
+      "contains": "def run_role(",
+      "parameters": ["role", "prompt", "sandbox", "workspace", "run_dir", "state", "schema", "model", "allow_write", "dry_run", "report_only"]
+    },
+    {
+      "path": "tools/autocode.py",
+      "contains": "def cli(",
+      "parameters": []
     },
     {
       "path": "tools/dashboard/agent_console.py",
@@ -16,6 +28,16 @@
     {
       "path": "tools/dashboard/agent_console.py",
       "contains": "class Handler("
+    },
+    {
+      "path": "tools/dashboard/agent_console.py",
+      "contains": "def main(",
+      "parameters": []
+    },
+    {
+      "path": "tools/dashboard/dashboard_conversations.py",
+      "contains": "def _prompt(",
+      "parameters": ["messages"]
     }
   ],
   "gocode": [

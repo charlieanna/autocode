@@ -48,3 +48,17 @@ def test_python_probe_requires_a_real_top_level_definition_not_a_comment(tmp_pat
         manifest.verify(root)
     source.write_text("def launch(): pass\n", encoding="utf-8")
     manifest.verify(root)
+
+
+def test_structural_probe_rejects_signature_drift(tmp_path: Path) -> None:
+    root = tmp_path / "upstream"
+    root.mkdir()
+    source = root / "runner.py"
+    source.write_text("def launch(role, workspace, *, unsafe=False): pass\n", encoding="utf-8")
+    manifest = CompatibilityManifest.from_dict({
+        "version": 1,
+        "probes": [{"path": "runner.py", "contains": "def launch(",
+                    "parameters": ["role", "workspace", "planning"]}],
+    })
+    with pytest.raises(CompatibilityError, match="signature.*launch"):
+        manifest.verify(root)

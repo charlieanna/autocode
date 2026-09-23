@@ -20,6 +20,7 @@ class CompatibilityError(RuntimeError):
 class StructuralProbe:
     path: str
     contains: str
+    parameters: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -58,7 +59,15 @@ class CompatibilityManifest:
             relative = Path(probe["path"])
             if relative.is_absolute() or ".." in relative.parts or not probe["contains"]:
                 raise CompatibilityError("structural probes must use a non-empty relative path and marker")
-            probes.append(StructuralProbe(probe["path"], probe["contains"]))
+            raw_parameters = probe.get("parameters")
+            if (raw_parameters is not None and
+                    (not isinstance(raw_parameters, list) or
+                     any(not isinstance(value, str) or not value for value in raw_parameters))):
+                raise CompatibilityError("structural probe parameters must be a list of names")
+            probes.append(StructuralProbe(
+                probe["path"], probe["contains"],
+                tuple(raw_parameters) if raw_parameters is not None else None,
+            ))
         raw_identities = document.get("gocode", [])
         if not isinstance(raw_identities, list):
             raise CompatibilityError("gocode compatibility identities must be a list")
@@ -120,7 +129,11 @@ class CompatibilityManifest:
                  "version": identity.version}
                 for identity in self.gocode_identities
             ],
-            "probes": [{"contains": probe.contains, "path": probe.path} for probe in self.probes],
+            "probes": [
+                {**{"contains": probe.contains, "path": probe.path},
+                 **({"parameters": list(probe.parameters)} if probe.parameters is not None else {})}
+                for probe in self.probes
+            ],
             "version": self.version,
         }
         encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()
@@ -146,11 +159,23 @@ class CompatibilityManifest:
                     raise CompatibilityError(f"upstream is incompatible: seam {probe.path!r} is not valid Python") from error
                 kind, name = definition.groups()
                 expected = ast.FunctionDef if kind == "def" else ast.ClassDef
-                if not any(isinstance(node, expected) and node.name == name for node in tree.body):
+                matched = next((node for node in tree.body
+                                if isinstance(node, expected) and node.name == name), None)
+                if matched is None:
                     raise CompatibilityError(
                         f"upstream is incompatible: seam {probe.path!r} no longer has definition {name!r} "
                         f"(manifest {self.identity})"
                     )
+                if probe.parameters is not None and isinstance(matched, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    observed = tuple(
+                        argument.arg for argument in
+                        (*matched.args.posonlyargs, *matched.args.args, *matched.args.kwonlyargs)
+                    )
+                    if observed != probe.parameters:
+                        raise CompatibilityError(
+                            f"upstream is incompatible: signature for {name!r} in {probe.path!r} changed "
+                            f"(manifest {self.identity})"
+                        )
             elif probe.contains not in text:
                 raise CompatibilityError(
                     f"upstream is incompatible: seam {probe.path!r} no longer contains "
