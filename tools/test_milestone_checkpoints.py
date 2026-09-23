@@ -23,7 +23,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
             {'id': 'C2', 'criterion': 'Reject invalid input', 'verification_method': 'Execute empty input', 'human_review': False},
             {'id': 'C3', 'criterion': 'Preserve Unicode', 'verification_method': 'Execute Unicode input', 'human_review': human}]
         draft['milestones'][0]['acceptance_criteria'] = ['C1', 'C2']
-        draft['milestones'].append({'id': 'M2', 'objective': 'Unicode flow', 'acceptance_criteria': ['C3']})
+        draft['milestones'].append({'id': 'M2', 'objective': 'Unicode flow', 'acceptance_criteria': ['C3'], 'depends_on': []})
         goals.install_draft(self.state, draft, origin='test')
         goals.present(self.state)
         goals.approve(self.state, self.state['displayed_goal'])

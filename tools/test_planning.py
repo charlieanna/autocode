@@ -44,8 +44,10 @@ class PlanningTests(unittest.TestCase):
             goals.validate_body(state, blocked)
         goals.validate_body(state, {**copy.deepcopy(draft), "initial_task": {**initial, "milestone_id": "M1"}})
         state["settings"]["roles"] = {"plan_reviewer": {"engine": "opencode"}}
+        bare = body()
+        bare["milestones"][0].pop("depends_on")
         with self.assertRaisesRegex(ValueError, "declare depends_on"):
-            planning.apply(state, "astra_discovery", {"contract": body(), "summary": "draft",
+            planning.apply(state, "astra_discovery", {"contract": bare, "summary": "draft",
                            "code_refs": [], "alternatives": [], "uncertainties": []}, {"output": "draft.json"})
 
     def test_new_plan_review_route_uses_opencode_cursor_opus(self):
@@ -329,7 +331,7 @@ class JointFlow(unittest.TestCase):
         self.assertEqual("openai/gpt-5.6-sol", completion["command"][completion["command"].index("--model") + 1])
         self.assertEqual("medium", completion["command"][completion["command"].index("--variant") + 1])
         self.assertIn("autocode_completion", completion["command"])
-        self.assertEqual(3, len({final["sessions"][role] for role in ("astra", "sol", "completion")}))
+        self.assertEqual(3, len({final["sessions"][role] for role in ("plan_reviewer", "sol", "completion")}))
         self.assertEqual(2, final["planning"]["astra_calls"])
 
     def test_gpt_sol_revalidates_terras_rework_in_its_own_opencode_session(self):
@@ -343,7 +345,8 @@ class JointFlow(unittest.TestCase):
         validations = [r for r in final["stages"] if r["stage"] == "sol"]
         self.assertEqual(["opencode", "opencode"], [r["engine"] for r in validations])
         self.assertEqual(final["sessions"]["sol"], validations[1]["expected_session"])
-        self.assertNotEqual(final["sessions"]["astra"], validations[1]["expected_session"])
+        self.assertNotEqual(final["sessions"]["plan_reviewer"], validations[1]["expected_session"])
+        self.assertNotEqual(final["sessions"]["completion"], validations[1]["expected_session"])
         self.assertEqual("FAIL", final["validation_archive"][-1]["validation"]["verdict"])
         self.assertEqual("PASS", final["validation"]["verdict"])
 
@@ -368,13 +371,16 @@ class JointFlow(unittest.TestCase):
             self.assertEqual("opencode", stage["engine"])
             self.assertEqual("opencode", stage["command"][0])
             self.assertEqual("openai/gpt-5.6-terra", stage["command"][stage["command"].index("--model") + 1])
-            self.assertEqual("high", stage["command"][stage["command"].index("--variant") + 1])
             self.assertEqual("autocode_terra", stage["command"][stage["command"].index("--agent") + 1])
+        # The requested effort applies to the first build. A failed validation
+        # escalates the next Terra attempt and starts a fresh session.
+        self.assertEqual("high", stages[0]["command"][stages[0]["command"].index("--variant") + 1])
+        self.assertEqual("xhigh", stages[1]["command"][stages[1]["command"].index("--variant") + 1])
         self.assertIsNone(stages[0]["expected_session"])
-        self.assertEqual(final["sessions"]["terra"], stages[1]["expected_session"])
-        self.assertIn(final["sessions"]["terra"], stages[1]["command"])
+        self.assertIsNone(stages[1]["expected_session"])
+        self.assertEqual("validation_rework", final["reasoning_escalations"][-1]["trigger"])
         self.assertNotEqual(final["sessions"]["terra"], final["sessions"]["sol"])
-        self.assertNotEqual(final["sessions"]["terra"], final["sessions"]["astra"])
+        self.assertNotEqual(final["sessions"]["terra"], final["sessions"]["completion"])
 
     def test_openai_api_connection_pauses_before_any_provider_stage(self):
         self.prepare()
