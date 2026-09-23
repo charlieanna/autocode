@@ -622,6 +622,8 @@ class GoCodeTransport:
             default_model, default_effort = ROLE_DEFAULTS[role]
             requested = raw.get("model", default_model)
             effort = raw.get("reasoning_effort", default_effort)
+            if effort is None:
+                effort = default_effort
             if not isinstance(requested, str) or not isinstance(effort, str) or effort not in REASONING_EFFORTS:
                 raise TransportError("GoCode role requires a supported model and reasoning effort")
             if requested in {TERMINAL_WIRE_ALIAS, CLAUDE_MODEL} and role in TERMINAL_CLAUDE_ROLES:

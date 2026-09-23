@@ -197,6 +197,15 @@ def test_gocode_role_defaults_match_the_authoritative_run_roles(
     }
 
 
+def test_gocode_role_defaults_replace_a_persisted_null_effort(
+    transport: tuple[GoCodeTransport, FakeGoCode, Path, Path]
+) -> None:
+    """Upstream joint-planning state persists GLM without an explicit effort."""
+    subject, _runner, _codex, _shim = transport
+    route = subject.validate_roles({"glm": {"model": "gpt-5.6-sol", "reasoning_effort": None}})["glm"]
+    assert (route.resolved_model, route.effort) == ("gpt-5.6-sol", "medium")
+
+
 def test_native_opencode_and_gocode_expose_the_same_external_contract_surface(
     transport: tuple[GoCodeTransport, FakeGoCode, Path, Path], tmp_path: Path
 ) -> None:
