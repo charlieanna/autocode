@@ -31,7 +31,7 @@ gocode auth login
 
 ```sh
 /path/to/.venv/bin/autocode-gocode run \
-  --checkout /path/to/pinned-autocode -- \
+  --checkout /path/to/pinned-autocode --record /path/to/adapter-state/pin.json -- \
   "Describe the task" --workspace "$PWD"
 ```
 
@@ -39,7 +39,7 @@ Resume with the same command and Autocode's normal run directory:
 
 ```sh
 /path/to/.venv/bin/autocode-gocode run \
-  --checkout /path/to/pinned-autocode -- \
+  --checkout /path/to/pinned-autocode --record /path/to/adapter-state/pin.json -- \
   --run-dir /absolute/path/to/.autocode/runs/RUN
 ```
 
@@ -47,7 +47,7 @@ Launch the original dashboard through the same pin and transport:
 
 ```sh
 /path/to/.venv/bin/autocode-gocode dashboard \
-  --checkout /path/to/pinned-autocode -- \
+  --checkout /path/to/pinned-autocode --record /path/to/adapter-state/pin.json -- \
   --workspace "$PWD" --port 8765
 ```
 

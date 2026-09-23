@@ -13,8 +13,9 @@ from autocode_gocode_adapter.launcher import main
 
 if __name__ == "__main__":
     checkout = os.environ.get("AUTOCODE_GOCODE_CHECKOUT")
-    if not checkout:
-        raise SystemExit("AUTOCODE_GOCODE_CHECKOUT is not configured")
+    record = os.environ.get("AUTOCODE_GOCODE_PIN_RECORD")
+    if not checkout or not record:
+        raise SystemExit("Autocode GoCode checkout and pin record are not configured")
     if sys.argv[1:] == ["--models"]:
         raise SystemExit(main(["models", "--workspace", str(Path.cwd())]))
-    raise SystemExit(main(["run", "--checkout", checkout, "--", *sys.argv[1:]]))
+    raise SystemExit(main(["run", "--checkout", checkout, "--record", record, "--", *sys.argv[1:]]))

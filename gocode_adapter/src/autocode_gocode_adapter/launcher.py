@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 
 from .compatibility import CompatibilityError, CompatibilityManifest
@@ -18,14 +19,33 @@ def _transport() -> GoCodeTransport:
     return GoCodeTransport(CompatibilityManifest.default())
 
 
-def _runner(checkout: Path):
+def _verify_record(checkout: Path, record: Path, manifest: CompatibilityManifest) -> None:
+    try:
+        document = json.loads(record.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise SyncError(f"cannot read the required upstream pin record: {record}") from error
+    expected_commit = document.get("upstream_commit") if isinstance(document, dict) else None
+    if (not isinstance(document, dict) or document.get("compatibility_manifest") != manifest.identity
+            or not isinstance(expected_commit, str)):
+        raise SyncError("upstream pin record does not match this adapter manifest")
+    completed = subprocess.run(
+        ["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True, capture_output=True,
+    )
+    current = completed.stdout.strip()
+    if completed.returncode or current != expected_commit:
+        raise SyncError(f"upstream checkout must remain pinned to {expected_commit}; found {current or 'unknown'}")
+
+
+def _runner(checkout: Path, record: Path):
     checkout = checkout.resolve()
-    CompatibilityManifest.default().verify(checkout)
+    manifest = CompatibilityManifest.default()
+    _verify_record(checkout, record.resolve(), manifest)
+    manifest.verify(checkout)
     return load_upstream_runner(checkout, GoCodeFacade(_transport()))
 
 
-def _run(checkout: Path, arguments: list[str]) -> int:
-    module = _runner(checkout)
+def _run(checkout: Path, record: Path, arguments: list[str]) -> int:
+    module = _runner(checkout, record)
     sys.argv = [str(checkout.resolve() / "tools/autocode.py"), *arguments]
     return int(module.cli())
 
@@ -44,11 +64,13 @@ def main(argv: list[str] | None = None) -> int:
     sync.add_argument("--record", type=Path, required=True, help="adapter-owned pin record path")
     run = subparsers.add_parser("run", help="run or resume the pinned upstream CLI")
     run.add_argument("--checkout", type=Path, required=True)
+    run.add_argument("--record", type=Path, required=True)
     run.add_argument("arguments", nargs=argparse.REMAINDER)
     models = subparsers.add_parser("models", help="print dashboard-compatible GoCode models")
     models.add_argument("--workspace", type=Path, default=Path.cwd())
     dashboard = subparsers.add_parser("dashboard", help="run the unchanged upstream dashboard")
     dashboard.add_argument("--checkout", type=Path, required=True)
+    dashboard.add_argument("--record", type=Path, required=True)
     dashboard.add_argument("arguments", nargs=argparse.REMAINDER)
     arguments = parser.parse_args(argv)
     try:
@@ -61,25 +83,29 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if arguments.command == "run":
             forwarded = arguments.arguments[1:] if arguments.arguments[:1] == ["--"] else arguments.arguments
-            return _run(arguments.checkout, forwarded)
+            return _run(arguments.checkout, arguments.record, forwarded)
         if arguments.command == "models":
             for model in _transport().dashboard_catalogue(arguments.workspace.resolve()):
                 print("openai/" + model)
             return 0
         if arguments.command == "dashboard":
-            return _dashboard(arguments.checkout, arguments.arguments)
+            return _dashboard(arguments.checkout, arguments.record, arguments.arguments)
         raise AssertionError(arguments.command)
     except (CompatibilityError, SyncError, TransportError, OSError, RuntimeError, ValueError) as error:
         parser.error(str(error))
 
 
-def _dashboard(checkout: Path, arguments: list[str]) -> int:
+def _dashboard(checkout: Path, record: Path, arguments: list[str]) -> int:
     checkout = checkout.resolve()
+    manifest = CompatibilityManifest.default()
+    _verify_record(checkout, record.resolve(), manifest)
+    manifest.verify(checkout)
     facade = GoCodeFacade(_transport())
     load_upstream_runner(checkout, facade)
     module = __import__("tools.dashboard.agent_console", fromlist=["main"])
     conversations = __import__("tools.dashboard.dashboard_conversations", fromlist=["_prompt"])
     os.environ["AUTOCODE_GOCODE_CHECKOUT"] = str(checkout)
+    os.environ["AUTOCODE_GOCODE_PIN_RECORD"] = str(record.resolve())
     runner = Path(__file__).with_name("dashboard_runner.py")
     base_console = module.Console
     catalogue_command = (sys.executable, str(runner), "--models")
