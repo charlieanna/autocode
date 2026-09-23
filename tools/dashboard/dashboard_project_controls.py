@@ -107,8 +107,11 @@ class ProjectRemovalMixin:
             removed = self.removed_projects()
             visible = lambda raw: self.removed_project(raw, removed) is None
             workspaces = [path for path in self.workspaces if visible(path)]
+            workspace_ids = {ident: path for ident, path in self._registered().get('workspace_ids', {}).items()
+                              if Path(path) in workspaces}
             return {
                 'workspaces': [str(path) for path in workspaces],
+                'workspace_ids': workspace_ids,
                 'runs': [compact_run(row) for row in super().discover() if visible(row.get('workspace'))],
                 'workspace_actions': {str(path): self.action_log(path) for path in workspaces},
                 'watch_roots': self.watch_root_rows(),

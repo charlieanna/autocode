@@ -432,7 +432,7 @@ def verify_checks(checks, workspace, event_path):
     The schema isn't proof. Compare its claims with runner-captured tool events,
     the on-disk command receipt, and its complete output hash.
     """
-    tool_outputs = [e["item"].get("aggregated_output", "") for e in events(event_path)
+    tool_outputs = [e["item"] for e in events(event_path)
                     if e.get("type") == "item.completed"
                     and e.get("item", {}).get("type") in ("command_execution", "tool_output")]
     import shlex
@@ -468,8 +468,19 @@ def verify_checks(checks, workspace, event_path):
         # capture prints one JSON object. Match structurally even if event text
         # adds shell notices. No word-search for PASS/COMPLETE is used.
         matched = False
-        for output in tool_outputs:
-            for line in output.splitlines():
+        for item in tool_outputs:
+            if item["type"] == "tool_output":
+                try:
+                    invocation = shlex.split(item.get("command", ""))
+                    marker = invocation.index("capture")
+                    output_flag = invocation.index("--output", marker + 1)
+                    cited = Path(invocation[output_flag + 1])
+                    cited = cited if cited.is_absolute() else Path(workspace) / cited
+                    if cited.resolve() != path.resolve():
+                        continue
+                except (ValueError, IndexError):
+                    continue
+            for line in item.get("aggregated_output", "").splitlines():
                 try:
                     matched |= json.loads(line) == receipt
                 except ValueError:
@@ -558,7 +569,8 @@ smallest suggested_correction. Preferences and new features are not blockers.
 Report end_to_end_result for the approved user flow; use NOT_VERIFIED until checked.
 Never claim a check passed without execution or clearly identified reliable evidence.
 The checks array is the final verification set, not a list of every exploratory shell
-command. PASS requires every listed check to exit 0. Preserve failed exploratory
+command. List only checks executed in this Sol attempt; earlier receipts are context,
+not proof of execution in this attempt. PASS requires every listed check to exit 0. Preserve failed exploratory
 runs and their resolution in checks_run and the full logs. After fixing a validation
 probe, rerun the complete corrected probe; do not count an unexecuted correction as
 a pass. Source diff exit 1 means files differ, not a successful verification command.

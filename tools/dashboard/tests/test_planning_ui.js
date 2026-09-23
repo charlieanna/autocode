@@ -28,6 +28,14 @@ assert.deepEqual(JSON.parse(JSON.stringify(context.workflowConfig(approvedJoint,
  ['Requirements planner','Plan reviewer','Builder','Validator','Completion owner']);
 assert.deepEqual(JSON.parse(JSON.stringify(context.workflowConfig({model_settings:{joint_planning:false}},{role:'sol'}))).map(item=>item[1]),
  ['Requirements planner','Plan reviewer','Builder','Validator','Completion owner']);
+const done=(stage,role,extra={})=>({stage,role,finished_at:'2026-09-22T10:00:00Z',exit_code:0,...extra});
+const idlePlanning={...joint,stages:[done('astra_discovery','glm'),done('astra_finalize','astra')]};
+assert.equal(context.completedPlanningStep(idlePlanning,'glm').stage,'astra_discovery');
+assert.equal(context.completedPlanningStep(idlePlanning,'astra').stage,'astra_finalize');
+const migratedPlanning={...joint,goal:{approval_status:'approved'},stages:[done('astra_discovery','astra')]};
+assert.equal(context.completedPlanningStep(migratedPlanning,'glm'),undefined,'approval does not invent a GLM step');
+assert.equal(context.completedPlanningStep(migratedPlanning,'astra').stage,'astra_discovery');
+assert.equal(context.completedPlanningStep({...joint,stages:[done('glm_revise','glm',{rejected:true})]},'glm'),undefined);
 console.log('Planning UI routing and approval checks passed.');
 
 // Payload boundaries: chatting needs no project; answering never invents an

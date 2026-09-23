@@ -15,6 +15,7 @@ autocode = "autocode_cli.autocode:cli"
 autocode-dashboard = "autocode_cli.dashboard.agent_console:main"
 autocode-ui = "autocode_cli.autocode_ui:cli"
 autocode-tasks = "autocode_cli.autocode_tasks:cli"
+hello-world = "autocode_cli.hello:main"
 
 [tool.setuptools]
 packages = ["autocode_cli", "autocode_cli.dashboard"]

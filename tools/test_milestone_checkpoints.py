@@ -60,6 +60,37 @@ class MilestoneCheckpointTests(unittest.TestCase):
         record = {'role': 'sol', 'stage': 'sol', 'events': str(events), 'output': str(events), 'source_revision': s.snapshot(self.root)['revision']}
         runner.apply_result(self.state, 'sol', value, record, self.root, self.run)
 
+    def test_dependent_milestone_waits_for_accepted_prerequisites(self):
+        draft = body()
+        draft['acceptance_criteria'] += [
+            {'id': 'C3', 'criterion': 'Preserve Unicode', 'verification_method': 'Execute Unicode input', 'human_review': False},
+            {'id': 'C4', 'criterion': 'Document usage', 'verification_method': 'Run --help', 'human_review': False}]
+        draft['milestones'] = [
+            {'id': 'M1', 'objective': 'Greeting flow', 'acceptance_criteria': ['C1'], 'depends_on': []},
+            {'id': 'M2', 'objective': 'Unicode flow', 'acceptance_criteria': ['C3'], 'depends_on': ['M3']},
+            {'id': 'M3', 'objective': 'Usage help', 'acceptance_criteria': ['C4'], 'depends_on': []}]
+        goals.install_draft(self.state, draft, origin='test')
+        goals.present(self.state)
+        goals.approve(self.state, self.state['displayed_goal'])
+        self.state['settings']['milestone_checkpoints'] = copy.deepcopy(m.DEFAULTS)
+
+        def assign(milestone, criteria):
+            decision = self.decision(milestone)
+            decision['next_task']['acceptance_criteria'] = criteria
+            runner.apply_result(self.state, 'astra_review', decision, {'output': 'astra.json'}, self.root, self.run)
+
+        assign('M1', ['C1'])
+        self.validate({'C1': 'PASS', 'C3': 'NOT_VERIFIED', 'C4': 'NOT_VERIFIED'})
+        with self.assertRaisesRegex(ValueError, 'M2 cannot start until its prerequisites are accepted: M3'):
+            assign('M2', ['C3'])
+        self.assertEqual('M1', self.state['current_task']['milestone_id'])
+        assign('M3', ['C4'])
+        self.assertEqual('M3', self.state['current_task']['milestone_id'])
+        self.validate({'C1': 'PASS', 'C3': 'NOT_VERIFIED', 'C4': 'PASS'})
+        assign('M2', ['C3'])
+        self.assertEqual('M2', self.state['current_task']['milestone_id'])
+        self.assertEqual(['M1', 'M3'], m.summary(self.state)['accepted_milestones'])
+
     def test_cannot_advance_without_sol_even_when_astra_claims_success(self):
         self.start()
         task = copy.deepcopy(self.state['current_task'])
@@ -120,6 +151,16 @@ class MilestoneCheckpointTests(unittest.TestCase):
         for i in range(3): self.validate({'C1': 'FAIL', 'C2': 'FAIL'})
         self.assign(status='REWORK', next_objective='Another attempt')
         self.assertEqual('PAUSED_MILESTONE_STALLED', self.state['status'])
+
+    def test_unbounded_replans_still_require_a_changed_approach(self):
+        self.start()
+        self.state['settings']['milestone_checkpoints']['max_replans'] = None
+        for cycle in range(3):
+            for _ in range(3):
+                self.validate({'C1': 'FAIL', 'C2': 'FAIL'})
+            self.assign(status='REWORK', next_objective=f'Changed approach {cycle + 1}')
+            self.assertEqual(cycle + 1, m.progress(self.state)['replans'])
+            self.assertEqual('RUNNING', self.state['status'])
 
     def test_new_passing_criterion_counts_as_progress_but_oscillation_does_not(self):
         self.start()

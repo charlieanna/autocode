@@ -7,6 +7,7 @@ import datetime as dt
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import uuid
@@ -19,8 +20,9 @@ except ImportError:
     import autocode_workspaces as workspaces
     import autocode_orchestrator as orchestrator
 
-DEFAULT_MODELS = {'astra': 'gpt-6-astra', 'terra': 'gpt-5.6-terra', 'sol': 'gpt-5.6-sol'}
+DEFAULT_MODELS = {'astra': 'gpt-5.6-sol', 'terra': 'gpt-5.6-terra', 'sol': 'gpt-5.6-sol'}
 DEFAULT_PLANNER_MODEL = 'gpt-5.6-sol'
+DEFAULT_ASTRA_REASONING_EFFORT = 'high'
 
 
 def report_schema(statuses):
@@ -48,13 +50,17 @@ def prompt(role, task, run_dir, target, inputs):
               'Load the applicable Figma skills before using its tools. Build native editable Figma nodes, '
               'components and variables. Figma Make is not assumed to be callable. '
               'Only the Figma Builder may modify Figma. Do not build a local application or change project source. '
-              'The runner saves your final output. Only write temporary evidence under the run directory.\n'
+              'Return the complete deliverable in your final response; the runner saves it. '
+              'Do not replace the deliverable with a completion note or a link to a file. '
+              'Only write temporary evidence under the run directory.\n'
               + '\n'.join(f'{name}: {path}' for name, path in inputs.items()) + '\n')
     if role == 'requirements_planner':
         return shared + ('Act as the Requirements Planner. Return a complete UI brief covering users, outcomes, '
                          'primary flow, screens, states, hierarchy, visual direction, responsive behavior, components, '
                          'content, accessibility, failure states and observable acceptance checks. Resolve ordinary '
-                         'design choices with documented defaults. Do not edit Figma.')
+                         'design choices with documented defaults. When redesigning an existing product, inspect its '
+                         'current UI and require a visibly more usable, polished composition rather than a sparse '
+                         'wireframe or component inventory. Do not edit Figma.')
     if role == 'plan_reviewer':
         return shared + ('Act as the independent Plan Reviewer. Inspect the requirements draft and the selected '
                          'Figma file when one exists. Check completeness, contradictions, unnecessary scope, missing '
@@ -74,19 +80,29 @@ def prompt(role, task, run_dir, target, inputs):
     if role == 'builder':
         return shared + ('Act as the Figma Builder. Read the finalized brief and any previous validation/decision. '
                          'Create or refine the actual Figma file, reuse design-system components and tokens, '
-                         'and inspect screenshots plus node structure. Return COMPLETE only after the edits succeed. '
+                         'and inspect screenshots plus node structure. Compose realistic full product screens with '
+                         'scenario-specific content; placeholder labels, tiny hidden instances, and skeletal wireframes '
+                         'are incomplete even if node counts pass. Return COMPLETE only after the edits succeed. '
                          'Report the exact Figma Design URL, inspected node IDs/screens and evidence. '
-                         'Return BLOCKED if plugin access or edits fail; do not substitute local HTML or claim success.')
+                         'For COMPLETE, leave required_changes empty when the edits are complete; the independent '
+                         'validator is the next workflow stage, not a remaining builder change. Return BLOCKED if '
+                         'plugin access or edits fail; do not substitute local HTML or claim success.')
     if role == 'validator':
         return shared + ('Act as the independent Design Validator. Read the finalized brief and builder result, then '
                          'inspect the actual Figma screenshots and nodes. Audit all required screens/states, visual '
-                         'hierarchy, consistency, component reuse, responsiveness and accessibility. Do not edit '
+                         'hierarchy, consistency, component reuse, responsiveness and accessibility. Compare the '
+                         'rendered screens to the requested product quality and existing UI. Reject sparse wireframes, '
+                         'placeholder content, detached or hidden replicas, and any structurally valid but visually '
+                         'unusable composition. Do not edit '
                          'Figma. Return PASS only with concrete evidence and no required_changes. Use FAIL for '
                          'repairable defects or BLOCKED if inspection is unavailable.')
     if role == 'decision_owner':
         return shared + ('Act as the Completion Owner. Read the finalized brief, builder result and current validation. '
+                         'This role is strictly read-only: never create, edit, move, delete, or rebind Figma nodes, '
+                         'variables, styles, or annotations. Return a decision and repair instructions only. '
                          'Return ACCEPT only if validation passed the actual Figma result and the complete brief is '
-                         'satisfied. Otherwise give bounded REWORK instructions or BLOCKED. Include the exact accepted '
+                         'satisfied, including screenshot-level visual quality. Otherwise give bounded REWORK '
+                         'instructions or BLOCKED. Include the exact accepted '
                          'Figma URL and evidence. No additional human visual approval is needed for this design task.')
     if role == 'astra-brief':  # Compatibility for pre-0.7 callers.
         return shared + ('Act as the Requirements Planner. Return a concise UI brief covering users, primary flow, screens, states, '
@@ -95,13 +111,16 @@ def prompt(role, task, run_dir, target, inputs):
     raise ValueError(f'Unknown UI role: {role}')
 
 
-def run_stage(name, model, text, workspace, run_dir, schema=None, dry_run=False):
+def run_stage(name, model, text, workspace, run_dir, schema=None, dry_run=False, reasoning_effort=None):
     output = run_dir / (name + ('.json' if schema else '.md'))
+    capture = output if schema else run_dir / (name + '.last-message.md')
     prompt_path = run_dir / (name + '.prompt.md')
     events = run_dir / (name + '.jsonl')
     prompt_path.write_text(text)
     command = ['codex', 'exec', '-C', str(workspace), '--skip-git-repo-check', '--sandbox', 'workspace-write',
-               '--model', model, '-c', 'model_provider="openai"', '--json', '--output-last-message', str(output)]
+               '--model', model, '-c', 'model_provider="openai"', '--json', '--output-last-message', str(capture)]
+    if reasoning_effort:
+        command += ['-c', f'model_reasoning_effort="{reasoning_effort}"']
     if schema:
         schema_path = run_dir / (name + '.schema.json')
         support.atomic_json(schema_path, schema)
@@ -116,15 +135,40 @@ def run_stage(name, model, text, workspace, run_dir, schema=None, dry_run=False)
         result = subprocess.run(command, cwd=workspace, stdin=source, stdout=log, stderr=subprocess.STDOUT, text=True)
     if result.returncode:
         raise ValueError(f'{name} failed (exit {result.returncode}); inspect {events}')
+    if not schema and not output.exists():
+        capture.replace(output)
     report = json.loads(output.read_text()) if schema else output.read_text()
     if schema:
         support.validate_schema(report, schema)
-        if report['figma_file']:
+        if report.get('figma_file'):
             figma.design_url(report['figma_file'])
     elif not report.strip():
-        raise ValueError('Astra returned an empty UI brief')
+        raise ValueError(f'{name} returned an empty UI brief')
     print(f'{name}: completed; output={output}', flush=True)
     return output, report
+
+
+def seed_accepted_plan(state, source_dir, run_dir):
+    source_dir = source_dir.resolve()
+    prior = json.loads((source_dir / 'state.json').read_text())
+    finalizer = prior.get('reports', {}).get('plan_finalizer', {})
+    if finalizer.get('status') != 'ACCEPT' or finalizer.get('required_changes'):
+        raise ValueError('Source run has no accepted UI plan')
+    if prior.get('figma_file') != state.get('figma_file'):
+        raise ValueError('Source plan targets a different Figma file')
+    keys = ('requirements_draft', 'plan_reviewer', 'brief', 'plan_finalizer')
+    for key in keys:
+        source = Path(prior['outputs'][key]).resolve()
+        if source.parent != source_dir or not source.is_file():
+            raise ValueError(f'Source plan artifact is missing or outside its run: {key}')
+        target = run_dir / source.name
+        shutil.copyfile(source, target)
+        state['outputs'][key] = str(target)
+    state['reports']['plan_reviewer'] = prior['reports']['plan_reviewer']
+    state['reports']['plan_finalizer'] = finalizer
+    state['next_stage'] = 'builder'
+    state['planning_iteration'] = prior.get('planning_iteration', 0)
+    state['plan_source'] = str(source_dir)
 
 
 def execute(args, workspace, run_dir):
@@ -133,7 +177,10 @@ def execute(args, workspace, run_dir):
              'next_stage': 'requirements_planner', 'iteration': 0, 'planning_iteration': 0, 'target': 'figma',
              'models': {**{role: getattr(args, role + '_model') for role in DEFAULT_MODELS},
                         'planner': args.planner_model},
+             'reasoning_efforts': {'astra': args.astra_reasoning_effort},
              'stages': [], 'outputs': {}, 'reports': {}}
+    if args.from_plan_run:
+        seed_accepted_plan(state, args.from_plan_run, run_dir)
     def save():
         support.atomic_json(run_dir / 'state.json', state)
     names = {'requirements_planner': lambda: 'requirements-draft', 'plan_reviewer': lambda: 'plan-review',
@@ -159,7 +206,8 @@ def execute(args, workspace, run_dir):
         return name, role, run_stage(name, current['models'][model_roles[stage]],
                                     prompt(role, args.task, run_dir, current['figma_file'], inputs),
                                     run_dir, run_dir, schemas.get(stage),
-                                    args.dry_run)
+                                    args.dry_run,
+                                    args.astra_reasoning_effort if model_roles[stage] == 'astra' else None)
 
     def apply(current, stage, outcome):
         name, role, (output, report) = outcome
@@ -253,6 +301,7 @@ def execute(args, workspace, run_dir):
                 command.append('--no-chat')
             for role in DEFAULT_MODELS:
                 command += [f'--{role}-model', getattr(args, role + '_model')]
+            command += ['--astra-reasoning-effort', args.astra_reasoning_effort]
             return subprocess.run(command, cwd=workspace).returncode
     return 0 if state['status'] in ('COMPLETE', 'DRY_RUN') else 3
 
@@ -267,8 +316,13 @@ def cli(argv=None):
     parser.add_argument('--workspace', type=Path, default=Path.cwd())
     parser.add_argument('--figma-file')
     parser.add_argument('--run-dir', type=Path, help='New artifact directory (existing runs are never overwritten)')
+    parser.add_argument('--from-plan-run', type=Path,
+                        help='Start a new run at Builder using a saved accepted UI plan')
     for role, default in DEFAULT_MODELS.items():
         parser.add_argument(f'--{role}-model', default=default)
+    parser.add_argument('--astra-reasoning-effort', choices=('low', 'medium', 'high', 'xhigh', 'max'),
+                        default=DEFAULT_ASTRA_REASONING_EFFORT,
+                        help='Reasoning effort for plan review, plan finalization and completion decision')
     parser.add_argument('--planner-model', default=DEFAULT_PLANNER_MODEL)
     parser.add_argument('--max-reworks', type=int, default=2)
     parser.add_argument('--max-plan-reworks', type=int, default=1)

@@ -4,7 +4,7 @@ let currentView = 'inbox', currentTab = 'now', taskFilter = 'all', projectFilter
 let evidenceRequest = 0, evidenceRun = '', previewRun = '', scrollThreadToEnd = false;
 let taskReturn = {view:'inbox',filter:'all',project:''};
 const evidenceCache = new Map();
-let latestData = null, latestRun = null, actionProblem = '', newTaskPending = null, pendingShortRun = '';
+let latestData = null, latestRun = null, actionProblem = '', newTaskPending = null, pendingShortRun = '', pendingShortProject = null;
 let taskReadError = '', taskReadAt = null;
 let activeConversation = null, latestConversation = null, refreshPromise = null, refreshAgain = false, refreshTimer = null;
 let creatingConversation = false, conversationRequest = null;
@@ -35,6 +35,14 @@ function matchingShortRuns(key,runs=latestData?.runs||[]) {
 function runSelection(run,runs=latestData?.runs||[]) {
   const key=shortRunKey(run);
   return key&&matchingShortRuns(key,runs).length===1 ? 'run='+encodeURIComponent(key) : legacyRunSelection(run);
+}
+function projectPathForKey(key,data=latestData) {
+  const path=data?.workspace_ids?.[key];
+  return typeof path==='string'?path:'';
+}
+function projectKeyForPath(path,data=latestData) {
+  const matches=Object.entries(data?.workspace_ids||{}).filter(([,value])=>value===path);
+  return matches.length===1?matches[0][0]:'';
 }
 function unavailableShortRun() {
   dashboardNotice('This saved task link is unavailable or ambiguous. Choose the task from All work.');
@@ -284,7 +292,19 @@ function projectSummaryLabel(summary) {
   return parts.join(' · ') || 'No saved tasks';
 }
 function taskSelection(filter=taskFilter,project=projectFilter) {
-  return 'tasks'+(filter!=='all'?'&filter='+encodeURIComponent(filter):'')+(project?'&project='+encodeURIComponent(project):'');
+  const projectKey=projectKeyForPath(project);
+  return 'tasks'+(filter!=='all'?'&filter='+encodeURIComponent(filter):'')+(project?'&project='+encodeURIComponent(projectKey||project):'');
+}
+function unavailableShortProject() {
+  dashboardNotice('This project link is unavailable. Choose the project from All work.');
+  filterTasks('all','');
+}
+function restorePendingShortProject(data) {
+  if(!pendingShortProject)return false;
+  const pending=pendingShortProject;pendingShortProject=null;
+  const project=projectPathForKey(pending.key,data);
+  if(project){filterTasks(pending.filter,project);return true;}
+  unavailableShortProject();return true;
 }
 function taskScopeTitle() {return projectFilter?basename(projectFilter):taskFilter==='all'?'All work':taskGroups().find(group=>group[0]===taskFilter)?.[1]||'All work';}
 function badge(run) { const info = statusInfo(run), element = n('span',info.label); element.className = 'badge '+info.tone; element.title = run.status || run.error || ''; return element; }
@@ -328,6 +348,14 @@ function workflowConfig(run, state) {
   return glmFirst?[['terra','Builder','Plan & implement'],['sol','Validator','Targeted escalation only'],['astra','Plan reviewer',finalOnly?'Final full-task audit only':'Milestone review']]:
     [...(jointPlanning(run)?[['glm','Requirements planner','Draft & revise']]:[['astra','Requirements planner','Draft plan']]),['astra','Plan reviewer',jointPlanning(run)?'Challenge & finalize':'Review & direct'],['terra','Builder','Implement'],['sol','Validator','Review'],['completion','Completion owner','Complete / rework']];
 }
+function completedPlanningStep(run, role) {
+  const planningStages=role==='glm'?new Set(['astra_discovery','glm_revise']):new Set(['astra_discovery','astra_challenge','astra_finalize']);
+  return (run.stages||[]).findLast(stage=>{
+    const name=String(stage.stage||'').replace(/_report_repair$/,'');
+    const owner=stage.role||(name==='glm_revise'?'glm':'astra');
+    return planningStages.has(name)&&owner===role&&stage.finished_at&&stage.exit_code===0&&!stage.rejected&&!stage.abandoned&&!stage.interrupted&&!stage.timed_out;
+  });
+}
 function workflowCards(run, state) {
   const config=workflowConfig(run,state);
   const host=card('','workflow-cards');host.setAttribute('aria-label','Agent workflow');
@@ -336,23 +364,38 @@ function workflowCards(run, state) {
     const saved=run.monitor?.roles?.[role]||{},model=saved.model||run.model_settings?.roles?.[role];
     item.append(Object.assign(n('p',model||'Model not recorded'),{className:'workflow-model'}));
     if(saved.reasoning_effort)item.append(Object.assign(n('p',saved.reasoning_effort+' reasoning'),{className:'workflow-model'}));
+    if(role==='glm'||role==='astra'){
+      const completed=completedPlanningStep(run,role);
+      const label=completed?'Planning step completed · '+new Date(completed.finished_at).toLocaleString():'No completed planning step recorded';
+      item.append(Object.assign(n('p',label),{className:'workflow-history'+(completed?' completed':'')}));
+    }
     if(selected)item.append(Object.assign(n('span',state.verified?'Active now':'Last reported active'),{className:'workflow-active'}));host.append(item);
   }return host;
 }
 function monitorPanel(run, compact=false) {
   const state=taskOverviewState(run),monitor=run.monitor||{},live=monitor.live||{},host=card('','monitor-panel');
   const hero=card('','monitor-hero '+state.info.group),main=card('','monitor-state');
-  main.append(Object.assign(n('p','CURRENT STATUS'),{className:'monitor-kicker'}),n('h2',state.label),Object.assign(n('p',state.step),{className:'monitor-step'}));
+  main.append(Object.assign(n('p',state.label+(state.verified?' · worker verified':'')),{className:'monitor-status-chip '+state.info.group}),n('h2',state.step.replace(/^Current step · /,'').replace(/^Next step · /,'').replace(/^Last reported active step · /,'')));
   const evidence=live.state==='alive'?live.label+' · PID '+live.pid+(live.elapsed?' · uptime '+live.elapsed:''):live.label||'Live worker status is unavailable';
   main.append(Object.assign(n('p',evidence),{className:'monitor-evidence'}));
   const iteration=card('','monitor-iteration');iteration.append(n('strong',Number.isFinite(run.iteration)?run.iteration:'—'),n('span','iteration'+(monitor.limits_known?(monitor.iteration_limit==null?' · unlimited':' / '+monitor.iteration_limit):'')));
-  hero.append(main,iteration);host.append(hero,workflowCards(run,state));
-  const objective=card('','monitor-objective');objective.append(Object.assign(n('p','CURRENT OBJECTIVE'),{className:'monitor-kicker'}),n('p',concise(state.objective,650)));
-  if(state.objective.length>650)objective.append(disclosure('Read full objective','monitor-objective',[n('p',state.objective)],run.run));host.append(objective);
-  const needs=card('','monitor-next');needs.append(Object.assign(n('p','YOUR NEXT ACTION'),{className:'monitor-kicker'}),n('p',state.info.group==='attention'||state.info.group==='stopped'?state.info.reason:state.info.group==='complete'?'No reply needed. The runner recorded this task as complete.':'No reply requested. You can send feedback in the conversation.'));
-  if(!compact)needs.append(focusKey(button(state.info.group==='attention'?state.info.action+' →':'Open conversation →',()=>activateTab(state.info.group==='attention'?state.info.tab:'interview'),'text-button'),'overview-conversation'));
-  host.append(needs);
+  const blocker=state.info.group==='attention'||state.info.group==='stopped'?state.info.reason:'No blocker recorded.';
+  main.append(Object.assign(n('p','Blocker · '+concise(blocker,220)),{className:'monitor-blocker'}));
+  hero.append(main,iteration);host.append(hero);
+  const summary=card('','monitor-summary-grid');
+  const objective=card('','monitor-objective');objective.append(Object.assign(n('p','CURRENT OBJECTIVE'),{className:'monitor-kicker'}),n('p',concise(state.objective,220)));
+  if(state.objective.length>220)objective.append(disclosure('Read full objective','monitor-objective',[n('p',state.objective)],run.run));summary.append(objective);
+  const nextAction=primaryAction(run,taskActionBusy(run)),needs=card('','monitor-next');
+  const running=state.info.group==='running'&&state.verified,reported=state.info.group==='running'&&!state.verified;
+  needs.append(Object.assign(n('p',running?'WHILE THE WORKER RUNS':reported?'LIVE STATUS NOT CONFIRMED':'NEXT SAFE ACTION'),{className:'monitor-kicker'}),n('strong',running?'Let the current step finish':reported?'Inspect saved activity':state.info.group==='complete'?'No action needed':nextAction.label),n('p',running?'The worker is active. Follow its progress or send feedback for the next safe step.':reported?'A stage is recorded as active, but no live worker is confirmed. Inspect the saved activity before deciding whether to continue.':state.info.group==='attention'||state.info.group==='stopped'?state.info.reason:state.info.group==='complete'?'The runner recorded this task as complete.':'No reply requested. You can send feedback in the conversation.'));
+  if(!compact){
+    const checkpoint=state.info.label==='Worker stopped',target=checkpoint?'overview':state.info.group==='attention'?state.info.tab:'interview';
+    if(running||reported)needs.append(button(running?'View live activity →':'View saved activity →',()=>host.querySelector('.monitor-activity')?.scrollIntoView({block:'start',behavior:'smooth'}),'primary'));
+    needs.append(focusKey(button(checkpoint?'View saved checkpoint →':state.info.group==='attention'?state.info.action+' →':'Open conversation →',()=>activateTab(target),'text-button'),'overview-conversation'));
+  }
+  summary.append(needs);host.append(summary);
   const freshness=card('','monitor-freshness');freshness.append(n('span','Log updated '+statusAge(monitor.log_updated)),n('span','Checkpoint '+statusAge(monitor.checkpoint_updated)),n('span','Checked '+statusAge(monitor.checked_at)));host.append(freshness);
+  host.append(disclosure('Models & role history','monitor-roles',[workflowCards(run,state)],run.run));
   if(!compact){
     const details=card('','monitor-details'),activity=card('','monitor-activity'),history=card('','monitor-history');
     activity.append(n('h3','Latest activity'),Object.assign(n('p','Recent tool events. A quiet log alone does not mean the worker is stuck.'),{className:'monitor-caption'}));
@@ -378,7 +421,14 @@ function renderTaskOverview(run) {
   for(const step of run.monitor?.history||[]){const row=card('','monitor-event');row.append(n('span',human(step.stage)+' · iteration '+(step.iteration??'?')),n('small',(step.rejected?'Rejected':step.interrupted?'Interrupted':step.timed_out?'Timed out':step.exit_code===0?'Finished':'Recorded')+' · '+(step.finished_at||'Time not recorded')));host.append(row);}
   if(run.interventions)host.append(disclosure('Saved controls & delivery history','runtime-controls',[renderDocument(run.interventions)],run.run));host.hidden=currentTab!=='overview';
 }
-function markMonitorStale(){document.querySelectorAll('.monitor-panel').forEach(panel=>{panel.classList.add('monitor-stale');const title=panel.querySelector('.monitor-state h2');if(title)title.textContent='Status unverified';const freshness=panel.querySelector('.monitor-freshness');if(freshness)freshness.textContent='Live checks unavailable. The details below are from the last successful read.';panel.querySelectorAll('.workflow-card.active').forEach(card=>card.classList.remove('active'));});}
+function markMonitorStale(){document.querySelectorAll('.monitor-panel').forEach(panel=>{
+  panel.classList.add('monitor-stale');
+  const chip=panel.querySelector('.monitor-status-chip');if(chip){chip.textContent='Status unverified';chip.className='monitor-status-chip stale';}
+  const title=panel.querySelector('.monitor-state h2');if(title&&!title.textContent.startsWith('Last reported · '))title.textContent='Last reported · '+title.textContent;
+  const next=panel.querySelector('.monitor-next');if(next){const heading=next.querySelector('strong'),description=next.querySelector('p:not(.monitor-kicker)');if(heading)heading.textContent='Refresh task status';if(description)description.textContent='Live checks are unavailable. The details shown here are from the last successful read.';}
+  const freshness=panel.querySelector('.monitor-freshness');if(freshness)freshness.textContent='Live checks unavailable. The details below are from the last successful read.';
+  panel.querySelectorAll('.workflow-card.active').forEach(card=>card.classList.remove('active'));
+});}
 function renderProjectOverview(scope) {
   const host=$('#project-overview');host.replaceChildren();host.hidden=!projectFilter;if(!projectFilter)return;
   const actual=scope.filter(run=>run.run&&!run.error),summary=projectRunSummary(actual);
@@ -948,9 +998,11 @@ function renderTaskNow(run){
   const signature=JSON.stringify([run.run,run.status,run.stage,run.iteration,run.goal_token,run.goal?.approval_status,run.questions,run.user_request,run.stop_reason,run.monitor,assignment,decision]);
   if(host.dataset.rendered===signature)return;host.dataset.rendered=signature;host.replaceChildren();
   const path=n('ol','');path.className='task-path';path.setAttribute('aria-label','Workflow stage');
-  for(const [key,label]of [['planning','Plan'],['approval','Your approval'],['implementation','Build'],['review','Review'],['complete','Complete']]){const item=n('li',label);if(key===phase){item.className='current';item.setAttribute('aria-current','step');}path.append(item);}host.append(path);
+  const stages=[['planning','Plan'],['approval','Your approval'],['implementation','Build'],['review','Review'],['complete','Complete']];
+  const currentStage=stages.findIndex(([key])=>key===phase);
+  for(const [index,[key,label]]of stages.entries()){const item=n('li',label);if(index<currentStage)item.className='done';if(key===phase){item.className='current';item.setAttribute('aria-current','step');}path.append(item);}
   if(decision.required){const decisionCard=card('','decision-card needs-decision');decisionCard.append(Object.assign(n('p','YOUR NEXT ACTION'),{className:'eyebrow'}),n('h2',decision.title),n('p',decision.description),Object.assign(n('p',decision.after),{className:'decision-after'}));host.append(decisionCard);}
-  host.append(monitorPanel(run));
+  host.append(monitorPanel(run));host.append(path);
   if(assignment)host.append(disclosure('Assignment scope & checks','current-assignment:'+assignment.id,[renderDocument(assignment)],run.run));
   const context=card('','current-context'),plan=card('','');plan.append(n('h3','Current plan'),n('p',run.goal?.revision!=null?'Revision '+run.goal.revision+' · '+(run.goal.approval_status==='approved'?'Approved':decision.action.kind==='plan'?'Ready for review':'Draft'):'No plan revision saved'),button('Read current plan →',()=>activateTab('plan'),'text-button'));context.append(plan);
   const checkpoint=card('',''),latest=[...(run.monitor?.history||[])].sort((a,b)=>Date.parse(b.finished_at)-Date.parse(a.finished_at))[0];checkpoint.append(n('h3','Last saved step'));
@@ -1059,7 +1111,7 @@ function renderLiveControls(run){
   input.oninput=()=>{changeDrafts.set(input.dataset.run,input.value);persist('task-draft:'+input.dataset.run,input.value);$('#send-change').disabled=sendBlocked||!!taskReadError||!input.value.trim();};
   requestAnimationFrame(()=>resizeComposer(input));
   $('#change-form').onsubmit=event=>{event.preventDefault();sendTaskChat(run);};renderPrimaryAction(run);renderTaskAttention(run);
-  $('#task-delivery').textContent=sending?'Saving your message…':questions.length?'Work continues after your last answer.':run.status==='TASK_COMPLETE'?'This task is complete. Start a new conversation for more work.':'Saved now · applied at the next safe step';
+  $('#task-delivery').textContent=sending?'Saving your message…':questions.length?'Work continues after your last answer.':run.status==='TASK_COMPLETE'?'This task is complete. Start a new conversation for more work.':'Messages are saved when sent and applied at the next safe step';
   $('#live-mode').textContent=questions.length?'Final plan approval remains a separate step.':unavailable?'Live controls are unavailable.':statusInfo(run).group==='stopped'&&!busy?'Messages stay saved while this task is paused.':'';
   $('#live-error').textContent=data.error||'';
   const host=$('#change-history');host.replaceChildren();const entries=data.entries||data.requests||[],chatIds=new Set((run.chat_messages||[]).map(entry=>entry.id));
@@ -1138,7 +1190,7 @@ async function refreshOnce(){
   // must never prevent a fresh task response or invalidate one already shown.
   const listRead=(async()=>{
     try{
-      const data=await api('/api/runs');if(mine!==seq)return;latestData=data;setup(data);if(restorePendingShortRun(data))return;const focus=captureControls();renderTasks(data);renderConversations(data);renderInbox(data);expireNotices();restoreFocus(focus);
+      const data=await api('/api/runs');if(mine!==seq)return;latestData=data;setup(data);if(restorePendingShortRun(data)||restorePendingShortProject(data))return;const focus=captureControls();renderTasks(data);renderConversations(data);renderInbox(data);expireNotices();restoreFocus(focus);
       if(!selected)$('#sync-state').replaceChildren(Object.assign(n('span',''),{className:'status-dot'}),document.createTextNode('Task list checked just now'));
     }catch(error){if(mine!==seq)return;if(!selected)$('#sync-state').textContent='Task list unavailable';dashboardNotice(actionProblem||error.message);}
   })();
@@ -1167,7 +1219,12 @@ function restoreSelection() {
     else unavailableShortRun();
   }
   else if(params.get('task')&&params.get('run'))openRun({workspace:params.get('task'),run:params.get('run')});
-  else if(selection==='tasks'||selection.startsWith('tasks&')){const filter=params.get('filter')||'all';filterTasks(['all',...taskGroups().map(group=>group[0])].includes(filter)?filter:'all',params.get('project')||'');}
+  else if(selection==='tasks'||selection.startsWith('tasks&')){
+    const filter=params.get('filter')||'all',validFilter=['all',...taskGroups().map(group=>group[0])].includes(filter)?filter:'all';
+    const project=params.get('project')||'',compact=/^workspace-[a-f0-9]{24}$/.test(project);
+    if(compact){const path=projectPathForKey(project);if(path)filterTasks(validFilter,path);else if(!latestData)pendingShortProject={key:project,filter:validFilter};else unavailableShortProject();}
+    else filterTasks(validFilter,project);
+  }
   else setView(['inbox','conversations','settings','archived'].includes(selection)?selection:selection==='new'?'new-task':'inbox');
 }
 window.addEventListener('hashchange',restoreSelection);

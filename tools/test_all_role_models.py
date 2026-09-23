@@ -15,6 +15,19 @@ import test_planning
 class AllRoleModelTests(unittest.TestCase):
     configure_args = test_planning.PlanningTests.configure_args
 
+    def test_saved_run_pins_selected_roles_at_a_model_change(self):
+        with patch.object(oc, 'local_settings', return_value={'engine': 'opencode'}):
+            original = runner.configure(self.configure_args(), {'workspace': '/fixture', 'iteration': 0})
+            state = {'workspace': '/fixture', 'settings': original, 'sessions': {'astra': 'saved'}}
+            selected = runner.configure(self.configure_args(
+                astra_model='openai/gpt-5.6-sol', astra_reasoning_effort='high',
+                pin_model_role=['astra', 'sol', 'completion']), state)
+        self.assertEqual('openai/gpt-5.6-sol', selected['roles']['astra']['model'])
+        self.assertEqual('high', selected['roles']['astra']['reasoning_effort'])
+        self.assertTrue(all(selected['roles'][role]['model_pinned']
+                            for role in ('astra', 'sol', 'completion')))
+        self.assertNotIn('model_pinned', original['roles']['astra'])
+
     def test_all_overrides_use_opencode_without_a_codex_login_dependency(self):
         models = {'glm':'openai/gpt-5.6-sol','astra':'zai-coding-plan/glm-5.3',
                   'terra':'local/custom:32b','sol':'openai/gpt-6-astra'}

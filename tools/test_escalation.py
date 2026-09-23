@@ -65,6 +65,14 @@ class EscalationTests(unittest.TestCase):
             self.assertEqual(before, state["settings"]["roles"]["terra"])
             self.assertEqual("old-session", state["sessions"]["terra"])
 
+    def test_pinned_role_keeps_requested_model_after_a_struggle(self):
+        state = self.state("astra", "openai/gpt-5.6-sol", "high")
+        state["settings"]["roles"]["astra"]["model_pinned"] = True
+        self.assertIsNone(escalation.advance(state, "astra", trigger="rejected_output"))
+        self.assertEqual("openai/gpt-5.6-sol", state["settings"]["roles"]["astra"]["model"])
+        self.assertEqual("high", state["settings"]["roles"]["astra"]["reasoning_effort"])
+        self.assertEqual("old-session", state["sessions"]["astra"])
+
 
 if __name__ == "__main__":
     unittest.main()

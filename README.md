@@ -1,5 +1,17 @@
 # Autocode
 
+## Hello-world CLI
+
+Install the package, then run:
+
+```sh
+hello-world
+# Hello, World!
+
+hello-world Ada
+# Hello, Ada!
+```
+
 Start with a rough idea and discuss it with the Requirements Planner. It helps define the smallest
 useful end-to-end product, asks focused questions, and drafts a versioned build brief.
 The Plan Reviewer challenges that draft; the Requirements Planner revises; the Plan Reviewer finalizes. You can revise the brief
@@ -88,8 +100,10 @@ autocode "Your rough idea"
 
 ## Figma design and implementation
 
-The Figma workflow uses Codex with the connected Figma plugin and the ChatGPT
-Astra, Terra, and Sol models. OpenCode is not needed for this path. The plugin must
+The Figma workflow uses Codex with the connected Figma plugin. Requirements planning,
+plan review, plan finalization, validation, and completion decisions use Sol; the
+review and decision steps default to Sol High. Figma editing uses Terra. OpenCode is
+not needed for this path. The plugin must
 be available in Codex CLI sessions; a connection only in another app is insufficient.
 
 ```sh
@@ -693,6 +707,12 @@ with the current milestone, evidence progress, budget, replans, completed stage 
 per role, and separately estimated elapsed time for any recorded active stage.
 These are elapsed stage durations, not billed model-compute hours or proof a recorded
 process is still alive. Ordinary stage updates also print milestone time and progress.
+
+The saved milestone replan limit defaults to one changed-approach replan. Set
+`--max-milestone-replans 0` on a saved-run resume to allow further evidence-backed
+changed-approach cycles within the same approved milestone. This does not change its
+acceptance criteria, disable the three-review checkpoint, or permit advancement without
+independent passing evidence.
 
 Saved runs keep their existing review routing until explicitly upgraded. At an idle,
 reconciled boundary, enable checkpoints without launching a provider:

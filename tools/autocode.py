@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import errno
 import json
 import os
 import re
@@ -449,6 +450,9 @@ def accept_repaired_report(state, run_dir, workspace, value, repair_record):
 def execute_report_repair(state, run_dir, workspace):
     pending = state['pending_report_repair']
     original = pending['original']
+    if state.get('next_stage') != original.get('stage'):
+        raise support.Paused('PAUSED_STALE_REPORT_ROUTE',
+                             'Saved report repair belongs to a different stage; reconcile before retrying')
     if pending['attempts'] >= repair_limit(state):
         raise support.Paused('PAUSED_REPORT_REPAIR_LIMIT', 'Bounded report-only repair attempts exhausted')
     if (support.snapshot(workspace)['revision'] != original['source_revision']
@@ -963,17 +967,26 @@ def prepare_planning_retry(state, run_dir):
 
 def prepare_exhausted_execution_report_retry(state, run_dir):
     """Allow an explicit fresh execution report after bounded repairs fail."""
-    if state.get('status') != 'PAUSED_REPORT_REPAIR_LIMIT' or state.get('active_stage'):
+    if state.get('status') not in ('PAUSED_REPORT_REPAIR_LIMIT', 'PAUSED_INVALID_OUTPUT') or state.get('active_stage'):
         return False
     pending = state.get('pending_report_repair')
     original = pending.get('original') if isinstance(pending, dict) else None
     if not isinstance(original, dict):
         return False
     stage = original.get('stage')
-    if (stage != state.get('next_stage') or stage == 'astra_discovery'
+    reroute_abandoned_sol = (
+        stage == 'sol' and state.get('next_stage') == 'astra_review'
+        and not state.get('validation')
+        and (state.get('recovery_context') or {}).get('role') == 'sol'
+        and any(record.get('stage') == 'sol_report_repair' and record.get('abandoned')
+                and attempt_id(record) == state['recovery_context'].get('attempt_id')
+                for record in state.get('stages', [])))
+    if ((stage != state.get('next_stage') and not reroute_abandoned_sol) or stage == 'astra_discovery'
             or planning.is_planning(state, stage)
             or pending.get('attempts') != repair_limit(state)):
         return False
+    if reroute_abandoned_sol:
+        state['next_stage'] = 'sol'
     state.setdefault('report_repair_archive', []).append({
         'at': now(), 'reason': 'Explicit fresh execution retry after exhausted report repairs',
         'repair': state.pop('pending_report_repair')})
@@ -1152,6 +1165,8 @@ def configure(args, state):
             role_effort = getattr(args, f"{role}_reasoning_effort", None)
             if role_effort or args.reasoning_effort:
                 settings["roles"][role]["reasoning_effort"] = role_effort or args.reasoning_effort
+        for role in getattr(args, "pin_model_role", []):
+            settings["roles"][role]["model_pinned"] = True
         if args.headroom is not None:
             settings["headroom"]["enabled"] = args.headroom == "on"
         if args.context_soft_tokens is not None:
@@ -1183,6 +1198,17 @@ def configure(args, state):
                 raise ValueError("Enable --milestone-checkpoints before setting its budget")
             if milestones.enabled({"settings": settings}):
                 settings['milestone_checkpoints']['max_seconds'] = args.max_milestone_seconds
+        if getattr(args, 'max_milestone_replans', None) is not None:
+            if not milestones.enabled({"settings": settings}) and not getattr(args, 'milestone_checkpoints', False):
+                raise ValueError("Enable --milestone-checkpoints before setting the replan limit")
+            if milestones.enabled({"settings": settings}):
+                settings['milestone_checkpoints']['max_replans'] = (
+                    None if args.max_milestone_replans == 0 else args.max_milestone_replans)
+        if getattr(args, 'max_milestone_stalled_reviews', None) is not None:
+            if not milestones.enabled({"settings": settings}):
+                raise ValueError("Enable --milestone-checkpoints before setting the review limit")
+            settings['milestone_checkpoints']['stalled_reviews'] = (
+                None if args.max_milestone_stalled_reviews == 0 else args.max_milestone_stalled_reviews)
         if getattr(args, "accept_transport_change", False):
             if engine != "opencode" or state.get("status") != "PAUSED_TRANSPORT_CHANGED":
                 raise ValueError("--accept-transport-change requires an OpenCode run paused for a transport change")
@@ -1212,11 +1238,16 @@ def configure(args, state):
                  "reasoning_effort": getattr(args, f"{r}_reasoning_effort", None) or args.reasoning_effort or local.get("model_reasoning_effort") or opencode.DEFAULT_REASONING_EFFORTS[r],
                  "provider": getattr(args, f"{r}_provider", None) or providers.get(r) or local.get("model_provider")}
             for r in DEFAULT_ROLE_MODELS}
+    for role in getattr(args, "pin_model_role", []):
+        roles[role]["model_pinned"] = True
     settings = {"roles": roles, "transport_identity": local, "engine": engine,
             "report_repair": {"max_attempts": 2},
             "milestone_checkpoints": {**milestones.DEFAULTS,
                 "max_seconds": getattr(args, 'max_milestone_seconds', None)
-                    if getattr(args, 'max_milestone_seconds', None) is not None else milestones.DEFAULTS['max_seconds']},
+                    if getattr(args, 'max_milestone_seconds', None) is not None else milestones.DEFAULTS['max_seconds'],
+                "max_replans": (None if getattr(args, 'max_milestone_replans', None) == 0 else
+                    getattr(args, 'max_milestone_replans', None)
+                    if getattr(args, 'max_milestone_replans', None) is not None else milestones.DEFAULTS['max_replans'])},
             "headroom": {"enabled": args.headroom == "on", "verified": False},
             "context_soft_tokens": args.context_soft_tokens if args.context_soft_tokens is not None else 10000,
             "rotation_after_input_tokens": args.rotate_after_input_tokens if args.rotate_after_input_tokens is not None else 1000000,
@@ -1275,6 +1306,8 @@ def configure_joint(settings, args, *, fresh):
                 settings["roles"][role]["reasoning_effort"] = effort
         settings["roles"]["glm"] = {"engine": "opencode", "provider": None,
             "model": getattr(args, "glm_model", None) or opencode.DEFAULT_MODELS["glm"], "reasoning_effort": None}
+        settings["roles"]["plan_reviewer"] = {"engine": "opencode", "provider": None,
+            "model": "cursor-acp/claude-opus-5-5-high", "reasoning_effort": None, "model_pinned": True}
         settings["transport_identities"] = {"opencode": settings["transport_identity"]}
     elif getattr(args, "glm_model", None):
         settings["roles"]["glm"]["model"] = args.glm_model
@@ -1641,6 +1674,8 @@ def main() -> int:
                         help="Override reasoning effort for Sol only")
     parser.add_argument("--completion-reasoning-effort", choices=["low","medium","high","xhigh","max"],
                         help="Override reasoning effort for the completion owner only")
+    parser.add_argument("--pin-model-role", action="append", choices=tuple(DEFAULT_ROLE_MODELS), default=[],
+                        help="Keep this role's selected model and reasoning effort instead of escalating it automatically")
     parser.add_argument("--headroom", choices=["off","on"], default=None,
                         help="Off by default; on fails closed until compatibility is verified")
     parser.add_argument("--dry-run", action="store_true")
@@ -1659,6 +1694,10 @@ def main() -> int:
                         help="Queue a boundary pause and milestone configuration for an active saved run; never launches or stops workers")
     parser.add_argument("--max-milestone-seconds", type=int,
                         help="Active-time budget per milestone, checked at stage boundaries (new-run default: 5400; 0 disables)")
+    parser.add_argument("--max-milestone-replans", type=int,
+                        help="Maximum changed-approach replans per milestone (saved default: 1; 0 means unbounded)")
+    parser.add_argument("--max-milestone-stalled-reviews", type=int,
+                        help="Reviews without progress before replanning (saved default: 3; 0 disables)")
     parser.add_argument("--max-stage-seconds", type=int,
                         help="Hard runtime limit for one provider stage (new-run default: 0/off; saved limits persist)")
     parser.add_argument("--max-idle-seconds", type=int,
@@ -1690,7 +1729,7 @@ def main() -> int:
         parser.error("--accept-transport-change requires --run-dir and --resume-paused")
     if args.chat is None:
         args.chat = sys.stdin.isatty() and sys.stdout.isatty()
-    for flag in ("max_iterations", "legacy_iteration_ceiling", "max_seconds", "max_stage_seconds", "max_idle_seconds", "max_tool_seconds", "max_reported_tokens", "no_progress_limit", "max_milestone_seconds"):
+    for flag in ("max_iterations", "legacy_iteration_ceiling", "max_seconds", "max_stage_seconds", "max_idle_seconds", "max_tool_seconds", "max_reported_tokens", "no_progress_limit", "max_milestone_seconds", "max_milestone_replans", "max_milestone_stalled_reviews"):
         if getattr(args, flag) is not None and getattr(args, flag) < 0:
             parser.error(f"--{flag.replace('_', '-')} must be nonnegative")
     actions = [args.status, args.dry_run, args.migrate_only, args.show_goal,
@@ -1892,7 +1931,11 @@ def main() -> int:
                         question, sep, response = item.partition("=")
                         if not sep:
                             raise ValueError("--answer uses QUESTION_ID=TEXT")
-                        if candidate.get("user_request", {}).get("kind") == "permission":
+                        request = candidate.get("user_request", {})
+                        if request.get("kind") == "permission" or (request.get("kind") == "blocker" and
+                                str(request.get("proposed_delta", "")).startswith((
+                                    "No goal, scope, criterion, or behavior change.",
+                                    "No contract, product, acceptance-criterion, implementation-scope, filesystem, provider or spending change."))):
                             goals.resolve_permission(candidate, question, response)
                         else:
                             goals.answer(candidate, question, response)
@@ -2097,7 +2140,47 @@ def main() -> int:
         return 0 if state["status"] == "TASK_COMPLETE" else 2
 
 
+class _DiscardedOutput:
+    def write(self, value):
+        return len(value)
+
+    def flush(self):
+        pass
+
+
+class _DetachedOutput:
+    """Keep a detached terminal from interrupting a durable run."""
+
+    def __init__(self, stream):
+        self.original = stream
+        self.stream = stream
+
+    def write(self, value):
+        try:
+            return self.stream.write(value)
+        except OSError as error:
+            if error.errno != errno.EPIPE:
+                raise
+            self.stream = _DiscardedOutput()
+            return self.stream.write(value)
+
+    def flush(self):
+        try:
+            self.stream.flush()
+        except OSError as error:
+            if error.errno != errno.EPIPE:
+                raise
+            self.stream = _DiscardedOutput()
+
+    def __getattr__(self, name):
+        return getattr(self.original, name)
+
+
 def cli():
+    # A caller can close its stdout/stderr pipe while a provider is still
+    # working. Progress output must not turn that run into an uncertain stage.
+    sys.stdout = _DetachedOutput(sys.stdout)
+    sys.stderr = _DetachedOutput(sys.stderr)
     try:
         return main()
     except (RuntimeError, ValueError, OSError) as error:

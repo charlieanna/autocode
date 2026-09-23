@@ -35,6 +35,8 @@ no blocking findings and any required human reviews. After repeated reviews with
 new passing criteria, inspect milestone_checkpoint and choose an evidence-backed
 REWORK with a materially different approach or a smaller implementation batch within
 the SAME milestone. Do not rename a milestone or drop criteria to reset the budget.
+Advance only to a milestone whose depends_on milestones are all accepted under the
+current contract; the runner rejects assignments with unaccepted prerequisites.
 The runner allows one such automatic replan before pausing persistent failure.
 Budget exhaustion stops additional writing at a saved boundary; Sol and Astra may
 still verify finished work. File edits and reworded reports alone are not progress.
@@ -146,7 +148,8 @@ def observe_validation(state, current):
     row["last_approach"] = approach(state["current_task"])
     row["reviews"].append({"receipt": receipt, "output": val["output"], "source_revision": current["revision"],
                            "passed": sorted(passed), "remaining": sorted(required - passed), "ready": ready})
-    row["needs_replan"] = row["reviews_without_progress"] >= settings(state)["stalled_reviews"]
+    stalled_limit = settings(state)["stalled_reviews"]
+    row["needs_replan"] = bool(stalled_limit and row["reviews_without_progress"] >= stalled_limit)
 
 
 def before_assignment(state, decision, current):
@@ -173,8 +176,9 @@ def before_assignment(state, decision, current):
         raise ValueError("A saved milestone cannot silently expand its criteria")
     if spec['kind'] == 'implement':
         check_budget(state)
-    if row.get("needs_replan"):
-        if row["replans"] >= settings(state)["max_replans"]:
+    if row.get("needs_replan") and settings(state)["stalled_reviews"]:
+        max_replans = settings(state)["max_replans"]
+        if max_replans is not None and max_replans > 0 and row["replans"] >= max_replans:
             raise s.Paused("PAUSED_MILESTONE_STALLED", "Milestone still fails after bounded replanning; inspect the saved failing evidence")
         proposed = {**spec, "objective": decision["next_objective"], "affected_paths": decision["affected_paths"]}
         if (decision["status"] != "REWORK" or not decision.get("evidence")
@@ -184,6 +188,23 @@ def before_assignment(state, decision, current):
         row["reviews_without_progress"] = 0
         row["needs_replan"] = False
         state['no_progress_batches'] = 0
+
+
+def accepted_ids(state):
+    contract_hash = state.get("goal_contract", {}).get("hash")
+    return {r["id"] for r in state.get("milestone_progress", {}).values()
+            if r.get("accepted") and r.get("contract_hash") == contract_hash}
+
+
+def require_prerequisites(state, milestone_id):
+    """Acceptance is pinned to the contract hash, so a revised brief re-earns its prerequisites."""
+    if not enabled(state):
+        return
+    milestones = {m["id"]: m for m in state.get("goal_contract", {}).get("body", {}).get("milestones", [])}
+    missing = set(milestones.get(milestone_id, {}).get("depends_on", [])) - accepted_ids(state)
+    if missing:
+        raise ValueError(f"Milestone {milestone_id} cannot start until its prerequisites are accepted: "
+                         + ", ".join(sorted(missing)))
 
 
 def accept(state, current):
@@ -210,7 +231,7 @@ def dispatch_guard(state, stage):
         if row is None:
             raise s.Paused("PAUSED_MILESTONE_TASK", "Astra must assign a bounded milestone task before implementation")
         check_budget(state)
-        if row.get("needs_replan"):
+        if row.get("needs_replan") and settings(state)["stalled_reviews"]:
             raise s.Paused("PAUSED_MILESTONE_REPLAN", "Astra must reassess repeated failed checks before another writer attempt")
 
 
@@ -234,7 +255,7 @@ def handle_gate(state, error, current):
         return
     row = progress(state)
     row["rejected_advances"] = row.get("rejected_advances", 0) + 1
-    if row["rejected_advances"] >= 3:
+    if settings(state)["stalled_reviews"] and row["rejected_advances"] >= settings(state)["stalled_reviews"]:
         state.update(status="PAUSED_MILESTONE_REPLAN", phase="PAUSED_OR_BLOCKED", stop_reason=str(error))
     state["next_stage"] = "astra_review" if fresh_validation(state, current) else "sol"
 
@@ -365,8 +386,7 @@ def summary(state):
             "limits": settings(state) if enabled(state) else None,
             "blocker": state.get("milestone_blocker"),
             "active_stage_role": active.get('role'), "active_stage_elapsed_seconds": active_seconds,
-            "accepted_milestones": [r["id"] for r in state.get("milestone_progress", {}).values()
-                                    if r.get("accepted") and r["contract_hash"] == state.get("goal_contract", {}).get("hash")]}
+            "accepted_milestones": sorted(accepted_ids(state))}
 
 
 def status_line(state):

@@ -20,6 +20,58 @@ import test_subprocess
 
 
 class PlanningTests(unittest.TestCase):
+    def test_planner_dependencies_are_validated_and_rendered(self):
+        draft = body()
+        draft["milestones"] = [
+            {"id": "M1", "objective": "Define interface", "acceptance_criteria": ["C1"], "depends_on": []},
+            {"id": "M2", "objective": "Build component", "acceptance_criteria": ["C1"], "depends_on": ["M1"]},
+        ]
+        state = self.state()
+        goals.validate_body(state, draft)
+        cyclic = copy.deepcopy(draft)
+        cyclic["milestones"][0]["depends_on"] = ["M2"]
+        with self.assertRaisesRegex(ValueError, "cycle"):
+            goals.validate_body(state, cyclic)
+        missing = copy.deepcopy(draft)
+        missing["milestones"][1].pop("depends_on")
+        with self.assertRaisesRegex(ValueError, "Every milestone"):
+            goals.validate_body(state, missing)
+        initial = {"objective": "Build component", "affected_paths": ["greet.py"], "kind": "implement",
+                   "milestone_id": "M2", "requirements": ["Real flow"], "acceptance_criteria": ["C1"],
+                   "validation_plan": ["Run the CLI"]}
+        blocked = {**copy.deepcopy(draft), "initial_task": initial}
+        with self.assertRaisesRegex(ValueError, "initial_task milestone M2 has unmet prerequisites"):
+            goals.validate_body(state, blocked)
+        goals.validate_body(state, {**copy.deepcopy(draft), "initial_task": {**initial, "milestone_id": "M1"}})
+        state["settings"]["roles"] = {"plan_reviewer": {"engine": "opencode"}}
+        with self.assertRaisesRegex(ValueError, "declare depends_on"):
+            planning.apply(state, "astra_discovery", {"contract": body(), "summary": "draft",
+                           "code_refs": [], "alternatives": [], "uncertainties": []}, {"output": "draft.json"})
+
+    def test_new_plan_review_route_uses_opencode_cursor_opus(self):
+        args = SimpleNamespace(astra_model=None, terra_model=None, sol_model=None, glm_model=None)
+        settings = {"engine": "opencode", "roles": {r: {} for r in ("astra", "terra", "sol")},
+                    "transport_identity": {"engine": "opencode"}}
+        runner.configure_joint(settings, args, fresh=True)
+        state = {"settings": settings}
+        self.assertEqual("cursor-acp/claude-opus-5-5-high", settings["roles"]["plan_reviewer"]["model"])
+        self.assertEqual("opencode", settings["roles"]["plan_reviewer"]["engine"])
+        for stage in ("astra_challenge", "astra_finalize"):
+            self.assertEqual("plan_reviewer", planning.route_for(state, stage))
+        self.assertEqual("astra", planning.route_for({"settings": {"joint_planning": True}}, "astra_challenge"))
+        self.assertIn("depends_on", planning.PROMPTS["astra_discovery"])
+        self.assertIn("claimed independent milestone", planning.PROMPTS["astra_challenge"])
+        self.assertIn("depends_on", planning.PROMPTS["glm_revise"])
+        self.assertIn("dependencies are complete and acyclic", planning.PROMPTS["astra_finalize"])
+        command, environment, _ = oc.launch("plan_reviewer", Path("/tmp/fixture"), Path("/tmp/run"),
+                                            None, settings["roles"]["plan_reviewer"]["model"],
+                                            None, False, planning=True)
+        self.assertEqual("cursor-acp/claude-opus-5-5-high", command[command.index("--model") + 1])
+        agent = command[command.index("--agent") + 1]
+        permissions = json.loads(environment["OPENCODE_CONFIG_CONTENT"])["agent"][agent]["permission"]
+        self.assertEqual("deny", permissions["edit"])
+        self.assertEqual("deny", permissions["bash"])
+
     def test_joint_context_distinguishes_conversation_context_from_saved_feedback(self):
         state=self.state();state['workspace']='/fixture'
         state['task']='Conversation reference: demo. You: Kubernetes with re-teaching.'
@@ -73,7 +125,7 @@ class PlanningTests(unittest.TestCase):
         planning.apply(state, "astra_challenge", challenge, record)
         original = copy.deepcopy(state)
         revision = {"summary": "Revised", "contract": body(), "code_refs": [], "responses": []}
-        with self.assertRaisesRegex(ValueError, "Every Astra concern"):
+        with self.assertRaisesRegex(ValueError, "Every plan-review concern"):
             runner.apply_result(state, "glm_revise", revision, record, None, None)
         self.assertEqual(original, state)
         final_body = body()
@@ -155,7 +207,7 @@ class PlanningTests(unittest.TestCase):
                          {role: settings['roles'][role]['reasoning_effort']
                           for role in ('astra', 'terra', 'sol', 'completion')})
         routed = {'settings': settings}
-        self.assertEqual('astra', planning.route_for(routed, 'astra_finalize'))
+        self.assertEqual('plan_reviewer', planning.route_for(routed, 'astra_finalize'))
         self.assertEqual('completion', planning.route_for(routed, 'astra_review'))
         self.assertEqual('completion', planning.route_for(routed, 'astra_checkpoint'))
 

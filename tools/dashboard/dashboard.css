@@ -35,6 +35,7 @@
 .workflow-card{border:1px solid var(--line);border-radius:9px;padding:16px;min-width:0;background:var(--canvas)}
 .workflow-card.active{border-color:var(--green);box-shadow:inset 0 3px var(--green)}
 .workflow-card h3{font-size:16px}.workflow-model{font-size:11px}
+.workflow-history{font-size:10px;color:var(--muted);margin-top:9px}.workflow-history.completed{color:var(--green)}
 .monitor-details>div,.metric-panel,.monitor-criteria{padding:20px;border:1px solid var(--line);border-radius:10px;min-width:0;background:var(--canvas)}
 .monitor-details{gap:16px}.monitor-next{border-left:2px solid var(--line);padding-left:16px}
 .monitor-event>span{min-width:0}.monitor-event small{flex-shrink:0}
@@ -128,3 +129,82 @@
   .attach-section { padding-bottom:12px; }
 }
 @media(prefers-reduced-motion:reduce) { .chat-thinking:before { animation:none; } }
+
+/* Keep the current state and next action ahead of optional role details. */
+.task-now-view .monitor-hero{padding:20px 22px;align-items:flex-start}
+.task-now-view .monitor-state h2{font-size:clamp(22px,3vw,30px);margin:2px 0 7px}
+.monitor-step{font-weight:600;line-height:1.5}
+.monitor-blocker{margin-top:12px;color:var(--muted);font-size:12px;line-height:1.55;overflow-wrap:anywhere}
+.monitor-hero.stopped .monitor-blocker,.monitor-hero.attention .monitor-blocker{color:var(--red)}
+.monitor-iteration{min-width:95px;color:var(--muted)}
+.monitor-iteration strong{font-size:20px;font-variant-numeric:tabular-nums}
+.monitor-objective{margin:18px 0 0;padding:0 3px}
+.monitor-objective>p:last-of-type{font-size:13px;line-height:1.6}
+.monitor-objective details{margin-top:7px}
+.monitor-next{margin:18px 0 0;padding:16px 18px;background:var(--green-soft);border-radius:10px;line-height:1.55}
+.monitor-next strong{display:block;font-size:16px;line-height:1.35;margin:2px 0 6px}
+.monitor-next p:not(.monitor-kicker){color:var(--muted);font-size:12px}
+.monitor-freshness{margin-top:15px;padding:12px 3px;gap:8px 18px}
+.monitor-panel>details{border-top:1px solid var(--line);padding:14px 3px;margin-top:2px}
+.monitor-panel>details>summary{font-size:12px;font-weight:600;color:var(--muted)}
+.monitor-panel>details .workflow-cards{margin:16px 0 4px}
+.task-now-view .task-path{padding:20px 0 22px}
+@media(max-width:760px){.task-now-view .monitor-hero{padding:18px}.monitor-iteration{min-width:72px}.monitor-iteration strong{font-size:17px}.monitor-next{padding:15px}}
+
+/* Give task conversations a readable transcript and an anchored reply area. */
+#task-detail #interview{max-width:900px;width:100%;margin:16px auto 0;padding:24px 30px;background:var(--paper);border:1px solid var(--line);border-radius:14px 14px 0 0}
+#task-detail #interview .chat-message{width:fit-content;max-width:min(720px,92%);margin-bottom:20px;padding:15px 18px;background:var(--chat-surface);border:1px solid var(--line);border-radius:12px;line-height:1.7}
+#task-detail #interview .chat-message.learner{margin-left:auto;background:var(--green-soft);border-color:var(--line);border-radius:12px 12px 4px 12px}
+#task-detail #interview .chat-message.pending{width:100%;max-width:100%;border-left:3px solid var(--green);background:var(--paper)}
+#task-detail #interview .speaker{margin-bottom:7px;color:var(--green);font-weight:700}
+#task-detail #interview .thread-checkpoint{padding:13px 16px;border:1px solid var(--line);border-radius:10px;background:var(--canvas)}
+#task-detail #interview .task-attention{border:1px solid var(--line)}
+#task-detail #live-controls{width:100%;max-width:900px;margin:0 auto;padding:14px 24px 16px;background:var(--paper);border:1px solid var(--line);border-top:0;border-radius:0 0 14px 14px}
+@media(max-width:760px){#task-detail #interview{padding:18px 16px;margin-top:10px}#task-detail #interview .chat-message{max-width:96%;padding:12px 14px}#task-detail #live-controls{padding:12px 16px}}
+
+/* Show the approved workflow as a sequence instead of five competing cards. */
+.task-now-view .task-path{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:0;padding:20px 0 22px;counter-reset:workflow}
+.task-now-view .task-path li{min-width:0;border:0;border-top:2px solid var(--line);border-radius:0;background:transparent;padding:10px 2px 0;color:var(--muted);font-size:11px;font-weight:600}
+.task-now-view .task-path li::before{counter-increment:workflow;content:counter(workflow);display:inline-grid;place-items:center;width:18px;height:18px;margin-right:7px;border:1px solid currentColor;border-radius:50%;font-size:9px}
+.task-now-view .task-path li.done{border-top-color:var(--green);color:var(--green)}
+.task-now-view .task-path li.done::before{content:'✓'}
+.task-now-view .task-path li.current{border-top-color:var(--green);color:var(--ink)}
+@media(max-width:600px){.task-now-view .task-path{gap:4px}.task-now-view .task-path li{font-size:9px;line-height:1.3}.task-now-view .task-path li::before{display:none}}
+
+/* Task overview follows the saved Figma monitor: one state, one assignment, one next action. */
+:root[data-theme=dark]{--paper:#111923;--canvas:#101821;--sidebar:#111b26;--ink:#eaf0f5;--muted:#a8b7c5;--line:#2a3948;--green:#a5ebc6;--green-soft:#233c3c;--chat-surface:#17232f;--control-line:#4a635b}
+.task-now-view .monitor-hero{border:1px solid var(--line);border-radius:14px;padding:24px 27px;background:var(--canvas);align-items:flex-start}
+[data-theme=dark] .task-now-view .monitor-hero{background:linear-gradient(145deg,#192936,#17222e 58%,#151e29);border-color:#344858}
+.monitor-status-chip{display:inline-flex;align-items:center;gap:8px;width:fit-content;border:1px solid var(--line);border-radius:999px;background:var(--green-soft);color:var(--green);padding:5px 10px;font-size:11px;font-weight:700;line-height:1.4}
+.monitor-status-chip::before{content:'';width:7px;height:7px;flex:none;border-radius:50%;background:currentColor}
+.monitor-status-chip.attention,.monitor-status-chip.stopped{background:#fbf2e2;color:var(--amber);border-color:#e7d3a5}
+.monitor-status-chip.complete{background:var(--green-soft)}
+.monitor-status-chip.stale{background:#fbf2e2;color:var(--amber);border-color:#e7d3a5}
+[data-theme=dark] .monitor-status-chip.running,[data-theme=dark] .monitor-status-chip.complete{background:#244b3a;border-color:#386750;color:#b4f2cd}
+[data-theme=dark] .monitor-status-chip.attention,[data-theme=dark] .monitor-status-chip.stopped{background:#392e20;border-color:#745b33;color:#f1c678}
+[data-theme=dark] .monitor-status-chip.stale{background:#392e20;border-color:#745b33;color:#f1c678}
+.task-now-view .monitor-state h2{font-size:clamp(19px,2.1vw,25px);line-height:1.3;margin:15px 0 7px;font-weight:650;letter-spacing:-.4px}
+.task-now-view .monitor-evidence{font-size:12px;margin-top:0;line-height:1.6}
+.task-now-view .monitor-blocker{margin-top:18px}
+.task-now-view .monitor-iteration{min-width:125px}
+.task-now-view .monitor-iteration strong{font-size:24px;color:var(--ink);font-weight:600}
+.monitor-summary-grid{display:grid;grid-template-columns:minmax(0,1.12fr) minmax(0,.88fr);gap:16px;margin-top:17px}
+.task-now-view .monitor-objective,.task-now-view .monitor-next{min-width:0;margin:0;padding:21px 23px;border:1px solid var(--line);border-radius:12px;background:var(--paper)}
+.task-now-view .monitor-objective>p:last-of-type{font-size:14px;line-height:1.7;color:var(--ink);overflow-wrap:anywhere}
+.task-now-view .monitor-next{background:var(--green-soft);border-color:color-mix(in srgb,var(--green) 32%,var(--line))}
+[data-theme=dark] .task-now-view .monitor-next{background:#1b3434;border-color:#426b5b}
+.task-now-view .monitor-next strong{font-size:18px;margin:11px 0 7px}
+.task-now-view .monitor-next p:not(.monitor-kicker){line-height:1.65}
+.task-now-view .monitor-next button{margin-top:17px;margin-right:12px}
+.task-now-view .monitor-next button.text-button{display:inline-flex;padding:8px 0;margin-top:12px}
+.task-now-view .monitor-freshness{margin-top:16px;padding:12px 2px;border-top:0;border-bottom:1px solid var(--line)}
+.task-now-view .monitor-details{gap:16px;margin:20px 0}
+.task-now-view .monitor-activity,.task-now-view .monitor-history,.task-now-view .monitor-criteria{min-width:0;margin:0;padding:20px 22px;border:1px solid var(--line);border-radius:12px;background:var(--paper)}
+.task-now-view .monitor-details h3,.task-now-view .monitor-criteria h3{font-size:14px;margin-bottom:4px}
+.task-now-view .monitor-event{align-items:flex-start;font-size:12px;line-height:1.5}
+.task-now-view .monitor-event small{white-space:nowrap;flex:none}
+.task-now-view .monitor-criteria{margin-top:16px}
+.task-now-view .current-context{gap:16px}
+.task-now-view .current-context>div{padding:19px 21px;border:1px solid var(--line);border-radius:12px;background:var(--paper)}
+@media(max-width:850px){.monitor-summary-grid{grid-template-columns:1fr}.task-now-view .monitor-details{grid-template-columns:1fr}}
+@media(max-width:600px){.task-now-view .monitor-hero{padding:19px;gap:12px}.task-now-view .monitor-iteration{min-width:68px}.task-now-view .monitor-iteration strong{font-size:20px}.task-now-view .monitor-objective,.task-now-view .monitor-next{padding:18px}.task-now-view .monitor-next button{margin-right:8px}}

@@ -62,6 +62,27 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(2, self.state['report_repair_archive'][-1]['repair']['attempts'])
         self.assertEqual('failed-session', self.state['session_rotations'][-1]['old_session'])
 
+    def test_explicit_execution_retry_accepts_rejected_final_repair(self):
+        pending = self.queue()
+        pending['attempts'] = 2
+        self.state.update(status='PAUSED_INVALID_OUTPUT', next_stage='terra')
+        self.assertTrue(runner.prepare_exhausted_execution_report_retry(self.state, self.run))
+        self.assertNotIn('pending_report_repair', self.state)
+
+    def test_abandoned_sol_repair_retries_sol_instead_of_astra_review(self):
+        pending = self.queue()
+        pending['attempts'] = 2
+        pending['original'].update(stage='sol', role='sol')
+        abandoned = {'stage': 'sol_report_repair', 'role': 'sol', 'iteration': 5,
+                     'output': str(self.run / 'iterations/005/sol_report_repair-01.json'),
+                     'abandoned': True}
+        self.state['stages'].append(abandoned)
+        self.state['recovery_context'] = {'role': 'sol', 'attempt_id': runner.attempt_id(abandoned)}
+        self.state.update(status='PAUSED_REPORT_REPAIR_LIMIT', next_stage='astra_review')
+        self.assertTrue(runner.prepare_exhausted_execution_report_retry(self.state, self.run))
+        self.assertEqual('sol', self.state['next_stage'])
+        self.assertNotIn('pending_report_repair', self.state)
+
     def test_execution_retry_requires_an_exhausted_clean_execution_checkpoint(self):
         pending = self.queue()
         pending['attempts'] = 2

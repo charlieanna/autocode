@@ -20,6 +20,27 @@ import autocode_goals as goals
 from goal_fixtures import approve_fixture, envelope
 
 
+class DetachedOutputTest(unittest.TestCase):
+    def test_closed_progress_pipe_does_not_stop_runner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "stage-finished"
+            read_fd, write_fd = os.pipe()
+            os.close(read_fd)
+            disconnected = os.fdopen(write_fd, "w", buffering=1)
+            try:
+                def run_stage():
+                    print("sol: still reviewing", flush=True)
+                    marker.write_text("finished")
+                    return 0
+
+                with patch.object(sys, "stdout", disconnected), patch.object(runner, "main", side_effect=run_stage):
+                    self.assertEqual(0, runner.cli())
+            finally:
+                with contextlib.suppress(BrokenPipeError):
+                    disconnected.close()
+            self.assertEqual("finished", marker.read_text())
+
+
 class RetrofitTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

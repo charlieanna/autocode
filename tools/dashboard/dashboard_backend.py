@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 import sys
@@ -62,7 +63,7 @@ class RegistryInterventionMixin:
         with self.registry_lock:
             if time.monotonic() - self.registry_cache['at'] < self.registry_ttl:
                 return self.registry_cache
-            result = {'workspaces': [], 'runs': {}, 'diagnostics': [], 'error': None, 'location': None}
+            result = {'workspaces': [], 'workspace_ids': {}, 'runs': {}, 'diagnostics': [], 'error': None, 'location': None}
             location, error = self._json_command(['registry', 'location', '--json'])
             if error:
                 result['error'] = error['message']
@@ -77,12 +78,17 @@ class RegistryInterventionMixin:
                     result['error'] = 'Unsupported or malformed registry listing.'
                 else:
                     for item in data['workspaces']:
-                        raw = mapping(item).get('workspace')
+                        item = mapping(item)
+                        raw = item.get('workspace')
                         try:
                             path = Path(raw).resolve(strict=True)
                             if str(path) != raw or not path.is_dir() or not (path / '.git').exists():
                                 raise ValueError('Not an available canonical Git workspace')
                             result['workspaces'].append(path)
+                            ident = item.get('id')
+                            if (item.get('availability') == 'available' and isinstance(ident, str)
+                                    and re.fullmatch(r'workspace-[a-f0-9]{24}', ident)):
+                                result['workspace_ids'][ident] = str(path)
                         except (OSError, TypeError, ValueError) as failure:
                             result['diagnostics'].append({'workspace': str(raw), 'error': str(failure)})
                     for item in data['runs']:

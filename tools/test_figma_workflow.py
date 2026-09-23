@@ -36,7 +36,7 @@ class FigmaWorkflow(unittest.TestCase):
             args.append('--' + flag.replace('_', '-'))
             if value is not True:
                 args.append(str(value))
-        def stage(name, model, text, workspace, directory, schema=None, dry_run=False):
+        def stage(name, model, text, workspace, directory, schema=None, dry_run=False, reasoning_effort=None):
             self.calls.append((name, text))
             path = directory / (name + ('.json' if schema else '.md'))
             if not schema:
@@ -69,16 +69,92 @@ class FigmaWorkflow(unittest.TestCase):
         self.assertEqual('codex', command[command.index('--engine') + 1])
         self.assertIn('--no-chat', command)
         self.assertEqual('gpt-5.6-terra', command[command.index('--terra-model')+1])
+        self.assertEqual('gpt-5.6-sol', command[command.index('--astra-model')+1])
+        self.assertEqual('high', command[command.index('--astra-reasoning-effort')+1])
         state = json.loads((root / 'state.json').read_text())
         self.assertEqual(7, len(state['stages']))
         self.assertEqual(URL, state['figma_file'])
         self.assertEqual('gpt-5.6-sol', state['models']['planner'])
+        self.assertEqual('gpt-5.6-sol', state['models']['astra'])
+        self.assertEqual('high', state['reasoning_efforts']['astra'])
         self.assertEqual(['requirements_planner', 'plan_reviewer', 'requirements_revision', 'plan_finalizer',
                           'builder', 'validator', 'decision_owner'],
                          [stage['stage'] for stage in state['stages']])
 
     def test_ui_and_code_use_the_same_orchestration_driver(self):
         self.assertIs(runner.orchestrator.drive, ui.orchestrator.drive)
+
+    def test_plan_stage_accepts_report_without_figma_file(self):
+        schema = ui.plan_schema(['PASS'])
+        report = {'status': 'PASS', 'summary': 'Ready to build',
+                  'evidence': ['Reviewed the brief'], 'required_changes': []}
+
+        def fake_provider(command, **_):
+            Path(command[command.index('--output-last-message') + 1]).write_text(json.dumps(report))
+            return subprocess.CompletedProcess(command, 0)
+
+        with patch.object(ui.figma, 'require_chatgpt'), patch.object(ui.support, 'local_settings', return_value={}), \
+             patch.object(ui.subprocess, 'run', side_effect=fake_provider):
+            path, result = ui.run_stage('plan-review', 'gpt-5.6-sol', 'Review the brief',
+                                        self.root, self.root, schema)
+        self.assertEqual(report, result)
+        self.assertEqual(report, json.loads(path.read_text()))
+
+    def test_written_brief_survives_final_completion_message(self):
+        brief = '# Dashboard brief\n\n' + 'Specific acceptance check.\n' * 30
+
+        def fake_provider(command, **_):
+            capture = Path(command[command.index('--output-last-message') + 1])
+            (self.root / 'requirements-revision-00.md').write_text(brief)
+            capture.write_text('Completed the brief in requirements-revision-00.md')
+            return subprocess.CompletedProcess(command, 0)
+
+        with patch.object(ui.figma, 'require_chatgpt'), patch.object(ui.support, 'local_settings', return_value={}), \
+             patch.object(ui.subprocess, 'run', side_effect=fake_provider):
+            path, result = ui.run_stage('requirements-revision-00', 'gpt-5.6-sol',
+                                        'Write the full brief', self.root, self.root)
+        self.assertEqual(brief, result)
+        self.assertEqual(brief, path.read_text())
+        self.assertIn('Completed the brief', (self.root / 'requirements-revision-00.last-message.md').read_text())
+
+    def test_new_run_can_continue_from_accepted_plan(self):
+        source = self.root / 'source'
+        target = self.root / 'target'
+        source.mkdir(); target.mkdir()
+        outputs = {}
+        for key, name in [('requirements_draft', 'requirements-draft.md'),
+                          ('plan_reviewer', 'plan-review.json'),
+                          ('brief', 'requirements-revision-00.md'),
+                          ('plan_finalizer', 'plan-finalization-00.json')]:
+            path = source / name
+            path.write_text(key)
+            outputs[key] = str(path)
+        finalizer = {'status': 'ACCEPT', 'required_changes': [], 'evidence': ['Checked']}
+        (source / 'state.json').write_text(json.dumps({
+            'figma_file': URL, 'outputs': outputs, 'planning_iteration': 0,
+            'reports': {'plan_reviewer': {'status': 'PASS'}, 'plan_finalizer': finalizer}}))
+        state = {'figma_file': URL, 'outputs': {}, 'reports': {}, 'next_stage': 'requirements_planner'}
+        ui.seed_accepted_plan(state, source, target)
+        self.assertEqual('builder', state['next_stage'])
+        self.assertEqual(finalizer, state['reports']['plan_finalizer'])
+        self.assertTrue((target / 'requirements-revision-00.md').is_file())
+        self.assertEqual(target / 'requirements-revision-00.md', Path(state['outputs']['brief']))
+
+    def test_plan_stage_requests_high_reasoning_for_sol(self):
+        schema = ui.plan_schema(['PASS'])
+        report = {'status': 'PASS', 'summary': 'Ready to build',
+                  'evidence': ['Reviewed the brief'], 'required_changes': []}
+
+        def fake_provider(command, **_):
+            self.assertEqual('gpt-5.6-sol', command[command.index('--model') + 1])
+            self.assertIn('model_reasoning_effort="high"', command)
+            Path(command[command.index('--output-last-message') + 1]).write_text(json.dumps(report))
+            return subprocess.CompletedProcess(command, 0)
+
+        with patch.object(ui.figma, 'require_chatgpt'), patch.object(ui.support, 'local_settings', return_value={}), \
+             patch.object(ui.subprocess, 'run', side_effect=fake_provider):
+            ui.run_stage('plan-review', ui.DEFAULT_MODELS['astra'], 'Review the brief',
+                         self.root, self.root, schema, reasoning_effort='high')
 
     def test_astra_accept_cannot_override_failed_sol(self):
         code, root, build = self.run_ui(('FAIL',), max_reworks=0, build=True)

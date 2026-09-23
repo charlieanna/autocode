@@ -86,6 +86,24 @@ class RuntimeReportTests(unittest.TestCase):
             support.verify_checks([{'command': 'python -m unittest', 'exit_code': 0,
                                     'evidence_ref': 'event:command-one'}], self.workspace, self.log)
 
+    def test_opencode_bash_output_without_exit_can_attest_capture_receipt(self):
+        raw = self.run / 'captured.log'
+        raw.write_text('OK\n')
+        receipt = {'command': ['python', '-m', 'unittest'], 'exit_code': 0,
+                   'full_output': str(raw), 'full_output_sha256': support.file_hash(raw)}
+        receipt_path = self.workspace / '.autocode/evidence/bash-check.json'
+        receipt_path.parent.mkdir(parents=True)
+        receipt_path.write_text(json.dumps(receipt))
+        self.rows[1]['part'].update(tool='bash', state={
+            'status': 'completed', 'input': {'command': 'autocode capture --output .autocode/evidence/bash-check.json -- python -m unittest'},
+            'metadata': {'truncated': False}, 'output': json.dumps(receipt)})
+        self.save()
+        support.verify_checks([{'command': 'python -m unittest', 'exit_code': 0,
+                                'evidence_ref': str(receipt_path)}], self.workspace, self.log)
+        with self.assertRaises(ValueError):
+            support.verify_checks([{'command': 'python -m unittest', 'exit_code': 0,
+                                    'evidence_ref': 'event:command-one'}], self.workspace, self.log)
+
     def test_evidence_advances_only_to_independent_validation_without_approval_changes(self):
         state = {'version': 2, 'workspace': str(self.workspace), 'task': 'Fixture task',
                  'status': 'RUNNING', 'iteration': 1, 'stages': [], 'history': [],

@@ -60,7 +60,8 @@ def advance(state, role, *, trigger, detail="", struggle_id=None):
                                       for event in state.get("reasoning_escalations", [])):
         return None
     config = roles.get(role)
-    if not isinstance(config, dict) or config.get("provider") not in (None, "openai"):
+    if (not isinstance(config, dict) or config.get("model_pinned")
+            or config.get("provider") not in (None, "openai")):
         return None
     index = rung(role, config)
     ladder = LADDERS.get(role, ())

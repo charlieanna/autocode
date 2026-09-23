@@ -52,6 +52,8 @@ def route_for(state, stage, role=None):
     """
     role = role or role_for(state, stage)
     roles = state.get("settings", {}).get("roles", {})
+    if stage in ("astra_challenge", "astra_finalize") and "plan_reviewer" in roles:
+        return "plan_reviewer"
     if stage in ("astra_review", "astra_checkpoint") and "completion" in roles:
         return "completion"
     return role
@@ -73,7 +75,7 @@ def charge(state, stage):
         return
     planning = state["planning"]
     if planning["astra_calls"] >= 2:
-        raise s.Paused("PAUSED_PLANNING_BUDGET", "Two Astra planning calls used. Inspect the saved exchange; "
+        raise s.Paused("PAUSED_PLANNING_BUDGET", "Two plan-review calls used. Inspect the saved exchange; "
                        "use --feedback to explicitly request a new planning cycle. No automatic retry or fallback.")
     planning["astra_calls"] += 1
 
@@ -81,7 +83,7 @@ def charge(state, stage):
 def _coverage(rows, concerns):
     ids = [row["concern_id"] for row in rows]
     if len(ids) != len(set(ids)) or set(ids) != {c["id"] for c in concerns}:
-        raise ValueError("Every Astra concern needs exactly one response/decision using its ID")
+        raise ValueError("Every plan-review concern needs exactly one response/decision using its ID")
     for row in rows:
         if any(isinstance(value, str) and not value.strip() for value in row.values()):
             raise ValueError("Planning responses and decisions must be substantive")
@@ -89,6 +91,11 @@ def _coverage(rows, concerns):
 
 def apply(state, stage, value, record):
     s.validate_schema(value, SCHEMAS[stage])
+    # New joint plans must state every dependency; older saved contracts remain readable.
+    if ("plan_reviewer" in state.get("settings", {}).get("roles", {})
+            and "contract" in value
+            and any("depends_on" not in row for row in value["contract"].get("milestones", []))):
+        raise ValueError("Every planned milestone must declare depends_on (use [] for independent work)")
     if stage == "astra_discovery":
         goals.install_draft(state, value["contract"], origin="glm_draft")
         if state.get("pending_questions"):
@@ -131,23 +138,32 @@ PROMPTS = {
 constraints and definition of done using at most three material questions at a time.
 Use saved answers. Once clear, explore relevant source and originate a concrete draft:
 code_refs, alternatives, uncertainties, technical approach, milestones and acceptance tests.
+For every milestone, state depends_on as prerequisite milestone IDs or [] when it can
+start independently. Base those edges on actual interfaces, shared files, sequencing
+and validation needs. Do not turn milestones into parallel jobs or launch any work.
 Do not implement. You may challenge assumptions and propose better approaches.
 """,
-    "astra_challenge": """You are ASTRA, challenging GLM's draft (planning call 1 of 2).
-Inspect additional source when needed. Identify missing requirements, unsupported assumptions,
-unnecessary complexity and weak tests. Give concise, numbered concerns, evidence references,
+    "astra_challenge": """You are the independent Plan Reviewer, challenging GLM's draft (review call 1 of 2).
+Inspect additional source when needed. Check every dependency edge, missing prerequisite,
+cycle and claimed independent milestone against source evidence and interface ownership.
+Identify missing requirements, unsupported assumptions, unnecessary complexity and weak tests.
+Give concise, numbered concerns, evidence references,
 requested changes and acceptance tests. Do not manufacture objections or write a second essay.
 """,
-    "glm_revise": """You are GLM, investigating Astra's concerns. Respond to EVERY concern by ID
+    "glm_revise": """You are GLM, investigating the Plan Reviewer's concerns. Respond to EVERY concern by ID
 with evidence_refs, reasoning, the concrete change (or evidence-backed pushback) and a test.
-Revise the complete contract and identify what changed. You are a planning partner, not merely
+Revise the complete contract, including depends_on for every milestone, and identify what changed.
+You are a planning partner, not merely
 a coder: retain your approach where source evidence supports it. Never hide unresolved questions.
 """,
-    "astra_finalize": """You are ASTRA, making the final planning decision (call 2 of 2).
+    "astra_finalize": """You are the independent Plan Reviewer, making the final planning decision (review call 2 of 2).
 Settle EVERY concern by ID using GLM's evidence-backed responses and source inspection as needed.
+Confirm that milestone dependencies are complete and acyclic, and that [] is used only
+for genuinely independent work. Do not schedule or launch milestones.
 Return the proposed final contract and concise decisions/rationales/tests. Include initial_task
 in the contract: objective, affected_paths, kind (implement or validate), milestone_id,
-requirements, acceptance_criteria IDs, validation_plan. Make it a substantial, coherent,
+requirements, acceptance_criteria IDs, validation_plan. Its milestone must have depends_on [].
+Make it a substantial, coherent,
 executable milestone including related changes, tests, local fixes and evidence.
 If blocked with no safe first task, use kind=none and empty task strings/lists.
 Unresolved decisions MUST appear in open_blocking_questions, never silently become assumptions.
@@ -163,10 +179,10 @@ def context(state, stage, state_path):
         # via the artifact path; concerns/responses retain the explicit delta.
         entry["report"].pop("contract", None)
     packet = {"task": state["task"], "workspace": state["workspace"], "state_file": str(state_path),
-              "joint_planning": True, "execution_engine": engine_for(state["settings"], role_for(state, stage)),
+              "joint_planning": True, "execution_engine": engine_for(state["settings"], route_for(state, stage)),
               "stage": stage, "goal_contract": state.get("goal_contract"),
               "saved_answers": state.get("answers", {}), "brief_feedback": state.get("brief_feedback", []),
-              "planning": exchange, "budget": "two Astra calls per explicitly requested cycle"}
+              "planning": exchange, "budget": "two plan-review calls per explicitly requested cycle"}
     if state["settings"].get("figma_file"):
         packet["figma_file"] = state["settings"]["figma_file"]
     packet['user_events'] = state.get('user_events', [])

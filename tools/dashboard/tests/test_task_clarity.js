@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '../dashboard_app.js'), 'utf8');
 const context = vm.createContext({URLSearchParams});
 vm.runInContext(source.slice(source.indexOf('const basename ='), source.indexOf("document.addEventListener('focusin'")) +
-  '\nlet taskFilter="all", projectFilter="";\n' +
+  '\nlet taskFilter="all", projectFilter="", latestData=null;\n' +
   source.slice(source.indexOf('function concise('), source.indexOf('function badge(')) +
   source.slice(source.indexOf('function jointPlanning('), source.indexOf('function setView(')), context);
 const classify = run => context.statusInfo(run);

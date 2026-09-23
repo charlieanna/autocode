@@ -42,6 +42,7 @@ BODY_SCHEMA = obj({
 # Keep existing, sealed v3 briefs readable without silently changing their contract.
 LEGACY_BODY_SCHEMA = copy.deepcopy(BODY_SCHEMA)
 MILESTONE = obj({"id": STRING, "objective": STRING, "acceptance_criteria": STRINGS})
+MILESTONE["properties"]["depends_on"] = STRINGS
 BRIEF_FIELDS = {
     "end_to_end_flow": STRINGS,
     "technical_approach": STRINGS,
@@ -135,6 +136,29 @@ def validate_body(state, body, *, ready=False, allow_legacy=False):
         if (not milestone["objective"].strip() or not covered or len(set(covered)) != len(covered)
                 or not set(covered) <= criterion_ids):
             raise ValueError("Each milestone needs an objective and existing acceptance criterion IDs")
+    if any("depends_on" in milestone for milestone in milestones):
+        if any("depends_on" not in milestone for milestone in milestones):
+            raise ValueError("Every milestone must declare depends_on when dependencies are planned")
+        graph = {milestone["id"]: milestone["depends_on"] for milestone in milestones}
+        visiting, visited = set(), set()
+        def visit(milestone_id):
+            if milestone_id in visiting:
+                raise ValueError("Milestone dependencies contain a cycle")
+            if milestone_id in visited:
+                return
+            visiting.add(milestone_id)
+            for dependency in graph[milestone_id]:
+                if dependency not in graph:
+                    raise ValueError(f"Milestone {milestone_id} depends on an unknown milestone")
+                visit(dependency)
+            visiting.remove(milestone_id)
+            visited.add(milestone_id)
+        for milestone_id in graph:
+            visit(milestone_id)
+        first = body.get("initial_task", {})
+        if first.get("kind") in ("implement", "validate") and graph.get(first["milestone_id"]):
+            raise ValueError(f"initial_task milestone {first['milestone_id']} has unmet prerequisites; "
+                             "start with a milestone whose depends_on is []")
     for key, value in body.items():
         if isinstance(value, list) and any(isinstance(x, str) and not x.strip() for x in value):
             raise ValueError(f"{key} contains an empty entry")
@@ -277,6 +301,8 @@ def render(state):
                 elif key == "milestones":
                     lines += [f"  [{row['id']}] {row['objective']}",
                               "    Acceptance criteria: " + ", ".join(row["acceptance_criteria"])]
+                    if "depends_on" in row:
+                        lines.append("    Depends on: " + (", ".join(row["depends_on"]) or "none; can start independently"))
                 else:
                     lines.append(f"  - {row['text']} (basis: {row['basis']}; answer: {row['answer_id'] or 'none'})")
     history = state.get("contract_history", [])
@@ -292,7 +318,7 @@ def render(state):
         lines += ["", "Decision needed:", json.dumps(state["user_request"], indent=2)]
         lines += [f"Answer ID: {q['id']} — {q['question']}" for q in state.get("pending_questions", [])]
     if state.get("planning"):
-        lines += ["", f"Joint planning: {state['planning']['astra_calls']}/2 Astra calls used"]
+        lines += ["", f"Joint planning: {state['planning']['astra_calls']}/2 plan-review calls used"]
         for stage, report in state["planning"]["reports"].items():
             lines.append(f"  {stage}: {report['output']}")
         final = state["planning"]["reports"].get("astra_finalize", {}).get("report", {})
@@ -403,7 +429,15 @@ def answer(state, question_id, text, *, delegated=False):
 
 def resolve_permission(state, question_id, text):
     """Record a scoped permission response without revising an approved goal."""
-    if state.get("user_request", {}).get("kind") != "permission" or not approved(state):
+    request = state.get("user_request", {})
+    # A blocked execution checkpoint can ask for a scoped retry while keeping
+    # the approved goal intact. Only the explicit no-scope-change form uses
+    # this path; substantive blocker answers still require a refreshed draft.
+    proposed_delta = str(request.get("proposed_delta", ""))
+    scoped_blocker = (request.get("kind") == "blocker" and proposed_delta.startswith((
+        "No goal, scope, criterion, or behavior change.",
+        "No contract, product, acceptance-criterion, implementation-scope, filesystem, provider or spending change.")))
+    if (request.get("kind") != "permission" and not scoped_blocker) or not approved(state):
         raise ValueError("A permission response requires the current approved goal contract")
     matches = [q for q in state.get("pending_questions", []) if q["id"] == question_id]
     if len(matches) != 1 or question_id in state.get("answers", {}) or not text.strip():
@@ -464,6 +498,8 @@ def assign_task(state, decision, current):
             not set(ids) <= set(milestones[spec["milestone_id"]]["acceptance_criteria"])):
         raise ValueError("Task must belong to an approved milestone and its acceptance criteria")
     checkpoints.before_assignment(state, decision, current)
+    # After before_assignment, so a milestone accepted while advancing counts.
+    checkpoints.require_prerequisites(state, spec["milestone_id"])
     if state.get("current_task"):
         state.setdefault("task_archive", []).append(copy.deepcopy(state["current_task"]))
     contract = state["goal_contract"]
@@ -588,6 +624,12 @@ Each milestones[].acceptance_criteria must contain ONLY those existing ID string
 for example ["AC1", "AC2"], never descriptions of checks or shell commands.
 Every milestone needs a nonempty objective and at least one acceptance criterion ID;
 together the milestones must cover all defined acceptance criteria.
+Set depends_on on EVERY milestone. Use [] when it can start independently from
+the same approved contract, and IDs of prerequisite milestones otherwise.
+Check shared interfaces, ownership and validation boundaries before declaring
+milestones independent. The dependency graph must have no cycles.
+initial_task must target a milestone with depends_on []; later tasks may start a
+milestone only after all of its depends_on milestones are accepted.
 Put the check descriptions in acceptance_criteria[].criterion and verification_method.
 """
 
@@ -617,7 +659,10 @@ The versioned brief must include intended_user and intended_outcome; the ordered
 end_to_end_flow; deliverables and scope_exclusions; constraints, permissions and
 assumptions; observable acceptance criteria with verification methods; a minimal
 technical_approach; and substantial, coherent milestones with IDs, objectives and acceptance_criteria
-IDs. Every required criterion must belong to at least one milestone.
+IDs. Every required criterion must belong to at least one milestone. Include depends_on
+on each milestone: [] for work that can begin independently, or prerequisite milestone IDs.
+Use source evidence and shared interface decisions to justify independent work; put
+unresolved boundaries in the blocking questions rather than guessing.
 Return the complete revised contract, including at most three open blocking questions.
 The user can send feedback to revise your draft. Use that feedback without inventing
 answers; ask a focused follow-up if a consequential decision is still unresolved.

@@ -262,7 +262,7 @@ def normalized_events(rows):
                 normalized.append({"type": "item.completed", "item": {
                     "type": "command_execution", "id": part["id"], "command": command,
                     "exit_code": code, "aggregated_output": state.get("output", "")}})
-            elif (part.get("tool") == "shell" and state.get("status") == "completed"
+            elif (state.get("status") == "completed"
                   and isinstance(command, str) and isinstance(state.get("output"), str)):
                 normalized.append({"type": "item.completed", "item": {
                     "type": "tool_output", "id": part["id"], "command": command,
