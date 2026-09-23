@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 import unittest
 
-from tools import autocode_providers
+from tools import autocode, autocode_providers
 
 
 class ProviderRegistryTests(unittest.TestCase):
@@ -35,6 +35,18 @@ class ProviderRegistryTests(unittest.TestCase):
         self.assertEqual("gocode", autocode_providers.select("gocode", {"provider": "gocode"}))
         with self.assertRaisesRegex(ValueError, "cannot change provider"):
             autocode_providers.select("opencode", {"provider": "gocode"})
+
+    def test_gocode_joint_review_uses_the_supported_sol_route(self):
+        settings = {
+            "provider": "gocode", "transport_identity": {"engine": "gocode"},
+            "roles": {role: {} for role in ("astra", "terra", "sol")},
+        }
+        args = SimpleNamespace(astra_model=None, terra_model=None, sol_model=None, glm_model=None)
+        autocode.configure_joint(settings, args, fresh=True)
+        self.assertEqual({
+            "engine": "opencode", "provider": None, "model": "openai/gpt-5.6-sol",
+            "reasoning_effort": "high", "model_pinned": True,
+        }, settings["roles"]["plan_reviewer"])
 
 
 if __name__ == "__main__":

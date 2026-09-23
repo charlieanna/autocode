@@ -1317,8 +1317,14 @@ def configure_joint(settings, args, *, fresh):
                 settings["roles"][role]["reasoning_effort"] = effort
         settings["roles"]["glm"] = {"engine": "opencode", "provider": None,
             "model": getattr(args, "glm_model", None) or opencode.DEFAULT_MODELS["glm"], "reasoning_effort": None}
+        # GoCode exposes the workflow's GPT routes, not an OpenCode Cursor ACP
+        # route. Keep joint planning inside the selected provider family.
+        review_model = ("openai/gpt-5.6-sol" if settings.get("provider") == "gocode"
+                        else "cursor-acp/claude-opus-5-5-high")
         settings["roles"]["plan_reviewer"] = {"engine": "opencode", "provider": None,
-            "model": "cursor-acp/claude-opus-5-5-high", "reasoning_effort": None, "model_pinned": True}
+            "model": review_model,
+            "reasoning_effort": "high" if settings.get("provider") == "gocode" else None,
+            "model_pinned": True}
         settings["transport_identities"] = {"opencode": settings["transport_identity"]}
     elif getattr(args, "glm_model", None):
         settings["roles"]["glm"]["model"] = args.glm_model
