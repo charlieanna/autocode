@@ -6,6 +6,7 @@ a real run. Its fake runner creates an OpenCode task, removes answered questions
 from temporary state, and prints action arguments for browser inspection.
 """
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -108,13 +109,21 @@ def make_workspace(root, name):
     (run / "state.json").write_text(json.dumps(state))
     return workspace
 
+
+def fixture_base_directory():
+    """Keep disposable browser-fixture files inside the checked-out workspace."""
+    configured = os.environ.get("AUTOCODE_FIXTURE_ROOT")
+    base = Path(configured) if configured else Path(__file__).resolve().parents[3] / ".autocode" / "evidence" / "fixture-tmp"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
 def main():
-    with tempfile.TemporaryDirectory(prefix="agent-console-browser-") as temp:
+    with tempfile.TemporaryDirectory(prefix="agent-console-browser-", dir=fixture_base_directory()) as temp:
         root = Path(temp)
         left, right = make_workspace(root, "left"), make_workspace(root, "right")
         entered = root / "entered-worktree"
         entered.mkdir()
-        (entered / ".git").write_text("gitdir: /tmp/fake-worktree")
+        (entered / ".git").write_text("gitdir: " + str(root / "fake-worktree"))
         legacy_root = root / "legacy-root"
         make_workspace(legacy_root, "discovered")
         (root / "runtime-root").mkdir()

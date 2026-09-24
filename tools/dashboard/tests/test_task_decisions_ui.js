@@ -13,6 +13,7 @@ assert.equal(context.stageName(approved),'Builder · Implementing');
 const running={...approved,status:'RUNNING',active_stage:{stage:'terra'},monitor:{...approved.monitor,live:{state:'alive'}}};
 assert.equal(context.taskDecision(running).required,false);
 assert.equal(context.taskDecision(running).action.kind,'pause');
+assert.equal(context.taskDecision(running).action.label,'Pause after current step');
 const ready={status:'AWAITING_GOAL_APPROVAL',goal_token:'r5:current',goal:{revision:5,origin:'astra_finalize',approval_status:'draft'},model_settings:{joint_planning:true}};
 assert.equal(context.taskDecision(ready).title,'Approve plan revision 5');
 assert.equal(context.taskDecision(ready).required,true);
@@ -32,4 +33,8 @@ const messages=context.taskMessages({draft_messages:[{text:'Initial idea',create
 assert.deepEqual(Array.from(messages,m=>m.text),['Initial idea','Draft','Saved answer','Revision','Latest answer']);
 assert.equal(messages[2].question_text,'Which scope?');
 assert.equal(messages[1].planning_history,true);
+assert.match(source,/Review recovery/,'interrupted work starts with explicit review');
+assert.match(source,/Inspect interrupted attempt/);
+assert.match(source,/Recover saved work/);
+assert.match(source,/Resume separately/);
 console.log('Current approval authority, resume decisions, workflow phase, model identity, and conversation ordering passed.');

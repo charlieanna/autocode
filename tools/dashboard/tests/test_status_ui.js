@@ -11,9 +11,10 @@ class Element {
 }
 const ids=new Map();
 const $=id=>{if(!ids.has(id))ids.set(id,new Element('div'));return ids.get(id);};
-const action=$('#continue-run'),retry=$('#retry-task'),tab=new Element('button'),input=$('#change-text');
+const action=$('#continue-run'),retry=$('#retry-task'),tab=new Element('button'),input=$('#change-text'),restore=$('#restore-task');
 action.id='continue-run';retry.id='retry-task';tab.dataset.tab='plan';input.id='change-text';
-const controls=[action,retry,tab,input];
+restore.id='restore-task';restore.dataset.staleSafe='true';
+const controls=[action,retry,tab,input,restore];
 const context=vm.createContext({console,Date,Number,$,n:(tag,text)=>new Element(tag,text),card:(_text,cls)=>Object.assign(new Element('div'),{className:cls}),human:x=>x,statusAge:()=> '3d ago',markMonitorStale:()=>{},document:{querySelectorAll:()=>controls}});
 vm.runInContext('let taskReadError="",taskReadAt=Date.now(),latestRun={run:"/private/tmp/task"},chosen={run:"/tmp/task"};',context);
 vm.runInContext(source.slice(source.indexOf('function disableStaleControls()'),source.indexOf('function showRemovedRun(')),context);
@@ -23,7 +24,9 @@ assert.equal($('#now').children[0].textContent,'Last known objective');
 assert.match($('#task-load-message').textContent,/last successful read.*Controls are disabled/);
 assert.equal($('#sync-state').textContent,'Task status unavailable');
 assert.equal(action.disabled,true);assert.equal(input.disabled,true);assert.equal(retry.disabled,false);assert.equal(tab.disabled,false);
+assert.equal(restore.disabled,false,'restoration remains available when current verification is unavailable');
 assert.equal(input.dataset.staleDisabled,'false');
+assert.equal(action['aria-describedby'],'stale-mutation-reason','unsafe controls name the visible stale-state explanation');
 context.disableStaleControls();assert.equal(input.dataset.staleDisabled,'false','repeat polls must preserve original enabled state');
 vm.runInContext('latestRun=null;taskReadAt=null;',context);context.unavailableRun('offline');
 assert.match($('#now').children[0].textContent,/has not loaded/);

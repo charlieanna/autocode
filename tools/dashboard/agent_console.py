@@ -307,7 +307,7 @@ class LegacyConsole:
   for c in criteria:
    status=result.get(str(obj(c).get('id')),'unknown');counts['pass' if status in ('pass','verified') else 'fail' if status in ('fail','blocked') else 'unknown']+=1
   active=obj(s.get('active_stage'))
-  return {'workspace':str(ws),'project_workspace':s.get('project_workspace',str(ws)),'task_branch':s.get('task_branch'),'run':str(run),'created_at':s.get('created_at'),'task':s.get('task','unavailable'),'phase':s.get('phase','unavailable'),'status':s.get('status','unavailable'),'stage':active.get('stage') or s.get('stage') or s.get('next_stage') or 'unavailable','iteration':s.get('iteration','unavailable'),'state_error':s.get('_console_error'),'stop_reason':s.get('stop_reason'),'goal':contract,'goal_token':s.get('displayed_goal') if isinstance(s.get('displayed_goal'),str) else '','criteria':criteria,'counts':counts,'questions':items(s.get('pending_questions')),'answers':obj(s.get('answers')),'discovery_summary':s.get('discovery_summary') if isinstance(s.get('discovery_summary'),str) else '','discovery_role':discovery_role(s),'stages':[x for x in items(s.get('stages')) if isinstance(x,dict)],'active_stage':active,'plan':items(s.get('plan')),'astra_plan':astra_plan_state(s),'user_request':s.get('user_request') if isinstance(s.get('user_request'),dict) else None,'review_token':s.get('displayed_review') if isinstance(s.get('displayed_review'),str) else '','review_criteria':[obj(c) for c in criteria if obj(c).get('human_review')],'human_reviews':obj(s.get('human_reviews')),'reasoning_escalations':items(s.get('reasoning_escalations')),'zai':bool(self.zai_probe()),'model_settings':saved_models(s)}
+  return {'workspace':str(ws),'project_workspace':s.get('project_workspace',str(ws)),'task_branch':s.get('task_branch'),'run':str(run),'created_at':s.get('created_at'),'task':s.get('task','unavailable'),'phase':s.get('phase','unavailable'),'status':s.get('status','unavailable'),'completed_at':s.get('completed_at') if isinstance(s.get('completed_at'),str) else None,'stage':active.get('stage') or s.get('stage') or s.get('next_stage') or 'unavailable','iteration':s.get('iteration','unavailable'),'state_error':s.get('_console_error'),'stop_reason':s.get('stop_reason'),'goal':contract,'goal_token':s.get('displayed_goal') if isinstance(s.get('displayed_goal'),str) else '','criteria':criteria,'counts':counts,'questions':items(s.get('pending_questions')),'answers':obj(s.get('answers')),'discovery_summary':s.get('discovery_summary') if isinstance(s.get('discovery_summary'),str) else '','discovery_role':discovery_role(s),'stages':[x for x in items(s.get('stages')) if isinstance(x,dict)],'active_stage':active,'plan':items(s.get('plan')),'astra_plan':astra_plan_state(s),'user_request':s.get('user_request') if isinstance(s.get('user_request'),dict) else None,'review_token':s.get('displayed_review') if isinstance(s.get('displayed_review'),str) else '','review_criteria':[obj(c) for c in criteria if obj(c).get('human_review')],'human_reviews':obj(s.get('human_reviews')),'reasoning_escalations':items(s.get('reasoning_escalations')),'zai':bool(self.zai_probe()),'model_settings':saved_models(s)}
  def discover(self):
   rows=self.root_error_rows()
   for ws in self.workspaces:
@@ -386,6 +386,24 @@ class LegacyConsole:
   if any(not isinstance(value,str) for value in explicit.values()):raise ValueError('Reasoning choices must be strings')
   if any(value and value not in REASONING_EFFORTS for value in explicit.values()):raise ValueError('Choose a supported reasoning level')
   return {role:value for role,value in explicit.items() if value}
+ def confirm_model_replacement(self,d,ws,run,v):
+  role=d.get('role');model=d.get('model');request_id=d.get('request_id')
+  roles=obj(obj(v.get('model_settings')).get('roles'))
+  if not isinstance(role,str) or role not in roles or not isinstance(roles.get(role),str):raise ValueError('Choose a saved role with a recorded model')
+  if not isinstance(model,str) or not model.strip():raise ValueError('Choose a replacement model')
+  if not isinstance(request_id,str) or not request_id.strip():raise ValueError('A replacement request ID is required')
+  if model==roles[role]:raise ValueError('Choose a model different from the saved model')
+  if v.get('active_stage'):raise ValueError('Wait for the current model step to finish before replacing a model')
+  if v.get('status')=='TASK_COMPLETE':raise ValueError('Completed task configuration is read-only')
+  engine=obj(v.get('model_settings')).get('engine')
+  if engine=='opencode':
+   selected=self.joint_models({role+'_model':model}).get(role)
+  else:
+   if role=='glm' or model not in (CODEX_DEFAULT_MODELS.get(role),GLM_MODELS.get(role)):raise ValueError('This saved route does not support the selected replacement model')
+   selected=model
+  action=self.enqueue(ws,run,'Confirm model replacement for '+role,['--'+role+'-model',selected,'--show-goal','--no-chat'])
+  action['request_id']=request_id
+  return action
  def create(self,d):
   raw=d.get('project') if isinstance(d.get('project'),str) and d.get('project').strip() else d.get('workspace','');ws=self.selected_workspace(raw);goal=d.get('goal','');engine=d.get('engine','opencode')
   if not ws:raise ValueError('Select or enter an existing Git workspace')
@@ -437,6 +455,7 @@ class LegacyConsole:
    extra=[]
    for role,value in efforts.items():extra+=['--'+role+'-reasoning-effort',value]
    return self.enqueue(ws,run,'Save reasoning settings',extra+['--show-goal','--no-chat'])
+  if action=='set_model':return self.confirm_model_replacement(d,ws,run,v)
   if action=='continue':return self.enqueue(ws,run,'Continue',[])
   raise ValueError('Unknown action')
 try:

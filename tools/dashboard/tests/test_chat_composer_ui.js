@@ -98,4 +98,10 @@ formatting.renderMessageHistory(afterReply, [
 ], 'conversation-one');
 assert.equal(afterReply.children[0].children.some(node => node.tagName === 'DETAILS'), false);
 
+assert.match(source, /After the final answer is saved, planning continues automatically\./);
+assert.match(source, /This does not approve a plan or start implementation\./);
+assert.match(source, /Refresh status and reconcile this request ID before retrying to avoid a duplicate mutation\./);
+assert.doesNotMatch(functionSource('requestRow').split("else if(entry.status==='failed'")[0], /Retry same request/,
+  'an uncertain receipt must be reconciled before any retry is offered');
+
 console.log('Chat keyboard handling, blocked sends, and visible latest assistant reply passed.');
