@@ -67,6 +67,7 @@ if stage == "requirements_gather":
         "source_refs": ["task"],
         "proposed_assumptions": ["Use a local CLI if the user chooses that interface"],
         "open_questions": draft["open_blocking_questions"],
+        "requirements": [], "ignored_statements": [], "conflicts": [],
     }
 elif stage == "astra_discovery":
     draft = body(questions=not data["saved_answers"], human=mode == "standard")
@@ -84,7 +85,10 @@ elif stage == "astra_discovery":
         draft["accepted_assumptions"].append({"text": feedback["text"], "basis": "user_feedback", "answer_id": feedback["id"]})
     result = {"contract": draft, "summary": "Build a small local greeting CLI with a clear invalid-input failure"}
     if data.get("joint_planning"):
-        result.update(code_refs=["goal_contract.body"], alternatives=["A web endpoint would need deployment"], uncertainties=[])
+        source = next((name for name in ("greet.py", "bye.py") if Path(name).is_file()), None)
+        result.update(code_refs=[f"{source}:1"] if source else ["goal_contract.body"],
+                      alternatives=["A web endpoint would need deployment"],
+                      uncertainties=[], contract_changes=[], requirement_trace=[])
 elif stage == "astra_challenge":
     result = {"summary": "Check whitespace-only input", "concerns": [{"id": "P1", "concern": "Empty includes whitespace",
         "evidence_refs": ["goal_contract.body.important_failure_cases"], "requested_change": "Specify whitespace rejection",
@@ -93,7 +97,10 @@ elif stage == "glm_revise":
     draft = dict(contract["body"])
     draft.pop("initial_task", None)
     draft["important_failure_cases"] = [*draft["important_failure_cases"], "Reject whitespace-only input"]
-    result = {"contract": draft, "summary": "Added whitespace case", "code_refs": ["goal_contract.body"],
+    source = next((name for name in ("greet.py", "bye.py") if Path(name).is_file()), None)
+    result = {"contract": draft, "summary": "Added whitespace case",
+        "code_refs": [f"{source}:1"] if source else ["goal_contract.body"],
+        "contract_changes": [], "requirement_trace": [],
         "responses": [{"concern_id": "P1", "response": "Whitespace is invalid", "evidence_refs": ["goal_contract.body"],
                        "change": "Added whitespace case", "acceptance_test": "Whitespace input exits 2"}]}
 elif stage == "astra_finalize":
@@ -106,6 +113,7 @@ elif stage == "astra_finalize":
         draft["open_blocking_questions"] = [{"id": "P2", "question": "Should whitespace be rejected?",
             "why": "Unresolved input semantics", "options": ["Reject", "Accept"], "proposed_default": ""}]
     result = {"contract": draft, "summary": "Ready for approval" if not blocked else "User decision required",
+        "contract_changes": [], "requirement_trace": [],
         "decisions": [{"concern_id": "P1", "decision": "Reject whitespace" if not blocked else "Ask the user",
             "rationale": "Consistent invalid-input contract", "acceptance_test": "Whitespace input exits 2", "resolved": not blocked}]}
     if mode == "planning-invalid":

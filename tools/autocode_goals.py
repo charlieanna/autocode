@@ -214,6 +214,162 @@ def validate_body(state, body, *, ready=False, allow_legacy=False):
                 raise ValueError("Implementation milestones must cover every acceptance criterion")
 
 
+PLANNER_ORIGINS = {"glm_draft", "glm_revise", "astra_finalize", "astra_discovery"}
+_PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
+_CUE = re.compile(r"\b(must not|must|never|do not|don't|required|exactly|only)\b", re.I)
+
+
+def _saved_user_basis(state, basis, answer_id):
+    if basis == "user_answer":
+        return bool(answer_id) and answer_id in state.get("answers", {})
+    if basis == "user_feedback":
+        return bool(answer_id) and any(event.get("id") == answer_id and event in state.get("user_events", [])
+                                       for event in state.get("brief_feedback", []))
+    return False
+
+
+def revision_guard(state, body, changes, origin):
+    """A planner revision may not drop protected text or widen permissions on its own."""
+    previous_contract = state.get("goal_contract") or {}
+    previous = previous_contract.get("body")
+    if origin not in PLANNER_ORIGINS or not previous:
+        return
+    # A new draft may replace an unapproved one. Revising the current draft, or
+    # replacing an approved contract, cannot drop protected text on its own.
+    if origin in ("glm_draft", "astra_discovery") and previous_contract.get("approval_status") != "approved":
+        return
+    if not isinstance(changes, list):
+        raise ValueError("Planner revision needs contract_changes")
+    for raw in changes:
+        if not isinstance(raw, dict) or raw.get("change") not in ("removed", "reworded", "permission_changed"):
+            raise ValueError("contract_changes entries need item, change, basis and answer_id")
+        basis = raw.get("basis")
+        if basis == "agent_proposed":
+            if raw.get("change") != "reworded" or raw.get("answer_id"):
+                raise ValueError("Only a requirement rewording may be agent_proposed, and it cites no answer")
+        elif not _saved_user_basis(state, basis, raw.get("answer_id")):
+            raise ValueError("Dropping or widening a protected contract item needs a saved user answer or feedback event")
+    declared = {}
+    for raw in changes:
+        declared.setdefault(raw["item"], []).append(raw)
+
+    def consume(item, kind):
+        rows = declared.get(item, [])
+        match = next((row for row in rows if row["change"] == kind), None)
+        if match is None:
+            raise ValueError(f"Planner revision drops or changes {item!r} without a user-backed contract change")
+        rows.remove(match)
+        if kind == "reworded":
+            replacement = str(match.get("replacement", "")).strip()
+            if not replacement:
+                raise ValueError(f"Rewording {item!r} needs the replacement text")
+            if match.get("basis") == "agent_proposed" and kind:
+                return "behavior", replacement
+            return "user", replacement
+        return "user", None
+
+    for key in _PROTECTED_LISTS:
+        for item in previous.get(key, []):
+            if item in body.get(key, []):
+                continue
+            kind, replacement = consume(item, "reworded" if any(row["change"] == "reworded" for row in declared.get(item, [])) else "removed")
+            if kind == "behavior" and key != "required_behaviors":
+                raise ValueError(f"Only a required behavior may be reworded without a user event; {key} keeps {item!r}")
+            if replacement and replacement not in body.get(key, []):
+                raise ValueError(f"Rewording {item!r} must appear in {key}")
+    old_criteria = {row["id"]: (row["criterion"], row["verification_method"]) for row in previous.get("acceptance_criteria", [])}
+    new_criteria = {row["id"]: (row["criterion"], row["verification_method"]) for row in body.get("acceptance_criteria", [])}
+    for cid, text in old_criteria.items():
+        if new_criteria.get(cid) == text:
+            continue
+        consume(cid, "removed" if cid not in new_criteria else "reworded")
+        if any(row["item"] == cid and row["change"] == "reworded" and row["basis"] == "agent_proposed" for row in changes):
+            raise ValueError(f"Acceptance criterion {cid} cannot be reworded without a saved user event")
+    previous_permissions = previous.get("permission_boundaries", [])
+    if previous_permissions and set(previous_permissions) != set(body.get("permission_boundaries", [])):
+        changed = set(previous.get("permission_boundaries", [])) ^ set(body.get("permission_boundaries", []))
+        for item in changed:
+            consume(item, "permission_changed")
+
+
+def cue_sentences(text):
+    parts = re.split(r"(?<=[.!?])\s+", str(text or "").strip())
+    return [part.strip() for part in parts if part.strip() and _CUE.search(part)]
+
+
+def source_texts(state):
+    texts = [state.get("task") or ""]
+    texts += [event.get("text", "") for event in state.get("brief_feedback", [])]
+    texts += [event.get("text", "") for event in state.get("answers", {}).values() if isinstance(event, dict)]
+    return [text for text in texts if text]
+
+
+def check_requirement_handoff(state, report):
+    sources = source_texts(state)
+    requirements = report.get("requirements", [])
+    if not isinstance(requirements, list):
+        raise ValueError("requirements must be an array")
+    seen = set()
+    quotes = []
+    for row in requirements:
+        if not isinstance(row, dict) or not str(row.get("id", "")).strip() or not str(row.get("text", "")).strip():
+            raise ValueError("Each requirement needs an id, text and source_quote")
+        if row["id"] in seen:
+            raise ValueError(f"Duplicate requirement id {row['id']}")
+        seen.add(row["id"])
+        quote = str(row.get("source_quote", "")).strip()
+        if not quote or not any(quote in text for text in sources):
+            raise ValueError(f"Requirement {row['id']} source_quote is not in the task or a saved user event")
+        quotes.append(quote)
+    ignored = report.get("ignored_statements", [])
+    if not isinstance(ignored, list):
+        raise ValueError("ignored_statements must be an array")
+    for sentence in cue_sentences(state.get("task")):
+        if any(quote in sentence or sentence in quote for quote in quotes):
+            continue
+        if any(str(note).strip() and (str(note).strip() in sentence or sentence in str(note)) for note in ignored):
+            continue
+        raise ValueError("A requirement-like sentence was neither quoted nor explicitly ignored: " + sentence[:120])
+
+
+def check_requirement_trace(state, report, contract):
+    handoff = (state.get("requirements_handoff") or {}).get("report") or {}
+    requirements = handoff.get("requirements") or []
+    if not requirements:
+        return
+    trace = report.get("requirement_trace")
+    if not isinstance(trace, list):
+        raise ValueError("Planner report needs requirement_trace")
+    by_id = {}
+    for row in trace:
+        if not isinstance(row, dict) or row.get("disposition") not in ("covered", "excluded", "superseded"):
+            raise ValueError("requirement_trace entries need requirement_id, disposition and evidence")
+        by_id[row.get("requirement_id")] = row
+    missing = [row["id"] for row in requirements if row["id"] not in by_id]
+    if missing:
+        raise ValueError("Planner dropped requirements with no trace: " + ", ".join(missing))
+    behaviors = set(contract.get("required_behaviors", []))
+    criteria = {row["id"] for row in contract.get("acceptance_criteria", [])}
+    exclusions = set(contract.get("scope_exclusions", []))
+    for row in requirements:
+        entry = by_id[row["id"]]
+        evidence = str(entry.get("evidence", "")).strip()
+        disposition = entry["disposition"]
+        if disposition == "covered" and evidence not in behaviors and evidence not in criteria:
+            raise ValueError(f"Requirement {row['id']} is not covered by a behavior or criterion")
+        if disposition == "excluded" and evidence not in exclusions:
+            raise ValueError(f"Requirement {row['id']} is not present in scope_exclusions")
+        if disposition == "superseded" and not _saved_user_basis(state, "user_feedback", evidence) and not _saved_user_basis(state, "user_answer", evidence):
+            raise ValueError(f"Requirement {row['id']} cannot be superseded without a saved user event")
+    conflicts = handoff.get("conflicts") or []
+    open_questions = contract.get("open_blocking_questions") or []
+    for conflict in conflicts:
+        ids = conflict.get("requirement_ids") or []
+        settled = all(by_id.get(rid, {}).get("disposition") == "superseded" for rid in ids)
+        if not settled and not open_questions:
+            raise ValueError("Unresolved requirement conflict must be a blocking question: " + conflict.get("description", ""))
+
+
 def invalidate(state, reason):
     state.pop("permission_reuse_context", None)
     if state.get("validation"):
@@ -225,15 +381,16 @@ def invalidate(state, reason):
     state.pop("displayed_review", None)
 
 
-def install_draft(state, body, *, origin, allow_legacy=False):
+def install_draft(state, body, *, origin, allow_legacy=False, changes=None):
     validate_body(state, body, allow_legacy=allow_legacy)
+    revision_guard(state, body, changes or [], origin)
     previous = state.get("goal_contract")
     if previous:
         state.setdefault("contract_history", []).append(copy.deepcopy(previous))
     revision = previous["revision"] + 1 if previous else 1
     contract = {"task_id": state["task_id"], "revision": revision, "body": copy.deepcopy(body)}
     contract.update(hash=s.digest(contract), approval_status="draft", approval_event=None,
-                    origin=origin, created_at=s.now())
+                    origin=origin, created_at=s.now(), declared_changes=copy.deepcopy(changes or []))
     state["goal_contract"] = contract
     invalidate(state, "Contract revision changed; revalidate the current artifact")
     if state.get("current_task"):
@@ -330,6 +487,12 @@ def render(state):
                         lines.append("    Owned paths: " + (", ".join(row["affected_paths"]) or "unspecified; serial dispatch"))
                 else:
                     lines.append(f"  - {row['text']} (basis: {row['basis']}; answer: {row['answer_id'] or 'none'})")
+    declared = contract.get("declared_changes") or []
+    if declared:
+        lines += ["", "Declared contract changes:"]
+        ordered = sorted(declared, key=lambda row: row.get("change") != "permission_changed")
+        for row in ordered:
+            lines.append(f"  - {row.get('change')}: {row.get('item')} (basis: {row.get('basis')})")
     history = state.get("contract_history", [])
     if history:
         lines += ["", "Contract delta:"] + list(difflib.unified_diff(

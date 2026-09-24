@@ -48,7 +48,8 @@ class PlanningTests(unittest.TestCase):
         bare["milestones"][0].pop("depends_on")
         with self.assertRaisesRegex(ValueError, "declare depends_on"):
             planning.apply(state, "astra_discovery", {"contract": bare, "summary": "draft",
-                           "code_refs": [], "alternatives": [], "uncertainties": []}, {"output": "draft.json"})
+                           "code_refs": [], "alternatives": [], "uncertainties": [],
+                           "contract_changes": [], "requirement_trace": []}, {"output": "draft.json"})
 
     def test_new_plan_review_route_uses_opencode_cursor_opus(self):
         args = SimpleNamespace(astra_model=None, terra_model=None, sol_model=None, glm_model=None)
@@ -115,7 +116,8 @@ class PlanningTests(unittest.TestCase):
             "acceptance_tests": ["Run valid and invalid inputs"], "source_refs": ["task"],
             "proposed_assumptions": ["A CLI may suffice"],
             "open_questions": [{"id": "Q1", "question": "CLI or web?", "why": "Interface",
-                                "options": ["CLI", "Web"], "proposed_default": "CLI"}]}
+                                "options": ["CLI", "Web"], "proposed_default": "CLI"}],
+            "requirements": [], "ignored_statements": [], "conflicts": []}
         planning.apply(state, "requirements_gather", requirements, {"output": "/run/requirements_gather-01.json"})
         self.assertEqual("astra_discovery", state["next_stage"])
         self.assertEqual("/run/requirements_gather-01.json", state["requirements_handoff"]["output"])
@@ -133,7 +135,8 @@ class PlanningTests(unittest.TestCase):
         draft = body(questions=False)
         with self.assertRaisesRegex(ValueError, "dropped unresolved requirements questions"):
             planning.apply(state, "astra_discovery", {"contract": draft, "summary": "plan",
-                "code_refs": [], "alternatives": [], "uncertainties": []}, {"output": "/run/draft.json"})
+                "code_refs": [], "alternatives": [], "uncertainties": [],
+                "contract_changes": [], "requirement_trace": []}, {"output": "/run/draft.json"})
         self.assertEqual("astra_discovery", state["next_stage"])
         self.assertNotIn("planning", state)
 
@@ -176,14 +179,16 @@ class PlanningTests(unittest.TestCase):
         record = {"output": "challenge.json"}
         planning.apply(state, "astra_challenge", challenge, record)
         original = copy.deepcopy(state)
-        revision = {"summary": "Revised", "contract": body(), "code_refs": [], "responses": []}
+        revision = {"summary": "Revised", "contract": body(), "code_refs": [], "responses": [],
+                    "contract_changes": [], "requirement_trace": []}
         with self.assertRaisesRegex(ValueError, "Every plan-review concern"):
             runner.apply_result(state, "glm_revise", revision, record, None, None)
         self.assertEqual(original, state)
         final_body = body()
         final_body["initial_task"] = {"objective": "Build CLI", "affected_paths": ["greet.py"], "kind": "implement",
             "milestone_id": "M1", "requirements": ["Greet"], "acceptance_criteria": ["C1"], "validation_plan": ["Run tests"]}
-        final = {"contract": final_body, "summary": "Still blocked", "decisions": [{"concern_id": "P1",
+        final = {"contract": final_body, "summary": "Still blocked", "contract_changes": [], "requirement_trace": [],
+                 "decisions": [{"concern_id": "P1",
             "decision": "Ask user", "rationale": "Unknown requirement", "acceptance_test": "Retry test", "resolved": False}]}
         with self.assertRaisesRegex(ValueError, "blocking questions"):
             runner.apply_result(state, "astra_finalize", final, record, None, None)

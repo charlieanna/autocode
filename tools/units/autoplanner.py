@@ -18,20 +18,36 @@ RESPONSE = obj({"concern_id": S, "response": S, "evidence_refs": SS,
                 "change": S, "acceptance_test": S})
 DECISION = obj({"concern_id": S, "decision": S, "rationale": S,
                 "acceptance_test": S, "resolved": {"type": "boolean"}})
+REQUIREMENT = obj({"id": S, "text": S, "source_quote": S})
+CONFLICT = obj({"requirement_ids": SS, "description": S})
+CHANGE = obj({"item": S, "change": {"type": "string", "enum": ["removed", "reworded", "permission_changed"]},
+              "basis": {"type": "string", "enum": ["user_answer", "user_feedback", "agent_proposed"]},
+              "answer_id": S, "replacement": S})
+TRACE = obj({"requirement_id": S, "disposition": {"type": "string", "enum": ["covered", "excluded", "superseded"]},
+             "evidence": S})
 SCHEMAS = {
     "requirements_gather": obj({
         "summary": S, "intended_outcome": S, "required_behaviors": SS,
         "constraints": SS, "acceptance_tests": SS, "source_refs": SS,
         "proposed_assumptions": SS,
         "open_questions": {"type": "array", "maxItems": 3, "items": goals.QUESTION},
+        "requirements": {"type": "array", "items": REQUIREMENT},
+        "ignored_statements": SS,
+        "conflicts": {"type": "array", "items": CONFLICT},
     }),
     "astra_discovery": obj({"contract": goals.BODY_SCHEMA, "summary": S,
-                            "code_refs": SS, "alternatives": SS, "uncertainties": SS}),
+                            "code_refs": SS, "alternatives": SS, "uncertainties": SS,
+                            "contract_changes": {"type": "array", "items": CHANGE},
+                            "requirement_trace": {"type": "array", "items": TRACE}}),
     "astra_challenge": obj({"summary": S, "concerns": {"type": "array", "items": CONCERN}}),
     "glm_revise": obj({"contract": goals.BODY_SCHEMA, "summary": S, "code_refs": SS,
-                       "responses": {"type": "array", "items": RESPONSE}}),
+                       "responses": {"type": "array", "items": RESPONSE},
+                       "contract_changes": {"type": "array", "items": CHANGE},
+                       "requirement_trace": {"type": "array", "items": TRACE}}),
     "astra_finalize": obj({"contract": goals.PLANNING_BODY_SCHEMA, "summary": S,
-                           "decisions": {"type": "array", "items": DECISION}}),
+                           "decisions": {"type": "array", "items": DECISION},
+                           "contract_changes": {"type": "array", "items": CHANGE},
+                           "requirement_trace": {"type": "array", "items": TRACE}}),
 }
 
 
@@ -118,6 +134,10 @@ intended outcome, stated behaviors, constraints, acceptance tests, source refere
 up to three genuinely blocking questions, and clearly labeled proposed assumptions.
 Do not create a technical approach, milestone, dependency graph, or implementation plan.
 Do not treat a proposed default as a user answer. Do not implement.
+Return requirements: each has an id, the requirement text, and a source_quote copied
+verbatim from the task or a saved user event. Put requirement-like sentences you are
+not carrying (must, must not, never, only, required, exactly) in ignored_statements
+with the reason. Put contradictions in conflicts with the requirement ids.
 The runner saves this report as a separate artifact for the Planner.
 """,
     "astra_discovery": """You are the Planner, in a session separate from the Requirements Gatherer.

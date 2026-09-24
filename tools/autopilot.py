@@ -174,6 +174,41 @@ def start_planning(state):
     state.update(status="RUNNING", phase="PLANNING", next_stage="astra_challenge", pending_questions=[])
 
 
+def _check_code_refs(state, refs):
+    root = Path(state.get("workspace") or "")
+    if not root.is_dir():
+        return
+    files = [path for path in root.rglob("*")
+             if path.is_file() and ".git" not in path.parts and ".autocode" not in path.parts
+             and not path.name.endswith(".pyc")]
+    if not files:
+        return
+    if not refs:
+        raise ValueError("Plan must cite existing source in code_refs")
+    for ref in refs:
+        raw, _, line_text = str(ref).partition(":")
+        target = (root / raw).resolve()
+        if not target.is_relative_to(root.resolve()) or not target.is_file():
+            raise ValueError(f"code_refs entry {ref} is not a file in the workspace")
+        if line_text:
+            try:
+                line = int(line_text)
+            except ValueError as error:
+                raise ValueError(f"code_refs entry {ref} has no line number") from error
+            count = len(target.read_text(errors="replace").splitlines())
+            if line < 1 or line > max(count, 1):
+                raise ValueError(f"code_refs entry {ref} points past the end of the file")
+
+
+def _bind_plan(state, value, origin):
+    if "contract" not in value:
+        return
+    goals.check_requirement_trace(state, value, value["contract"])
+    if origin in ("glm_draft", "glm_revise"):
+        _check_code_refs(state, value.get("code_refs") or [])
+    goals.install_draft(state, value["contract"], origin=origin, changes=value.get("contract_changes") or [])
+
+
 def apply_planning(state, stage, value, record):
     support.validate_schema(value, planning_unit.SCHEMAS[stage])
     if stage == "requirements_gather":
@@ -186,6 +221,7 @@ def apply_planning(state, stage, value, record):
         previous = state.get("requirements_handoff")
         if previous:
             state.setdefault("requirements_history", []).append(copy.deepcopy(previous))
+        goals.check_requirement_handoff(state, value)
         state["requirements_handoff"] = {"report": copy.deepcopy(value), "output": record["output"]}
         state.update(status="RUNNING", phase="PLANNING", next_stage="astra_discovery",
                      discovery_summary=value["summary"])
@@ -203,7 +239,7 @@ def apply_planning(state, stage, value, record):
             missing = pending - preserved - set(state.get("answers", {}))
             if missing:
                 raise ValueError("Planner dropped unresolved requirements questions: " + ", ".join(sorted(missing)))
-        goals.install_draft(state, value["contract"], origin="glm_draft")
+        _bind_plan(state, value, "glm_draft")
         if state.get("pending_questions"):
             state["discovery_summary"] = value["summary"]
             return
@@ -223,7 +259,7 @@ def apply_planning(state, stage, value, record):
         planning_unit._coverage(value["responses"], concerns)
         if any(not r["evidence_refs"] for r in value["responses"]):
             raise ValueError("GLM responses must cite investigated evidence")
-        goals.install_draft(state, value["contract"], origin=stage)
+        _bind_plan(state, value, stage)
         state.update(status="RUNNING", phase="PLANNING", next_stage="astra_finalize", pending_questions=[])
     elif stage == "astra_finalize":
         concerns = reports["astra_challenge"]["report"]["concerns"]
@@ -233,7 +269,7 @@ def apply_planning(state, stage, value, record):
             raise ValueError("Unresolved planning decisions must return to the user as blocking questions")
         if not value["contract"]["open_blocking_questions"] and "initial_task" not in value["contract"]:
             raise ValueError("Final plan needs an initial_task so approval does not spend another Astra call")
-        goals.install_draft(state, value["contract"], origin=stage)
+        _bind_plan(state, value, stage)
         planning["final_token"] = goals.token(state["goal_contract"])
     reports[stage] = {"report": copy.deepcopy(value), "output": record["output"]}
     state["discovery_summary"] = value["summary"]
