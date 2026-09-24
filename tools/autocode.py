@@ -1889,6 +1889,8 @@ def main(unit=None) -> int:
     parser.add_argument("--approve-goal", metavar="TOKEN", help="Approve exactly a previously displayed revision")
     parser.add_argument("--edit-goal", type=Path, help="Load a revised contract body JSON; invalidates approval")
     parser.add_argument("--approve-review", action="append", default=[], metavar="CRITERION_ID")
+    parser.add_argument("--reconcile-review", metavar="CRITERION_ID=ANSWER_ID",
+                        help="Bind an authenticated legacy acceptance to current validated evidence without a new approval")
     parser.add_argument("--accept-completion", action="store_true",
                         help="Operator-accept completion after the runner itself verifies every gate; use when the model's completion report cannot be produced")
     parser.add_argument("--review-token", help="Exact displayed contract/artifact/validation token")
@@ -1911,14 +1913,17 @@ def main(unit=None) -> int:
         if getattr(args, flag) is not None and getattr(args, flag) < 0:
             parser.error(f"--{flag.replace('_', '-')} must be nonnegative")
     actions = [args.status, args.dry_run, args.migrate_only, args.show_goal,
-               bool(args.answer or args.delegate), bool(args.approve_goal), bool(args.edit_goal), bool(args.approve_review),
+               bool(args.answer or args.delegate), bool(args.approve_goal), bool(args.edit_goal),
+               bool(args.approve_review), bool(args.reconcile_review),
                args.feedback is not None, args.accept_completion, args.abandon_stage is not None, args.request_milestone_checkpoints]
     if sum(bool(a) for a in actions) > 1:
         parser.error("Choose one action per invocation; answering and approving are separate events")
     if args.retry_builder and any(actions):
         parser.error("--retry-builder is a resume action; do not combine it with another action")
-    if args.review_token and not args.approve_review:
-        parser.error("--review-token requires --approve-review")
+    if args.review_token and not (args.approve_review or args.reconcile_review):
+        parser.error("--review-token requires --approve-review or --reconcile-review")
+    if args.reconcile_review and not args.review_token:
+        parser.error("--reconcile-review requires --review-token")
     if not args.run_dir and any(actions[2:]):
         parser.error("User actions require an existing --run-dir")
     if args.feedback is not None and not args.feedback.strip():
@@ -2135,7 +2140,8 @@ def main(unit=None) -> int:
                 print("Migrated to an unapproved draft; saved work retained; no agent launched")
                 return 0
             user_action = any((args.show_goal, args.answer, args.delegate, args.approve_goal, args.edit_goal,
-                               args.approve_review, args.feedback is not None, args.accept_completion))
+                               args.approve_review, args.reconcile_review,
+                               args.feedback is not None, args.accept_completion))
             if user_action:
                 metadata = intervention_metadata(workspace, run_dir, state)
                 if metadata["pending_count"] or metadata["inbox_error"]:
@@ -2168,6 +2174,12 @@ def main(unit=None) -> int:
                         goals.approve(candidate, args.approve_goal)
                     for criterion in args.approve_review:
                         goals.approve_review(candidate, criterion, args.review_token, support.snapshot(workspace))
+                    if args.reconcile_review:
+                        criterion, separator, answer_id = args.reconcile_review.partition("=")
+                        if not separator or not criterion or not answer_id:
+                            raise ValueError("--reconcile-review uses CRITERION_ID=ANSWER_ID")
+                        goals.reconcile_legacy_review(candidate, criterion, answer_id,
+                                                      args.review_token, support.snapshot(workspace))
                     if args.accept_completion:
                         accept_completion(candidate, workspace)
                 except (ValueError, KeyError) as error:

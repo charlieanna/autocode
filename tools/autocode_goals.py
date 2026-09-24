@@ -892,9 +892,113 @@ def review_token(state):
 def missing_human_reviews(state):
     current = review_token(state)
     return [c["id"] for c in state["goal_contract"]["body"]["acceptance_criteria"]
-            if c["human_review"] and (not current or
-                state.get("human_reviews", {}).get(c["id"], {}).get("token") != current or
-                state.get("human_reviews", {}).get(c["id"]) not in state.get("user_events", []))]
+            if c["human_review"] and not review_binding_valid(state, c["id"], current)]
+
+
+def legacy_review_acceptance(state, criterion, answer_id):
+    """Return an authenticated older answer that explicitly accepted a review criterion."""
+    answer = state.get("answers", {}).get(answer_id)
+    if not isinstance(answer, dict) or answer not in state.get("user_events", []):
+        return None
+    question = answer.get("question") or {}
+    if not isinstance(question, dict):
+        return None
+    options = question.get("options") or []
+    if (answer.get("kind") != "permission_answer" or answer.get("actor") != "user_cli"
+            or answer.get("question_id") != answer_id or question.get("id") != answer_id
+            or answer.get("contract_token") != token(state["goal_contract"])
+            or not isinstance(answer.get("at"), str)
+            or not isinstance(options, list) or len(options) != 2
+            or not isinstance(options[0], str) or not options[0].startswith(f"Accept {criterion}:")
+            or not isinstance(options[1], str) or not options[1].startswith(f"Reject {criterion}:")
+            or not isinstance(answer.get("text"), str)
+            or not answer["text"].startswith(f"Accept {criterion}.")):
+        return None
+    return answer
+
+
+def preserved_review_answers(state, criterion, original):
+    """Find later authenticated instructions carrying the old acceptance forward."""
+    result = {}
+    for answer_id, answer in state.get("answers", {}).items():
+        if (not isinstance(answer, dict) or answer not in state.get("user_events", [])
+                or answer.get("kind") != "permission_answer" or answer.get("actor") != "user_cli"
+                or answer.get("contract_token") != token(state["goal_contract"])
+                or not isinstance(answer.get("at"), str) or answer["at"] <= original["at"]):
+            continue
+        response = answer.get("text")
+        if not isinstance(response, str):
+            continue
+        if f"existing {criterion} acceptance" in response and "do not request another human visual approval" in response.lower():
+            result[answer_id] = answer
+    return result
+
+
+def review_binding_valid(state, criterion, current):
+    if not current:
+        return False
+    binding = state.get("human_reviews", {}).get(criterion)
+    if (not isinstance(binding, dict) or binding.get("token") != current
+            or binding.get("criterion") != criterion or binding not in state.get("user_events", [])):
+        return False
+    if binding.get("kind") == "human_review":
+        return binding.get("actor") == "user_cli"
+    if binding.get("kind") != "review_reconciliation" or binding.get("actor") != "runner":
+        return False
+    original = legacy_review_acceptance(state, criterion, binding.get("answer_id"))
+    if not original or binding.get("answer_hash") != s.digest(original):
+        return False
+    preserved = preserved_review_answers(state, criterion, original)
+    receipts = binding.get("preservation_hashes") or {}
+    return bool(receipts) and all(
+        answer_id in preserved and s.digest(preserved[answer_id]) == digest
+        for answer_id, digest in receipts.items())
+
+
+def reconcile_legacy_review(state, criterion, answer_id, selected, current):
+    """Bind an existing user acceptance to current evidence without a new approval."""
+    request = state.get("user_request") or {}
+    pending = state.get("pending_questions") or []
+    required = {c["id"] for c in state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"]}
+    if (criterion not in required or state.get("status") != "WAITING_FOR_USER"
+            or len(pending) != 1 or pending[0].get("question") != request.get("decision_needed")
+            or request.get("kind") != "blocker" or criterion not in request.get("decision_needed", "")
+            or "reconcile" not in request.get("decision_needed", "").lower()
+            or not request.get("proposed_delta", "").startswith("No contract, criterion, source or permission change.")
+            or selected != state.get("displayed_review") or selected != review_token(state)):
+        raise ValueError("No exact legacy review reconciliation is pending")
+    execution_guard(state)
+    val = state.get("validation") or {}
+    if (val.get("verdict") != "PASS" or val.get("source_revision") != current["revision"]
+            or val.get("contract_revision") != state["goal_contract"]["revision"]
+            or val.get("contract_hash") != state["goal_contract"]["hash"]
+            or val.get("criteria_revision") != state.get("criteria_revision")
+            or (state.get("current_task") and val.get("task_id") != state["current_task"]["id"])
+            or (state.get("settings", {}).get("milestone_checkpoints", {}).get("enabled")
+                and val.get("reviewer_role") != "sol")
+            or not val.get("checks") or any(check.get("exit_code") != 0 for check in val["checks"])
+            or val.get("findings") or val.get("unverified_criteria")
+            or not any(row.get("id") == criterion and row.get("status") == "PASS" and row.get("evidence_refs")
+                       for row in val.get("criterion_results", []))
+            or not val.get("evidence_hashes") or any(
+                not Path(path).is_file() or s.file_hash(path) != digest
+                for path, digest in val["evidence_hashes"].items())):
+        raise ValueError("Review reconciliation requires current passing independent evidence")
+    original = legacy_review_acceptance(state, criterion, answer_id)
+    preserved = preserved_review_answers(state, criterion, original) if original else {}
+    if not original or not preserved:
+        raise ValueError("No authenticated acceptance and carry-forward instruction match this criterion")
+    binding = {"kind": "review_reconciliation", "actor": "runner", "at": s.now(),
+               "criterion": criterion, "token": selected, "answer_id": answer_id,
+               "answer_hash": s.digest(original),
+               "preservation_hashes": {key: s.digest(value) for key, value in preserved.items()}}
+    state.setdefault("user_events", []).append(binding)
+    state.setdefault("human_reviews", {})[criterion] = binding
+    if missing_human_reviews(state):
+        raise ValueError("Existing acceptance did not satisfy the current review gate")
+    state["pending_questions"] = []
+    state.pop("user_request", None)
+    state.update(status="RUNNING", phase="READY_TO_EXECUTE", next_stage="astra_review")
 
 
 def requested_review_criteria(state, request):

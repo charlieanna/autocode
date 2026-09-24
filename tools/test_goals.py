@@ -672,6 +672,64 @@ class GoalTests(unittest.TestCase):
             g.answer(self.state, question["id"], "Approve again")
         self.assertEqual(saved, self.state)
 
+    def legacy_review_fixture(self):
+        self.approve(human=True)
+        current = self.validation()
+        original_id = "original-review"
+        question = {"id": original_id, "question": "Record the required C1 decision: accept or reject the result.",
+                    "options": ["Accept C1: record acceptance.", "Reject C1: request correction."]}
+        original = {"kind": "permission_answer", "actor": "user_cli", "at": "2026-09-23T10:00:00Z",
+                    "question_id": original_id, "question": question,
+                    "contract_token": g.token(self.state["goal_contract"]),
+                    "text": "Accept C1. I reviewed the result."}
+        carry = {"kind": "permission_answer", "actor": "user_cli", "at": "2026-09-24T10:00:00Z",
+                 "question_id": "carry-review", "contract_token": g.token(self.state["goal_contract"]),
+                 "text": "Preserve the existing C1 acceptance; do not request another human visual approval."}
+        self.state.setdefault("user_events", []).extend([original, carry])
+        self.state.setdefault("answers", {}).update({original_id: original, "carry-review": carry})
+        request = {"kind": "blocker", "decision_needed": "Reconcile existing C1 acceptance with the runner gate.",
+                   "proposed_delta": "No contract, criterion, source or permission change."}
+        self.state.update(status="WAITING_FOR_USER", phase="WAITING_FOR_USER",
+                          next_stage="astra_review", user_request=request,
+                          pending_questions=[{"id": "runner-reconcile", "question": request["decision_needed"]}])
+        g.present(self.state)
+        return current, original_id
+
+    def test_legacy_review_reconciliation_preserves_the_original_user_event(self):
+        current, original_id = self.legacy_review_fixture()
+        old_user_events = [event for event in self.state["user_events"] if event.get("actor") == "user_cli"]
+        g.reconcile_legacy_review(self.state, "C1", original_id, g.review_token(self.state), current)
+        self.assertEqual([], g.missing_human_reviews(self.state))
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertEqual([], self.state["pending_questions"])
+        self.assertNotIn("user_request", self.state)
+        self.assertEqual(old_user_events, [event for event in self.state["user_events"] if event.get("actor") == "user_cli"])
+        self.assertEqual("review_reconciliation", self.state["human_reviews"]["C1"]["kind"])
+        self.assertEqual("runner", self.state["human_reviews"]["C1"]["actor"])
+        self.assertFalse(g.missing_human_reviews(self.state))
+        self.state["validation"]["source_revision"] = "changed"
+        self.assertEqual(["C1"], g.missing_human_reviews(self.state))
+
+    def test_legacy_review_reconciliation_rejects_forged_or_missing_provenance(self):
+        current, original_id = self.legacy_review_fixture()
+        for change in (lambda state: state["user_events"].remove(state["answers"][original_id]),
+                       lambda state: state["answers"][original_id].update(text="Reject C1."),
+                       lambda state: state["answers"].pop("carry-review"),
+                       lambda state: state["validation"].update(verdict="FAIL")):
+            candidate = copy.deepcopy(self.state)
+            change(candidate)
+            with self.assertRaises(ValueError):
+                g.reconcile_legacy_review(candidate, "C1", original_id, g.review_token(candidate), current)
+            self.assertNotIn("C1", candidate.get("human_reviews", {}))
+
+    def test_cli_legacy_review_reconciliation_saves_without_launching_a_provider(self):
+        current, original_id = self.legacy_review_fixture()
+        token = g.review_token(self.state)
+        with patch.object(s, "snapshot", return_value=current):
+            self.assertEqual(0, self.invoke("--reconcile-review", f"C1={original_id}", "--review-token", token))
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertEqual([], g.missing_human_reviews(self.state))
+
     def test_sql_shaped_legacy_permission_question_closes_on_artifact_approval(self):
         self.approve(human=True)
         current = self.validation()
