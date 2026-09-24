@@ -148,6 +148,16 @@
 .monitor-panel>details{border-top:1px solid var(--line);padding:14px 3px;margin-top:2px}
 .monitor-panel>details>summary{font-size:12px;font-weight:600;color:var(--muted)}
 .monitor-panel>details .workflow-cards{margin:16px 0 4px}
+.workflow-models-panel{padding:20px 0;border-top:1px solid var(--line)}
+.workflow-models-panel>h2{font-size:16px;margin-bottom:8px}
+.workflow-models-panel>p{color:var(--muted);font-size:12px;line-height:1.6}
+.workflow-models-panel .workflow-gap{color:var(--ink);margin-top:10px;font-weight:600}
+.workflow-models-panel .workflow-cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:16px 0 0}
+.workflow-models-panel .workflow-card{padding:12px}
+.workflow-models-panel .workflow-card h3{font-size:13px}
+.workflow-models-panel .monitor-caption{margin:4px 0;font-size:11px}
+.workflow-history{font-size:11px;overflow-wrap:anywhere}
+@media(max-width:600px){.workflow-models-panel .workflow-cards{grid-template-columns:minmax(0,1fr)}}
 .task-now-view .task-path{padding:20px 0 22px}
 @media(max-width:759px){.task-now-view .monitor-hero{padding:18px}.monitor-iteration{min-width:72px}.monitor-iteration strong{font-size:17px}.monitor-next{padding:15px}}
 

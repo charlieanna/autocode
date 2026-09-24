@@ -44,9 +44,9 @@ assert.equal(context.taskOverviewState(building).verified,false);
 assert.equal(context.taskOverviewState(building).step,'Last reported step · Orchestrator · Coordinating Builders');
 assert.equal(context.statusInfo(building).group,'stopped');
 assert.equal(context.primaryAction(building).kind,'checks');
-assert.deepEqual(Array.from(context.workflowConfig(building,{}),row=>row[0]),['astra','astra','orchestrator','terra','sol','completion']);
+assert.deepEqual(Array.from(context.workflowConfig(building,{}),row=>row[0]),['requirements','astra','astra','orchestrator','terra','sol','astra','resolver']);
 assert.equal(context.hasOrchestration(approved),false);
-assert.equal(context.workflowConfig(approved,{}).some(row=>row[0]==='orchestrator'),false);
+assert.equal(context.workflowConfig(approved,{}).find(row=>row[0]==='orchestrator')[4],'Not enabled for this run');
 for(const status of ['PAUSED_ORCHESTRATOR_WORKER','PAUSED_ORCHESTRATOR_STALE','PAUSED_ORCHESTRATOR_OVERLAP']){
   const paused={...building,status,stop_reason:'Inspect retained worktrees and logs'};
   assert.equal(context.statusInfo(paused).group,'stopped');

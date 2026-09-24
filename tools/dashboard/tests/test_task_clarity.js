@@ -38,7 +38,7 @@ const savedPause={status:'PAUSED_INTERVENTION',stage:'astra_challenge',model_set
   monitor:{next_stage:'astra_challenge',live:{state:'none'}},
   stages:[{stage:'astra_discovery',finished_at:'2026-09-21T19:09:12Z',exit_code:0}]};
 assert.equal(context.taskOverviewState(savedPause).step,'Next step · Plan reviewer · Challenging the plan');
-assert.equal(context.taskOverviewState({...savedPause,monitor:{live:{state:'none'}}}).step,'Last completed step · Requirements planner · Planning');
+assert.equal(context.taskOverviewState({...savedPause,monitor:{live:{state:'none'}}}).step,'Last completed step · Planner · Planning');
 assert.equal(context.taskOverviewState({...savedPause,monitor:{},stages:[]}).step,'No active step');
 assert.equal(context.taskOverviewState(exited).step,'Last reported active step · Builder · Implementing');
 assert.equal(classify(activity).group, 'stopped');

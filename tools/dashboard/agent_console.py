@@ -55,7 +55,7 @@ def string_list(x):return [v for v in items(x) if isinstance(v,str)]
 def saved_models(state):
  state=obj(state);settings=obj(state.get('settings'));roles=obj(settings.get('roles'));models=obj(state.get('models'));result={};engines={};efforts={}
  engine=settings.get('engine') if isinstance(settings.get('engine'),str) else state.get('engine') if isinstance(state.get('engine'),str) else None
- names=['astra','terra','sol']+(['completion'] if 'completion' in roles or 'completion' in models else [])+(['glm'] if 'glm' in roles or 'glm' in models else [])
+ names=['astra','terra','sol']+[role for role in ('requirements','glm','plan_reviewer','completion','resolver') if role in roles or role in models]
  for role in names:
   config=obj(roles.get(role));value=config.get('model')
   if not isinstance(value,str):value=models.get(role)

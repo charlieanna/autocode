@@ -98,6 +98,31 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(table[123]['started'], 'Sun Sep 20 01:00:00 2026')
         command.assert_called_once()
 
+    def test_launch_models_are_historical_and_independent_of_current_settings(self):
+        launch = {'stage': 'astra_review', 'role': 'astra', 'route_role': 'completion',
+                  'engine': 'codex', 'command': ['codex', 'exec', '-c',
+                  'model_reasoning_effort="high"', '-c', 'api_key="secret"',
+                  '--model', 'gpt-6-astra'], 'exit_code': 0, 'finished_at': 'yesterday'}
+        state = {'stages': [launch], 'active_stage': {**self.active, 'command': [
+                    'opencode', 'run', '--model', 'openai/gpt-5.6-terra', '--variant', 'medium']},
+                 'settings': {'roles': {name: {'model': 'changed-model', 'api_key': 'secret'}
+                     for name in ('requirements', 'plan_reviewer', 'resolver', 'completion')}}}
+        result = monitor.snapshot(state, self.run, detailed=True, process_snapshot={123: self.worker})
+        self.assertEqual(result['history'][0]['execution'], {
+            'kind': 'model', 'model': 'gpt-6-astra', 'reasoning_effort': 'high', 'engine': 'codex'})
+        self.assertEqual(result['history'][0]['route_role'], 'completion')
+        self.assertEqual(result['stage_history'], result['history'])
+        self.assertEqual(result['active_execution']['model'], 'openai/gpt-5.6-terra')
+        self.assertEqual(result['active_execution']['reasoning_effort'], 'medium')
+        self.assertEqual(set(result['roles']), {'requirements', 'plan_reviewer', 'resolver', 'completion'})
+        self.assertNotIn('secret', json.dumps(result))
+        state['stages'][0].pop('command')
+        unknown = monitor.snapshot(state, self.run, detailed=True, process_snapshot={})
+        self.assertNotIn('model', unknown['history'][0]['execution'])
+        self.assertEqual(monitor.stage_execution({'stage': 'orchestrator'}), {'kind': 'runner'})
+        self.assertEqual(monitor.stage_execution({'stage': 'resolver'}), {'kind': 'runner'})
+        self.assertEqual(monitor.stage_execution({'stage': 'astra_resolve'})['kind'], 'model')
+
     def test_orchestration_projects_saved_workers_without_claiming_liveness(self):
         batch = {'id': 'batch-1', 'status': 'BUILDING', 'baseline': {'private': 'source'},
                  'workers': [{'milestone_id': 'M1', 'status': 'RUNNING', 'workspace': '/repo/worker-1',

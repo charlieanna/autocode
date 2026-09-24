@@ -397,7 +397,7 @@ function stateFacts(run) {
   const responsibleStage=isLive||savedCurrent?active:savedStage?confirmed||{stage:savedStage}:active;
   // A saved monitor role can describe an old live process. Once the process is
   // no longer live, identify the role from the last authoritative saved step.
-  const role=roleDisplayName((isLive||savedCurrent?monitor.active_role:'')||responsibleStage?.role||responsibleStage?.stage?.split('_')[0]||'unavailable');
+  const role=responsibleStage?.stage?stageName({...run,stage:responsibleStage.stage}).split(' · ')[0]:roleDisplayName(monitor.active_role||'unavailable');
   const question=(run.questions||[])[0];
   const blocker=info.group==='attention'?(question?.question||run.user_request?.decision_needed||info.reason):info.group==='stopped'?info.reason:'No blocker';
   const freshness=isLive?'Current verification · PID '+(live.pid||'recorded')+' checked '+recordedTimeLabel(run):info.group==='complete'?'Recorded evidence · '+(run.validation?.source_revision?'source '+run.validation.source_revision:'freshness unavailable'):run.status==='PAUSED_PROVIDER_UNCERTAIN'||run.status==='PAUSED_UNCERTAIN_STAGE'?'Verification unavailable · checkpoint saved '+recordedTimeLabel(run):'Recorded evidence · updated '+recordedTimeLabel(run);
@@ -508,25 +508,28 @@ function taskStatusBadge(run) {
 }
 function jointPlanning(run) { return run.model_settings?.joint_planning === true; }
 function planningMode(run) { return run.monitor?.workflow_mode==='glm_final_audit_v2'?'Builder-led · Completion owner final audit':run.monitor?.workflow_mode==='glm_first_v1'?'Builder-led · Completion owner milestone reviews':jointPlanning(run)?'Requirements planning · Independent review':run.model_settings?.engine?'Legacy planning':'Saved workflow unavailable'; }
-function planningSpeaker(run) { return jointPlanning(run) && run.goal?.origin !== 'astra_finalize' ? 'Requirements planner' : 'Plan reviewer'; }
+function planningSpeaker(run) { return jointPlanning(run) && run.goal?.origin === 'astra_finalize' ? 'Plan reviewer' : 'Planner'; }
 function roleDisplayName(name) {
   const key=String(name||'').trim().toLowerCase().replaceAll('_',' ');
-  return ({glm:'Requirements planner',astra:'Plan reviewer',terra:'Builder',sol:'Validator',completion:'Completion owner'})[key]||human(name);
+  return ({requirements:'Requirements Gatherer',glm:'Planner',astra:'Planner / director','plan reviewer':'Plan reviewer',terra:'Builder',sol:'Validator',completion:'Completion owner',orchestrator:'Orchestrator',resolver:'Resolver'})[key]||human(name);
 }
 function planReady(run) { return !jointPlanning(run) || (run.status==='AWAITING_GOAL_APPROVAL' && run.goal?.origin==='astra_finalize'); }
 function stageName(run) {
   const stage=(run.stage||'').replace(/_report_repair$/,'');
   if(stage==='orchestrator')return 'Orchestrator · Coordinating Builders';
   if(stage==='resolver')return 'Resolver · Runner decision (no model call)';
+  if(stage==='astra_resolve')return 'Resolver · Diagnosing a failure';
+  if(stage==='requirements_gather')return 'Requirements Gatherer · Gathering requirements';
+  if(stage==='astra_plan')return 'Planner · Assigning implementation';
   const mode=run.monitor?.workflow_mode,glmFirst=['glm_first_v1','glm_final_audit_v2'].includes(mode);
   if(glmFirst&&/terra/.test(stage))return 'Builder · Implementing';
   if(glmFirst&&/sol/.test(stage))return 'Validator · Targeted review';
   if(glmFirst&&stage==='astra_checkpoint')return mode==='glm_final_audit_v2'?'Completion owner · Final audit':'Completion owner · Milestone review';
   if(jointPlanning(run)) {
-    const labels={astra_discovery:'Requirements planner · Planning',astra_challenge:'Plan reviewer · Challenging the plan',glm_revise:'Requirements planner · Revising the plan',astra_finalize:'Plan reviewer · Finalizing the plan'};
+    const labels={astra_discovery:'Planner · Planning',astra_challenge:'Plan reviewer · Challenging the plan',glm_revise:'Planner · Revising the plan',astra_finalize:'Plan reviewer · Finalizing the plan'};
     if(labels[stage])return labels[stage];
   }
-  return /astra_discovery/.test(stage)?'Plan reviewer · Planning':stage==='astra_review'?'Completion owner · Deciding complete or rework':stage==='astra_checkpoint'?'Completion owner · Auditing results':/astra/.test(stage)?'Plan reviewer · Direction':/terra/.test(stage)?'Builder · Implementing':/sol/.test(stage)?'Validator · Reviewing':stage==='unavailable'?'Step unavailable':human(stage)||'Not started';
+  return /astra_discovery/.test(stage)?'Planner · Requirements & planning':stage==='astra_review'?'Completion owner · Deciding complete or rework':stage==='astra_checkpoint'?'Completion owner · Auditing results':/astra/.test(stage)?'Planner · Direction':/terra/.test(stage)?'Builder · Implementing':/sol/.test(stage)?'Validator · Reviewing':stage==='unavailable'?'Step unavailable':human(stage)||'Not started';
 }
 function statusAge(value) {
   const at=Date.parse(value);if(!Number.isFinite(at))return 'Not recorded';
@@ -537,7 +540,7 @@ function hasOrchestration(run) {
   return run.monitor?.orchestration?.enabled===true||run.stage==='orchestrator'||run.active_stage?.stage==='orchestrator'||run.monitor?.next_stage==='orchestrator'||!!run.monitor?.orchestration_batch||!!run.monitor?.orchestration_history?.length||(run.stages||[]).some(stage=>stage.stage==='orchestrator');
 }
 function stageSucceeded(stage) {
-  return !stage.rejected&&!stage.interrupted&&!stage.timed_out&&(stage.exit_code===0||(stage.stage==='orchestrator'&&stage.runner_owned===true&&stage.exit_code==null&&!!stage.finished_at));
+  return !stage.rejected&&!stage.abandoned&&!stage.interrupted&&!stage.timed_out&&(stage.exit_code===0||(stage.stage==='orchestrator'&&stage.runner_owned===true&&stage.exit_code==null&&!!stage.finished_at));
 }
 function taskOverviewState(run) {
   const info=statusInfo(run),live=run.monitor?.live||{},active=run.active_stage||{};
@@ -551,9 +554,18 @@ function taskOverviewState(run) {
     objective:run.monitor?.objective||run.astra_plan?.current_assignment?.objective||'No current objective has been recorded.'};
 }
 function workflowConfig(run, state) {
-  const mode=run.monitor?.workflow_mode,finalOnly=mode==='glm_final_audit_v2',glmFirst=finalOnly||mode==='glm_first_v1';
-  return glmFirst?[['terra','Builder','Plan & implement'],['sol','Validator','Targeted escalation only'],['astra','Plan reviewer',finalOnly?'Final full-task audit only':'Milestone review']]:
-    [...(jointPlanning(run)?[['glm','Requirements planner','Draft & revise']]:[['astra','Requirements planner','Draft plan']]),['astra','Plan reviewer',jointPlanning(run)?'Challenge & finalize':'Review & direct'],...(hasOrchestration(run)?[['orchestrator','Orchestrator','After approval · Coordinate Builders']]:[]),['terra','Builder','Implement'],['sol','Validator','Review'],['completion','Completion owner','Complete / rework']];
+  const mode=run.monitor?.workflow_mode,finalOnly=mode==='glm_final_audit_v2',glmFirst=finalOnly||mode==='glm_first_v1',joint=jointPlanning(run),roles={...run.model_settings?.roles,...run.monitor?.roles};
+  const hasRequirements=!!roles.requirements||(run.stages||[]).some(step=>step.stage==='requirements_gather');
+  return [
+    ['requirements','Requirements Gatherer','Gather requirements before planning',['requirements_gather'],hasRequirements?'':joint?'No separate requirements step recorded':glmFirst?'Handled by Builder':'Combined with discovery; no separate session'],
+    [joint?'glm':'astra','Planner',joint?'Draft & revise':'Requirements, plan & implementation direction',joint?['astra_discovery','glm_revise']:['astra_discovery','astra_plan'],glmFirst?'Handled by Builder':''],
+    [roles.plan_reviewer?'plan_reviewer':'astra','Plan reviewer','Independent challenge & finalization',['astra_challenge','astra_finalize'],joint?'':'Not enabled for this run'],
+    ['orchestrator','Orchestrator','Schedule Builders after approval',['orchestrator'],hasOrchestration(run)?'':'Not enabled for this run'],
+    ['terra','Builder',glmFirst?'Plan & implement':'Implement the approved assignment',['terra'],''],
+    ['sol','Validator',glmFirst?'Targeted review when needed':'Review implementation & evidence',['sol'],''],
+    [roles.completion?'completion':'astra','Completion owner',finalOnly?'Final full-task audit':'Accept completion or request rework',['astra_review','astra_checkpoint'],''],
+    ['resolver','Resolver','Diagnose failures when needed',['astra_resolve','resolver'],'']
+  ];
 }
 function completedPlanningStep(run, role) {
   const planningStages=role==='glm'?new Set(['astra_discovery','glm_revise']):new Set(['astra_discovery','astra_challenge','astra_finalize']);
@@ -564,20 +576,36 @@ function completedPlanningStep(run, role) {
   });
 }
 function workflowCards(run, state) {
-  const config=workflowConfig(run,state);
   const host=card('','workflow-cards');host.setAttribute('aria-label','Agent workflow');
-  for(const [role,name,duty]of config){const selected=state.active&&state.role===role,item=card('','workflow-card'+(selected&&state.verified?' active':''));
-    item.append(Object.assign(n('p',duty),{className:'monitor-kicker'}),n('h3',name));
-    const saved=run.monitor?.roles?.[role]||{},model=saved.model||run.model_settings?.roles?.[role];
-    item.append(Object.assign(n('p',role==='orchestrator'?'Runner-owned · No model session':model||'Model not recorded'),{className:'workflow-model'}));
-    if(saved.reasoning_effort)item.append(Object.assign(n('p',saved.reasoning_effort+' reasoning'),{className:'workflow-model'}));
-    if(role==='glm'||role==='astra'){
-      const completed=completedPlanningStep(run,role);
-      const label=completed?'Planning step completed · '+new Date(completed.finished_at).toLocaleString():'No completed planning step recorded';
-      item.append(Object.assign(n('p',label),{className:'workflow-history'+(completed?' completed':'')}));
+  const active=run.active_stage||{},history=run.monitor?.stage_history||run.stages||[];
+  for(const [role,name,duty,stages,unavailable]of workflowConfig(run,state)){
+    const matches=step=>stages.includes(String(step?.stage||'').replace(/_report_repair$/,''));
+    const selected=run.status==='RUNNING'&&!unavailable&&matches(active)&&!active.finished_at&&active.exit_code==null;
+    const live=selected&&state.verified,item=card('','workflow-card'+(live?' active':''));
+    item.append(n('h3',name),Object.assign(n('p',duty),{className:'monitor-caption'}));
+    const inherited=role==='resolver'&&!run.monitor?.roles?.resolver&&!run.model_settings?.roles?.resolver;
+    const route=inherited?'astra':role,saved=run.monitor?.roles?.[route]||{};
+    const configured={model:saved.model||run.model_settings?.roles?.[route],reasoning_effort:saved.reasoning_effort||run.model_settings?.role_efforts?.[route]};
+    const last=history.findLast(matches),execution=selected?run.monitor?.active_execution:last?.execution;
+    if(unavailable)item.append(Object.assign(n('p',unavailable),{className:'workflow-model'}));
+    else {
+      item.append(Object.assign(n('p',role==='orchestrator'?'Runner · No model call':'Configured: '+executionLabel(configured)+(inherited?' · inherited from Planner / director':'')),{className:'workflow-model'}));
+      if(selected||last)item.append(Object.assign(n('p',(selected?'Launch: ':'Last launch: ')+executionLabel(execution)),{className:'workflow-model'}));
+      const status=selected?(live?'Active now':'Last reported active · worker unverified'):last?(stageSucceeded(last)?'Step finished':last.rejected?'Output rejected':last.interrupted?'Interrupted':last.timed_out?'Timed out':'Attempt recorded')+(last.finished_at?' · '+new Date(last.finished_at).toLocaleString():''):role==='resolver'?'Conditional · not used yet':'Not started';
+      item.append(Object.assign(n('p',status),{className:'workflow-history'+(live?' workflow-active':'')}));
     }
-    if(selected)item.append(Object.assign(n('span',state.verified?'Active now':'Last reported active'),{className:'workflow-active'}));host.append(item);
+    host.append(item);
   }return host;
+}
+function executionLabel(execution) {
+  if(execution?.kind==='runner')return 'Runner · No model call';
+  return [execution?.model||'Model not recorded',execution?.reasoning_effort?execution.reasoning_effort+' reasoning':null,execution?.engine].filter(Boolean).join(' · ');
+}
+function workflowModelsPanel(run) {
+  const host=card('','workflow-models-panel monitor-panel');
+  host.append(n('h2','Stages & models'),n('p','Requirements → planning → independent plan review → approval → orchestration → build → validation → completion. Resolver runs when needed.'));
+  if(!jointPlanning(run)&&!['glm_first_v1','glm_final_audit_v2'].includes(run.monitor?.workflow_mode))host.append(Object.assign(n('p','This run combines requirements and discovery, and has no independent plan-review stage.'),{className:'workflow-gap'}));
+  host.append(workflowCards(run,taskOverviewState(run)));return host;
 }
 function orchestrationPanel(batch, historical=false) {
   const host=card('','monitor-activity');
@@ -674,7 +702,7 @@ function metricPanel(metric){
 }
 function renderTaskOverview(run) {
   const host=$('#task-overview');host.replaceChildren(n('h2','Recent saved steps'),n('p','Stage exits are not task-completion verdicts. Full evidence remains in Checks.'));
-  for(const step of run.monitor?.history||[]){const row=card('','monitor-event');row.append(n('span',stageName({...run,stage:step.stage})+' · iteration '+(step.iteration??'?')),n('small',(step.rejected?'Rejected':step.interrupted?'Interrupted':step.timed_out?'Timed out':stageSucceeded(step)?'Finished':'Recorded')+' · '+(step.finished_at||'Time not recorded')));host.append(row);}
+  for(const step of run.monitor?.history||[]){const row=card('','monitor-event');row.append(n('span',stageName({...run,stage:step.stage})+' · iteration '+(step.iteration??'?')),n('span',executionLabel(step.execution)),n('small',(step.rejected?'Rejected':step.interrupted?'Interrupted':step.timed_out?'Timed out':stageSucceeded(step)?'Finished':'Recorded')+' · '+(step.finished_at||'Time not recorded')));host.append(row);}
   if(run.interventions)host.append(disclosure('Saved controls & delivery history','runtime-controls',[renderDocument(run.interventions)],run.run));host.hidden=currentTab!=='overview';
 }
 function markMonitorStale(){document.querySelectorAll('.monitor-panel').forEach(panel=>{
@@ -1114,7 +1142,7 @@ function renderAstraPlan(run) {
   const data=run.astra_plan||{},rail=$('#goal'),full=$('#plan-full');rail.replaceChildren();full.replaceChildren();
   const heading=card('','rail-heading');heading.append(n('h2','The plan'),icon('plan'));rail.append(heading);
   rail.append(Object.assign(n('p','CURRENT ASSIGNMENT'),{className:'rail-kicker'}));
-  rail.append(Object.assign(n('p',data.current_assignment?.objective||(jointPlanning(run)?'The requirements planner and plan reviewer are shaping the plan.':'The plan reviewer is shaping the next step.')),{className:'assignment-summary'}));
+  rail.append(Object.assign(n('p',data.current_assignment?.objective||(jointPlanning(run)?'The Planner and independent Plan Reviewer are shaping the plan.':'The Planner is shaping the next step.')),{className:'assignment-summary'}));
   const initialLabel=data.initial_plan_approval==='approved'?'Initial approved plan (recorded)':data.initial_plan_approval==='historically approved/inactive'?'Initial historically approved plan (inactive)':'Initial plan (approval unavailable)';
   rail.append(Object.assign(n('p',data.current_plan?.length?'CURRENT PLAN':'INITIAL PLAN'),{className:'rail-kicker'}),planList(data.current_plan?.length?data.current_plan:data.initial_plan));
   rail.append(Object.assign(n('p','Current plan approval status: '+(data.current_plan_approval||'unavailable')),{className:'rail-status'}));
@@ -1165,7 +1193,7 @@ function renderConversation(run) {
   const root=$('#conversation'),signature=JSON.stringify([run.run,run.progress_messages,run.draft_messages,run.planning_messages,run.discovery_summary,run.answers,run.questions,run.chat_messages,run.user_request,run.status,run.goal?.approval_status,taskChatPending.has(run.run)]);
   $('#conversation-heading').textContent='Conversation';
   $('#conversation-avatar').textContent=planningSpeaker(run).slice(0,1);
-  $('#conversation-description').textContent=jointPlanning(run)?'The requirements planner drafts and revises. The plan reviewer challenges and finalizes. Your direction stays in the conversation.':'Shape the work, then let your team build.';
+  $('#conversation-description').textContent=jointPlanning(run)?'The Requirements Gatherer captures the scope. The Planner drafts and revises. The independent Plan Reviewer challenges and finalizes.':'Shape the work, then let your team build.';
   if(root.dataset.rendered===signature)return;const scroll=$('#interview');scrollThreadToEnd=scrollThreadToEnd||scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90;root.dataset.rendered=signature;root.replaceChildren();
   const context=card('','conversation-context');context.append(n('strong','Conversation history'),n('p','Earlier drafts and requests remain here as history. Now shows what currently needs your decision.'),button('See current state →',()=>activateTab('now'),'text-button'));root.append(context);
   renderMessageHistory(root,taskMessages(run),run.run);
@@ -1315,7 +1343,7 @@ function taskSentence(run,busy=false){
   const info=statusInfo(run),stage=(run.active_stage?.stage||run.monitor?.next_stage||run.stage||'').replace(/_report_repair$/,''),role=stageName({...run,stage}).split(' · ')[0];
   if(busy&&info.group!=='running')return 'Processing your last action…';
   if(info.group==='running'){
-    const phrases={astra_discovery:'drafting the plan',astra_challenge:'reviewing the draft plan',glm_revise:'revising the plan',astra_finalize:'finalizing the plan',orchestrator:'coordinating independent Builders',terra:'implementing the current step',sol:'verifying the changes',astra_checkpoint:'auditing the completed work',astra_review:'reviewing the latest results',astra:'assigning the next step'};
+    const phrases={requirements_gather:'gathering requirements',astra_resolve:'diagnosing the failure',astra_discovery:'drafting the plan',astra_challenge:'reviewing the draft plan',glm_revise:'revising the plan',astra_finalize:'finalizing the plan',orchestrator:'coordinating independent Builders',terra:'implementing the current step',sol:'verifying the changes',astra_checkpoint:'auditing the completed work',astra_review:'reviewing the latest results',astra:'assigning the next step'};
     const sentence=role+' is '+(phrases[stage]||'working on the current step');
     return run.monitor?.live?.state==='alive'?sentence:'Last reported: '+sentence;
   }
@@ -1344,7 +1372,7 @@ function taskPhase(run){
   if(info.group==='complete')return 'complete';
   if(info.label==='Approve plan')return 'approval';
   if(info.label==='Review output'||info.label==='Ready to finish'||/^(sol|astra_review|astra_checkpoint)$/.test(stage))return 'review';
-  if(/^(astra_discovery|astra_challenge|glm_revise|astra_finalize)$/.test(stage)||run.goal?.approval_status!=='approved')return 'planning';
+  if(/^(requirements_gather|astra_discovery|astra_challenge|glm_revise|astra_finalize)$/.test(stage)||run.goal?.approval_status!=='approved')return 'planning';
   if(stage==='orchestrator')return 'orchestration';
   return 'implementation';
 }
@@ -1366,7 +1394,7 @@ function renderTaskNow(run){
   host.append(monitorPanel(run));
   if(decision.required){const decisionCard=card('','decision-card needs-decision');decisionCard.append(Object.assign(n('p','YOUR NEXT ACTION'),{className:'eyebrow'}),n('h2',decision.title),n('p',decision.description),Object.assign(n('p',decision.after),{className:'decision-after'}));host.append(decisionCard);}
   if(statusInfo(run).label==='Answer needed')host.append(answerSafetyPanel((run.questions||[]).length));
-  host.append(path);
+  host.append(path,workflowModelsPanel(run));
   if(assignment)host.append(disclosure('Assignment scope & checks','current-assignment:'+assignment.id,[renderDocument(assignment)],run.run));
   const context=card('','current-context'),plan=card('','');plan.append(n('h3','Current plan'),n('p',run.goal?.revision!=null?'Revision '+run.goal.revision+' · '+(run.goal.approval_status==='approved'?'Approved':decision.action.kind==='plan'?'Ready for review':'Draft'):'No plan revision saved'),button('Read current plan →',()=>activateTab('plan'),'text-button'));context.append(plan);
   const checkpoint=card('',''),latest=[...(run.monitor?.history||[])].sort((a,b)=>Date.parse(b.finished_at)-Date.parse(a.finished_at))[0];checkpoint.append(n('h3','Last saved step'));
@@ -1651,8 +1679,8 @@ function showRun(run,focus){
   const task=String(run.task||'Untitled task');$('#task-title').textContent=taskTitle(run);$('#task-title').title=task;
   $('#task-subtitle').textContent=taskSentence(run,taskActionBusy(run));$('#task-status').replaceChildren(typeof taskStatusBadge==='function'?taskStatusBadge(run):badge(run));
   $('#task-objective').textContent=taskPosition(run);
-  const settings=run.model_settings||{},roles=settings.roles||{},roleNames=jointPlanning(run)?['glm','astra','terra','sol','completion']:['astra','terra','sol','completion'];
-  const models=$('#task-models'),efforts=settings.role_efforts||{};models.replaceChildren();for(const role of roleNames){const item=n('p',''),detail=[roles[role]||'Model not recorded',efforts[role]?efforts[role]+' reasoning':null,settings.role_engines?.[role]||settings.engine||'Saved provider'].filter(Boolean).join(' · ');item.append(n('strong',({glm:'Requirements planning',astra:'Plan review',terra:'Implementation',sol:'Verification',completion:'Completion decision'})[role]),n('span',detail));models.append(item);}
+  const settings=run.model_settings||{},roles=settings.roles||{},roleNames=Object.keys(roles);
+  const models=$('#task-models'),efforts=settings.role_efforts||{};models.replaceChildren();for(const role of roleNames){const item=n('p',''),detail=[roles[role]||'Model not recorded',efforts[role]?efforts[role]+' reasoning':null,settings.role_engines?.[role]||settings.engine||'Saved provider'].filter(Boolean).join(' · ');item.append(n('strong',roleDisplayName(role)),n('span',detail));models.append(item);}
   if(typeof renderTaskModelSettings==='function')renderTaskModelSettings(run);renderTaskReasoning(run);renderConversation(run);renderBrief(run);renderAstraPlan(run);renderExecution(run);renderLiveControls(run);renderTaskNow(run);renderThreadCheckpoint(run);activateTab(currentTab);settleThreadScroll();restoreFocus(focus);
 }
 function renderThreadCheckpoint(run){
