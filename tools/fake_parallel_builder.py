@@ -39,7 +39,9 @@ def report(data):
                  "unverified_criteria": [] if done else ["C3"], "checks": [{"command": "read-outputs", "exit_code": 0, "evidence_ref": "event:check"}],
                  "criterion_results": [{"id": f"C{i}", "status": "PASS" if i < 3 or done else "NOT_VERIFIED",
                                         "evidence_refs": ["event:check"]} for i in (1, 2, 3)],
-                 "end_to_end_result": {"status": "PASS", "summary": "Read all current outputs", "evidence_refs": ["event:check"]}}
+                 "end_to_end_result": {"status": "PASS" if done else "NOT_VERIFIED",
+                                       "summary": "Read combined output" if done else "Inputs pass; combined output is not built yet",
+                                       "evidence_refs": ["event:check"]}}
         if data["current_task"].get("milestone_ids"):
             value["milestone_results"] = [{"milestone_id": mid, "status": "PASS", "summary": "Output executed", "evidence_refs": ["event:check"]}
                                           for mid in data["current_task"]["milestone_ids"]]

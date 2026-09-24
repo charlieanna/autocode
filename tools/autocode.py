@@ -2225,7 +2225,7 @@ def main() -> int:
                         "milestone_id": goals.STRING, "status": {"type": "string", "enum": ["PASS", "FAIL", "NOT_VERIFIED"]},
                         "summary": goals.STRING, "evidence_refs": goals.STRINGS})}
                     schema_value["required"].append("milestone_results")
-                write_json(schema_path, schema_value)
+                write_json(schema_path, support.model_output_schema(schema_value))
                 try:
                     value, record = run_role(role=role, prompt=prompt, sandbox="workspace-write" if role=="terra" else "read-only",
                         workspace=workspace, run_dir=run_dir, state=current,

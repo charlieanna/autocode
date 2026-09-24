@@ -25,13 +25,20 @@ Finish one observable outcome within the approved scope before starting another
 milestone. Each task needs an objective, affected paths, requirements, criterion IDs
 and an executable validation plan. Terra may implement, test and fix within that task.
 Every completed implementation handoff goes to Sol, then Astra. Writer self-reports
-cannot authorize advancement. Sol's verdict and end_to_end_result cover the CURRENT
-milestone's outcome; provide criterion evidence for all of its acceptance criteria.
+cannot authorize advancement. Sol's verdict covers the CURRENT milestone's outcome;
+provide criterion evidence for all of its acceptance criteria. end_to_end_result
+always covers the full approved user flow. For a partial milestone or batch it may
+remain NOT_VERIFIED while later milestones are unfinished; explain what remains.
 Report other, unbuilt criteria as NOT_VERIFIED without treating them as milestone
 defects. Before overall COMPLETE, validate every contract criterion and the complete
 approved flow on the current artifact. Never weaken the full-task completion gate.
 Astra may advance only with current independent evidence for the entire milestone,
-no blocking findings and any required human reviews. After repeated reviews with no
+no blocking findings and any required human reviews. milestone_checkpoint.current_evidence_ready
+is the freshly evaluated evidence gate, not an acceptance decision. The checkpoint's
+blocker and rejected_advances describe historical attempts, not the current gate.
+When current evidence is ready, propose the next eligible milestone; the runner
+accepts the current milestone as part of that transition. Do not wait for it to be
+marked accepted before proposing advancement. After repeated reviews with no
 new passing criteria, inspect milestone_checkpoint and choose an evidence-backed
 REWORK with a materially different approach or a smaller implementation batch within
 the SAME milestone. Do not rename a milestone or drop criteria to reset the budget.
@@ -121,6 +128,14 @@ def evidence_ready(state, current):
     required = set(scope(state)["acceptance_criteria"])
     results = {r["id"]: r for r in val.get("criterion_results", [])}
     flow = val.get("end_to_end_result", {})
+    all_criteria = {c["id"] for c in state["goal_contract"]["body"]["acceptance_criteria"]}
+    partial_scope = required < all_criteria
+    flow_ready = bool(flow.get("status") == "PASS" and flow.get("summary", "").strip()
+                      and flow.get("evidence_refs"))
+    # Partial acceptance unlocks downstream work, not whole-task completion.
+    # A known flow failure still blocks; only unfinished verification may wait.
+    if partial_scope and flow.get("status") == "NOT_VERIFIED" and flow.get("summary", "").strip():
+        flow_ready = True
     members = state.get("current_task", {}).get("milestone_ids", [])
     if members:
         results_by_milestone = {r["milestone_id"]: r for r in val.get("milestone_results", [])}
@@ -141,7 +156,7 @@ def evidence_ready(state, current):
         and (not required.intersection(val.get("unverified_criteria", [])) or human_only_gap)
         and all((results.get(cid, {}).get("status") == "PASS" or
                  (human_only_gap and cid == human_ids[0])) and results[cid].get("evidence_refs") for cid in required)
-        and flow.get("status") == "PASS" and flow.get("summary", "").strip() and flow.get("evidence_refs"))
+        and flow_ready)
 
 
 def approach(task):

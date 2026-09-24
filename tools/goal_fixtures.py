@@ -9,7 +9,7 @@ def body(*, questions=False, human=False):
         "end_to_end_flow": ["Run the CLI with a name", "Read the greeting or an invalid-input error"],
         "technical_approach": ["A standard-library Python CLI using sys.argv"],
         "milestones": [{"id": "M1", "objective": "Deliver and verify the greeting flow",
-                        "acceptance_criteria": ["C1"], "depends_on": []}],
+                        "acceptance_criteria": ["C1"], "depends_on": [], "affected_paths": ["greet.py"]}],
         "deliverables": ["greet.py", "CLI regression tests"],
         "required_behaviors": ["Print Hello, NAME for a nonempty name"],
         "important_failure_cases": ["Reject an empty name with nonzero exit status"],

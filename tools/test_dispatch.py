@@ -57,14 +57,14 @@ class DispatchTests(unittest.TestCase):
     def build(self):
         return d.dispatch(self.state, self.root, self.run)
 
-    def validate(self, *, missing_member=False):
+    def validate(self, *, missing_member=False, flow_status="PASS"):
         evidence = self.run / "checks.jsonl"
         evidence.write_text(json.dumps({"type": "item.completed", "item": {"id": "check", "type": "command_execution",
             "command": "read-both-outputs", "exit_code": 0, "aggregated_output": "M1 M2"}}))
         value = {**envelope(self.state), "verdict": "PASS", "findings": [], "unverified_criteria": ["C3"],
                  "checks_run": ["read-both-outputs"], "checks": [{"command": "read-both-outputs", "exit_code": 0, "evidence_ref": "event:check"}],
                  "criterion_results": [{"id": cid, "status": "PASS", "evidence_refs": ["event:check"]} for cid in ("C1", "C2")],
-                 "end_to_end_result": {"status": "PASS", "summary": "Both outputs work", "evidence_refs": ["event:check"]},
+                 "end_to_end_result": {"status": flow_status, "summary": "Dependent combined output remains to be built" if flow_status == "NOT_VERIFIED" else "Both outputs work", "evidence_refs": ["event:check"]},
                  "milestone_results": [{"milestone_id": mid, "status": "PASS", "summary": "Executed output", "evidence_refs": ["event:check"]}
                                        for mid in (["M1"] if missing_member else ["M1", "M2"])]}
         runner.apply_result(self.state, "sol", value, {"role": "sol", "events": str(evidence), "output": str(evidence),
@@ -117,8 +117,16 @@ class DispatchTests(unittest.TestCase):
             self.advance()
         with self.assertRaisesRegex(ValueError, "every batch milestone"):
             self.validate(missing_member=True)
-        self.validate()
+        self.validate(flow_status="NOT_VERIFIED")
         self.assertEqual(set(), m.accepted_ids(self.state))
+        for failed_part in ("flow", "member", "criterion", "stale"):
+            candidate = copy.deepcopy(self.state)
+            validation = candidate["validation"]
+            if failed_part == "flow": validation["end_to_end_result"]["status"] = "FAIL"
+            if failed_part == "member": validation["milestone_results"][1]["status"] = "NOT_VERIFIED"
+            if failed_part == "criterion": validation["criterion_results"][1]["status"] = "NOT_VERIFIED"
+            if failed_part == "stale": validation["source_revision"] = "stale"
+            self.assertFalse(m.evidence_ready(candidate, s.snapshot(self.root)), failed_part)
         self.advance()
         self.assertEqual({"M1", "M2"}, m.accepted_ids(self.state))
         self.assertEqual("M3", self.state["current_task"]["milestone_id"])
