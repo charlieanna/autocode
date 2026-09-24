@@ -1173,30 +1173,28 @@ def configure(args, state):
     if started:
         if enable_saved_joint:
             saved = state.get("settings", {})
-            if engine != "opencode" or saved_engine != "opencode" or any(
-                    planning.engine_for(saved, role) != "opencode" for role in saved.get("roles", {})):
-                raise ValueError("Start a new OpenCode run to enable joint planning across different session engines")
+            if engine != saved_engine or any(
+                    planning.engine_for(saved, role) != engine for role in saved.get("roles", {})):
+                raise ValueError("Start a new run to enable joint planning across different session engines")
             if any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts")):
                 raise ValueError("Resolve the saved provider attempt before enabling joint planning")
-            if (state.get("version", 1) < 3 or not goals.approved(state)
-                    or state.get("next_stage") not in ("astra_plan", "terra", "sol", "astra_review", "astra_checkpoint")
+            restarting_discovery = engine == "codex" and state.get("next_stage") == "astra_discovery"
+            approved_boundary = goals.approved(state) and state.get("next_stage") in (
+                "astra_plan", "orchestrator", "terra", "sol", "astra_review", "astra_checkpoint")
+            if (state.get("version", 1) < 3 or not (restarting_discovery or approved_boundary)
                     or state.get("status") != "RUNNING" and not str(state.get("status", "")).startswith("PAUSED_")):
                 raise ValueError("Start a new run or reach an approved execution boundary before enabling joint planning")
         joint = saved_joint or enable_saved_joint
     elif engine == "codex":
-        if requested_joint:
-            raise ValueError("--joint-planning uses OpenCode with Codex routes for Astra and Sol; omit --engine codex")
-        joint = False
+        joint = requested_joint
     else:
         joint = True
-    if joint and engine != "opencode":
-        raise ValueError("--joint-planning uses OpenCode with Codex routes for Astra and Sol; omit --engine codex")
     if (getattr(args, "requirements_model", None) or getattr(args, "requirements_reasoning_effort", None)
             or getattr(args, "glm_reasoning_effort", None) or getattr(args, "plan_reviewer_model", None)
             or getattr(args, "plan_reviewer_reasoning_effort", None)) and not joint:
-        raise ValueError("Planner role overrides require OpenCode joint planning")
+        raise ValueError("Planner role overrides require --joint-planning")
     if getattr(args, "glm_model", None) and not joint:
-        raise ValueError("--glm-model requires joint planning; omit --engine codex")
+        raise ValueError("--glm-model requires --joint-planning")
     if started and engine != saved_engine:
         raise ValueError("Start a new run to change engines; Codex and OpenCode session IDs are not interchangeable")
     if engine == "opencode" and any(getattr(args, f"{r}_provider", None) for r in DEFAULT_ROLE_MODELS):
@@ -1247,7 +1245,7 @@ def configure(args, state):
             selected = getattr(args, flag, None)
             if selected is not None:
                 settings.setdefault("limits", {})[name] = selected
-        if enable_saved_joint:
+        if enable_saved_joint and engine == "opencode":
             settings["joint_planning"] = True
             settings["roles"]["requirements"] = {"engine": "opencode", "provider": None,
                 "model": getattr(args, "requirements_model", None) or opencode.DEFAULT_MODELS.get("requirements", opencode.DEFAULT_MODELS["glm"]),
@@ -1371,6 +1369,9 @@ def _provider_model(role, requested):
 
 
 def configure_joint(settings, args, *, fresh):
+    if settings.get("engine") == "codex":
+        configure_codex_joint(settings, args)
+        return
     if fresh:
         settings["joint_planning"] = True
         settings["roles"]["requirements"] = {"engine": "opencode", "provider": None,
@@ -1418,7 +1419,7 @@ def configure_joint(settings, args, *, fresh):
     for role, config in settings["roles"].items():
         if planning.engine_for(settings, role) == "codex":
             if "/" in config["model"]:
-                raise ValueError(f"Joint planning {role.title()} uses a Codex model name, e.g. {DEFAULT_ROLE_MODELS[role]}")
+                raise ValueError(f"Joint planning {role.title()} uses a bare Codex model name, e.g. gpt-5.6-sol")
         elif builtin_opencode:
             # Preserve OpenCode's catalogue identifier, not a Codex alias or a
             # provider whitelist. check_models verifies actual availability.
@@ -1427,6 +1428,34 @@ def configure_joint(settings, args, *, fresh):
                                  "saved session engines cannot be switched on resume")
         elif not isinstance(config.get("model"), str) or not config["model"].strip() or any(char.isspace() for char in config["model"]):
             raise ValueError(f"{role.title()} requires a model name from the provider config")
+
+
+def configure_codex_joint(settings, args):
+    """Independent planning sessions through the existing native Codex login."""
+    check_subscription(settings["transport_identity"])
+    roles = settings["roles"]
+    for role in ("requirements", "glm", "plan_reviewer"):
+        roles.setdefault(role, copy.deepcopy(roles["astra"]))
+        if planning.engine_for(settings, role) != "codex":
+            raise ValueError("Native Codex joint planning cannot switch a saved role's engine")
+        route = roles[role]
+        route["engine"] = "codex"
+        model = getattr(args, f"{role}_model", None)
+        effort = getattr(args, f"{role}_reasoning_effort", None)
+        if model:
+            route["model"] = model
+        if effort:
+            route["reasoning_effort"] = effort
+    roles["plan_reviewer"]["model_pinned"] = True
+    for role, route in roles.items():
+        if planning.engine_for(settings, role) != "codex":
+            raise ValueError("Native Codex joint planning cannot switch a saved role's engine")
+        if not re.fullmatch(r"gpt-[a-zA-Z0-9.-]+", route.get("model") or ""):
+            raise ValueError(f"{role.title()} requires a bare GPT Codex model name")
+        if route.get("provider") not in (None, "openai"):
+            raise ValueError("Native Codex joint planning uses the OpenAI ChatGPT route")
+    settings["joint_planning"] = True
+    settings.setdefault("transport_identities", {}).setdefault("codex", settings["transport_identity"])
 
 
 def migrate_opencode_roles(state, run_dir, workspace):
@@ -1488,13 +1517,16 @@ def check_joint_transports(state, workspace):
         codex = support.local_settings()
         check_subscription(codex)
         codex_changed = support.transport_drift(codex, identities["codex"], roles)
-    try:
-        opencode.check_subscription_routes({role: config for role, config in state["settings"]["roles"].items()
-                                           if planning.engine_for(state["settings"], role) == "opencode"}, workspace)
-    except RuntimeError as error:
-        raise support.Paused("PAUSED_BILLING_ROUTE", str(error)) from error
-    if (codex_changed
-            or opencode.transport_drift(opencode.local_settings(workspace), identities["opencode"])):
+    opencode_roles = {role: config for role, config in state["settings"]["roles"].items()
+                      if planning.engine_for(state["settings"], role) == "opencode"}
+    opencode_changed = False
+    if opencode_roles:
+        try:
+            opencode.check_subscription_routes(opencode_roles, workspace)
+        except RuntimeError as error:
+            raise support.Paused("PAUSED_BILLING_ROUTE", str(error)) from error
+        opencode_changed = opencode.transport_drift(opencode.local_settings(workspace), identities["opencode"])
+    if codex_changed or opencode_changed:
         raise support.Paused("PAUSED_TRANSPORT_CHANGED", "A joint-planning CLI/auth/provider configuration changed")
 
 
@@ -1767,20 +1799,20 @@ def main(unit=None) -> int:
     parser.add_argument("--ui-run", type=Path, help="Accepted autocode-ui run to implement")
     parser.add_argument("--figma-review", choices=["automatic", "human"], help="Visual review policy for new Figma runs (default: automatic)")
     parser.add_argument("--engine", choices=["codex", "opencode"],
-                        help="New-run default is OpenCode joint planning; --engine codex is the single-CLI loop. Resumes keep the saved engine")
+                        help="New-run default is OpenCode joint planning; Codex supports optional --joint-planning. Resumes keep the saved engine")
     parser.add_argument("--provider", default=None,
                         help="Tool that runs each role for a new run. Default: AUTOCODE_PROVIDER, then default_provider in "
                              "~/.config/autocode/config.toml, then opencode. Other names load ~/.config/autocode/providers/<name>.toml")
     parser.add_argument("--joint-planning", action="store_true",
-                        help="Default for new OpenCode runs; add three-role planning to an approved saved OpenCode run at a clean execution boundary")
-    parser.add_argument("--glm-model", help="Planning-role OpenCode provider/model (default: zai-coding-plan/glm-5.3)")
-    parser.add_argument("--requirements-model", help="Independent requirements-gatherer OpenCode provider/model")
+                        help="Separate requirements, planning, and independent review; default for new OpenCode runs, opt-in for Codex at a clean boundary")
+    parser.add_argument("--glm-model", help="Planner model: OpenCode provider/model or native Codex GPT name")
+    parser.add_argument("--requirements-model", help="Independent requirements-gatherer model for the saved engine")
     parser.add_argument("--requirements-reasoning-effort", choices=["low", "medium", "high", "xhigh", "max"],
                         help="Override independent requirements-gatherer reasoning effort")
     parser.add_argument("--glm-reasoning-effort", choices=["low", "medium", "high", "xhigh", "max"],
-                        help="Override OpenCode planner draft and revision reasoning effort")
+                        help="Override planner draft and revision reasoning effort")
     parser.add_argument("--plan-reviewer-model",
-                        help="Override the independent OpenCode plan-reviewer model")
+                        help="Override the independent plan-reviewer model for the saved engine")
     parser.add_argument("--plan-reviewer-reasoning-effort", choices=["low", "medium", "high", "xhigh", "max"],
                         help="Override independent plan-reviewer reasoning effort")
     parser.add_argument("--max-iterations", type=int, help="Total iteration ceiling (new-run default: 15; resumes keep saved limits)")
@@ -2017,15 +2049,23 @@ def main(unit=None) -> int:
             raise support.Paused("PAUSED_REGISTRY", message) from error
         if state.get("settings") and settings != state["settings"]:
             previous_settings = state["settings"]
-            if settings.get("joint_planning") and not previous_settings.get("joint_planning"):
+            enabling_joint = settings.get("joint_planning") and not previous_settings.get("joint_planning")
+            if enabling_joint:
                 backup = run_dir / f"state.pre-joint-planning-{uuid.uuid4().hex[:8]}.json"
                 write_json(backup, state)
                 state.setdefault("planning_migrations", []).append({"at": now(), "backup": str(backup),
                     "goal_token": goals.token(state["goal_contract"]), "next_stage": state.get("next_stage"),
-                    "reason": "Explicitly added GLM for future planning; existing approved work and sessions retained"})
+                    "reason": "Explicitly enabled independent planning; existing work and sessions retained"})
             state.setdefault("configuration_changes", []).append({"at":now(),"previous":state["settings"],"selected":settings,
                 "reason":"Explicit launch arguments at a saved stage boundary"})
             state["settings"] = settings
+            if enabling_joint and settings.get("engine") == "codex":
+                state["goal_contract"].update(approval_status="draft", approval_event=None)
+                goals.invalidate(state, "Independent requirements and plan review requested before further execution")
+                state.update(status="RUNNING", phase="DISCOVERING", next_stage="requirements_gather",
+                             pending_questions=[])
+                state.pop("stop_reason", None)
+                state.pop("paused_at", None)
             write_json(state_path, state)
         state["settings"] = settings
         state["intervention_capability"] = {"supported": True, "version": interventions.INBOX_VERSION}

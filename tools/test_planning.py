@@ -276,8 +276,11 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual("codex", settings["engine"])
         self.assertNotIn("glm", settings["roles"])
         self.assertEqual("astra", planning.role_for({"settings": settings}, "astra_discovery"))
-        with self.assertRaisesRegex(ValueError, "omit --engine codex"):
-            runner.configure(self.configure_args(engine="codex", joint_planning=True), state)
+        with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}):
+            joint = runner.configure(self.configure_args(engine="codex", joint_planning=True), state)
+        self.assertTrue(joint['joint_planning'])
+        self.assertEqual({'codex'}, {planning.engine_for(joint, role) for role in joint['roles']})
+        self.assertEqual('requirements', planning.role_for({'settings': joint}, 'requirements_gather'))
         saved = {"settings": {"engine": "opencode", "joint_planning": False, "roles": {
             "astra": {"model": "openai/gpt-6-astra"}, "terra": {"model": "openai/gpt-5.6-terra"},
             "sol": {"model": "zai-coding-plan/glm-5.3"}}}, "sessions": {"astra": "saved"}}
@@ -286,6 +289,40 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual("openai/gpt-5.6-terra", kept["roles"]["terra"]["model"])
         with self.assertRaisesRegex(ValueError, "Start a new run"):
             runner.configure(self.configure_args(joint_planning=True), saved)
+
+    def test_native_joint_routes_preserve_saved_models_and_check_only_codex_transport(self):
+        with patch.object(support, 'local_settings', return_value={'auth_mode': 'ChatGPT'}):
+            settings = runner.configure(self.configure_args(engine='codex', joint_planning=True,
+                requirements_model='gpt-5.6-sol', glm_model='gpt-5.6-sol',
+                plan_reviewer_model='gpt-6-astra', plan_reviewer_reasoning_effort='high'),
+                {'workspace': '/tmp/fixture', 'iteration': 0})
+        self.assertEqual('gpt-6-astra', settings['roles']['plan_reviewer']['model'])
+        self.assertTrue(settings['roles']['plan_reviewer']['model_pinned'])
+        saved = copy.deepcopy(settings)
+        runner.configure_joint(settings, self.configure_args(), fresh=False)
+        self.assertEqual(saved, settings)
+        with patch.object(support, 'local_settings', return_value={'auth_mode': 'ChatGPT'}), \
+             patch.object(oc, 'local_settings', side_effect=AssertionError('No OpenCode transport')), \
+             patch.object(oc, 'check_subscription_routes', side_effect=AssertionError('No OpenCode auth')):
+            runner.check_joint_transports({'settings': settings}, Path('/tmp/fixture'))
+        for override in ({'plan_reviewer_model': 'openai/gpt-6-astra'}, {'requirements_model': 'external-model'}):
+            with self.assertRaisesRegex(ValueError, 'bare GPT'):
+                runner.configure_joint(copy.deepcopy(settings), self.configure_args(**override), fresh=False)
+
+    def test_enable_native_joint_requires_a_clean_boundary_and_preserves_limits(self):
+        with patch.object(support, 'local_settings', return_value={'auth_mode': 'ChatGPT'}):
+            settings = runner.configure(self.configure_args(engine='codex', unlimited_iterations=True,
+                max_seconds=0, max_reported_tokens=0), {'workspace': '/tmp/fixture', 'iteration': 1})
+        state = {'version': 3, 'workspace': '/tmp/fixture', 'settings': settings,
+                 'status': 'PAUSED_INTERVENTION', 'next_stage': 'astra_discovery', 'sessions': {'terra': 'retained'}}
+        before = copy.deepcopy(state)
+        selected = runner.configure(self.configure_args(joint_planning=True), state)
+        self.assertEqual(before, state)
+        self.assertTrue(selected['joint_planning'])
+        self.assertEqual(settings['limits'], selected['limits'])
+        for field in ('active_stage', 'pending_report_repair', 'uncertain_artifacts'):
+            with self.assertRaisesRegex(ValueError, 'Resolve the saved provider attempt'):
+                runner.configure(self.configure_args(joint_planning=True), {**state, field: {'pending': True}})
 
     def test_new_openai_terra_keeps_opencode_and_existing_discovery_routes(self):
         for effort in (None, "high"):
@@ -546,6 +583,77 @@ class JointFlow(unittest.TestCase):
         self.assertEqual(paused["active_stage"], still["active_stage"])
         self.assertEqual(1, still["planning"]["astra_calls"])
         self.assertFalse((self.project / "greet.py").exists())
+
+
+class NativeJointFlow(unittest.TestCase):
+    setUp = test_subprocess.SubprocessFlow.setUp
+    launch = test_subprocess.SubprocessFlow.launch
+    saved = test_subprocess.SubprocessFlow.saved
+    new_run_engine_args = ('--engine', 'codex', '--joint-planning',
+                          '--plan-reviewer-model', 'gpt-6-astra', '--plan-reviewer-reasoning-effort', 'high')
+    draft = JointFlow.draft
+
+    def prepare(self, mode='no-human'):
+        JointFlow.prepare(self, mode)
+        (self.root / 'fixture-bin/opencode').write_text('#!/bin/sh\necho Unexpected OpenCode launch >&2\nexit 99\n')
+
+    def test_native_codex_review_precedes_approval_and_uses_separate_sessions(self):
+        run, state = self.draft()
+        self.assertEqual('AWAITING_GOAL_APPROVAL', state['status'])
+        self.assertEqual(['requirements_gather', 'astra_discovery', 'astra_discovery',
+                          'astra_challenge', 'glm_revise', 'astra_finalize'],
+                         [record['stage'] for record in state['stages']])
+        self.assertEqual({'codex'}, {record['engine'] for record in state['stages']})
+        self.assertEqual(3, len({state['sessions'][role] for role in ('requirements', 'glm', 'plan_reviewer')}))
+        for record in state['stages']:
+            self.assertIsNone(record['expected_session'])
+            self.assertEqual('read-only', record['command'][record['command'].index('--sandbox') + 1])
+            self.assertEqual([], record['changed_files'])
+            if record['stage'] in ('astra_challenge', 'astra_finalize'):
+                self.assertEqual('plan_reviewer', record['route_role'])
+                self.assertEqual('gpt-6-astra', record['command'][record['command'].index('--model') + 1])
+        self.assertFalse((self.project / 'greet.py').exists())
+        self.launch(['--run-dir', str(run), '--approve-goal', state['displayed_goal']], 0)
+        self.launch(['--run-dir', str(run), '--no-chat'], 0)
+        final = self.saved()[1]
+        self.assertEqual('TASK_COMPLETE', final['status'])
+        self.assertEqual(['orchestrator', 'terra', 'sol', 'astra_review'],
+                         [record['stage'] for record in final['stages'][6:]])
+        self.assertEqual(3, len({final['sessions'][role] for role in ('plan_reviewer', 'sol', 'completion')}))
+
+    def test_saved_codex_work_reenters_requirements_before_independent_review(self):
+        self.prepare()
+        self.launch(['Build a greeting tool', '--engine', 'codex', '--no-chat', '--unlimited-iterations',
+                     '--max-seconds', '0', '--max-reported-tokens', '0',
+                     '--figma-file', 'https://www.figma.com/design/FakeNativePlanning'], 2)
+        run, _ = self.saved()
+        base = ['--run-dir', str(run)]
+        self.launch([*base, '--answer', 'Q1=CLI'], 0)
+        self.launch([*base, '--no-chat'], 2)
+        state = self.saved()[1]
+        self.launch([*base, '--approve-goal', state['displayed_goal']], 0)
+        self.launch([*base, '--no-chat', '--pause-after-stage'], 2)
+        self.launch([*base, '--no-chat', '--resume-paused', '--pause-after-stage'], 2)
+        before = self.saved()[1]
+        built = (self.project / 'greet.py').read_bytes()
+        self.launch([*base, '--joint-planning', '--plan-reviewer-model', 'gpt-6-astra',
+                     '--resume-paused', '--no-chat', '--pause-after-stage'], 2)
+        migrated = self.saved()[1]
+        self.assertEqual('requirements_gather', migrated['stages'][-1]['stage'])
+        self.assertEqual(before['stages'], migrated['stages'][:-1])
+        self.assertEqual(before['settings']['limits'], migrated['settings']['limits'])
+        self.assertEqual(before['settings']['figma_file'], migrated['settings']['figma_file'])
+        self.assertEqual(before['sessions']['terra'], migrated['sessions']['terra'])
+        self.assertEqual(built, (self.project / 'greet.py').read_bytes())
+        self.assertEqual('draft', migrated['goal_contract']['approval_status'])
+        backup = json.loads(Path(migrated['planning_migrations'][-1]['backup']).read_text())
+        self.assertEqual(before['stages'], backup['stages'])
+        self.launch([*base, '--resume-paused', '--no-chat'], 2)
+        reviewed = self.saved()[1]
+        self.assertEqual('AWAITING_GOAL_APPROVAL', reviewed['status'])
+        self.assertEqual('astra_finalize', reviewed['stages'][-1]['stage'])
+        self.assertEqual('plan_reviewer', reviewed['stages'][-1]['route_role'])
+        self.assertEqual(built, (self.project / 'greet.py').read_bytes())
 
 
 if __name__ == "__main__":

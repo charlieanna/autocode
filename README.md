@@ -143,8 +143,15 @@ python3 -m venv .venv
 New runs use joint Requirements Planner/Plan Reviewer work by default. An approved
 three-role OpenCode run can add GLM planning at a clean execution boundary with
 `--joint-planning --resume-paused`. Its approved work and existing sessions remain;
-GLM joins the next brief revision. `--engine codex` is the explicit single-CLI
-loop; it does not use joint planning.
+GLM joins the next brief revision. Native Codex, including Figma runs, supports
+`--engine codex --joint-planning`: requirements gathering, planning, and plan review
+run in separate read-only Codex sessions using the existing ChatGPT login.
+The three routes inherit the saved planning model unless explicitly selected with
+`--requirements-model`, `--glm-model`, and `--plan-reviewer-model` (bare GPT names).
+Adding joint planning to a saved Codex run at a clean execution or discovery boundary
+backs up the checkpoint, retains the work and existing sessions, and restarts at
+requirements gathering. The reviewed plan needs fresh approval before further
+implementation. Saved runs retain their engine and limits.
 
 | Role | CLI and billing route | Automatic escalation ladder |
 | --- | --- | --- |
