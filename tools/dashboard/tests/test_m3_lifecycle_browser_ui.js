@@ -63,7 +63,7 @@ function freshBrowserSession(label) {
   // fixture route is isolated, so rotate the browser before the separate
   // mutation families and audit the outgoing session first.
   auditBrowserSession('before-' + label);
-  try { browser('close', '--all'); } catch {}
+  try { browser('close'); } catch {}
   session = 'dashboard-m3-lifecycles-' + process.pid + '-' + label;
 }
 
@@ -584,6 +584,6 @@ function creationCatalogueEvidence(snapshot) {
     console.log('M3 model, stale-state, and dialog lifecycle browser checks passed. Manifest: ' + path.relative(root, manifestPath));
   } finally {
     if (server && !server.killed) server.kill('SIGINT');
-    try { browser('close', '--all'); } catch {}
+    try { browser('close'); } catch {}
   }
 })().catch(error => { console.error(error.stack || error); process.exitCode = 1; });

@@ -90,7 +90,7 @@ function freshBrowserSession(label) {
   // state, so give it a fresh browser session rather than allowing bridge
   // contention to masquerade as a dashboard-routing failure.
   auditBrowserSession('before-' + label);
-  try { browser('close', '--all'); } catch {}
+  try { browser('close'); } catch {}
   session = 'dashboard-shell-a11y-' + process.pid + '-' + label;
 }
 
@@ -928,6 +928,6 @@ function assertM2Scenario(name, viewport) {
     console.log('Browser M1/M2 shell, focus, operational-flow, and 21-screen matrix passed. Manifest: ' + path.relative(root, manifestPath));
   } finally {
     if (server && !server.killed) server.kill('SIGINT');
-    try { browser('close', '--all'); } catch {}
+    try { browser('close'); } catch {}
   }
 })().catch(error => { console.error(error.stack || error); process.exitCode = 1; });
