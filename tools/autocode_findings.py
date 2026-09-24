@@ -1,12 +1,14 @@
-"""One authoritative list of open reviewer findings.
+"""One authoritative list of reviewer findings.
 
-Sol reports findings in every validation; Astra may report them in a REWORK
-decision.  Both land here with a stable identity, the task assigned to fix
-them, and the later report that resolved them.  Only the reviewer who raised a
-finding can resolve it, by submitting a newer report that no longer lists it
-and that reviewed the milestone scope the finding was raised under.  A review
-of different work, or a reformatting repair of an earlier report, leaves the
-finding open.
+Sol reports findings in every validation; Astra reports them in review and
+checkpoint decisions.  Both land here with a stable identity, the task assigned
+to fix them, and the report that resolved them.  Only the reviewer who raised a
+finding can resolve it, and only through an explicit disposition on that
+finding's ID in a fresh report: ``resolved`` with verification evidence, or
+``retracted`` when the finding itself was wrong.  A report that simply omits a
+finding leaves it open and marks it as not rechecked, and a report-only repair
+can never close one.  The resolver diagnoses findings; it never reconciles
+them.
 """
 from __future__ import annotations
 
@@ -21,6 +23,7 @@ except ImportError:
 
 SOURCES = ("sol", "astra")
 SEVERITIES = ("critical", "high", "medium", "low")
+DISPOSITIONS = ("resolved", "retracted")
 
 
 def finding_id(source: str, text: str) -> str:
@@ -34,6 +37,10 @@ def ledger(state) -> list:
 def open_entries(state, source=None) -> list:
     return [row for row in state.get("findings_ledger", [])
             if row.get("status") == "open" and (source is None or row.get("source") == source)]
+
+
+def blocking_entries(state) -> list:
+    return [row for row in open_entries(state) if row.get("blocking", True)]
 
 
 def _normalize(source, raw):
@@ -72,6 +79,36 @@ def _covers(report, row_scope, all_criteria):
     return set(row_scope["criteria"]) <= reviewed
 
 
+def _apply_dispositions(state, source, dispositions, record, scope, all_criteria, can_resolve):
+    rows = ledger(state)
+    report = record.get("output")
+    open_rows = {row["id"]: row for row in rows if row.get("source") == source and row.get("status") == "open"}
+    if not isinstance(dispositions, list):
+        raise ValueError(f"{source} finding_dispositions must be an array")
+    for raw in dispositions:
+        if not isinstance(raw, dict):
+            raise ValueError(f"{source} finding_dispositions entries must be objects")
+        target = raw.get("id")
+        disposition = raw.get("disposition")
+        evidence = str(raw.get("evidence", "")).strip()
+        if disposition not in DISPOSITIONS:
+            raise ValueError(f"{source} finding dispositions must be one of {', '.join(DISPOSITIONS)}")
+        if not evidence:
+            raise ValueError(f"{source} finding dispositions need evidence")
+        row = open_rows.get(target)
+        if row is None:
+            # The finding may already be closed, or the original report may have
+            # been rejected before its findings were recorded. A disposition for a
+            # finding that was never recorded or is already closed is a no-op.
+            continue
+        if not can_resolve:
+            raise ValueError("A report-only repair cannot close findings; resubmit the review")
+        if not _covers(scope, row.get("scope"), all_criteria):
+            raise ValueError(f"{source} disposition {target} belongs to work this report did not review")
+        row.update(status=disposition, resolved_at=s.now(), resolved_in=report, resolution_evidence=evidence)
+        row.pop("not_rechecked_in", None)
+
+
 def _record(state, source, reported, record):
     """Reconcile one reviewer's latest report against that reviewer's open findings."""
     rows = ledger(state)
@@ -93,9 +130,6 @@ def _record(state, source, reported, record):
             row.update(severity=latest["severity"], evidence=latest["evidence"], blocking=latest["blocking"],
                        times_reported=row.get("times_reported", 1) + 1, last_reported_at=at, last_reported_in=report)
             row.pop("not_rechecked_in", None)
-        elif can_resolve and _covers(scope, row.get("scope"), all_criteria):
-            row.update(status="resolved", resolved_at=at, resolved_in=report)
-            row.pop("not_rechecked_in", None)
         else:
             row["not_rechecked_in"] = report
     for entry in seen.values():
@@ -105,8 +139,12 @@ def _record(state, source, reported, record):
 
 
 def record_validation(state, validation, record):
-    """Sol's findings open or refresh Sol entries; absent in-scope ones are resolved by this validation."""
+    """Sol's findings open or refresh Sol entries; its dispositions close them."""
     _record(state, "sol", validation.get("findings", []), record)
+    _apply_dispositions(state, "sol", validation.get("finding_dispositions", []), record,
+                        report_scope(state),
+                        {c["id"] for c in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])},
+                        not (record.get("report_repaired") or record.get("report_only")))
 
 
 def record_decision(state, decision, record):
@@ -114,6 +152,10 @@ def record_decision(state, decision, record):
     if decision.get("status") == "BLOCKED":
         return
     _record(state, "astra", decision.get("findings", []), record)
+    _apply_dispositions(state, "astra", decision.get("finding_dispositions", []), record,
+                        report_scope(state),
+                        {c["id"] for c in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])},
+                        not (record.get("report_repaired") or record.get("report_only")))
 
 
 def batch_limit(state):
@@ -168,6 +210,7 @@ def summary(state) -> dict:
     rows = state.get("findings_ledger", [])
     open_rows = [row for row in rows if row.get("status") == "open"]
     return {"open": len(open_rows), "resolved": sum(1 for row in rows if row.get("status") == "resolved"),
+            "retracted": sum(1 for row in rows if row.get("status") == "retracted"),
             "by_source": {source: sum(1 for row in open_rows if row.get("source") == source) for source in SOURCES},
             "repeated": sum(1 for row in open_rows if row.get("times_reported", 1) > 1),
             "not_rechecked": sum(1 for row in open_rows if row.get("not_rechecked_in")),

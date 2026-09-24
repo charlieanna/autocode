@@ -41,7 +41,8 @@ def report(data):
                                         "evidence_refs": ["event:check"]} for i in (1, 2, 3)],
                  "end_to_end_result": {"status": "PASS" if done else "NOT_VERIFIED",
                                        "summary": "Read combined output" if done else "Inputs pass; combined output is not built yet",
-                                       "evidence_refs": ["event:check"]}}
+                                       "evidence_refs": ["event:check"]},
+                 "finding_dispositions": []}
         if data["current_task"].get("milestone_ids"):
             value["milestone_results"] = [{"milestone_id": mid, "status": "PASS", "summary": "Output executed", "evidence_refs": ["event:check"]}
                                           for mid in data["current_task"]["milestone_ids"]]
@@ -57,7 +58,7 @@ def report(data):
                           "validation_plan": [] if done else ["Read all outputs"], "findings": []},
             "findings": [],
             "plan": ["Build outputs"], "affected_paths": [] if done else ["combined.txt" if mid == "M3" else "a.txt"],
-            "evidence": ["event:check"], "blocker": "", "agreed_limitations": []}
+            "evidence": ["event:check"], "blocker": "", "agreed_limitations": [], "finding_dispositions": []}
 
 
 def main():

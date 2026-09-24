@@ -86,6 +86,10 @@ def role_schema(legacy, role):
             "type": "object", "additionalProperties": False, "required": ["severity", "finding", "evidence"],
             "properties": {"severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
                            "finding": STRING, "evidence": STRING, "blocking": {"type": "boolean"}}}}
+        schema["properties"]["finding_dispositions"] = {"type": "array", "items": {
+            "type": "object", "additionalProperties": False, "required": ["id", "disposition", "evidence"],
+            "properties": {"id": STRING, "disposition": {"type": "string", "enum": ["resolved", "retracted"]},
+                           "evidence": STRING}}}
         schema["properties"]["agreed_limitations"] = STRINGS
         schema["required"] += ["next_task", "agreed_limitations"]
     if role == "terra":
@@ -106,6 +110,10 @@ def role_schema(legacy, role):
             "status": {"type": "string", "enum": ["PASS", "FAIL", "NOT_VERIFIED"]},
             "summary": STRING, "evidence_refs": STRINGS,
         })
+        schema["properties"]["finding_dispositions"] = {"type": "array", "items": {
+            "type": "object", "additionalProperties": False, "required": ["id", "disposition", "evidence"],
+            "properties": {"id": STRING, "disposition": {"type": "string", "enum": ["resolved", "retracted"]},
+                           "evidence": STRING}}}
         schema["required"].append("end_to_end_result")
     return schema
 
