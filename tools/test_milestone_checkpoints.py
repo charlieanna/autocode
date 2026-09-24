@@ -144,6 +144,31 @@ class MilestoneCheckpointTests(unittest.TestCase):
         packet = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
         self.assertFalse(packet['milestone_checkpoint']['current_evidence_ready'])
 
+    def test_explicit_checkpoint_answer_preserves_approval_and_requires_current_evidence(self):
+        self.start()
+        self.validate(flow_status='NOT_VERIFIED')
+        choice = 'Reconcile M1 as accepted based on the existing current-revision Sol evidence, then resume at M2.'
+        question = {'id': 'decision-checkpoint', 'question': 'Reconcile the checkpoint?',
+                    'why': 'The earlier gate rejected advancement', 'options': [choice], 'proposed_default': ''}
+        self.state.update(status='WAITING_FOR_USER', phase='WAITING_FOR_USER', next_stage='astra_review',
+                          pending_questions=[question], user_request={'kind': 'blocker', 'proposed_delta': '',
+                          'discovered': 'The milestone checkpoint remains unaccepted despite passing Sol evidence.',
+                          'options': [choice]})
+        before = copy.deepcopy(self.state)
+        with self.assertRaisesRegex(ValueError, 'explicit saved choice'):
+            goals.resolve_passing_checkpoint(self.state, question['id'], 'Resume anyway')
+        self.assertEqual(before, self.state)
+        self.state['validation']['end_to_end_result']['status'] = 'FAIL'
+        with self.assertRaisesRegex(ValueError, 'independent evidence'):
+            goals.resolve_passing_checkpoint(self.state, question['id'], choice)
+        self.state['validation']['end_to_end_result']['status'] = 'NOT_VERIFIED'
+        goals.resolve_passing_checkpoint(self.state, question['id'], choice)
+        self.assertTrue(goals.approved(self.state))
+        self.assertEqual('RUNNING', self.state['status'])
+        self.assertEqual('astra_review', self.state['next_stage'])
+        self.assertEqual('checkpoint_answer', self.state['answers'][question['id']]['kind'])
+        self.assertFalse(self.state['milestone_progress'][m.key(self.state)]['accepted'])
+
     def test_full_scope_and_known_flow_failure_still_require_passing_flow(self):
         self.start()
         self.validate(flow_status='FAIL')
