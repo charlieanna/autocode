@@ -58,6 +58,35 @@ def create(project, task):
     return data
 
 
+def bootstrap(selected, task):
+    """Create a local Git-backed task project without taking over user files.
+
+    An empty folder is a safe project root. A populated folder (including a
+    home directory) receives a new child project, leaving its existing files
+    and Git state untouched. A missing path is refused so a mistyped
+    --workspace cannot create directories, and a folder inside an existing
+    repository is refused so no nested repository is created in it.
+    """
+    selected = Path(selected).resolve()
+    if not selected.is_dir():
+        raise ValueError(f'workspace does not exist: {selected}')
+    inside = subprocess.run(['git', '-C', str(selected), 'rev-parse', '--show-toplevel'],
+                            capture_output=True, text=True)
+    if inside.returncode == 0:
+        raise ValueError(f'workspace is inside the Git repository {inside.stdout.strip()}; '
+                         'select that repository root instead')
+    if any(entry.name != '.DS_Store' for entry in selected.iterdir()):
+        name = (re.sub('[^a-z0-9]+', '-', task.lower()).strip('-') or 'task')[:40]
+        project = selected / 'autocode-projects' / f'{name}-{uuid.uuid4().hex[:8]}'
+        project.mkdir(parents=True)
+    else:
+        project = selected
+    git(project, 'init', '-q')
+    git(project, '-c', 'user.name=Autocode', '-c', 'user.email=autocode@localhost',
+        'commit', '--allow-empty', '-qm', 'Autocode project baseline')
+    return project
+
+
 def resume_workspace(selected, state):
     selected = Path(selected).resolve()
     saved = Path(state['workspace']).resolve()

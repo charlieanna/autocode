@@ -42,8 +42,14 @@ class OpenCodeTests(unittest.TestCase):
         self.assertEqual(7, events[-1]["usage"]["output_tokens"])
 
     def test_absent_exit_code_or_model_claims_cannot_be_command_evidence(self):
-        for state in ({"status": "completed", "input": {"command": "tests"}, "output": "PASS"},
-                      {"status": "error", "input": {"command": "tests"}, "metadata": {"exit": 0}},
+        # Completed output without an integer exit can attest a capture receipt.
+        # It is not a command_execution, so it cannot be cited as event: evidence.
+        output_only = oc.normalized_events([event("tool_use", tool="bash", state={
+            "status": "completed", "input": {"command": "tests"}, "output": "PASS"}), terminal()])
+        completed = [row["item"] for row in output_only if row["type"] == "item.completed"]
+        self.assertEqual(["tool_output"], [item["type"] for item in completed])
+        self.assertNotIn("exit_code", completed[0])
+        for state in ({"status": "error", "input": {"command": "tests"}, "metadata": {"exit": 0}},
                       {"status": "completed", "input": {"command": "tests"}, "metadata": {"exit": False}}):
             events = oc.normalized_events([event("tool_use", tool="bash", state=state), terminal()])
             self.assertFalse(any(row["type"] == "item.completed" for row in events))
@@ -283,12 +289,13 @@ class OpenCodeFlow(unittest.TestCase):
         self.assertEqual("glm", state["stages"][0]["role"])
         expected = {"glm": "zai-coding-plan/glm-5.3", "astra": "openai/gpt-5.6-sol",
                     "terra": "openai/gpt-5.6-terra", "sol": "openai/gpt-5.6-sol",
-                    "completion": "openai/gpt-5.6-sol"}
+                    "completion": "openai/gpt-5.6-sol",
+                    "plan_reviewer": "cursor-acp/claude-opus-5-5-high"}
         self.assertEqual(expected, {role: settings["model"] for role, settings in state["settings"]["roles"].items()})
         self.assertEqual("COMPLETE", state["phase"])
         self.assertNotEqual(state["sessions"]["terra"], state["sessions"]["sol"])
-        self.assertNotEqual(state["sessions"]["astra"], state["sessions"]["sol"])
-        engines = {role: "opencode" for role in ("glm", "terra", "astra", "sol", "completion")}
+        self.assertNotEqual(state["sessions"]["plan_reviewer"], state["sessions"]["sol"])
+        engines = {role: "opencode" for role in ("glm", "terra", "astra", "sol", "completion", "plan_reviewer")}
         for record in state["stages"]:
             command = record["command"]
             role = record.get("route_role", record["role"])

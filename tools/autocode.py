@@ -23,11 +23,12 @@ from typing import Any
 import copy
 import uuid
 try:
-    from . import autocode_support as support, autocode_goals as goals, autocode_interventions as interventions, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation
+    from . import autocode_support as support, autocode_goals as goals, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation
 except ImportError:
     import autocode_support as support
     import autocode_goals as goals
     import autocode_interventions as interventions
+    import autocode_providers
     import autocode_opencode as opencode
     import autocode_process as processes
     import autocode_registry as registry
@@ -121,6 +122,21 @@ def load_stage_report(record):
     return value
 
 
+def stage_supports_sessions(state, record):
+    """Read the launch-time capability, conservatively recognizing old config records."""
+    if isinstance(record.get("supports_sessions"), bool):
+        return record["supports_sessions"]
+    # Before this field existed, absent provider metadata always meant OpenCode.
+    # Only an explicitly saved non-OpenCode provider is known to be sessionless.
+    return state.get("settings", {}).get("provider", "opencode") == "opencode"
+
+
+def stage_completed(state, record):
+    if stage_supports_sessions(state, record):
+        return any(event.get("type") == "turn.completed" for event in support.events(record["events"]))
+    return record.get("exit_code") == 0 and bool(record.get("output")) and Path(record["output"]).is_file()
+
+
 class ReportRepairQueued(Exception):
     """A finished request needs report-only repair, never implementation replay."""
 
@@ -155,7 +171,7 @@ def recover_legacy_report_repair(state, run_dir, workspace):
     if (support.snapshot(workspace)["revision"] != record["source_revision"]
             or record.get("contract_hash") != (state.get("goal_contract") or {}).get("hash")
             or any(not record.get(key) or not Path(record[key]).is_file() for key in required)
-            or not any(event.get("type") == "turn.completed" for event in support.events(record["events"]))):
+            or not stage_completed(state, record)):
         return False
     if not repair_limit(state):
         return False
@@ -182,7 +198,7 @@ def reject_completed_stage(state, run_dir, record, error):
                 and not isinstance(error, support.Paused)
                 and record.get('exit_code') == 0 and record.get('source_revision')
                 and not record.get('timed_out') and not record.get('interrupted')
-                and any(e.get('type') == 'turn.completed' for e in support.events(record['events'])))
+                and stage_completed(state, record))
     pending = state.get('pending_report_repair')
     if eligible and repair_limit(state) and (not pending or record.get('report_only')):
         if not pending:
@@ -241,7 +257,8 @@ def run_role(
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", f"Existing stage artifacts require reconciliation: {base}")
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
     route_role = planning.route_for(state, original_stage, role)
-    session = None if joint_stage or report_only else state.setdefault("sessions", {}).get(route_role)
+    supports_sessions = getattr(opencode, "SUPPORTS_SESSIONS", True)
+    session = None if joint_stage or report_only or not supports_sessions else state.setdefault("sessions", {}).get(route_role)
     engine = planning.engine_for(state["settings"], route_role)
     transport_args = support.transport_arguments(state["settings"])
     route = state["settings"]["roles"][route_role]
@@ -252,11 +269,15 @@ def run_role(
     tool_timeout = limits.get("tool_timeout_seconds", 1800)
     child_options = {"start_new_session": True}
     if engine == "opencode":
-        command, env, overrides = opencode.launch(route_role, workspace, run_dir, session, model, effort, allow_write,
-                                                  planning=joint_stage or report_only)
-        child_options["env"] = env
+        command, env, overrides = opencode.launch(
+            route_role, workspace, run_dir, session, model, effort, allow_write,
+            planning=joint_stage or report_only, report=output, schema=schema,
+            prompt_file=prompt_file, sandbox=sandbox)
+        if env:
+            child_options["env"] = env
         prompt = opencode.prompt_for_schema(prompt, read_json(schema), events)
-        write_json(base.with_suffix(".opencode.json"), overrides)
+        if supports_sessions:
+            write_json(base.with_suffix(".opencode.json"), overrides)
     else:
         command = ["codex", "exec", "-C", str(workspace), "--sandbox", sandbox, *transport_args]
         if planning.enabled(state):
@@ -278,7 +299,8 @@ def run_role(
               "criteria_revision": state.get("criteria_revision"), "runner_calls": 1, "runner_retries": 0,
               "headroom_enabled": state["settings"].get("headroom", {}).get("enabled", False),
               "stage_timeout_seconds": stage_timeout, "idle_timeout_seconds": idle_timeout,
-              "tool_timeout_seconds": tool_timeout, "expected_session": session}
+              "tool_timeout_seconds": tool_timeout, "expected_session": session,
+              "supports_sessions": supports_sessions}
     if route_role != role:
         record["route_role"] = route_role
     record["engine"] = engine
@@ -286,9 +308,11 @@ def run_role(
         record.update(report_only=True, original_stage=original_stage)
     if joint_stage:
         record["planning"] = True
-    if engine == "opencode":
+    if engine == "opencode" and supports_sessions:
         record.update(permission_config=str(base.with_suffix(".opencode.json")),
                       isolation="OpenCode tool permissions and workspace snapshot checks; no OS sandbox")
+    elif engine == "opencode":
+        record.update(isolation="Config-tool sandbox flag and workspace snapshot checks")
     if state.get("goal_contract"):
         record.update(contract_revision=state["goal_contract"]["revision"], contract_hash=state["goal_contract"]["hash"])
     if state.get("current_task"):
@@ -315,7 +339,9 @@ def run_role(
                     planning.charge(state, original_stage)
                 state["active_stage"] = record
                 write_json(run_dir / "state.json", state)
-                child = subprocess.Popen(command, cwd=workspace, stdin=stdin, stdout=stdout, stderr=subprocess.STDOUT,
+                child_stdin = (subprocess.DEVNULL if engine == "opencode" and not supports_sessions
+                               and getattr(opencode, "PROMPT_MODE", "stdin") == "file" else stdin)
+                child = subprocess.Popen(command, cwd=workspace, stdin=child_stdin, stdout=stdout, stderr=subprocess.STDOUT,
                                          text=True, **child_options)
                 record["pid"] = child.pid
         except support.Paused:
@@ -382,15 +408,18 @@ def run_role(
                              f"{role}: {record['timeout_reason']}; partial work and logs retained at {events}")
     if exit_code != 0:
         raise support.Paused(support.failure_status(events), f"{role} exited {exit_code}; reconcile {events}, no automatic replay")
-    thread = event_thread_id(events)
-    if not thread or (session and thread != session):
-        raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Provider returned a missing or unexpected session ID")
-    if not session and not report_only:
-        state["sessions"][route_role] = thread
-        record["thread_id"] = thread
-    if not any(e.get("type") == "turn.completed" for e in support.events(events)):
-        raise support.Paused("PAUSED_UNCERTAIN_STAGE",
-                             support.terminal_failure_reason(events) or "Process exited without turn.completed")
+    if supports_sessions:
+        thread = event_thread_id(events)
+        if not thread or (session and thread != session):
+            raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Provider returned a missing or unexpected session ID")
+        if not session and not report_only:
+            state["sessions"][route_role] = thread
+            record["thread_id"] = thread
+        if not any(e.get("type") == "turn.completed" for e in support.events(events)):
+            raise support.Paused("PAUSED_UNCERTAIN_STAGE",
+                                 support.terminal_failure_reason(events) or "Process exited without turn.completed")
+    elif not output.is_file():
+        raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without a report file")
     after = support.snapshot(workspace)
     write_json(base.with_suffix(".after.json"), after)
     record["after_ref"] = str(base.with_suffix(".after.json"))
@@ -947,7 +976,7 @@ def prepare_planning_retry(state, run_dir):
                 and not active.get('timed_out') and not active.get('interrupted')):
             return False
         assert_stage_stopped(active)
-        if not any(row.get('type') == 'turn.completed' for row in support.events(active['events'])):
+        if not stage_completed(state, active):
             return False
         # Repair checkpoints from the old copy/owner bug retain the archived
         # record as active. It is already rejected: never archive/apply it again.
@@ -1011,19 +1040,20 @@ def reconcile_active(state, run_dir, workspace):
         raise support.Paused('PAUSED_INVALID_OUTPUT',
             'This completed attempt was already rejected. Explicitly retry planning with --resume-paused; do not recover the rejected output.')
     assert_stage_stopped(record)
-    rows = support.events(record["events"])
-    if not any(e.get("type") == "turn.completed" for e in rows) or record.get("exit_code") not in (None, 0):
+    supports_sessions = stage_supports_sessions(state, record)
+    if not stage_completed(state, record) or (supports_sessions and record.get("exit_code") not in (None, 0)):
         reason = support.terminal_failure_reason(record["events"])
         raise support.Paused(support.failure_status(record["events"]),
             (f"{reason} " if reason else "") +
             f"Uncertain stage must be inspected, never automatically replayed. After review, "
             f"use --abandon-stage {attempt_id(record)} to retain partial work and set aside this response.")
-    thread = event_thread_id(Path(record["events"]))
-    if (("expected_session" in record and not thread)
-            or (record.get("expected_session") and thread != record["expected_session"])):
-        raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Recovered response belongs to an unexpected session")
-    if thread and not record.get('report_only'):
-        state["sessions"][record.get("route_role", record["role"])] = thread
+    if supports_sessions:
+        thread = event_thread_id(Path(record["events"]))
+        if (("expected_session" in record and not thread)
+                or (record.get("expected_session") and thread != record["expected_session"])):
+            raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Recovered response belongs to an unexpected session")
+        if thread and not record.get('report_only'):
+            state["sessions"][record.get("route_role", record["role"])] = thread
     record["metrics"] = support.event_metrics(record["events"])
     account_stage(state, record)
     if not record.get('before_ref'):
@@ -1041,9 +1071,10 @@ def reconcile_active(state, run_dir, workspace):
     write_json(base.with_suffix(".after.json"), after)
     record.update(after_ref=str(base.with_suffix(".after.json")), source_revision=after["revision"],
                   changed_files=support.changed_paths(before, after), recovered_at=now(), metrics=support.event_metrics(record["events"]))
-    thread = event_thread_id(Path(record["events"]))
-    if thread and not record.get('report_only'):
-        state["sessions"][record.get("route_role", record["role"])] = thread
+    if supports_sessions:
+        thread = event_thread_id(Path(record["events"]))
+        if thread and not record.get('report_only'):
+            state["sessions"][record.get("route_role", record["role"])] = thread
     try:
         value = load_stage_report(record)
     except (ValueError, RuntimeError) as error:
@@ -1092,8 +1123,17 @@ def capture_command(argv):
 
 def configure(args, state):
     started = bool(state.get("settings") or state.get("sessions") or state.get("history"))
+    saved_provider = dict(state.get("settings") or {})
+    # Checkpoints created before provider selection shipped were necessarily
+    # OpenCode runs.  Treating that as explicit prevents an unsafe transport
+    # switch when they are resumed.
+    if started and "provider" not in saved_provider:
+        saved_provider["provider"] = "opencode"
+    provider_name = autocode_providers.select(getattr(args, "provider", None), saved_provider)
     saved_engine = state.get("settings", {}).get("engine") or ("codex" if started else None)
     engine = getattr(args, "engine", None) or saved_engine or DEFAULT_ENGINE
+    if engine == "codex" and provider_name != "opencode":
+        raise ValueError("--provider requires the OpenCode engine; --engine codex uses its native transport")
     figma_file = getattr(args, "figma_file", None)
     saved_figma = state.get("settings", {}).get("figma_file")
     if (figma_file or saved_figma) and engine != "codex":
@@ -1139,6 +1179,7 @@ def configure(args, state):
         raise ValueError("For OpenCode use --<role>-model provider/model instead of --<role>-provider")
     if state.get("settings"):
         settings = json.loads(json.dumps(state["settings"]))
+        settings.setdefault("provider", provider_name)
         # v0.5.4 introduced bounded report-only repairs.  Existing runs retain
         # their model, auth and limit settings while gaining the safe default
         # used by every newly-created run.
@@ -1240,7 +1281,7 @@ def configure(args, state):
             for r in DEFAULT_ROLE_MODELS}
     for role in getattr(args, "pin_model_role", []):
         roles[role]["model_pinned"] = True
-    settings = {"roles": roles, "transport_identity": local, "engine": engine,
+    settings = {"roles": roles, "transport_identity": local, "engine": engine, "provider": provider_name,
             "report_repair": {"max_attempts": 2},
             "milestone_checkpoints": {**milestones.DEFAULTS,
                 "max_seconds": getattr(args, 'max_milestone_seconds', None)
@@ -1284,6 +1325,16 @@ def iteration_limit_reached(iteration, ceiling):
     return iteration > ceiling
 
 
+def _provider_model(role, requested):
+    model = requested or opencode.DEFAULT_MODELS[role]
+    # Bare OpenAI names from older dashboard conversations are aliases,
+    # never a reason to use a separate Codex login. Config tools name models
+    # themselves, so they keep the configured string.
+    if getattr(opencode, "SUPPORTS_SESSIONS", True) and "/" not in model:
+        model = f"openai/{model}"
+    return model
+
+
 def configure_joint(settings, args, *, fresh):
     if fresh:
         settings["joint_planning"] = True
@@ -1294,33 +1345,36 @@ def configure_joint(settings, args, *, fresh):
                 "reasoning_effort": opencode.DEFAULT_REASONING_EFFORTS["completion"],
             }
         for role in ("astra", "sol", "completion"):
-            model = getattr(args, f"{role}_model", None) or opencode.DEFAULT_MODELS[role]
-            # Bare OpenAI names from older dashboard conversations are aliases,
-            # never a reason to use a separate Codex login.
             settings["roles"][role].update(engine="opencode", provider=None,
-                model=model if "/" in model else f"openai/{model}")
-        settings["roles"]["terra"].update(engine="opencode", provider=None,
-            model=args.terra_model or opencode.DEFAULT_MODELS["terra"])
+                model=_provider_model(role, getattr(args, f"{role}_model", None)))
+        terra_model = getattr(args, "terra_model", None) or opencode.DEFAULT_MODELS["terra"]
+        settings["roles"]["terra"].update(engine="opencode", provider=None, model=terra_model)
         for role, effort in opencode.DEFAULT_REASONING_EFFORTS.items():
-            if not settings["roles"][role].get("reasoning_effort"):
+            if role in settings["roles"] and not settings["roles"][role].get("reasoning_effort"):
                 settings["roles"][role]["reasoning_effort"] = effort
+        glm_model = getattr(args, "glm_model", None) or opencode.DEFAULT_MODELS["glm"]
         settings["roles"]["glm"] = {"engine": "opencode", "provider": None,
-            "model": getattr(args, "glm_model", None) or opencode.DEFAULT_MODELS["glm"], "reasoning_effort": None}
+            "model": glm_model, "reasoning_effort": opencode.DEFAULT_REASONING_EFFORTS.get("glm")}
         settings["roles"]["plan_reviewer"] = {"engine": "opencode", "provider": None,
-            "model": "cursor-acp/claude-opus-5-5-high", "reasoning_effort": None, "model_pinned": True}
+            "model": opencode.DEFAULT_MODELS["plan_reviewer"],
+            "reasoning_effort": opencode.DEFAULT_REASONING_EFFORTS.get("plan_reviewer"),
+            "model_pinned": True}
         settings["transport_identities"] = {"opencode": settings["transport_identity"]}
     elif getattr(args, "glm_model", None):
         settings["roles"]["glm"]["model"] = args.glm_model
+    sessioned = getattr(opencode, "SUPPORTS_SESSIONS", True)
     for role, config in settings["roles"].items():
         if planning.engine_for(settings, role) == "codex":
             if "/" in config["model"]:
                 raise ValueError(f"Joint planning {role.title()} uses a Codex model name, e.g. {DEFAULT_ROLE_MODELS[role]}")
-        else:
+        elif sessioned:
             # Preserve OpenCode's catalogue identifier, not a Codex alias or a
             # provider whitelist. check_models verifies actual availability.
             if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,120}", config["model"]):
                 raise ValueError(f"{role.title()} requires an OpenCode provider/model identifier; "
                                  "saved session engines cannot be switched on resume")
+        elif not isinstance(config.get("model"), str) or not config["model"].strip() or any(char.isspace() for char in config["model"]):
+            raise ValueError(f"{role.title()} requires a model name from the provider config")
 
 
 def migrate_opencode_roles(state, run_dir, workspace):
@@ -1621,6 +1675,7 @@ def rotate_if_needed(state, role, run_dir):
 
 
 def main() -> int:
+    global opencode
     if sys.argv[1:2] == ["tasks"]:
         try:
             from . import autocode_tasks
@@ -1649,6 +1704,8 @@ def main() -> int:
     parser.add_argument("--figma-review", choices=["automatic", "human"], help="Visual review policy for new Figma runs (default: automatic)")
     parser.add_argument("--engine", choices=["codex", "opencode"],
                         help="New-run default is OpenCode joint planning; --engine codex is the single-CLI loop. Resumes keep the saved engine")
+    parser.add_argument("--provider", default=None,
+                        help="Tool that runs each role (default: opencode). Other names load ~/.config/autocode/providers/<name>.toml")
     parser.add_argument("--joint-planning", action="store_true",
                         help="Default for new OpenCode runs; add GLM planning to an approved saved OpenCode run at a clean execution boundary")
     parser.add_argument("--glm-model", help="Planning-role OpenCode provider/model (default: zai-coding-plan/glm-5.3)")
@@ -1761,9 +1818,9 @@ def main() -> int:
     elif args.figma_review:
         parser.error("--figma-review requires --figma-file or --ui-run")
     workspace = args.workspace.resolve()
-    if not (workspace / ".git").exists():
-        parser.error(f"workspace is not a Git repository: {workspace}")
     if args.run_dir:
+        if not (workspace / ".git").exists():
+            parser.error(f"workspace is not a Git repository: {workspace}")
         run_dir = args.run_dir.resolve()
         state_path = run_dir / "state.json"
         state = read_json(state_path)
@@ -1773,6 +1830,17 @@ def main() -> int:
         if not args.task:
             parser.error("task is required unless --run-dir is supplied")
         task = args.task
+        if not (workspace / ".git").exists():
+            if args.dry_run or args.status:
+                parser.error(f"workspace is not a Git repository: {workspace}")
+            try:
+                workspace = task_workspaces.bootstrap(workspace, task)
+            except ValueError as error:
+                parser.error(str(error))
+            # A new task project is already private to this task. Avoid a
+            # second hidden worktree so users can find the generated files.
+            args.in_place = True
+            print(f"Created task project: {workspace}", flush=True)
         if not args.in_place and not args.dry_run and not args.status:
             isolated = task_workspaces.create(workspace, task)
             workspace = Path(isolated["workspace"])
@@ -1817,6 +1885,14 @@ def main() -> int:
                            "milestone_activation_pending": (run_dir / 'milestone-checkpoints-requested.json').exists(),
                            "interventions": intervention_metadata(workspace, run_dir, state)}, indent=2))
         return 0
+    saved_provider = dict(state.get("settings") or {})
+    if state.get("settings") and "provider" not in saved_provider:
+        saved_provider["provider"] = "opencode"
+    try:
+        selected_provider = autocode_providers.select(args.provider, saved_provider)
+        opencode = autocode_providers.resolve(selected_provider)
+    except (RuntimeError, ValueError) as error:
+        parser.error(str(error))
     # Legacy runner does not own our new lock; detect it before touching state.
     support.assert_no_legacy_process(run_dir, workspace)
     with support.workspace_lock(workspace):

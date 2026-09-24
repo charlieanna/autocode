@@ -1,0 +1,14 @@
+name = "gocode"
+# Placeholders: {model} {effort} {workspace} {report} {schema} {prompt_file} {run_dir} {role} {sandbox}
+command = ["sh", "-c", "eval \"$(gocode env --shell bash)\" && exec codex exec -C \"$1\" --sandbox \"$2\" --model \"$3\" -c model_reasoning_effort=\"$4\" --output-schema \"$5\" -o \"$6\" -", "gocode", "{workspace}", "{sandbox}", "{model}", "{effort}", "{schema}", "{report}"]
+prompt = "stdin"
+models_command = ["gocode", "models"]
+version_command = ["gocode", "--version"]
+
+[roles]
+astra = { model = "gpt-5.6-sol", effort = "high" }
+terra = { model = "gpt-5.6-terra", effort = "medium" }
+sol = { model = "gpt-5.6-sol", effort = "high" }
+completion = { model = "gpt-5.6-sol", effort = "medium" }
+glm = { model = "gpt-5.6-sol", effort = "medium" }
+plan_reviewer = { model = "gpt-5.6-sol", effort = "high" }

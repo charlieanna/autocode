@@ -101,7 +101,7 @@ class JointUpgradeFlow(unittest.TestCase):
         self.assertEqual("sol", upgraded["stages"][-1]["stage"])
         self.assertEqual("opencode", upgraded["stages"][-1]["engine"])
         self.assertNotIn("planning", upgraded)
-        self.assertEqual({"astra", "terra", "sol", "completion", "glm"}, set(upgraded["settings"]["roles"]))
+        self.assertEqual({"astra", "terra", "sol", "completion", "glm", "plan_reviewer"}, set(upgraded["settings"]["roles"]))
         self.assertEqual(state, json.loads(Path(upgraded["planning_migrations"][-1]["backup"]).read_text()))
         runner.interventions.submit(self.project, run, request_id="revise-with-glm", kind="feedback",
                                     text="Keep the same deliverable and document invocation.")
