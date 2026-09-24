@@ -53,11 +53,20 @@ def settings(state):
 
 def key(state, task=None):
     task = task if task is not None else state.get("current_task", {})
+    if task.get("milestone_ids"):
+        return f"{state.get('goal_contract', {}).get('hash', '')}:batch:{s.digest(sorted(task['milestone_ids']))[:16]}"
     return f"{state.get('goal_contract', {}).get('hash', '')}:{task.get('milestone_id', '')}"
 
 
 def scope(state, task=None):
     task = task if task is not None else state.get("current_task", {})
+    if task.get("milestone_ids"):
+        members = [m for m in state.get("goal_contract", {}).get("body", {}).get("milestones", [])
+                   if m["id"] in task["milestone_ids"]]
+        return {"id": "batch:" + s.digest(sorted(task["milestone_ids"]))[:16],
+                "milestone_ids": list(task["milestone_ids"]), "members": members,
+                "objective": "; ".join(m["objective"] for m in members),
+                "acceptance_criteria": list(dict.fromkeys(c for m in members for c in m["acceptance_criteria"]))}
     for milestone in state.get("goal_contract", {}).get("body", {}).get("milestones", []):
         if milestone["id"] == task.get("milestone_id"):
             return milestone
@@ -112,6 +121,13 @@ def evidence_ready(state, current):
     required = set(scope(state)["acceptance_criteria"])
     results = {r["id"]: r for r in val.get("criterion_results", [])}
     flow = val.get("end_to_end_result", {})
+    members = state.get("current_task", {}).get("milestone_ids", [])
+    if members:
+        results_by_milestone = {r["milestone_id"]: r for r in val.get("milestone_results", [])}
+        if set(results_by_milestone) != set(members) or any(
+                r.get("status") != "PASS" or not r.get("summary", "").strip() or not r.get("evidence_refs")
+                for r in results_by_milestone.values()):
+            return False
     return bool(required and val.get("verdict") == "PASS" and val.get("checks")
         and all(c["exit_code"] == 0 for c in val["checks"])
         and not any(f.get("blocking", True) or f["severity"] in ("critical", "high") for f in val.get("findings", []))
@@ -161,7 +177,7 @@ def before_assignment(state, decision, current):
     row = progress(state)
     if row is None:
         return
-    if spec["milestone_id"] != row["id"]:
+    if spec["milestone_id"] not in row.get("milestone_ids", [row["id"]]):
         if not evidence_ready(state, current):
             raise s.Paused("PAUSED_MILESTONE_EVIDENCE", "Current milestone needs independent passing evidence before advancement")
         try:
@@ -192,8 +208,9 @@ def before_assignment(state, decision, current):
 
 def accepted_ids(state):
     contract_hash = state.get("goal_contract", {}).get("hash")
-    return {r["id"] for r in state.get("milestone_progress", {}).values()
-            if r.get("accepted") and r.get("contract_hash") == contract_hash}
+    return {mid for r in state.get("milestone_progress", {}).values()
+            if r.get("accepted") and r.get("contract_hash") == contract_hash
+            for mid in r.get("milestone_ids", [r["id"]])}
 
 
 def require_prerequisites(state, milestone_id):
@@ -212,6 +229,12 @@ def accept(state, current):
     if row is not None:
         row.update(accepted=True, accepted_at=s.now(), accepted_source_revision=current["revision"],
                    accepted_validation=copy.deepcopy(state["validation"]))
+        for member in row.get("members", []):
+            member_key = f"{row['contract_hash']}:{member['id']}"
+            saved = state["milestone_progress"].setdefault(member_key, copy.deepcopy(member))
+            saved.update(contract_hash=row["contract_hash"], accepted=True, accepted_at=row["accepted_at"],
+                         accepted_source_revision=current["revision"], accepted_batch=row["id"],
+                         accepted_validation=copy.deepcopy(state["validation"]))
 
 
 def check_budget(state):
@@ -226,7 +249,7 @@ def dispatch_guard(state, stage):
         return
     if state.get("settings", {}).get("workflow"):
         raise s.Paused("PAUSED_WORKFLOW_CONFLICT", "Milestone checkpoints require Terra → Sol → Astra routing")
-    if stage == "terra":
+    if stage in ("terra", "orchestrator"):
         row = progress(state)
         if row is None:
             raise s.Paused("PAUSED_MILESTONE_TASK", "Astra must assign a bounded milestone task before implementation")

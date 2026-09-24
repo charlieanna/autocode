@@ -145,6 +145,17 @@ def activity_log(path):
     return list(found.values())[-6:][::-1]
 
 
+def batch_summary(raw):
+    batch = mapping(raw)
+    if not batch:
+        return None
+    result = {key: batch.get(key) for key in ('id', 'status') if isinstance(batch.get(key), str)}
+    result['workers'] = [{key: worker.get(key) for key in ('milestone_id', 'status', 'workspace', 'run_dir')
+                          if isinstance(worker.get(key), str)}
+                         for worker in rows(batch.get('workers')) if isinstance(worker, dict)]
+    return result
+
+
 def snapshot(state, run, detailed=False, process_snapshot=_PROCESS_TABLE_UNSET):
     settings = mapping(state.get('settings')); active = mapping(state.get('active_stage'))
     stages = [s for s in rows(state.get('stages')) if isinstance(s, dict)]
@@ -169,10 +180,15 @@ def snapshot(state, run, detailed=False, process_snapshot=_PROCESS_TABLE_UNSET):
               'limits_known': 'iteration_ceiling' in mapping(settings.get('limits')),
               'objective': mapping(state.get('current_task')).get('objective') or state.get('next_action'),
               'active_role': active.get('route_role') or active.get('role'), 'next_stage': state.get('next_stage')}
+    result['orchestration'] = {key: value for key, value in mapping(settings.get('orchestration')).items()
+                               if key in ('enabled', 'max_parallel')}
+    result['orchestration_batch'] = batch_summary(state.get('orchestration_batch'))
     if detailed:
+        result['orchestration_history'] = [batch_summary(batch) for batch in rows(state.get('orchestration_history'))
+                                           if isinstance(batch, dict) and batch]
         result['findings'] = [{key: row.get(key) for key in ('severity', 'finding')}
                               for row in rows(state.get('unresolved_findings')) if isinstance(row, dict)]
         result['validation_verdict'] = mapping(state.get('validation')).get('verdict')
         result['activity'] = activity_log(path)
-        result['history'] = [{k: s.get(k) for k in ('stage', 'role', 'iteration', 'finished_at', 'exit_code', 'rejected', 'interrupted', 'timed_out')} for s in stages[-6:]][::-1]
+        result['history'] = [{k: s.get(k) for k in ('stage', 'role', 'iteration', 'finished_at', 'exit_code', 'rejected', 'interrupted', 'timed_out', 'runner_owned')} for s in stages[-6:]][::-1]
     return result

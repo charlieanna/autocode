@@ -28,6 +28,55 @@ const review={...approved,status:'WAITING_FOR_USER',user_request:{kind:'human_re
 assert.equal(context.taskDecision(review).title,'Review the finished work');
 assert.equal(context.taskDecision({...review,human_reviews:{R1:{token:'new-result'}}}).title,'Your review is saved');
 assert.equal(context.taskDecision({...approved,status:'TASK_COMPLETE'}).required,false);
+// Runner-owned orchestration has no provider PID or active_stage. A retained
+// batch reports activity, while a bare next_stage is only a saved checkpoint.
+const orchestration={...approved,stage:'orchestrator',stages:[],status:'RUNNING',
+  monitor:{next_stage:'orchestrator',live:{state:'none'},orchestration:{enabled:true,max_parallel:2}}};
+assert.equal(context.stageName(orchestration),'Orchestrator · Coordinating Builders');
+assert.equal(context.taskPhase(orchestration),'orchestration');
+assert.equal(context.statusInfo(orchestration).label,'Ready to continue');
+const batch={id:'batch-1',status:'BUILDING',workers:[{milestone_id:'M1',status:'RUNNING',workspace:'/repo/builder-1',run_dir:'/repo/run/worker-1'},{milestone_id:'M2',status:'BUILT',workspace:'/repo/builder-2',run_dir:'/repo/run/worker-2'}]};
+const building={...orchestration,monitor:{...orchestration.monitor,orchestration_batch:batch}};
+assert.equal(context.statusInfo(building).label,'Activity reported');
+assert.equal(context.taskOverviewState(building).verified,false);
+assert.equal(context.taskOverviewState(building).step,'Last reported step · Orchestrator · Coordinating Builders');
+assert.equal(context.taskSentence(building),'Last reported: Orchestrator is coordinating independent Builders');
+assert.equal(context.primaryAction(building).kind,'pause');
+assert.deepEqual(Array.from(context.workflowConfig(building,{}),row=>row[0]),['astra','astra','orchestrator','terra','sol','completion']);
+assert.equal(context.hasOrchestration(approved),false);
+assert.equal(context.workflowConfig(approved,{}).some(row=>row[0]==='orchestrator'),false);
+for(const status of ['PAUSED_ORCHESTRATOR_WORKER','PAUSED_ORCHESTRATOR_STALE','PAUSED_ORCHESTRATOR_OVERLAP']){
+  const paused={...building,status,stop_reason:'Inspect retained worktrees and logs'};
+  assert.equal(context.statusInfo(paused).group,'stopped');
+  assert.equal(context.statusInfo(paused).reason,paused.stop_reason);
+  assert.equal(context.primaryAction(paused).label,'Resume task');
+  assert.equal(context.taskOverviewState(paused).verified,false);
+}
+const integrated={...orchestration,stage:'sol',stages:[{stage:'orchestrator',runner_owned:true,finished_at:'2026-09-23T01:00:00Z'}],monitor:{...orchestration.monitor,next_stage:'sol',orchestration_history:[{...batch,status:'INTEGRATED'}]}};
+assert.equal(context.taskPhase(integrated),'review');
+assert.notEqual(context.statusInfo(integrated).group,'complete');
+assert.equal(context.primaryAction(integrated).label,'Resume task');
+assert.equal(context.taskOverviewState({...integrated,monitor:{}}).step,'Last completed step · Orchestrator · Coordinating Builders');
+for(const failure of [{exit_code:1},{interrupted:true},{timed_out:true},{rejected:true}])assert.equal(context.stageSucceeded({...integrated.stages[0],...failure}),false);
+assert.equal(context.taskPhase({...building,status:'TASK_COMPLETE'}),'complete');
+assert.equal(context.taskPhase({...ready,monitor:orchestration.monitor}),'approval');
+// Render the workflow itself to check the added step and legacy layout.
+class Element{
+  constructor(tag,text=''){this.tag=tag;this.textContent=text;this.children=[];this.dataset={};this.classList={add:()=>{}};}
+  append(...children){this.children.push(...children);}
+  replaceChildren(...children){this.children=children;}
+  setAttribute(key,value){this[key]=value;}
+}
+const now=new Element('div');
+Object.assign(context,{$:()=>now,n:(tag,text)=>new Element(tag,text),card:()=>new Element('div'),button:label=>new Element('button',label),taskActionBusy:()=>false,monitorPanel:()=>new Element('div')});
+context.renderTaskNow(building);
+let workflow=now.children.find(row=>row.tag==='ol');
+assert.deepEqual(workflow.children.map(row=>row.textContent),['Plan','Your approval','Orchestrator','Build','Review','Complete']);
+assert.equal(workflow.children.find(row=>row['aria-current']==='step').textContent,'Orchestrator');
+context.renderTaskNow(approved);
+workflow=now.children.find(row=>row.tag==='ol');
+assert.equal(workflow.children.length,5);
+assert.equal(workflow.children.find(row=>row['aria-current']==='step').textContent,'Build');
 const messages=context.taskMessages({draft_messages:[{text:'Initial idea',created_at:'2026-09-19T01:00:00Z'}],planning_messages:[{text:'Draft',created_at:'2026-09-19T02:00:00Z'},{text:'Revision',created_at:'2026-09-19T04:00:00Z'}],answers:{q1:{text:'Saved answer',at:'2026-09-19T03:00:00Z',question:{question:'Which scope?'}},q2:{text:'Duplicate receipt',at:'2026-09-19T05:00:00Z'}},chat_messages:[{text:'Latest answer',question_id:'q2',created_at:'2026-09-19T05:00:00Z'}]});
 assert.deepEqual(Array.from(messages,m=>m.text),['Initial idea','Draft','Saved answer','Revision','Latest answer']);
 assert.equal(messages[2].question_text,'Which scope?');
