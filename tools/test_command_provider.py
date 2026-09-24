@@ -148,6 +148,66 @@ class CommandProviderTests(unittest.TestCase):
         self.assertTrue(provider.transport_drift(third, second))
         self.assertFalse(provider.transport_drift(third, third))
 
+    def test_event_output_requires_a_session_resume_template(self):
+        for name, extra, message in (
+            ("noresume", 'output = "opencode_events"\n', "requires a resume template"),
+            ("nosession", 'output = "opencode_events"\nresume = ["--session"]\n', "resume requires {session}"),
+            ("reportresume", 'resume = ["--session", "{session}"]\n', 'resume requires output = "opencode_events"'),
+            ("badoutput", 'output = "stdout"\n', "output must be report_file or opencode_events"),
+        ):
+            write_config(self.home, name, f'name = "{name}"\ncommand = ["tool"]\n{extra}' + ROLES)
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, message):
+                command.load(name)
+        write_config(self.home, "sessioncmd", 'name = "sessioncmd"\ncommand = ["tool", "{session}"]\n'
+                     'output = "opencode_events"\nresume = ["--session", "{session}"]\n' + ROLES)
+        with self.assertRaisesRegex(ValueError, "unknown command placeholder {session}"):
+            command.load("sessioncmd")
+
+    def test_event_output_resumes_sessions_and_reads_kilo_events(self):
+        write_config(self.home, "events", 'name = "events"\ncommand = ["kilo", "run", "--model", "{model}"]\n'
+                     'output = "opencode_events"\nresume = ["--session", "{session}"]\nmodels = ["demo"]\n' + ROLES)
+        provider = command.load("events")
+        self.assertTrue(provider.SUPPORTS_SESSIONS)
+        fresh, _, _ = provider.launch("terra", Path("/work"), Path("/run"), None, "demo", "medium", True)
+        resumed, _, _ = provider.launch("terra", Path("/work"), Path("/run"), "ses_saved", "demo", "medium", True)
+        self.assertEqual(["kilo", "run", "--model", "demo"], fresh)
+        self.assertEqual(["kilo", "run", "--model", "demo", "--session", "ses_saved"], resumed)
+        prompt = provider.prompt_for_schema("Task\nCURRENT HANDOFF DATA\n{}", {"type": "object"}, Path("/run/sol-01.jsonl"))
+        self.assertIn("event:<part.id>", prompt)
+
+        # Captured from a real `kilo run --format json` call (Kilo 7.7.7).
+        captured = Path(__file__).resolve().parent / "fixtures" / "kilo-7.7.7-run.jsonl"
+        self.assertEqual({"ok": True}, provider.final_report(captured))
+        events = provider.normalized_events(provider.raw_events(captured))
+        self.assertEqual("thread.started", events[0]["type"])
+        commands = [row["item"] for row in events if row["type"] == "item.completed"]
+        self.assertEqual([("command_execution", "echo hello-autocode", 0)],
+                         [(item["type"], item["command"], item["exit_code"]) for item in commands])
+        self.assertEqual({"input_tokens": 19937, "cached_input_tokens": 9728, "output_tokens": 37,
+                          "reasoning_output_tokens": 0}, events[-1]["usage"])
+
+    def test_bundled_kilocode_config_uses_kilo_run_events(self):
+        provider = command.load("kilocode")
+        self.assertEqual("opencode_events", provider.OUTPUT)
+        self.assertTrue(provider.CONFIGURED)
+        launched, _, _ = provider.launch("terra", Path("/work"), Path("/run"), "ses_saved",
+                                          provider.DEFAULT_MODELS["terra"], "medium", True)
+        self.assertEqual(["kilo", "run", "--dir", "/work", "--model", "kilo/~openai/gpt-terra-latest",
+                          "--variant", "medium", "--format", "json", "--session", "ses_saved"], launched)
+
+    def test_list_models_falls_back_to_configured_role_models(self):
+        write_config(self.home, "unlisted", 'name = "unlisted"\ncommand = ["tool"]\n' + ROLES)
+        self.assertEqual(["demo"], command.load("unlisted").list_models())
+
+    def test_pay_as_you_go_credit_errors_pause_as_budget(self):
+        from tools import autocode_support as support
+        events = self.home / "credit.jsonl"
+        events.write_text(json.dumps({"type": "error", "sessionID": "ses_fixture", "error": {
+            "name": "APIError", "data": {"message": "Add credits to continue, or switch to a free model",
+                                         "statusCode": 402,
+                                         "responseBody": '{"error_type":"usage_limit_exceeded"}'}}}) + "\n")
+        self.assertEqual("PAUSED_BUDGET", support.failure_status(events))
+
     def test_missing_config_does_not_fall_back_to_opencode(self):
         with self.assertRaisesRegex(RuntimeError, "no provider config for 'missing'"):
             autocode_providers.resolve("missing")

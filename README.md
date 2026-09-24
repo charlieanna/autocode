@@ -616,30 +616,68 @@ plan_reviewer = { model = "gpt-5.6-sol", effort = "high" }
 Placeholders are `{model}`, `{effort}`, `{workspace}`, `{report}`, `{schema}`,
 `{prompt_file}`, `{run_dir}`, `{role}`, and `{sandbox}`. `{sandbox}` is
 `read-only` for planning and review and `workspace-write` for the builder.
+`{effort}` reaches the tool only if the command uses it.
 Use `{{` and `}}` for literal braces in a command argument, such as
 `${{VAR}}` or `{{"key":1}}`; single braces are reserved for placeholders.
-The tool writes exactly one JSON object to `{report}`. Command evidence is a
-`capture_command` receipt file, not an `event:` id. Config tools do not report
-token usage, so `--max-reported-tokens` pauses with `PAUSED_USAGE_UNKNOWN`.
 Changing the config file or the tool version pauses a saved run.
 
-`tools/providers/configs/gocode.toml` is the bundled example. A tool such as
-KiloCode is the same kind of file once its command line is known:
+`output` says how the result comes back:
+
+- `output = "report_file"` (the default): the tool writes exactly one JSON object
+  to `{report}`, as `codex exec -o` does. Every stage starts fresh. Command
+  evidence is a `capture_command` receipt file, not an `event:` id. These tools
+  report no token usage, so `--max-reported-tokens` pauses with
+  `PAUSED_USAGE_UNKNOWN`.
+- `output = "opencode_events"`: the tool prints OpenCode-format JSON events, as
+  `opencode run --format json` and `kilo run --format json` do. Autocode reads
+  the final report, token usage and command exit codes from those events, and
+  resumes each role's session with the required `resume` template, for example
+  `resume = ["--session", "{session}"]`.
+
+Autocode does not check a config tool's login or billing. A tool that runs out
+of pay-as-you-go credit pauses the run with `PAUSED_BUDGET`.
+
+### KiloCode
+
+`tools/providers/configs/kilocode.toml` is bundled. It runs `kilo run` with
+Kilo Gateway models, so billing is Kilo's pay-as-you-go account:
 
 ```toml
 name = "kilocode"
-command = ["kilocode", "exec", "--cwd", "{workspace}", "--model", "{model}", "--output", "{report}"]
+command = ["kilo", "run", "--dir", "{workspace}", "--model", "{model}", "--variant", "{effort}", "--format", "json"]
 prompt = "stdin"
-models = ["kilocode-default"]
+output = "opencode_events"
+resume = ["--session", "{session}"]
+models_command = ["kilo", "models"]
+version_command = ["kilo", "--version"]
 
 [roles]
-astra = { model = "kilocode-default", effort = "high" }
-terra = { model = "kilocode-default", effort = "medium" }
-sol = { model = "kilocode-default", effort = "high" }
-completion = { model = "kilocode-default", effort = "medium" }
-glm = { model = "kilocode-default", effort = "medium" }
-plan_reviewer = { model = "kilocode-default", effort = "high" }
+astra = { model = "kilo/~openai/gpt-sol-latest", effort = "high" }
+terra = { model = "kilo/~openai/gpt-terra-latest", effort = "medium" }
+sol = { model = "kilo/~openai/gpt-sol-latest", effort = "high" }
+completion = { model = "kilo/~openai/gpt-sol-latest", effort = "medium" }
+glm = { model = "kilo/~z-ai/glm-latest", effort = "medium" }
+plan_reviewer = { model = "kilo/~anthropic/claude-opus-latest", effort = "high" }
 ```
+
+Copy it to `~/.config/autocode/providers/kilocode.toml` to change models or
+reasoning levels; any ID from `kilo models` works. Kilo has no sandbox flag, so a
+read-only stage that edits files is caught afterwards by the workspace snapshot
+check and pauses.
+
+### Default provider
+
+New runs use OpenCode unless you choose otherwise. `--provider <name>` picks the
+tool for one run. To change the default for every new run and for the dashboard,
+set `AUTOCODE_PROVIDER=kilocode` or add this to `~/.config/autocode/config.toml`:
+
+```toml
+default_provider = "kilocode"
+```
+
+A saved run keeps the provider it started with, and `--engine codex` runs still
+use Codex. `autocode-dashboard --provider <name>` overrides the default for the
+dashboard; its model pickers list that tool's models.
 
 ## Codex provider overrides
 

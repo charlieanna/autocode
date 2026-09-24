@@ -24,11 +24,11 @@ import uuid
 import weakref
 
 try:
-    from .. import autocode_opencode as opencode_transport
+    from ..providers import opencode as opencode_transport
 except ImportError:  # Direct script execution from any working directory.
     import importlib.util
     _transport_spec = importlib.util.spec_from_file_location(
-        '_autocode_dashboard_transport', Path(__file__).resolve().parents[1] / 'autocode_opencode.py')
+        '_autocode_dashboard_transport', Path(__file__).resolve().parents[1] / 'providers' / 'opencode.py')
     opencode_transport = importlib.util.module_from_spec(_transport_spec)
     _transport_spec.loader.exec_module(opencode_transport)
 

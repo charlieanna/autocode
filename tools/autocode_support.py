@@ -231,7 +231,7 @@ def failure_status(path):
     # Inspect actual provider errors, not arbitrary tool logs mentioning errors.
     failures = [e for e in events(path) if e.get("type") in ("turn.failed", "error")]
     text = json.dumps(failures).lower()
-    if any(x in text for x in ("quota", "budget", "usage limit", "insufficient_credit")):
+    if any(x in text for x in ("quota", "budget", "usage limit", "usage_limit", "insufficient_credit", "add credits")):
         return "PAUSED_BUDGET"
     if any(x in text for x in ("rate_limit", "rate limit", "429")):
         return "PAUSED_RATE_LIMIT"

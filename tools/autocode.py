@@ -258,6 +258,7 @@ def run_role(
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
     route_role = planning.route_for(state, original_stage, role)
     supports_sessions = getattr(opencode, "SUPPORTS_SESSIONS", True)
+    configured_tool = getattr(opencode, "CONFIGURED", False)
     session = None if joint_stage or report_only or not supports_sessions else state.setdefault("sessions", {}).get(route_role)
     engine = planning.engine_for(state["settings"], route_role)
     transport_args = support.transport_arguments(state["settings"])
@@ -276,7 +277,7 @@ def run_role(
         if env:
             child_options["env"] = env
         prompt = opencode.prompt_for_schema(prompt, read_json(schema), events)
-        if supports_sessions:
+        if not configured_tool:
             write_json(base.with_suffix(".opencode.json"), overrides)
     else:
         command = ["codex", "exec", "-C", str(workspace), "--sandbox", sandbox, *transport_args]
@@ -308,11 +309,12 @@ def run_role(
         record.update(report_only=True, original_stage=original_stage)
     if joint_stage:
         record["planning"] = True
-    if engine == "opencode" and supports_sessions:
+    if engine == "opencode" and not configured_tool:
         record.update(permission_config=str(base.with_suffix(".opencode.json")),
                       isolation="OpenCode tool permissions and workspace snapshot checks; no OS sandbox")
     elif engine == "opencode":
-        record.update(isolation="Config-tool sandbox flag and workspace snapshot checks")
+        record.update(provider=opencode.NAME,
+                      isolation="Config-tool sandbox flag and workspace snapshot checks")
     if state.get("goal_contract"):
         record.update(contract_revision=state["goal_contract"]["revision"], contract_hash=state["goal_contract"]["hash"])
     if state.get("current_task"):
@@ -339,7 +341,7 @@ def run_role(
                     planning.charge(state, original_stage)
                 state["active_stage"] = record
                 write_json(run_dir / "state.json", state)
-                child_stdin = (subprocess.DEVNULL if engine == "opencode" and not supports_sessions
+                child_stdin = (subprocess.DEVNULL if engine == "opencode" and configured_tool
                                and getattr(opencode, "PROMPT_MODE", "stdin") == "file" else stdin)
                 child = subprocess.Popen(command, cwd=workspace, stdin=child_stdin, stdout=stdout, stderr=subprocess.STDOUT,
                                          text=True, **child_options)
@@ -1129,9 +1131,10 @@ def configure(args, state):
     # switch when they are resumed.
     if started and "provider" not in saved_provider:
         saved_provider["provider"] = "opencode"
-    provider_name = autocode_providers.select(getattr(args, "provider", None), saved_provider)
     saved_engine = state.get("settings", {}).get("engine") or ("codex" if started else None)
     engine = getattr(args, "engine", None) or saved_engine or DEFAULT_ENGINE
+    provider_name = autocode_providers.select(getattr(args, "provider", None), saved_provider,
+                                              default="opencode" if engine == "codex" else None)
     if engine == "codex" and provider_name != "opencode":
         raise ValueError("--provider requires the OpenCode engine; --engine codex uses its native transport")
     figma_file = getattr(args, "figma_file", None)
@@ -1330,7 +1333,7 @@ def _provider_model(role, requested):
     # Bare OpenAI names from older dashboard conversations are aliases,
     # never a reason to use a separate Codex login. Config tools name models
     # themselves, so they keep the configured string.
-    if getattr(opencode, "SUPPORTS_SESSIONS", True) and "/" not in model:
+    if not getattr(opencode, "CONFIGURED", False) and "/" not in model:
         model = f"openai/{model}"
     return model
 
@@ -1362,12 +1365,12 @@ def configure_joint(settings, args, *, fresh):
         settings["transport_identities"] = {"opencode": settings["transport_identity"]}
     elif getattr(args, "glm_model", None):
         settings["roles"]["glm"]["model"] = args.glm_model
-    sessioned = getattr(opencode, "SUPPORTS_SESSIONS", True)
+    builtin_opencode = not getattr(opencode, "CONFIGURED", False)
     for role, config in settings["roles"].items():
         if planning.engine_for(settings, role) == "codex":
             if "/" in config["model"]:
                 raise ValueError(f"Joint planning {role.title()} uses a Codex model name, e.g. {DEFAULT_ROLE_MODELS[role]}")
-        elif sessioned:
+        elif builtin_opencode:
             # Preserve OpenCode's catalogue identifier, not a Codex alias or a
             # provider whitelist. check_models verifies actual availability.
             if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,120}", config["model"]):
@@ -1705,7 +1708,8 @@ def main() -> int:
     parser.add_argument("--engine", choices=["codex", "opencode"],
                         help="New-run default is OpenCode joint planning; --engine codex is the single-CLI loop. Resumes keep the saved engine")
     parser.add_argument("--provider", default=None,
-                        help="Tool that runs each role (default: opencode). Other names load ~/.config/autocode/providers/<name>.toml")
+                        help="Tool that runs each role for a new run. Default: AUTOCODE_PROVIDER, then default_provider in "
+                             "~/.config/autocode/config.toml, then opencode. Other names load ~/.config/autocode/providers/<name>.toml")
     parser.add_argument("--joint-planning", action="store_true",
                         help="Default for new OpenCode runs; add GLM planning to an approved saved OpenCode run at a clean execution boundary")
     parser.add_argument("--glm-model", help="Planning-role OpenCode provider/model (default: zai-coding-plan/glm-5.3)")
@@ -1889,7 +1893,8 @@ def main() -> int:
     if state.get("settings") and "provider" not in saved_provider:
         saved_provider["provider"] = "opencode"
     try:
-        selected_provider = autocode_providers.select(args.provider, saved_provider)
+        selected_provider = autocode_providers.select(args.provider, saved_provider,
+                                                      default="opencode" if args.engine == "codex" else None)
         opencode = autocode_providers.resolve(selected_provider)
     except (RuntimeError, ValueError) as error:
         parser.error(str(error))

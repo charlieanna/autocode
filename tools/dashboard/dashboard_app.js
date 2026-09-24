@@ -519,7 +519,8 @@ function syncWorkspaces(list) {
 }
 function syncModelOptions(data) {
   const catalogue = data.usable && Array.isArray(data.models) ? data.models.filter(value=>typeof value==='string') : [];
-  const defaults={glm:'GLM-5.3 · OpenCode',astra:'GPT-5.6 Sol · high',terra:'GPT-5.6 Terra · medium',sol:'GPT-5.6 Sol · high',completion:'GPT-5.6 Sol · medium'};
+  const configured=typeof data.provider==='string'&&data.provider!=='opencode';
+  const defaults=configured?Object.fromEntries(['glm','astra','terra','sol','completion'].map(role=>[role,data.provider+' config'])):{glm:'GLM-5.3 · OpenCode',astra:'GPT-5.6 Sol · high',terra:'GPT-5.6 Terra · medium',sol:'GPT-5.6 Sol · high',completion:'GPT-5.6 Sol · medium'};
   for (const role of ['glm','astra','terra','sol','completion']) {
     const select = $('#'+role+'-model'), previous = select.value;
     const values=catalogue;
@@ -537,12 +538,14 @@ function syncModelOptions(data) {
     select.value=previous;
   }
   const status=$('#model-catalogue-status');
-  status.textContent=(data.error?data.error+' Your choices are preserved. Retry models, or choose the default.':data.loading?'OpenCode model lookup is still running. Retry shortly.':data.usable?catalogue.length+' models from OpenCode available for every role.':'No usable OpenCode catalogue was returned.')+' Names identify workflow roles, not fixed models. Explicit selections run through OpenCode; Default keeps the labeled route. OpenAI choices require ChatGPT OAuth, not API-key billing. Existing runs keep their saved models.';
+  const tool=typeof data.provider==='string'&&data.provider!=='opencode'?data.provider:'OpenCode';
+  const billing=tool==='OpenCode'?' OpenAI choices require ChatGPT OAuth, not API-key billing.':' '+tool+' uses its own login and billing.';
+  status.textContent=(data.error?data.error+' Your choices are preserved. Retry models, or choose the default.':data.loading?tool+' model lookup is still running. Retry shortly.':data.usable?catalogue.length+' models from '+tool+' available for every role.':'No usable '+tool+' catalogue was returned.')+' Names identify workflow roles, not fixed models. Explicit selections run through '+tool+'; Default keeps the labeled route.'+billing+' Existing runs keep their saved models.';
   status.className='field-note'+(data.error?' error':'');
 }
 async function loadModels(refresh=false) {
   const request=++modelRequest, status=$('#model-catalogue-status'), retry=$('#retry-models');
-  status.textContent=refresh?'Refreshing models from OpenCode…':'Loading models from OpenCode…';
+  status.textContent=refresh?'Refreshing models…':'Loading models…';
   status.className='field-note'; retry.disabled=true;
   try {
     const data=refresh?await api('/api/models/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}):await api('/api/models');

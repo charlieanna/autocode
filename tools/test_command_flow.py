@@ -53,7 +53,7 @@ class ConfigToolFlow(unittest.TestCase):
                     "AUTOCODE_HOME": str(self.root / "registry-home")}
         self.entry = [sys.executable, str(source / "autocode.py")]
 
-    def configure_fixture(self, *, prompt="stdin", observe_stdin=False, track_invocations=False):
+    def configure_fixture(self, *, prompt="stdin", observe_stdin=False, track_invocations=False, events=False):
         command = ["fixture-tool", "--report", "{report}", "--sandbox", "{sandbox}", "--model", "{model}", "--role", "{role}"]
         if prompt == "file":
             command += ["--prompt-file", "{prompt_file}"]
@@ -61,12 +61,16 @@ class ConfigToolFlow(unittest.TestCase):
             command += ["--stdin-observation", "{run_dir}/stdin-observation.json"]
         if track_invocations:
             command += ["--invocations", "{run_dir}/invocations.txt"]
+        output = ""
+        if events:
+            command += ["--events", "--sessions-log", "{run_dir}/sessions.jsonl"]
+            output = 'output = "opencode_events"\nresume = ["--session", "{session}"]\n'
         provider = self.root / "config" / "autocode" / "providers" / "fixturetool.toml"
         provider.write_text(textwrap.dedent(f'''\
             name = "fixturetool"
             command = {json.dumps(command)}
             prompt = "{prompt}"
-            models = ["fixture-model"]
+            {output.replace(chr(10), chr(10) + "            ")}models = ["fixture-model"]
             version_command = ["fixture-tool", "--version"]
 
             [roles]
@@ -83,8 +87,9 @@ class ConfigToolFlow(unittest.TestCase):
                                "--in-place", *args], cwd=self.root, env=self.env, input=answers,
                               capture_output=True, text=True, timeout=90)
 
-    def complete_run(self, *, prompt="stdin", observe_stdin=False, track_invocations=False):
-        self.configure_fixture(prompt=prompt, observe_stdin=observe_stdin, track_invocations=track_invocations)
+    def complete_run(self, *, prompt="stdin", observe_stdin=False, track_invocations=False, events=False):
+        self.configure_fixture(prompt=prompt, observe_stdin=observe_stdin, track_invocations=track_invocations,
+                               events=events)
         result = self.launch("--chat", "Build a greeting tool")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         run = next((self.project / ".autocode/runs").iterdir())
@@ -123,6 +128,26 @@ class ConfigToolFlow(unittest.TestCase):
         self.assertEqual("read-only", sol["command"][sol["command"].index("--sandbox") + 1])
         terra = next(record for record in state["stages"] if record["stage"] == "terra")
         self.assertEqual("workspace-write", terra["command"][terra["command"].index("--sandbox") + 1])
+
+    def test_event_stream_tool_completes_with_sessions_usage_and_event_evidence(self):
+        run, state = self.complete_run(events=True)
+        self.assertEqual("TASK_COMPLETE", state["status"])
+        logged = [json.loads(line) for line in (run / "sessions.jsonl").read_text().splitlines()]
+        execution = [record for record in state["stages"] if not record.get("planning")]
+        self.assertTrue(execution)
+        for record in execution:
+            self.assertTrue(record["supports_sessions"])
+            self.assertEqual("fixturetool", record["provider"])
+            self.assertNotIn("permission_config", record)
+            self.assertFalse(Path(record["output"]).with_suffix(".opencode.json").exists())
+            self.assertEqual({"input_tokens": 140, "cached_input_tokens": 40, "output_tokens": 20,
+                              "reasoning_output_tokens": 0}, record["metrics"]["provider_tokens"])
+        self.assertTrue(state["sessions"])
+        self.assertTrue(set(state["sessions"].values()) <= {entry["session"] for entry in logged})
+        sol = next(record for record in execution if record["stage"] == "sol")
+        report = json.loads(Path(sol["output"]).read_text())
+        self.assertEqual("event:prt_check", report["checks"][0]["evidence_ref"])
+        self.assertEqual(sol["thread_id"], state["sessions"]["sol"])
 
     def test_file_prompt_delivers_prompt_with_closed_stdin(self):
         run, _ = self.complete_run(prompt="file", observe_stdin=True)
