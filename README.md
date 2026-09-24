@@ -20,10 +20,11 @@ in the same conversation. Implementation starts only after you explicitly approv
 After approval, Autocode handles the handoffs:
 
 ```text
-You ↔ Requirements Planner: rough idea → clarification → draft brief
-Requirements Planner → Plan Reviewer → Requirements Planner → Plan Reviewer → your approval
+You → Requirements Gatherer: rough idea → saved requirements report
+Requirements Gatherer → Planner: draft task DAG
+Planner → Plan Reviewer → Planner revision → Plan Reviewer final → your approval
 
-Orchestrator (runner-owned) → ready, independent Builders → combined validation
+Autopilot → AutoCode task scheduler → independent Builders → combined validation
 
 Builder → Validator → Completion Owner
    ↑                       |
@@ -31,12 +32,77 @@ Builder → Validator → Completion Owner
 ```
 
 The Plan Reviewer owns final planning decisions. On new joint runs, the runner-owned
-Orchestrator schedules independent milestone Builders after approval, falling back
+Autopilot dispatches AutoCode to schedule independent milestone Builders after approval, falling back
 to one Builder when work cannot safely run in parallel. Each Builder implements one bounded
 task. A separate Validator independently inspects and tests the combined code, then the
-Completion Owner decides complete or rework. They all work
+Completion Owner proposes completion or rework for Autopilot to evaluate. They all work
 from the same approved brief; you do not explain the product to each agent or relay
 their prompts. The runner saves decisions, tasks and evidence so it can resume.
+
+### Four units controlled by Autopilot
+
+The same repository contains four callable units:
+
+| Unit | Owns | Handoff |
+| --- | --- | --- |
+| Autoplanner | Separate requirements, planner, and plan-reviewer sessions | User-approved contract and task DAG |
+| Autocode | Next-task planning, parallel Builders, implementation and integration | Build candidate with source revision |
+| Autoreview | Independent validation and completion-owner review | Evidence-backed review result |
+| Autoresolver | Read-only diagnosis of reviewer-requested rework | Evidence-linked, bounded repair DAG and retests |
+
+`autopilot` is the deterministic workflow controller in `tools/autopilot.py`. It calls
+all four units, consumes their results, selects the next stage, coordinates recovery,
+pauses for approval, and enforces the final completion gate. Unit reports are proposals;
+Autopilot checks them against the approved plan and current evidence before advancing.
+Planning revisions, implementation handoffs, review outcomes and repair routing are
+applied by Autopilot. The shared runtime supplies provider calls, locking and persistence.
+
+The existing `autocode` and `autocode-orchestrator` commands delegate to the same
+controller, including dashboard launches. `tools/autocode_orchestrator.py` is a
+compatibility import. The saved stage named `orchestrator` remains the milestone
+scheduler inside Autocode so existing runs can resume. Autopilot owns the overall loop.
+
+Use the whole workflow, or invoke one unit at a time:
+
+```sh
+autopilot "Build a greeting CLI" --workspace /path/to/project --chat
+# Or invoke individual units at their saved boundaries:
+autoplanner "Build a greeting CLI" --workspace /path/to/project --chat
+# After approval, this stops before any Builder starts.
+# Use the workspace and run directory printed by the planner:
+autocode-build --workspace /path/to/run-workspace --run-dir /path/to/run --no-chat
+autoreview --workspace /path/to/run-workspace --run-dir /path/to/run --no-chat
+# If review requests rework, diagnose it without launching a Builder:
+autoresolver --workspace /path/to/run-workspace --run-dir /path/to/run --no-chat
+# Let Autopilot continue through any remaining build/review cycles:
+autopilot --workspace /path/to/run-workspace --run-dir /path/to/run --no-chat
+```
+
+Each unit command stops successfully before dispatching another unit. Clarification,
+approval and blockers keep their existing explicit checkpoints. `autocode --unit
+autoplanner|autocode|autoreview|autoresolver` provides the same selection; omitting it runs all units.
+
+Unit implementation lives in `tools/units/`. All four share a run directory and its
+authoritative `state.json`; they preserve separate model roles and sessions. Versioned
+JSON handoffs are saved under `handoffs/<unit>/<hash>.json`, with paths in the state's
+`unit_handoffs` field: approved plan, build candidate, and review result. These exports
+are inspectable snapshots, not standalone authorization tokens. Execution still checks
+the saved approval and current evidence; editing a handoff cannot approve a plan or pass
+a review. Existing runs acquire handoffs when they next progress, without migrating
+their approval or replaying completed stages.
+
+In the standard workflow, a reviewer's `REWORK` decision routes to Autoresolver,
+then back to Autocode and independent review. Autoresolver inherits the Astra model
+configuration but has its own saved session. It cannot implement, approve or complete
+a task. Its first version emits one bounded repair task (a one-node DAG with
+`depends_on: []`), preserving integrated-batch accountability. It pins the reviewed
+source, task, contract and validation evidence; stale inputs pause instead of launching
+a writer. Requirements or permission changes still require a user decision and, where
+applicable, a revised approved plan.
+
+Transport/report-format recovery and safety pauses remain runner-owned. Existing
+explicit alternate workflows retain their configured routing; this does not override
+their final-audit-only policy or automatically retry failed integration operations.
 
 Works against any committed Git workspace; no IdleCampus files or services are required.
 
@@ -481,22 +547,27 @@ autocode "Your rough idea" --workspace /path/to/project
 ```
 
 ```text
-You ↔ Requirements Planner: clarify outcome, scope, constraints and definition of done
-Requirements Planner → Plan Reviewer → Requirements Planner → Plan Reviewer
+You → Requirements Gatherer: clarify outcome, scope, constraints and definition of done
+Requirements Gatherer → Planner: draft plan and task dependencies
+Planner → Plan Reviewer → Planner revision → Plan Reviewer
     → you approve that exact plan
     → Builder → Validator → Completion Owner
 ```
 
 | Role in this mode | CLI and billing route | Automatic escalation ladder |
 | --- | --- | --- |
-| Requirements Planner — clarification, exploration, draft, evidence-backed revision | OpenCode / Z.ai Coding Plan | Provider default |
+| Requirements Gatherer — read-only requirements handoff, no task DAG | OpenCode / Z.ai Coding Plan | Provider default |
+| Planner — draft task DAG and evidence-backed revision | OpenCode / Z.ai Coding Plan | Provider default |
 | Plan Reviewer (the legacy `astra` workflow role) — challenge and final planning decisions | OpenCode / ChatGPT login | Sol High → Sol XHigh → Astra High |
 | Builder — implementation | OpenCode / ChatGPT login | Terra Medium → Terra High → Terra XHigh → Terra Max |
 | Validator — independent validation, separate session | OpenCode / ChatGPT login | Sol High → Sol XHigh → Astra High |
 | Completion Owner — complete/rework decision, separate session | OpenCode / ChatGPT login | Sol Medium → Sol High → Astra High |
 
-The Requirements Planner can originate alternatives and push back on the Plan Reviewer using source evidence.
-Reviewer concerns have stable IDs; every concern requires a Requirements Planner response and a reviewer decision,
+The Requirements Gatherer saves a separate structured report under the run's `iterations/`
+directory. The Planner receives that artifact, originates alternatives and a task DAG,
+and can push back on the Plan Reviewer using source evidence. Unanswered requirements
+questions cannot silently disappear from the draft.
+Reviewer concerns have stable IDs; every concern requires a Planner response and a reviewer decision,
 including a concrete acceptance test. The final displayed brief includes the technical
 approach, milestones, and **first bounded implementation task**, all covered by its
 revision/hash. Approval dispatches that task directly, without a third Plan Reviewer
@@ -511,7 +582,8 @@ or editing the goal starts fresh joint review and requires fresh approval. Old e
 remain archived. Ordinary resume preserves the cycle and its spent budget.
 
 The default workflow uses OpenCode for every role. The Plan Reviewer, Builder, Validator,
-and Completion Owner use OpenCode's current ChatGPT OAuth connection; the Requirements Planner uses its Z.ai connection. Changing
+and Completion Owner use OpenCode's current ChatGPT OAuth connection; the Requirements Gatherer
+and Planner use separate sessions on the Z.ai connection by default. Changing
 the account in ChatGPT's browser or desktop app does not change OpenCode's login.
 To switch this workflow's ChatGPT account, reconnect OpenAI in OpenCode.
 Every role can select any available provider/model
@@ -552,20 +624,22 @@ move between CLIs. No global OpenCode or Codex configuration is changed.
 
 ## OpenCode adapter
 
-The Requirements Planner and default Builder use the connections already configured in OpenCode. `--engine opencode`
+The Requirements Gatherer, Planner and default Builder use the connections already configured in OpenCode. `--engine opencode`
 is accepted but is optional for new runs:
 
 ```sh
 python3 tools/autocode.py "Your rough idea" --workspace /path/to/project
 ```
 
-Override any role with `--glm-model`, `--astra-model`, `--terra-model`,
+Override the three planning roles independently with `--requirements-model`,
+`--glm-model`, and `--plan-reviewer-model` (plus their reasoning-effort flags).
+Override execution roles with `--astra-model`, `--terra-model`,
 `--sol-model`, or `--completion-model` using a provider/model ID from `opencode models`, including
 `openai/…` with an OpenCode ChatGPT OAuth connection. Saved runs retain their original role
 engines and sessions; no existing run is migrated by a dashboard selection.
 OpenCode reasoning variants can be selected in the browser or with the existing
-role-specific reasoning-effort flags. New joint runs start with GLM for requirements
-planning, Sol High for the Plan Reviewer, Terra Medium for the Builder, Sol High for
+role-specific reasoning-effort flags. New joint runs start with separate GLM requirements
+and planner sessions, Sol High for the Plan Reviewer, Terra Medium for the Builder, Sol High for
 the Validator, and a separate Sol Medium session for the Completion Owner. The four
 execution roles then follow the automatic ladders documented above. Provider
 credentials remain with OpenCode: Autocode does
@@ -762,8 +836,9 @@ provider/auth in local Codex config still pauses a saved Codex-engine run.
 
 ## Conversation and approval
 
-The first stage runs **read-only GLM discovery**, presenting a small batch of
-material questions or a draft. Chat mode stays in the conversation; command
+The first stage runs **read-only requirements gathering** and saves a structured JSON handoff
+without milestones. A separate Planner uses it to propose the task DAG and any material
+questions. Chat mode stays in the conversation; command
 mode saves and exits at the checkpoint. Intermediate drafts cannot be approved;
 Astra still has to challenge, GLM revise, and Astra finalize first. State, answers,
 brief feedback, contract history, user events, prompts, schema files, evidence and

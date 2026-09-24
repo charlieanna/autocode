@@ -42,7 +42,14 @@ class MilestoneCheckpointTests(unittest.TestCase):
     def assign(self, milestone='M1', status='CONTINUE', **changes):
         decision = self.decision(milestone, status)
         decision.update(changes)
-        runner.apply_result(self.state, 'astra_review', decision, {'output': 'astra.json'}, self.root, self.run)
+        output = self.run / f'astra-{len(self.state["stages"])}.json'
+        output.write_text(json.dumps(decision))
+        record = {'output': str(output), 'source_revision': s.snapshot(self.root)['revision']}
+        runner.apply_result(self.state, 'astra_review', decision, record, self.root, self.run)
+        if status == 'REWORK':
+            self.assertEqual('astra_resolve', self.state['next_stage'])
+            runner.apply_result(self.state, 'astra_resolve', {**decision, 'diagnosis': 'Independent checks failed'},
+                                record, self.root, self.run)
 
     def validate(self, statuses=None, verdict=None, flow_status=None):
         statuses = statuses or {'C1': 'PASS', 'C2': 'PASS', 'C3': 'NOT_VERIFIED'}

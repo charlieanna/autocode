@@ -74,6 +74,25 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual("deny", permissions["edit"])
         self.assertEqual("deny", permissions["bash"])
 
+    def test_three_planner_roles_can_use_distinct_models_and_efforts(self):
+        args = SimpleNamespace(astra_model=None, terra_model=None, sol_model=None,
+                               requirements_model='openai/gpt-6-luna',
+                               requirements_reasoning_effort='high',
+                               glm_model='openai/gpt-6-sol', glm_reasoning_effort='medium',
+                               plan_reviewer_model='openai/gpt-6-sol',
+                               plan_reviewer_reasoning_effort='high')
+        settings = {"engine": "opencode", "roles": {r: {} for r in ("astra", "terra", "sol")},
+                    "transport_identity": {"engine": "opencode"}}
+        runner.configure_joint(settings, args, fresh=True)
+        self.assertEqual(('openai/gpt-6-luna', 'high'),
+                         (settings['roles']['requirements']['model'],
+                          settings['roles']['requirements']['reasoning_effort']))
+        self.assertEqual(('openai/gpt-6-sol', 'medium'),
+                         (settings['roles']['glm']['model'], settings['roles']['glm']['reasoning_effort']))
+        self.assertEqual(('openai/gpt-6-sol', 'high'),
+                         (settings['roles']['plan_reviewer']['model'],
+                          settings['roles']['plan_reviewer']['reasoning_effort']))
+
     def test_joint_context_distinguishes_conversation_context_from_saved_feedback(self):
         state=self.state();state['workspace']='/fixture'
         state['task']='Conversation reference: demo. You: Kubernetes with re-teaching.'
@@ -86,6 +105,37 @@ class PlanningTests(unittest.TestCase):
         contract['accepted_assumptions'].append({'text':'Kubernetes','basis':'user_feedback','answer_id':'conversation-demo'})
         with self.assertRaisesRegex(ValueError,'actual saved feedback event'):
             goals.validate_body(state,contract)
+
+    def test_requirements_handoff_is_separate_from_plan_and_preserves_questions(self):
+        state = {"version": 3, "task": "Build greeting", "settings": {
+            "joint_planning": True, "roles": {"requirements": {}, "glm": {}, "plan_reviewer": {}}},
+            "status": "RUNNING", "next_stage": "requirements_gather", "answers": {}}
+        requirements = {"summary": "Clarify the greeting", "intended_outcome": "Local greeting",
+            "required_behaviors": ["Greet a name"], "constraints": ["No network"],
+            "acceptance_tests": ["Run valid and invalid inputs"], "source_refs": ["task"],
+            "proposed_assumptions": ["A CLI may suffice"],
+            "open_questions": [{"id": "Q1", "question": "CLI or web?", "why": "Interface",
+                                "options": ["CLI", "Web"], "proposed_default": "CLI"}]}
+        planning.apply(state, "requirements_gather", requirements, {"output": "/run/requirements_gather-01.json"})
+        self.assertEqual("astra_discovery", state["next_stage"])
+        self.assertEqual("/run/requirements_gather-01.json", state["requirements_handoff"]["output"])
+        self.assertNotIn("milestones", state["requirements_handoff"]["report"])
+        self.assertEqual("requirements", planning.role_for(state, "requirements_gather"))
+        self.assertEqual("glm", planning.role_for(state, "astra_discovery"))
+        self.assertEqual("plan_reviewer", planning.route_for(state, "astra_challenge"))
+        requirements_prompt, _ = planning.context({**state, "task": "Build greeting",
+            "workspace": "/tmp/test-workspace", "planning": {},
+            "goal_contract": {"body": {"milestones": ["unapproved draft"]}}},
+            "requirements_gather", Path("/tmp/state.json"))
+        self.assertIn('"goal_contract": null', requirements_prompt)
+        self.assertNotIn("MILESTONE HANDOFF POLICY", requirements_prompt)
+        self.assertNotIn("unapproved draft", requirements_prompt)
+        draft = body(questions=False)
+        with self.assertRaisesRegex(ValueError, "dropped unresolved requirements questions"):
+            planning.apply(state, "astra_discovery", {"contract": draft, "summary": "plan",
+                "code_refs": [], "alternatives": [], "uncertainties": []}, {"output": "/run/draft.json"})
+        self.assertEqual("astra_discovery", state["next_stage"])
+        self.assertNotIn("planning", state)
 
     def state(self):
         state = {"version": 2, "task": "Greeting", "settings": {"joint_planning": True}, "acceptance_criteria": []}
@@ -288,7 +338,11 @@ class JointFlow(unittest.TestCase):
             # Explicitly exercise compatibility with saved no-recovery runs.
             state['settings']['report_repair'] = {'max_attempts': report_repair}
             (run/'state.json').write_text(json.dumps(state))
-        self.assertEqual("glm", state["stages"][0]["role"])
+        self.assertEqual(["requirements", "glm"], [row["role"] for row in state["stages"]])
+        handoff = state["requirements_handoff"]
+        self.assertEqual(state["stages"][0]["output"], handoff["output"])
+        self.assertNotIn("milestones", json.loads(Path(handoff["output"]).read_text()))
+        self.assertNotEqual(state["sessions"]["requirements"], state["sessions"]["glm"])
         self.assertEqual("WAITING_FOR_USER", state["status"])
         self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
         self.launch(["--run-dir", str(run), "--no-chat"], 2)
@@ -297,10 +351,13 @@ class JointFlow(unittest.TestCase):
     def test_opencode_planning_approval_then_implementation_and_validation(self):
         run, state = self.draft()
         stages = state["stages"]
-        self.assertEqual(["glm", "glm", "astra", "glm", "astra"], [r["role"] for r in stages])
-        self.assertEqual(["opencode"] * 5, [r["engine"] for r in stages])
+        self.assertEqual(["requirements", "glm", "glm", "astra", "glm", "astra"],
+                         [r["role"] for r in stages])
+        self.assertEqual(["opencode"] * 6, [r["engine"] for r in stages])
         self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
         self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual(3, len({state["sessions"][role]
+                                 for role in ("requirements", "glm", "plan_reviewer")}))
         self.assertFalse((self.project / "greet.py").exists())
         self.assertIn("Reject whitespace-only input", state["goal_contract"]["body"]["important_failure_cases"])
         for stage in stages:
@@ -313,19 +370,19 @@ class JointFlow(unittest.TestCase):
         self.launch([*args, "--approve-goal", state["displayed_goal"]], 0)
         approved = self.saved()[1]
         self.assertEqual("orchestrator", approved["next_stage"])
-        self.assertEqual(5, len(approved["stages"]))
+        self.assertEqual(6, len(approved["stages"]))
         self.assertEqual(approved["goal_contract"]["hash"], approved["current_task"]["contract_hash"])
         self.launch([*args, "--no-chat"], 0)
         final = self.saved()[1]
         self.assertEqual("COMPLETE", final["phase"])
-        self.assertEqual(["orchestrator", "terra", "sol", "astra_review"], [r["stage"] for r in final["stages"][5:]])
-        self.assertEqual(["runner", "opencode", "opencode", "opencode"], [r["engine"] for r in final["stages"][5:]])
-        sol = final["stages"][7]
+        self.assertEqual(["orchestrator", "terra", "sol", "astra_review"], [r["stage"] for r in final["stages"][6:]])
+        self.assertEqual(["runner", "opencode", "opencode", "opencode"], [r["engine"] for r in final["stages"][6:]])
+        sol = final["stages"][8]
         self.assertEqual("openai/gpt-5.6-sol", sol["command"][sol["command"].index("--model") + 1])
         self.assertEqual("high", sol["command"][sol["command"].index("--variant") + 1])
         config = json.loads(Path(sol["output"]).with_suffix(".opencode.json").read_text())
         self.assertEqual("deny", config["agent"]["autocode_sol"]["permission"]["edit"])
-        completion = final["stages"][8]
+        completion = final["stages"][9]
         self.assertEqual("astra", completion["role"])
         self.assertEqual("completion", completion["route_role"])
         self.assertEqual("openai/gpt-5.6-sol", completion["command"][completion["command"].index("--model") + 1])
@@ -341,7 +398,13 @@ class JointFlow(unittest.TestCase):
         self.launch([*args, "--no-chat"], 0)
         final = self.saved()[1]
         self.assertEqual("COMPLETE", final["phase"])
-        self.assertEqual(["orchestrator", "terra", "sol", "astra_review"] * 2, [r["stage"] for r in final["stages"][5:]])
+        self.assertEqual(["orchestrator", "terra", "sol", "astra_review", "astra_resolve",
+                          "orchestrator", "terra", "sol", "astra_review"],
+                         [r["stage"] for r in final["stages"][6:]])
+        resolution = next(r for r in final['stages'] if r['stage'] == 'astra_resolve')
+        self.assertEqual('resolver', resolution['route_role'])
+        self.assertIsNone(resolution['expected_session'])
+        self.assertNotEqual(final['sessions']['resolver'], final['sessions']['completion'])
         validations = [r for r in final["stages"] if r["stage"] == "sol"]
         self.assertEqual(["opencode", "opencode"], [r["engine"] for r in validations])
         self.assertEqual(final["sessions"]["sol"], validations[1]["expected_session"])
@@ -359,7 +422,7 @@ class JointFlow(unittest.TestCase):
         self.launch([*args, "--answer", "Q1=CLI"], 0)
         self.launch([*args, "--no-chat"], 2)
         state = self.saved()[1]
-        self.assertEqual(["opencode"] * 5,
+        self.assertEqual(["opencode"] * 6,
                          [stage["engine"] for stage in state["stages"]])
         self.launch([*args, "--approve-goal", state["displayed_goal"]], 0)
         self.launch([*args, "--no-chat"], 0)
@@ -398,7 +461,7 @@ class JointFlow(unittest.TestCase):
         self.assertEqual(2, state["planning"]["astra_calls"])
         self.launch(["--run-dir", str(run), "--approve-goal", state["displayed_goal"]], 2)
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
-        self.assertEqual(5, len(self.saved()[1]["stages"]))
+        self.assertEqual(6, len(self.saved()[1]["stages"]))
 
     def test_failed_final_cannot_trigger_third_astra_call_on_resume(self):
         run, state = self.draft("planning-invalid", report_repair=0)
@@ -407,7 +470,7 @@ class JointFlow(unittest.TestCase):
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
         paused = self.saved()[1]
         self.assertEqual("PAUSED_PLANNING_BUDGET", paused["status"])
-        self.assertEqual(5, len(paused["stages"]))
+        self.assertEqual(6, len(paused["stages"]))
         self.assertNotIn("active_stage", paused)
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
         self.launch(["--run-dir", str(run), "--feedback", "Try the simpler version"], 0)
@@ -455,7 +518,7 @@ class JointFlow(unittest.TestCase):
         recovered = self.saved()[1]
         self.assertEqual("AWAITING_GOAL_APPROVAL", recovered["status"])
         self.assertEqual(2, recovered["planning"]["astra_calls"])
-        self.assertEqual(5, len(recovered["stages"]))
+        self.assertEqual(6, len(recovered["stages"]))
         self.assertIn("recovered_at", recovered["stages"][-1])
         self.assertEqual(final["planning"]["final_token"], recovered["planning"]["final_token"])
 
@@ -471,7 +534,7 @@ class JointFlow(unittest.TestCase):
         self.assertEqual("PAUSED_BUDGET", paused["status"])
         self.assertEqual("opencode", paused["active_stage"]["engine"])
         self.assertEqual(1, paused["planning"]["astra_calls"])
-        self.assertEqual(2, len(paused["stages"]))
+        self.assertEqual(3, len(paused["stages"]))
         del self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"]
         self.launch([*args, "--resume-paused"], 2)
         still = self.saved()[1]

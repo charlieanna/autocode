@@ -689,7 +689,14 @@ class GoalTests(unittest.TestCase):
         self.state["validation"]["criterion_results"][0]["status"] = "FAIL"
         correction = self.decision("REWORK")
         correction["next_objective"] = "Reject empty names"
-        runner.apply_result(self.state, "astra_review", correction, {"output": "correction"}, self.root, self.run)
+        report = self.run / 'correction.json'
+        report.write_text(json.dumps(correction))
+        record = {"output": str(report), "source_revision": s.snapshot(self.root)['revision']}
+        runner.apply_result(self.state, "astra_review", correction, record, self.root, self.run)
+        self.assertEqual("astra_resolve", self.state["next_stage"])
+        self.assertEqual(previous, self.state["current_task"]["id"])
+        correction['diagnosis'] = 'The empty-name path does not reject invalid input'
+        runner.apply_result(self.state, "astra_resolve", correction, record, self.root, self.run)
         self.assertEqual("terra", self.state["next_stage"])
         self.assertNotEqual(previous, self.state["current_task"]["id"])
         self.assertEqual("Reject empty names", self.state["current_task"]["objective"])

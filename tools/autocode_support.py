@@ -704,6 +704,9 @@ def context_packet(state, stage, state_path):
         base["figma_file"] = figma_file
     if stage == "terra":
         base.update(affected_paths=state.get("affected_paths", []), actionable_findings=state.get("unresolved_findings", []))
+        repair = state.get('repair_plan') or {}
+        if any(task.get('id') == state.get('current_task', {}).get('id') for task in repair.get('tasks', [])):
+            base['repair_plan'] = repair
     elif stage in ("sol", "astra_checkpoint"):
         impl = state.get("implementation", {})
         base.update(implementation=impl, actual_changes=state.get("changed_files", []),

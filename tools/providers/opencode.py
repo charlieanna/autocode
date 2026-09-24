@@ -13,6 +13,7 @@ import uuid
 
 
 DEFAULT_MODELS = {
+    "requirements": "zai-coding-plan/glm-5.3",
     "glm": "zai-coding-plan/glm-5.3",
     # Role names are stable workflow identifiers, not fixed model names.  The
     # normal lead/reviewer starts on Sol and escalates to Astra only when the

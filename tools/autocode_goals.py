@@ -258,7 +258,9 @@ def migrate(state):
                     "why": "Existing criteria and agent assumptions have no user approval event",
                     "options": [], "proposed_default": ""}])
     install_draft(state, body, origin="migration_draft; no inferred user approval")
-    state.update(version=3, phase="DISCOVERING", status="RUNNING", pending_questions=[], next_stage="astra_discovery")
+    first_stage = ("requirements_gather" if "requirements" in state.get("settings", {}).get("roles", {})
+                   else "astra_discovery")
+    state.update(version=3, phase="DISCOVERING", status="RUNNING", pending_questions=[], next_stage=first_stage)
 
 
 def render(state):
@@ -390,7 +392,9 @@ def feedback(state, text):
     state.setdefault("brief_feedback", []).append(event)
     state["goal_contract"].update(approval_status="draft", approval_event=None)
     invalidate(state, "Brief feedback requires a refreshed draft and explicit approval")
-    state.update(status="RUNNING", phase="DISCOVERING", next_stage="astra_discovery", pending_questions=[])
+    first_stage = ("requirements_gather" if "requirements" in state.get("settings", {}).get("roles", {})
+                   else "astra_discovery")
+    state.update(status="RUNNING", phase="DISCOVERING", next_stage=first_stage, pending_questions=[])
 
 
 def apply_intervention_feedback(state, receipt, applied_receipt):
@@ -411,7 +415,9 @@ def apply_intervention_feedback(state, receipt, applied_receipt):
     if contract:
         contract.update(approval_status="draft", approval_event=None)
     invalidate(state, "Queued feedback requires Astra review, refreshed approval and validation")
-    state.update(status="PAUSED_INTERVENTION", phase="PAUSED_OR_BLOCKED", next_stage="astra_discovery",
+    first_stage = ("requirements_gather" if "requirements" in state.get("settings", {}).get("roles", {})
+                   else "astra_discovery")
+    state.update(status="PAUSED_INTERVENTION", phase="PAUSED_OR_BLOCKED", next_stage=first_stage,
                  pending_questions=[], stop_reason="Queued feedback was applied; explicitly continue to Astra discovery.")
 
 

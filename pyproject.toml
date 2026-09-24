@@ -11,14 +11,20 @@ readme = "README.md"
 dependencies = ["psutil>=7.0,<8"]
 
 [project.scripts]
+autopilot = "autocode_cli.autopilot:cli"
 autocode = "autocode_cli.autocode:cli"
+autocode-orchestrator = "autocode_cli.autocode_orchestrator:cli"
+autoplanner = "autocode_cli.autoplanner:cli"
+autocode-build = "autocode_cli.autocode_build:cli"
+autoreview = "autocode_cli.autoreview:cli"
+autoresolver = "autocode_cli.autoresolver:cli"
 autocode-dashboard = "autocode_cli.dashboard.agent_console:main"
 autocode-ui = "autocode_cli.autocode_ui:cli"
 autocode-tasks = "autocode_cli.autocode_tasks:cli"
 hello-world = "autocode_cli.hello:main"
 
 [tool.setuptools]
-packages = ["autocode_cli", "autocode_cli.dashboard", "autocode_cli.providers"]
+packages = ["autocode_cli", "autocode_cli.dashboard", "autocode_cli.providers", "autocode_cli.units"]
 package-dir = {autocode_cli = "tools"}
 
 [tool.setuptools.package-data]

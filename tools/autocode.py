@@ -38,7 +38,7 @@ except ImportError:
 try:
     from . import autocode_workspaces as task_workspaces
     from . import autocode_figma as figma
-    from . import autocode_orchestrator as orchestrator
+    from . import autopilot
     from . import autocode_workflow as workflow
     from . import autocode_milestones as milestones
     from . import autocode_dispatch as dispatch
@@ -46,12 +46,15 @@ try:
 except ImportError:
     import autocode_workspaces as task_workspaces
     import autocode_figma as figma
-    import autocode_orchestrator as orchestrator
+    import autopilot
     import autocode_workflow as workflow
     import autocode_milestones as milestones
     import autocode_dispatch as dispatch
     from autocode_activity import ActivityMonitor
 
+
+# Compatibility for integrations that imported the previous controller attribute.
+orchestrator = autopilot
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "autocode-schemas"
 DEFAULT_ROLE_MODELS = {
@@ -534,11 +537,7 @@ def execute_report_repair(state, run_dir, workspace):
 
 
 def apply_result(state, stage, value, record, workspace, run_dir):
-    # Reject malformed/stale results without partially mutating authoritative state.
-    candidate = copy.deepcopy(state)
-    _apply_result(candidate, stage, value, record, workspace, run_dir)
-    state.clear()
-    state.update(candidate)
+    return autopilot.apply_result(sys.modules[__name__], state, stage, value, record, workspace, run_dir)
 
 
 def save_record(state, record):
@@ -550,195 +549,8 @@ def save_record(state, record):
 
 
 def _apply_result(state, stage, value, record, workspace, run_dir):
-    """Only the runner advances the state; final model text is a proposal."""
-    if stage == "astra_checkpoint":
-        workflow.apply_checkpoint(sys.modules[__name__], state, value, record, workspace, run_dir)
-        return
-    modern = state.get("version", 2) >= 3
-    if planning.is_planning(state, stage):
-        planning.apply(state, stage, value, record)
-        save_record(state, record)
-        return
-    if modern and stage == "astra_discovery":
-        schema = read_json(Path(record["schema"])) if record.get("schema") else goals.DISCOVERY_SCHEMA
-        support.validate_schema(value, schema)
-        legacy = not any(key in schema["properties"]["contract"]["properties"] for key in goals.BRIEF_FIELDS)
-        goals.install_draft(state, value["contract"], origin="astra_discovery", allow_legacy=legacy)
-        state["discovery_summary"] = value["summary"]
-        save_record(state, record)
-        return
-    if modern:
-        goals.execution_guard(state, value)
-        for entry in value.get("deferred_backlog", []):
-            if entry not in state.setdefault("deferred_backlog", []):
-                state["deferred_backlog"].append(entry)
-        if value["user_request"]["kind"] != "none":
-            if workflow.final_only(state) and not stage.startswith('astra'):
-                goals.wait_for_user(state,value['user_request'])
-                save_record(state,record)
-                return
-            if stage.startswith("astra"):
-                if value["status"] != "BLOCKED":
-                    raise ValueError("Astra must choose BLOCKED when requesting a user decision")
-                goals.wait_for_user(state, value["user_request"])
-                goals.record_decision(state, value)
-                state.pop("agent_request", None)
-                save_record(state, record)
-                return
-            state["agent_request"] = {"role": stage, "request": copy.deepcopy(value["user_request"])}
-            if stage == "terra":
-                state.update(implementation={**value, "source_revision": record.get("source_revision"),
-                                             "workspace": str(workspace)},
-                             changed_files=record.get("changed_files", []), source_snapshot=record.get("after_ref"),
-                             diff_ref=record.get("diff_ref"), next_stage="astra_review")
-                save_record(state, record)
-                return
-    if stage.startswith("astra"):
-        definitions = support.criteria_definition(value["acceptance_criteria"])
-        if len({c["id"] for c in definitions}) != len(definitions):
-            raise support.Paused("PAUSED_INVALID_OUTPUT", "Duplicate acceptance IDs")
-        old = state.get("acceptance_criteria", [])
-        if old and definitions != support.criteria_definition(old):
-            raise support.Paused("PAUSED_CRITERIA_CHANGE", "Astra proposed a criteria change; previous revision remains authoritative")
-        state["acceptance_criteria"] = value["acceptance_criteria"]
-        state["criteria_revision"] = support.digest(definitions)
-        state["plan"] = value.get("plan", [value["next_objective"]])
-        state["affected_paths"] = value.get("affected_paths", [])
-        if value["status"] in ("COMPLETE", "TASK_COMPLETE"):
-            current = support.snapshot(workspace)
-            if modern and goals.missing_human_reviews(state):
-                if not support.completion_ready(state, value, current, require_human_reviews=False):
-                    raise support.Paused("PAUSED_COMPLETION_GATE", "Artifact review requires current passing independent evidence first")
-                state.update(status="WAITING_FOR_USER", phase="WAITING_FOR_USER", next_stage="astra_review",
-                    user_request={"kind": "human_review", "criteria": goals.missing_human_reviews(state),
-                                  "decision_needed": "Review the current artifact and explicitly approve the listed criteria"})
-                goals.record_decision(state, value)
-                save_record(state, record)
-                return
-            if not support.completion_ready(state, value, current):
-                raise support.Paused("PAUSED_COMPLETION_GATE", "Completion rejected: missing, stale, failed or unverified independent evidence")
-            state.update(status="TASK_COMPLETE", completed_at=now(), final_decision=value, next_stage=None)
-            if milestones.enabled(state):
-                milestones.accept(state, current)
-            if modern:
-                state["phase"] = "COMPLETE"
-        elif value["status"] == "BLOCKED":
-            if modern:
-                raise support.Paused("PAUSED_INVALID_OUTPUT", "BLOCKED requires a structured user_request")
-            state.update(status="BLOCKED_HUMAN", stop_reason=value["blocker"], next_stage="astra_review")
-        elif value["status"] == "VALIDATE":
-            if stage == "astra_review":
-                state["iteration"] += 1
-            state.update(next_stage=workflow.review_stage(state))
-        else:
-            if not value["next_objective"].strip():
-                raise support.Paused("PAUSED_INVALID_OUTPUT", "CONTINUE requires an action")
-            if modern:
-                completion_probe = {**value, "status": "TASK_COMPLETE", "acceptance_criteria": [
-                    {**c, "status": "verified", "evidence": "Current Sol criterion evidence"}
-                    for c in state["acceptance_criteria"]]}
-                if support.completion_ready(state, completion_probe, support.snapshot(workspace)):
-                    state.update(status="PAUSED_COMPLETION_REVIEW", phase="PAUSED_OR_BLOCKED", next_stage="astra_review",
-                        stop_reason="All required criteria already pass; request completion instead of another implementation batch")
-                    state["iteration"] += 1
-                    goals.record_decision(state, value)
-                    save_record(state, record)
-                    return
-            if stage == "astra_review":
-                state["iteration"] += 1
-            current = support.snapshot(workspace)
-            try:
-                kind = goals.assign_task(state, value, current) if modern else "implement"
-            except support.Paused as error:
-                if not error.status.startswith("PAUSED_MILESTONE_"):
-                    raise
-                milestones.handle_gate(state, error, current)
-                goals.record_decision(state, value)
-                save_record(state, record)
-                return
-            validation_verdict = state.get("validation", {}).get("verdict")
-            if validation_verdict in ("FAIL", "BLOCKED"):
-                escalation.advance(state, "sol" if kind == "validate" else "terra",
-                                   trigger="validation_rework",
-                                   detail=f"{validation_verdict}: {value['next_objective']}",
-                                   struggle_id=f"iteration:{record.get('iteration', state.get('iteration', 0))}")
-            state.update(next_action=value["next_objective"], next_stage=workflow.review_stage(state) if kind == "validate" else dispatch.build_stage(state))
-        if modern:
-            goals.record_decision(state, value)
-            state.pop("agent_request", None)
-    elif stage == "terra":
-        support.evidence_hashes(support.implementation_evidence_paths(value["evidence_refs"], record["events"]), workspace, run_dir)
-        state.update(implementation={**value, "source_revision": record.get("source_revision"),
-                                     "workspace": str(workspace)},
-                     changed_files=record["changed_files"], source_snapshot=record["after_ref"],
-                     next_stage=workflow.review_stage(state), diff_ref=record.get("diff_ref"))
-        if not record["changed_files"]:
-            state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
-            escalation.advance(state, "terra", trigger="no_progress",
-                               detail="Builder completed a batch without source changes",
-                               struggle_id=f"iteration:{record.get('iteration', state.get('iteration', 0))}")
-        else:
-            state["no_progress_batches"] = 0
-        if workflow.final_only(state):
-            workflow.apply_implementation(sys.modules[__name__],state,value,record,workspace,run_dir)
-    else:
-        support.verify_checks(value["checks"], workspace, record["events"])
-        refs = [c["evidence_ref"] for c in value["checks"]]
-        for check in value["checks"]:
-            if not check["evidence_ref"].startswith("event:"):
-                receipt_path = Path(check["evidence_ref"])
-                receipt_path = receipt_path if receipt_path.is_absolute() else workspace / receipt_path
-                refs.append(read_json(receipt_path)["full_output"])
-        refs += [p for row in value["criterion_results"] for p in row["evidence_refs"]]
-        flow = value.get("end_to_end_result", {})
-        refs += flow.get("evidence_refs", [])
-        members = state.get("current_task", {}).get("milestone_ids", [])
-        if members:
-            results = value.get("milestone_results", [])
-            ids = [r["milestone_id"] for r in results]
-            if len(ids) != len(set(ids)) or set(ids) != set(members):
-                raise ValueError("Combined validation must report every batch milestone exactly once")
-            for result in results:
-                if (value["verdict"] == "PASS" and result["status"] != "PASS"
-                        or result["status"] == "PASS" and (not result["summary"].strip() or not result["evidence_refs"])):
-                    raise ValueError("Combined PASS needs passing evidence for every milestone outcome")
-                refs += result["evidence_refs"]
-        if flow.get("status") == "PASS" and (not flow.get("summary", "").strip() or not flow.get("evidence_refs")):
-            raise ValueError("End-to-end PASS requires a check description and evidence")
-        ids = [row["id"] for row in value["criterion_results"]]
-        known = {c["id"] for c in state["acceptance_criteria"]}
-        if len(ids) != len(set(ids)) or not set(ids) <= known:
-            raise ValueError("Sol criterion results must use unique approved IDs")
-        for ref in refs:
-            if ref.startswith("event:"):
-                event_id = ref.split(":", 1)[1]
-                matches = [e for e in support.events(record["events"]) if e.get("type") == "item.completed"
-                           and e.get("item", {}).get("id") == event_id
-                           and e["item"].get("type") == "command_execution"]
-                if len(matches) != 1:
-                    raise ValueError(f"Criterion evidence references a missing executed event: {event_id}")
-        refs = [record["events"] if p.startswith("event:") else p for p in refs]
-        pins = support.evidence_hashes(refs, workspace, run_dir) if refs else {}
-        validation = {**value, "evidence_hashes": pins, "criteria_revision": state["criteria_revision"],
-                      "source_revision": record["source_revision"], "output": record["output"],
-                      "reviewer_role": record.get("role", stage)}
-        if value["verdict"] == "PASS" and (not value["checks"] or any(c["exit_code"] for c in value["checks"])):
-            raise support.Paused("PAUSED_INVALID_OUTPUT", "Sol PASS lacks successful executed checks")
-        if state.get("validation"):
-            state.setdefault("validation_archive", []).append({
-                "reason": "Superseded by another independent validation", "validation": state["validation"]})
-        state.update(validation=validation, unresolved_findings=value["findings"], next_stage="astra_review")
-        milestones.observe_validation(state, support.snapshot(workspace))
-        if modern:
-            state["human_reviews"] = {}
-            state.pop("displayed_review", None)
-        if stage == 'sol' and workflow.final_only(state) and record.get('role') == 'sol':
-            workflow.dispatch_guard(state,'sol',workspace)
-            state.setdefault('consultation_reports',[]).append({
-                'question':state.pop('targeted_consultation'),'report':state.pop('validation')})
-            state['next_stage']='terra'
-    save_record(state, record)
-    state.pop("stop_reason", None) if state["status"] == "RUNNING" else None
+    """Compatibility entry for recovery and older callers; Autopilot owns transitions."""
+    return autopilot._apply_result(sys.modules[__name__], state, stage, value, record, workspace, run_dir)
 
 
 def archive_rejected_stage(state, run_dir, record, reason):
@@ -1209,6 +1021,10 @@ def configure(args, state):
         joint = True
     if joint and engine != "opencode":
         raise ValueError("--joint-planning uses OpenCode with Codex routes for Astra and Sol; omit --engine codex")
+    if (getattr(args, "requirements_model", None) or getattr(args, "requirements_reasoning_effort", None)
+            or getattr(args, "glm_reasoning_effort", None) or getattr(args, "plan_reviewer_model", None)
+            or getattr(args, "plan_reviewer_reasoning_effort", None)) and not joint:
+        raise ValueError("Planner role overrides require OpenCode joint planning")
     if getattr(args, "glm_model", None) and not joint:
         raise ValueError("--glm-model requires joint planning; omit --engine codex")
     if started and engine != saved_engine:
@@ -1262,9 +1078,12 @@ def configure(args, state):
                 settings.setdefault("limits", {})[name] = selected
         if enable_saved_joint:
             settings["joint_planning"] = True
+            settings["roles"]["requirements"] = {"engine": "opencode", "provider": None,
+                "model": getattr(args, "requirements_model", None) or opencode.DEFAULT_MODELS["requirements"],
+                "reasoning_effort": getattr(args, "requirements_reasoning_effort", None)}
             settings["roles"]["glm"] = {"engine": "opencode", "provider": None,
                 "model": getattr(args, "glm_model", None) or opencode.DEFAULT_MODELS["glm"],
-                "reasoning_effort": None}
+                "reasoning_effort": getattr(args, "glm_reasoning_effort", None)}
             settings.setdefault("transport_identities", {})["opencode"] = settings["transport_identity"]
             opencode.check_models(settings["roles"], Path(state["workspace"]))
             opencode.check_subscription_routes(settings["roles"], Path(state["workspace"]))
@@ -1382,6 +1201,9 @@ def _provider_model(role, requested):
 def configure_joint(settings, args, *, fresh):
     if fresh:
         settings["joint_planning"] = True
+        settings["roles"]["requirements"] = {"engine": "opencode", "provider": None,
+            "model": getattr(args, "requirements_model", None) or opencode.DEFAULT_MODELS["requirements"],
+            "reasoning_effort": getattr(args, "requirements_reasoning_effort", None)}
         if "completion" not in settings["roles"]:
             settings["roles"]["completion"] = {
                 **settings["roles"]["astra"],
@@ -1400,12 +1222,26 @@ def configure_joint(settings, args, *, fresh):
         settings["roles"]["glm"] = {"engine": "opencode", "provider": None,
             "model": glm_model, "reasoning_effort": opencode.DEFAULT_REASONING_EFFORTS.get("glm")}
         settings["roles"]["plan_reviewer"] = {"engine": "opencode", "provider": None,
-            "model": opencode.DEFAULT_MODELS["plan_reviewer"],
-            "reasoning_effort": opencode.DEFAULT_REASONING_EFFORTS.get("plan_reviewer"),
+            "model": getattr(args, "plan_reviewer_model", None) or opencode.DEFAULT_MODELS["plan_reviewer"],
+            "reasoning_effort": (getattr(args, "plan_reviewer_reasoning_effort", None)
+                                 or opencode.DEFAULT_REASONING_EFFORTS.get("plan_reviewer")),
             "model_pinned": True}
         settings["transport_identities"] = {"opencode": settings["transport_identity"]}
     elif getattr(args, "glm_model", None):
         settings["roles"]["glm"]["model"] = args.glm_model
+    if getattr(args, "requirements_model", None) or getattr(args, "requirements_reasoning_effort", None):
+        if "requirements" not in settings["roles"]:
+            raise ValueError("This saved run predates the separate requirements stage; start a new run to select its model")
+        if getattr(args, "requirements_model", None):
+            settings["roles"]["requirements"]["model"] = args.requirements_model
+        if getattr(args, "requirements_reasoning_effort", None):
+            settings["roles"]["requirements"]["reasoning_effort"] = args.requirements_reasoning_effort
+    if getattr(args, "glm_reasoning_effort", None):
+        settings["roles"]["glm"]["reasoning_effort"] = args.glm_reasoning_effort
+    if getattr(args, "plan_reviewer_model", None):
+        settings["roles"]["plan_reviewer"]["model"] = args.plan_reviewer_model
+    if getattr(args, "plan_reviewer_reasoning_effort", None):
+        settings["roles"]["plan_reviewer"]["reasoning_effort"] = args.plan_reviewer_reasoning_effort
     builtin_opencode = not getattr(opencode, "CONFIGURED", False)
     for role, config in settings["roles"].items():
         if planning.engine_for(settings, role) == "codex":
@@ -1718,7 +1554,7 @@ def rotate_if_needed(state, role, run_dir):
         write_json(run_dir / "state.json", state)
 
 
-def main() -> int:
+def main(unit=None) -> int:
     global opencode
     if sys.argv[1:2] == ["tasks"]:
         try:
@@ -1744,9 +1580,11 @@ def main() -> int:
         return registry.cli(sys.argv[2:])
     if sys.argv[1:2] == ["intervention"]:
         return interventions.cli(sys.argv[2:])
-    parser = argparse.ArgumentParser(description="GLM requirements planning, Sol review, Terra implementation, Sol validation and completion ownership")
-    parser.add_argument("task", nargs="?", help="Rough idea for GLM and the plan reviewer to turn into an approved build brief")
+    parser = argparse.ArgumentParser(description="Independent requirements gathering, planning, plan review, build, validation and completion ownership")
+    parser.add_argument("task", nargs="?", help="Idea for the requirements gatherer, planner and plan reviewer to turn into an approvable build brief")
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
+    parser.add_argument("--unit", choices=autopilot.UNITS, default=unit,
+                        help="Run only this unit, stopping before the next unit; default runs Autopilot")
     parser.add_argument("--run-dir", type=Path, help="Existing run directory to resume")
     parser.add_argument("--in-place", action="store_true", help="Use this checkout directly; otherwise new tasks get independent worktrees from HEAD")
     parser.add_argument("--max-parallel-builders", type=int,
@@ -1762,8 +1600,17 @@ def main() -> int:
                         help="Tool that runs each role for a new run. Default: AUTOCODE_PROVIDER, then default_provider in "
                              "~/.config/autocode/config.toml, then opencode. Other names load ~/.config/autocode/providers/<name>.toml")
     parser.add_argument("--joint-planning", action="store_true",
-                        help="Default for new OpenCode runs; add GLM planning to an approved saved OpenCode run at a clean execution boundary")
+                        help="Default for new OpenCode runs; add three-role planning to an approved saved OpenCode run at a clean execution boundary")
     parser.add_argument("--glm-model", help="Planning-role OpenCode provider/model (default: zai-coding-plan/glm-5.3)")
+    parser.add_argument("--requirements-model", help="Independent requirements-gatherer OpenCode provider/model")
+    parser.add_argument("--requirements-reasoning-effort", choices=["low", "medium", "high", "xhigh", "max"],
+                        help="Override independent requirements-gatherer reasoning effort")
+    parser.add_argument("--glm-reasoning-effort", choices=["low", "medium", "high", "xhigh", "max"],
+                        help="Override OpenCode planner draft and revision reasoning effort")
+    parser.add_argument("--plan-reviewer-model",
+                        help="Override the independent OpenCode plan-reviewer model")
+    parser.add_argument("--plan-reviewer-reasoning-effort", choices=["low", "medium", "high", "xhigh", "max"],
+                        help="Override independent plan-reviewer reasoning effort")
     parser.add_argument("--max-iterations", type=int, help="Total iteration ceiling (new-run default: 15; resumes keep saved limits)")
     parser.add_argument('--unlimited-iterations',action='store_true',help='Remove only the iteration ceiling; other safety and usage limits remain')
     for role, model in DEFAULT_ROLE_MODELS.items():
@@ -1843,6 +1690,10 @@ def main() -> int:
         parser.error('--unlimited-iterations cannot be combined with an explicit iteration ceiling')
     if args.accept_transport_change and (not args.run_dir or not args.resume_paused):
         parser.error("--accept-transport-change requires --run-dir and --resume-paused")
+    if unit and args.unit != unit:
+        parser.error(f"This entry point runs only {unit}")
+    if args.unit in ("autocode", "autoreview", "autoresolver") and not args.run_dir:
+        parser.error("Build and review units require an existing --run-dir with an approved plan")
     if args.chat is None:
         args.chat = sys.stdin.isatty() and sys.stdout.isatty()
     for flag in ("max_iterations", "legacy_iteration_ceiling", "max_seconds", "max_stage_seconds", "max_idle_seconds", "max_tool_seconds", "max_reported_tokens", "no_progress_limit", "max_milestone_seconds", "max_milestone_replans", "max_milestone_stalled_reviews"):
@@ -1944,6 +1795,7 @@ def main() -> int:
                            "completion_current":completion_current,
                            "milestone_checkpoint": milestones.summary(state),
                            "orchestration_batch": state.get("orchestration_batch"),
+                           "unit_handoffs": state.get("unit_handoffs", {}),
                            "milestone_activation_pending": (run_dir / 'milestone-checkpoints-requested.json').exists(),
                            "interventions": intervention_metadata(workspace, run_dir, state)}, indent=2))
         return 0
@@ -2097,6 +1949,7 @@ def main() -> int:
                     print(f"Input rejected: {error}", file=sys.stderr)
                     return 2
                 rendered = goals.present(candidate)
+                autopilot.publish_handoffs(candidate, run_dir)
                 commit_user_action(state, candidate, run_dir)
                 print(rendered)
                 print("Saved. Resume with the same --workspace and --run-dir; no agent launched by this action.")
@@ -2150,132 +2003,9 @@ def main() -> int:
             if state["settings"].get("engine") == "opencode":
                 opencode.check_models({r: config for r, config in state["settings"]["roles"].items()
                                        if planning.engine_for(state["settings"], r) == "opencode"}, workspace)
-            def before_code_stage(current):
-                try:
-                    if consume_interventions(current, run_dir, workspace):
-                        print(f"{current['status']}: {current['stop_reason']}")
-                        raise orchestrator.LoopExit(2)
-                except interventions.InterventionError as error:
-                    raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
-                if milestones.apply_queued_activation(current, run_dir):
-                    print("Milestone checkpoints enabled at a safe boundary; continuing with independent validation.", flush=True)
-                workflow.guard(current)
-                repairing_before_upgrade = (args.resume_paused and current.get('pending_report_repair')
-                                            and milestones.owns_pause(run_dir))
-                if (run_dir / "pause-requested").exists() and not repairing_before_upgrade:
-                    raise support.Paused("PAUSED_REQUESTED", "Pause requested; previous stage saved")
-                limits = current["settings"]["limits"]
-                timeout_recovery_guard(current)
-                if iteration_limit_reached(current["iteration"], limits["iteration_ceiling"]):
-                    raise support.Paused("PAUSED_ITERATION_LIMIT", "Saved iteration ceiling reached")
-                if limits["max_seconds"] and current.get("active_seconds",0) >= limits["max_seconds"]:
-                    raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
-                if limits["max_reported_tokens"]:
-                    measured = [r.get("metrics",{}).get("provider_tokens",{}) for r in current.get("stages",[])]
-                    if any(m.get("input_tokens") is None or m.get("output_tokens") is None for m in measured):
-                        raise support.Paused("PAUSED_USAGE_UNKNOWN", "Cannot enforce requested token limit with unknown usage")
-                    if sum(m["input_tokens"]+m["output_tokens"] for m in measured) >= limits["max_reported_tokens"]:
-                        raise support.Paused("PAUSED_BUDGET", "Saved reported-token limit reached")
-                if (not repairing_before_upgrade and (not milestones.enabled(current) or current.get('next_stage') in ('terra', 'orchestrator')) and limits["no_progress_batches"]
-                        and current.get("no_progress_batches",0) >= limits["no_progress_batches"]):
-                    raise support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review")
-                # Do not silently change auth/provider when local config changes.
-                using_opencode = current["settings"].get("engine") == "opencode"
-                if planning.enabled(current):
-                    check_joint_transports(current, workspace)
-                current_settings = opencode.local_settings(workspace) if using_opencode else support.local_settings()
-                drifted = (opencode.transport_drift(current_settings, current["settings"]["transport_identity"]) if using_opencode else
-                           support.transport_drift(current_settings, current["settings"]["transport_identity"], current["settings"]["roles"]))
-                if drifted:
-                    raise support.Paused("PAUSED_TRANSPORT_CHANGED", "Local model/auth/provider settings differ from checkpoint")
-                if using_opencode and current["settings"]["transport_identity"].get("identity_version", 1) < 2:
-                    current.setdefault("configuration_changes", []).append({"at": now(),
-                        "reason": "Expanded OpenCode configuration identity; all previously recorded inputs match"})
-                    current["settings"]["transport_identity"] = current_settings
-                if current.get('pending_report_repair'):
-                    try:
-                        execute_report_repair(current, run_dir, workspace)
-                    except ReportRepairQueued:
-                        pass
-                    return orchestrator.SKIP
-
-            def dispatch_code_stage(current, stage):
-                milestones.dispatch_guard(current, stage)
-                workflow.dispatch_guard(current,stage,workspace)
-                if stage == "orchestrator":
-                    return dispatch.dispatch(current, workspace, run_dir)
-                joint_stage = planning.is_planning(current, stage)
-                if stage != "astra_discovery" and not joint_stage:
-                    goals.execution_guard(current)
-                    current["phase"] = "EXECUTING"
-                else:
-                    current["phase"] = "PLANNING" if joint_stage else "DISCOVERING"
-                role = planning.role_for(current, stage)
-                route_role = planning.route_for(current, stage, role)
-                rotate_if_needed(current, route_role, run_dir)
-                prompt, metrics = (planning.context(current, stage, state_path) if joint_stage else
-                                   support.context_packet(current, stage, state_path))
-                current["pending_context_metrics"] = metrics
-                # Soft budget: keep exact requirements; don't silently truncate them.
-                if metrics["estimated_prompt_tokens"] > metrics["soft_budget_tokens"]:
-                    print("Context soft budget exceeded; preserving complete requirements", flush=True)
-                write_json(state_path, current)
-                schema_value = planning.SCHEMAS[stage] if joint_stage else goals.DISCOVERY_SCHEMA if stage == "astra_discovery" else goals.role_schema(
-                    read_json(SCHEMA_DIR / "v2" / f"{role}-{'decision' if role=='astra' else 'report'}.schema.json"), role)
-                if stage == "astra_checkpoint":
-                    schema_value = workflow.checkpoint_schema(SCHEMA_DIR)
-                elif stage == 'terra' and workflow.final_only(current):
-                    schema_value = workflow.implementation_schema(SCHEMA_DIR)
-                schema_path = run_dir / "schemas" / f"v3-{stage}.json"
-                if stage == "sol" and current.get("current_task", {}).get("milestone_ids"):
-                    schema_value["properties"]["milestone_results"] = {"type": "array", "items": goals.obj({
-                        "milestone_id": goals.STRING, "status": {"type": "string", "enum": ["PASS", "FAIL", "NOT_VERIFIED"]},
-                        "summary": goals.STRING, "evidence_refs": goals.STRINGS})}
-                    schema_value["required"].append("milestone_results")
-                write_json(schema_path, support.model_output_schema(schema_value))
-                try:
-                    value, record = run_role(role=role, prompt=prompt, sandbox="workspace-write" if role=="terra" else "read-only",
-                        workspace=workspace, run_dir=run_dir, state=current,
-                        schema=schema_path,
-                        model=current["settings"]["roles"][route_role]["model"], allow_write=role=="terra", dry_run=False)
-                    account_stage(current, record)
-                    try:
-                        commit_stage_result(current, stage, value, record, workspace, run_dir)
-                    except (ValueError, KeyError, support.Paused) as error:
-                        reject_completed_stage(current, run_dir, record, error)
-                except ReportRepairQueued:
-                    return orchestrator.SKIP
-                except support.Paused as error:
-                    if (automatically_recover_timed_out_stage(current, run_dir, workspace, error)
-                            or automatically_recover_external_directory_denial(current, run_dir, workspace, error)):
-                        print(f"{stage}: non-terminal attempt archived; continuing from recovery checkpoint", flush=True)
-                        return orchestrator.SKIP
-                    raise
-                return record
-
-            def after_code_stage(current, stage, _record):
-                print(f"{stage}: saved; next={current['next_stage']}; status={current['status']}", flush=True)
-                if milestones.enabled(current):
-                    print(milestones.status_line(current), flush=True)
-                try:
-                    if consume_interventions(current, run_dir, workspace):
-                        print(f"{current['status']}: {current['stop_reason']}")
-                        raise orchestrator.LoopExit(2)
-                except interventions.InterventionError as error:
-                    raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
-                if args.chat and current["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
-                    if not chat_checkpoint(current, run_dir):
-                        write_json(state_path, current)
-                        raise orchestrator.LoopExit(2)
-                    write_json(state_path, current)
-                if args.pause_after_stage and current["status"] == "RUNNING":
-                    raise support.Paused("PAUSED_REQUESTED", "--pause-after-stage checkpoint reached")
-            try:
-                orchestrator.drive(state, dispatch_code_stage, before=before_code_stage,
-                                   persist=lambda current: write_json(state_path, current),
-                                   after=after_code_stage)
-            except orchestrator.LoopExit as stopped:
-                return stopped.code
+            stopped = autopilot.run(sys.modules[__name__], state, workspace, run_dir, args)
+            if stopped is not None:
+                return stopped
         except (support.Paused, ValueError, RuntimeError, OSError) as error:
             state.update(status=getattr(error,"status","PAUSED_INVALID_OUTPUT"), stop_reason=str(error), paused_at=now())
             state["phase"] = "PAUSED_OR_BLOCKED"
@@ -2327,13 +2057,13 @@ class _DetachedOutput:
         return getattr(self.original, name)
 
 
-def cli():
+def cli(unit=None):
     # A caller can close its stdout/stderr pipe while a provider is still
     # working. Progress output must not turn that run into an uncertain stage.
     sys.stdout = _DetachedOutput(sys.stdout)
     sys.stderr = _DetachedOutput(sys.stderr)
     try:
-        return main()
+        return main(unit=unit)
     except (RuntimeError, ValueError, OSError) as error:
         print(f"autocode: {error}", file=sys.stderr)
         return 2
