@@ -1,34 +1,27 @@
-# Live task vs Autopilot — 2026-09-24
+# Autocode vs a direct agent — 2026-09-24
 
-Two real runs of the same greeting task, from checkout `153d89c`. No fixture Builder was used. OpenCode 1.18.32 called the saved providers.
+Same task, two real runs. One went through Autocode. The other was one OpenCode request to the builder model, with no Autocode workflow.
 
-The `autocode` and `autopilot` commands both enter the same controller. This comparison is two independent live executions, not two different engines.
-
-Task, given to each command in its own empty Git repository:
+Task:
 
 > Build greet.py, a Python 3 CLI in this repository. With no arguments it prints exactly Hello, World! and exits 0. With one argument NAME it prints exactly Hello, NAME! and exits 0. Add test_greet.py using only unittest for both cases. No third-party packages, no network, and no other product files.
 
-```sh
-.venv/bin/python tools/autocode.py "<task>" --workspace /tmp/autocode-live-compare/autocode --in-place --no-chat --reasoning-effort medium --max-iterations 8 --max-parallel-builders 1 --max-seconds 2400
-.venv/bin/python tools/autopilot.py "<task>" --workspace /tmp/autocode-live-compare/autopilot --in-place --no-chat --reasoning-effort medium --max-iterations 8 --max-parallel-builders 1 --max-seconds 2400
-```
+Direct agent: `opencode run --model openai/gpt-5.6-terra --variant medium` in an empty Git repository. That is the Builder model and effort Autocode would have used later.
 
-Roles were the defaults: requirements and planner `zai-coding-plan/glm-5.3`, plan reviewer `cursor-acp/claude-opus-5-5-high`, builder `openai/gpt-5.6-terra`, validator and completion owner `openai/gpt-5.6-sol`, reasoning effort medium where the command set it.
+Autocode: `tools/autocode.py` from checkout `29edb5b`, `--in-place --no-chat --reasoning-effort medium`, in a second empty Git repository.
 
-## What each run produced
+## Result
 
-| | `autocode` | `autopilot` |
+| | Direct agent | Autocode |
 | --- | --- | --- |
-| Run | `20260924-153110-build-greet-py-a-python-3-cli-in-this-repository-6a71d210` | `20260924-153110-build-greet-py-a-python-3-cli-in-this-repository-960ebded` |
-| Elapsed to stop | 317s | 377s |
-| Requirements | Saved. Outcome is greet.py plus test_greet.py, with R1–R4 covering the file, both exact prints, and unittest. | Saved. Same outcome and the same four requirements, worded independently. |
-| Planner draft | Rejected. Report repair ran twice. | Rejected. Report repair ran twice. |
-| Status | `PAUSED_REPEATED_FAILURE` | `PAUSED_REPEATED_FAILURE` |
-| Next stage | `astra_discovery` | `astra_discovery` |
-| Rejection | Requirement R1 is not covered by a behavior or criterion | `$.requirement_trace[0]` is missing `requirement_id` |
-| `greet.py` | Not written | Not written |
-| `test_greet.py` | Not written | Not written |
+| Time | 32s | 412s, then paused |
+| `greet.py` | Written | Not written |
+| `test_greet.py` | Written | Not written |
+| `python3 greet.py` | `Hello, World!`, exit 0 | No program to run |
+| `python3 greet.py Ada` | `Hello, Ada!`, exit 0 | No program to run |
+| `python3 -m unittest test_greet.py` | 2 tests passed | No tests to run |
+| Where it stopped | The agent finished after writing both files and running them | `PAUSED_REPEATED_FAILURE` during planner report repair. Requirement R1 is not covered by a behavior or criterion. Repair was attempted twice. Approval and the Builder never started |
 
-Neither run reached approval, the Builder, or validation. The runner archived the rejected planner output and refused another automatic repair of the same error.
+The direct agent also treats two or more arguments as no name, so `python3 greet.py A B` prints `Hello, World!`. The task did not specify that case. The two requested cases pass.
 
-The requested product was a CLI that prints `Hello, World!` and `Hello, NAME!`. Both runs produced a requirements report for that CLI and then stopped because the planner's draft did not satisfy the report schema.
+Autocode saved a requirements report and then rejected the planner draft. It produced no CLI.
