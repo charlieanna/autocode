@@ -33,15 +33,16 @@ assert.equal(context.taskDecision({...approved,status:'TASK_COMPLETE'}).required
 const orchestration={...approved,stage:'orchestrator',stages:[],status:'RUNNING',
   monitor:{next_stage:'orchestrator',live:{state:'none'},orchestration:{enabled:true,max_parallel:2}}};
 assert.equal(context.stageName(orchestration),'Orchestrator · Coordinating Builders');
+assert.equal(context.stageName({stage:'resolver'}),'Resolver · Runner decision (no model call)');
 assert.equal(context.taskPhase(orchestration),'orchestration');
 assert.equal(context.statusInfo(orchestration).label,'Ready to continue');
 const batch={id:'batch-1',status:'BUILDING',workers:[{milestone_id:'M1',status:'RUNNING',workspace:'/repo/builder-1',run_dir:'/repo/run/worker-1'},{milestone_id:'M2',status:'BUILT',workspace:'/repo/builder-2',run_dir:'/repo/run/worker-2'}]};
 const building={...orchestration,monitor:{...orchestration.monitor,orchestration_batch:batch}};
-assert.equal(context.statusInfo(building).label,'Activity reported');
+assert.equal(context.statusInfo(building).label,'Worker unverified');
 assert.equal(context.taskOverviewState(building).verified,false);
 assert.equal(context.taskOverviewState(building).step,'Last reported step · Orchestrator · Coordinating Builders');
-assert.equal(context.taskSentence(building),'Last reported: Orchestrator is coordinating independent Builders');
-assert.equal(context.primaryAction(building).kind,'pause');
+assert.equal(context.statusInfo(building).group,'stopped');
+assert.equal(context.primaryAction(building).kind,'checks');
 assert.deepEqual(Array.from(context.workflowConfig(building,{}),row=>row[0]),['astra','astra','orchestrator','terra','sol','completion']);
 assert.equal(context.hasOrchestration(approved),false);
 assert.equal(context.workflowConfig(approved,{}).some(row=>row[0]==='orchestrator'),false);
@@ -49,7 +50,7 @@ for(const status of ['PAUSED_ORCHESTRATOR_WORKER','PAUSED_ORCHESTRATOR_STALE','P
   const paused={...building,status,stop_reason:'Inspect retained worktrees and logs'};
   assert.equal(context.statusInfo(paused).group,'stopped');
   assert.equal(context.statusInfo(paused).reason,paused.stop_reason);
-  assert.equal(context.primaryAction(paused).label,'Resume task');
+  assert.equal(context.primaryAction(paused).label,'Inspect failure');
   assert.equal(context.taskOverviewState(paused).verified,false);
 }
 const integrated={...orchestration,stage:'sol',stages:[{stage:'orchestrator',runner_owned:true,finished_at:'2026-09-23T01:00:00Z'}],monitor:{...orchestration.monitor,next_stage:'sol',orchestration_history:[{...batch,status:'INTEGRATED'}]}};
@@ -87,3 +88,20 @@ const progress=context.taskMessages({planning_messages:[{text:'Plan',created_at:
 assert.deepEqual(Array.from(progress,m=>m.text),['Plan','Fix routing','Blocked: test failed']);
 assert.equal(progress[2].speaker,'Validator');
 assert.match(source.slice(source.indexOf('function renderConversation('),source.indexOf('function renderConversation(')+500),/progress_messages/);
+
+const failedReport={...approved,status:'PAUSED_REPORT_REPAIR_LIMIT',stop_reason:'Bounded report-only repair attempts exhausted',questions:[{id:'old',question:'Old approval?'}]};
+assert.equal(context.taskDecision(failedReport).required,false);
+assert.equal(context.taskDecision(failedReport).title,'Internal failure needs repair');
+assert.equal(context.taskDecision(failedReport).description,failedReport.stop_reason);
+assert.equal(context.primaryAction(failedReport).label,'Inspect failure');
+// Internal failures retain a recovery action without presenting old questions.
+const attention=new Element('div'),retries=[];
+Object.assign(context,{$:()=>attention,button:(label,callback)=>Object.assign(new Element('button',label),{onclick:callback}),submitTaskAction:(...args)=>retries.push(args)});
+vm.runInContext(source.slice(source.indexOf('function renderTaskAttention('),source.indexOf('async function sendChange(')),context);
+context.renderTaskAttention(failedReport);
+assert.ok(attention.children.some(row=>row.textContent===failedReport.stop_reason));
+assert.ok(!attention.children.some(row=>/saved questions remain/.test(row.textContent)));
+const retry=attention.children.find(row=>row.textContent==='Retry saved step');
+assert.ok(retry);
+retry.onclick();
+assert.equal(retries[0][1],'continue');

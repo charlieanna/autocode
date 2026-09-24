@@ -266,9 +266,10 @@ def apply_build_result(runtime, state, value, record, workspace, run_dir):
         workflow.apply_implementation(runtime,state,value,record,workspace,run_dir)
 
 
-def apply_review_result(state, stage, value, record, workspace, run_dir):
+def apply_review_result(runtime, state, stage, value, record, workspace, run_dir):
     modern = state.get("version", 2) >= 3
-    support.verify_checks(value["checks"], workspace, record["events"])
+    support.verify_checks(value["checks"], workspace, record["events"],
+                          **runtime.check_evidence_options(record))
     refs = [c["evidence_ref"] for c in value["checks"]]
     for check in value["checks"]:
         if not check["evidence_ref"].startswith("event:"):
@@ -328,6 +329,8 @@ def apply_review_result(state, stage, value, record, workspace, run_dir):
 def queue_resolution(state, decision, record):
     if support.criteria_definition(decision['acceptance_criteria']) != support.criteria_definition(state['acceptance_criteria']):
         raise support.Paused('PAUSED_CRITERIA_CHANGE', 'Repair cannot change approved acceptance criteria')
+    # Retain the reviewer's unverified statuses even while diagnosis is pending.
+    state['acceptance_criteria'] = copy.deepcopy(decision['acceptance_criteria'])
     pins = dict(state.get('validation', {}).get('evidence_hashes', {}))
     pins[record['output']] = support.file_hash(Path(record['output']))
     state['resolution_request'] = {
@@ -447,10 +450,9 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
         else:
             if not value["next_objective"].strip():
                 raise support.Paused("PAUSED_INVALID_OUTPUT", "CONTINUE requires an action")
-            if modern:
-                completion_probe = {**value, "status": "TASK_COMPLETE", "acceptance_criteria": [
-                    {**c, "status": "verified", "evidence": "Current Sol criterion evidence"}
-                    for c in state["acceptance_criteria"]]}
+            # Passing Sol evidence cannot override Astra's rework or unverified criteria.
+            if modern and value["status"] == "CONTINUE":
+                completion_probe = {**value, "status": "TASK_COMPLETE"}
                 if support.completion_ready(state, completion_probe, support.snapshot(workspace)):
                     state.update(status="PAUSED_COMPLETION_REVIEW", phase="PAUSED_OR_BLOCKED", next_stage="astra_review",
                         stop_reason="All required criteria already pass; request completion instead of another implementation batch")
@@ -489,7 +491,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
         # dispatchable review stages (the final-audit workflow uses a copy).
         if stage != "self_check":
             unit_for(stage)
-        apply_review_result(state, stage, value, record, workspace, run_dir)
+        apply_review_result(runtime, state, stage, value, record, workspace, run_dir)
     save_record(state, record)
     state.pop("stop_reason", None) if state["status"] == "RUNNING" else None
 

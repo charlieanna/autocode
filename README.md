@@ -162,6 +162,22 @@ uses the stronger rung and a fresh role session. Autocode does not silently repl
 the failed request, advances at most once for the same failed iteration, and never
 overwrites an explicit custom model/provider route.
 
+At approved, stopped stage boundaries, the runner consults the bounded resolver
+for report-only repair and independently recorded `BLOCKED` validation. A plain
+`FAIL` uses the normal review/rework loop without a resolver record or resolver
+failure count. Its ledger
+and decisions live in `state.json`; decision artifacts are marked `runner_owned`
+and make no model calls. The existing report-repair limit and persisted failure
+identity cap both apply before a resolver-authorized retry. Identical boundary
+requests reuse the saved outcome across restarts.
+
+This adapter permits continuation of the existing workflow, bounded report repair,
+or escalation. It does not authorize contract replanning, implementation replay,
+new permissions, or completion. Permission/goal requests and untyped agent
+`blocker` requests retain the user decision boundary; prose claiming an internal
+issue is not enough to grant authority. The policy's `ACTIONS` and
+`HUMAN_ONLY_KINDS` remain unchanged.
+
 From inside any committed Git project, the normal invocation is simply:
 
 ```sh
@@ -711,6 +727,17 @@ Changing the config file or the tool version pauses a saved run.
   the final report, token usage and command exit codes from those events, and
   resumes each role's session with the required `resume` template, for example
   `resume = ["--session", "{session}"]`.
+
+The runner can fill an omitted check exit code from a unique executed event or
+the cited, verified capture receipt before checking the unchanged report schema.
+It never replaces a supplied exit code, guesses from output text, or resolves
+ambiguous executions. The original report is retained as `.reported.json`, and
+the stage records the derived metadata. Nonzero exits remain failures.
+For `report_file` tools, capture commands must inherit `AUTOCODE_CAPTURE_CONTEXT`
+from the tool process: the capture helper records it automatically and the
+validator checks it against the saved attempt. Receipts from another attempt,
+missing capture context, or changed output hashes are rejected. Event providers
+continue to require their independent tool-event attestation.
 
 A tool can declare how its subscription login is checked. Without an `[auth]`
 table Autocode does not inspect the tool's login. With one, before an OpenAI

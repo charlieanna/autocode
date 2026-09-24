@@ -125,9 +125,21 @@ class ConfigToolFlow(unittest.TestCase):
         self.assertTrue(report["checks"][0]["evidence_ref"].endswith("sol-greet.json"))
         self.assertFalse(report["checks"][0]["evidence_ref"].startswith("event:"))
         self.assertTrue(Path(report["checks"][0]["evidence_ref"]).is_file())
+        self.assertEqual('', Path(sol['events']).read_text())
         self.assertEqual("read-only", sol["command"][sol["command"].index("--sandbox") + 1])
         terra = next(record for record in state["stages"] if record["stage"] == "terra")
         self.assertEqual("workspace-write", terra["command"][terra["command"].index("--sandbox") + 1])
+
+    def test_report_file_missing_exit_uses_receipt_without_tool_events_or_repair(self):
+        self.env['AUTOCODE_FIXTURE_MISSING_CHECK_EXIT'] = '1'
+        _, state = self.complete_run()
+        sol = next(record for record in state['stages'] if record['stage'] == 'sol')
+        self.assertEqual('', Path(sol['events']).read_text())
+        self.assertEqual('TASK_COMPLETE', state['status'])
+        self.assertEqual(0, json.loads(Path(sol['output']).read_text())['checks'][0]['exit_code'])
+        self.assertNotIn('exit_code', json.loads(Path(sol['reported_output']).read_text())['checks'][0])
+        self.assertEqual(1, len(sol['derived_check_metadata']))
+        self.assertFalse(any(record.get('report_only') for record in state['stages']))
 
     def test_event_stream_tool_completes_with_sessions_usage_and_event_evidence(self):
         run, state = self.complete_run(events=True)

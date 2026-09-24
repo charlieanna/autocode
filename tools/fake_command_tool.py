@@ -85,12 +85,24 @@ if data.get("report_repair"):
                                          "untested_behavior": [], "recommended_checks": []})
     raise SystemExit(0)
 stage = data.get("stage", "terra")
-contract = data["goal_contract"]
+contract = data["goal_contract"] or {"revision": 0, "hash": ""}
 common = {"contract_revision": contract["revision"], "contract_hash": contract["hash"],
           "task_id": (data.get("current_task") or {}).get("id", ""),
           "deferred_backlog": ["Optional web UI"], "user_request": {"kind": "none", "discovered": "", "impact": "",
               "decision_needed": "", "options": [], "proposed_delta": ""}}
-if stage == "astra_discovery":
+if stage == "requirements_gather":
+    draft = body(questions=not data["saved_answers"], human=False)
+    result = {
+        "summary": "Requirements for the local greeting CLI, without a plan",
+        "intended_outcome": draft["intended_outcome"],
+        "required_behaviors": draft["required_behaviors"],
+        "constraints": draft["constraints"],
+        "acceptance_tests": ["Valid and invalid CLI input have the requested outcomes"],
+        "source_refs": ["task"],
+        "proposed_assumptions": ["Use a local CLI if the user chooses that interface"],
+        "open_questions": draft["open_blocking_questions"],
+    }
+elif stage == "astra_discovery":
     draft = body(questions=not data["saved_answers"], human=False)
     if data["saved_answers"]:
         draft["accepted_assumptions"] = [{"text": "User selected CLI", "basis": "user_answer", "answer_id": "Q1"}]
@@ -135,8 +147,8 @@ elif stage == "sol":
         evidence = Path(".autocode/evidence/sol-greet.json").resolve()
         captured = subprocess.run(shlex.split(data["capture_command"]) + ["--output", str(evidence), "--", *valid_cmd],
                                   capture_output=True, text=True)
-        print(json.dumps({"type": "item.completed", "item": {"id": "check", "type": "command_execution",
-            "command": command, "exit_code": 0 if passed else 1, "aggregated_output": captured.stdout}}))
+        if captured.returncode:
+            raise SystemExit(captured.returncode)
     result = {**common, "verdict": "PASS" if passed else "FAIL", "findings": [], "checks_run": [command],
               "unverified_criteria": [], "checks": [{"command": command, "exit_code": 0 if passed else 1, "evidence_ref": str(evidence)}],
               "end_to_end_result": {"status": "PASS" if passed else "FAIL", "summary": "Executed the greeting CLI",
@@ -156,6 +168,8 @@ else:
               "evidence": ["Sol receipt"], "blocker": "",
               "plan": ["Implement greeting", "Run both cases"], "affected_paths": ["greet.py"]}
 
+if stage == 'sol' and os.environ.get('AUTOCODE_FIXTURE_MISSING_CHECK_EXIT'):
+    result['checks'][0].pop('exit_code')
 deliver(result)
 if os.environ.get("AUTOCODE_FIXTURE_SKIP_REPORT") and not EVENTS:
     report_path().unlink()

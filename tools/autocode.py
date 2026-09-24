@@ -23,7 +23,7 @@ from typing import Any
 import copy
 import uuid
 try:
-    from . import autocode_support as support, autocode_goals as goals, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation
+    from . import autocode_support as support, autocode_goals as goals, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures
 except ImportError:
     import autocode_support as support
     import autocode_goals as goals
@@ -34,6 +34,7 @@ except ImportError:
     import autocode_registry as registry
     import autocode_planning as planning
     import autocode_escalation as escalation
+    import autocode_failures as failures
 
 try:
     from . import autocode_workspaces as task_workspaces
@@ -42,6 +43,7 @@ try:
     from . import autocode_workflow as workflow
     from . import autocode_milestones as milestones
     from . import autocode_dispatch as dispatch
+    from . import autocode_resolver_runtime as resolver_runtime
     from .autocode_activity import ActivityMonitor
 except ImportError:
     import autocode_workspaces as task_workspaces
@@ -50,6 +52,7 @@ except ImportError:
     import autocode_workflow as workflow
     import autocode_milestones as milestones
     import autocode_dispatch as dispatch
+    import autocode_resolver_runtime as resolver_runtime
     from autocode_activity import ActivityMonitor
 
 
@@ -123,14 +126,41 @@ def account_stage(state, record):
         record["accounted"] = True
 
 
-def load_stage_report(record):
+def check_evidence_options(record):
+    return {'receipt_only': record.get('output_mode') == 'report_file',
+            'capture_context': record.get('capture_context')}
+
+
+def load_stage_report(record, workspace=None, evidence_record=None):
     if record.get("engine") == "opencode":
         # Raw provider events are authoritative, including during recovery.
         value = opencode.final_report(record["events"])
-        support.validate_schema(value, read_json(Path(record["schema"])))
-        write_json(Path(record["output"]), value)
-    value = final_json(Path(record["output"]))
+    else:
+        value = final_json(Path(record["output"]))
+    reported = copy.deepcopy(value)
+    evidence_record = evidence_record or record
+    validation = value.get('validation', value)
+    checks = validation.get('checks') if isinstance(validation, dict) else None
+    if isinstance(checks, list) and any(isinstance(check, dict) and 'exit_code' not in check for check in checks):
+        if workspace is None:
+            raise ValueError('Cannot derive check metadata without the validation workspace')
+        support.verify_checks(checks, workspace, evidence_record['events'], **check_evidence_options(evidence_record))
     support.validate_schema(value, read_json(Path(record["schema"])))
+    if value != reported:
+        original = Path(record['output']).with_suffix('.reported.json')
+        if original.exists():
+            if read_json(original) != reported:
+                raise ValueError('Preserved raw report differs; reconcile before normalization')
+        else:
+            write_json(original, reported)
+        record['reported_output'] = str(original)
+        record['derived_check_metadata'] = [
+            {'check_index': index, 'field': 'exit_code', 'value': check['exit_code'],
+             'evidence_ref': check['evidence_ref'], 'events': evidence_record['events']}
+            for index, check in enumerate(checks)
+            if 'exit_code' not in (reported.get('validation', reported)['checks'][index])]
+    if record.get('engine') == 'opencode' or value != reported:
+        write_json(Path(record['output']), value)
     return value
 
 
@@ -203,6 +233,7 @@ def recover_legacy_report_repair(state, run_dir, workspace):
 
 def reject_completed_stage(state, run_dir, record, error):
     account_stage(state, record)
+    failure = failures.record(state, record, error, now())
     originals = archive_rejected_stage(state, run_dir, record, error)
     # Only fully terminal, source-pinned output errors qualify. Transport failures,
     # stale artifacts, permissions and completion guards are not repairable here.
@@ -229,13 +260,16 @@ def reject_completed_stage(state, run_dir, record, error):
             raise ReportRepairQueued()
     escalation.advance(state, record.get("route_role", record["role"]),
                        trigger="rejected_output", detail=error)
+    repeated = bool(failure and failure['count'] >= failures.REPEAT_THRESHOLD)
     message = (f"Completed {record['stage']} output was rejected ({error}); attempt archived. "
-               "Resume explicitly with --resume-paused to retry with a fresh request.")
-    state.update(status="PAUSED_INVALID_OUTPUT", phase="PAUSED_OR_BLOCKED", stop_reason=message, paused_at=now())
+               + ("The same stage, artifact and error class failed repeatedly; inspect the saved output probe and fix the cause before retrying."
+                  if repeated else "Resume explicitly with --resume-paused to retry with a fresh request."))
+    status = "PAUSED_REPEATED_FAILURE" if repeated else "PAUSED_INVALID_OUTPUT"
+    state.update(status=status, phase="PAUSED_OR_BLOCKED", stop_reason=message, paused_at=now())
     write_json(run_dir / "state.json", state)
     for artifact in originals:
         artifact.unlink(missing_ok=True)
-    raise support.Paused("PAUSED_INVALID_OUTPUT", message)
+    raise support.Paused(status, message)
 
 
 def run_role(
@@ -317,6 +351,7 @@ def run_role(
     if route_role != role:
         record["route_role"] = route_role
     record["engine"] = engine
+    record['output_mode'] = getattr(opencode, 'OUTPUT', 'opencode_events') if engine == 'opencode' else 'codex_events'
     if report_only:
         record.update(report_only=True, original_stage=original_stage)
     if joint_stage:
@@ -336,6 +371,11 @@ def run_role(
         return {"status": "DRY_RUN"}, record
 
     before = support.snapshot(workspace)
+    if record['output_mode'] == 'report_file':
+        record['capture_context'] = {'attempt': str(output), 'nonce': uuid.uuid4().hex,
+                                     'source_revision': before['revision']}
+        child_options['env'] = dict(child_options.get('env', os.environ))
+        child_options['env']['AUTOCODE_CAPTURE_CONTEXT'] = json.dumps(record['capture_context'])
     write_json(base.with_suffix(".before.json"), before)
     record["before_ref"] = str(base.with_suffix(".before.json"))
     record["context"] = state.pop("pending_context_metrics", {})
@@ -449,7 +489,8 @@ def run_role(
     if not allow_write and before["revision"] != after["revision"]:
         raise support.Paused("PAUSED_STALE_VALIDATION", "Repository changed during read-only review; preserve result and revalidate")
     try:
-        value = load_stage_report(record)
+        value = load_stage_report(record, workspace,
+            (state.get('pending_report_repair') or {}).get('original') if report_only else None)
     except (ValueError, RuntimeError) as error:
         reject_completed_stage(state, run_dir, record, error)
     return value, record
@@ -502,6 +543,7 @@ def execute_report_repair(state, run_dir, workspace):
             or (state.get('goal_contract') or {}).get('hash') != pending['contract_hash']
             or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending['pins'].items())):
         raise support.Paused('PAUSED_STALE_VALIDATION', 'Saved report-repair inputs changed; do not retry')
+    resolver_runtime.boundary(sys.modules[__name__], state, run_dir, workspace)
     pending['attempts'] += 1
     state.update(phase='REPORT_REPAIR')
     write_json(run_dir / 'state.json', state)
@@ -560,14 +602,14 @@ def archive_rejected_stage(state, run_dir, record, reason):
     archived = base.parent / f"archived-{base.name}-{uuid.uuid4().hex[:6]}"
     archived.mkdir(parents=True, exist_ok=True)
     originals = []
-    for suffix in (".json", ".jsonl", ".prompt.md", ".before.json", ".after.json", ".diff", ".tools.json", ".opencode.json"):
+    for suffix in (".json", ".jsonl", ".reported.json", ".prompt.md", ".before.json", ".after.json", ".diff", ".tools.json", ".opencode.json"):
         artifact = base.with_name(base.name + suffix)
         if artifact.exists():
             # Keep originals until the caller durably saves the archive pointers.
             # A crash or disk error must leave the previous checkpoint readable.
             shutil.copy2(artifact, archived / artifact.name)
             originals.append(artifact)
-    for key in ("output", "events", "prompt", "before_ref", "after_ref", "diff_ref", "tool_evidence", "permission_config"):
+    for key in ("output", "events", "reported_output", "prompt", "before_ref", "after_ref", "diff_ref", "tool_evidence", "permission_config"):
         if record.get(key) and Path(record[key]).parent == base.parent:
             record[key] = str(archived / Path(record[key]).name)
     record["rejected"] = True
@@ -706,6 +748,7 @@ def automatically_recover_timed_out_stage(state, run_dir, workspace, error):
                   changed_files=support.changed_paths(before, after), abandoned=True,
                   automatic_recovery=True,
                   rejection_reason="Timed-out non-terminal provider request automatically archived; partial work retained")
+    failures.record(state, record, error, now())
     originals = archive_rejected_stage(state, run_dir, record, record["rejection_reason"])
     state["sessions"].pop(record.get("route_role", record["role"]), None)
     if state.get("validation"):
@@ -783,6 +826,7 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
                   changed_files=support.changed_paths(before, after), abandoned=True,
                   automatic_recovery=True,
                   rejection_reason="OpenCode denied external_directory before a terminal turn; partial work retained")
+    failures.record(state, record, error, now())
     originals = archive_rejected_stage(state, run_dir, record, record["rejection_reason"])
     state["sessions"].pop(record.get("route_role", record["role"]), None)
     if state.get("validation"):
@@ -843,9 +887,9 @@ def prepare_planning_retry(state, run_dir):
     return True
 
 
-def prepare_exhausted_execution_report_retry(state, run_dir):
+def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None):
     """Allow an explicit fresh execution report after bounded repairs fail."""
-    if state.get('status') not in ('PAUSED_REPORT_REPAIR_LIMIT', 'PAUSED_INVALID_OUTPUT') or state.get('active_stage'):
+    if state.get('status') not in ('PAUSED_REPORT_REPAIR_LIMIT', 'PAUSED_INVALID_OUTPUT', 'PAUSED_REPEATED_FAILURE') or state.get('active_stage'):
         return False
     pending = state.get('pending_report_repair')
     original = pending.get('original') if isinstance(pending, dict) else None
@@ -863,6 +907,14 @@ def prepare_exhausted_execution_report_retry(state, run_dir):
             or planning.is_planning(state, stage)
             or pending.get('attempts') != repair_limit(state)):
         return False
+    repeated = failures.repeated(state, original)
+    if repeated and (workspace is None or support.snapshot(workspace)['revision'] == original.get('source_revision')):
+        message = ("The same stage, artifact and error class failed "
+                   f"{repeated['count']} times. Inspect failure_history and saved output; "
+                   "change the cause before another execution request.")
+        state.update(status='PAUSED_REPEATED_FAILURE', phase='PAUSED_OR_BLOCKED', stop_reason=message, paused_at=now())
+        write_json(run_dir / 'state.json', state)
+        raise support.Paused('PAUSED_REPEATED_FAILURE', message)
     if reroute_abandoned_sol:
         state['next_stage'] = 'sol'
     state.setdefault('report_repair_archive', []).append({
@@ -879,6 +931,23 @@ def prepare_exhausted_execution_report_retry(state, run_dir):
         'reason': 'Explicit fresh execution retry; rejected reports retained'})
     write_json(run_dir / 'state.json', state)
     return True
+
+
+def repeated_failure_resume_guard(state, workspace):
+    """A restart or explicit resume cannot erase an unchanged repeated failure."""
+    if state.get('status') != 'PAUSED_REPEATED_FAILURE':
+        return
+    pending = state.get('pending_report_repair') or {}
+    record = pending.get('original') or next(
+        (row for row in reversed(state.get('stages', [])) if row.get('failure_key')), None)
+    if not record:
+        return
+    repeated = failures.repeated(state, record)
+    if repeated and support.snapshot(workspace)['revision'] == record.get('source_revision'):
+        raise support.Paused('PAUSED_REPEATED_FAILURE',
+            f"Unchanged {record.get('original_stage') or record['stage']} artifact failed "
+            f"{repeated['count']} times with {repeated['identity']['error_class']}; "
+            "inspect failure_history and fix the cause before resuming.")
 
 
 def reconcile_active(state, run_dir, workspace):
@@ -908,7 +977,7 @@ def reconcile_active(state, run_dir, workspace):
     if not record.get('before_ref'):
         # Never invent the original source snapshot for a legacy partial record.
         try:
-            load_stage_report(record)
+            load_stage_report(record, workspace)
         except (ValueError, RuntimeError) as error:
             reject_completed_stage(state, run_dir, record, error)
         raise support.Paused('PAUSED_UNCERTAIN_STAGE', 'Recovered stage lacks its original source snapshot')
@@ -925,7 +994,8 @@ def reconcile_active(state, run_dir, workspace):
         if thread and not record.get('report_only'):
             state["sessions"][record.get("route_role", record["role"])] = thread
     try:
-        value = load_stage_report(record)
+        value = load_stage_report(record, workspace,
+            (state.get('pending_report_repair') or {}).get('original') if record.get('report_only') else None)
     except (ValueError, RuntimeError) as error:
         reject_completed_stage(state, run_dir, record, error)
     if record.get('report_only'):
@@ -947,6 +1017,16 @@ def capture_command(argv):
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         parser.error("command required")
+    capture_context = None
+    if os.environ.get('AUTOCODE_CAPTURE_CONTEXT'):
+        try:
+            capture_context = json.loads(os.environ['AUTOCODE_CAPTURE_CONTEXT'])
+        except ValueError:
+            parser.error('invalid runner capture context')
+        if not isinstance(capture_context, dict) or any(
+                not isinstance(capture_context.get(key), str) or not capture_context[key]
+                for key in ('attempt', 'nonce', 'source_revision')):
+            parser.error('invalid runner capture context')
     path = args.output.resolve()
     root = Path.cwd().resolve()
     if not path.is_relative_to(root / ".autocode"):
@@ -965,6 +1045,8 @@ def capture_command(argv):
         compact = {"format": "text", "content": full, "compression_error": type(error).__name__, "fallback": "complete_original"}
     receipt = {"command": command, "exit_code": result.returncode, "duration_seconds": time.monotonic()-started,
                "full_output": str(raw), "full_output_sha256": support.file_hash(raw), "summary": compact}
+    if capture_context:
+        receipt['capture_context'] = capture_context
     write_json(path, receipt)
     print(json.dumps(receipt))
     return result.returncode
@@ -1079,7 +1161,7 @@ def configure(args, state):
         if enable_saved_joint:
             settings["joint_planning"] = True
             settings["roles"]["requirements"] = {"engine": "opencode", "provider": None,
-                "model": getattr(args, "requirements_model", None) or opencode.DEFAULT_MODELS["requirements"],
+                "model": getattr(args, "requirements_model", None) or opencode.DEFAULT_MODELS.get("requirements", opencode.DEFAULT_MODELS["glm"]),
                 "reasoning_effort": getattr(args, "requirements_reasoning_effort", None)}
             settings["roles"]["glm"] = {"engine": "opencode", "provider": None,
                 "model": getattr(args, "glm_model", None) or opencode.DEFAULT_MODELS["glm"],
@@ -1202,7 +1284,7 @@ def configure_joint(settings, args, *, fresh):
     if fresh:
         settings["joint_planning"] = True
         settings["roles"]["requirements"] = {"engine": "opencode", "provider": None,
-            "model": getattr(args, "requirements_model", None) or opencode.DEFAULT_MODELS["requirements"],
+            "model": getattr(args, "requirements_model", None) or opencode.DEFAULT_MODELS.get("requirements", opencode.DEFAULT_MODELS["glm"]),
             "reasoning_effort": getattr(args, "requirements_reasoning_effort", None)}
         if "completion" not in settings["roles"]:
             settings["roles"]["completion"] = {
@@ -1875,8 +1957,9 @@ def main(unit=None) -> int:
             # Recovery interprets terminal artifacts only. It never replays a model call.
             try:
                 if args.resume_paused:
+                    repeated_failure_resume_guard(state, workspace)
                     prepare_planning_retry(state, run_dir)
-                    prepare_exhausted_execution_report_retry(state, run_dir)
+                    prepare_exhausted_execution_report_retry(state, run_dir, workspace)
                 reconcile_active(state, run_dir, workspace)
             except ReportRepairQueued:
                 pass  # Durable pending repair is dispatched below, not original work.
@@ -2003,9 +2086,123 @@ def main(unit=None) -> int:
             if state["settings"].get("engine") == "opencode":
                 opencode.check_models({r: config for r, config in state["settings"]["roles"].items()
                                        if planning.engine_for(state["settings"], r) == "opencode"}, workspace)
-            stopped = autopilot.run(sys.modules[__name__], state, workspace, run_dir, args)
-            if stopped is not None:
-                return stopped
+            def before_code_stage(current):
+                try:
+                    if consume_interventions(current, run_dir, workspace):
+                        print(f"{current['status']}: {current['stop_reason']}")
+                        raise orchestrator.LoopExit(2)
+                except interventions.InterventionError as error:
+                    raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
+                if args.unit and autopilot.pending_unit(current) != args.unit:
+                    autopilot.publish_handoffs(current, run_dir)
+                    write_json(state_path, current)
+                    print(f"{args.unit}: handoff ready; next unit={autopilot.pending_unit(current)}", flush=True)
+                    raise orchestrator.LoopExit(0)
+                if milestones.apply_queued_activation(current, run_dir):
+                    print("Milestone checkpoints enabled at a safe boundary; continuing with independent validation.", flush=True)
+                workflow.guard(current)
+                repairing_before_upgrade = (args.resume_paused and current.get('pending_report_repair')
+                                            and milestones.owns_pause(run_dir))
+                if (run_dir / "pause-requested").exists() and not repairing_before_upgrade:
+                    raise support.Paused("PAUSED_REQUESTED", "Pause requested; previous stage saved")
+                limits = current["settings"]["limits"]
+                timeout_recovery_guard(current)
+                if iteration_limit_reached(current["iteration"], limits["iteration_ceiling"]):
+                    raise support.Paused("PAUSED_ITERATION_LIMIT", "Saved iteration ceiling reached")
+                if limits["max_seconds"] and current.get("active_seconds",0) >= limits["max_seconds"]:
+                    raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
+                if limits["max_reported_tokens"]:
+                    measured = [r.get("metrics",{}).get("provider_tokens",{}) for r in current.get("stages",[])]
+                    if any(m.get("input_tokens") is None or m.get("output_tokens") is None for m in measured):
+                        raise support.Paused("PAUSED_USAGE_UNKNOWN", "Cannot enforce requested token limit with unknown usage")
+                    if sum(m["input_tokens"]+m["output_tokens"] for m in measured) >= limits["max_reported_tokens"]:
+                        raise support.Paused("PAUSED_BUDGET", "Saved reported-token limit reached")
+                if (not repairing_before_upgrade and (not milestones.enabled(current) or current.get('next_stage') in ('terra', 'orchestrator')) and limits["no_progress_batches"]
+                        and current.get("no_progress_batches",0) >= limits["no_progress_batches"]):
+                    raise support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review")
+                # Do not silently change auth/provider when local config changes.
+                using_opencode = current["settings"].get("engine") == "opencode"
+                if planning.enabled(current):
+                    check_joint_transports(current, workspace)
+                current_settings = opencode.local_settings(workspace) if using_opencode else support.local_settings()
+                drifted = (opencode.transport_drift(current_settings, current["settings"]["transport_identity"]) if using_opencode else
+                           support.transport_drift(current_settings, current["settings"]["transport_identity"], current["settings"]["roles"]))
+                if drifted:
+                    raise support.Paused("PAUSED_TRANSPORT_CHANGED", "Local model/auth/provider settings differ from checkpoint")
+                if using_opencode and current["settings"]["transport_identity"].get("identity_version", 1) < 2:
+                    current.setdefault("configuration_changes", []).append({"at": now(),
+                        "reason": "Expanded OpenCode configuration identity; all previously recorded inputs match"})
+                    current["settings"]["transport_identity"] = current_settings
+                if current.get('pending_report_repair'):
+                    try:
+                        execute_report_repair(current, run_dir, workspace)
+                    except ReportRepairQueued:
+                        pass
+                    return orchestrator.SKIP
+
+            def dispatch_code_stage(current, stage):
+                milestones.dispatch_guard(current, stage)
+                workflow.dispatch_guard(current,stage,workspace)
+                if stage == "orchestrator":
+                    return autopilot.unit_module(stage).dispatch(current, workspace, run_dir)
+                request = autopilot.unit_module(stage).prepare(current, stage, state_path, SCHEMA_DIR)
+                role, route_role = request.role, request.route_role
+                rotate_if_needed(current, route_role, run_dir)
+                prompt, metrics = request.prompt, request.metrics
+                current["pending_context_metrics"] = metrics
+                # Soft budget: keep exact requirements; don't silently truncate them.
+                if metrics["estimated_prompt_tokens"] > metrics["soft_budget_tokens"]:
+                    print("Context soft budget exceeded; preserving complete requirements", flush=True)
+                write_json(state_path, current)
+                schema_value = request.schema
+                schema_path = run_dir / "schemas" / f"v3-{stage}.json"
+                write_json(schema_path, support.model_output_schema(schema_value))
+                try:
+                    value, record = run_role(role=role, prompt=prompt, sandbox="workspace-write" if request.allow_write else "read-only",
+                        workspace=workspace, run_dir=run_dir, state=current,
+                        schema=schema_path,
+                        model=current["settings"]["roles"][route_role]["model"], allow_write=request.allow_write, dry_run=False)
+                    record["unit"] = autopilot.unit_for(stage)
+                    account_stage(current, record)
+                    try:
+                        commit_stage_result(current, stage, value, record, workspace, run_dir)
+                    except (ValueError, KeyError, support.Paused) as error:
+                        reject_completed_stage(current, run_dir, record, error)
+                except ReportRepairQueued:
+                    return orchestrator.SKIP
+                except support.Paused as error:
+                    if (automatically_recover_timed_out_stage(current, run_dir, workspace, error)
+                            or automatically_recover_external_directory_denial(current, run_dir, workspace, error)):
+                        print(f"{stage}: non-terminal attempt archived; continuing from recovery checkpoint", flush=True)
+                        return orchestrator.SKIP
+                    raise
+                return record
+
+            def after_code_stage(current, stage, _record):
+                print(f"{stage}: saved; next={current['next_stage']}; status={current['status']}", flush=True)
+                autopilot.publish_handoffs(current, run_dir)
+                if milestones.enabled(current):
+                    print(milestones.status_line(current), flush=True)
+                try:
+                    if consume_interventions(current, run_dir, workspace):
+                        print(f"{current['status']}: {current['stop_reason']}")
+                        raise orchestrator.LoopExit(2)
+                except interventions.InterventionError as error:
+                    raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
+                resolver_runtime.boundary(sys.modules[__name__], current, run_dir, workspace)
+                if args.chat and current["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
+                    if not chat_checkpoint(current, run_dir):
+                        write_json(state_path, current)
+                        raise orchestrator.LoopExit(2)
+                    write_json(state_path, current)
+                if args.pause_after_stage and current["status"] == "RUNNING":
+                    raise support.Paused("PAUSED_REQUESTED", "--pause-after-stage checkpoint reached")
+            try:
+                orchestrator.drive(state, dispatch_code_stage, before=before_code_stage,
+                                   persist=lambda current: (autopilot.publish_handoffs(current, run_dir), write_json(state_path, current)),
+                                   after=after_code_stage)
+            except orchestrator.LoopExit as stopped:
+                return stopped.code
         except (support.Paused, ValueError, RuntimeError, OSError) as error:
             state.update(status=getattr(error,"status","PAUSED_INVALID_OUTPUT"), stop_reason=str(error), paused_at=now())
             state["phase"] = "PAUSED_OR_BLOCKED"
@@ -2063,7 +2260,7 @@ def cli(unit=None):
     sys.stdout = _DetachedOutput(sys.stdout)
     sys.stderr = _DetachedOutput(sys.stderr)
     try:
-        return main(unit=unit)
+        return main() if unit is None else main(unit=unit)
     except (RuntimeError, ValueError, OSError) as error:
         print(f"autocode: {error}", file=sys.stderr)
         return 2

@@ -23,7 +23,7 @@ def execute(state, directory, workspace, mode):
             runner.abandon_stage(state, directory, workspace, runner.attempt_id(state["active_stage"]))
             state["next_stage"] = "terra"
     if mode == "retry":
-        runner.prepare_exhausted_execution_report_retry(state, directory)
+        runner.prepare_exhausted_execution_report_retry(state, directory, workspace)
     while state.get("pending_report_repair"):
         try:
             runner.execute_report_repair(state, directory, workspace)

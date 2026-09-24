@@ -532,6 +532,11 @@ def wait_for_user(state, request):
     state["user_request"] = copy.deepcopy(request)
     question = {"id": "decision-" + uuid.uuid4().hex[:12], "question": request["decision_needed"],
                 "why": request["impact"], "options": request["options"], "proposed_default": ""}
+    review_criteria = requested_review_criteria(state, request)
+    if review_criteria:
+        question.update(review_criteria=review_criteria, review_token=review_token(state))
+        if request.get("kind") == "human_review":
+            state["user_request"]["criteria"] = review_criteria
     state.update(status="WAITING_FOR_USER", phase="WAITING_FOR_USER", pending_questions=[question])
 
 
@@ -676,6 +681,24 @@ def missing_human_reviews(state):
                 state.get("human_reviews", {}).get(c["id"]) not in state.get("user_events", []))]
 
 
+def requested_review_criteria(state, request):
+    """Bind a review question to the existing artifact token and required IDs."""
+    if not approved(state) or not review_token(state):
+        return []
+    required = {c["id"] for c in state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"]}
+    if request.get("kind") == "human_review":
+        claimed = request.get("criteria", [])
+        return sorted(set(claimed)) if claimed and set(claimed) <= required else []
+    # Older SQL runs expressed an artifact review as a permission question.
+    # Only recognize this exact review wording with no requested scope change.
+    if request.get("kind") == "permission" and not request.get("proposed_delta"):
+        match = re.fullmatch(r"Approve or reject ([A-Za-z0-9_.-]+) based on [^\n]+\.",
+                             request.get("decision_needed", ""))
+        if match and match[1] in required:
+            return [match[1]]
+    return []
+
+
 def human_only_pending_validation(state, validation, criterion):
     """A complete technical review whose sole missing result is human acceptance."""
     criteria = state["goal_contract"]["body"]["acceptance_criteria"]
@@ -715,12 +738,33 @@ def approve_review(state, criterion, selected, current):
     required = {c["id"] for c in state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"]}
     if criterion not in required:
         raise ValueError("No such required human-review criterion")
-    event = {"kind": "human_review", "actor": "user_cli", "at": s.now(), "criterion": criterion, "token": selected}
-    state.setdefault("user_events", []).append(event)
-    state.setdefault("human_reviews", {})[criterion] = event
-    requested = set(state.get("user_request", {}).get("criteria", []))
-    if not requested.intersection(missing_human_reviews(state)) and state.get("user_request", {}).get("kind") == "human_review":
+    request = state.get("user_request") or {}
+    requested = set(requested_review_criteria(state, request))
+    previous = state.get("human_reviews", {}).get(criterion)
+    if previous and previous.get("token") == selected and previous in state.get("user_events", []):
+        event = previous
+    else:
+        event = {"kind": "human_review", "actor": "user_cli", "at": s.now(), "criterion": criterion, "token": selected}
+        state.setdefault("user_events", []).append(event)
+        state.setdefault("human_reviews", {})[criterion] = event
+    missing = set(missing_human_reviews(state))
+    pending = []
+    closed_review_question = False
+    for question in state.get("pending_questions", []):
+        bound = set(question.get("review_criteria", [])) if question.get("review_token") == selected else set()
+        # Reconcile a question saved before review bindings existed only when
+        # it is exactly the current request for this criterion and artifact.
+        if not bound and requested and question.get("question") == request.get("decision_needed"):
+            bound = requested
+        if criterion in bound:
+            closed_review_question = True
+            continue
+        pending.append(question)
+    state["pending_questions"] = pending
+    if requested and criterion in requested and not requested.intersection(missing):
         state.pop("user_request", None)
+    if (requested or closed_review_question) and not pending and \
+            state.get("status") == "WAITING_FOR_USER" and not state.get("user_request"):
         state.update(status="RUNNING", phase="READY_TO_EXECUTE", next_stage="astra_review")
 
 

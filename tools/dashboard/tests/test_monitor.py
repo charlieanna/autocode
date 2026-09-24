@@ -23,6 +23,29 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(monitor.worker_status(self.active, self.run, {123: {**self.worker, 'state': 'Z'}})['state'], 'exited')
         self.assertEqual(monitor.worker_status(self.active, self.run, None)['state'], 'unknown')
 
+    def test_runner_resolver_history_does_not_imply_live_worker(self):
+        state = {'status': 'PAUSED_RESOLVER', 'next_stage': 'terra',
+                 'stages': [{'stage': 'resolver', 'role': 'resolver', 'runner_owned': True,
+                             'finished_at': 'yesterday', 'exit_code': 0}]}
+        with patch.object(monitor, 'process_table') as probe:
+            result = monitor.snapshot(state, self.run, detailed=True)
+        probe.assert_not_called()
+        self.assertEqual('none', result['live']['state'])
+        self.assertTrue(result['history'][0]['runner_owned'])
+        self.assertEqual('resolver', result['history'][0]['stage'])
+
+    def test_fresh_checkpoint_and_running_log_do_not_override_exited_worker(self):
+        log = self.run / 'events.jsonl'
+        log.write_text(json.dumps({'type': 'item.started', 'item': {
+            'id': '1', 'type': 'command_execution', 'status': 'running'}}))
+        state = {'status': 'RUNNING', 'active_stage': {**self.active, 'events': str(log)}}
+        with patch.object(monitor, 'process_table', return_value={}):
+            result = monitor.snapshot(state, self.run, detailed=True)
+        self.assertEqual(result['live']['state'], 'exited')
+        self.assertIsNotNone(result['checkpoint_updated'])
+        self.assertIsNotNone(result['log_updated'])
+        self.assertEqual(result['activity'][0]['status'], 'running')
+
     def test_legacy_requires_provider_and_exact_run_path(self):
         active = {'pid': 123}
         def check(command):

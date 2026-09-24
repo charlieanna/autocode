@@ -286,8 +286,8 @@ class OpenCodeFlow(unittest.TestCase):
         _, state = self.saved()
         self.assertEqual("opencode", state["settings"]["engine"])
         self.assertTrue(state["settings"]["joint_planning"])
-        self.assertEqual("glm", state["stages"][0]["role"])
-        expected = {"glm": "zai-coding-plan/glm-5.3", "astra": "openai/gpt-5.6-sol",
+        self.assertEqual("requirements", state["stages"][0]["role"])
+        expected = {"requirements": "zai-coding-plan/glm-5.3", "glm": "zai-coding-plan/glm-5.3", "astra": "openai/gpt-5.6-sol",
                     "terra": "openai/gpt-5.6-terra", "sol": "openai/gpt-5.6-sol",
                     "completion": "openai/gpt-5.6-sol",
                     "plan_reviewer": "cursor-acp/claude-opus-5-5-high"}
@@ -295,8 +295,16 @@ class OpenCodeFlow(unittest.TestCase):
         self.assertEqual("COMPLETE", state["phase"])
         self.assertNotEqual(state["sessions"]["terra"], state["sessions"]["sol"])
         self.assertNotEqual(state["sessions"]["plan_reviewer"], state["sessions"]["sol"])
-        engines = {role: "opencode" for role in ("glm", "terra", "astra", "sol", "completion", "plan_reviewer")}
+        engines = {role: "opencode" for role in ("requirements", "glm", "terra", "astra", "sol", "completion", "plan_reviewer")}
         for record in state["stages"]:
+            if record.get("runner_owned"):
+                self.assertIn(record['stage'], ('orchestrator', 'resolver'))
+                self.assertEqual("runner", record["engine"])
+                self.assertNotIn("command", record)
+                if record['stage'] == 'resolver':
+                    self.assertEqual(0, record['runner_calls'])
+                    self.assertIn(record['decision']['action'], ('continue', 'retry', 'escalate'))
+                continue
             command = record["command"]
             role = record.get("route_role", record["role"])
             self.assertEqual(engines[role], record["engine"])

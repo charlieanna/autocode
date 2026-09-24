@@ -111,7 +111,7 @@ class SubprocessFlow(unittest.TestCase):
         self.assertEqual(1, sum(e["kind"] == "goal_approval" for e in state["user_events"]))
         self.assertIn("Acceptance evidence:", result.stdout)
         self.assertIn("End-to-end flow: PASS", result.stdout)
-        executed = [row for row in state["stages"] if row["stage"] != "astra_discovery"]
+        executed = [row for row in state["stages"] if row["stage"] != "astra_discovery" and not row.get('runner_owned')]
         for record in executed:
             prompt = Path(record["prompt"]).read_text()
             data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
@@ -308,6 +308,10 @@ class SubprocessFlow(unittest.TestCase):
         launch(args, 0)
         self.assertEqual(len(final["stages"]), len(state()["stages"]))
         for record in final["stages"]:
+            if record.get('runner_owned'):
+                self.assertEqual('runner', record['engine'])
+                self.assertNotIn('command', record)
+                continue
             command = record["command"]
             expected = "workspace-write" if record["role"] == "terra" else "read-only"
             self.assertEqual(expected, command[command.index("--sandbox") + 1])

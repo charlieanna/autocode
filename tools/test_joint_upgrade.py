@@ -16,6 +16,9 @@ from goal_fixtures import approve_fixture
 
 class JointUpgradeTests(unittest.TestCase):
     def setUp(self):
+        self.transport_patch = patch.object(runner, "opencode", oc)
+        self.transport_patch.start()
+        self.addCleanup(self.transport_patch.stop)
         self.state = {"version": 2, "workspace": "/fixture", "task": "Keep approved work",
             "iteration": 22, "acceptance_criteria": [], "stages": [], "history": [],
             "sessions": {"astra": "ses_astra", "terra": "ses_terra", "sol": "ses_sol"},
@@ -87,6 +90,12 @@ class JointUpgradeFlow(unittest.TestCase):
         self.launch([*args, "--approve-goal", state["displayed_goal"]], 0)
         self.launch([*args, "--pause-after-stage"], 2)
         state = self.saved()[1]
+        if state["next_stage"] == "terra":
+            self.assertIsNone(state.get("implementation"))
+            self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
+            state = self.saved()[1]
+        self.assertEqual("sol", state["next_stage"])
+        self.assertTrue(state.get("implementation"))
         state["settings"].pop("joint_planning")
         state["settings"]["roles"].pop("glm")
         state["settings"].pop("transport_identities")
@@ -97,19 +106,20 @@ class JointUpgradeFlow(unittest.TestCase):
         upgraded = self.saved()[1]
         self.assertEqual(state["goal_contract"], upgraded["goal_contract"])
         self.assertEqual(state["current_task"], upgraded["current_task"])
-        self.assertEqual(state["stages"], upgraded["stages"][:-1])
-        self.assertEqual("sol", upgraded["stages"][-1]["stage"])
-        self.assertEqual("opencode", upgraded["stages"][-1]["engine"])
+        new_stages = upgraded["stages"][len(state["stages"]):]
+        self.assertEqual("sol", new_stages[-1]["stage"])
+        self.assertEqual("opencode", new_stages[-1]["engine"])
+        self.assertEqual("astra_review", upgraded["next_stage"])
         self.assertNotIn("planning", upgraded)
-        self.assertEqual({"astra", "terra", "sol", "completion", "glm", "plan_reviewer"}, set(upgraded["settings"]["roles"]))
+        self.assertEqual({"astra", "terra", "sol", "completion", "requirements", "glm", "plan_reviewer"}, set(upgraded["settings"]["roles"]))
         self.assertEqual(state, json.loads(Path(upgraded["planning_migrations"][-1]["backup"]).read_text()))
         runner.interventions.submit(self.project, run, request_id="revise-with-glm", kind="feedback",
                                     text="Keep the same deliverable and document invocation.")
         self.launch(args, 2)
         self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
         revised = self.saved()[1]
-        self.assertEqual("glm", revised["stages"][-1]["role"])
-        self.assertEqual("astra_challenge", revised["next_stage"])
+        self.assertEqual("requirements", revised["stages"][-1]["role"])
+        self.assertEqual("astra_discovery", revised["next_stage"])
         self.assertFalse(goals.approved(revised))
 
 
