@@ -648,6 +648,111 @@ class GoalTests(unittest.TestCase):
         self.assertEqual([], g.missing_human_reviews(self.state))
         self.assertNotEqual("COMPLETE", self.state["phase"])
 
+    def test_artifact_approval_closes_its_question_and_is_idempotent(self):
+        self.approve(human=True)
+        current = self.validation()
+        request = {"kind": "human_review", "criteria": ["C1"],
+                   "decision_needed": "Review C1 on the current artifact.",
+                   "impact": "C1 needs human acceptance", "options": ["Approve", "Reject"],
+                   "proposed_delta": ""}
+        g.wait_for_user(self.state, request)
+        question = copy.deepcopy(self.state["pending_questions"][0])
+        g.present(self.state)
+        selected = g.review_token(self.state)
+        self.assertEqual(["C1"], question["review_criteria"])
+        self.assertEqual(selected, question["review_token"])
+        g.approve_review(self.state, "C1", selected, current)
+        self.assertEqual([], self.state["pending_questions"])
+        self.assertNotIn("user_request", self.state)
+        self.assertEqual("RUNNING", self.state["status"])
+        saved = copy.deepcopy(self.state)
+        g.approve_review(self.state, "C1", selected, current)
+        self.assertEqual(saved, self.state)
+        with self.assertRaises(ValueError):
+            g.answer(self.state, question["id"], "Approve again")
+        self.assertEqual(saved, self.state)
+
+    def test_sql_shaped_legacy_permission_question_closes_on_artifact_approval(self):
+        self.approve(human=True)
+        current = self.validation()
+        request = {"kind": "permission", "decision_needed": "Approve or reject C1 based on the current M5V evidence.",
+                   "impact": "M5V cannot advance without human review.",
+                   "options": ["Approve C1", "Reject C1"], "proposed_delta": ""}
+        g.wait_for_user(self.state, request)
+        # This is how the SQL question was saved before review bindings existed.
+        question = self.state["pending_questions"][0]
+        question.pop("review_criteria")
+        question.pop("review_token")
+        g.present(self.state)
+        selected = g.review_token(self.state)
+        g.approve_review(self.state, "C1", selected, current)
+        self.assertEqual([], self.state["pending_questions"])
+        self.assertEqual("RUNNING", self.state["status"])
+        with self.assertRaises(ValueError):
+            g.answer(self.state, question["id"], "Approve C1")
+        self.assertTrue(g.approved(self.state))
+
+    def test_review_approval_keeps_unrelated_question_and_rejects_stale_token(self):
+        self.approve(human=True)
+        current = self.validation()
+        request = {"kind": "human_review", "criteria": ["C1"],
+                   "decision_needed": "Review C1 on the current artifact.",
+                   "impact": "C1 needs human acceptance", "options": ["Approve", "Reject"],
+                   "proposed_delta": ""}
+        g.wait_for_user(self.state, request)
+        unrelated = {"id": "other", "question": "Choose a project name", "why": "Needed later",
+                     "options": [], "proposed_default": ""}
+        self.state["pending_questions"].append(unrelated)
+        g.present(self.state)
+        selected = g.review_token(self.state)
+        with self.assertRaises(ValueError):
+            g.approve_review(self.state, "C1", "stale", current)
+        self.assertEqual(2, len(self.state["pending_questions"]))
+        g.approve_review(self.state, "C1", selected, current)
+        self.assertEqual([unrelated], self.state["pending_questions"])
+        self.assertEqual("WAITING_FOR_USER", self.state["status"])
+
+    def test_one_of_two_review_approvals_closes_question_but_keeps_review_request(self):
+        draft = body(human=True)
+        draft["acceptance_criteria"].append({"id": "C2", "criterion": "Review a second flow",
+            "verification_method": "Inspect the saved flow", "human_review": True})
+        draft["milestones"][0]["acceptance_criteria"].append("C2")
+        g.install_draft(self.state, draft, origin="test")
+        g.present(self.state)
+        g.approve(self.state, self.state["displayed_goal"])
+        current = self.validation()
+        g.wait_for_user(self.state, {"kind": "human_review", "criteria": ["C1", "C2"],
+            "decision_needed": "Review both criteria.", "impact": "Both need human acceptance",
+            "options": ["Approve", "Reject"], "proposed_delta": ""})
+        question_id = self.state["pending_questions"][0]["id"]
+        g.present(self.state)
+        g.approve_review(self.state, "C1", g.review_token(self.state), current)
+        self.assertEqual([], self.state["pending_questions"])
+        self.assertEqual("WAITING_FOR_USER", self.state["status"])
+        self.assertEqual(["C1", "C2"], self.state["user_request"]["criteria"])
+        with self.assertRaises(ValueError):
+            g.answer(self.state, question_id, "Approve both")
+
+    def test_review_cli_retry_after_restart_keeps_approval_and_goal(self):
+        # Keep CLI registry writes out of the source snapshot under review.
+        with tempfile.TemporaryDirectory() as registry_home, patch.dict(os.environ, {"AUTOCODE_HOME": registry_home}):
+            self.approve(human=True)
+            self.validation()
+            g.wait_for_user(self.state, {"kind": "human_review", "criteria": ["C1"],
+                "decision_needed": "Review C1 on the current artifact.", "impact": "Approval required",
+                "options": ["Approve", "Reject"], "proposed_delta": ""})
+            g.present(self.state)
+            selected = g.review_token(self.state)
+            question_id = self.state["pending_questions"][0]["id"]
+            self.assertEqual(0, self.invoke("--approve-review", "C1", "--review-token", selected))
+            first = copy.deepcopy(self.state)
+            self.assertEqual([], first["pending_questions"])
+            self.assertEqual(0, self.invoke("--approve-review", "C1", "--review-token", selected))
+            self.assertEqual(first["user_events"], self.state["user_events"])
+            self.assertEqual(2, self.invoke("--answer", question_id + "=Approve"))
+            self.assertEqual(first["goal_contract"], self.state["goal_contract"])
+            self.assertEqual("RUNNING", self.state["status"])
+
     def test_human_review_not_requested_before_passing_automated_evidence(self):
         self.approve(human=True)
         before = copy.deepcopy(self.state)
