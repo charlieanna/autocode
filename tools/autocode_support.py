@@ -423,7 +423,11 @@ def _command_bodies(command):
     """Candidate unwrapped bodies for a recorded or reported command line.
     Shlex-unwraps the login-shell wrapper when quoting is well-formed; also
     offers the line with one stray trailing quote removed, which codex event
-    recording has been observed to leave behind on nested-quote commands."""
+    recording has been observed to leave behind on nested-quote commands.
+    The wrapper is only unwrapped when it accounts for the whole line:
+    anything after the body (an operator chain, or extra arguments that
+    become the shell's positional parameters) is executable content, and
+    dropping it would make a different program look identical."""
     variants = [command]
     stripped = command.rstrip()
     if stripped and stripped[-1] in "\"'":
@@ -434,11 +438,11 @@ def _command_bodies(command):
             parts = shlex.split(variant)
         except ValueError:
             parts = None
-        if parts and len(parts) >= 3 and parts[0].endswith("/zsh"):
-            if parts[1] == "-lc":
+        if parts and parts[0].endswith("/zsh"):
+            if parts[1:2] == ["-lc"] and len(parts) == 3:
                 bodies.append(parts[2])
                 continue
-            if parts[1:3] == ["-l", "-c"]:
+            if parts[1:3] == ["-l", "-c"] and len(parts) == 4:
                 bodies.append(parts[3])
                 continue
         if parts is None:
