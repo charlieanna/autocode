@@ -116,8 +116,10 @@ def snapshot_commit(workspace, directory):
            "GIT_COMMITTER_EMAIL": "autocode@localhost"}
     try:
         git(workspace, "read-tree", "HEAD", env=env)
+        # Keep the Git tree aligned with autocode_support.snapshot(): generated
+        # Python bytecode is not source and must not become an ownership delta.
         git(workspace, "add", "-A", "--", ".", ":(exclude).autocode", ":(exclude).autocode-ui",
-            ":(exclude)tools/__pycache__", env=env)
+            ":(exclude,glob)**/__pycache__/**", ":(exclude,glob)**/*.pyc", env=env)
         tree = git(workspace, "write-tree", env=env).decode().strip()
         return git(workspace, "commit-tree", tree, "-p", "HEAD", env=env,
                    data=b"Autocode orchestration snapshot\n").decode().strip()
