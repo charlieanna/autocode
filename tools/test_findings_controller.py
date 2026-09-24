@@ -128,6 +128,17 @@ class ControllerFindingsTests(unittest.TestCase):
                 runner.apply_result(self.state, "astra_resolve", value, record, self.root, self.run)
             self.assertEqual(before, self.state)
 
+    def test_blocked_user_request_records_the_finding_before_pausing(self):
+        decision = self.astra_decision("BLOCKED", "Missing authorization check", output="blocked.json")
+        decision["user_request"] = {"kind": "permission", "discovered": "No test credentials",
+                                    "impact": "Cannot finish the authorization check",
+                                    "decision_needed": "Provide test credentials", "options": [], "proposed_delta": ""}
+        record = {"output": str(self.run / "blocked.json"), "source_revision": support.snapshot(self.root)["revision"]}
+        runner.apply_result(self.state, "astra_review", decision, record, self.root, self.run)
+        self.assertEqual("WAITING_FOR_USER", self.state["status"])
+        self.assertEqual(["Missing authorization check"],
+                         [row["finding"] for row in findings.open_entries(self.state, "astra")])
+
     def test_completion_rejects_a_blocking_finding_in_the_decision_and_the_ledger(self):
         self.state["current_task"] = {**self.state["current_task"], "id": "task-complete"}
         # A passing Sol validation exists, so only the findings stand between the run and completion.

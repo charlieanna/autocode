@@ -9,16 +9,19 @@ import uuid
 from goal_fixtures import body
 
 
-def finding_id(source, text):
-    import hashlib
-    return "F-" + hashlib.sha256(json.dumps({"source": source, "finding": " ".join(str(text).split()).lower()},
-                                             sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:10]
-
 if sys.argv[1:] == ["login", "status"]:
     print("Logged in using ChatGPT (offline fixture)")
     raise SystemExit(0)
 
 data = json.loads(sys.stdin.read().split("CURRENT HANDOFF DATA\n", 1)[1])
+
+
+def open_finding_id(source, text):
+    for row in data.get("open_findings") or []:
+        if row.get("source") == source and row.get("finding") == text:
+            return row["id"]
+    return None
+
 if data.get('report_repair'):
     # This branch only reformats a saved report; never executes the original task.
     result = json.loads(Path(data['original']['output']).read_text())
@@ -122,11 +125,12 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
                             "acceptance_criteria": [] if complete else ["C1"],
                             "validation_plan": [] if complete else ["Run greet.py with Ada and an empty name"],
                             "findings": []},
-              "findings": [{"severity": "high", "finding": "Empty names are accepted by greet.py",
+              "findings": [{"id": "", "severity": "high", "finding": "Empty names are accepted by greet.py",
                             "evidence": "Sol events", "blocking": True}] if rework else [],
               "agreed_limitations": ["Local command-line use only"] if complete else [],
-              "finding_dispositions": ([{"id": finding_id("astra", "Empty names are accepted by greet.py"),
-                                          "disposition": "resolved", "evidence": "Sol events"}] if complete else []),
+              "finding_dispositions": ([{"id": open_finding_id("astra", "Empty names are accepted by greet.py"),
+                                          "disposition": "resolved", "evidence": "Sol events"}]
+                                       if complete and open_finding_id("astra", "Empty names are accepted by greet.py") else []),
               "evidence": ["Sol events"], "blocker": "",
               "plan": ["Implement greeting", "Run both cases"], "affected_paths": ["greet.py"]}
     if advance:
@@ -164,7 +168,7 @@ else:
     print(json.dumps({"type": "item.completed", "item": {"id": "check", "type": "command_execution",
         "command": command, "exit_code": 0 if passed else 1,
         "aggregated_output": json.dumps({"valid": [valid.returncode, valid.stdout], "invalid": invalid.returncode})}}))
-    findings = [] if passed else [{"severity": "high", "blocking": True, "finding": "Empty names are accepted",
+    findings = [] if passed else [{"id": "", "severity": "high", "blocking": True, "finding": "Empty names are accepted",
         "evidence": "event:check", "reproduction_steps": ["Run greet.py with an empty argument"],
         "expected": "Exit 2", "actual": f"Exit {invalid.returncode}", "why_it_matters": "Required invalid-input behavior",
         "suggested_correction": "Reject an empty or whitespace-only name"}]
@@ -173,8 +177,9 @@ else:
               "end_to_end_result": {"status": "PASS" if passed else "FAIL", "summary": "Executed both CLI user flows",
                                     "evidence_refs": ["event:check"]},
               "criterion_results": [{"id": "C1", "status": "PASS" if passed else "FAIL", "evidence_refs": ["event:check"]}],
-              "finding_dispositions": ([{"id": finding_id("sol", "Empty names are accepted"), "disposition": "resolved",
-                                          "evidence": "event:check"}] if passed else [])}
+              "finding_dispositions": ([{"id": open_finding_id("sol", "Empty names are accepted"), "disposition": "resolved",
+                                          "evidence": "event:check"}]
+                                       if passed and open_finding_id("sol", "Empty names are accepted") else [])}
     if mode == 'milestones':
         result['criterion_results'].append({'id': 'C2', 'status': 'PASS' if goodbye_passed else 'NOT_VERIFIED',
                                            'evidence_refs': ['event:check'] if goodbye_passed else []})

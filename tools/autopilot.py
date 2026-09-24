@@ -396,6 +396,9 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
             if stage.startswith("astra"):
                 if value["status"] != "BLOCKED":
                     raise ValueError("Astra must choose BLOCKED when requesting a user decision")
+                # Record the defects already identified, then pause. The early return
+                # below never reaches the normal review path.
+                findings_ledger.record_decision(state, value, record)
                 goals.wait_for_user(state, value["user_request"])
                 goals.record_decision(state, value)
                 state.pop("agent_request", None)

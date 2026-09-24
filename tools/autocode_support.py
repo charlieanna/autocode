@@ -453,13 +453,11 @@ def same_command(event_command, check_command):
         return True
     for event_body in _command_bodies(event_command):
         for check_body in _command_bodies(check_command):
+            # Compare the shell program text. Token equality drops quotes, so a
+            # command that prints an operator can look identical to one that
+            # executes it (`printf '%s\n' '&&' false` versus `printf '%s\n' && false`).
             if event_body == check_body:
                 return True
-            try:
-                if shlex.split(event_body) == shlex.split(check_body):
-                    return True
-            except ValueError:
-                continue
     return False
 
 
@@ -643,10 +641,12 @@ a pass. Source diff exit 1 means files differ, not a successful verification com
 Return exact command/exit_code and evidence_ref='event:<id>' from a completed shell
 tool event (also usable in criterion and end-to-end evidence_refs). Follow the
 execution engine's evidence instructions and copy command text verbatim.
-open_findings in CURRENT HANDOFF DATA lists both reviewers' open findings. A finding
-you omit from this report stays open; close one you verified in finding_dispositions
-with its ID, disposition resolved and the check that proves it, or retracted with
-evidence that the finding itself was wrong. Do not
+open_findings in CURRENT HANDOFF DATA lists both reviewers' open findings. Each
+defect gets its own runner id. Leave id empty when reporting a new defect, even if
+the wording matches an open finding; copy that finding's id only to report the same
+defect again. A finding you omit stays open. Close one you verified in
+finding_dispositions with its exact id, disposition resolved and the check that
+proves it, or retracted with evidence that the finding itself was wrong. Do not
 abbreviate commands or invent IDs. The runner saves full events locally.
 For human_review criteria report automated evidence; actual approval is a separate
 runner gate. No evidence files need to be written. Return findings to Astra, who
@@ -666,13 +666,16 @@ For CONTINUE or REWORK, provide next_objective and next_task: kind, milestone_id
 requirements, approved acceptance_criteria IDs and validation_plan. Use kind=validate
 with CONTINUE when existing work only needs Sol revalidation. For BLOCKED or COMPLETE
 use kind=none and empty next-task strings/lists. Report every defect you identify as a
-structured entry in findings (severity, finding, evidence, blocking); the runner tracks
-each one by identity across reviews and links it to the task that fixes it, so a finding
-described only in prose is not tracked. open_findings in CURRENT HANDOFF DATA lists both
-reviewers' open findings. Omitting a finding from a later report does not close it: close
-it in finding_dispositions with its ID, disposition resolved (with verification evidence)
-or retracted (the finding itself was wrong, with evidence), and only after this report
-reviewed the work it was raised under. Keep a
+structured entry in findings (severity, finding, evidence, blocking). Leave id empty
+for a new defect. Two defects stay separate even when the wording matches; copy an
+open finding's id only when you are reporting that same defect again. The runner
+assigns the id and links it to the task that fixes it, so a finding described only
+in prose is not tracked. A BLOCKED review still lists the defects already found;
+the runner records them before pausing and does not close anything. open_findings
+in CURRENT HANDOFF DATA lists both reviewers' open findings. Omitting a finding
+does not close it: close it in finding_dispositions with its exact id, disposition
+resolved (with verification evidence) or retracted (the finding itself was wrong,
+with evidence), and only after this report reviewed the work it was raised under. Keep a
 correction task small: name the ledger IDs it addresses in next_task.findings and leave
 the rest for the next task; an empty list assigns every open finding. Plans may change inside the contract;
 milestones describe the approved scope, not permission to invent requirements.

@@ -147,6 +147,24 @@ class RetrofitTest(unittest.TestCase):
         self.assertTrue(s.same_command(event, event.replace("-lc", "-l -c")))
         self.assertFalse(s.same_command(event, "/usr/local/bin/python3 -c 'print(2)'"))
 
+    def test_same_command_preserves_shell_quoting(self):
+        pairs = (
+            ("printf '%s\\n' '&&' false", "printf '%s\\n' && false"),
+            ("printf '%s\\n' ';' false", "printf '%s\\n' ; false"),
+            ("printf '%s\\n' '|' false", "printf '%s\\n' | false"),
+            ("printf '%s\\n' '>' /no/such/autocode-evidence", "printf '%s\\n' > /no/such/autocode-evidence"),
+        )
+        for printed, executed in pairs:
+            with self.subTest(printed=printed):
+                ran = subprocess.run(printed, shell=True, executable="/bin/zsh", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                claimed = subprocess.run(executed, shell=True, executable="/bin/zsh", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.assertEqual(0, ran.returncode)
+                self.assertNotEqual(0, claimed.returncode)
+                self.assertFalse(s.same_command(printed, executed))
+                wrapped = "/bin/zsh -lc " + shlex.quote(printed)
+                self.assertTrue(s.same_command(wrapped, printed))
+                self.assertFalse(s.same_command(wrapped, executed))
+
     def test_explicit_models_high_and_rotation_rollback_persist(self):
         args=SimpleNamespace(astra_model="gpt-6-astra", terra_model="gpt-5.6-terra",
             sol_model="gpt-5.6-sol", reasoning_effort="high", headroom="off",

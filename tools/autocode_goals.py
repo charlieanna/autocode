@@ -84,7 +84,8 @@ def role_schema(legacy, role):
         # Optional structured reviewer findings; prose in requirements is not tracked.
         schema["properties"]["findings"] = {"type": "array", "items": {
             "type": "object", "additionalProperties": False, "required": ["severity", "finding", "evidence"],
-            "properties": {"severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
+            "properties": {"id": STRING,
+                           "severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
                            "finding": STRING, "evidence": STRING, "blocking": {"type": "boolean"}}}}
         schema["properties"]["finding_dispositions"] = {"type": "array", "items": {
             "type": "object", "additionalProperties": False, "required": ["id", "disposition", "evidence"],
@@ -98,6 +99,7 @@ def role_schema(legacy, role):
             schema["required"].append(key)
     if role == "sol":
         findings = schema["properties"]["findings"]["items"]
+        findings["properties"]["id"] = STRING
         findings["properties"]["blocking"] = {"type": "boolean"}
         findings["required"].append("blocking")
         for key, field in {"reproduction_steps": STRINGS, "expected": STRING, "actual": STRING,

@@ -41,9 +41,11 @@ class LedgerTests(unittest.TestCase):
         rows = findings.open_entries(state)
         self.assertEqual(2, len(rows))
         self.assertTrue(all(row["source"] == "sol" and row["opened_in"] == "sol-01.json" for row in rows))
-        self.assertEqual(rows[0]["id"], findings.finding_id("sol", "  empty   NAMES are accepted "))
-        # A later report that simply omits a finding leaves it open and marks it not rechecked.
-        findings.record_validation(state, sol("Empty names are accepted", severity="critical"), {"output": "sol-02.json"})
+        self.assertNotEqual(rows[0]["id"], rows[1]["id"])
+        # Citing the open id refreshes that defect. The same words without an id are a new one.
+        again = sol("Empty names are accepted", severity="critical")
+        again["findings"][0]["id"] = rows[0]["id"]
+        findings.record_validation(state, again, {"output": "sol-02.json"})
         open_rows = findings.open_entries(state)
         self.assertEqual({"Empty names are accepted", "Help text missing"}, {row["finding"] for row in open_rows})
         refreshed = next(row for row in open_rows if row["finding"] == "Empty names are accepted")
@@ -142,7 +144,7 @@ class LedgerTests(unittest.TestCase):
                     "user_request": {"kind": "none", "discovered": "", "impact": "", "decision_needed": "", "options": [], "proposed_delta": ""},
                     "next_task": {"kind": "implement", "milestone_id": "M1", "requirements": ["r"], "acceptance_criteria": ["C1"],
                                   "validation_plan": ["v"], "findings": ["F-abc"]},
-                    "findings": [{"severity": "high", "finding": "Empty names are accepted", "evidence": "event:check", "blocking": True}],
+                    "findings": [{"id": "", "severity": "high", "finding": "Empty names are accepted", "evidence": "event:check", "blocking": True}],
                     "finding_dispositions": [{"id": "F-abc", "disposition": "resolved", "evidence": "event:check"}],
                     "agreed_limitations": []}
         support.validate_schema(decision, strict)
@@ -211,8 +213,37 @@ class LedgerTests(unittest.TestCase):
         state = {"goal_contract": {"body": {"acceptance_criteria": [{"id": "C1"}]}}, "current_task": {"id": "t", "milestone_id": ""}}
         findings.record_validation(state, sol("A"), {"output": "sol-1.json"})
         self.assertIsNone(findings.open_entries(state)[0]["scope"])
-        findings.record_validation(state, sol(dispositions=[resolved(findings.finding_id("sol", "A"))]), {"output": "sol-2.json"})
+        findings.record_validation(state, sol(dispositions=[resolved(findings.open_entries(state)[0]["id"])]), {"output": "sol-2.json"})
         self.assertEqual([], findings.open_entries(state))
+
+    def test_same_wording_with_different_evidence_stays_two_findings(self):
+        state = {}
+        report = {"findings": [
+            {"severity": "high", "finding": "Missing authorization check", "evidence": "api_a.py:41", "blocking": True},
+            {"severity": "high", "finding": "Missing authorization check", "evidence": "api_b.py:72", "blocking": True},
+        ], "finding_dispositions": []}
+        findings.record_validation(state, report, {"output": "sol-01.json"})
+        rows = findings.open_entries(state)
+        self.assertEqual(["api_a.py:41", "api_b.py:72"], [row["evidence"] for row in rows])
+        self.assertEqual(2, len({row["id"] for row in rows}))
+        # Citing one id updates that defect and does not absorb the other.
+        repeat = {"findings": [{"id": rows[0]["id"], "severity": "critical", "finding": "Missing authorization check",
+                                "evidence": "api_a.py:41", "blocking": True}], "finding_dispositions": []}
+        findings.record_validation(state, repeat, {"output": "sol-02.json"})
+        self.assertEqual(2, len(findings.open_entries(state)))
+        self.assertEqual(2, next(row["times_reported"] for row in findings.open_entries(state) if row["evidence"] == "api_a.py:41"))
+
+    def test_blocked_review_records_new_findings_and_closes_nothing(self):
+        state = {}
+        findings.record_decision(state, astra("REWORK", "Help text missing"), {"output": "astra-01.json"})
+        existing = findings.open_entries(state)[0]["id"]
+        blocked = astra("BLOCKED", "Missing authorization check")
+        blocked["finding_dispositions"] = [resolved(existing)]
+        findings.record_decision(state, blocked, {"output": "astra-02.json"})
+        open_rows = findings.open_entries(state, "astra")
+        self.assertEqual({"Help text missing", "Missing authorization check"}, {row["finding"] for row in open_rows})
+        self.assertTrue(all(row["status"] == "open" for row in state["findings_ledger"]))
+        self.assertEqual("astra-02.json", next(row["not_rechecked_in"] for row in open_rows if row["id"] == existing))
 
 
 class DashboardLedgerTests(unittest.TestCase):
@@ -227,7 +258,10 @@ class DashboardLedgerTests(unittest.TestCase):
             findings.record_validation(state, sol("Empty names are accepted", "Help text missing"), {"output": "sol-01.json"})
             findings.record_decision(state, astra("REWORK", "No blank-input test"), {"output": "astra-01.json"})
             findings.assign(state, {"id": "task-9"}, {"kind": "implement"}, {"status": "REWORK"})
-            findings.record_validation(state, sol("Empty names are accepted"), {"output": "sol-02.json"})
+            repeat = sol("Empty names are accepted")
+            repeat["findings"][0]["id"] = next(row["id"] for row in findings.open_entries(state, "sol")
+                                               if row["finding"] == "Empty names are accepted")
+            findings.record_validation(state, repeat, {"output": "sol-02.json"})
             with patch.object(monitor, "process_table") as probe:
                 result = monitor.snapshot(state, run, detailed=True)
             probe.assert_not_called()

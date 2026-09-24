@@ -1,13 +1,16 @@
 """One authoritative list of reviewer findings.
 
 Sol reports findings in every validation; Astra reports them in review and
-checkpoint decisions.  Both land here with a stable identity, the task assigned
-to fix them, and the report that resolved them.  Only the reviewer who raised a
+checkpoint decisions.  Both land here with a runner-owned identity, the task assigned
+to fix them, and the report that resolved them.  The identity is not derived
+from the wording or the evidence, so two defects with the same description stay
+separate until a report cites one existing id.  Only the reviewer who raised a
 finding can resolve it, and only through an explicit disposition on that
 finding's ID in a fresh report: ``resolved`` with verification evidence, or
 ``retracted`` when the finding itself was wrong.  A report that simply omits a
 finding leaves it open and marks it as not rechecked, and a report-only repair
-can never close one.  The resolver diagnoses findings; it never reconciles
+can never close one.  A BLOCKED review records the defects it has already found
+and does not close any.  The resolver diagnoses findings; it never reconciles
 them.
 """
 from __future__ import annotations
@@ -26,8 +29,17 @@ SEVERITIES = ("critical", "high", "medium", "low")
 DISPOSITIONS = ("resolved", "retracted")
 
 
-def finding_id(source: str, text: str) -> str:
-    return "F-" + s.digest({"source": source, "finding": " ".join(str(text).split()).lower()})[:10]
+def allocate_id(state) -> str:
+    """A runner-owned id. Wording and evidence are not part of it, so two defects
+    with the same description stay distinct until a report cites one id."""
+    taken = {row.get("id") for row in state.get("findings_ledger", [])}
+    seq = int(state.get("findings_seq", 0))
+    while True:
+        seq += 1
+        candidate = "F-" + s.digest({"n": seq})[:10]
+        if candidate not in taken:
+            state["findings_seq"] = seq
+            return candidate
 
 
 def ledger(state) -> list:
@@ -52,8 +64,9 @@ def _normalize(source, raw):
     severity = raw.get("severity", "medium")
     if severity not in SEVERITIES:
         raise ValueError(f"{source} finding severity must be one of {', '.join(SEVERITIES)}")
-    return {"id": finding_id(source, text), "source": source, "severity": severity, "finding": text,
-            "evidence": str(raw.get("evidence", "")), "blocking": bool(raw.get("blocking", True))}
+    return {"source": source, "severity": severity, "finding": text,
+            "evidence": str(raw.get("evidence", "")), "blocking": bool(raw.get("blocking", True)),
+            "cited_id": str(raw.get("id") or "").strip()}
 
 
 def report_scope(state):
@@ -118,9 +131,17 @@ def _record(state, source, reported, record):
     all_criteria = {c["id"] for c in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])}
     # A repair only reformats an earlier report; it is not a fresh review of the work.
     can_resolve = not (record.get("report_repaired") or record.get("report_only"))
+    open_ids = {row["id"] for row in rows if row.get("source") == source and row.get("status") == "open"}
     seen = {}
     for raw in reported:
         entry = _normalize(source, raw)
+        cited = entry.pop("cited_id")
+        if cited:
+            if cited not in open_ids or cited in seen:
+                raise ValueError(f"{source} finding id {cited} is not one open finding of this reviewer")
+            entry["id"] = cited
+        else:
+            entry["id"] = allocate_id(state)
         seen[entry["id"]] = entry
     for row in rows:
         if row.get("source") != source or row.get("status") != "open":
@@ -148,10 +169,14 @@ def record_validation(state, validation, record):
 
 
 def record_decision(state, decision, record):
-    """Astra's structured findings behave like Sol's. BLOCKED decisions leave the ledger unchanged."""
+    """Astra's structured findings behave like Sol's.
+
+    A BLOCKED review still records the defects it already identified. It does not
+    close anything: the pause is about a missing decision, not a passing recheck.
+    """
+    _record(state, "astra", decision.get("findings", []), record)
     if decision.get("status") == "BLOCKED":
         return
-    _record(state, "astra", decision.get("findings", []), record)
     _apply_dispositions(state, "astra", decision.get("finding_dispositions", []), record,
                         report_scope(state),
                         {c["id"] for c in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])},
