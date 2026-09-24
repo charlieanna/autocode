@@ -11,9 +11,11 @@ import uuid
 try:
     from . import autocode_support as s
     from . import autocode_milestones as checkpoints
+    from . import autocode_findings as findings
 except ImportError:
     import autocode_support as s
     import autocode_milestones as checkpoints
+    import autocode_findings as findings
 
 
 def obj(properties):
@@ -77,6 +79,13 @@ def role_schema(legacy, role):
             "milestone_id": STRING, "requirements": STRINGS,
             "acceptance_criteria": STRINGS, "validation_plan": STRINGS,
         })
+        # Optional: the ledger IDs this task addresses (default: every open finding).
+        schema["properties"]["next_task"]["properties"]["findings"] = STRINGS
+        # Optional structured reviewer findings; prose in requirements is not tracked.
+        schema["properties"]["findings"] = {"type": "array", "items": {
+            "type": "object", "additionalProperties": False, "required": ["severity", "finding", "evidence"],
+            "properties": {"severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
+                           "finding": STRING, "evidence": STRING, "blocking": {"type": "boolean"}}}}
         schema["properties"]["agreed_limitations"] = STRINGS
         schema["required"] += ["next_task", "agreed_limitations"]
     if role == "terra":
@@ -362,7 +371,15 @@ def approve(state, selected):
     state.setdefault("user_events", []).append(event)
     contract.update(approval_status="approved", approval_event=event)
     state.update(phase="READY_TO_EXECUTE", status="RUNNING", next_stage="astra_plan")
+    carried = []
+    if checkpoints.enabled(state):
+        current = current or s.snapshot(Path(state['workspace']))
+        carried = checkpoints.carryforward.carry(state, current)
     if joint:
+        if contract['body']['initial_task']['milestone_id'] in carried:
+            state.update(next_stage='astra_review',
+                         next_action='Preserve carried milestones; assign unfinished work or final integration validation')
+            return
         decision = initial_decision(contract["body"])
         kind = assign_task(state, decision, current)
         try:
@@ -597,6 +614,8 @@ def assign_task(state, decision, current):
             raise ValueError("The timed-out task needs a changed execution plan before another writer; "
                              "the task and timeout limits are unchanged. Preserve completed work and "
                              "split the remaining work or address the diagnosed stall.")
+    if checkpoints.enabled(state):
+        checkpoints.carryforward.before_assignment(state, spec, decision)
     checkpoints.before_assignment(state, decision, current)
     # After before_assignment, so a milestone accepted while advancing counts.
     checkpoints.require_prerequisites(state, spec["milestone_id"])
@@ -612,6 +631,7 @@ def assign_task(state, decision, current):
         state["current_task"]["milestone_ids"] = previous_batch
         state["current_task"]["acceptance_criteria"] = list(dict.fromkeys(
             cid for mid in previous_batch for cid in milestones[mid]["acceptance_criteria"]))
+    findings.assign(state, state["current_task"], spec, decision)
     if checkpoints.enabled(state):
         checkpoints.progress(state)["rejected_advances"] = 0
         state.pop("milestone_blocker", None)

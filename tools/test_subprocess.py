@@ -109,6 +109,17 @@ class SubprocessFlow(unittest.TestCase):
         self.assertEqual(["FAIL"], [row["validation"]["verdict"] for row in state["validation_archive"]])
         self.assertIn("Keep Unicode support", state["goal_contract"]["body"]["constraints"])
         self.assertEqual(1, sum(e["kind"] == "goal_approval" for e in state["user_events"]))
+        # Sol's failing finding and Astra's structured REWORK finding share one ledger,
+        # were linked to the correction task, and were closed by the reviewers' next reports.
+        ledger = state["findings_ledger"]
+        self.assertEqual({"sol", "astra"}, {row["source"] for row in ledger})
+        self.assertTrue(all(row["status"] == "resolved" and row["resolved_in"] for row in ledger))
+        rework_task = [t for t in [*state.get("task_archive", []), state["current_task"]] if t.get("decision") == "REWORK"][0]
+        self.assertTrue(all(row["assigned_task"] == rework_task["id"] for row in ledger))
+        self.assertEqual(sorted(row["id"] for row in ledger), sorted(rework_task["findings"]))
+        rework_prompt = Path(next(r for r in state["stages"] if r["stage"] == "terra" and r.get("task_id") == rework_task["id"])["prompt"]).read_text()
+        handoff = json.loads(rework_prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual({"sol", "astra"}, {row["source"] for row in handoff["open_findings"]})
         self.assertIn("Acceptance evidence:", result.stdout)
         self.assertIn("End-to-end flow: PASS", result.stdout)
         executed = [row for row in state["stages"] if row["stage"] != "astra_discovery" and not row.get('runner_owned')]

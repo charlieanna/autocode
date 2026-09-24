@@ -54,7 +54,8 @@ def report(data):
             "next_objective": "" if done else "Build " + mid,
             "next_task": {"kind": "none" if done else "implement", "milestone_id": "" if done else mid,
                           "requirements": [] if done else ["Produce output"], "acceptance_criteria": [] if done else ["C3" if mid == "M3" else "C1"],
-                          "validation_plan": [] if done else ["Read all outputs"]},
+                          "validation_plan": [] if done else ["Read all outputs"], "findings": []},
+            "findings": [],
             "plan": ["Build outputs"], "affected_paths": [] if done else ["combined.txt" if mid == "M3" else "a.txt"],
             "evidence": ["event:check"], "blocker": "", "agreed_limitations": []}
 

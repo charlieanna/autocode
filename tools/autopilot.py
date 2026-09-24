@@ -7,6 +7,7 @@ from pathlib import Path
 try:
     from . import autocode_support as support, autocode_goals as goals
     from . import autocode_workflow as workflow, autocode_milestones as milestones, autocode_escalation as escalation
+    from . import autocode_findings as findings_ledger
     from .units import autoplanner as planning_unit
 except ImportError:
     import autocode_support as support
@@ -14,6 +15,7 @@ except ImportError:
     import autocode_workflow as workflow
     import autocode_milestones as milestones
     import autocode_escalation as escalation
+    import autocode_findings as findings_ledger
     from units import autoplanner as planning_unit
 
 SKIP = object()
@@ -315,6 +317,7 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
         state.setdefault("validation_archive", []).append({
             "reason": "Superseded by another independent validation", "validation": state["validation"]})
     state.update(validation=validation, unresolved_findings=value["findings"], next_stage="astra_review")
+    findings_ledger.record_validation(state, value, record)
     milestones.observe_validation(state, support.snapshot(workspace))
     if modern:
         state["human_reviews"] = {}
@@ -421,6 +424,8 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
         state["criteria_revision"] = support.digest(definitions)
         state["plan"] = value.get("plan", [value["next_objective"]])
         state["affected_paths"] = value.get("affected_paths", [])
+        if modern:
+            findings_ledger.record_decision(state, value, record)
         if value["status"] in ("COMPLETE", "TASK_COMPLETE"):
             current = support.snapshot(workspace)
             if modern and goals.missing_human_reviews(state):

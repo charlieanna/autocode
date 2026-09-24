@@ -653,7 +653,13 @@ summary in acceptance_criteria/evidence and disclose agreed_limitations.
 For CONTINUE or REWORK, provide next_objective and next_task: kind, milestone_id,
 requirements, approved acceptance_criteria IDs and validation_plan. Use kind=validate
 with CONTINUE when existing work only needs Sol revalidation. For BLOCKED or COMPLETE
-use kind=none and empty next-task strings/lists. Plans may change inside the contract;
+use kind=none and empty next-task strings/lists. Report every defect you identify as a
+structured entry in findings (severity, finding, evidence, blocking); the runner tracks
+each one by identity across reviews and links it to the task that fixes it, so a finding
+described only in prose is not tracked. open_findings in CURRENT HANDOFF DATA lists both
+reviewers' open findings; a defect you no longer see is closed by omitting it. Keep a
+correction task small: name the ledger IDs it addresses in next_task.findings and leave
+the rest for the next task; an empty list assigns every open finding. Plans may change inside the contract;
 milestones describe the approved scope, not permission to invent requirements.
 Return to the user only for consequential product decisions, required permissions,
 unresolved blockers or contract changes. Routine technical choices are yours to resolve.
@@ -731,6 +737,13 @@ def context_packet(state, stage, state_path):
     figma_file = state["settings"].get("figma_file")
     if figma_file:
         base["figma_file"] = figma_file
+    try:
+        from . import autocode_findings as findings_ledger
+    except ImportError:
+        import autocode_findings as findings_ledger
+    if state.get("findings_ledger"):
+        # Both reviewers' open findings, each with its identity and assigned fix task.
+        base["open_findings"] = findings_ledger.handoff(state)
     if stage == "terra":
         base.update(affected_paths=state.get("affected_paths", []), actionable_findings=state.get("unresolved_findings", []))
         repair = state.get('repair_plan') or {}

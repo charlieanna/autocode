@@ -113,7 +113,10 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
               "next_task": {"kind": "none" if complete else "implement", "milestone_id": "" if complete else "M1",
                             "requirements": [] if complete else ["Print a greeting for valid input and reject empty input"],
                             "acceptance_criteria": [] if complete else ["C1"],
-                            "validation_plan": [] if complete else ["Run greet.py with Ada and an empty name"]},
+                            "validation_plan": [] if complete else ["Run greet.py with Ada and an empty name"],
+                            "findings": []},
+              "findings": [{"severity": "high", "finding": "Empty names are accepted by greet.py",
+                            "evidence": "Sol events", "blocking": True}] if rework else [],
               "agreed_limitations": ["Local command-line use only"] if complete else [],
               "evidence": ["Sol events"], "blocker": "",
               "plan": ["Implement greeting", "Run both cases"], "affected_paths": ["greet.py"]}
@@ -173,8 +176,8 @@ else:
                 "next_task": {"kind": "none" if passed else "implement", "milestone_id": "" if passed else "M1",
                     "requirements": [] if passed else ["Reject empty input"],
                     "acceptance_criteria": [] if passed else ["C1"],
-                    "validation_plan": [] if passed else ["Execute valid and empty input"]},
-                "agreed_limitations": [], "evidence": ["event:check"], "blocker": "",
+                    "validation_plan": [] if passed else ["Execute valid and empty input"], "findings": []},
+                "findings": [], "agreed_limitations": [], "evidence": ["event:check"], "blocker": "",
                 "plan": ["Implement and independently verify"], "affected_paths": ["greet.py"]}}
 if os.environ.get('AUTOCODE_FIXTURE_REPORT_REPAIR_STAGE') == stage:
     result.pop('summary', None)

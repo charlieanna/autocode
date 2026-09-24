@@ -163,8 +163,9 @@ else:
               "next_task": {"kind": "none" if complete else "implement", "milestone_id": "" if complete else "M1",
                             "requirements": [] if complete else ["Print a greeting for valid input and reject empty input"],
                             "acceptance_criteria": [] if complete else ["C1"],
-                            "validation_plan": [] if complete else ["Run greet.py with Ada and an empty name"]},
-              "agreed_limitations": ["Local command-line use only"] if complete else [],
+                            "validation_plan": [] if complete else ["Run greet.py with Ada and an empty name"],
+                            "findings": []},
+              "findings": [], "agreed_limitations": ["Local command-line use only"] if complete else [],
               "evidence": ["Sol receipt"], "blocker": "",
               "plan": ["Implement greeting", "Run both cases"], "affected_paths": ["greet.py"]}
 

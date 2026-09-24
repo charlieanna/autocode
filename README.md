@@ -991,6 +991,35 @@ while a partial milestone or batch unlocks downstream work; a known flow failure
 still blocks acceptance. Full-task completion still requires all contract criteria
 and the complete flow to pass on the current source.
 
+After explicit approval of a revised goal, the runner may carry an accepted serial
+milestone forward **for scheduling only**. At acceptance it saves a reuse manifest
+in the existing `milestone_progress`: the approved contract, exact milestone and
+criterion definitions, literal owned paths, all files changed by its recorded
+stages, source hashes/modes, and pinned stage snapshots and validation evidence.
+The new revision must preserve its criteria text, verification methods, ownership,
+`depends_on`, and all other milestone fields exactly. Global outcome, constraints,
+permissions and other goal fields must also remain unchanged. Reordering milestones
+or changing only an unrelated milestone/criterion can preserve earlier work.
+
+Reuse requires unchanged source bytes/modes and intact evidence, plus reuse of
+every prerequisite. Added files under an owned directory count as changes. Missing
+task history, legacy acceptance without a manifest, ambiguous paths, symlinks,
+submodules, batches and human-review milestones all fall back to revalidation.
+This first version supports only one revision hop; it does not chain old evidence
+through successive revisions or infer undeclared code dependencies.
+
+The existing approval gate still applies. Reuse records `carried_from` provenance
+and a `milestone_carry_forward` audit without rewriting the original validation's
+contract hash or granting human approvals. `--status` and role handoffs expose the
+compact audit through `milestone_checkpoint.carry_forward`; full manifests remain
+in the run's state file. Carried prerequisites are checked again against source and
+evidence before scheduling. The runner rejects redundant implementation assignments
+for intact carried milestones; an explicit evidence-backed `REWORK` or detected
+source/evidence drift revokes scheduling acceptance. Budgets and retry counters are
+preserved. Final completion still requires fresh independent validation of every
+criterion and the full integration flow on the current code and approved revision.
+Deploying this code never retroactively manufactures manifests for existing runs.
+
 Three independent reviews without any new passing criteria require an evidence-backed
 `REWORK` with a changed approach or a smaller batch inside the same milestone. One
 automatic replan is allowed; another three reviews without progress pause the run.
@@ -1171,6 +1200,26 @@ the identical writer task again under unchanged limits. This guard does not chan
 timeouts or grant permission to extend a budget.
 Deadline enforcement runs independently of process-table sampling, state writes
 and event-file reads. A blocked observer cannot leave a worker unsupervised.
+
+### Open findings
+
+The runner keeps one list of reviewer findings in `state.json` under
+`findings_ledger`. Every Sol finding and every structured Astra finding (the
+optional `findings` array of a decision, with severity, finding, evidence and
+blocking) gets a stable ID derived from the reviewer and the finding text, the
+report that raised it, the task assigned to fix it, and the report that resolved
+it. Only the reviewer who raised a finding can close it, by submitting a newer
+report that no longer lists it; a finding reported again after a fix keeps its ID
+and counts the repeat. Findings written only as prose in `next_task.requirements`
+are not tracked. Role handoffs include `open_findings` for both reviewers, and the
+dashboard's task view shows the list with each finding's source, fix task and
+repeat count. `unresolved_findings` still holds Sol's latest findings unchanged.
+
+Astra can keep a correction batch small by naming the ledger IDs a REWORK task
+addresses in `next_task.findings`; an empty or missing list takes every open finding.
+`--max-findings-per-task N` (saved as `limits.max_findings_per_task`) rejects a
+REWORK task that bundles more than `N` open findings, so the correction has to be
+split. The default is unlimited, and `0` disables the check on a saved run.
 
 `--pause-after-stage` and a run-local `pause-requested` file stop at a saved boundary.
 For a timed-out provider stage with no terminal response, Autocode confirms its
