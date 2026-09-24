@@ -230,25 +230,27 @@ function taskIdentity(run) {
 }
 function statusInfo(run) {
   const status=run.status||'', questions=run.questions||[], request=run.user_request||{};
-  const info=(group,tone,label,action,reason,tab='interview')=>({group,tone,label,action,reason,tab});
+  const info=(group,tone,label,action,reason,tab='interview')=>({group,tone,label,action,reason,tab,
+    stateLabel:group==='running'?'Worker confirmed running':group==='attention'?'Waiting for your decision':group==='complete'?'Complete':group==='stopped'?(tone==='failed'?'Internally blocked':'Stopped at a checkpoint'):label});
   if(run.error||run.state_error)return info('stopped','failed','Unavailable','Inspect issue',run.error||run.state_error);
   if(status==='TASK_COMPLETE')return info('complete','complete','Completed','View result','The runner recorded this task as complete. No reply is needed.','execution');
   if(status==='DRY_RUN')return info('other','','Preview only','View preview','This is a saved dry run. It did not start implementation.','execution');
-  if(['PAUSED_PROVIDER_UNCERTAIN','PAUSED_UNCERTAIN_STAGE'].includes(status))return info('stopped','attention','Interrupted','Review interruption',run.stop_reason||'A provider attempt ended without a confirmed result. Review saved work before continuing.');
+  if(['PAUSED_PROVIDER_UNCERTAIN','PAUSED_UNCERTAIN_STAGE'].includes(status))return info('stopped','failed','Interrupted','Review interruption',run.stop_reason||'A provider attempt ended without a confirmed result. Review saved work before continuing.');
   // Saved questions and user requests may remain after a stage resumes. Honor
   // the current paused/running state before interpreting these old fields.
   if(status==='RUNNING') {
     const stage=run.active_stage||{};
     if(run.monitor?.live?.state==='alive')return info('running','running','Running','View progress',stageName(run)+' · Worker verified alive');
     if(stage.stage&&run.monitor?.live?.state==='exited')return info('stopped','attention','Worker stopped','Review checkpoint','The saved step says running, but its worker has exited. Review the checkpoint before continuing.');
-    if(stage.stage&&!stage.finished_at&&stage.exit_code==null)return info('running','running','Activity reported','View progress',stageName(run)+(stage.started_at?' · recorded '+new Date(stage.started_at).toLocaleString():'. Saved active step.'));
-    if(run.monitor?.orchestration_batch&&run.monitor?.next_stage==='orchestrator')return info('running','running','Activity reported','View progress','Orchestrator · Runner-owned batch. Worker statuses are saved reports; live processes are not verified.');
+    if(stage.stage&&!stage.finished_at&&stage.exit_code==null)return info('stopped','attention','Worker unverified','Check worker status','No live worker is confirmed. '+(run.monitor?.live?.label||'Process inspection is unavailable.')+' Inspect the saved checkpoint before continuing.');
+    if(run.monitor?.orchestration_batch&&run.monitor?.next_stage==='orchestrator')return info('stopped','attention','Worker unverified','Check worker status','Orchestrator · Saved batch statuses do not confirm live workers. Inspect the saved checkpoint before continuing.');
     if(run.review_token&&run.review_criteria?.length&&run.review_criteria.every(criterion=>run.human_reviews?.[criterion.id]?.token===run.review_token))return info('stopped','','Ready to finish','Finish task','Your review is saved. Finish the task to run its final completion check.','execution');
     return info('stopped','','Ready to continue','Open to continue','The task is at a saved checkpoint. Open it to continue when you are ready.');
   }
-  if(status==='BLOCKED_HUMAN')return info('attention','attention','Decision needed','View decision',request.decision_needed||run.stop_reason||'The task needs your decision before it can continue.');
-  if(status==='PAUSED_INVALID_OUTPUT'&&/discovery|glm_revise|astra_challenge|astra_finalize/.test(run.active_stage?.stage||run.stage||''))return info('stopped','failed','Planning needs retry','Retry planning',String(run.stop_reason||'').includes('actual saved feedback event')?'The planning draft cited user feedback that has no matching saved feedback event. The draft was rejected. Retry planning to generate a fresh draft; final plan approval is still required.':'The planning draft failed validation and was rejected. Retry planning to generate a fresh draft; final plan approval is still required.');
+  if(status==='PAUSED_INVALID_OUTPUT'&&/discovery|glm_revise|astra_challenge|astra_finalize/.test(run.active_stage?.stage||run.stage||''))return info('stopped','failed','Planning needs retry','Retry planning',(run.stop_reason?run.stop_reason+' · ':'')+(String(run.stop_reason||'').includes('actual saved feedback event')?'The planning draft cited user feedback that has no matching saved feedback event. The draft was rejected. Retry planning to generate a fresh draft; final plan approval is still required.':'The planning draft failed validation and was rejected. Retry planning to generate a fresh draft; final plan approval is still required.'));
   if(status==='PAUSED_INTERVENTION')return info('stopped','attention','Paused','Resume task',String(run.stop_reason||'').includes('feedback was applied')?'Your feedback has been applied. Resume to update the plan.':'Paused at a saved step. Resume when you’re ready.');
+  if(/INVALID_OUTPUT|REPORT_REPAIR|PERMISSION_RECONCILIATION|ORCHESTRATOR_|FAILED/.test(status))return info('stopped','failed','Internally blocked','Inspect failure',run.stop_reason||'An internal step failed. Inspect the saved failure, correct the cause, then retry.');
+  if(status==='BLOCKED_HUMAN'&&(questions.length||request.decision_needed))return info('attention','attention','Decision needed','View decision',request.decision_needed||questions[0].question);
   if(/PAUSED|BLOCKED|FAILED/.test(status))return info('stopped',/INVALID|FAILED/.test(status)?'failed':'attention','Paused','View pause reason',run.stop_reason||'The runner stopped at a checkpoint. Review its saved state before continuing.');
   const reviews=run.review_token?(run.review_criteria||[]).filter(criterion=>run.human_reviews?.[criterion.id]?.token!==run.review_token):[];
   if(status==='WAITING_FOR_USER'&&request.kind==='human_review'&&reviews.length)return info('attention','attention','Review output','Review '+reviews.length+' '+(reviews.length===1?'item':'items'),request.decision_needed||'Inspect the saved output and record your review.','execution');
@@ -258,12 +260,15 @@ function statusInfo(run) {
     if(run.goal_token&&run.goal?.approval_status!=='approved'&&planReady(run))return info('attention','attention','Approve plan','Review plan',run.goal?.body?.intended_outcome||'Review the finalized plan before implementation starts.');
     return info('stopped','attention','Planning checkpoint','Open planning','The saved plan is not currently ready for approval. Inspect the planning checkpoint.');
   }
-  if(status==='WAITING_FOR_USER')return info('attention','attention','Decision needed','View request',request.decision_needed||run.stop_reason||'Open the conversation to see what the agent needs from you.');
+  if(status==='WAITING_FOR_USER'){
+    if(request.decision_needed)return info('attention','attention','Decision needed','View request',request.decision_needed);
+    return info('stopped','','Ready to continue','Resume task','No unresolved decision is recorded. Resume from the saved checkpoint.');
+  }
   return info('other','',human(status)||'Unknown','Inspect task','The saved state does not identify a current action. Open the task for details.');
 }
 function taskGroups() {return [
   ['attention','Waiting on you','Questions, plan approval, or a review that only you can resolve.'],
-  ['running','In progress','Live worker checks and saved activity. Saved activity alone does not confirm that its process is still running.'],
+  ['running','In progress','Workers confirmed running by process inspection. Saved activity does not confirm a live process.'],
   ['stopped','Paused / issues','Stopped, interrupted, unavailable, or ready to continue. These are separate from unanswered questions.'],
   ['complete','Completed','Finished tasks. No reply is needed.'],
   ['other','Other saved tasks','Previews and tasks whose next action is not known.']
@@ -308,7 +313,7 @@ function restorePendingShortProject(data) {
   unavailableShortProject();return true;
 }
 function taskScopeTitle() {return projectFilter?basename(projectFilter):taskFilter==='all'?'All work':taskGroups().find(group=>group[0]===taskFilter)?.[1]||'All work';}
-function badge(run) { const info = statusInfo(run), element = n('span',info.label); element.className = 'badge '+info.tone; element.title = run.status || run.error || ''; return element; }
+function badge(run) { const info = statusInfo(run), element = n('span',info.stateLabel); element.className = 'badge '+info.tone; element.title = run.status || run.error || ''; return element; }
 function jointPlanning(run) { return run.model_settings?.joint_planning === true; }
 function planningMode(run) { return run.monitor?.workflow_mode==='glm_final_audit_v2'?'Builder-led · Completion owner final audit':run.monitor?.workflow_mode==='glm_first_v1'?'Builder-led · Completion owner milestone reviews':jointPlanning(run)?'Requirements planning · Independent review':run.model_settings?.engine?'Legacy planning':'Saved workflow unavailable'; }
 function planningSpeaker(run) { return jointPlanning(run) && run.goal?.origin !== 'astra_finalize' ? 'Requirements planner' : 'Plan reviewer'; }
@@ -348,7 +353,7 @@ function taskOverviewState(run) {
   const next=run.monitor?.next_stage,last=(run.stages||[]).findLast(stage=>stage.finished_at&&stageSucceeded(stage));
   const batchReported=run.status==='RUNNING'&&next==='orchestrator'&&run.monitor?.orchestration_batch;
   const savedStep=ongoing?'Last reported active step · '+stageName({...run,stage:active.stage}):batchReported?'Last reported step · Orchestrator · Coordinating Builders':next?'Next step · '+stageName({...run,stage:next}):last?'Last completed step · '+stageName({...run,stage:last.stage}):'No active step';
-  return {info,role,active:!!ongoing&&live.state!=='exited',verified:!!ongoing&&live.state==='alive',label:info.group==='attention'?'Waiting on you':info.label,
+  return {info,role,active:!!ongoing&&live.state==='alive',verified:!!ongoing&&live.state==='alive',label:info.stateLabel,
     step:ongoing&&live.state==='alive'?'Current step · '+stageName(run):info.group==='complete'?'Work complete':info.group==='attention'?info.action:savedStep,
     objective:run.monitor?.objective||run.astra_plan?.current_assignment?.objective||'No current objective has been recorded.'};
 }
@@ -975,6 +980,7 @@ function primaryAction(run,busy=false){
   if(info.label==='Ready to finish')return {kind:'continue',label:'Finish task'};
   if(info.group==='attention')return {kind:'answer',label:'Reply'};
   if(info.label==='Planning needs retry')return {kind:'continue',label:'Retry planning'};
+  if(info.label==='Internally blocked'||info.label==='Worker unverified')return {kind:'checks',label:info.action};
   if(info.group==='stopped')return {kind:'continue',label:run.goal?.approval_status==='approved'?(!run.monitor?.orchestration_batch&&!run.stages?.some(stage=>['terra','orchestrator'].includes(stage.stage))?'Start building':'Resume task'):'Resume planning'};
   return {kind:'none',label:'Inspect activity',disabled:true};
 }
@@ -1000,6 +1006,7 @@ function taskDecision(run,busy=false){
   if(info.group==='attention')return result('Your decision is needed',info.reason,'Open Conversation and reply to the current request. Your reply does not approve a new plan revision.',true);
   if(action.kind==='recover')return result('Review the interrupted attempt',info.reason,'Choose Review recovery above, inspect the saved attempt, then Recover saved work. Resume is a separate action.',true);
   if(info.label==='Planning needs retry')return result('Retry the planning step',info.reason,'Retry planning requests a new draft. You will review the final plan before approving it.');
+  if(info.label==='Internally blocked')return result('Internal failure needs repair',info.reason,'Inspect the saved failure in Checks, correct its cause, then retry the saved step. No approval is requested.');
   if(info.label==='Ready to finish')return result('Your review is saved','All requested review items have an approval for the current result.','Choose Finish task above to run the final completion check.');
   if(approved)return result('No approval pending','Plan revision '+revision+' is already approved.',info.group==='running'?'The team is working under that approved plan. You can send feedback in Conversation.':action.kind==='continue'?'Choose '+action.label+' above to continue the saved next step under this approved plan.':'Inspect History for the next saved action.');
   if(run.status==='DRY_RUN')return result('Preview only','This dry run did not start implementation.','There is no current approval request.');
@@ -1087,6 +1094,10 @@ function renderTaskAttention(run){
     host.append(disclosure('Inspect interrupted attempt','recovery:'+attempt,[renderDocument(evidence)],run.run));
     const recover=focusKey(button('Recover saved work',()=>submitTaskAction(run,'recover_stage',{attempt_id:attempt}),'primary'),'recover:'+run.run+':'+attempt);
     recover.disabled=busy||run.interventions?.mode==='unavailable';host.append(recover);
+  }else if(next.label==='Internally blocked'){
+    host.append(n('p','Inspect the saved failure and correct its cause before retrying.'));
+    const retry=button('Retry saved step',()=>submitTaskAction(run,'continue'),'text-button');
+    retry.disabled=busy||run.interventions?.mode==='unavailable';host.append(retry);
   }else if((run.questions||[]).length){host.append(n('p','Your saved questions remain in the plan. Resume planning to continue.'));}
   else if(next.label==='Planning needs retry'){host.append(n('p','Retry planning makes a fresh planning request. It does not approve the plan or start implementation.'));}
   else if(jointPlanning(run)&&!planReady(run)&&run.goal?.approval_status!=='approved'){host.append(n('p','Resume to continue planning. You will approve the final plan before implementation.'));}

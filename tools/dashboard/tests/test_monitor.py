@@ -23,6 +23,18 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(monitor.worker_status(self.active, self.run, {123: {**self.worker, 'state': 'Z'}})['state'], 'exited')
         self.assertEqual(monitor.worker_status(self.active, self.run, None)['state'], 'unknown')
 
+    def test_fresh_checkpoint_and_running_log_do_not_override_exited_worker(self):
+        log = self.run / 'events.jsonl'
+        log.write_text(json.dumps({'type': 'item.started', 'item': {
+            'id': '1', 'type': 'command_execution', 'status': 'running'}}))
+        state = {'status': 'RUNNING', 'active_stage': {**self.active, 'events': str(log)}}
+        with patch.object(monitor, 'process_table', return_value={}):
+            result = monitor.snapshot(state, self.run, detailed=True)
+        self.assertEqual(result['live']['state'], 'exited')
+        self.assertIsNotNone(result['checkpoint_updated'])
+        self.assertIsNotNone(result['log_updated'])
+        self.assertEqual(result['activity'][0]['status'], 'running')
+
     def test_legacy_requires_provider_and_exact_run_path(self):
         active = {'pid': 123}
         def check(command):

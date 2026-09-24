@@ -41,9 +41,9 @@ assert.equal(context.taskOverviewState(savedPause).step,'Next step · Plan revie
 assert.equal(context.taskOverviewState({...savedPause,monitor:{live:{state:'none'}}}).step,'Last completed step · Requirements planner · Planning');
 assert.equal(context.taskOverviewState({...savedPause,monitor:{},stages:[]}).step,'No active step');
 assert.equal(context.taskOverviewState(exited).step,'Last reported active step · Builder · Implementing');
-assert.equal(classify(activity).group, 'running');
-assert.match(classify(activity).reason, /Builder.*recorded/);
-assert.ok(classify(activity).reason.includes(new Date(activity.active_stage.started_at).toLocaleString()));
+assert.equal(classify(activity).group, 'stopped');
+assert.match(classify(activity).reason, /No live worker is confirmed/);
+assert.equal(context.taskOverviewState(activity).active, false);
 assert.match(context.taskGroups().find(group => group[0] === 'running')[2], /does not confirm.*process/);
 for (const finished of [{finished_at: '2026-09-20T07:01:00Z'}, {exit_code: 0}, {exit_code: -15}]) {
   const result = classify({...activity, active_stage: {...activity.active_stage, ...finished}});
@@ -89,7 +89,7 @@ assert.equal(output.tab, 'execution');
 const blocker = classify({...review, questions: [question], user_request: {kind: 'blocker', decision_needed: question.question}});
 assert.equal(blocker.action, 'Answer 1 question');
 assert.equal(blocker.tab, 'interview');
-assert.equal(classify({status: 'BLOCKED_HUMAN', stop_reason: 'Choose the deployment target'}).reason, 'Choose the deployment target');
+assert.equal(classify({status: 'BLOCKED_HUMAN', questions: [question], user_request: {decision_needed:'Choose the deployment target'}}).reason, 'Choose the deployment target');
 assert.equal(classify({status: 'DRY_RUN', questions: [question]}).group, 'other');
 assert.equal(classify({status: 'UNRECOGNIZED_STATE'}).group, 'other');
 
@@ -149,3 +149,21 @@ assert.equal(shortOpened.length,0);
 assert.equal(context.restorePendingShortRun({runs:[shortA,shortB]}),true);
 assert.equal(shortOpened[0].run,shortA.run);
 console.log('Task classification, concise identity, and project/filter route checks passed.');
+
+// Fresh files and active-looking events are never evidence of a live process.
+for (const state of ['unknown','none','exited']) {
+  const saved={...activity,monitor:{live:{state},checkpoint_updated:new Date().toISOString(),log_updated:new Date().toISOString(),activity:[{status:'running'}]}};
+  assert.equal(classify(saved).group,'stopped');
+  assert.equal(classify(saved).stateLabel,'Stopped at a checkpoint');
+}
+assert.equal(classify(live).stateLabel,'Worker confirmed running');
+assert.equal(classify({status:'WAITING_FOR_USER',questions:[question]}).stateLabel,'Waiting for your decision');
+assert.equal(classify({status:'WAITING_FOR_USER',questions:[],user_request:null}).group,'stopped');
+assert.equal(classify({status:'TASK_COMPLETE'}).stateLabel,'Complete');
+for(const status of ['PAUSED_INVALID_OUTPUT','PAUSED_REPORT_REPAIR_LIMIT','PAUSED_PERMISSION_RECONCILIATION']) {
+  const blocked=classify({status,stage:'terra',questions:[question],user_request:{kind:'permission'},stop_reason:'Report schema rejected: missing summary'});
+  assert.equal(blocked.group,'stopped');
+  assert.equal(blocked.stateLabel,'Internally blocked');
+  assert.equal(blocked.reason,'Report schema rejected: missing summary');
+  assert.equal(blocked.action,'Inspect failure');
+}

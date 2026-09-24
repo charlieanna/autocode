@@ -6,7 +6,7 @@ vm.runInContext(source.slice(source.indexOf('const basename ='),source.indexOf("
 const active={status:'RUNNING',stage:'terra',active_stage:{stage:'terra',started_at:'2026-09-21T00:00:00Z'},monitor:{live:{state:'alive'}}};
 assert.equal(c.primaryAction(active).kind,'pause');
 assert.equal(c.primaryAction({...active,questions:[{id:'old'}]}).kind,'pause');
-assert.equal(c.primaryAction({...active,monitor:{live:{state:'unknown'}}}).kind,'pause');
+assert.equal(c.primaryAction({...active,monitor:{live:{state:'unknown'}}}).kind,'checks');
 assert.equal(c.primaryAction({...active,monitor:{live:{state:'exited'}}}).kind,'continue');
 assert.equal(c.primaryAction({status:'WAITING_FOR_USER',questions:[{id:'Q1',question:'Which platform?'}]}).kind,'answer');
 assert.equal(c.primaryAction({status:'WAITING_FOR_USER',questions:[{id:'Q1'}]},true).disabled,true);

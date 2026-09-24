@@ -14,6 +14,33 @@ BARE_OPENAI_ALIASES={'gpt-5.6-sol','gpt-5.6-terra','gpt-6-astra'}
 MODEL_ID=re.compile(r'^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._:/-]{0,120}$',re.I)
 def obj(x): return x if isinstance(x,dict) else {}
 def items(x): return x if isinstance(x,list) else []
+def pending_decisions(state):
+ """Project unresolved decisions without changing the saved checkpoint."""
+ questions=[q for q in items(state.get('pending_questions')) if isinstance(q,dict)]
+ answers=obj(state.get('answers'));request=obj(state.get('user_request'))
+ def answered(question):
+  ident=question.get('id')
+  answer=obj(answers.get(ident)) if isinstance(ident,str) else {}
+  return bool(answer.get('text')) and (not answer.get('question') or answer['question']==question)
+ pending=[q for q in questions if not answered(q)]
+ request_resolved=bool(request.get('decision_needed')) and any(
+  q not in pending and q.get('question')==request['decision_needed'] for q in questions)
+ # Permission decisions record provenance and the exact approved contract scope.
+ # Older checkpoints can still retain a duplicate question under a new ID.
+ contract=obj(state.get('goal_contract'))
+ token=f"r{contract.get('revision')}:{contract.get('hash')}"
+ if request.get('kind')=='permission' and contract.get('approval_status')=='approved':
+  for raw in answers.values():
+   answer=obj(raw)
+   if (answer.get('kind')=='permission_answer' and answer.get('actor')=='user_cli'
+       and answer.get('text') and answer in items(state.get('user_events'))
+       and answer.get('contract_token')==token and answer.get('request')==request):
+    pending=[q for q in pending if q.get('question')!=request.get('decision_needed')]
+    request_resolved=True
+    break
+ if request_resolved:
+  request={}
+ return pending,request or None
 def json_file(p):
  try:
   x=json.loads(p.read_text(encoding='utf8'));return x if isinstance(x,dict) else {'_console_error':'state is not a JSON object'}
@@ -327,8 +354,8 @@ class LegacyConsole:
   s=obj(s) if s is not None else json_file(run/'state.json');contract=obj(s.get('goal_contract'));body=obj(contract.get('body'));criteria=items(body.get('acceptance_criteria')) or items(s.get('acceptance_criteria'));result={str(x.get('id')):str(x.get('status','unknown')).lower() for x in items(obj(s.get('validation')).get('criterion_results')) if isinstance(x,dict)};counts={'pass':0,'fail':0,'unknown':0}
   for c in criteria:
    status=result.get(str(obj(c).get('id')),'unknown');counts['pass' if status in ('pass','verified') else 'fail' if status in ('fail','blocked') else 'unknown']+=1
-  active=obj(s.get('active_stage'))
-  return {'workspace':str(ws),'project_workspace':s.get('project_workspace',str(ws)),'task_branch':s.get('task_branch'),'run':str(run),'created_at':s.get('created_at'),'task':s.get('task','unavailable'),'phase':s.get('phase','unavailable'),'status':s.get('status','unavailable'),'stage':active.get('stage') or s.get('stage') or s.get('next_stage') or 'unavailable','iteration':s.get('iteration','unavailable'),'state_error':s.get('_console_error'),'stop_reason':s.get('stop_reason'),'goal':contract,'goal_token':s.get('displayed_goal') if isinstance(s.get('displayed_goal'),str) else '','criteria':criteria,'counts':counts,'questions':items(s.get('pending_questions')),'answers':obj(s.get('answers')),'discovery_summary':s.get('discovery_summary') if isinstance(s.get('discovery_summary'),str) else '','discovery_role':discovery_role(s),'stages':[x for x in items(s.get('stages')) if isinstance(x,dict)],'active_stage':active,'progress_messages':items(s.get('progress_messages')),'plan':items(s.get('plan')),'astra_plan':astra_plan_state(s),'user_request':s.get('user_request') if isinstance(s.get('user_request'),dict) else None,'review_token':s.get('displayed_review') if isinstance(s.get('displayed_review'),str) else '','review_criteria':[obj(c) for c in criteria if obj(c).get('human_review')],'human_reviews':obj(s.get('human_reviews')),'reasoning_escalations':items(s.get('reasoning_escalations')),'zai':bool(self.zai_probe()),'model_settings':saved_models(s)}
+  active=obj(s.get('active_stage'));questions,request=pending_decisions(s)
+  return {'workspace':str(ws),'project_workspace':s.get('project_workspace',str(ws)),'task_branch':s.get('task_branch'),'run':str(run),'created_at':s.get('created_at'),'task':s.get('task','unavailable'),'phase':s.get('phase','unavailable'),'status':s.get('status','unavailable'),'stage':active.get('stage') or s.get('stage') or s.get('next_stage') or 'unavailable','iteration':s.get('iteration','unavailable'),'state_error':s.get('_console_error'),'stop_reason':s.get('stop_reason'),'goal':contract,'goal_token':s.get('displayed_goal') if isinstance(s.get('displayed_goal'),str) else '','criteria':criteria,'counts':counts,'questions':questions,'answers':obj(s.get('answers')),'discovery_summary':s.get('discovery_summary') if isinstance(s.get('discovery_summary'),str) else '','discovery_role':discovery_role(s),'stages':[x for x in items(s.get('stages')) if isinstance(x,dict)],'active_stage':active,'progress_messages':items(s.get('progress_messages')),'plan':items(s.get('plan')),'astra_plan':astra_plan_state(s),'user_request':request,'review_token':s.get('displayed_review') if isinstance(s.get('displayed_review'),str) else '','review_criteria':[obj(c) for c in criteria if obj(c).get('human_review')],'human_reviews':obj(s.get('human_reviews')),'reasoning_escalations':items(s.get('reasoning_escalations')),'zai':bool(self.zai_probe()),'model_settings':saved_models(s)}
  def discover(self):
   rows=self.root_error_rows()
   for ws in self.workspaces:
