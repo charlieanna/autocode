@@ -577,6 +577,8 @@ def execute_report_repair(state, run_dir, workspace):
                             'execution_engine': planning.engine_for(state['settings'], original.get('route_role', original['role'])),
                             'error': pending.get('error', original.get('rejection_reason',
                                 'Legacy report validation failed without a recorded error')), 'original': original,
+                            'protected_contract': (goals.protected_contract_snapshot(state)
+                                if original['stage'] in ('glm_revise', 'astra_finalize') else None),
                             'state_file': str(run_dir / 'state.json')}, indent=2))
     role = original['role']
     route_role = planning.route_for(state, original['stage'], role)

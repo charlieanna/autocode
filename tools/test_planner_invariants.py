@@ -46,14 +46,51 @@ class RevisionGuardTests(unittest.TestCase):
         goals.install_draft(current, body(), origin="glm_draft")
         reworded = body()
         reworded["required_behaviors"] = ["Print Hello, NAME"]
+        with self.assertRaisesRegex(ValueError, "saved user answer"):
+            goals.install_draft(current, reworded, origin="glm_revise", changes=[{
+                "item": "Print Hello, NAME for a nonempty name", "change": "reworded",
+                "basis": "agent_proposed", "answer_id": "", "replacement": "Print Hello, NAME"}])
+        current["answers"]["Q1"] = {"id": "Q1", "text": "Use the shorter wording"}
         goals.install_draft(current, reworded, origin="glm_revise", changes=[{
             "item": "Print Hello, NAME for a nonempty name", "change": "reworded",
-            "basis": "agent_proposed", "answer_id": "", "replacement": "Print Hello, NAME"}])
+            "basis": "user_answer", "answer_id": "Q1", "replacement": "Print Hello, NAME"}])
         self.assertIn("reworded", current["goal_contract"]["declared_changes"][0]["change"])
         self.assertIn("Declared contract changes", goals.render(current))
 
+    def test_plan_review_changes_plan_without_rewriting_protected_requirements(self):
+        current = state()
+        original = body()
+        goals.install_draft(current, original, origin="glm_draft")
+        revised = copy.deepcopy(original)
+        revised["technical_approach"] = ["Use a smaller parser and run its tests"]
+        goals.install_draft(current, revised, origin="glm_revise", changes=[])
+        self.assertEqual(original["required_behaviors"], current["goal_contract"]["body"]["required_behaviors"])
+        self.assertEqual(original["acceptance_criteria"], current["goal_contract"]["body"]["acceptance_criteria"])
+        current["answers"]["Q1"] = {"id": "Q1", "text": "Use the shorter wording"}
+        with self.assertRaisesRegex(ValueError, "not changed"):
+            goals.install_draft(current, revised, origin="glm_revise", changes=[{
+                "item": original["required_behaviors"][0], "change": "reworded",
+                "basis": "user_answer", "answer_id": "Q1", "replacement": "Print Hello, NAME"}])
+
 
 class TraceTests(unittest.TestCase):
+    def test_covered_trace_accepts_whole_id_citations_and_rejects_unknown_ids(self):
+        current = state()
+        current["requirements_handoff"] = {"report": {"requirements": [{"id": "R1", "text": "Greet", "source_quote": "Greet"}]}}
+        draft = body()
+        for evidence in ("C1", draft["required_behaviors"][0], "C1 verifies the requested behavior"):
+            goals.check_requirement_trace(current, {"requirement_trace": [
+                {"requirement_id": "R1", "disposition": "covered", "evidence": evidence}]}, draft)
+        for evidence in ("C99 verifies it", "C10 verifies it", "XC1 verifies it",
+                         "c1 verifies it", "C1 and C99 verify it", "It is covered"):
+            with self.subTest(evidence=evidence), self.assertRaisesRegex(ValueError, "not covered"):
+                goals.check_requirement_trace(current, {"requirement_trace": [
+                    {"requirement_id": "R1", "disposition": "covered", "evidence": evidence}]}, draft)
+        prompt, _ = planning.context(current, "glm_revise", Path("/run/state.json"))
+        self.assertIn("AC1 verifies this", prompt)
+        self.assertIn("copy required_behaviors", prompt)
+        self.assertIn("Reviewer\nconcerns and agent proposals are not saved user authorization", prompt)
+
     def test_buried_sentence_must_be_quoted_or_ignored(self):
         task = ("Intro. " * 5) + "Reject a name that is only whitespace, exit 2. " + ("Closing. " * 3)
         current = state(task)

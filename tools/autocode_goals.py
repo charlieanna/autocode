@@ -219,6 +219,12 @@ _PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "im
 _CUE = re.compile(r"\b(must not|must|never|do not|don't|required|exactly|only)\b", re.I)
 
 
+def protected_contract_snapshot(state):
+    body = (state.get("goal_contract") or {}).get("body") or {}
+    return {key: copy.deepcopy(body.get(key))
+            for key in (*_PROTECTED_LISTS, "acceptance_criteria", "permission_boundaries")}
+
+
 def _saved_user_basis(state, basis, answer_id):
     if basis == "user_answer":
         return bool(answer_id) and answer_id in state.get("answers", {})
@@ -244,11 +250,8 @@ def revision_guard(state, body, changes, origin):
         if not isinstance(raw, dict) or raw.get("change") not in ("removed", "reworded", "permission_changed"):
             raise ValueError("contract_changes entries need item, change, basis and answer_id")
         basis = raw.get("basis")
-        if basis == "agent_proposed":
-            if raw.get("change") != "reworded" or raw.get("answer_id"):
-                raise ValueError("Only a requirement rewording may be agent_proposed, and it cites no answer")
-        elif not _saved_user_basis(state, basis, raw.get("answer_id")):
-            raise ValueError("Dropping or widening a protected contract item needs a saved user answer or feedback event")
+        if not _saved_user_basis(state, basis, raw.get("answer_id")):
+            raise ValueError("Changing a protected contract item needs a saved user answer or feedback event")
     declared = {}
     for raw in changes:
         declared.setdefault(raw["item"], []).append(raw)
@@ -263,8 +266,6 @@ def revision_guard(state, body, changes, origin):
             replacement = str(match.get("replacement", "")).strip()
             if not replacement:
                 raise ValueError(f"Rewording {item!r} needs the replacement text")
-            if match.get("basis") == "agent_proposed" and kind:
-                return "behavior", replacement
             return "user", replacement
         return "user", None
 
@@ -272,9 +273,7 @@ def revision_guard(state, body, changes, origin):
         for item in previous.get(key, []):
             if item in body.get(key, []):
                 continue
-            kind, replacement = consume(item, "reworded" if any(row["change"] == "reworded" for row in declared.get(item, [])) else "removed")
-            if kind == "behavior" and key != "required_behaviors":
-                raise ValueError(f"Only a required behavior may be reworded without a user event; {key} keeps {item!r}")
+            _, replacement = consume(item, "reworded" if any(row["change"] == "reworded" for row in declared.get(item, [])) else "removed")
             if replacement and replacement not in body.get(key, []):
                 raise ValueError(f"Rewording {item!r} must appear in {key}")
     old_criteria = {row["id"]: (row["criterion"], row["verification_method"]) for row in previous.get("acceptance_criteria", [])}
@@ -283,13 +282,13 @@ def revision_guard(state, body, changes, origin):
         if new_criteria.get(cid) == text:
             continue
         consume(cid, "removed" if cid not in new_criteria else "reworded")
-        if any(row["item"] == cid and row["change"] == "reworded" and row["basis"] == "agent_proposed" for row in changes):
-            raise ValueError(f"Acceptance criterion {cid} cannot be reworded without a saved user event")
     previous_permissions = previous.get("permission_boundaries", [])
     if previous_permissions and set(previous_permissions) != set(body.get("permission_boundaries", [])):
         changed = set(previous.get("permission_boundaries", [])) ^ set(body.get("permission_boundaries", []))
         for item in changed:
             consume(item, "permission_changed")
+    if any(rows for rows in declared.values()):
+        raise ValueError("contract_changes contains an item that was not changed in the protected contract")
 
 
 def cue_sentences(text):
@@ -351,11 +350,26 @@ def check_requirement_trace(state, report, contract):
     behaviors = set(contract.get("required_behaviors", []))
     criteria = {row["id"] for row in contract.get("acceptance_criteria", [])}
     exclusions = set(contract.get("scope_exclusions", []))
+    # Citation IDs may be followed by explanatory prose. Compare whole tokens,
+    # and reject unknown IDs in the same ID families so a known ID cannot hide
+    # an accidental AC99 citation in the same evidence string.
+    id_tokens = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z_]+[0-9]+(?![A-Za-z0-9_])")
+    families = {re.match(r"[A-Za-z_]+", cid).group().casefold()
+                for cid in criteria if re.match(r"[A-Za-z_]+[0-9]+$", cid)}
+
+    def cites_defined_criterion(evidence):
+        tokens = id_tokens.findall(evidence)
+        cited = [token for token in tokens
+                 if re.match(r"[A-Za-z_]+", token).group().casefold() in families]
+        known = any(re.search(r"(?<![A-Za-z0-9_])" + re.escape(cid) + r"(?![A-Za-z0-9_])", evidence)
+                    for cid in criteria)
+        return known and all(token in criteria for token in cited)
+
     for row in requirements:
         entry = by_id[row["id"]]
         evidence = str(entry.get("evidence", "")).strip()
         disposition = entry["disposition"]
-        if disposition == "covered" and evidence not in behaviors and evidence not in criteria:
+        if disposition == "covered" and evidence not in behaviors and evidence not in criteria and not cites_defined_criterion(evidence):
             raise ValueError(f"Requirement {row['id']} is not covered by a behavior or criterion")
         if disposition == "excluded" and evidence not in exclusions:
             raise ValueError(f"Requirement {row['id']} is not present in scope_exclusions")
@@ -978,6 +992,20 @@ DECISION_PROVENANCE = """Decision provenance is mandatory for every contract:
 
 CONTRACT_REFERENCES = """Contract reference rules:
 Define acceptance_criteria as objects with stable IDs (for example AC1, AC2).
+For each covered requirement_trace entry, evidence may be an exact required_behaviors
+string, an exact acceptance criterion ID, or a short explanation citing a defined
+criterion ID as a case-sensitive whole token (for example 'AC1 verifies this').
+'AC1' does not match 'AC10', 'XAC1', or 'ac1'. Unknown IDs from a defined ID
+family, including a mixture such as 'AC1 and AC99', do not establish coverage.
+When revising a plan after review, copy required_behaviors, scope_exclusions,
+constraints, important_failure_cases, acceptance_criteria (including verification
+methods), and permission_boundaries verbatim from goal_contract.body. Add new
+items when review identifies a gap; revise technical_approach, milestones, paths,
+tests and dependencies as needed. Do not rewrite an existing protected item for
+style or detail. A changed or removed protected item requires a saved user answer
+or feedback event and an exact contract_changes entry naming the previous item.
+Use contract_changes=[] when those protected fields are unchanged. Reviewer
+concerns and agent proposals are not saved user authorization.
 Each milestones[].acceptance_criteria must contain ONLY those existing ID strings,
 for example ["AC1", "AC2"], never descriptions of checks or shell commands.
 Every milestone needs a nonempty objective and at least one acceptance criterion ID;
