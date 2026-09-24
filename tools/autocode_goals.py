@@ -196,6 +196,7 @@ def validate_body(state, body, *, ready=False, allow_legacy=False):
 
 
 def invalidate(state, reason):
+    state.pop("permission_reuse_context", None)
     if state.get("validation"):
         state.setdefault("validation_archive", []).append({"reason": reason, "validation": state.pop("validation")})
     if state.get("human_reviews"):
@@ -452,11 +453,13 @@ def resolve_permission(state, question_id, text):
     q = matches[0]
     event = {"kind": "permission_answer", "actor": "user_cli", "at": s.now(),
              "question_id": question_id, "question": q, "text": text,
+             "request": copy.deepcopy(request),
              "contract_token": token(state["goal_contract"])}
     state.setdefault("user_events", []).append(event)
     state.setdefault("answers", {})[question_id] = event
     state["pending_questions"] = [row for row in state["pending_questions"] if row["id"] != question_id]
     state.pop("user_request", None)
+    state.pop("permission_reuse_context", None)
     if not state["pending_questions"]:
         state.update(status="RUNNING", phase="READY_TO_EXECUTE")
 
@@ -464,6 +467,33 @@ def resolve_permission(state, question_id, text):
 def wait_for_user(state, request):
     if not request["decision_needed"].strip() or not request["impact"].strip():
         raise ValueError("A user request needs the smallest decision and its impact")
+    # Reuse an exact, authenticated decision, not a guessed semantic match or
+    # blanket authorization. Denials and qualified answers must also be honored.
+    if request.get("kind") == "permission" and approved(state):
+        for answer_id, answer in state.get("answers", {}).items():
+            if (answer.get("kind") != "permission_answer"
+                    or answer.get("actor") != "user_cli"
+                    or answer not in state.get("user_events", [])
+                    or answer.get("contract_token") != token(state["goal_contract"])
+                    or answer.get("request") != request):
+                continue
+            reused = state.setdefault("permission_reuses", [])
+            key = {"answer_id": answer_id, "contract_token": answer["contract_token"]}
+            if key in reused:
+                raise s.Paused("PAUSED_PERMISSION_RECONCILIATION",
+                    f"The decision in saved answer {answer_id} was already returned to the Completion Owner. "
+                    "It must honor that answer rather than request the same permission again.")
+            reused.append(key)
+            state["permission_reuse_context"] = {
+                **key, "request": copy.deepcopy(request), "answer": answer["text"],
+                "instruction": "This exact decision was already answered. Honor the saved answer, including "
+                    "any denial or conditions. It does not authorize broader scope. Continue within the answer "
+                    "or explain a materially different unresolved decision; do not ask this question again."}
+            state.pop("user_request", None)
+            state.update(status="RUNNING", phase="READY_TO_EXECUTE",
+                         pending_questions=[], next_stage="astra_review")
+            return
+    state.pop("permission_reuse_context", None)
     state["user_request"] = copy.deepcopy(request)
     question = {"id": "decision-" + uuid.uuid4().hex[:12], "question": request["decision_needed"],
                 "why": request["impact"], "options": request["options"], "proposed_default": ""}
@@ -508,6 +538,25 @@ def assign_task(state, decision, current):
     if milestones and (spec["milestone_id"] not in milestones or
             not set(ids) <= allowed):
         raise ValueError("Task must belong to an approved milestone and its acceptance criteria")
+    recovery = state.get("recovery_context") or {}
+    previous_task = state.get("current_task") or {}
+    if (spec["kind"] == "implement" and recovery.get("timeout_kind")
+            and recovery.get("task_id") and recovery["task_id"] == previous_task.get("id")
+            and recovery.get("execution_limits")):
+        limits = state.get("settings", {}).get("limits", {})
+        defaults = {"stage_timeout_seconds": None, "idle_timeout_seconds": 300, "tool_timeout_seconds": 1800}
+        failed_limit = {"tool": "tool_timeout_seconds", "idle": "idle_timeout_seconds",
+                        "stage": "stage_timeout_seconds"}.get(recovery["timeout_kind"])
+        recorded_limits = recovery["execution_limits"]
+        compared_limits = ({failed_limit: recorded_limits[failed_limit]}
+                           if failed_limit in recorded_limits else recorded_limits)
+        same_limits = all(limits.get(key, defaults.get(key)) == value
+                          for key, value in compared_limits.items())
+        candidate = {**spec, "objective": decision["next_objective"], "affected_paths": decision["affected_paths"]}
+        if same_limits and checkpoints.approach(candidate) == checkpoints.approach(previous_task):
+            raise ValueError("The timed-out task needs a changed execution plan before another writer; "
+                             "the task and timeout limits are unchanged. Preserve completed work and "
+                             "split the remaining work or address the diagnosed stall.")
     checkpoints.before_assignment(state, decision, current)
     # After before_assignment, so a milestone accepted while advancing counts.
     checkpoints.require_prerequisites(state, spec["milestone_id"])
@@ -592,18 +641,39 @@ def missing_human_reviews(state):
                 state.get("human_reviews", {}).get(c["id"]) not in state.get("user_events", []))]
 
 
+def human_only_pending_validation(state, validation, criterion):
+    """A complete technical review whose sole missing result is human acceptance."""
+    criteria = state["goal_contract"]["body"]["acceptance_criteria"]
+    rows = validation.get("criterion_results", [])
+    results = {row["id"]: row for row in rows}
+    pending = validation.get("unverified_criteria", [])
+    if ({row["id"] for row in criteria if row["human_review"]} != {criterion}
+            or set(results) != {row["id"] for row in criteria} or len(rows) != len(criteria)
+            or validation.get("verdict") != "BLOCKED" or len(pending) != 1
+            or not (pending[0] == criterion or pending[0].startswith(criterion + " "))
+            or validation.get("findings") or validation.get("end_to_end_result", {}).get("status") != "PASS"):
+        return False
+    return all(row.get("evidence_refs") and
+               row.get("status") == ("NOT_VERIFIED" if cid == criterion else "PASS")
+               for cid, row in results.items())
+
+
 def approve_review(state, criterion, selected, current):
     execution_guard(state)
     val = state.get("validation", {})
+    human_only_gap = human_only_pending_validation(state, val, criterion)
     if (selected != review_token(state) or selected != state.get("displayed_review")
-            or val.get("source_revision") != current["revision"] or val.get("verdict") != "PASS"
+            or val.get("source_revision") != current["revision"]
+            or (val.get("verdict") != "PASS" and not human_only_gap)
             or val.get("contract_revision") != state["goal_contract"]["revision"]
             or val.get("contract_hash") != state["goal_contract"]["hash"]
+            or val.get("criteria_revision") != state.get("criteria_revision")
+            or (state.get("current_task") and val.get("task_id") != state["current_task"]["id"])
             or not val.get("evidence_hashes") or not val.get("checks")
             or any(c["exit_code"] != 0 for c in val["checks"])
             or any(f.get("blocking", True) for f in val.get("findings", []))
-            or not any(c["id"] == criterion and c["status"] == "PASS" and c["evidence_refs"]
-                       for c in val.get("criterion_results", []))
+            or not (human_only_gap or any(c["id"] == criterion and c["status"] == "PASS" and c["evidence_refs"]
+                       for c in val.get("criterion_results", [])))
             or any(not Path(p).is_file() or s.file_hash(p) != h
                    for p, h in val.get("evidence_hashes", {}).items())):
         raise ValueError("Human approval needs the displayed, current validated artifact")
@@ -693,6 +763,13 @@ never to execute. Do not start implementation before that approval.
 
 EXECUTION_PROMPT = """
 The EXACT approved goal below controls scope and success. Echo its revision and hash.
+Read saved_answers before raising any permission or scope question. A recorded user
+answer remains authoritative within its stated scope; cite its answer ID and proceed
+when it already covers the work. Preserve denials, conditions and explicit exclusions.
+Routine reversible implementation and test-harness corrections needed for the approved
+outcome do not need a new approval unless they cross an explicit boundary. Do not turn
+each discovered repair into a separate permission request. Diagnose within authorized
+scope first; when a real boundary remains, present the concrete minimal scope delta.
 Restate acceptance_criteria entries byte-identical from the contract (same ids, criterion
 text, verification methods, human_review flags); any rewording is rejected as a criteria
 change. Do not weaken criteria, change required behavior or expand scope. Astra may change the

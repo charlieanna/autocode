@@ -864,11 +864,11 @@ function taskMessages(run){
   const receipts=run.chat_messages||[],answered=new Set(receipts.filter(entry=>entry.question_id).map(entry=>String(entry.question_id)));
   const answers=Object.entries(run.answers||{}).filter(([id])=>!answered.has(id)).map(([id,answer])=>({role:'user',speaker:'You',id,created_at:answer.at||answer.created_at,question_text:answer.question?.question,text:answer.text||answer.answer||'Saved answer',status:'saved'}));
   const plans=(run.planning_messages?.length?run.planning_messages:run.discovery_summary?[{speaker:run.discovery_role||planningSpeaker(run),text:run.discovery_summary}]:[]).map(entry=>({role:'assistant',...entry,speaker:roleDisplayName(entry.speaker),planning_history:true}));
-  return orderedMessages([...(run.draft_messages||[]),...answers,...plans,...receipts.map(entry=>({role:'user',speaker:'You',...entry}))]);
+  return orderedMessages([...(run.draft_messages||[]),...answers,...plans,...(run.progress_messages||[]),...receipts.map(entry=>({role:'user',speaker:'You',...entry}))]);
 }
 function settleThreadScroll(){if(scrollThreadToEnd&&currentTab==='interview'){scrollThreadToEnd=false;requestAnimationFrame(()=>{if(currentTab==='interview')$('#interview').scrollTop=$('#interview').scrollHeight;});}}
 function renderConversation(run) {
-  const root=$('#conversation'),signature=JSON.stringify([run.run,run.draft_messages,run.planning_messages,run.discovery_summary,run.answers,run.questions,run.chat_messages,run.user_request,run.status,run.goal?.approval_status,taskChatPending.has(run.run)]);
+  const root=$('#conversation'),signature=JSON.stringify([run.run,run.progress_messages,run.draft_messages,run.planning_messages,run.discovery_summary,run.answers,run.questions,run.chat_messages,run.user_request,run.status,run.goal?.approval_status,taskChatPending.has(run.run)]);
   $('#conversation-heading').textContent='Conversation';
   $('#conversation-avatar').textContent=planningSpeaker(run).slice(0,1);
   $('#conversation-description').textContent=jointPlanning(run)?'The requirements planner drafts and revises. The plan reviewer challenges and finalizes. Your direction stays in the conversation.':'Shape the work, then let your team build.';

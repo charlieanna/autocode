@@ -156,6 +156,15 @@ class ChatFixture:
 
 
 class ChatBridgeTests(ChatFixture, unittest.TestCase):
+    def test_saved_progress_is_exposed_without_launching_runner(self):
+        self.make_run()
+        self.state['progress_messages'] = [{'id': 'progress-1', 'role': 'assistant',
+            'speaker': 'Builder', 'text': 'Fix routing', 'created_at': '2026-09-24T01:00:00Z'}]
+        self.save_state()
+        view = self.console.view(self.workspace, self.run, self.read_state())
+        self.assertEqual(self.state['progress_messages'], view['progress_messages'])
+        self.assertEqual([], self.commands())
+
     def test_project_free_conversation_persists_and_replays_without_starting_runner(self):
         data = {'text': 'Plan a journal', 'request_id': 'conversation-start'}
         first = self.ready(self.console.conversation_create(data))

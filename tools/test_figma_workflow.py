@@ -18,6 +18,19 @@ URL = 'https://www.figma.com/design/Example123/Task?node-id=1-2'
 
 
 class FigmaWorkflow(unittest.TestCase):
+    def test_execution_prompt_scopes_figma_to_current_task(self):
+        settings = {'figma_file': URL}
+        scoped = figma.instructions(settings, stage='terra', current_task={'objective': 'Repair benchmark tests'})
+        self.assertIn('bounded test, parser, or harness repair', scoped)
+        self.assertIn('If the repair affects presentation', scoped)
+        self.assertNotIn('before planning, implementation or validation', scoped)
+        self.assertIn('preserve all required final visual checks', scoped)
+        for stage in ('sol', 'astra_review', 'astra_checkpoint'):
+            self.assertIn('Scope design work to current_task',
+                          figma.instructions(settings, stage=stage, current_task={'id': 'bounded'}))
+        self.assertIn('before planning, implementation or validation', figma.instructions(settings))
+        self.assertEqual('', figma.instructions({}, stage='terra', current_task={'id': 'bounded'}))
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name).resolve()

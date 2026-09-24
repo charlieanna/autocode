@@ -128,11 +128,19 @@ def evidence_ready(state, current):
                 r.get("status") != "PASS" or not r.get("summary", "").strip() or not r.get("evidence_refs")
                 for r in results_by_milestone.values()):
             return False
-    return bool(required and val.get("verdict") == "PASS" and val.get("checks")
+    try:
+        from . import autocode_goals as goals
+    except ImportError:
+        import autocode_goals as goals
+    human_ids = [c["id"] for c in state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"]]
+    human_only_gap = (len(human_ids) == 1 and goals.human_only_pending_validation(state, val, human_ids[0])
+                      and not goals.missing_human_reviews(state))
+    return bool(required and (val.get("verdict") == "PASS" or human_only_gap) and val.get("checks")
         and all(c["exit_code"] == 0 for c in val["checks"])
         and not any(f.get("blocking", True) or f["severity"] in ("critical", "high") for f in val.get("findings", []))
-        and not required.intersection(val.get("unverified_criteria", []))
-        and all(results.get(cid, {}).get("status") == "PASS" and results[cid].get("evidence_refs") for cid in required)
+        and (not required.intersection(val.get("unverified_criteria", [])) or human_only_gap)
+        and all((results.get(cid, {}).get("status") == "PASS" or
+                 (human_only_gap and cid == human_ids[0])) and results[cid].get("evidence_refs") for cid in required)
         and flow.get("status") == "PASS" and flow.get("summary", "").strip() and flow.get("evidence_refs"))
 
 

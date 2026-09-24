@@ -68,7 +68,14 @@ def now() -> str:
 
 
 def write_json(path: Path, value: Any) -> None:
-    support.atomic_json(path, value)
+    if Path(path).name == "state.json" and isinstance(value, dict):
+        try:
+            from . import autocode_status
+        except ImportError:
+            import autocode_status
+        autocode_status.persist(path, value)
+    else:
+        support.atomic_json(path, value)
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -855,7 +862,10 @@ def automatically_recover_timed_out_stage(state, run_dir, workspace, error):
     consume the existing no-progress budget before another provider is launched.
     """
     record = state.get("active_stage")
-    if (error.status != "PAUSED_PROVIDER_TIMEOUT" or not record or not record.get("timed_out")
+    # Startup reconciliation classifies a non-terminal saved log as uncertain;
+    # the durable timeout record still proves why the stopped request ended.
+    if (error.status not in ("PAUSED_PROVIDER_TIMEOUT", "PAUSED_PROVIDER_UNCERTAIN")
+            or not record or not record.get("timed_out")
             or (run_dir / "pause-requested").exists()):
         return False
     events = support.events(Path(record["events"]))
@@ -894,10 +904,18 @@ def automatically_recover_timed_out_stage(state, run_dir, workspace, error):
                   else "astra_review" if record["role"] != "astra" else record["stage"])
     recovery = {"at": now(), "attempt_id": attempt_id(record), "role": record["role"],
                 "stage": record["stage"], "source_revision": after["revision"],
+                "task_id": record.get("task_id", (state.get("current_task") or {}).get("id")),
+                "execution_limits": {key: record.get(key, state.get("settings", {}).get("limits", {}).get(key))
+                    for key in ("stage_timeout_seconds", "idle_timeout_seconds", "tool_timeout_seconds")},
                 "timeout_kind": record.get("timeout_kind", "stage"), "timeout_reason": record.get("timeout_reason", str(error)),
                 "changed_files": record["changed_files"], "events": record["events"],
                 "source_snapshot": record["after_ref"], "next_stage": next_stage,
-                "instruction": "This timed-out request was archived after its workers stopped. Inspect retained partial work and evidence before continuing. Start a fresh request; do not treat the archived response as a completed report."}
+                "instruction": "This timed-out request was archived after its workers stopped. Inspect retained "
+                    "partial work and evidence before continuing; do not treat it as a completed report. "
+                    "Use timeout_kind and execution_limits to diagnose the failed boundary. Before another writer, "
+                    "change the execution plan: split long tool work into bounded calls, reuse valid completed "
+                    "checks, or fix the identified stall. Preserve all acceptance checks; do not replay the same "
+                    "task under unchanged limits. Do not extend limits or reset budgets without authorization."}
     count_automatic_recovery(state)
     state.setdefault("automatic_timeout_recoveries", []).append(recovery)
     state.setdefault("user_events", []).append({"kind": "automatic_timeout_recovery", "actor": "runner",
@@ -1710,6 +1728,12 @@ def main() -> int:
         except ImportError:
             import autocode_ui
         return autocode_ui.cli(sys.argv[2:])
+    if sys.argv[1:2] == ["compare-baseline"]:
+        try:
+            from . import autocode_baseline
+        except ImportError:
+            import autocode_baseline
+        return autocode_baseline.cli(sys.argv[2:])
     if sys.argv[1:2] == ["capture"]:
         return capture_command(sys.argv[2:])
     if sys.argv[1:2] == ["registry"]:

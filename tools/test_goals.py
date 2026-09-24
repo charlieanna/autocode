@@ -63,7 +63,9 @@ class GoalTests(unittest.TestCase):
         current = s.snapshot(self.root)
         value = {**envelope(self.state), "verdict": "PASS", "findings": [], "unverified_criteria": [],
                  "checks_run": ["python3 -m unittest"], "checks": [{"command": "python3 -m unittest", "exit_code": 0,
-                    "evidence_ref": "event:check"}], "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["event:check"]}]}
+                    "evidence_ref": "event:check"}], "criterion_results": [
+                        {"id": c["id"], "status": "PASS", "evidence_refs": ["event:check"]}
+                        for c in self.state["acceptance_criteria"]]}
         value["end_to_end_result"] = {"status": "PASS", "summary": "Both CLI flows checked", "evidence_refs": ["event:check"]}
         record = {"events": str(evidence), "source_revision": current["revision"], "output": str(evidence)}
         runner.apply_result(self.state, "sol", value, record, self.root, self.run)
@@ -118,6 +120,152 @@ class GoalTests(unittest.TestCase):
         self.assertEqual("astra_review", self.state["next_stage"])
         self.assertNotIn("user_request", self.state)
         self.assertEqual("permission_answer", self.state["answers"]["decision-limit"]["kind"])
+
+    def permission_request(self):
+        return {"kind": "permission", "decision_needed": "Repair the fallback test?",
+                "impact": "The exact test is excluded", "options": ["Repair", "Keep excluded"],
+                "discovered": "An assertion races navigation", "proposed_delta": "Only the fallback test"}
+
+    def answer_permission(self, text="Repair only that test"):
+        request = self.permission_request()
+        g.wait_for_user(self.state, request)
+        qid = self.state["pending_questions"][0]["id"]
+        g.resolve_permission(self.state, qid, text)
+        return request, qid
+
+    def test_exact_permission_reuses_real_answer_including_a_denial(self):
+        for answer in ("Repair only that test", "No, leave it excluded"):
+            with self.subTest(answer=answer):
+                self.approve()
+                request, qid = self.answer_permission(answer)
+                original_contract = copy.deepcopy(self.state["goal_contract"])
+                g.wait_for_user(self.state, copy.deepcopy(request))
+                self.assertEqual("RUNNING", self.state["status"])
+                self.assertEqual("astra_review", self.state["next_stage"])
+                self.assertEqual([], self.state["pending_questions"])
+                self.assertEqual(answer, self.state["permission_reuse_context"]["answer"])
+                self.assertEqual(qid, self.state["permission_reuse_context"]["answer_id"])
+                self.assertEqual(original_contract, self.state["goal_contract"])
+                with self.assertRaises(s.Paused) as caught:
+                    g.wait_for_user(self.state, request)
+                self.assertEqual("PAUSED_PERMISSION_RECONCILIATION", caught.exception.status)
+
+    def test_permission_reuse_never_expands_scope_or_trusts_missing_provenance(self):
+        for mode in ("wider_scope", "changed_contract", "forged_event", "legacy_answer"):
+            with self.subTest(mode=mode):
+                self.approve()
+                request, qid = self.answer_permission()
+                answer = self.state["answers"][qid]
+                if mode == "wider_scope":
+                    request["proposed_delta"] = "Change production navigation too"
+                elif mode == "changed_contract":
+                    answer["contract_token"] = "stale"
+                elif mode == "forged_event":
+                    self.state["user_events"].remove(answer)
+                else:
+                    answer.pop("request")
+                g.wait_for_user(self.state, request)
+                self.assertEqual("WAITING_FOR_USER", self.state["status"])
+                self.assertNotEqual(qid, self.state["pending_questions"][0]["id"])
+
+    def test_timeout_requires_a_changed_plan_or_explicitly_changed_limits(self):
+        self.approve()
+        decision = self.decision()
+        current = s.snapshot(self.root)
+        g.assign_task(self.state, decision, current)
+        self.state["settings"]["limits"].update(tool_timeout_seconds=1800)
+        self.state["recovery_context"] = {
+            "task_id": self.state["current_task"]["id"], "timeout_kind": "tool",
+            "execution_limits": {"tool_timeout_seconds": 1800}}
+        unchanged = copy.deepcopy(self.state)
+        with self.assertRaisesRegex(ValueError, "changed execution plan"):
+            g.assign_task(self.state, decision, current)
+        self.assertEqual(unchanged, self.state)
+        self.state["settings"]["limits"]["stage_timeout_seconds"] = 7200
+        with self.assertRaisesRegex(ValueError, "changed execution plan"):
+            g.assign_task(self.state, decision, current)
+        self.state = copy.deepcopy(unchanged)
+        revised = copy.deepcopy(decision)
+        revised["next_task"]["validation_plan"] = ["Reuse the pinned CLI result; run remaining invalid-name check separately"]
+        g.assign_task(self.state, revised, current)
+        self.assertNotEqual(unchanged["current_task"]["id"], self.state["current_task"]["id"])
+        self.state = unchanged
+        self.state["settings"]["limits"]["tool_timeout_seconds"] = 3600
+        g.assign_task(self.state, decision, current)
+
+    def test_human_only_pending_review_can_be_presented_accepted_and_completed(self):
+        import autocode_milestones as milestones
+        draft = body(human=True)
+        draft["acceptance_criteria"].append({"id": "C2", "criterion": "Automated checks pass",
+            "verification_method": "Execute CLI cases", "human_review": False})
+        draft["milestones"][0]["acceptance_criteria"].append("C2")
+        g.install_draft(self.state, draft, origin="test")
+        g.present(self.state)
+        g.approve(self.state, self.state["displayed_goal"])
+        self.state["settings"]["milestone_checkpoints"] = copy.deepcopy(milestones.DEFAULTS)
+        next_task = self.decision()
+        next_task["next_task"]["acceptance_criteria"].append("C2")
+        g.assign_task(self.state, next_task, s.snapshot(self.root))
+        current = self.validation()
+        val = self.state["validation"]
+        val.update(verdict="BLOCKED", unverified_criteria=["C1 human acceptance pending"])
+        val["criterion_results"][0]["status"] = "NOT_VERIFIED"
+        decision = self.decision("TASK_COMPLETE")
+        self.assertFalse(s.completion_ready(self.state, decision, current))
+        self.assertFalse(milestones.evidence_ready(self.state, current))
+        self.assertTrue(s.completion_ready(self.state, decision, current, require_human_reviews=False))
+        runner.apply_result(self.state, "astra_review", decision, {"output": "review"}, self.root, self.run)
+        self.assertEqual("WAITING_FOR_USER", self.state["status"])
+        g.present(self.state)
+        g.approve_review(self.state, "C1", g.review_token(self.state), current)
+        self.assertTrue(s.completion_ready(self.state, decision, current))
+        self.assertTrue(milestones.evidence_ready(self.state, current))
+        val = self.state["validation"]
+        val["criterion_results"][1]["status"] = "FAIL"
+        self.assertFalse(s.completion_ready(self.state, decision, current))
+        self.assertFalse(milestones.evidence_ready(self.state, current))
+        val["criterion_results"][1]["status"] = "PASS"
+        self.assertEqual("BLOCKED", val["verdict"], "Do not rewrite the independent report")
+        runner.apply_result(self.state, "astra_review", decision, {"output": "complete"}, self.root, self.run)
+        self.assertEqual("TASK_COMPLETE", self.state["status"])
+
+    def test_execution_handoff_scopes_design_and_highlights_saved_permission(self):
+        self.approve()
+        self.state["settings"]["figma_file"] = "https://www.figma.com/design/Example123/Task"
+        request, qid = self.answer_permission()
+        g.wait_for_user(self.state, request)
+        g.assign_task(self.state, self.decision(), s.snapshot(self.root))
+        prompt, _ = s.context_packet(self.state, "terra", self.run / "state.json")
+        self.assertIn('bounded test, parser, or harness repair', prompt)
+        self.assertNotIn('before planning, implementation or validation', prompt)
+        self.assertIn('"permission_reuse_context"', prompt)
+        self.assertIn(qid, prompt)
+        self.assertIn('Read saved_answers before raising', prompt)
+
+    def test_human_acceptance_cannot_cover_invalid_technical_evidence(self):
+        self.approve(human=True)
+        current = self.validation()
+        self.state["validation"].update(verdict="BLOCKED", unverified_criteria=["C1"])
+        self.state["validation"]["criterion_results"][0]["status"] = "NOT_VERIFIED"
+        original = copy.deepcopy(self.state)
+        mutations = [
+            lambda v: v.update(unverified_criteria=["C1", "another gap"]),
+            lambda v: v["checks"][0].update(exit_code=1),
+            lambda v: v.update(findings=[{"blocking": True, "severity": "medium"}]),
+            lambda v: v.update(criteria_revision="stale"),
+            lambda v: v.update(source_revision="stale"),
+            lambda v: v["end_to_end_result"].update(status="NOT_VERIFIED"),
+            lambda v: v["criterion_results"].append(copy.deepcopy(v["criterion_results"][0])),
+            lambda v: v["criterion_results"][0].update(evidence_refs=[]),
+        ]
+        for mutate in mutations:
+            self.state = copy.deepcopy(original)
+            mutate(self.state["validation"])
+            g.present(self.state)
+            with self.assertRaises(ValueError):
+                g.approve_review(self.state, "C1", g.review_token(self.state), current)
+            self.assertFalse(s.completion_ready(self.state, self.decision("TASK_COMPLETE"), current,
+                                                require_human_reviews=False))
 
     def test_answer_is_never_approval_and_resume_does_not_bypass_remaining_question(self):
         draft = body(questions=True)

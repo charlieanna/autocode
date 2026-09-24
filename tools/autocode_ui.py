@@ -182,7 +182,11 @@ def execute(args, workspace, run_dir):
     if args.from_plan_run:
         seed_accepted_plan(state, args.from_plan_run, run_dir)
     def save():
-        support.atomic_json(run_dir / 'state.json', state)
+        try:
+            from . import autocode_status
+        except ImportError:
+            import autocode_status
+        autocode_status.persist(run_dir / 'state.json', state)
     names = {'requirements_planner': lambda: 'requirements-draft', 'plan_reviewer': lambda: 'plan-review',
              'requirements_revision': lambda: f'requirements-revision-{state["planning_iteration"]:02}',
              'plan_finalizer': lambda: f'plan-finalization-{state["planning_iteration"]:02}',
