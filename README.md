@@ -23,13 +23,17 @@ After approval, Autocode handles the handoffs:
 You ↔ Requirements Planner: rough idea → clarification → draft brief
 Requirements Planner → Plan Reviewer → Requirements Planner → Plan Reviewer → your approval
 
+Orchestrator (runner-owned) → ready, independent Builders → combined validation
+
 Builder → Validator → Completion Owner
    ↑                       |
    └──────── REWORK ───────┘
 ```
 
-The Plan Reviewer owns final planning decisions. The Builder implements one bounded
-task. A separate Validator independently inspects and tests the actual code, then the
+The Plan Reviewer owns final planning decisions. On new joint runs, the runner-owned
+Orchestrator schedules independent milestone Builders after approval, falling back
+to one Builder when work cannot safely run in parallel. Each Builder implements one bounded
+task. A separate Validator independently inspects and tests the combined code, then the
 Completion Owner decides complete or rework. They all work
 from the same approved brief; you do not explain the product to each agent or relay
 their prompts. The runner saves decisions, tasks and evidence so it can resume.
@@ -803,6 +807,57 @@ All listed acceptance criteria are required. Optional enhancements go in the def
 backlog and do not participate in the completion gate.
 
 ## Execution and completion
+
+### Independent milestone Builders
+
+New joint runs save `orchestration={enabled:true,max_parallel:2}`. Existing saved
+runs retain their saved routing; these defaults do not upgrade them. Set
+`--max-parallel-builders N` when creating a run to choose the concurrency limit;
+`1` runs serially. Explicitly supplying this option also enables orchestration for
+new `--engine codex` runs.
+
+Planner milestones may include optional `affected_paths`: literal,
+repository-relative file or directory ownership, such as `src/api.py` or `tests/api`.
+These are ownership boundaries, not glob patterns. Absolute paths, parent traversal,
+and repository metadata paths such as `.git` and `.autocode` are not allowed.
+The Orchestrator selects ready milestones with disjoint ownership and acceptance
+criteria, and satisfied explicit dependencies. Missing ownership or dependency
+information, overlapping paths, shared criteria, or an unsatisfied dependency
+prevents those milestones from running together; when no independent batch can be
+formed, execution falls back to a serial Builder.
+
+Each selected milestone gets a fresh Builder subprocess, session, and Git worktree.
+The runner combines their patches into the parent workspace only if it still matches
+the captured baseline. Sol validates the combined result before the Completion Owner
+and required human acceptance gates can authorize completion. Builder success or
+patch integration alone does not satisfy those gates. There is no automatic merge
+into `master`.
+
+Failed workers, stale baselines, or overlapping worker changes pause the run and
+retain worktrees and logs for inspection. After inspecting a failed Builder, explicitly
+retry it once all workers have stopped:
+
+```sh
+autocode --run-dir RUN --resume-paused --retry-builder M2
+```
+
+Repeat `--retry-builder` to select additional failed milestones. Successful siblings
+are retained rather than rerun. An explicit retry archives an uncertain stage while
+preserving its edits and logs. Report-only repairs and completed-response recovery
+run automatically through the existing bounded recovery mechanisms. After a revised
+plan is reapproved, child workers and batches from the previous plan are safely
+archived once stopped, preserving their work and logs.
+Interrupted worktree setup resumes only when its source matches the saved baseline;
+an incomplete or manually modified checkout pauses for inspection without overwriting files.
+
+The active batch is saved in
+`state.orchestration_batch`, with `id`, `status`, and `workers`; each worker records
+`milestone_id`, `status`, `workspace`, and `run_dir`. Integrated batches move to
+`state.orchestration_history`. The dashboard labels `orchestrator` as runner-owned
+and displays saved batch/worker statuses and worktree/log locations. Those statuses
+are checkpoint reports, not proof that worker processes are currently alive.
+
+### Milestone checkpoints and acceptance
 
 New runs enforce a milestone checkpoint in the runner. Each task names an outcome,
 affected paths, requirements, acceptance criteria and a validation plan. Terra can

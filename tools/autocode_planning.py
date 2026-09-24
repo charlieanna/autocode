@@ -141,11 +141,14 @@ code_refs, alternatives, uncertainties, technical approach, milestones and accep
 For every milestone, state depends_on as prerequisite milestone IDs or [] when it can
 start independently. Base those edges on actual interfaces, shared files, sequencing
 and validation needs. Do not turn milestones into parallel jobs or launch any work.
+Declare affected_paths for each milestone, including its tests and shared files.
+The Orchestrator uses approved dependencies and disjoint path ownership after approval.
 Do not implement. You may challenge assumptions and propose better approaches.
 """,
     "astra_challenge": """You are the independent Plan Reviewer, challenging GLM's draft (review call 1 of 2).
 Inspect additional source when needed. Check every dependency edge, missing prerequisite,
 cycle and claimed independent milestone against source evidence and interface ownership.
+Check affected_paths for every milestone; overlapping writes must not be called independent.
 Identify missing requirements, unsupported assumptions, unnecessary complexity and weak tests.
 Give concise, numbered concerns, evidence references,
 requested changes and acceptance tests. Do not manufacture objections or write a second essay.

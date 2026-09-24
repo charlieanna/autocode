@@ -242,6 +242,7 @@ function statusInfo(run) {
     if(run.monitor?.live?.state==='alive')return info('running','running','Running','View progress',stageName(run)+' · Worker verified alive');
     if(stage.stage&&run.monitor?.live?.state==='exited')return info('stopped','attention','Worker stopped','Review checkpoint','The saved step says running, but its worker has exited. Review the checkpoint before continuing.');
     if(stage.stage&&!stage.finished_at&&stage.exit_code==null)return info('running','running','Activity reported','View progress',stageName(run)+(stage.started_at?' · recorded '+new Date(stage.started_at).toLocaleString():'. Saved active step.'));
+    if(run.monitor?.orchestration_batch&&run.monitor?.next_stage==='orchestrator')return info('running','running','Activity reported','View progress','Orchestrator · Runner-owned batch. Worker statuses are saved reports; live processes are not verified.');
     if(run.review_token&&run.review_criteria?.length&&run.review_criteria.every(criterion=>run.human_reviews?.[criterion.id]?.token===run.review_token))return info('stopped','','Ready to finish','Finish task','Your review is saved. Finish the task to run its final completion check.','execution');
     return info('stopped','','Ready to continue','Open to continue','The task is at a saved checkpoint. Open it to continue when you are ready.');
   }
@@ -318,6 +319,7 @@ function roleDisplayName(name) {
 function planReady(run) { return !jointPlanning(run) || (run.status==='AWAITING_GOAL_APPROVAL' && run.goal?.origin==='astra_finalize'); }
 function stageName(run) {
   const stage=(run.stage||'').replace(/_report_repair$/,'');
+  if(stage==='orchestrator')return 'Orchestrator · Coordinating Builders';
   const mode=run.monitor?.workflow_mode,glmFirst=['glm_first_v1','glm_final_audit_v2'].includes(mode);
   if(glmFirst&&/terra/.test(stage))return 'Builder · Implementing';
   if(glmFirst&&/sol/.test(stage))return 'Validator · Targeted review';
@@ -333,12 +335,19 @@ function statusAge(value) {
   const seconds=Math.max(0,Math.floor((Date.now()-at)/1000));
   return seconds<60?seconds+'s ago':seconds<3600?Math.floor(seconds/60)+'m ago':Math.floor(seconds/3600)+'h '+Math.floor(seconds%3600/60)+'m ago';
 }
+function hasOrchestration(run) {
+  return run.monitor?.orchestration?.enabled===true||run.stage==='orchestrator'||run.active_stage?.stage==='orchestrator'||run.monitor?.next_stage==='orchestrator'||!!run.monitor?.orchestration_batch||!!run.monitor?.orchestration_history?.length||(run.stages||[]).some(stage=>stage.stage==='orchestrator');
+}
+function stageSucceeded(stage) {
+  return !stage.rejected&&!stage.interrupted&&!stage.timed_out&&(stage.exit_code===0||(stage.stage==='orchestrator'&&stage.runner_owned===true&&stage.exit_code==null&&!!stage.finished_at));
+}
 function taskOverviewState(run) {
   const info=statusInfo(run),live=run.monitor?.live||{},active=run.active_stage||{};
   const ongoing=run.status==='RUNNING'&&active.stage&&!active.finished_at&&active.exit_code==null;
   const role=run.monitor?.active_role||active.role||(active.stage==='astra_discovery'&&jointPlanning(run)?'glm':active.stage?.split('_')[0]);
-  const next=run.monitor?.next_stage,last=(run.stages||[]).findLast(stage=>stage.finished_at&&stage.exit_code===0&&!stage.rejected&&!stage.interrupted);
-  const savedStep=ongoing?'Last reported active step · '+stageName({...run,stage:active.stage}):next?'Next step · '+stageName({...run,stage:next}):last?'Last completed step · '+stageName({...run,stage:last.stage}):'No active step';
+  const next=run.monitor?.next_stage,last=(run.stages||[]).findLast(stage=>stage.finished_at&&stageSucceeded(stage));
+  const batchReported=run.status==='RUNNING'&&next==='orchestrator'&&run.monitor?.orchestration_batch;
+  const savedStep=ongoing?'Last reported active step · '+stageName({...run,stage:active.stage}):batchReported?'Last reported step · Orchestrator · Coordinating Builders':next?'Next step · '+stageName({...run,stage:next}):last?'Last completed step · '+stageName({...run,stage:last.stage}):'No active step';
   return {info,role,active:!!ongoing&&live.state!=='exited',verified:!!ongoing&&live.state==='alive',label:info.group==='attention'?'Waiting on you':info.label,
     step:ongoing&&live.state==='alive'?'Current step · '+stageName(run):info.group==='complete'?'Work complete':info.group==='attention'?info.action:savedStep,
     objective:run.monitor?.objective||run.astra_plan?.current_assignment?.objective||'No current objective has been recorded.'};
@@ -346,7 +355,7 @@ function taskOverviewState(run) {
 function workflowConfig(run, state) {
   const mode=run.monitor?.workflow_mode,finalOnly=mode==='glm_final_audit_v2',glmFirst=finalOnly||mode==='glm_first_v1';
   return glmFirst?[['terra','Builder','Plan & implement'],['sol','Validator','Targeted escalation only'],['astra','Plan reviewer',finalOnly?'Final full-task audit only':'Milestone review']]:
-    [...(jointPlanning(run)?[['glm','Requirements planner','Draft & revise']]:[['astra','Requirements planner','Draft plan']]),['astra','Plan reviewer',jointPlanning(run)?'Challenge & finalize':'Review & direct'],['terra','Builder','Implement'],['sol','Validator','Review'],['completion','Completion owner','Complete / rework']];
+    [...(jointPlanning(run)?[['glm','Requirements planner','Draft & revise']]:[['astra','Requirements planner','Draft plan']]),['astra','Plan reviewer',jointPlanning(run)?'Challenge & finalize':'Review & direct'],...(hasOrchestration(run)?[['orchestrator','Orchestrator','After approval · Coordinate Builders']]:[]),['terra','Builder','Implement'],['sol','Validator','Review'],['completion','Completion owner','Complete / rework']];
 }
 function completedPlanningStep(run, role) {
   const planningStages=role==='glm'?new Set(['astra_discovery','glm_revise']):new Set(['astra_discovery','astra_challenge','astra_finalize']);
@@ -362,7 +371,7 @@ function workflowCards(run, state) {
   for(const [role,name,duty]of config){const selected=state.active&&state.role===role,item=card('','workflow-card'+(selected&&state.verified?' active':''));
     item.append(Object.assign(n('p',duty),{className:'monitor-kicker'}),n('h3',name));
     const saved=run.monitor?.roles?.[role]||{},model=saved.model||run.model_settings?.roles?.[role];
-    item.append(Object.assign(n('p',model||'Model not recorded'),{className:'workflow-model'}));
+    item.append(Object.assign(n('p',role==='orchestrator'?'Runner-owned · No model session':model||'Model not recorded'),{className:'workflow-model'}));
     if(saved.reasoning_effort)item.append(Object.assign(n('p',saved.reasoning_effort+' reasoning'),{className:'workflow-model'}));
     if(role==='glm'||role==='astra'){
       const completed=completedPlanningStep(run,role);
@@ -371,6 +380,18 @@ function workflowCards(run, state) {
     }
     if(selected)item.append(Object.assign(n('span',state.verified?'Active now':'Last reported active'),{className:'workflow-active'}));host.append(item);
   }return host;
+}
+function orchestrationPanel(batch, historical=false) {
+  const host=card('','monitor-activity');
+  host.append(n('h3',(historical?'Saved':'Current')+' Builder batch · '+(batch.id||'ID unavailable')),
+    n('p','Saved status · '+human(batch.status||'unknown')),
+    Object.assign(n('p','Worker statuses are saved reports, not live process checks. Built or integrated work still requires combined validation and acceptance.'),{className:'monitor-caption'}));
+  for(const worker of batch.workers||[]){const row=card('','monitor-event');
+    row.append(n('strong','Builder · '+(worker.milestone_id||'Milestone unavailable')),n('span','Saved status · '+human(worker.status||'unknown')),
+      n('p','Worktree · '+(worker.workspace||'Not recorded')),n('p','Run / logs · '+(worker.run_dir||'Not recorded')));host.append(row);
+  }
+  if(!batch.workers?.length)host.append(n('p','No workers recorded yet.'));
+  return host;
 }
 function monitorPanel(run, compact=false) {
   const state=taskOverviewState(run),monitor=run.monitor||{},live=monitor.live||{},host=card('','monitor-panel');
@@ -397,6 +418,8 @@ function monitorPanel(run, compact=false) {
   const freshness=card('','monitor-freshness');freshness.append(n('span','Log updated '+statusAge(monitor.log_updated)),n('span','Checkpoint '+statusAge(monitor.checkpoint_updated)),n('span','Checked '+statusAge(monitor.checked_at)));host.append(freshness);
   host.append(disclosure('Models & role history','monitor-roles',[workflowCards(run,state)],run.run));
   if(!compact){
+    if(monitor.orchestration_batch)host.append(orchestrationPanel(monitor.orchestration_batch));
+    if(monitor.orchestration_history?.length)host.append(disclosure('Saved Builder batches ('+monitor.orchestration_history.length+')','orchestration-history',monitor.orchestration_history.map(batch=>orchestrationPanel(batch,true)),run.run));
     const details=card('','monitor-details'),activity=card('','monitor-activity'),history=card('','monitor-history');
     activity.append(n('h3','Latest activity'),Object.assign(n('p','Recent tool events. A quiet log alone does not mean the worker is stuck.'),{className:'monitor-caption'}));
     for(const entry of monitor.activity||[]){const row=card('','monitor-event');row.append(n('span',entry.label),n('small',human(entry.status)+(entry.exit_code!=null?' · exit '+entry.exit_code:'')));if(entry.test_summary)row.append(Object.assign(n('p',entry.test_summary),{className:'monitor-test-summary'}));activity.append(row);}
@@ -418,7 +441,7 @@ function metricPanel(metric){
 }
 function renderTaskOverview(run) {
   const host=$('#task-overview');host.replaceChildren(n('h2','Recent saved steps'),n('p','Stage exits are not task-completion verdicts. Full evidence remains in Checks.'));
-  for(const step of run.monitor?.history||[]){const row=card('','monitor-event');row.append(n('span',human(step.stage)+' · iteration '+(step.iteration??'?')),n('small',(step.rejected?'Rejected':step.interrupted?'Interrupted':step.timed_out?'Timed out':step.exit_code===0?'Finished':'Recorded')+' · '+(step.finished_at||'Time not recorded')));host.append(row);}
+  for(const step of run.monitor?.history||[]){const row=card('','monitor-event');row.append(n('span',stageName({...run,stage:step.stage})+' · iteration '+(step.iteration??'?')),n('small',(step.rejected?'Rejected':step.interrupted?'Interrupted':step.timed_out?'Timed out':stageSucceeded(step)?'Finished':'Recorded')+' · '+(step.finished_at||'Time not recorded')));host.append(row);}
   if(run.interventions)host.append(disclosure('Saved controls & delivery history','runtime-controls',[renderDocument(run.interventions)],run.run));host.hidden=currentTab!=='overview';
 }
 function markMonitorStale(){document.querySelectorAll('.monitor-panel').forEach(panel=>{
@@ -952,14 +975,14 @@ function primaryAction(run,busy=false){
   if(info.label==='Ready to finish')return {kind:'continue',label:'Finish task'};
   if(info.group==='attention')return {kind:'answer',label:'Reply'};
   if(info.label==='Planning needs retry')return {kind:'continue',label:'Retry planning'};
-  if(info.group==='stopped')return {kind:'continue',label:run.goal?.approval_status==='approved'?(!run.stages?.some(stage=>stage.stage==='terra')?'Start building':'Resume task'):'Resume planning'};
+  if(info.group==='stopped')return {kind:'continue',label:run.goal?.approval_status==='approved'?(!run.monitor?.orchestration_batch&&!run.stages?.some(stage=>['terra','orchestrator'].includes(stage.stage))?'Start building':'Resume task'):'Resume planning'};
   return {kind:'none',label:'Inspect activity',disabled:true};
 }
 function taskSentence(run,busy=false){
-  const info=statusInfo(run),stage=(run.stage||'').replace(/_report_repair$/,''),role=stageName(run).split(' · ')[0];
+  const info=statusInfo(run),stage=(run.active_stage?.stage||run.monitor?.next_stage||run.stage||'').replace(/_report_repair$/,''),role=stageName({...run,stage}).split(' · ')[0];
   if(busy&&info.group!=='running')return 'Processing your last action…';
   if(info.group==='running'){
-    const phrases={astra_discovery:'drafting the plan',astra_challenge:'reviewing the draft plan',glm_revise:'revising the plan',astra_finalize:'finalizing the plan',terra:'implementing the current step',sol:'verifying the changes',astra_checkpoint:'auditing the completed work',astra_review:'reviewing the latest results',astra:'assigning the next step'};
+    const phrases={astra_discovery:'drafting the plan',astra_challenge:'reviewing the draft plan',glm_revise:'revising the plan',astra_finalize:'finalizing the plan',orchestrator:'coordinating independent Builders',terra:'implementing the current step',sol:'verifying the changes',astra_checkpoint:'auditing the completed work',astra_review:'reviewing the latest results',astra:'assigning the next step'};
     const sentence=role+' is '+(phrases[stage]||'working on the current step');
     return run.monitor?.live?.state==='alive'?sentence:'Last reported: '+sentence;
   }
@@ -988,6 +1011,7 @@ function taskPhase(run){
   if(info.label==='Approve plan')return 'approval';
   if(info.label==='Review output'||info.label==='Ready to finish'||/^(sol|astra_review|astra_checkpoint)$/.test(stage))return 'review';
   if(/^(astra_discovery|astra_challenge|glm_revise|astra_finalize)$/.test(stage)||run.goal?.approval_status!=='approved')return 'planning';
+  if(stage==='orchestrator')return 'orchestration';
   return 'implementation';
 }
 function taskPosition(run){
@@ -1001,7 +1025,8 @@ function renderTaskNow(run){
   const signature=JSON.stringify([run.run,run.status,run.stage,run.iteration,run.goal_token,run.goal?.approval_status,run.questions,run.user_request,run.stop_reason,run.monitor,assignment,decision]);
   if(host.dataset.rendered===signature)return;host.dataset.rendered=signature;host.replaceChildren();
   const path=n('ol','');path.className='task-path';path.setAttribute('aria-label','Workflow stage');
-  const stages=[['planning','Plan'],['approval','Your approval'],['implementation','Build'],['review','Review'],['complete','Complete']];
+  const stages=[['planning','Plan'],['approval','Your approval'],...(hasOrchestration(run)?[['orchestration','Orchestrator']]:[]),['implementation','Build'],['review','Review'],['complete','Complete']];
+  if(hasOrchestration(run))path.classList.add('with-orchestration');
   const currentStage=stages.findIndex(([key])=>key===phase);
   for(const [index,[key,label]]of stages.entries()){const item=n('li',label);if(index<currentStage)item.className='done';if(key===phase){item.className='current';item.setAttribute('aria-current','step');}path.append(item);}
   if(decision.required){const decisionCard=card('','decision-card needs-decision');decisionCard.append(Object.assign(n('p','YOUR NEXT ACTION'),{className:'eyebrow'}),n('h2',decision.title),n('p',decision.description),Object.assign(n('p',decision.after),{className:'decision-after'}));host.append(decisionCard);}
@@ -1009,7 +1034,7 @@ function renderTaskNow(run){
   if(assignment)host.append(disclosure('Assignment scope & checks','current-assignment:'+assignment.id,[renderDocument(assignment)],run.run));
   const context=card('','current-context'),plan=card('','');plan.append(n('h3','Current plan'),n('p',run.goal?.revision!=null?'Revision '+run.goal.revision+' · '+(run.goal.approval_status==='approved'?'Approved':decision.action.kind==='plan'?'Ready for review':'Draft'):'No plan revision saved'),button('Read current plan →',()=>activateTab('plan'),'text-button'));context.append(plan);
   const checkpoint=card('',''),latest=[...(run.monitor?.history||[])].sort((a,b)=>Date.parse(b.finished_at)-Date.parse(a.finished_at))[0];checkpoint.append(n('h3','Last saved step'));
-  if(latest){checkpoint.append(n('p',stageName({...run,stage:latest.stage})+' · iteration '+(latest.iteration??'?')),n('p',(latest.rejected?'Output rejected':latest.interrupted?'Interrupted':latest.timed_out?'Timed out':latest.exit_code===0?'Step finished':'Step stopped')+' · '+new Date(latest.finished_at).toLocaleString()));}else checkpoint.append(n('p','No completed step recorded.'));
+  if(latest){checkpoint.append(n('p',stageName({...run,stage:latest.stage})+' · iteration '+(latest.iteration??'?')),n('p',(latest.rejected?'Output rejected':latest.interrupted?'Interrupted':latest.timed_out?'Timed out':stageSucceeded(latest)?'Step finished':'Step stopped')+' · '+new Date(latest.finished_at).toLocaleString()));}else checkpoint.append(n('p','No completed step recorded.'));
   checkpoint.append(button('View history →',()=>activateTab('overview'),'text-button'));context.append(checkpoint);host.append(context);
 }
 function renderPrimaryAction(run){

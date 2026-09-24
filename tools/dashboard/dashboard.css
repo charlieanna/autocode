@@ -164,6 +164,8 @@
 
 /* Show the approved workflow as a sequence instead of five competing cards. */
 .task-now-view .task-path{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:0;padding:20px 0 22px;counter-reset:workflow}
+.task-now-view .task-path.with-orchestration{grid-template-columns:repeat(6,minmax(0,1fr))}
+.monitor-event p{overflow-wrap:anywhere}
 .task-now-view .task-path li{min-width:0;border:0;border-top:2px solid var(--line);border-radius:0;background:transparent;padding:10px 2px 0;color:var(--muted);font-size:11px;font-weight:600}
 .task-now-view .task-path li::before{counter-increment:workflow;content:counter(workflow);display:inline-grid;place-items:center;width:18px;height:18px;margin-right:7px;border:1px solid currentColor;border-radius:50%;font-size:9px}
 .task-now-view .task-path li.done{border-top-color:var(--green);color:var(--green)}

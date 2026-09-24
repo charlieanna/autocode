@@ -312,20 +312,20 @@ class JointFlow(unittest.TestCase):
         args = ["--run-dir", str(run)]
         self.launch([*args, "--approve-goal", state["displayed_goal"]], 0)
         approved = self.saved()[1]
-        self.assertEqual("terra", approved["next_stage"])
+        self.assertEqual("orchestrator", approved["next_stage"])
         self.assertEqual(5, len(approved["stages"]))
         self.assertEqual(approved["goal_contract"]["hash"], approved["current_task"]["contract_hash"])
         self.launch([*args, "--no-chat"], 0)
         final = self.saved()[1]
         self.assertEqual("COMPLETE", final["phase"])
-        self.assertEqual(["terra", "sol", "astra_review"], [r["stage"] for r in final["stages"][5:]])
-        self.assertEqual(["opencode"] * 3, [r["engine"] for r in final["stages"][5:]])
-        sol = final["stages"][6]
+        self.assertEqual(["orchestrator", "terra", "sol", "astra_review"], [r["stage"] for r in final["stages"][5:]])
+        self.assertEqual(["runner", "opencode", "opencode", "opencode"], [r["engine"] for r in final["stages"][5:]])
+        sol = final["stages"][7]
         self.assertEqual("openai/gpt-5.6-sol", sol["command"][sol["command"].index("--model") + 1])
         self.assertEqual("high", sol["command"][sol["command"].index("--variant") + 1])
         config = json.loads(Path(sol["output"]).with_suffix(".opencode.json").read_text())
         self.assertEqual("deny", config["agent"]["autocode_sol"]["permission"]["edit"])
-        completion = final["stages"][7]
+        completion = final["stages"][8]
         self.assertEqual("astra", completion["role"])
         self.assertEqual("completion", completion["route_role"])
         self.assertEqual("openai/gpt-5.6-sol", completion["command"][completion["command"].index("--model") + 1])
@@ -341,7 +341,7 @@ class JointFlow(unittest.TestCase):
         self.launch([*args, "--no-chat"], 0)
         final = self.saved()[1]
         self.assertEqual("COMPLETE", final["phase"])
-        self.assertEqual(["terra", "sol", "astra_review"] * 2, [r["stage"] for r in final["stages"][5:]])
+        self.assertEqual(["orchestrator", "terra", "sol", "astra_review"] * 2, [r["stage"] for r in final["stages"][5:]])
         validations = [r for r in final["stages"] if r["stage"] == "sol"]
         self.assertEqual(["opencode", "opencode"], [r["engine"] for r in validations])
         self.assertEqual(final["sessions"]["sol"], validations[1]["expected_session"])
