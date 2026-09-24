@@ -646,6 +646,11 @@ a pass. Source diff exit 1 means files differ, not a successful verification com
 Return exact command/exit_code and evidence_ref='event:<id>' from a completed shell
 tool event (also usable in criterion and end-to-end evidence_refs). Follow the
 execution engine's evidence instructions and copy command text verbatim.
+event: IDs refer only to completed shell commands in this stage's event log.
+For criterion and end-to-end evidence from image/MCP calls or retained earlier
+stages, cite the exact existing artifact path (including the owning JSONL log),
+not a foreign or non-command event: ID. These artifacts still require independent
+inspection and source provenance; a file path alone is not proof of acceptance.
 open_findings in CURRENT HANDOFF DATA lists both reviewers' open findings. Each
 defect gets its own runner id. Leave id empty when reporting a new defect, even if
 the wording matches an open finding; copy that finding's id only to report the same
