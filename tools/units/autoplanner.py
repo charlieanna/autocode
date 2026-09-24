@@ -139,6 +139,10 @@ verbatim from the task or a saved user event. Put requirement-like sentences you
 not carrying (must, must not, never, only, required, exactly) in ignored_statements
 with the reason. Put contradictions in conflicts with the requirement ids.
 The runner saves this report as a separate artifact for the Planner.
+The requirement_coverage_checklist contains the exact task sentences checked by
+the runner. Account for every entry in requirements using a verbatim source_quote,
+or in ignored_statements with the exact statement and a substantive reason.
+Include requirements from the rest of the task and saved user events as well.
 """,
     "astra_discovery": """You are the Planner, in a session separate from the Requirements Gatherer.
 For a new run, use requirements_handoff and its saved artifact as your input; do not silently
@@ -197,6 +201,8 @@ def context(state, stage, state_path):
               "requirements_handoff": None if stage == "requirements_gather" else state.get("requirements_handoff"),
               "saved_answers": state.get("answers", {}), "brief_feedback": state.get("brief_feedback", []),
               "planning": exchange, "budget": "two plan-review calls per explicitly requested cycle"}
+    if stage == "requirements_gather":
+        packet["requirement_coverage_checklist"] = goals.cue_sentences(state.get("task"))
     if state["settings"].get("figma_file"):
         packet["figma_file"] = state["settings"]["figma_file"]
     packet['user_events'] = state.get('user_events', [])

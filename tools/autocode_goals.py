@@ -303,6 +303,11 @@ def source_texts(state):
     return [text for text in texts if text]
 
 
+def requirement_coverage_text(text):
+    """Ignore Markdown list markers when comparing already verified quotes."""
+    return re.sub(r"(?m)^[ \t]*(?:[-*+]|\d+[.)])[ \t]+", "", str(text)).strip()
+
+
 def check_requirement_handoff(state, report):
     sources = source_texts(state)
     requirements = report.get("requirements", [])
@@ -323,12 +328,16 @@ def check_requirement_handoff(state, report):
     ignored = report.get("ignored_statements", [])
     if not isinstance(ignored, list):
         raise ValueError("ignored_statements must be an array")
+    coverage = [requirement_coverage_text(text) for text in [*quotes, *ignored]]
+    missing = []
     for sentence in cue_sentences(state.get("task")):
-        if any(quote in sentence or sentence in quote for quote in quotes):
+        normalized = requirement_coverage_text(sentence)
+        if any(quote and (quote in normalized or normalized in quote) for quote in coverage):
             continue
-        if any(str(note).strip() and (str(note).strip() in sentence or sentence in str(note)) for note in ignored):
-            continue
-        raise ValueError("A requirement-like sentence was neither quoted nor explicitly ignored: " + sentence[:120])
+        missing.append(sentence)
+    if missing:
+        raise ValueError("Requirement-like sentences were neither quoted nor explicitly ignored: "
+                         + json.dumps(missing, ensure_ascii=False))
 
 
 def check_requirement_trace(state, report, contract):

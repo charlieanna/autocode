@@ -947,7 +947,10 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
 
 def prepare_planning_retry(state, run_dir):
     """Explicitly retry an exhausted planning report; retain rejected evidence."""
-    if state.get('status') != 'PAUSED_INVALID_OUTPUT':
+    # The caller checks unchanged repeated failures before reaching this point.
+    # After the cause changes, planning needs the same explicit fresh attempt
+    # path as ordinary invalid output, retaining the exhausted repair artifacts.
+    if state.get('status') not in ('PAUSED_INVALID_OUTPUT', 'PAUSED_REPEATED_FAILURE', 'PAUSED_REPORT_REPAIR_LIMIT'):
         return False
     pending = state.get('pending_report_repair')
     active = state.get('active_stage')
