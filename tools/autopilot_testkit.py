@@ -31,6 +31,7 @@ import datetime as dt
 import json
 import os
 import platform
+import re
 import shlex
 import socket
 import subprocess
@@ -155,13 +156,26 @@ class Bundle:
 
 
 class CatalogueCase(unittest.TestCase):
-    """Base class opening a bundle that always leaves a result, even on error."""
+    """Base class opening a bundle that always leaves a result, even on error.
+
+    The scenario id comes from the class attribute when set, otherwise it is
+    derived from the test method name (``test_fnd01_two_defects`` -> FND-01).
+    """
 
     scenario_id: str = ""
 
+    def resolve_scenario_id(self) -> str:
+        if self.scenario_id:
+            return self.scenario_id
+        match = re.search(r"_([a-z]{3})(\d+)", self._testMethodName)
+        if match:
+            return f"{match.group(1).upper()}-{int(match.group(2))}"
+        return self._testMethodName
+
     def setUp(self):
-        assert self.scenario_id, "set scenario_id on the catalogue case"
-        self.bundle = Bundle(self.scenario_id)
+        assert self.scenario_id or re.search(r"_([a-z]{3})(\d+)", self._testMethodName), \
+            "set scenario_id or name the test test_<id>_<case>"
+        self.bundle = Bundle(self.resolve_scenario_id())
         self.addCleanup(self._close_bundle)
 
     def _close_bundle(self):
