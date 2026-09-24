@@ -1126,6 +1126,26 @@ timeouts or grant permission to extend a budget.
 Deadline enforcement runs independently of process-table sampling, state writes
 and event-file reads. A blocked observer cannot leave a worker unsupervised.
 
+### Open findings
+
+The runner keeps one list of reviewer findings in `state.json` under
+`findings_ledger`. Every Sol finding and every structured Astra finding (the
+optional `findings` array of a decision, with severity, finding, evidence and
+blocking) gets a stable ID derived from the reviewer and the finding text, the
+report that raised it, the task assigned to fix it, and the report that resolved
+it. Only the reviewer who raised a finding can close it, by submitting a newer
+report that no longer lists it; a finding reported again after a fix keeps its ID
+and counts the repeat. Findings written only as prose in `next_task.requirements`
+are not tracked. Role handoffs include `open_findings` for both reviewers, and the
+dashboard's task view shows the list with each finding's source, fix task and
+repeat count. `unresolved_findings` still holds Sol's latest findings unchanged.
+
+Astra can keep a correction batch small by naming the ledger IDs a REWORK task
+addresses in `next_task.findings`; an empty or missing list takes every open finding.
+`--max-findings-per-task N` (saved as `limits.max_findings_per_task`) rejects a
+REWORK task that bundles more than `N` open findings, so the correction has to be
+split. The default is unlimited, and `0` disables the check on a saved run.
+
 `--pause-after-stage` and a run-local `pause-requested` file stop at a saved boundary.
 For a timed-out provider stage with no terminal response, Autocode confirms its
 tracked workers are gone, archives the incomplete request and preserves its partial

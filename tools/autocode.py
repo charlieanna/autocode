@@ -44,6 +44,7 @@ try:
     from . import autocode_milestones as milestones
     from . import autocode_dispatch as dispatch
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_findings as findings_ledger
     from .autocode_activity import ActivityMonitor
 except ImportError:
     import autocode_workspaces as task_workspaces
@@ -53,6 +54,7 @@ except ImportError:
     import autocode_milestones as milestones
     import autocode_dispatch as dispatch
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_findings as findings_ledger
     from autocode_activity import ActivityMonitor
 
 
@@ -646,6 +648,8 @@ def _apply_result(state, stage, value, record, workspace, run_dir):
         state["criteria_revision"] = support.digest(definitions)
         state["plan"] = value.get("plan", [value["next_objective"]])
         state["affected_paths"] = value.get("affected_paths", [])
+        if modern:
+            findings_ledger.record_decision(state, value, record)
         if value["status"] in ("COMPLETE", "TASK_COMPLETE"):
             current = support.snapshot(workspace)
             if modern and goals.missing_human_reviews(state):
@@ -769,6 +773,7 @@ def _apply_result(state, stage, value, record, workspace, run_dir):
             state.setdefault("validation_archive", []).append({
                 "reason": "Superseded by another independent validation", "validation": state["validation"]})
         state.update(validation=validation, unresolved_findings=value["findings"], next_stage="astra_review")
+        findings_ledger.record_validation(state, value, record)
         milestones.observe_validation(state, support.snapshot(workspace))
         if modern:
             state["human_reviews"] = {}
@@ -1337,7 +1342,8 @@ def configure(args, state):
                            ("max_seconds", "max_seconds"), ("max_stage_seconds", "stage_timeout_seconds"),
                            ("max_idle_seconds", "idle_timeout_seconds"), ("max_tool_seconds", "tool_timeout_seconds"),
                            ("max_reported_tokens", "max_reported_tokens"),
-                           ("no_progress_limit", "no_progress_batches")):
+                           ("no_progress_limit", "no_progress_batches"),
+                           ("max_findings_per_task", "max_findings_per_task")):
             selected = getattr(args, flag, None)
             if selected is not None:
                 settings.setdefault("limits", {})[name] = selected
@@ -1428,6 +1434,7 @@ def configure(args, state):
                                                 if getattr(args, "max_tool_seconds", None) is not None else 1800),
                        "max_reported_tokens": args.max_reported_tokens,
                        "no_progress_batches": args.no_progress_limit if args.no_progress_limit is not None else 3,
+                       "max_findings_per_task": getattr(args, "max_findings_per_task", None),
                         "automatic_retries": 0}}
     if figma_file:
         figma.require_chatgpt(local)
@@ -1899,6 +1906,8 @@ def main() -> int:
                         help="Maximum time for a running tool or unreported descendant-tool interval (default: 1800; 0 disables)")
     parser.add_argument("--max-reported-tokens", type=int)
     parser.add_argument("--no-progress-limit", type=int, help="Pause after this many unchanged batches (new-run default: 3)")
+    parser.add_argument("--max-findings-per-task", type=int,
+                        help="Reject a REWORK task that bundles more than this many open findings (default: unlimited; 0 disables)")
     parser.add_argument("--resume-paused", action="store_true", help="Acknowledge a saved pause; uncertain stages still require reconciliation")
     parser.add_argument("--accept-transport-change", action="store_true",
                         help="With --resume-paused, accept the current validated OpenCode configuration at a clean transport-change pause")
@@ -1926,7 +1935,7 @@ def main() -> int:
         parser.error("--accept-transport-change requires --run-dir and --resume-paused")
     if args.chat is None:
         args.chat = sys.stdin.isatty() and sys.stdout.isatty()
-    for flag in ("max_iterations", "legacy_iteration_ceiling", "max_seconds", "max_stage_seconds", "max_idle_seconds", "max_tool_seconds", "max_reported_tokens", "no_progress_limit", "max_milestone_seconds", "max_milestone_replans", "max_milestone_stalled_reviews"):
+    for flag in ("max_iterations", "legacy_iteration_ceiling", "max_seconds", "max_stage_seconds", "max_idle_seconds", "max_tool_seconds", "max_reported_tokens", "no_progress_limit", "max_milestone_seconds", "max_milestone_replans", "max_milestone_stalled_reviews", "max_findings_per_task"):
         if getattr(args, flag) is not None and getattr(args, flag) < 0:
             parser.error(f"--{flag.replace('_', '-')} must be nonnegative")
     actions = [args.status, args.dry_run, args.migrate_only, args.show_goal,
