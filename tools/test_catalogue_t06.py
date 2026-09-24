@@ -254,8 +254,8 @@ class UnitEvidenceCase(kit.CatalogueCase):
         self.finish(summary="EVIDENCE_REJECTED: edited receipts never substitute for captured evidence")
 
 
-class CompletionEvidenceCase(kit.CatalogueCase):
-    """Controller-level candidate identity and completion-gate cases."""
+class SolControllerCase(kit.CatalogueCase):
+    """Shared controller harness: approved fixture, task assignment, sol applier."""
 
     def setUp(self):
         kit.CatalogueCase.setUp(self)
@@ -311,6 +311,11 @@ class CompletionEvidenceCase(kit.CatalogueCase):
         # Pin the capture as required evidence on the stored validation.
         self.state["validation"]["evidence_hashes"][str(shot)] = support.file_hash(shot)
         return shot
+
+
+
+class CompletionEvidenceCase(SolControllerCase):
+    """Controller-level candidate identity and completion-gate cases."""
 
     def test_evd09_drifted_or_deleted_pinned_evidence_blocks_completion(self):
         """EVD-09. Existing: partial (changed bytes in test_autocode.test_completion_requires_current...)."""
