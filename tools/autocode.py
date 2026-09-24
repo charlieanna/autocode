@@ -23,7 +23,7 @@ from typing import Any
 import copy
 import uuid
 try:
-    from . import autocode_support as support, autocode_goals as goals, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation
+    from . import autocode_support as support, autocode_goals as goals, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures
 except ImportError:
     import autocode_support as support
     import autocode_goals as goals
@@ -34,6 +34,7 @@ except ImportError:
     import autocode_registry as registry
     import autocode_planning as planning
     import autocode_escalation as escalation
+    import autocode_failures as failures
 
 try:
     from . import autocode_workspaces as task_workspaces
@@ -200,6 +201,7 @@ def recover_legacy_report_repair(state, run_dir, workspace):
 
 def reject_completed_stage(state, run_dir, record, error):
     account_stage(state, record)
+    failure = failures.record(state, record, error, now())
     originals = archive_rejected_stage(state, run_dir, record, error)
     # Only fully terminal, source-pinned output errors qualify. Transport failures,
     # stale artifacts, permissions and completion guards are not repairable here.
@@ -226,13 +228,16 @@ def reject_completed_stage(state, run_dir, record, error):
             raise ReportRepairQueued()
     escalation.advance(state, record.get("route_role", record["role"]),
                        trigger="rejected_output", detail=error)
+    repeated = bool(failure and failure['count'] >= failures.REPEAT_THRESHOLD)
     message = (f"Completed {record['stage']} output was rejected ({error}); attempt archived. "
-               "Resume explicitly with --resume-paused to retry with a fresh request.")
-    state.update(status="PAUSED_INVALID_OUTPUT", phase="PAUSED_OR_BLOCKED", stop_reason=message, paused_at=now())
+               + ("The same stage, artifact and error class failed repeatedly; inspect the saved output probe and fix the cause before retrying."
+                  if repeated else "Resume explicitly with --resume-paused to retry with a fresh request."))
+    status = "PAUSED_REPEATED_FAILURE" if repeated else "PAUSED_INVALID_OUTPUT"
+    state.update(status=status, phase="PAUSED_OR_BLOCKED", stop_reason=message, paused_at=now())
     write_json(run_dir / "state.json", state)
     for artifact in originals:
         artifact.unlink(missing_ok=True)
-    raise support.Paused("PAUSED_INVALID_OUTPUT", message)
+    raise support.Paused(status, message)
 
 
 def run_role(
@@ -894,6 +899,7 @@ def automatically_recover_timed_out_stage(state, run_dir, workspace, error):
                   changed_files=support.changed_paths(before, after), abandoned=True,
                   automatic_recovery=True,
                   rejection_reason="Timed-out non-terminal provider request automatically archived; partial work retained")
+    failures.record(state, record, error, now())
     originals = archive_rejected_stage(state, run_dir, record, record["rejection_reason"])
     state["sessions"].pop(record.get("route_role", record["role"]), None)
     if state.get("validation"):
@@ -971,6 +977,7 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
                   changed_files=support.changed_paths(before, after), abandoned=True,
                   automatic_recovery=True,
                   rejection_reason="OpenCode denied external_directory before a terminal turn; partial work retained")
+    failures.record(state, record, error, now())
     originals = archive_rejected_stage(state, run_dir, record, record["rejection_reason"])
     state["sessions"].pop(record.get("route_role", record["role"]), None)
     if state.get("validation"):
@@ -1031,9 +1038,9 @@ def prepare_planning_retry(state, run_dir):
     return True
 
 
-def prepare_exhausted_execution_report_retry(state, run_dir):
+def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None):
     """Allow an explicit fresh execution report after bounded repairs fail."""
-    if state.get('status') not in ('PAUSED_REPORT_REPAIR_LIMIT', 'PAUSED_INVALID_OUTPUT') or state.get('active_stage'):
+    if state.get('status') not in ('PAUSED_REPORT_REPAIR_LIMIT', 'PAUSED_INVALID_OUTPUT', 'PAUSED_REPEATED_FAILURE') or state.get('active_stage'):
         return False
     pending = state.get('pending_report_repair')
     original = pending.get('original') if isinstance(pending, dict) else None
@@ -1051,6 +1058,14 @@ def prepare_exhausted_execution_report_retry(state, run_dir):
             or planning.is_planning(state, stage)
             or pending.get('attempts') != repair_limit(state)):
         return False
+    repeated = failures.repeated(state, original)
+    if repeated and (workspace is None or support.snapshot(workspace)['revision'] == original.get('source_revision')):
+        message = ("The same stage, artifact and error class failed "
+                   f"{repeated['count']} times. Inspect failure_history and saved output; "
+                   "change the cause before another execution request.")
+        state.update(status='PAUSED_REPEATED_FAILURE', phase='PAUSED_OR_BLOCKED', stop_reason=message, paused_at=now())
+        write_json(run_dir / 'state.json', state)
+        raise support.Paused('PAUSED_REPEATED_FAILURE', message)
     if reroute_abandoned_sol:
         state['next_stage'] = 'sol'
     state.setdefault('report_repair_archive', []).append({
@@ -1067,6 +1082,23 @@ def prepare_exhausted_execution_report_retry(state, run_dir):
         'reason': 'Explicit fresh execution retry; rejected reports retained'})
     write_json(run_dir / 'state.json', state)
     return True
+
+
+def repeated_failure_resume_guard(state, workspace):
+    """A restart or explicit resume cannot erase an unchanged repeated failure."""
+    if state.get('status') != 'PAUSED_REPEATED_FAILURE':
+        return
+    pending = state.get('pending_report_repair') or {}
+    record = pending.get('original') or next(
+        (row for row in reversed(state.get('stages', [])) if row.get('failure_key')), None)
+    if not record:
+        return
+    repeated = failures.repeated(state, record)
+    if repeated and support.snapshot(workspace)['revision'] == record.get('source_revision'):
+        raise support.Paused('PAUSED_REPEATED_FAILURE',
+            f"Unchanged {record.get('original_stage') or record['stage']} artifact failed "
+            f"{repeated['count']} times with {repeated['identity']['error_class']}; "
+            "inspect failure_history and fix the cause before resuming.")
 
 
 def reconcile_active(state, run_dir, workspace):
@@ -2023,8 +2055,9 @@ def main() -> int:
             # Recovery interprets terminal artifacts only. It never replays a model call.
             try:
                 if args.resume_paused:
+                    repeated_failure_resume_guard(state, workspace)
                     prepare_planning_retry(state, run_dir)
-                    prepare_exhausted_execution_report_retry(state, run_dir)
+                    prepare_exhausted_execution_report_retry(state, run_dir, workspace)
                 reconcile_active(state, run_dir, workspace)
             except ReportRepairQueued:
                 pass  # Durable pending repair is dispatched below, not original work.

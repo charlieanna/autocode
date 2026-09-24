@@ -298,6 +298,11 @@ class ActivityRuntimeTests(unittest.TestCase):
                 model='fixture-astra', allow_write=False, dry_run=False)
         self.assertEqual('PAUSED_TIMEOUT_RECOVERY', caught.exception.status)
         self.assertEqual(3, len(self.state['automatic_timeout_recoveries']))
+        failures = list(support.read(self.run / 'state.json')['failure_history'].values())
+        self.assertEqual(1, len(failures))
+        self.assertEqual(3, failures[0]['count'])
+        self.assertEqual('PAUSED_PROVIDER_TIMEOUT', failures[0]['identity']['error_class'])
+        self.assertEqual(1, failures[0]['output_probe']['attempts'])
         self.assertNotIn('active_stage', self.state)
 
     def test_only_an_accepted_result_resets_consecutive_timeout_recoveries(self):

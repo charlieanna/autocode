@@ -1,6 +1,7 @@
 """Report-only recovery tests: fixtures and mocked providers, no live model calls."""
 import copy
 import json
+import shutil
 from pathlib import Path
 from unittest.mock import patch
 import unittest
@@ -28,6 +29,21 @@ class RepairTests(unittest.TestCase):
             runner.reject_completed_stage(self.state, self.run, record, ValueError('Missing summary'))
         return self.state['pending_report_repair']
 
+    def reject_repair(self, iteration, error):
+        original = self.state['pending_report_repair']['original']
+        path = self.run / 'iterations' / f'{iteration:03d}' / 'terra_report_repair-01'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        record = {'role': 'terra', 'stage': 'terra_report_repair', 'original_stage': 'terra',
+                  'report_only': True, 'iteration': iteration, 'exit_code': 0,
+                  'duration_seconds': 1, 'source_revision': original['source_revision'],
+                  'schema': original['schema']}
+        for field, suffix in (('output', '.json'), ('events', '.jsonl'),
+                              ('before_ref', '.before.json'), ('after_ref', '.after.json')):
+            destination = Path(str(path) + suffix)
+            shutil.copy2(original[field], destination)
+            record[field] = str(destination)
+        return runner.reject_completed_stage(self.state, self.run, record, error)
+
     def test_terminal_error_is_durably_queued_without_replaying_implementation(self):
         sessions = copy.deepcopy(self.state['sessions'])
         pending = self.queue()
@@ -36,6 +52,62 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(0, pending['attempts'])
         self.assertEqual(sessions, saved['sessions'])
         self.assertTrue(Path(pending['original']['events']).is_file())
+
+    def test_same_failure_survives_restart_and_stops_unchanged_retry(self):
+        self.queue()
+        self.assertEqual(1, next(iter(self.state['failure_history'].values()))['count'])
+        self.state['pending_report_repair']['attempts'] = 1
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.reject_repair(6, ValueError('Missing summary'))
+        self.state = support.read(self.run / 'state.json')  # a new runner process
+        self.state['pending_report_repair']['attempts'] = 2
+        with self.assertRaises(support.Paused) as error:
+            self.reject_repair(7, ValueError('Missing summary'))
+        self.assertEqual('PAUSED_REPEATED_FAILURE', error.exception.status)
+        saved = support.read(self.run / 'state.json')
+        entry = next(iter(saved['failure_history'].values()))
+        self.assertEqual({'stage': 'terra', 'artifact_hash': saved['stages'][0]['source_revision'],
+                          'error_class': 'ValueError'}, entry['identity'])
+        self.assertEqual(3, entry['count'])
+        self.assertEqual(1, entry['output_probe']['attempts'])
+        self.assertTrue(entry['output_probe']['result']['provider_events']['terminal_turn'])
+        self.assertTrue(Path(saved['stages'][-1]['events']).is_file())
+        self.state = saved
+        fourth = copy.deepcopy(saved['stages'][-1])
+        fourth.pop('failure_attempt')
+        fourth['iteration'] = 8
+        runner.failures.record(self.state, fourth, ValueError('Missing summary'), runner.now())
+        self.assertEqual(4, self.state['failure_history'][next(iter(saved['failure_history']))]['count'])
+        self.assertEqual(1, self.state['failure_history'][next(iter(saved['failure_history']))]['output_probe']['attempts'])
+        with patch.object(runner, 'run_role') as launch, self.assertRaises(support.Paused) as blocked:
+            runner.repeated_failure_resume_guard(self.state, self.root)
+        self.assertEqual('PAUSED_REPEATED_FAILURE', blocked.exception.status)
+        launch.assert_not_called()
+        self.assertEqual(3, support.read(self.run / 'state.json')['failure_history'][next(iter(saved['failure_history']))]['count'])
+        (self.root / 'cause-fixed.txt').write_text('new artifact')
+        runner.repeated_failure_resume_guard(self.state, self.root)
+        self.assertTrue(runner.prepare_exhausted_execution_report_retry(self.state, self.run, self.root))
+
+    def test_failure_identity_deduplicates_attempt_and_separates_error_classes(self):
+        self.queue()
+        entry = next(iter(self.state['failure_history'].values()))
+        same = copy.deepcopy(self.state['stages'][-1])
+        runner.failures.record(self.state, same, ValueError('different words'), runner.now())
+        self.assertEqual(1, entry['count'])
+        other = copy.deepcopy(same)
+        other['iteration'] = 6
+        runner.failures.record(self.state, other, RuntimeError('Missing summary'), runner.now())
+        changed_artifact = copy.deepcopy(other)
+        changed_artifact.update(iteration=7, source_revision='different-artifact')
+        runner.failures.record(self.state, changed_artifact, RuntimeError('Missing summary'), runner.now())
+        changed_stage = copy.deepcopy(other)
+        changed_stage.update(iteration=8, stage='sol', original_stage='sol')
+        runner.failures.record(self.state, changed_stage, RuntimeError('Missing summary'), runner.now())
+        self.assertEqual(4, len(self.state['failure_history']))
+        self.assertEqual(1, sum(row['count'] for row in self.state['failure_history'].values()
+                                if row['identity']['error_class'] == 'RuntimeError'
+                                and row['identity']['stage'] == 'terra'
+                                and row['identity']['artifact_hash'] == same['source_revision']))
 
     def test_source_drift_or_changed_evidence_refuses_dispatch(self):
         pending = self.queue()
