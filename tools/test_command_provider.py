@@ -7,6 +7,8 @@ import stat
 import tempfile
 import textwrap
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 
 from tools import autocode_providers
 from tools.providers import command
@@ -55,6 +57,39 @@ class CommandProviderTests(unittest.TestCase):
         write_config(self.home, "badtoml", "name = [\n")
         with self.assertRaisesRegex(ValueError, "not valid TOML"):
             command.load("badtoml")
+
+    def test_literal_brace_escapes_are_filled_and_invalid_braces_are_rejected(self):
+        write_config(self.home, "escaped", textwrap.dedent('''\
+            name = "escaped"
+            command = ["tool", "${{VAR}}", "{{\\\"key\\\":1}}", "{report}"]
+            models = ["demo"]
+        ''') + ROLES)
+        provider = command.load("escaped")
+        launched, _, _ = provider.launch("terra", Path("/work"), Path("/run"), None, "demo", "medium", True,
+                                          report=Path("/run/report.json"))
+        self.assertEqual(["tool", "${VAR}", '{"key":1}', "/run/report.json"], launched)
+
+        for name, part, message in (
+            ("unknown", "{nope}", "unknown command placeholder"),
+            ("open", "{", "other braces are not allowed"),
+            ("close", "}", "other braces are not allowed"),
+        ):
+            write_config(self.home, name, f'name = "{name}"\ncommand = ["tool", "{part}"]\n' + ROLES)
+            with self.assertRaisesRegex(ValueError, message):
+                command.load(name)
+
+        write_config(self.home, "fileprompt", 'name = "fileprompt"\ncommand = ["tool", "{{prompt_file}}"]\nprompt = "file"\n' + ROLES)
+        with self.assertRaisesRegex(ValueError, 'requires {prompt_file}'):
+            command.load("fileprompt")
+
+    def test_models_command_accepts_table_style_rows(self):
+        write_config(self.home, "listed", 'name = "listed"\ncommand = ["tool"]\nmodels_command = ["tool", "models"]\n' + ROLES)
+        provider = command.load("listed")
+        listed = SimpleNamespace(returncode=0, stdout="  MODEL  DESCRIPTION\n# legacy aliases\n\n  demo  Fixture model\n")
+        with mock.patch("tools.providers.command.subprocess.run", return_value=listed):
+            provider.check_models({"terra": {"model": "demo"}}, self.home)
+            with self.assertRaisesRegex(RuntimeError, "Models unavailable"):
+                provider.check_models({"terra": {"model": "missing"}}, self.home)
 
     def test_launch_fills_read_only_and_write_sandboxes(self):
         write_config(self.home, "filled", textwrap.dedent("""\

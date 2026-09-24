@@ -20,6 +20,8 @@ REQUIRED_ROLES = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
 PLACEHOLDERS = {"model", "effort", "workspace", "report", "schema", "prompt_file", "run_dir", "role", "sandbox"}
 _PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
 _NAME = re.compile(r"[a-z][a-z0-9_]{0,62}$")
+_LITERAL_OPEN = "\x00AUTOCODE_LITERAL_OPEN\x00"
+_LITERAL_CLOSE = "\x00AUTOCODE_LITERAL_CLOSE\x00"
 
 
 class CommandProvider:
@@ -30,6 +32,7 @@ class CommandProvider:
     def __init__(self, config: dict, path: Path):
         self._config = config
         self._path = path
+        self.PROMPT_MODE = config.get("prompt", "stdin")
         self.DEFAULT_MODELS = {role: spec["model"] for role, spec in config["roles"].items()}
         self.DEFAULT_REASONING_EFFORTS = {role: spec["effort"] for role, spec in config["roles"].items()}
 
@@ -147,16 +150,22 @@ class CommandProvider:
             raise RuntimeError(f"{self._config['name']} model listing timed out; no agent was launched") from error
         if result.returncode:
             raise RuntimeError(f"Cannot list {self._config['name']} models")
-        return set(result.stdout.splitlines())
+        return {
+            line.split()[0]
+            for line in (line.strip() for line in result.stdout.splitlines())
+            if line and not line.startswith("#")
+        }
 
     @staticmethod
     def _fill(part, values):
+        part = _mask_literal_braces(part)
+
         def replace(match):
             key = match.group(1)
             if key not in PLACEHOLDERS:
                 raise ValueError(f"unknown command placeholder {{{key}}}")
             return values[key]
-        return _PLACEHOLDER.sub(replace, part)
+        return _restore_literal_braces(_PLACEHOLDER.sub(replace, part))
 
 
 def user_config_path(name: str) -> Path:
@@ -200,15 +209,16 @@ def _validate(name: str, config: dict) -> None:
     if not isinstance(command, list) or not command or not all(isinstance(part, str) for part in command):
         raise ValueError("provider command must be a non-empty array of strings")
     for part in command:
-        unknown = set(_PLACEHOLDER.findall(part)) - PLACEHOLDERS
+        masked = _mask_literal_braces(part)
+        unknown = set(_PLACEHOLDER.findall(masked)) - PLACEHOLDERS
         if unknown:
             raise ValueError("unknown command placeholder " + ", ".join("{" + item + "}" for item in sorted(unknown)))
-        if "{" in _PLACEHOLDER.sub("", part):
+        if "{" in _PLACEHOLDER.sub("", masked) or "}" in _PLACEHOLDER.sub("", masked):
             raise ValueError("command placeholders must look like {model}; other braces are not allowed")
     prompt = config.get("prompt", "stdin")
     if prompt not in ("stdin", "file"):
         raise ValueError("provider prompt must be stdin or file")
-    if prompt == "file" and not any("{prompt_file}" in part for part in command):
+    if prompt == "file" and not any("{prompt_file}" in _mask_literal_braces(part) for part in command):
         raise ValueError("prompt = \"file\" requires {prompt_file} in the command")
     roles = config.get("roles")
     if not isinstance(roles, dict):
@@ -235,3 +245,11 @@ def _validate(name: str, config: dict) -> None:
             raise ValueError(f"{key} must be an array of non-empty strings")
     if "models" in config and not config["models"]:
         raise ValueError("models must list at least one model")
+
+
+def _mask_literal_braces(part: str) -> str:
+    return part.replace("{{", _LITERAL_OPEN).replace("}}", _LITERAL_CLOSE)
+
+
+def _restore_literal_braces(part: str) -> str:
+    return part.replace(_LITERAL_OPEN, "{").replace(_LITERAL_CLOSE, "}")

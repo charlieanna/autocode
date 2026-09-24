@@ -75,7 +75,7 @@ def bootstrap(selected, task):
     if inside.returncode == 0:
         raise ValueError(f'workspace is inside the Git repository {inside.stdout.strip()}; '
                          'select that repository root instead')
-    if any(selected.iterdir()):
+    if any(entry.name != '.DS_Store' for entry in selected.iterdir()):
         name = (re.sub('[^a-z0-9]+', '-', task.lower()).strip('-') or 'task')[:40]
         project = selected / 'autocode-projects' / f'{name}-{uuid.uuid4().hex[:8]}'
         project.mkdir(parents=True)

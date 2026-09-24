@@ -616,6 +616,8 @@ plan_reviewer = { model = "gpt-5.6-sol", effort = "high" }
 Placeholders are `{model}`, `{effort}`, `{workspace}`, `{report}`, `{schema}`,
 `{prompt_file}`, `{run_dir}`, `{role}`, and `{sandbox}`. `{sandbox}` is
 `read-only` for planning and review and `workspace-write` for the builder.
+Use `{{` and `}}` for literal braces in a command argument, such as
+`${{VAR}}` or `{{"key":1}}`; single braces are reserved for placeholders.
 The tool writes exactly one JSON object to `{report}`. Command evidence is a
 `capture_command` receipt file, not an `event:` id. Config tools do not report
 token usage, so `--max-reported-tokens` pauses with `PAUSED_USAGE_UNKNOWN`.

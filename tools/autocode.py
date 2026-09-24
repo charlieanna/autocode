@@ -122,6 +122,21 @@ def load_stage_report(record):
     return value
 
 
+def stage_supports_sessions(state, record):
+    """Read the launch-time capability, conservatively recognizing old config records."""
+    if isinstance(record.get("supports_sessions"), bool):
+        return record["supports_sessions"]
+    # Before this field existed, absent provider metadata always meant OpenCode.
+    # Only an explicitly saved non-OpenCode provider is known to be sessionless.
+    return state.get("settings", {}).get("provider", "opencode") == "opencode"
+
+
+def stage_completed(state, record):
+    if stage_supports_sessions(state, record):
+        return any(event.get("type") == "turn.completed" for event in support.events(record["events"]))
+    return record.get("exit_code") == 0 and bool(record.get("output")) and Path(record["output"]).is_file()
+
+
 class ReportRepairQueued(Exception):
     """A finished request needs report-only repair, never implementation replay."""
 
@@ -156,7 +171,7 @@ def recover_legacy_report_repair(state, run_dir, workspace):
     if (support.snapshot(workspace)["revision"] != record["source_revision"]
             or record.get("contract_hash") != (state.get("goal_contract") or {}).get("hash")
             or any(not record.get(key) or not Path(record[key]).is_file() for key in required)
-            or not any(event.get("type") == "turn.completed" for event in support.events(record["events"]))):
+            or not stage_completed(state, record)):
         return False
     if not repair_limit(state):
         return False
@@ -183,7 +198,7 @@ def reject_completed_stage(state, run_dir, record, error):
                 and not isinstance(error, support.Paused)
                 and record.get('exit_code') == 0 and record.get('source_revision')
                 and not record.get('timed_out') and not record.get('interrupted')
-                and any(e.get('type') == 'turn.completed' for e in support.events(record['events'])))
+                and stage_completed(state, record))
     pending = state.get('pending_report_repair')
     if eligible and repair_limit(state) and (not pending or record.get('report_only')):
         if not pending:
@@ -284,7 +299,8 @@ def run_role(
               "criteria_revision": state.get("criteria_revision"), "runner_calls": 1, "runner_retries": 0,
               "headroom_enabled": state["settings"].get("headroom", {}).get("enabled", False),
               "stage_timeout_seconds": stage_timeout, "idle_timeout_seconds": idle_timeout,
-              "tool_timeout_seconds": tool_timeout, "expected_session": session}
+              "tool_timeout_seconds": tool_timeout, "expected_session": session,
+              "supports_sessions": supports_sessions}
     if route_role != role:
         record["route_role"] = route_role
     record["engine"] = engine
@@ -323,7 +339,9 @@ def run_role(
                     planning.charge(state, original_stage)
                 state["active_stage"] = record
                 write_json(run_dir / "state.json", state)
-                child = subprocess.Popen(command, cwd=workspace, stdin=stdin, stdout=stdout, stderr=subprocess.STDOUT,
+                child_stdin = (subprocess.DEVNULL if engine == "opencode" and not supports_sessions
+                               and getattr(opencode, "PROMPT_MODE", "stdin") == "file" else stdin)
+                child = subprocess.Popen(command, cwd=workspace, stdin=child_stdin, stdout=stdout, stderr=subprocess.STDOUT,
                                          text=True, **child_options)
                 record["pid"] = child.pid
         except support.Paused:
@@ -958,7 +976,7 @@ def prepare_planning_retry(state, run_dir):
                 and not active.get('timed_out') and not active.get('interrupted')):
             return False
         assert_stage_stopped(active)
-        if not any(row.get('type') == 'turn.completed' for row in support.events(active['events'])):
+        if not stage_completed(state, active):
             return False
         # Repair checkpoints from the old copy/owner bug retain the archived
         # record as active. It is already rejected: never archive/apply it again.
@@ -1022,19 +1040,20 @@ def reconcile_active(state, run_dir, workspace):
         raise support.Paused('PAUSED_INVALID_OUTPUT',
             'This completed attempt was already rejected. Explicitly retry planning with --resume-paused; do not recover the rejected output.')
     assert_stage_stopped(record)
-    rows = support.events(record["events"])
-    if not any(e.get("type") == "turn.completed" for e in rows) or record.get("exit_code") not in (None, 0):
+    supports_sessions = stage_supports_sessions(state, record)
+    if not stage_completed(state, record) or (supports_sessions and record.get("exit_code") not in (None, 0)):
         reason = support.terminal_failure_reason(record["events"])
         raise support.Paused(support.failure_status(record["events"]),
             (f"{reason} " if reason else "") +
             f"Uncertain stage must be inspected, never automatically replayed. After review, "
             f"use --abandon-stage {attempt_id(record)} to retain partial work and set aside this response.")
-    thread = event_thread_id(Path(record["events"]))
-    if (("expected_session" in record and not thread)
-            or (record.get("expected_session") and thread != record["expected_session"])):
-        raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Recovered response belongs to an unexpected session")
-    if thread and not record.get('report_only'):
-        state["sessions"][record.get("route_role", record["role"])] = thread
+    if supports_sessions:
+        thread = event_thread_id(Path(record["events"]))
+        if (("expected_session" in record and not thread)
+                or (record.get("expected_session") and thread != record["expected_session"])):
+            raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Recovered response belongs to an unexpected session")
+        if thread and not record.get('report_only'):
+            state["sessions"][record.get("route_role", record["role"])] = thread
     record["metrics"] = support.event_metrics(record["events"])
     account_stage(state, record)
     if not record.get('before_ref'):
@@ -1052,9 +1071,10 @@ def reconcile_active(state, run_dir, workspace):
     write_json(base.with_suffix(".after.json"), after)
     record.update(after_ref=str(base.with_suffix(".after.json")), source_revision=after["revision"],
                   changed_files=support.changed_paths(before, after), recovered_at=now(), metrics=support.event_metrics(record["events"]))
-    thread = event_thread_id(Path(record["events"]))
-    if thread and not record.get('report_only'):
-        state["sessions"][record.get("route_role", record["role"])] = thread
+    if supports_sessions:
+        thread = event_thread_id(Path(record["events"]))
+        if thread and not record.get('report_only'):
+            state["sessions"][record.get("route_role", record["role"])] = thread
     try:
         value = load_stage_report(record)
     except (ValueError, RuntimeError) as error:

@@ -13,12 +13,38 @@ def report_path():
     return Path(sys.argv[sys.argv.index("--report") + 1])
 
 
+def argument(name):
+    return Path(sys.argv[sys.argv.index(name) + 1]) if name in sys.argv else None
+
+
 if "--version" in sys.argv:
     print("fixture-tool 1")
     raise SystemExit(0)
 
-data = json.loads(sys.stdin.read().split("CURRENT HANDOFF DATA\n", 1)[1])
-stage = data["stage"]
+prompt_file = argument("--prompt-file")
+stdin = sys.stdin.read()
+prompt = prompt_file.read_text() if prompt_file else stdin
+observation = argument("--stdin-observation")
+if observation:
+    observation.write_text(json.dumps({"stdin": stdin, "prompt": prompt}))
+invocations = argument("--invocations")
+data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+if invocations:
+    with invocations.open("a") as handle:
+        handle.write(data.get("stage", "report_repair") + "\n")
+if data.get("report_repair"):
+    original = data["original"]
+    report_path().write_text(json.dumps({"summary": "Repaired report", "changed_files": ["greet.py"], "commands_run": [],
+                                         "results": ["Repaired"], "remaining_risks": [], "evidence_refs": ["greet.py"],
+                                         "contract_revision": original.get("contract_revision"),
+                                         "contract_hash": original.get("contract_hash"),
+                                         "task_id": original.get("task_id", ""),
+                                         "user_request": {"kind": "none", "discovered": "", "impact": "",
+                                                          "decision_needed": "", "options": [], "proposed_delta": ""},
+                                         "deferred_backlog": [], "addressed_requirements": [],
+                                         "untested_behavior": [], "recommended_checks": []}))
+    raise SystemExit(0)
+stage = data.get("stage", "terra")
 contract = data["goal_contract"]
 common = {"contract_revision": contract["revision"], "contract_hash": contract["hash"],
           "task_id": (data.get("current_task") or {}).get("id", ""),
