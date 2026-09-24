@@ -1210,7 +1210,11 @@ blocking) gets a stable ID derived from the reviewer and the finding text, the
 report that raised it, the task assigned to fix it, and the report that resolved
 it. Only the reviewer who raised a finding can close it, by submitting a newer
 report that no longer lists it; a finding reported again after a fix keeps its ID
-and counts the repeat. Findings written only as prose in `next_task.requirements`
+and counts the repeat. With milestone checkpoints, each finding also records the
+milestone criteria it was raised under, and a report closes it only if that report
+reviewed all of those criteria. A validation of different work, or a report-only
+repair that reformats an earlier report, leaves the finding open and marks it as
+not rechecked. Findings written only as prose in `next_task.requirements`
 are not tracked. Role handoffs include `open_findings` for both reviewers, and the
 dashboard's task view shows the list with each finding's source, fix task and
 repeat count. `unresolved_findings` still holds Sol's latest findings unchanged.

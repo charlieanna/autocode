@@ -117,7 +117,81 @@ class LedgerTests(unittest.TestCase):
         rows = findings.handoff(state)
         self.assertEqual({"sol", "astra"}, {row["source"] for row in rows})
         self.assertEqual({"task-1"}, {row["assigned_task"] for row in rows})
-        self.assertEqual({"id", "source", "severity", "finding", "evidence", "blocking", "assigned_task", "times_reported"}, set(rows[0]))
+        self.assertEqual({"id", "source", "severity", "finding", "evidence", "blocking", "assigned_task", "times_reported",
+                          "milestone", "not_rechecked"}, set(rows[0]))
+
+    def scoped_state(self, milestone_id):
+        return {"settings": {"limits": {}},
+                "goal_contract": {"body": {
+                    "acceptance_criteria": [{"id": cid} for cid in ("C1", "C2", "C3")],
+                    "milestones": [{"id": "M1", "objective": "first", "acceptance_criteria": ["C1"], "depends_on": []},
+                                   {"id": "M2", "objective": "second", "acceptance_criteria": ["C2"], "depends_on": ["M1"]},
+                                   {"id": "M3", "objective": "all", "acceptance_criteria": ["C1", "C2", "C3"], "depends_on": ["M2"]}]}},
+                "current_task": {"id": "task-" + milestone_id, "milestone_id": milestone_id}}
+
+    def test_a_review_of_other_work_does_not_close_a_finding(self):
+        state = self.scoped_state("M1")
+        findings.record_validation(state, sol("M1 layout clips text"), {"output": "sol-m1.json"})
+        self.assertEqual({"milestone_id": "M1", "criteria": ["C1"]}, findings.open_entries(state)[0]["scope"])
+        # Sol then validates M2 only and has nothing to say about M1.
+        state["current_task"] = {"id": "task-M2", "milestone_id": "M2"}
+        findings.record_validation(state, sol(), {"output": "sol-m2.json"})
+        row = findings.open_entries(state)[0]
+        self.assertEqual(("M1 layout clips text", "sol-m2.json"), (row["finding"], row["not_rechecked_in"]))
+        self.assertEqual([("M1", True)], [(r["milestone"], r["not_rechecked"]) for r in findings.handoff(state)])
+        self.assertEqual(1, findings.summary(state)["not_rechecked"])
+        # A review that covers M1's criteria and omits the finding closes it.
+        state["current_task"] = {"id": "task-M3", "milestone_id": "M3"}
+        findings.record_validation(state, sol(), {"output": "sol-m3.json"})
+        self.assertEqual([], findings.open_entries(state))
+        resolved = state["findings_ledger"][0]
+        self.assertEqual("sol-m3.json", resolved["resolved_in"])
+        self.assertNotIn("not_rechecked_in", resolved)
+
+    def test_rechecking_the_same_milestone_and_reporting_again_clears_the_stale_mark(self):
+        state = self.scoped_state("M1")
+        findings.record_validation(state, sol("M1 layout clips text"), {"output": "sol-1.json"})
+        state["current_task"] = {"id": "task-M2", "milestone_id": "M2"}
+        findings.record_validation(state, sol(), {"output": "sol-2.json"})
+        state["current_task"] = {"id": "task-M1b", "milestone_id": "M1"}
+        findings.record_validation(state, sol("M1 layout clips text"), {"output": "sol-3.json"})
+        row = findings.open_entries(state)[0]
+        self.assertEqual((2, "sol-3.json"), (row["times_reported"], row["last_reported_in"]))
+        self.assertNotIn("not_rechecked_in", row)
+        findings.record_validation(state, sol(), {"output": "sol-4.json"})
+        self.assertEqual([], findings.open_entries(state))
+
+    def test_report_repairs_never_close_findings(self):
+        state = self.scoped_state("M1")
+        findings.record_validation(state, sol("Empty names are accepted"), {"output": "sol-1.json"})
+        findings.record_decision(state, astra("REWORK", "No blank-input test"), {"output": "astra-1.json"})
+        findings.record_validation(state, sol(), {"output": "sol-1-repair.json", "report_repaired": True})
+        findings.record_decision(state, astra("CONTINUE"), {"output": "astra-1-repair.json", "report_only": True})
+        self.assertEqual({("sol", "sol-1-repair.json"), ("astra", "astra-1-repair.json")},
+                         {(row["source"], row["not_rechecked_in"]) for row in findings.open_entries(state)})
+        # A repair can still add a finding the reformatted report contains.
+        findings.record_validation(state, sol("Empty names are accepted", "Help text missing"),
+                                   {"output": "sol-2-repair.json", "report_repaired": True})
+        self.assertEqual({"Empty names are accepted", "Help text missing"},
+                         {row["finding"] for row in findings.open_entries(state, "sol")})
+
+    def test_findings_saved_without_a_scope_close_only_on_a_full_review(self):
+        state = self.scoped_state("M1")
+        state["findings_ledger"] = [{"id": findings.finding_id("sol", "Legacy finding"), "source": "sol", "severity": "high",
+                                     "finding": "Legacy finding", "evidence": "", "blocking": True, "status": "open",
+                                     "times_reported": 1, "assigned_task": None}]
+        findings.record_validation(state, sol(), {"output": "sol-m1.json"})
+        self.assertEqual("sol-m1.json", findings.open_entries(state)[0]["not_rechecked_in"])
+        state["current_task"] = {"id": "task-M3", "milestone_id": "M3"}
+        findings.record_validation(state, sol(), {"output": "sol-full.json"})
+        self.assertEqual([], findings.open_entries(state))
+
+    def test_runs_without_milestones_keep_whole_report_resolution(self):
+        state = {"goal_contract": {"body": {"acceptance_criteria": [{"id": "C1"}]}}, "current_task": {"id": "t", "milestone_id": ""}}
+        findings.record_validation(state, sol("A"), {"output": "sol-1.json"})
+        self.assertIsNone(findings.open_entries(state)[0]["scope"])
+        findings.record_validation(state, sol(), {"output": "sol-2.json"})
+        self.assertEqual([], findings.open_entries(state))
 
 
 class DashboardLedgerTests(unittest.TestCase):
@@ -136,7 +210,8 @@ class DashboardLedgerTests(unittest.TestCase):
             with patch.object(monitor, "process_table") as probe:
                 result = monitor.snapshot(state, run, detailed=True)
             probe.assert_not_called()
-            self.assertEqual({"open": 2, "resolved": 1, "repeated": 1}, result["findings_summary"])
+            self.assertEqual({"open": 2, "resolved": 1, "repeated": 1, "not_rechecked": 0}, result["findings_summary"])
+            self.assertEqual({(None, False)}, {(row["milestone"], row["not_rechecked"]) for row in result["findings"]})
             self.assertEqual({("sol", "Empty names are accepted", "task-9", 2), ("astra", "No blank-input test", "task-9", 1)},
                              {(row["source"], row["finding"], row["assigned_task"], row["times_reported"]) for row in result["findings"]})
             legacy = monitor.snapshot({"status": "RUNNING", "stages": [], "unresolved_findings": [{"severity": "low", "finding": "old"}]},

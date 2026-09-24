@@ -189,11 +189,14 @@ def snapshot(state, run, detailed=False, process_snapshot=_PROCESS_TABLE_UNSET):
         ledger = [row for row in rows(state.get('findings_ledger')) if isinstance(row, dict)]
         if ledger:
             # One list for both reviewers: identity, who raised it, which task fixes it, how often it recurred.
-            result['findings'] = [{key: row.get(key) for key in ('id', 'source', 'severity', 'finding', 'assigned_task', 'times_reported')}
+            result['findings'] = [{**{key: row.get(key) for key in ('id', 'source', 'severity', 'finding', 'assigned_task', 'times_reported')},
+                                   'milestone': mapping(row.get('scope')).get('milestone_id') or None,
+                                   'not_rechecked': bool(row.get('not_rechecked_in'))}
                                   for row in ledger if row.get('status') == 'open']
             result['findings_summary'] = {'open': len(result['findings']),
                                           'resolved': sum(1 for row in ledger if row.get('status') == 'resolved'),
-                                          'repeated': sum(1 for row in result['findings'] if (row.get('times_reported') or 1) > 1)}
+                                          'repeated': sum(1 for row in result['findings'] if (row.get('times_reported') or 1) > 1),
+                                          'not_rechecked': sum(1 for row in result['findings'] if row['not_rechecked'])}
         else:
             result['findings'] = [{key: row.get(key) for key in ('severity', 'finding')}
                                   for row in rows(state.get('unresolved_findings')) if isinstance(row, dict)]
