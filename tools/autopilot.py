@@ -374,6 +374,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
     dispatch, save_record, now = runtime.dispatch, runtime.save_record, runtime.now
     if stage == "astra_resolve":
         unit_module(stage).validate(state, value, record, workspace)
+        value = unit_module(stage).preserve_review_criteria(state, value)
     if stage == "astra_checkpoint":
         workflow.apply_checkpoint(runtime, state, value, record, workspace, run_dir)
         return

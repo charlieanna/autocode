@@ -45,6 +45,8 @@ def prepare(state, stage, state_path, schema_dir):
               'Inspect the rejected build, review findings and exact evidence. Return a nonempty diagnosis '
               'and one bounded REWORK next_task with defect evidence and concrete validation_plan retests. '
               'The runner exports this task as a one-node repair DAG. Preserve the whole integrated batch. '
+              'Return the complete unchanged acceptance_criteria list from the handoff; select the repair subset only in next_task.acceptance_criteria. '
+              'Criterion statuses and evidence remain owned by the reviewer, not the resolver. '
               'Do not approve work, change requirements, weaken tests, or modify source. '
               'If scope or permission must change, return BLOCKED with a structured user_request; never grant it yourself.\n'
               + instruction + '\nResolver constraint overrides completion choices: only REWORK or BLOCKED.\n'
@@ -61,3 +63,20 @@ def validate(state, value, record, workspace):
         raise ValueError('Resolver requires a diagnosis and a REWORK or BLOCKED decision')
     if value['status'] == 'REWORK' and (not value.get('evidence') or value.get('next_task', {}).get('kind') != 'implement'):
         raise ValueError('Resolver must supply an evidence-backed implementation repair')
+
+
+def preserve_review_criteria(state, value):
+    """A focused diagnosis may omit criteria, but cannot redefine or verify them."""
+    authoritative = state['acceptance_criteria']
+    by_id = {row['id']: row for row in authoritative}
+    seen = set()
+    for row in value['acceptance_criteria']:
+        cid = row['id']
+        if cid in seen:
+            raise support.Paused('PAUSED_INVALID_OUTPUT', 'Duplicate acceptance IDs')
+        seen.add(cid)
+        if cid not in by_id or row['criterion'] != by_id[cid]['criterion']:
+            raise support.Paused('PAUSED_CRITERIA_CHANGE', 'Repair cannot change approved acceptance criteria')
+    # Preserve the last review's order, statuses and evidence, including omitted
+    # criteria. Diagnosis supplies repair instructions, not a new review verdict.
+    return {**value, 'acceptance_criteria': copy.deepcopy(authoritative)}

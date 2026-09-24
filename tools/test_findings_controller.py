@@ -80,6 +80,54 @@ class ControllerFindingsTests(unittest.TestCase):
         self.assertNotIn("not_rechecked_in", rows[0])
         self.assertEqual(1, rows[0]["times_reported"])
 
+    def resolver_fixture(self):
+        body = copy.deepcopy(self.state["goal_contract"]["body"])
+        body["acceptance_criteria"].append({**body["acceptance_criteria"][0],
+                                          "id": "C2", "criterion": "Reject empty names"})
+        body["milestones"][0]["acceptance_criteria"].append("C2")
+        runner.goals.install_draft(self.state, body, origin="test")
+        runner.goals.present(self.state)
+        runner.goals.approve(self.state, runner.goals.token(self.state["goal_contract"]))
+        first = self.astra_decision("REWORK")
+        runner.goals.assign_task(self.state, first, support.snapshot(self.root))
+        review = self.astra_decision("REWORK", "Empty names are accepted", output="review.json")
+        record = {"output": str(self.run / "review.json"),
+                  "source_revision": support.snapshot(self.root)["revision"]}
+        runner.apply_result(self.state, "astra_review", review, record, self.root, self.run)
+        diagnosis = {**self.astra_decision("REWORK", output="resolve.json"),
+                     "diagnosis": "Missing empty-input guard"}
+        diagnosis["acceptance_criteria"] = diagnosis["acceptance_criteria"][:1]
+        return diagnosis, {**record, "output": str(self.run / "resolve.json")}
+
+    def test_focused_resolver_preserves_complete_review_and_dispatches_subset(self):
+        diagnosis, record = self.resolver_fixture()
+        saved = copy.deepcopy(self.state["acceptance_criteria"])
+        diagnosis["acceptance_criteria"][0].update(status="verified", evidence="resolver claim")
+        original = copy.deepcopy(diagnosis)
+        runner.apply_result(self.state, "astra_resolve", diagnosis, record, self.root, self.run)
+        self.assertEqual(saved, self.state["acceptance_criteria"])
+        self.assertEqual(original, diagnosis)
+        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual(["C1"], self.state["current_task"]["acceptance_criteria"])
+        self.assertEqual(saved, self.state["last_decision"]["report"]["acceptance_criteria"])
+        self.assertTrue(findings.blocking_entries(self.state))
+        self.assertIn("repair_plan", self.state)
+
+    def test_resolver_cannot_redefine_add_or_duplicate_criteria(self):
+        diagnosis, record = self.resolver_fixture()
+        for change in ("rewrite", "unknown", "duplicate"):
+            value = copy.deepcopy(diagnosis)
+            if change == "rewrite":
+                value["acceptance_criteria"][0]["criterion"] = "Weaker requirement"
+            elif change == "unknown":
+                value["acceptance_criteria"][0]["id"] = "C999"
+            else:
+                value["acceptance_criteria"] *= 2
+            before = copy.deepcopy(self.state)
+            with self.subTest(change=change), self.assertRaises(support.Paused):
+                runner.apply_result(self.state, "astra_resolve", value, record, self.root, self.run)
+            self.assertEqual(before, self.state)
+
     def test_completion_rejects_a_blocking_finding_in_the_decision_and_the_ledger(self):
         self.state["current_task"] = {**self.state["current_task"], "id": "task-complete"}
         # A passing Sol validation exists, so only the findings stand between the run and completion.
