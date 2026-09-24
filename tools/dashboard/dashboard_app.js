@@ -325,6 +325,7 @@ function planReady(run) { return !jointPlanning(run) || (run.status==='AWAITING_
 function stageName(run) {
   const stage=(run.stage||'').replace(/_report_repair$/,'');
   if(stage==='orchestrator')return 'Orchestrator · Coordinating Builders';
+  if(stage==='resolver')return 'Resolver · Runner decision (no model call)';
   const mode=run.monitor?.workflow_mode,glmFirst=['glm_first_v1','glm_final_audit_v2'].includes(mode);
   if(glmFirst&&/terra/.test(stage))return 'Builder · Implementing';
   if(glmFirst&&/sol/.test(stage))return 'Validator · Targeted review';
@@ -927,7 +928,7 @@ function renderExecution(run){
   if(validation.end_to_end_result)host.append(disclosure('End-to-end result','e2e-check',[renderDocument(validation.end_to_end_result)],run.run));
   if(validation.findings?.length)host.append(disclosure('Review findings ('+validation.findings.length+')','review-findings',[renderDocument(validation.findings)],run.run));
   host.append(disclosure('Full acceptance criteria','criteria',[renderDocument(run.criteria||[])],run.run));
-  const steps=card('','saved-steps');for(const [index,stage]of (run.stages||[]).entries()){const row=card('','stage-row');row.append(n('span',human(stage.stage||stage.role||'Stage')),n('small',typeof stage.duration_seconds==='number'?stage.duration_seconds.toFixed(1)+'s':'Duration not recorded'));row.append(disclosure('Stage details','stage:'+index,[renderDocument(stage)],run.run));steps.append(row);}host.append(disclosure('Step history ('+(run.stages||[]).length+')','step-history',[steps],run.run));
+  const steps=card('','saved-steps');for(const [index,stage]of (run.stages||[]).entries()){const row=card('','stage-row');row.append(n('span',stage.runner_owned?stageName({stage:stage.stage}):human(stage.stage||stage.role||'Stage')),n('small',typeof stage.duration_seconds==='number'?stage.duration_seconds.toFixed(1)+'s':'Duration not recorded'));row.append(disclosure('Stage details','stage:'+index,[renderDocument(stage)],run.run));steps.append(row);}host.append(disclosure('Step history ('+(run.stages||[]).length+')','step-history',[steps],run.run));
   const logs=$('#actions');logs.replaceChildren();if(!(run.actions||[]).length)logs.append(Object.assign(n('p','No command output in this dashboard session. Saved task state remains available after a restart.'),{className:'field-note'}));output(logs,run.actions);
 }
 

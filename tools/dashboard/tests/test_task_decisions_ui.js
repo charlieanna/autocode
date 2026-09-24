@@ -33,6 +33,7 @@ assert.equal(context.taskDecision({...approved,status:'TASK_COMPLETE'}).required
 const orchestration={...approved,stage:'orchestrator',stages:[],status:'RUNNING',
   monitor:{next_stage:'orchestrator',live:{state:'none'},orchestration:{enabled:true,max_parallel:2}}};
 assert.equal(context.stageName(orchestration),'Orchestrator · Coordinating Builders');
+assert.equal(context.stageName({stage:'resolver'}),'Resolver · Runner decision (no model call)');
 assert.equal(context.taskPhase(orchestration),'orchestration');
 assert.equal(context.statusInfo(orchestration).label,'Ready to continue');
 const batch={id:'batch-1',status:'BUILDING',workers:[{milestone_id:'M1',status:'RUNNING',workspace:'/repo/builder-1',run_dir:'/repo/run/worker-1'},{milestone_id:'M2',status:'BUILT',workspace:'/repo/builder-2',run_dir:'/repo/run/worker-2'}]};

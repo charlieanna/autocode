@@ -96,6 +96,20 @@ uses the stronger rung and a fresh role session. Autocode does not silently repl
 the failed request, advances at most once for the same failed iteration, and never
 overwrites an explicit custom model/provider route.
 
+At approved, stopped stage boundaries, the runner consults the bounded resolver
+for report-only repair and independently recorded validation failures. Its ledger
+and decisions live in `state.json`; decision artifacts are marked `runner_owned`
+and make no model calls. The existing report-repair limit and persisted failure
+identity cap both apply before a resolver-authorized retry. Identical boundary
+requests reuse the saved outcome across restarts.
+
+This adapter permits continuation of the existing workflow, bounded report repair,
+or escalation. It does not authorize contract replanning, implementation replay,
+new permissions, or completion. Permission/goal requests and untyped agent
+`blocker` requests retain the user decision boundary; prose claiming an internal
+issue is not enough to grant authority. The policy's `ACTIONS` and
+`HUMAN_ONLY_KINDS` remain unchanged.
+
 From inside any committed Git project, the normal invocation is simply:
 
 ```sh

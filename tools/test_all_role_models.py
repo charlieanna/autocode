@@ -106,14 +106,17 @@ class AllRoleSubprocessTests(unittest.TestCase):
             self.launch([*args,'--no-chat','--pause-after-stage',*(['--resume-paused'] if index else [])],
                         0 if index==len(stages)-1 else 2)
             after_stage = self.saved()[1]
-            self.assertEqual(len(before_stage['stages'])+1, len(after_stage['stages']))
+            self.assertEqual(len([row for row in before_stage['stages'] if row['stage'] != 'resolver'])+1,
+                             len([row for row in after_stage['stages'] if row['stage'] != 'resolver']))
         final = self.saved()[1]
         self.assertEqual('COMPLETE', final['phase'])
         for stage in final['stages']:
             if stage.get('runner_owned'):
-                self.assertEqual('orchestrator', stage['stage'])
+                self.assertIn(stage['stage'], ('orchestrator', 'resolver'))
                 self.assertEqual('runner', stage['engine'])
                 self.assertNotIn('command', stage)
+                if stage['stage'] == 'resolver':
+                    self.assertEqual(0, stage['runner_calls'])
                 continue
             self.assertEqual('opencode', stage['engine'])
             self.assertEqual('opencode', stage['command'][0])

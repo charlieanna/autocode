@@ -43,6 +43,7 @@ try:
     from . import autocode_workflow as workflow
     from . import autocode_milestones as milestones
     from . import autocode_dispatch as dispatch
+    from . import autocode_resolver_runtime as resolver_runtime
     from .autocode_activity import ActivityMonitor
 except ImportError:
     import autocode_workspaces as task_workspaces
@@ -51,6 +52,7 @@ except ImportError:
     import autocode_workflow as workflow
     import autocode_milestones as milestones
     import autocode_dispatch as dispatch
+    import autocode_resolver_runtime as resolver_runtime
     from autocode_activity import ActivityMonitor
 
 
@@ -538,6 +540,7 @@ def execute_report_repair(state, run_dir, workspace):
             or (state.get('goal_contract') or {}).get('hash') != pending['contract_hash']
             or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending['pins'].items())):
         raise support.Paused('PAUSED_STALE_VALIDATION', 'Saved report-repair inputs changed; do not retry')
+    resolver_runtime.boundary(sys.modules[__name__], state, run_dir, workspace)
     pending['attempts'] += 1
     state.update(phase='REPORT_REPAIR')
     write_json(run_dir / 'state.json', state)
@@ -2343,6 +2346,7 @@ def main() -> int:
                         raise orchestrator.LoopExit(2)
                 except interventions.InterventionError as error:
                     raise support.Paused("PAUSED_INTERVENTION_ACK", str(error)) from error
+                resolver_runtime.boundary(sys.modules[__name__], current, run_dir, workspace)
                 if args.chat and current["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
                     if not chat_checkpoint(current, run_dir):
                         write_json(state_path, current)

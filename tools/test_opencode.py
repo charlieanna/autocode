@@ -298,9 +298,12 @@ class OpenCodeFlow(unittest.TestCase):
         engines = {role: "opencode" for role in ("glm", "terra", "astra", "sol", "completion", "plan_reviewer")}
         for record in state["stages"]:
             if record.get("runner_owned"):
-                self.assertEqual("orchestrator", record["stage"])
+                self.assertIn(record['stage'], ('orchestrator', 'resolver'))
                 self.assertEqual("runner", record["engine"])
                 self.assertNotIn("command", record)
+                if record['stage'] == 'resolver':
+                    self.assertEqual(0, record['runner_calls'])
+                    self.assertIn(record['decision']['action'], ('continue', 'retry', 'escalate'))
                 continue
             command = record["command"]
             role = record.get("route_role", record["role"])
