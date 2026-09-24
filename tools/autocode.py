@@ -41,6 +41,7 @@ try:
     from . import autocode_orchestrator as orchestrator
     from . import autocode_workflow as workflow
     from . import autocode_milestones as milestones
+    from . import autocode_dispatch as dispatch
     from .autocode_activity import ActivityMonitor
 except ImportError:
     import autocode_workspaces as task_workspaces
@@ -48,6 +49,7 @@ except ImportError:
     import autocode_orchestrator as orchestrator
     import autocode_workflow as workflow
     import autocode_milestones as milestones
+    import autocode_dispatch as dispatch
     from autocode_activity import ActivityMonitor
 
 
@@ -647,7 +649,7 @@ def _apply_result(state, stage, value, record, workspace, run_dir):
                                    trigger="validation_rework",
                                    detail=f"{validation_verdict}: {value['next_objective']}",
                                    struggle_id=f"iteration:{record.get('iteration', state.get('iteration', 0))}")
-            state.update(next_action=value["next_objective"], next_stage=workflow.review_stage(state) if kind == "validate" else "terra")
+            state.update(next_action=value["next_objective"], next_stage=workflow.review_stage(state) if kind == "validate" else dispatch.build_stage(state))
         if modern:
             goals.record_decision(state, value)
             state.pop("agent_request", None)
@@ -677,6 +679,17 @@ def _apply_result(state, stage, value, record, workspace, run_dir):
         refs += [p for row in value["criterion_results"] for p in row["evidence_refs"]]
         flow = value.get("end_to_end_result", {})
         refs += flow.get("evidence_refs", [])
+        members = state.get("current_task", {}).get("milestone_ids", [])
+        if members:
+            results = value.get("milestone_results", [])
+            ids = [r["milestone_id"] for r in results]
+            if len(ids) != len(set(ids)) or set(ids) != set(members):
+                raise ValueError("Combined validation must report every batch milestone exactly once")
+            for result in results:
+                if (value["verdict"] == "PASS" and result["status"] != "PASS"
+                        or result["status"] == "PASS" and (not result["summary"].strip() or not result["evidence_refs"])):
+                    raise ValueError("Combined PASS needs passing evidence for every milestone outcome")
+                refs += result["evidence_refs"]
         if flow.get("status") == "PASS" and (not flow.get("summary", "").strip() or not flow.get("evidence_refs")):
             raise ValueError("End-to-end PASS requires a check description and evidence")
         ids = [row["id"] for row in value["criterion_results"]]
@@ -1263,6 +1276,10 @@ def configure(args, state):
             opencode.check_subscription_routes(routed, workspace)
             settings["transport_identity"] = current
             settings.setdefault("transport_identities", {})["opencode"] = current
+        if getattr(args, "max_parallel_builders", None) is not None:
+            if not settings.get("orchestration", {}).get("enabled"):
+                raise ValueError("Start a new run to enable milestone orchestration")
+            settings["orchestration"]["max_parallel"] = args.max_parallel_builders
         return settings
     local = opencode.local_settings(state["workspace"]) if engine == "opencode" else support.local_settings()
     models = {}
@@ -1282,6 +1299,8 @@ def configure(args, state):
     for role in getattr(args, "pin_model_role", []):
         roles[role]["model_pinned"] = True
     settings = {"roles": roles, "transport_identity": local, "engine": engine, "provider": provider_name,
+            "orchestration": {"enabled": joint or getattr(args, "max_parallel_builders", None) is not None,
+                              "max_parallel": getattr(args, "max_parallel_builders", None) or 2},
             "report_repair": {"max_attempts": 2},
             "milestone_checkpoints": {**milestones.DEFAULTS,
                 "max_seconds": getattr(args, 'max_milestone_seconds', None)
@@ -1699,6 +1718,10 @@ def main() -> int:
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
     parser.add_argument("--run-dir", type=Path, help="Existing run directory to resume")
     parser.add_argument("--in-place", action="store_true", help="Use this checkout directly; otherwise new tasks get independent worktrees from HEAD")
+    parser.add_argument("--max-parallel-builders", type=int,
+                        help="Orchestrator concurrency for independent milestones (new joint runs: 2; 1 dispatches serially)")
+    parser.add_argument("--retry-builder", action="append", default=[], metavar="MILESTONE_ID",
+                        help="Explicitly retry a stopped Builder after inspecting its retained work; requires --resume-paused")
     parser.add_argument("--figma-file", help="Figma Design URL to implement using the connected Codex plugin")
     parser.add_argument("--ui-run", type=Path, help="Accepted autocode-ui run to implement")
     parser.add_argument("--figma-review", choices=["automatic", "human"], help="Visual review policy for new Figma runs (default: automatic)")
@@ -1780,6 +1803,10 @@ def main() -> int:
                         help="Operator-accept completion after the runner itself verifies every gate; use when the model's completion report cannot be produced")
     parser.add_argument("--review-token", help="Exact displayed contract/artifact/validation token")
     args = parser.parse_args()
+    if args.max_parallel_builders is not None and args.max_parallel_builders < 1:
+        parser.error('--max-parallel-builders must be positive')
+    if args.retry_builder and (not args.run_dir or not args.resume_paused):
+        parser.error('--retry-builder requires --run-dir and --resume-paused')
     if args.unlimited_iterations and (args.max_iterations is not None or args.legacy_iteration_ceiling is not None):
         parser.error('--unlimited-iterations cannot be combined with an explicit iteration ceiling')
     if args.accept_transport_change and (not args.run_dir or not args.resume_paused):
@@ -1794,6 +1821,8 @@ def main() -> int:
                args.feedback is not None, args.accept_completion, args.abandon_stage is not None, args.request_milestone_checkpoints]
     if sum(bool(a) for a in actions) > 1:
         parser.error("Choose one action per invocation; answering and approving are separate events")
+    if args.retry_builder and any(actions):
+        parser.error("--retry-builder is a resume action; do not combine it with another action")
     if args.review_token and not args.approve_review:
         parser.error("--review-token requires --approve-review")
     if not args.run_dir and any(actions[2:]):
@@ -1882,6 +1911,7 @@ def main() -> int:
                            "attempt_id":attempt_id(active) if active else None,
                            "completion_current":completion_current,
                            "milestone_checkpoint": milestones.summary(state),
+                           "orchestration_batch": state.get("orchestration_batch"),
                            "milestone_activation_pending": (run_dir / 'milestone-checkpoints-requested.json').exists(),
                            "interventions": intervention_metadata(workspace, run_dir, state)}, indent=2))
         return 0
@@ -2077,6 +2107,8 @@ def main() -> int:
                     state.pop('stop_reason', None)
             if state.get("pending_questions"):
                 raise support.Paused("PAUSED_UNANSWERED_QUESTION", "Pending questions cannot be bypassed by resume")
+            if args.retry_builder:
+                dispatch.request_retry(state, run_dir, args.retry_builder)
             if migrate_opencode_roles(state, run_dir, workspace):
                 print("Saved roles now use OpenCode; previous sessions archived and task progress retained.", flush=True)
             if state["settings"].get("engine") == "opencode":
@@ -2108,7 +2140,7 @@ def main() -> int:
                         raise support.Paused("PAUSED_USAGE_UNKNOWN", "Cannot enforce requested token limit with unknown usage")
                     if sum(m["input_tokens"]+m["output_tokens"] for m in measured) >= limits["max_reported_tokens"]:
                         raise support.Paused("PAUSED_BUDGET", "Saved reported-token limit reached")
-                if (not repairing_before_upgrade and (not milestones.enabled(current) or current.get('next_stage') == 'terra') and limits["no_progress_batches"]
+                if (not repairing_before_upgrade and (not milestones.enabled(current) or current.get('next_stage') in ('terra', 'orchestrator')) and limits["no_progress_batches"]
                         and current.get("no_progress_batches",0) >= limits["no_progress_batches"]):
                     raise support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review")
                 # Do not silently change auth/provider when local config changes.
@@ -2134,6 +2166,8 @@ def main() -> int:
             def dispatch_code_stage(current, stage):
                 milestones.dispatch_guard(current, stage)
                 workflow.dispatch_guard(current,stage,workspace)
+                if stage == "orchestrator":
+                    return dispatch.dispatch(current, workspace, run_dir)
                 joint_stage = planning.is_planning(current, stage)
                 if stage != "astra_discovery" and not joint_stage:
                     goals.execution_guard(current)
@@ -2157,6 +2191,11 @@ def main() -> int:
                 elif stage == 'terra' and workflow.final_only(current):
                     schema_value = workflow.implementation_schema(SCHEMA_DIR)
                 schema_path = run_dir / "schemas" / f"v3-{stage}.json"
+                if stage == "sol" and current.get("current_task", {}).get("milestone_ids"):
+                    schema_value["properties"]["milestone_results"] = {"type": "array", "items": goals.obj({
+                        "milestone_id": goals.STRING, "status": {"type": "string", "enum": ["PASS", "FAIL", "NOT_VERIFIED"]},
+                        "summary": goals.STRING, "evidence_refs": goals.STRINGS})}
+                    schema_value["required"].append("milestone_results")
                 write_json(schema_path, schema_value)
                 try:
                     value, record = run_role(role=role, prompt=prompt, sandbox="workspace-write" if role=="terra" else "read-only",

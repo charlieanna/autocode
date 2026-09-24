@@ -93,7 +93,8 @@ def duplicate_runner_command(command):
         return parts[1] == "exec"
     if name in ("opencode", "opencode.exe"):
         return parts[1] == "run"
-    return (name.startswith("python") or name == "autocode") and "autocode.py" in command
+    return (name.startswith("python") or name == "autocode") and any(
+        script in command for script in ("autocode.py", "autocode_builder_worker.py"))
 
 
 def assert_no_legacy_process(run_dir, workspace):
@@ -716,6 +717,14 @@ def context_packet(state, stage, state_path):
         base['milestone_checkpoint'] = checkpoints.summary(state)
         base['current_milestone'] = checkpoints.scope(state)
         milestone_policy += checkpoints.POLICY
+        if state.get('current_task', {}).get('milestone_ids'):
+            milestone_policy += ("\nThe current task is an integrated batch of independent milestones. "
+                "Validate EVERY member in current_milestone.members on the combined workspace, "
+                "including interactions. Sol must provide milestone_results with each milestone_id, "
+                "status, summary and evidence_refs, alongside evidence for every criterion. "
+                "The completion owner must retain the whole batch during rework. Choose a member "
+                "milestone_id for rework and an outside milestone_id only after all members pass. "
+                "Builder outputs are implementation provenance, not validation evidence.\n")
     if workflow.enabled(state):
         workflow.guard(state)
         base["workflow"] = state["settings"]["workflow"]

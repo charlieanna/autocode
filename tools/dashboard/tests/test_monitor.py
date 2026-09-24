@@ -75,6 +75,44 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(table[123]['started'], 'Sun Sep 20 01:00:00 2026')
         command.assert_called_once()
 
+    def test_orchestration_projects_saved_workers_without_claiming_liveness(self):
+        batch = {'id': 'batch-1', 'status': 'BUILDING', 'baseline': {'private': 'source'},
+                 'workers': [{'milestone_id': 'M1', 'status': 'RUNNING', 'workspace': '/repo/worker-1',
+                              'run_dir': '/repo/run/worker-1', 'processes': [{'pid': 123}],
+                              'task': {'private': 'prompt'}}]}
+        state = {'settings': {'orchestration': {'enabled': True, 'max_parallel': 2}},
+                 'status': 'RUNNING', 'next_stage': 'orchestrator', 'orchestration_batch': batch,
+                 'orchestration_history': [{**batch, 'status': 'INTEGRATED'}],
+                 'stages': [{'stage': 'orchestrator', 'runner_owned': True, 'finished_at': 'yesterday'}]}
+        with patch.object(monitor, 'process_table') as probe:
+            result = monitor.snapshot(state, self.run, detailed=True)
+        probe.assert_not_called()
+        self.assertEqual(result['live']['state'], 'none')
+        self.assertEqual(result['next_stage'], 'orchestrator')
+        self.assertEqual(result['orchestration'], {'enabled': True, 'max_parallel': 2})
+        self.assertEqual(result['orchestration_batch'], {
+            'id': 'batch-1', 'status': 'BUILDING', 'workers': [
+                {'milestone_id': 'M1', 'status': 'RUNNING', 'workspace': '/repo/worker-1',
+                 'run_dir': '/repo/run/worker-1'}]})
+        self.assertNotIn('private', json.dumps(result))
+        self.assertEqual(result['orchestration_history'][0]['status'], 'INTEGRATED')
+        self.assertTrue(result['history'][0]['runner_owned'])
+        self.assertNotIn('orchestration_history', monitor.snapshot(state, self.run))
+        state.pop('orchestration_batch')
+        result = monitor.snapshot(state, self.run, detailed=True)
+        self.assertIsNone(result['orchestration_batch'])
+        self.assertEqual(len(result['orchestration_history']), 1)
+
+    def test_legacy_and_malformed_orchestration_are_safe_to_display(self):
+        for state in ({}, {'settings': {'orchestration': None}, 'orchestration_batch': [],
+                          'orchestration_history': [None, {}, 'invalid']}):
+            result = monitor.snapshot(state, self.run, detailed=True)
+            self.assertEqual(result['orchestration'], {})
+            self.assertIsNone(result['orchestration_batch'])
+            self.assertEqual(result['orchestration_history'], [])
+        self.assertEqual(monitor.batch_summary({'id': 'empty', 'workers': [None, {'status': 123}]}),
+                         {'id': 'empty', 'workers': [{}]})
+
 
 if __name__ == '__main__':
     unittest.main()

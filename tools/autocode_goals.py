@@ -43,6 +43,7 @@ BODY_SCHEMA = obj({
 LEGACY_BODY_SCHEMA = copy.deepcopy(BODY_SCHEMA)
 MILESTONE = obj({"id": STRING, "objective": STRING, "acceptance_criteria": STRINGS})
 MILESTONE["properties"]["depends_on"] = STRINGS
+MILESTONE["properties"]["affected_paths"] = STRINGS
 BRIEF_FIELDS = {
     "end_to_end_flow": STRINGS,
     "technical_approach": STRINGS,
@@ -303,6 +304,8 @@ def render(state):
                               "    Acceptance criteria: " + ", ".join(row["acceptance_criteria"])]
                     if "depends_on" in row:
                         lines.append("    Depends on: " + (", ".join(row["depends_on"]) or "none; can start independently"))
+                    if "affected_paths" in row:
+                        lines.append("    Owned paths: " + (", ".join(row["affected_paths"]) or "unspecified; serial dispatch"))
                 else:
                     lines.append(f"  - {row['text']} (basis: {row['basis']}; answer: {row['answer_id'] or 'none'})")
     history = state.get("contract_history", [])
@@ -359,8 +362,12 @@ def approve(state, selected):
     if joint:
         decision = initial_decision(contract["body"])
         kind = assign_task(state, decision, current)
+        try:
+            from . import autocode_dispatch as dispatch
+        except ImportError:
+            import autocode_dispatch as dispatch
         state.update(next_action=decision["next_objective"], affected_paths=decision["affected_paths"],
-                     next_stage="sol" if kind == "validate" else "terra")
+                     next_stage="sol" if kind == "validate" else dispatch.build_stage(state))
         record_decision(state, decision)
 
 
@@ -494,8 +501,12 @@ def assign_task(state, decision, current):
     if len(set(ids)) != len(ids) or not set(ids) <= {c["id"] for c in body["acceptance_criteria"]}:
         raise ValueError("Task criteria must reference the approved brief")
     milestones = {m["id"]: m for m in body.get("milestones", [])}
+    previous_batch = state.get("current_task", {}).get("milestone_ids", [])
+    allowed = (set(c for mid in previous_batch for c in milestones[mid]["acceptance_criteria"])
+               if spec["milestone_id"] in previous_batch else
+               set(milestones.get(spec["milestone_id"], {}).get("acceptance_criteria", [])))
     if milestones and (spec["milestone_id"] not in milestones or
-            not set(ids) <= set(milestones[spec["milestone_id"]]["acceptance_criteria"])):
+            not set(ids) <= allowed):
         raise ValueError("Task must belong to an approved milestone and its acceptance criteria")
     checkpoints.before_assignment(state, decision, current)
     # After before_assignment, so a milestone accepted while advancing counts.
@@ -507,6 +518,11 @@ def assign_task(state, decision, current):
         "objective": decision["next_objective"], "affected_paths": decision["affected_paths"],
         "contract_revision": contract["revision"], "contract_hash": contract["hash"],
         "assigned_at": s.now(), "source_revision": current["revision"], "decision": decision["status"]}
+    if spec["milestone_id"] in previous_batch:
+        # Rework stays accountable for every member of the integrated wave.
+        state["current_task"]["milestone_ids"] = previous_batch
+        state["current_task"]["acceptance_criteria"] = list(dict.fromkeys(
+            cid for mid in previous_batch for cid in milestones[mid]["acceptance_criteria"]))
     if checkpoints.enabled(state):
         checkpoints.progress(state)["rejected_advances"] = 0
         state.pop("milestone_blocker", None)
@@ -628,6 +644,11 @@ Set depends_on on EVERY milestone. Use [] when it can start independently from
 the same approved contract, and IDs of prerequisite milestones otherwise.
 Check shared interfaces, ownership and validation boundaries before declaring
 milestones independent. The dependency graph must have no cycles.
+Declare affected_paths for every milestone as literal repository-relative files or
+directories covering all writes, including tests. Do not use globs, parent paths,
+or repository-wide '.'. Shared writes or interface/read dependencies need ordering
+edges; disjoint writes alone do not establish semantic independence. If ownership
+cannot be established, use [] for affected_paths; the Orchestrator will run it serially.
 initial_task must target a milestone with depends_on []; later tasks may start a
 milestone only after all of its depends_on milestones are accepted.
 Put the check descriptions in acceptance_criteria[].criterion and verification_method.

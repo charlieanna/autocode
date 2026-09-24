@@ -180,7 +180,7 @@ def _validate_body(body: Any) -> bool:
         return False
     if not all(isinstance(row["criterion"], str) and row["criterion"].strip() and isinstance(row["verification_method"], str) and row["verification_method"].strip() and isinstance(row["human_review"], bool) for row in body["acceptance_criteria"]):
         return False
-    if not _rows(body["milestones"], {"id", "objective", "acceptance_criteria"}, optional={"depends_on"}):
+    if not _rows(body["milestones"], {"id", "objective", "acceptance_criteria"}, optional={"depends_on", "affected_paths"}):
         return False
     milestone_ids = {row["id"] for row in body["milestones"]}
     covered: set[str] = set()
@@ -189,6 +189,8 @@ def _validate_body(body: Any) -> bool:
         return False
     graph: dict[str, list[str]] = {}
     for row in body["milestones"]:
+        if "affected_paths" in row and not _strings(row["affected_paths"], nonempty=True):
+            return False
         refs = row["acceptance_criteria"]
         if not isinstance(row["objective"], str) or not row["objective"].strip() or not _strings(refs, nonempty=True) or not refs or len(refs) != len(set(refs)) or not set(refs) <= criteria:
             return False
