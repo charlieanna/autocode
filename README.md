@@ -590,6 +590,55 @@ OpenCode version or configuration drift pauses the saved run, including changes 
 custom config-directory files, agent definitions and local plugin/tool definitions.
 This adapter was live-checked with OpenCode **1.18.31**; OpenCode 2.x is not supported.
 
+## Add a tool
+
+OpenCode is built in. Any other tool registers with one TOML file, not a Python
+package. `--provider <name>` loads `~/.config/autocode/providers/<name>.toml` and,
+if that file is absent, the bundled example at `tools/providers/configs/<name>.toml`.
+Configs inside a project are not loaded.
+
+```toml
+name = "gocode"
+command = ["sh", "-c", "eval \"$(gocode env --shell bash)\" && exec codex exec -C \"$1\" --sandbox \"$2\" --model \"$3\" -c model_reasoning_effort=\"$4\" --output-schema \"$5\" -o \"$6\" -", "gocode", "{workspace}", "{sandbox}", "{model}", "{effort}", "{schema}", "{report}"]
+prompt = "stdin"                      # or "file" (uses {prompt_file})
+models_command = ["gocode", "models"] # optional; or a static list: models = [...]
+version_command = ["gocode", "--version"]
+
+[roles]
+astra = { model = "gpt-5.6-sol", effort = "high" }
+terra = { model = "gpt-5.6-terra", effort = "medium" }
+sol = { model = "gpt-5.6-sol", effort = "high" }
+completion = { model = "gpt-5.6-sol", effort = "medium" }
+glm = { model = "gpt-5.6-sol", effort = "medium" }
+plan_reviewer = { model = "gpt-5.6-sol", effort = "high" }
+```
+
+Placeholders are `{model}`, `{effort}`, `{workspace}`, `{report}`, `{schema}`,
+`{prompt_file}`, `{run_dir}`, `{role}`, and `{sandbox}`. `{sandbox}` is
+`read-only` for planning and review and `workspace-write` for the builder.
+The tool writes exactly one JSON object to `{report}`. Command evidence is a
+`capture_command` receipt file, not an `event:` id. Config tools do not report
+token usage, so `--max-reported-tokens` pauses with `PAUSED_USAGE_UNKNOWN`.
+Changing the config file or the tool version pauses a saved run.
+
+`tools/providers/configs/gocode.toml` is the bundled example. A tool such as
+KiloCode is the same kind of file once its command line is known:
+
+```toml
+name = "kilocode"
+command = ["kilocode", "exec", "--cwd", "{workspace}", "--model", "{model}", "--output", "{report}"]
+prompt = "stdin"
+models = ["kilocode-default"]
+
+[roles]
+astra = { model = "kilocode-default", effort = "high" }
+terra = { model = "kilocode-default", effort = "medium" }
+sol = { model = "kilocode-default", effort = "high" }
+completion = { model = "kilocode-default", effort = "medium" }
+glm = { model = "kilocode-default", effort = "medium" }
+plan_reviewer = { model = "kilocode-default", effort = "high" }
+```
+
 ## Codex provider overrides
 
 Pass `--engine codex` to start a Codex-engine run. Roles can use different

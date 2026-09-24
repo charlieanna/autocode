@@ -1,20 +1,17 @@
 """Provider discovery and run-boundary selection.
 
-The workflow engine calls one provider facade.  OpenCode is built in; other
-providers are independently installable packages so upstream workflow changes
-do not need to fork per transport.
+The workflow engine calls one provider facade. OpenCode is built in. Every
+other name loads a TOML config; there is no Python plug-in path.
 """
 from __future__ import annotations
 
-import importlib
 import re
-from types import ModuleType
 from typing import Mapping
 
 _PROVIDER_NAME = re.compile(r"[a-z][a-z0-9_]{0,62}$")
 
 
-def resolve(name: str) -> ModuleType:
+def resolve(name: str):
     """Load a provider facade without ever falling back to another provider."""
     if not isinstance(name, str) or not _PROVIDER_NAME.fullmatch(name):
         raise ValueError("provider names use lowercase letters, digits, and underscores")
@@ -25,15 +22,10 @@ def resolve(name: str) -> ModuleType:
             from providers import opencode
         return opencode
     try:
-        plugin = importlib.import_module("autocode_provider_" + name)
-        provider = plugin.create_provider()
-    except (ImportError, AttributeError) as error:
-        raise RuntimeError(
-            f"provider plugin {name!r} is unavailable; install autocode-provider-{name}"
-        ) from error
-    if not isinstance(provider, ModuleType):
-        raise RuntimeError(f"provider plugin {name!r} returned an invalid provider facade")
-    return provider
+        from .providers import command
+    except ImportError:
+        from providers import command
+    return command.load(name)
 
 
 def select(requested: str | None, saved: Mapping[str, object] | None) -> str:

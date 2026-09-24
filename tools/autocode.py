@@ -242,7 +242,8 @@ def run_role(
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", f"Existing stage artifacts require reconciliation: {base}")
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
     route_role = planning.route_for(state, original_stage, role)
-    session = None if joint_stage or report_only else state.setdefault("sessions", {}).get(route_role)
+    supports_sessions = getattr(opencode, "SUPPORTS_SESSIONS", True)
+    session = None if joint_stage or report_only or not supports_sessions else state.setdefault("sessions", {}).get(route_role)
     engine = planning.engine_for(state["settings"], route_role)
     transport_args = support.transport_arguments(state["settings"])
     route = state["settings"]["roles"][route_role]
@@ -253,11 +254,15 @@ def run_role(
     tool_timeout = limits.get("tool_timeout_seconds", 1800)
     child_options = {"start_new_session": True}
     if engine == "opencode":
-        command, env, overrides = opencode.launch(route_role, workspace, run_dir, session, model, effort, allow_write,
-                                                  planning=joint_stage or report_only)
-        child_options["env"] = env
+        command, env, overrides = opencode.launch(
+            route_role, workspace, run_dir, session, model, effort, allow_write,
+            planning=joint_stage or report_only, report=output, schema=schema,
+            prompt_file=prompt_file, sandbox=sandbox)
+        if env:
+            child_options["env"] = env
         prompt = opencode.prompt_for_schema(prompt, read_json(schema), events)
-        write_json(base.with_suffix(".opencode.json"), overrides)
+        if supports_sessions:
+            write_json(base.with_suffix(".opencode.json"), overrides)
     else:
         command = ["codex", "exec", "-C", str(workspace), "--sandbox", sandbox, *transport_args]
         if planning.enabled(state):
@@ -287,9 +292,11 @@ def run_role(
         record.update(report_only=True, original_stage=original_stage)
     if joint_stage:
         record["planning"] = True
-    if engine == "opencode":
+    if engine == "opencode" and supports_sessions:
         record.update(permission_config=str(base.with_suffix(".opencode.json")),
                       isolation="OpenCode tool permissions and workspace snapshot checks; no OS sandbox")
+    elif engine == "opencode":
+        record.update(isolation="Config-tool sandbox flag and workspace snapshot checks")
     if state.get("goal_contract"):
         record.update(contract_revision=state["goal_contract"]["revision"], contract_hash=state["goal_contract"]["hash"])
     if state.get("current_task"):
@@ -383,15 +390,18 @@ def run_role(
                              f"{role}: {record['timeout_reason']}; partial work and logs retained at {events}")
     if exit_code != 0:
         raise support.Paused(support.failure_status(events), f"{role} exited {exit_code}; reconcile {events}, no automatic replay")
-    thread = event_thread_id(events)
-    if not thread or (session and thread != session):
-        raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Provider returned a missing or unexpected session ID")
-    if not session and not report_only:
-        state["sessions"][route_role] = thread
-        record["thread_id"] = thread
-    if not any(e.get("type") == "turn.completed" for e in support.events(events)):
-        raise support.Paused("PAUSED_UNCERTAIN_STAGE",
-                             support.terminal_failure_reason(events) or "Process exited without turn.completed")
+    if supports_sessions:
+        thread = event_thread_id(events)
+        if not thread or (session and thread != session):
+            raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Provider returned a missing or unexpected session ID")
+        if not session and not report_only:
+            state["sessions"][route_role] = thread
+            record["thread_id"] = thread
+        if not any(e.get("type") == "turn.completed" for e in support.events(events)):
+            raise support.Paused("PAUSED_UNCERTAIN_STAGE",
+                                 support.terminal_failure_reason(events) or "Process exited without turn.completed")
+    elif not output.is_file():
+        raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without a report file")
     after = support.snapshot(workspace)
     write_json(base.with_suffix(".after.json"), after)
     record["after_ref"] = str(base.with_suffix(".after.json"))
@@ -1295,6 +1305,16 @@ def iteration_limit_reached(iteration, ceiling):
     return iteration > ceiling
 
 
+def _provider_model(role, requested):
+    model = requested or opencode.DEFAULT_MODELS[role]
+    # Bare OpenAI names from older dashboard conversations are aliases,
+    # never a reason to use a separate Codex login. Config tools name models
+    # themselves, so they keep the configured string.
+    if getattr(opencode, "SUPPORTS_SESSIONS", True) and "/" not in model:
+        model = f"openai/{model}"
+    return model
+
+
 def configure_joint(settings, args, *, fresh):
     if fresh:
         settings["joint_planning"] = True
@@ -1305,39 +1325,36 @@ def configure_joint(settings, args, *, fresh):
                 "reasoning_effort": opencode.DEFAULT_REASONING_EFFORTS["completion"],
             }
         for role in ("astra", "sol", "completion"):
-            model = getattr(args, f"{role}_model", None) or opencode.DEFAULT_MODELS[role]
-            # Bare OpenAI names from older dashboard conversations are aliases,
-            # never a reason to use a separate Codex login.
             settings["roles"][role].update(engine="opencode", provider=None,
-                model=model if "/" in model else f"openai/{model}")
-        settings["roles"]["terra"].update(engine="opencode", provider=None,
-            model=args.terra_model or opencode.DEFAULT_MODELS["terra"])
+                model=_provider_model(role, getattr(args, f"{role}_model", None)))
+        terra_model = getattr(args, "terra_model", None) or opencode.DEFAULT_MODELS["terra"]
+        settings["roles"]["terra"].update(engine="opencode", provider=None, model=terra_model)
         for role, effort in opencode.DEFAULT_REASONING_EFFORTS.items():
-            if not settings["roles"][role].get("reasoning_effort"):
+            if role in settings["roles"] and not settings["roles"][role].get("reasoning_effort"):
                 settings["roles"][role]["reasoning_effort"] = effort
+        glm_model = getattr(args, "glm_model", None) or opencode.DEFAULT_MODELS["glm"]
         settings["roles"]["glm"] = {"engine": "opencode", "provider": None,
-            "model": getattr(args, "glm_model", None) or opencode.DEFAULT_MODELS["glm"], "reasoning_effort": None}
-        # GoCode exposes the workflow's GPT routes, not an OpenCode Cursor ACP
-        # route. Keep joint planning inside the selected provider family.
-        review_model = ("openai/gpt-5.6-sol" if settings.get("provider") == "gocode"
-                        else "cursor-acp/claude-opus-5-5-high")
+            "model": glm_model, "reasoning_effort": opencode.DEFAULT_REASONING_EFFORTS.get("glm")}
         settings["roles"]["plan_reviewer"] = {"engine": "opencode", "provider": None,
-            "model": review_model,
-            "reasoning_effort": "high" if settings.get("provider") == "gocode" else None,
+            "model": opencode.DEFAULT_MODELS["plan_reviewer"],
+            "reasoning_effort": opencode.DEFAULT_REASONING_EFFORTS.get("plan_reviewer"),
             "model_pinned": True}
         settings["transport_identities"] = {"opencode": settings["transport_identity"]}
     elif getattr(args, "glm_model", None):
         settings["roles"]["glm"]["model"] = args.glm_model
+    sessioned = getattr(opencode, "SUPPORTS_SESSIONS", True)
     for role, config in settings["roles"].items():
         if planning.engine_for(settings, role) == "codex":
             if "/" in config["model"]:
                 raise ValueError(f"Joint planning {role.title()} uses a Codex model name, e.g. {DEFAULT_ROLE_MODELS[role]}")
-        else:
+        elif sessioned:
             # Preserve OpenCode's catalogue identifier, not a Codex alias or a
             # provider whitelist. check_models verifies actual availability.
             if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,120}", config["model"]):
                 raise ValueError(f"{role.title()} requires an OpenCode provider/model identifier; "
                                  "saved session engines cannot be switched on resume")
+        elif not isinstance(config.get("model"), str) or not config["model"].strip() or any(char.isspace() for char in config["model"]):
+            raise ValueError(f"{role.title()} requires a model name from the provider config")
 
 
 def migrate_opencode_roles(state, run_dir, workspace):
@@ -1668,7 +1685,7 @@ def main() -> int:
     parser.add_argument("--engine", choices=["codex", "opencode"],
                         help="New-run default is OpenCode joint planning; --engine codex is the single-CLI loop. Resumes keep the saved engine")
     parser.add_argument("--provider", default=None,
-                        help="OpenCode transport provider (default: opencode); external providers are installed plug-ins")
+                        help="Tool that runs each role (default: opencode). Other names load ~/.config/autocode/providers/<name>.toml")
     parser.add_argument("--joint-planning", action="store_true",
                         help="Default for new OpenCode runs; add GLM planning to an approved saved OpenCode run at a clean execution boundary")
     parser.add_argument("--glm-model", help="Planning-role OpenCode provider/model (default: zai-coding-plan/glm-5.3)")

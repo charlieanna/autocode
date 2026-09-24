@@ -21,6 +21,7 @@ DEFAULT_MODELS = {
     "terra": "openai/gpt-5.6-terra",
     "sol": "openai/gpt-5.6-sol",
     "completion": "openai/gpt-5.6-sol",
+    "plan_reviewer": "cursor-acp/claude-opus-5-5-high",
 }
 
 DEFAULT_REASONING_EFFORTS = {
@@ -138,7 +139,8 @@ def check_subscription_routes(roles, workspace=None):
                            "OpenAI → ChatGPT Plus/Pro; API-key fallback is disabled")
 
 
-def launch(role, workspace, run_dir, session, model, effort, allow_write, *, planning=False):
+def launch(role, workspace, run_dir, session, model, effort, allow_write, *, planning=False,
+           report=None, schema=None, prompt_file=None, sandbox=None):
     if not model or "/" not in model or any(c.isspace() for c in model):
         raise ValueError("OpenCode model must use provider/model, e.g. zai-coding-plan/glm-5.3")
     agent = "autocode_" + role

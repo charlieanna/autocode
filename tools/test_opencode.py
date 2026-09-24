@@ -283,12 +283,13 @@ class OpenCodeFlow(unittest.TestCase):
         self.assertEqual("glm", state["stages"][0]["role"])
         expected = {"glm": "zai-coding-plan/glm-5.3", "astra": "openai/gpt-5.6-sol",
                     "terra": "openai/gpt-5.6-terra", "sol": "openai/gpt-5.6-sol",
-                    "completion": "openai/gpt-5.6-sol"}
+                    "completion": "openai/gpt-5.6-sol",
+                    "plan_reviewer": "cursor-acp/claude-opus-5-5-high"}
         self.assertEqual(expected, {role: settings["model"] for role, settings in state["settings"]["roles"].items()})
         self.assertEqual("COMPLETE", state["phase"])
         self.assertNotEqual(state["sessions"]["terra"], state["sessions"]["sol"])
-        self.assertNotEqual(state["sessions"]["astra"], state["sessions"]["sol"])
-        engines = {role: "opencode" for role in ("glm", "terra", "astra", "sol", "completion")}
+        self.assertNotEqual(state["sessions"]["plan_reviewer"], state["sessions"]["sol"])
+        engines = {role: "opencode" for role in ("glm", "terra", "astra", "sol", "completion", "plan_reviewer")}
         for record in state["stages"]:
             command = record["command"]
             role = record.get("route_role", record["role"])
