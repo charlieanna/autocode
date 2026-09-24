@@ -186,8 +186,17 @@ def snapshot(state, run, detailed=False, process_snapshot=_PROCESS_TABLE_UNSET):
     if detailed:
         result['orchestration_history'] = [batch_summary(batch) for batch in rows(state.get('orchestration_history'))
                                            if isinstance(batch, dict) and batch]
-        result['findings'] = [{key: row.get(key) for key in ('severity', 'finding')}
-                              for row in rows(state.get('unresolved_findings')) if isinstance(row, dict)]
+        ledger = [row for row in rows(state.get('findings_ledger')) if isinstance(row, dict)]
+        if ledger:
+            # One list for both reviewers: identity, who raised it, which task fixes it, how often it recurred.
+            result['findings'] = [{key: row.get(key) for key in ('id', 'source', 'severity', 'finding', 'assigned_task', 'times_reported')}
+                                  for row in ledger if row.get('status') == 'open']
+            result['findings_summary'] = {'open': len(result['findings']),
+                                          'resolved': sum(1 for row in ledger if row.get('status') == 'resolved'),
+                                          'repeated': sum(1 for row in result['findings'] if (row.get('times_reported') or 1) > 1)}
+        else:
+            result['findings'] = [{key: row.get(key) for key in ('severity', 'finding')}
+                                  for row in rows(state.get('unresolved_findings')) if isinstance(row, dict)]
         result['validation_verdict'] = mapping(state.get('validation')).get('verdict')
         result['activity'] = activity_log(path)
         result['history'] = [{k: s.get(k) for k in ('stage', 'role', 'iteration', 'finished_at', 'exit_code', 'rejected', 'interrupted', 'timed_out', 'runner_owned')} for s in stages[-6:]][::-1]
