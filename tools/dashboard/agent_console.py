@@ -50,9 +50,22 @@ def discovery_role(state):
  if origin in ('astra_discovery','astra_finalize'):return 'astra'
  if joint and origin in ('glm_draft','glm_revise'):return 'glm'
  return None
+def provider_registry():
+    """The runner's own provider registry, so the dashboard and CLI resolve tools identically."""
+    try:
+        from .. import autocode_providers
+    except ImportError:  # Running from a source checkout, not the installed package.
+        tools = str(Path(__file__).resolve().parents[1])
+        if tools not in sys.path:
+            sys.path.insert(0, tools)
+        import autocode_providers
+    return autocode_providers
+
+
 class ModelCatalogue:
-    def __init__(self, command=('opencode', 'models'), ttl=300, timeout=10, output_limit=65536):
+    def __init__(self, command=('opencode', 'models'), ttl=300, timeout=10, output_limit=65536, lister=None, provider='opencode'):
         self.command = tuple(command)
+        self.lister, self.provider = lister, provider
         self.ttl, self.timeout, self.output_limit = ttl, timeout, output_limit
         self.lock = threading.Condition()
         self.models, self.at, self.loading, self.error = None, 0, False, None
@@ -106,15 +119,20 @@ class ModelCatalogue:
             self.loading, self.error = True, None
         values, error = None, None
         try:
-            code, stdout, stderr = self._read_command()
-            if code:
-                raise ValueError((stderr.strip() or 'opencode models exited with status ' + str(code))[:400])
-            values = sorted({line.strip() for line in stdout.splitlines() if MODEL_ID.fullmatch(line.strip())})
-            if not values:
-                raise ValueError('No usable provider/model identifiers were returned')
+            if self.lister:
+                values = sorted({value for value in self.lister() if isinstance(value, str) and value and not any(c.isspace() for c in value)})
+                if not values:
+                    raise ValueError('No usable model identifiers were returned')
+            else:
+                code, stdout, stderr = self._read_command()
+                if code:
+                    raise ValueError((stderr.strip() or 'opencode models exited with status ' + str(code))[:400])
+                values = sorted({line.strip() for line in stdout.splitlines() if MODEL_ID.fullmatch(line.strip())})
+                if not values:
+                    raise ValueError('No usable provider/model identifiers were returned')
         except subprocess.TimeoutExpired:
             error = 'Model catalogue lookup timed out.'
-        except (OSError, ValueError) as failure:
+        except (OSError, ValueError, RuntimeError) as failure:
             error = 'Model catalogue unavailable: ' + str(failure)
         finally:
             with self.lock:
@@ -127,7 +145,7 @@ class ModelCatalogue:
     def status(self):
         with self.lock:
             return {'models': list(self.models or []), 'usable': bool(self.models) and not self.error and not self.loading,
-                    'loading': self.loading, 'error': self.error}
+                    'loading': self.loading, 'error': self.error, 'provider': self.provider}
 def assignment_snapshot(raw,source,at=None,reason=None):
  raw=obj(raw)
  if not raw:return None
@@ -216,8 +234,11 @@ def astra_plan_state(s):
   'current_plan_approval':contract.get('approval_status') if isinstance(contract.get('approval_status'),str) else None,
   'current_assignment':current,'history':history,'briefs':briefs,'decisions':decisions,'revision_history':revisions}
 class LegacyConsole:
- def __init__(self,workspaces,runner,zai_probe=configured_zai,watch_roots=(),watch_depth=3,watch_ttl=4.0,catalogue_command=('opencode','models')):
-  self.explicit=list(dict.fromkeys(Path(x).resolve() for x in workspaces));self._explicit_set=set(self.explicit);self.created_workspaces=[];self.runner=str(Path(runner).resolve());self.zai_probe=zai_probe;self.catalogue=ModelCatalogue(catalogue_command);self.actions={};self.pending=set();self.workspace_busy=set();self.lock=threading.Lock();self.cli_watch_roots=list(dict.fromkeys(Path(x).resolve() for x in watch_roots));self.runtime_watch_roots=[];self.watch_depth=max(0,int(watch_depth));self.watch_ttl=max(0.0,float(watch_ttl));self.scan_lock=threading.Lock();self.discovery_cache={};self.pool=ThreadPoolExecutor(max_workers=max(4,len(self.explicit)))
+ def __init__(self,workspaces,runner,zai_probe=configured_zai,watch_roots=(),watch_depth=3,watch_ttl=4.0,catalogue_command=('opencode','models'),run_provider='opencode'):
+  self.run_provider=run_provider
+  if run_provider=='opencode':self.catalogue=ModelCatalogue(catalogue_command)
+  else:self.catalogue=ModelCatalogue(lister=provider_registry().resolve(run_provider).list_models,provider=run_provider)
+  self.explicit=list(dict.fromkeys(Path(x).resolve() for x in workspaces));self._explicit_set=set(self.explicit);self.created_workspaces=[];self.runner=str(Path(runner).resolve());self.zai_probe=zai_probe;self.actions={};self.pending=set();self.workspace_busy=set();self.lock=threading.Lock();self.cli_watch_roots=list(dict.fromkeys(Path(x).resolve() for x in watch_roots));self.runtime_watch_roots=[];self.watch_depth=max(0,int(watch_depth));self.watch_ttl=max(0.0,float(watch_ttl));self.scan_lock=threading.Lock();self.discovery_cache={};self.pool=ThreadPoolExecutor(max_workers=max(4,len(self.explicit)))
  @property
  def watch_roots(self):return self.cli_watch_roots+self.runtime_watch_roots
  def watch_root_rows(self):
@@ -369,6 +390,14 @@ class LegacyConsole:
   explicit={role:d.get(role+'_model','') for role in ('glm','astra','terra','sol','completion')}
   if any(not isinstance(value,str) for value in explicit.values()):raise ValueError('Model choices must be strings')
   chosen={role:value for role,value in explicit.items() if value}
+  if self.run_provider!='opencode':
+   if any(any(c.isspace() for c in value) for value in chosen.values()):raise ValueError('Model names cannot contain whitespace')
+   if chosen:
+    catalogue=self.catalogue.fetch()
+    if not catalogue['usable']:raise ValueError(catalogue['error'] or 'Model catalogue is unavailable; reset role choices to Use Autocode default')
+    for value in chosen.values():
+     if value not in catalogue['models']:raise ValueError('Choose a current model from the '+self.run_provider+' catalogue')
+   return chosen
   # Retain bare OpenAI aliases in older conversations. The runner expands them
   # to openai/model on OpenCode; they never select a separate Codex login.
   opencode_choices={role:value for role,value in chosen.items()
@@ -394,10 +423,10 @@ class LegacyConsole:
   if ws not in self.created_workspaces and ws not in self.explicit:self.created_workspaces.append(ws)
   if engine=='opencode':
    chosen=self.joint_models(d);efforts=self.joint_efforts(d)
-   extra=[goal,'--engine','opencode','--joint-planning','--no-chat']
+   extra=[goal,'--engine','opencode','--provider',self.run_provider,'--joint-planning','--no-chat']
    for role,value in chosen.items():extra+=['--'+role+'-model',value]
    for role,value in efforts.items():extra+=['--'+role+'-reasoning-effort',value]
-   return self.enqueue(ws,None,'Create OpenCode task',extra)
+   return self.enqueue(ws,None,'Create OpenCode task' if self.run_provider=='opencode' else 'Create '+self.run_provider+' task',extra)
   if d.get('glm_model'):raise ValueError('GLM discovery requires the default joint-planning engine')
   models={r:d.get(r+'_model',v) for r,v in CODEX_DEFAULT_MODELS.items()};provider=self.zai_probe()
   for r,m in models.items():
@@ -544,7 +573,10 @@ class Handler(BaseHTTPRequestHandler):
    try:self.reply(400,{'error':str(e)})
    except (BrokenPipeError,ConnectionResetError):return
 def main():
-  p=argparse.ArgumentParser();p.add_argument('--workspace',action='append',default=[]);p.add_argument('--watch-root',action='append',default=[]);p.add_argument('--watch-depth',type=int,default=3);p.add_argument('--runner',default=str(Path(__file__).resolve().parents[1]/'autocode.py'));p.add_argument('--port',type=int,default=8765);a=p.parse_args()
+  p=argparse.ArgumentParser();p.add_argument('--workspace',action='append',default=[]);p.add_argument('--watch-root',action='append',default=[]);p.add_argument('--watch-depth',type=int,default=3);p.add_argument('--runner',default=str(Path(__file__).resolve().parents[1]/'autocode.py'));p.add_argument('--port',type=int,default=8765);p.add_argument('--provider',help='Tool for new runs (default: AUTOCODE_PROVIDER, then default_provider in ~/.config/autocode/config.toml, then opencode)');a=p.parse_args()
   if a.watch_depth<0:p.error('--watch-depth must be zero or greater')
-  c=Console(a.workspace,a.runner,watch_roots=a.watch_root,watch_depth=a.watch_depth);c._discovered();s=ThreadingHTTPServer(('127.0.0.1',a.port),Handler);s.console=c;s.hosts={'127.0.0.1:'+str(s.server_port),'localhost:'+str(s.server_port)};print('http://127.0.0.1:'+str(s.server_port),flush=True);s.serve_forever()
+  try:
+   registry=provider_registry();run_provider=a.provider or registry.default_name();registry.resolve(run_provider)
+  except (RuntimeError,ValueError) as error:p.error(str(error))
+  c=Console(a.workspace,a.runner,watch_roots=a.watch_root,watch_depth=a.watch_depth,run_provider=run_provider);c._discovered();s=ThreadingHTTPServer(('127.0.0.1',a.port),Handler);s.console=c;s.hosts={'127.0.0.1:'+str(s.server_port),'localhost:'+str(s.server_port)};print('http://127.0.0.1:'+str(s.server_port),flush=True);s.serve_forever()
 if __name__=='__main__':main()

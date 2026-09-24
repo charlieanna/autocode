@@ -18,9 +18,10 @@ autocode-tasks = "autocode_cli.autocode_tasks:cli"
 hello-world = "autocode_cli.hello:main"
 
 [tool.setuptools]
-packages = ["autocode_cli", "autocode_cli.dashboard"]
+packages = ["autocode_cli", "autocode_cli.dashboard", "autocode_cli.providers"]
 package-dir = {autocode_cli = "tools"}
 
 [tool.setuptools.package-data]
 autocode_cli = ["autocode-schemas/*.json", "autocode-schemas/v2/*.json"]
 "autocode_cli.dashboard" = ["*.html", "*.css", "*.js"]
+"autocode_cli.providers" = ["configs/*.toml"]

@@ -1,8 +1,10 @@
 """Config-registered command tools.
 
 A tool joins Autocode by shipping a TOML file. This module turns that file into
-the same facade OpenCode exposes. The tool writes its final JSON report to the
-path Autocode passes; Autocode does not parse the tool's event stream.
+the same facade OpenCode exposes. With ``output = "report_file"`` the tool
+writes its final JSON report to the path Autocode passes. With
+``output = "opencode_events"`` the tool prints OpenCode-format JSON events, and
+Autocode reads sessions, usage, command evidence and the final report from them.
 """
 from __future__ import annotations
 
@@ -15,9 +17,16 @@ import shutil
 import subprocess
 import tomllib
 
+try:
+    from . import opencode as _opencode_events
+except ImportError:  # Script-style execution from tools/.
+    from providers import opencode as _opencode_events
+
 
 REQUIRED_ROLES = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
 PLACEHOLDERS = {"model", "effort", "workspace", "report", "schema", "prompt_file", "run_dir", "role", "sandbox"}
+RESUME_PLACEHOLDERS = PLACEHOLDERS | {"session"}
+OUTPUTS = ("report_file", "opencode_events")
 _PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
 _NAME = re.compile(r"[a-z][a-z0-9_]{0,62}$")
 _LITERAL_OPEN = "\x00AUTOCODE_LITERAL_OPEN\x00"
@@ -27,11 +36,14 @@ _LITERAL_CLOSE = "\x00AUTOCODE_LITERAL_CLOSE\x00"
 class CommandProvider:
     """One loaded provider config. Attribute names match the OpenCode facade."""
 
-    SUPPORTS_SESSIONS = False
+    CONFIGURED = True
 
     def __init__(self, config: dict, path: Path):
         self._config = config
         self._path = path
+        self.NAME = config["name"]
+        self.OUTPUT = config.get("output", "report_file")
+        self.SUPPORTS_SESSIONS = self.OUTPUT == "opencode_events"
         self.PROMPT_MODE = config.get("prompt", "stdin")
         self.DEFAULT_MODELS = {role: spec["model"] for role, spec in config["roles"].items()}
         self.DEFAULT_REASONING_EFFORTS = {role: spec["effort"] for role, spec in config["roles"].items()}
@@ -75,8 +87,37 @@ class CommandProvider:
         if missing:
             raise RuntimeError(f"Models unavailable in {self._config['name']}: " + ", ".join(sorted(set(missing))))
 
+    def list_models(self, workspace=None):
+        """Models from models/models_command, or the configured role models when neither is set."""
+        available = self._available_models(workspace)
+        return sorted(available if available is not None else set(self.DEFAULT_MODELS.values()))
+
     def check_subscription_routes(self, roles, workspace=None):
-        """The registered tool owns its login. Autocode does not inspect it."""
+        """Verify configured subscription routes. Tools without [auth] are not checked."""
+        auth = self._config.get("auth")
+        if not auth:
+            return None
+        name = self._config["name"]
+        selected = [route for route in auth["routes"]
+                    if any(str(entry.get("model", "")).startswith(route["models"]) for entry in roles.values())]
+        if not selected:
+            return None
+        forbidden = [key for key in auth.get("forbid_env", []) if key in os.environ]
+        if forbidden:
+            raise RuntimeError(
+                f"{', '.join(forbidden)} is set; {name} subscription selection will not silently change billing routes")
+        try:
+            result = subprocess.run(auth["command"], cwd=workspace, capture_output=True, text=True, timeout=15)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise RuntimeError(f"cannot verify {name} login; no provider request was launched") from error
+        if result.returncode:
+            raise RuntimeError(f"cannot verify {name} login; {auth['command'][0]} auth listing failed")
+        summary = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", result.stdout + result.stderr)
+        for route in selected:
+            found = re.findall(route["pattern"], summary, re.MULTILINE)
+            if not found or any(mode != route["expect"] for mode in found):
+                raise RuntimeError(
+                    f"{name} {route['models']} models require login mode {route['expect']!r}; found {found or 'nothing'}")
         return None
 
     def launch(self, role, workspace, run_dir, session, model, effort, allow_write, *,
@@ -95,9 +136,14 @@ class CommandProvider:
             "sandbox": sandbox,
         }
         command = [self._fill(part, values) for part in self._config["command"]]
+        if session and self.SUPPORTS_SESSIONS:
+            command += [self._fill(part, {**values, "session": session}, RESUME_PLACEHOLDERS)
+                        for part in self._config["resume"]]
         return command, dict(os.environ), {"provider": self._config["name"], "sandbox": sandbox, "report": str(report or "")}
 
     def prompt_for_schema(self, prompt, schema, events):
+        if self.OUTPUT == "opencode_events":
+            return _opencode_events.prompt_for_schema(prompt, schema, events)
         report = str(Path(events).with_suffix(".json"))
         instructions = (
             "\nTOOL OUTPUT CONTRACT\n"
@@ -111,6 +157,8 @@ class CommandProvider:
         return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
 
     def final_report(self, path):
+        if self.OUTPUT == "opencode_events":
+            return _opencode_events.final_report(path)
         report_path = Path(path).with_suffix(".json")
         try:
             value = json.loads(report_path.read_text())
@@ -121,6 +169,8 @@ class CommandProvider:
         return value
 
     def raw_events(self, path):
+        if self.OUTPUT == "opencode_events":
+            return _opencode_events.raw_events(path)
         rows = []
         file = Path(path)
         if not file.exists():
@@ -135,6 +185,8 @@ class CommandProvider:
         return rows
 
     def normalized_events(self, rows):
+        if self.OUTPUT == "opencode_events":
+            return _opencode_events.normalized_events(rows)
         return [row for row in rows if isinstance(row, dict)]
 
     def _available_models(self, workspace):
@@ -157,12 +209,12 @@ class CommandProvider:
         }
 
     @staticmethod
-    def _fill(part, values):
+    def _fill(part, values, allowed=PLACEHOLDERS):
         part = _mask_literal_braces(part)
 
         def replace(match):
             key = match.group(1)
-            if key not in PLACEHOLDERS:
+            if key not in allowed:
                 raise ValueError(f"unknown command placeholder {{{key}}}")
             return values[key]
         return _restore_literal_braces(_PLACEHOLDER.sub(replace, part))
@@ -208,13 +260,21 @@ def _validate(name: str, config: dict) -> None:
     command = config.get("command")
     if not isinstance(command, list) or not command or not all(isinstance(part, str) for part in command):
         raise ValueError("provider command must be a non-empty array of strings")
-    for part in command:
-        masked = _mask_literal_braces(part)
-        unknown = set(_PLACEHOLDER.findall(masked)) - PLACEHOLDERS
-        if unknown:
-            raise ValueError("unknown command placeholder " + ", ".join("{" + item + "}" for item in sorted(unknown)))
-        if "{" in _PLACEHOLDER.sub("", masked) or "}" in _PLACEHOLDER.sub("", masked):
-            raise ValueError("command placeholders must look like {model}; other braces are not allowed")
+    _validate_template(command, PLACEHOLDERS)
+    output = config.get("output", "report_file")
+    if output not in OUTPUTS:
+        raise ValueError("provider output must be report_file or opencode_events")
+    resume = config.get("resume")
+    if resume is not None:
+        if output != "opencode_events":
+            raise ValueError("resume requires output = \"opencode_events\"")
+        if not isinstance(resume, list) or not resume or not all(isinstance(part, str) for part in resume):
+            raise ValueError("resume must be a non-empty array of strings")
+        _validate_template(resume, RESUME_PLACEHOLDERS)
+        if not any("{session}" in _mask_literal_braces(part) for part in resume):
+            raise ValueError("resume requires {session}")
+    elif output == "opencode_events":
+        raise ValueError("output = \"opencode_events\" requires a resume template such as [\"--session\", \"{session}\"]")
     prompt = config.get("prompt", "stdin")
     if prompt not in ("stdin", "file"):
         raise ValueError("provider prompt must be stdin or file")
@@ -245,6 +305,50 @@ def _validate(name: str, config: dict) -> None:
             raise ValueError(f"{key} must be an array of non-empty strings")
     if "models" in config and not config["models"]:
         raise ValueError("models must list at least one model")
+    if "auth" in config:
+        _validate_auth(config["auth"])
+
+
+def _validate_auth(auth) -> None:
+    if not isinstance(auth, dict):
+        raise ValueError("[auth] must be a table")
+    command = auth.get("command")
+    if not isinstance(command, list) or not command or not all(isinstance(part, str) and part.strip() for part in command):
+        raise ValueError("[auth] command must be a non-empty array of strings")
+    forbid = auth.get("forbid_env", [])
+    if not isinstance(forbid, list) or not all(isinstance(item, str) and item.strip() for item in forbid):
+        raise ValueError("[auth] forbid_env must be an array of environment variable names")
+    routes = auth.get("routes")
+    if not isinstance(routes, list) or not routes:
+        raise ValueError("[auth] routes must list at least one route")
+    for route in routes:
+        if not isinstance(route, dict):
+            raise ValueError("[auth] routes entries must be tables")
+        prefix = route.get("models")
+        pattern = route.get("pattern")
+        expect = route.get("expect")
+        if not isinstance(prefix, str) or not prefix.strip():
+            raise ValueError("[auth] route models must be a non-empty prefix")
+        if not isinstance(pattern, str):
+            raise ValueError("[auth] route pattern must be a regular expression")
+        try:
+            compiled = re.compile(pattern)
+        except re.error as error:
+            raise ValueError(f"[auth] route pattern is not a valid regular expression: {error}") from error
+        if compiled.groups != 1:
+            raise ValueError("[auth] route pattern must have exactly one capture group")
+        if not isinstance(expect, str) or not expect.strip():
+            raise ValueError("[auth] route expect must be a non-empty string")
+
+
+def _validate_template(parts, allowed) -> None:
+    for part in parts:
+        masked = _mask_literal_braces(part)
+        unknown = set(_PLACEHOLDER.findall(masked)) - allowed
+        if unknown:
+            raise ValueError("unknown command placeholder " + ", ".join("{" + item + "}" for item in sorted(unknown)))
+        if "{" in _PLACEHOLDER.sub("", masked) or "}" in _PLACEHOLDER.sub("", masked):
+            raise ValueError("command placeholders must look like {model}; other braces are not allowed")
 
 
 def _mask_literal_braces(part: str) -> str:

@@ -113,7 +113,7 @@ class ModelSelectionTests(unittest.TestCase):
     def test_joint_arguments_are_explicit_only_and_invalid_routes_do_not_launch(self):
         default = self.console.create({'project': str(self.workspace), 'goal': 'default', 'engine': 'opencode'})
         prefix = [sys.executable, str(self.runner.resolve()), '--workspace', str(self.workspace.resolve())]
-        joint = ['--engine', 'opencode', '--joint-planning', '--no-chat']
+        joint = ['--engine', 'opencode', '--provider', 'opencode', '--joint-planning', '--no-chat']
         self.assertEqual(prefix + ['default'] + joint, default['command'])
         self.wait()
         for role, model in [('glm', 'zai-coding-plan/glm-5.3'), ('astra', 'gpt-6-astra'), ('terra', 'zai-coding-plan/glm-5.3-flash'), ('sol', 'gpt-5.6-sol'), ('completion', 'gpt-5.6-sol')]:
@@ -148,8 +148,8 @@ class ModelSelectionTests(unittest.TestCase):
                 for model in values:
                     action = self.console.create({'project': str(self.workspace), 'goal': 'mixed subscriptions',
                                                   role+'_model': model})
-                    self.assertEqual(['--engine', 'opencode', '--joint-planning', '--no-chat', '--'+role+'-model', model],
-                                     action['command'][-6:])
+                    self.assertEqual(['--engine', 'opencode', '--provider', 'opencode', '--joint-planning', '--no-chat',
+                                      '--'+role+'-model', model], action['command'][-8:])
                     self.wait()
             self.assertEqual(4 * len(values), fetch.call_count)
         with self.assertRaisesRegex(ValueError, 'catalogue'):
@@ -160,6 +160,36 @@ class ModelSelectionTests(unittest.TestCase):
         with patch.object(self.console.catalogue, 'fetch', return_value={'usable':False,'error':'offline','models':values}):
             with self.assertRaisesRegex(ValueError, 'offline'):
                 self.console.create({'project': str(self.workspace), 'goal': 'catalogue unavailable', 'terra_model': values[0]})
+
+    def test_config_provider_lists_its_own_models_and_launches_with_it(self):
+        config_home = self.root / 'config'
+        providers = config_home / 'autocode' / 'providers'
+        providers.mkdir(parents=True)
+        roles = ''.join(f'{role} = {{ model = "kilo/~openai/gpt-sol-latest", effort = "high" }}\n'
+                        for role in ('astra', 'terra', 'sol', 'completion', 'glm', 'plan_reviewer'))
+        (providers / 'kilofixture.toml').write_text(
+            'name = "kilofixture"\ncommand = ["kilo", "run", "--model", "{model}"]\n'
+            'output = "opencode_events"\nresume = ["--session", "{session}"]\n'
+            'models = ["kilo/~openai/gpt-sol-latest", "kilo/~z-ai/glm-latest"]\n[roles]\n' + roles)
+        with patch.dict(os.environ, {'XDG_CONFIG_HOME': str(config_home)}):
+            console = Console([], self.runner, lambda: None, run_provider='kilofixture')
+        self.addCleanup(console.pool.shutdown, wait=True)
+        status = console.catalogue.fetch()
+        self.assertEqual(('kilofixture', True), (status['provider'], status['usable']))
+        self.assertEqual(['kilo/~openai/gpt-sol-latest', 'kilo/~z-ai/glm-latest'], status['models'])
+        action = console.create({'project': str(self.workspace), 'goal': 'kilo run', 'glm_model': 'kilo/~z-ai/glm-latest',
+                                 'terra_reasoning_effort': 'high'})
+        self.assertEqual(['kilo run', '--engine', 'opencode', '--provider', 'kilofixture', '--joint-planning', '--no-chat',
+                          '--glm-model', 'kilo/~z-ai/glm-latest', '--terra-reasoning-effort', 'high'], action['command'][4:])
+        self.assertEqual('Create kilofixture task', action['label'])
+        for value in ('kilo/unlisted', 'bad model'):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'kilofixture catalogue|whitespace'):
+                console.create({'project': str(self.workspace), 'goal': 'reject', 'terra_model': value})
+        for _ in range(100):
+            actions = console.action_log(self.workspace)
+            if actions and actions[-1]['status'] not in ('queued', 'running'):
+                break
+            time.sleep(.01)
 
     def test_fake_runner_records_explicit_and_inherited_role_settings(self):
         self.runner.write_text("""import json,sys

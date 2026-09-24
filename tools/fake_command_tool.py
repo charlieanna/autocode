@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Offline config-tool fixture. Writes the report file Autocode names; never calls a model."""
+"""Offline config-tool fixture; never calls a model.
+
+By default it writes the report file Autocode names. With --events it prints
+OpenCode-format JSON events instead, as ``kilo run --format json`` does, and
+reuses the session passed with --session.
+"""
 import json
 import os
 from pathlib import Path
 import shlex
 import subprocess
 import sys
+import uuid
 from goal_fixtures import body
 
 
@@ -21,6 +27,40 @@ if "--version" in sys.argv:
     print("fixture-tool 1")
     raise SystemExit(0)
 
+EVENTS = "--events" in sys.argv
+SESSION = sys.argv[sys.argv.index("--session") + 1] if "--session" in sys.argv else "ses_" + uuid.uuid4().hex
+MESSAGE = "msg_" + uuid.uuid4().hex
+
+
+def event(kind, **part):
+    print(json.dumps({"type": kind, "sessionID": SESSION, "part": {
+        "id": "prt_" + uuid.uuid4().hex, "sessionID": SESSION, "messageID": MESSAGE, **part}}), flush=True)
+
+
+def tool_event(part_id, command, code, output):
+    print(json.dumps({"type": "tool_use", "sessionID": SESSION, "part": {
+        "id": part_id, "sessionID": SESSION, "messageID": MESSAGE, "tool": "bash",
+        "state": {"status": "completed", "input": {"command": command}, "output": output,
+                  "metadata": {"exit": code}}}}), flush=True)
+
+
+def deliver(value):
+    if not EVENTS:
+        report_path().write_text(json.dumps(value))
+        return
+    event("text", text=json.dumps(value))
+    event("step_finish", reason="stop", tokens={"input": 100, "output": 20, "reasoning": 0,
+                                                "cache": {"read": 40, "write": 0}})
+
+
+sessions_log = argument("--sessions-log")
+if sessions_log:
+    with sessions_log.open("a") as handle:
+        handle.write(json.dumps({"role": sys.argv[sys.argv.index("--role") + 1] if "--role" in sys.argv else "",
+                                 "resumed": "--session" in sys.argv, "session": SESSION}) + "\n")
+if EVENTS:
+    event("step_start")
+
 prompt_file = argument("--prompt-file")
 stdin = sys.stdin.read()
 prompt = prompt_file.read_text() if prompt_file else stdin
@@ -34,7 +74,7 @@ if invocations:
         handle.write(data.get("stage", "report_repair") + "\n")
 if data.get("report_repair"):
     original = data["original"]
-    report_path().write_text(json.dumps({"summary": "Repaired report", "changed_files": ["greet.py"], "commands_run": [],
+    deliver({"summary": "Repaired report", "changed_files": ["greet.py"], "commands_run": [],
                                          "results": ["Repaired"], "remaining_risks": [], "evidence_refs": ["greet.py"],
                                          "contract_revision": original.get("contract_revision"),
                                          "contract_hash": original.get("contract_hash"),
@@ -42,7 +82,7 @@ if data.get("report_repair"):
                                          "user_request": {"kind": "none", "discovered": "", "impact": "",
                                                           "decision_needed": "", "options": [], "proposed_delta": ""},
                                          "deferred_backlog": [], "addressed_requirements": [],
-                                         "untested_behavior": [], "recommended_checks": []}))
+                                         "untested_behavior": [], "recommended_checks": []})
     raise SystemExit(0)
 stage = data.get("stage", "terra")
 contract = data["goal_contract"]
@@ -87,12 +127,16 @@ elif stage == "sol":
     valid = subprocess.run(valid_cmd, capture_output=True, text=True)
     invalid = subprocess.run(invalid_cmd, capture_output=True, text=True)
     passed = valid.returncode == 0 and valid.stdout == "Hello, Ada\n" and invalid.returncode == 2
-    evidence = Path(".autocode/evidence/sol-greet.json").resolve()
-    captured = subprocess.run(shlex.split(data["capture_command"]) + ["--output", str(evidence), "--", *valid_cmd],
-                              capture_output=True, text=True)
-    print(json.dumps({"type": "item.completed", "item": {"id": "check", "type": "command_execution",
-        "command": shlex.join(valid_cmd), "exit_code": 0 if passed else 1, "aggregated_output": captured.stdout}}))
     command = shlex.join(valid_cmd)
+    if EVENTS:
+        tool_event("prt_check", command, 0 if passed else 1, valid.stdout)
+        evidence = "event:prt_check"
+    else:
+        evidence = Path(".autocode/evidence/sol-greet.json").resolve()
+        captured = subprocess.run(shlex.split(data["capture_command"]) + ["--output", str(evidence), "--", *valid_cmd],
+                                  capture_output=True, text=True)
+        print(json.dumps({"type": "item.completed", "item": {"id": "check", "type": "command_execution",
+            "command": command, "exit_code": 0 if passed else 1, "aggregated_output": captured.stdout}}))
     result = {**common, "verdict": "PASS" if passed else "FAIL", "findings": [], "checks_run": [command],
               "unverified_criteria": [], "checks": [{"command": command, "exit_code": 0 if passed else 1, "evidence_ref": str(evidence)}],
               "end_to_end_result": {"status": "PASS" if passed else "FAIL", "summary": "Executed the greeting CLI",
@@ -112,6 +156,6 @@ else:
               "evidence": ["Sol receipt"], "blocker": "",
               "plan": ["Implement greeting", "Run both cases"], "affected_paths": ["greet.py"]}
 
-report_path().write_text(json.dumps(result))
-if os.environ.get("AUTOCODE_FIXTURE_SKIP_REPORT"):
+deliver(result)
+if os.environ.get("AUTOCODE_FIXTURE_SKIP_REPORT") and not EVENTS:
     report_path().unlink()

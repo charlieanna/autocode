@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shlex
 import stat
 import tempfile
 import textwrap
@@ -147,6 +148,131 @@ class CommandProviderTests(unittest.TestCase):
         third = provider.local_settings(self.home)
         self.assertTrue(provider.transport_drift(third, second))
         self.assertFalse(provider.transport_drift(third, third))
+
+    def test_event_output_requires_a_session_resume_template(self):
+        for name, extra, message in (
+            ("noresume", 'output = "opencode_events"\n', "requires a resume template"),
+            ("nosession", 'output = "opencode_events"\nresume = ["--session"]\n', "resume requires {session}"),
+            ("reportresume", 'resume = ["--session", "{session}"]\n', 'resume requires output = "opencode_events"'),
+            ("badoutput", 'output = "stdout"\n', "output must be report_file or opencode_events"),
+        ):
+            write_config(self.home, name, f'name = "{name}"\ncommand = ["tool"]\n{extra}' + ROLES)
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, message):
+                command.load(name)
+        write_config(self.home, "sessioncmd", 'name = "sessioncmd"\ncommand = ["tool", "{session}"]\n'
+                     'output = "opencode_events"\nresume = ["--session", "{session}"]\n' + ROLES)
+        with self.assertRaisesRegex(ValueError, "unknown command placeholder {session}"):
+            command.load("sessioncmd")
+
+    def test_event_output_resumes_sessions_and_reads_kilo_events(self):
+        write_config(self.home, "events", 'name = "events"\ncommand = ["kilo", "run", "--model", "{model}"]\n'
+                     'output = "opencode_events"\nresume = ["--session", "{session}"]\nmodels = ["demo"]\n' + ROLES)
+        provider = command.load("events")
+        self.assertTrue(provider.SUPPORTS_SESSIONS)
+        fresh, _, _ = provider.launch("terra", Path("/work"), Path("/run"), None, "demo", "medium", True)
+        resumed, _, _ = provider.launch("terra", Path("/work"), Path("/run"), "ses_saved", "demo", "medium", True)
+        self.assertEqual(["kilo", "run", "--model", "demo"], fresh)
+        self.assertEqual(["kilo", "run", "--model", "demo", "--session", "ses_saved"], resumed)
+        prompt = provider.prompt_for_schema("Task\nCURRENT HANDOFF DATA\n{}", {"type": "object"}, Path("/run/sol-01.jsonl"))
+        self.assertIn("event:<part.id>", prompt)
+
+        # Captured from a real `kilo run --format json` call (Kilo 7.7.7).
+        captured = Path(__file__).resolve().parent / "fixtures" / "kilo-7.7.7-run.jsonl"
+        self.assertEqual({"ok": True}, provider.final_report(captured))
+        events = provider.normalized_events(provider.raw_events(captured))
+        self.assertEqual("thread.started", events[0]["type"])
+        commands = [row["item"] for row in events if row["type"] == "item.completed"]
+        self.assertEqual([("command_execution", "echo hello-autocode", 0)],
+                         [(item["type"], item["command"], item["exit_code"]) for item in commands])
+        self.assertEqual({"input_tokens": 19937, "cached_input_tokens": 9728, "output_tokens": 37,
+                          "reasoning_output_tokens": 0}, events[-1]["usage"])
+
+    def test_bundled_kilocode_config_uses_kilo_run_events(self):
+        provider = command.load("kilocode")
+        self.assertEqual("opencode_events", provider.OUTPUT)
+        self.assertTrue(provider.CONFIGURED)
+        launched, _, _ = provider.launch("terra", Path("/work"), Path("/run"), "ses_saved",
+                                          provider.DEFAULT_MODELS["terra"], "medium", True)
+        self.assertEqual(["kilo", "run", "--dir", "/work", "--model", "openai/gpt-5.6-terra",
+                          "--variant", "medium", "--format", "json", "--session", "ses_saved"], launched)
+        self.assertEqual("zai-coding-plan/glm-5.3", provider.DEFAULT_MODELS["glm"])
+
+    def test_list_models_falls_back_to_configured_role_models(self):
+        write_config(self.home, "unlisted", 'name = "unlisted"\ncommand = ["tool"]\n' + ROLES)
+        self.assertEqual(["demo"], command.load("unlisted").list_models())
+
+    def test_auth_routes_require_the_declared_login_mode(self):
+        binary = self.home / "bin"
+        binary.mkdir()
+        marker = self.home / "auth-ran"
+        script = binary / "fake-auth"
+        script.write_text("#!/bin/sh\ntouch " + shlex.quote(str(marker)) + "\nprintf '%s\\n' \"$FAKE_AUTH_OUTPUT\"\nexit \"${FAKE_AUTH_CODE:-0}\"\n")
+        script.chmod(script.stat().st_mode | stat.S_IEXEC)
+        auth = textwrap.dedent("""\
+            [auth]
+            command = ["fake-auth"]
+            forbid_env = ["OPENAI_API_KEY"]
+
+            [[auth.routes]]
+            models = "openai/"
+            pattern = "^\\\\s*OpenAI\\\\s+(\\\\S+)\\\\s*$"
+            expect = "oauth"
+        """)
+        write_config(self.home, "authed", 'name = "authed"\ncommand = ["tool"]\nmodels = ["demo"]\n' + auth + ROLES)
+        provider = command.load("authed")
+        previous = os.environ.get("PATH")
+        os.environ["PATH"] = str(binary) + os.pathsep + (previous or "")
+        self.addCleanup(lambda: os.environ.__setitem__("PATH", previous) if previous else os.environ.pop("PATH", None))
+        oauth = {"FAKE_AUTH_OUTPUT": "  OpenAI oauth"}
+        with mock.patch.dict(os.environ, oauth):
+            provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
+        self.assertTrue(marker.is_file())
+        marker.unlink()
+        with mock.patch.dict(os.environ, {"FAKE_AUTH_OUTPUT": "  OpenAI api"}):
+            with self.assertRaisesRegex(RuntimeError, "oauth"):
+                provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
+        with mock.patch.dict(os.environ, {**oauth, "OPENAI_API_KEY": "sk-test"}):
+            with self.assertRaisesRegex(RuntimeError, "OPENAI_API_KEY"):
+                provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
+        marker.write_text("stale")
+        with mock.patch.dict(os.environ, oauth):
+            provider.check_subscription_routes({"glm": {"model": "zai-coding-plan/glm-5.3"}}, self.home)
+        self.assertEqual("stale", marker.read_text())
+        with mock.patch.dict(os.environ, {"FAKE_AUTH_CODE": "1", "FAKE_AUTH_OUTPUT": ""}):
+            with self.assertRaisesRegex(RuntimeError, "auth listing failed"):
+                provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
+        os.environ["PATH"] = previous or ""
+        with self.assertRaisesRegex(RuntimeError, "cannot verify"):
+            provider.check_subscription_routes({"astra": {"model": "openai/x"}}, self.home)
+
+        for name, extra, message in (
+            ("twogroups", 'pattern = "(a)(b)"', "exactly one capture group"),
+            ("nogroups", 'pattern = "OpenAI"', "exactly one capture group"),
+            ("noroutes", "", "at least one route"),
+        ):
+            body = 'name = "' + name + '"\ncommand = ["tool"]\n[auth]\ncommand = ["fake-auth"]\n'
+            if name != "noroutes":
+                body += '[[auth.routes]]\nmodels = "openai/"\n' + extra + '\nexpect = "oauth"\n'
+            body += ROLES
+            write_config(self.home, name, body)
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, message):
+                command.load(name)
+        write_config(self.home, "nocmd", 'name = "nocmd"\ncommand = ["tool"]\n[auth]\nroutes = []\n' + ROLES)
+        with self.assertRaisesRegex(ValueError, "command must be"):
+            command.load("nocmd")
+
+        bundled = command.load("kilocode")
+        route = bundled._config["auth"]["routes"][0]
+        self.assertEqual(("openai/", "oauth"), (route["models"], route["expect"]))
+
+    def test_pay_as_you_go_credit_errors_pause_as_budget(self):
+        from tools import autocode_support as support
+        events = self.home / "credit.jsonl"
+        events.write_text(json.dumps({"type": "error", "sessionID": "ses_fixture", "error": {
+            "name": "APIError", "data": {"message": "Add credits to continue, or switch to a free model",
+                                         "statusCode": 402,
+                                         "responseBody": '{"error_type":"usage_limit_exceeded"}'}}}) + "\n")
+        self.assertEqual("PAUSED_BUDGET", support.failure_status(events))
 
     def test_missing_config_does_not_fall_back_to_opencode(self):
         with self.assertRaisesRegex(RuntimeError, "no provider config for 'missing'"):
