@@ -675,10 +675,9 @@ def _apply_result(state, stage, value, record, workspace, run_dir):
         else:
             if not value["next_objective"].strip():
                 raise support.Paused("PAUSED_INVALID_OUTPUT", "CONTINUE requires an action")
-            if modern:
-                completion_probe = {**value, "status": "TASK_COMPLETE", "acceptance_criteria": [
-                    {**c, "status": "verified", "evidence": "Current Sol criterion evidence"}
-                    for c in state["acceptance_criteria"]]}
+            # Passing Sol evidence must not override Astra's rework or unverified criteria.
+            if modern and value["status"] == "CONTINUE":
+                completion_probe = {**value, "status": "TASK_COMPLETE"}
                 if support.completion_ready(state, completion_probe, support.snapshot(workspace)):
                     state.update(status="PAUSED_COMPLETION_REVIEW", phase="PAUSED_OR_BLOCKED", next_stage="astra_review",
                         stop_reason="All required criteria already pass; request completion instead of another implementation batch")

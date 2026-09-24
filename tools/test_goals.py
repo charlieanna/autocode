@@ -803,6 +803,28 @@ class GoalTests(unittest.TestCase):
         with self.assertRaisesRegex(s.Paused, "another implementation task"):
             g.execution_guard(self.state, {**envelope(self.state), "task_id": previous})
 
+    def test_astra_rework_survives_passing_sol_evidence(self):
+        self.approve()
+        runner.apply_result(self.state, "astra_plan", self.decision(), {"output": "plan"}, self.root, self.run)
+        self.validation()
+        correction = self.decision("REWORK")
+        correction["acceptance_criteria"][0]["status"] = "unverified"
+        correction["next_objective"] = "Fix the visual gap found by Astra"
+        runner.apply_result(self.state, "astra_review", correction, {"output": "correction"}, self.root, self.run)
+        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertEqual("unverified", self.state["acceptance_criteria"][0]["status"])
+
+    def test_continue_does_not_invent_verified_astra_criteria(self):
+        self.approve()
+        runner.apply_result(self.state, "astra_plan", self.decision(), {"output": "plan"}, self.root, self.run)
+        self.validation()
+        decision = self.decision()
+        decision["acceptance_criteria"][0]["status"] = "unverified"
+        runner.apply_result(self.state, "astra_review", decision, {"output": "review"}, self.root, self.run)
+        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("unverified", self.state["acceptance_criteria"][0]["status"])
+
     def test_continue_can_dispatch_revalidation_without_an_implementation(self):
         self.approve()
         decision = self.decision()
