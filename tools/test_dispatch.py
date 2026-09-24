@@ -162,7 +162,8 @@ class DispatchTests(unittest.TestCase):
     def test_scope_violation_blocks_integration(self):
         self.prepare()
         with patch.dict(os.environ, {"AUTOCODE_BUILDER_ESCAPE": "M2"}):
-            with self.assertRaisesRegex(s.Paused, "exceed declared"):
+            # The worker's own assignment gate rejects the escape before integration.
+            with self.assertRaisesRegex(s.Paused, "outside the assigned paths"):
                 self.build()
         self.assertFalse((self.root / "outside.txt").exists())
         self.assertFalse((self.root / "a.txt").exists())

@@ -251,7 +251,30 @@ def apply_planning_result(state, stage, value, record):
     state["discovery_summary"] = value["summary"]
 
 
+def assert_within_assignment(state, record):
+    """A serial Builder gets the same ownership gate as a parallel worktree.
+
+    The declared affected_paths are the assignment boundary. Evidence is the
+    actual tree delta, never the report's changed_files list. Tasks without
+    explicit ownership (legacy contracts, [] for serial dispatch) are unbounded.
+    """
+    owned = (state.get("current_task") or {}).get("affected_paths") or []
+    if not owned or not state.get("goal_contract"):
+        return
+    try:
+        from . import autocode_dispatch as dispatch
+    except ImportError:
+        import autocode_dispatch as dispatch
+    outside = sorted(name for name in record.get("changed_files", [])
+                     if not any(dispatch.contains(root, name) for root in owned))
+    if outside:
+        raise support.Paused("PAUSED_ASSIGNMENT_SCOPE",
+                             "Builder changed files outside the assigned paths; edits retained for inspection: "
+                             + ", ".join(outside))
+
+
 def apply_build_result(runtime, state, value, record, workspace, run_dir):
+    assert_within_assignment(state, record)
     support.evidence_hashes(support.implementation_evidence_paths(value["evidence_refs"], record["events"]), workspace, run_dir)
     state.update(implementation={**value, "source_revision": record.get("source_revision"),
                                  "workspace": str(workspace)},
