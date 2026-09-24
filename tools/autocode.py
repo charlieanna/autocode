@@ -121,14 +121,41 @@ def account_stage(state, record):
         record["accounted"] = True
 
 
-def load_stage_report(record):
+def check_evidence_options(record):
+    return {'receipt_only': record.get('output_mode') == 'report_file',
+            'capture_context': record.get('capture_context')}
+
+
+def load_stage_report(record, workspace=None, evidence_record=None):
     if record.get("engine") == "opencode":
         # Raw provider events are authoritative, including during recovery.
         value = opencode.final_report(record["events"])
-        support.validate_schema(value, read_json(Path(record["schema"])))
-        write_json(Path(record["output"]), value)
-    value = final_json(Path(record["output"]))
+    else:
+        value = final_json(Path(record["output"]))
+    reported = copy.deepcopy(value)
+    evidence_record = evidence_record or record
+    validation = value.get('validation', value)
+    checks = validation.get('checks') if isinstance(validation, dict) else None
+    if isinstance(checks, list) and any(isinstance(check, dict) and 'exit_code' not in check for check in checks):
+        if workspace is None:
+            raise ValueError('Cannot derive check metadata without the validation workspace')
+        support.verify_checks(checks, workspace, evidence_record['events'], **check_evidence_options(evidence_record))
     support.validate_schema(value, read_json(Path(record["schema"])))
+    if value != reported:
+        original = Path(record['output']).with_suffix('.reported.json')
+        if original.exists():
+            if read_json(original) != reported:
+                raise ValueError('Preserved raw report differs; reconcile before normalization')
+        else:
+            write_json(original, reported)
+        record['reported_output'] = str(original)
+        record['derived_check_metadata'] = [
+            {'check_index': index, 'field': 'exit_code', 'value': check['exit_code'],
+             'evidence_ref': check['evidence_ref'], 'events': evidence_record['events']}
+            for index, check in enumerate(checks)
+            if 'exit_code' not in (reported.get('validation', reported)['checks'][index])]
+    if record.get('engine') == 'opencode' or value != reported:
+        write_json(Path(record['output']), value)
     return value
 
 
@@ -319,6 +346,7 @@ def run_role(
     if route_role != role:
         record["route_role"] = route_role
     record["engine"] = engine
+    record['output_mode'] = getattr(opencode, 'OUTPUT', 'opencode_events') if engine == 'opencode' else 'codex_events'
     if report_only:
         record.update(report_only=True, original_stage=original_stage)
     if joint_stage:
@@ -338,6 +366,11 @@ def run_role(
         return {"status": "DRY_RUN"}, record
 
     before = support.snapshot(workspace)
+    if record['output_mode'] == 'report_file':
+        record['capture_context'] = {'attempt': str(output), 'nonce': uuid.uuid4().hex,
+                                     'source_revision': before['revision']}
+        child_options['env'] = dict(child_options.get('env', os.environ))
+        child_options['env']['AUTOCODE_CAPTURE_CONTEXT'] = json.dumps(record['capture_context'])
     write_json(base.with_suffix(".before.json"), before)
     record["before_ref"] = str(base.with_suffix(".before.json"))
     record["context"] = state.pop("pending_context_metrics", {})
@@ -451,7 +484,8 @@ def run_role(
     if not allow_write and before["revision"] != after["revision"]:
         raise support.Paused("PAUSED_STALE_VALIDATION", "Repository changed during read-only review; preserve result and revalidate")
     try:
-        value = load_stage_report(record)
+        value = load_stage_report(record, workspace,
+            (state.get('pending_report_repair') or {}).get('original') if report_only else None)
     except (ValueError, RuntimeError) as error:
         reject_completed_stage(state, run_dir, record, error)
     return value, record
@@ -687,7 +721,7 @@ def _apply_result(state, stage, value, record, workspace, run_dir):
         if workflow.final_only(state):
             workflow.apply_implementation(sys.modules[__name__],state,value,record,workspace,run_dir)
     else:
-        support.verify_checks(value["checks"], workspace, record["events"])
+        support.verify_checks(value["checks"], workspace, record["events"], **check_evidence_options(record))
         refs = [c["evidence_ref"] for c in value["checks"]]
         for check in value["checks"]:
             if not check["evidence_ref"].startswith("event:"):
@@ -753,14 +787,14 @@ def archive_rejected_stage(state, run_dir, record, reason):
     archived = base.parent / f"archived-{base.name}-{uuid.uuid4().hex[:6]}"
     archived.mkdir(parents=True, exist_ok=True)
     originals = []
-    for suffix in (".json", ".jsonl", ".prompt.md", ".before.json", ".after.json", ".diff", ".tools.json", ".opencode.json"):
+    for suffix in (".json", ".jsonl", ".reported.json", ".prompt.md", ".before.json", ".after.json", ".diff", ".tools.json", ".opencode.json"):
         artifact = base.with_name(base.name + suffix)
         if artifact.exists():
             # Keep originals until the caller durably saves the archive pointers.
             # A crash or disk error must leave the previous checkpoint readable.
             shutil.copy2(artifact, archived / artifact.name)
             originals.append(artifact)
-    for key in ("output", "events", "prompt", "before_ref", "after_ref", "diff_ref", "tool_evidence", "permission_config"):
+    for key in ("output", "events", "reported_output", "prompt", "before_ref", "after_ref", "diff_ref", "tool_evidence", "permission_config"):
         if record.get(key) and Path(record[key]).parent == base.parent:
             record[key] = str(archived / Path(record[key]).name)
     record["rejected"] = True
@@ -1128,7 +1162,7 @@ def reconcile_active(state, run_dir, workspace):
     if not record.get('before_ref'):
         # Never invent the original source snapshot for a legacy partial record.
         try:
-            load_stage_report(record)
+            load_stage_report(record, workspace)
         except (ValueError, RuntimeError) as error:
             reject_completed_stage(state, run_dir, record, error)
         raise support.Paused('PAUSED_UNCERTAIN_STAGE', 'Recovered stage lacks its original source snapshot')
@@ -1145,7 +1179,8 @@ def reconcile_active(state, run_dir, workspace):
         if thread and not record.get('report_only'):
             state["sessions"][record.get("route_role", record["role"])] = thread
     try:
-        value = load_stage_report(record)
+        value = load_stage_report(record, workspace,
+            (state.get('pending_report_repair') or {}).get('original') if record.get('report_only') else None)
     except (ValueError, RuntimeError) as error:
         reject_completed_stage(state, run_dir, record, error)
     if record.get('report_only'):
@@ -1167,6 +1202,16 @@ def capture_command(argv):
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not command:
         parser.error("command required")
+    capture_context = None
+    if os.environ.get('AUTOCODE_CAPTURE_CONTEXT'):
+        try:
+            capture_context = json.loads(os.environ['AUTOCODE_CAPTURE_CONTEXT'])
+        except ValueError:
+            parser.error('invalid runner capture context')
+        if not isinstance(capture_context, dict) or any(
+                not isinstance(capture_context.get(key), str) or not capture_context[key]
+                for key in ('attempt', 'nonce', 'source_revision')):
+            parser.error('invalid runner capture context')
     path = args.output.resolve()
     root = Path.cwd().resolve()
     if not path.is_relative_to(root / ".autocode"):
@@ -1185,6 +1230,8 @@ def capture_command(argv):
         compact = {"format": "text", "content": full, "compression_error": type(error).__name__, "fallback": "complete_original"}
     receipt = {"command": command, "exit_code": result.returncode, "duration_seconds": time.monotonic()-started,
                "full_output": str(raw), "full_output_sha256": support.file_hash(raw), "summary": compact}
+    if capture_context:
+        receipt['capture_context'] = capture_context
     write_json(path, receipt)
     print(json.dumps(receipt))
     return result.returncode

@@ -455,33 +455,49 @@ def same_command(event_command, check_command):
     return False
 
 
-def verify_checks(checks, workspace, event_path):
-    """Checks must have immutable capture receipts and an actual Sol tool call.
+def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_context=None):
+    """Verify checks and fill only absent exit codes from unique evidence.
 
-    The schema isn't proof. Compare its claims with runner-captured tool events,
-    the on-disk command receipt, and its complete output hash.
+    Event providers require executed tool evidence. Report-file providers use
+    receipts bound to the saved attempt, with the complete output hash checked.
     """
-    tool_outputs = [e["item"] for e in events(event_path)
+    rows = [] if receipt_only else events(event_path)
+    tool_outputs = [e["item"] for e in rows
                     if e.get("type") == "item.completed"
                     and e.get("item", {}).get("type") in ("command_execution", "tool_output")]
     import shlex
-    for check in checks:
+    normalized = copy.deepcopy(checks)
+    for check in normalized:
+        if not isinstance(check, dict) or not isinstance(check.get('command'), str) or not isinstance(check.get('evidence_ref'), str):
+            raise ValueError('Check needs a command and evidence reference')
+        missing_exit = 'exit_code' not in check
+        if not missing_exit and type(check['exit_code']) is not int:
+            raise ValueError('Check exit code must be an integer')
         if check["evidence_ref"].startswith("event:"):
-            rows = events(event_path)
+            if receipt_only:
+                raise ValueError('Report-file providers require capture receipts, not event references')
             event_id = check["evidence_ref"].split(":", 1)[1]
             matches = [e["item"] for e in rows
                        if e.get("type") == "item.completed" and e.get("item", {}).get("id") == event_id
                        and e["item"].get("type") == "command_execution"]
-            if len(matches) == 1 and same_command(matches[0].get("command"), check["command"]) and matches[0].get("exit_code") == check["exit_code"]:
+            if (len(matches) == 1 and isinstance(matches[0].get('command'), str)
+                    and same_command(matches[0]['command'], check['command'])
+                    and type(matches[0].get('exit_code')) is int
+                    and (missing_exit or matches[0]['exit_code'] == check['exit_code'])):
+                check['exit_code'] = matches[0]['exit_code']
                 continue
             # Models sometimes cite conversation call ids that never occur in events;
             # accept a unique executed command+exit match and record the real event id.
             if not matches:
                 alternates = [e["item"] for e in rows
                               if e.get("type") == "item.completed" and e.get("item", {}).get("type") == "command_execution"
-                              and same_command(e["item"].get("command"), check["command"]) and e["item"].get("exit_code") == check["exit_code"]]
-                if len(alternates) == 1:
+                              and isinstance(e['item'].get('command'), str)
+                              and same_command(e['item']['command'], check['command'])
+                              and (missing_exit or e['item'].get('exit_code') == check['exit_code'])]
+                if (len(alternates) == 1 and type(alternates[0].get('exit_code')) is int
+                        and isinstance(alternates[0].get('id'), str) and alternates[0]['id']):
                     check["evidence_ref"] = "event:" + alternates[0]["id"]
+                    check['exit_code'] = alternates[0]['exit_code']
                     continue
             raise ValueError("Check is not supported by an exact executed Sol event")
         path = Path(check["evidence_ref"])
@@ -489,11 +505,20 @@ def verify_checks(checks, workspace, event_path):
         if not path.resolve().is_relative_to(Path(workspace).resolve() / ".autocode"):
             raise ValueError("Executed check receipt must be captured under project .autocode")
         receipt = read(path)
-        if shlex.join(receipt["command"]) != check["command"] or receipt["exit_code"] != check["exit_code"]:
+        if (not isinstance(receipt.get('command'), list)
+                or not all(isinstance(part, str) for part in receipt['command'])
+                or type(receipt.get('exit_code')) is not int
+                or shlex.join(receipt['command']) != check['command']
+                or (not missing_exit and receipt['exit_code'] != check['exit_code'])):
             raise ValueError("Check command/result differs from receipt")
         raw = Path(receipt["full_output"])
         if not raw.resolve().is_relative_to(Path(workspace).resolve() / ".autocode") or file_hash(raw) != receipt["full_output_sha256"]:
             raise ValueError("Full check output missing or changed")
+        if receipt_only:
+            if not capture_context or receipt.get('capture_context') != capture_context:
+                raise ValueError('Capture receipt does not belong to this validation attempt')
+            check['exit_code'] = receipt['exit_code']
+            continue
         # capture prints one JSON object. Match structurally even if event text
         # adds shell notices. No word-search for PASS/COMPLETE is used.
         matched = False
@@ -516,6 +541,10 @@ def verify_checks(checks, workspace, event_path):
                     pass
         if not matched:
             raise ValueError("No independently executed Sol tool event matches receipt")
+        check['exit_code'] = receipt['exit_code']
+    # Failed or ambiguous normalization must not partly repair the caller's report.
+    for original, derived in zip(checks, normalized):
+        original.update(derived)
 
 
 def local_settings():

@@ -638,6 +638,17 @@ Changing the config file or the tool version pauses a saved run.
   resumes each role's session with the required `resume` template, for example
   `resume = ["--session", "{session}"]`.
 
+The runner can fill an omitted check exit code from a unique executed event or
+the cited, verified capture receipt before checking the unchanged report schema.
+It never replaces a supplied exit code, guesses from output text, or resolves
+ambiguous executions. The original report is retained as `.reported.json`, and
+the stage records the derived metadata. Nonzero exits remain failures.
+For `report_file` tools, capture commands must inherit `AUTOCODE_CAPTURE_CONTEXT`
+from the tool process: the capture helper records it automatically and the
+validator checks it against the saved attempt. Receipts from another attempt,
+missing capture context, or changed output hashes are rejected. Event providers
+continue to require their independent tool-event attestation.
+
 A tool can declare how its subscription login is checked. Without an `[auth]`
 table Autocode does not inspect the tool's login. With one, before an OpenAI
 role starts, Autocode runs `command`, strips terminal color codes, and requires

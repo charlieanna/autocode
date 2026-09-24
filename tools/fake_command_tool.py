@@ -135,8 +135,8 @@ elif stage == "sol":
         evidence = Path(".autocode/evidence/sol-greet.json").resolve()
         captured = subprocess.run(shlex.split(data["capture_command"]) + ["--output", str(evidence), "--", *valid_cmd],
                                   capture_output=True, text=True)
-        print(json.dumps({"type": "item.completed", "item": {"id": "check", "type": "command_execution",
-            "command": command, "exit_code": 0 if passed else 1, "aggregated_output": captured.stdout}}))
+        if captured.returncode:
+            raise SystemExit(captured.returncode)
     result = {**common, "verdict": "PASS" if passed else "FAIL", "findings": [], "checks_run": [command],
               "unverified_criteria": [], "checks": [{"command": command, "exit_code": 0 if passed else 1, "evidence_ref": str(evidence)}],
               "end_to_end_result": {"status": "PASS" if passed else "FAIL", "summary": "Executed the greeting CLI",
@@ -156,6 +156,8 @@ else:
               "evidence": ["Sol receipt"], "blocker": "",
               "plan": ["Implement greeting", "Run both cases"], "affected_paths": ["greet.py"]}
 
+if stage == 'sol' and os.environ.get('AUTOCODE_FIXTURE_MISSING_CHECK_EXIT'):
+    result['checks'][0].pop('exit_code')
 deliver(result)
 if os.environ.get("AUTOCODE_FIXTURE_SKIP_REPORT") and not EVENTS:
     report_path().unlink()
