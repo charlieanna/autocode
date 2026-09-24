@@ -81,6 +81,21 @@ assert.equal(flatten(formatted).some(node=>node.tagName==='IMG'||node.tagName===
 assert.equal(flatten(formatted).some(node=>node.textContent==='<img src=x onerror=alert(1)>'),true);
 assert.equal(flatten(formatted).some(node=>node.tagName==='STRONG'&&node.textContent==='One step'),true);
 
+for (const text of [
+ 'Plan revision ',
+ 'Origin: ',
+ 'Requirements',
+ 'Constraints',
+ 'Implementation sequence',
+ 'Verification criteria',
+ 'Assumptions',
+ 'Earlier-revision disclosure',
+ 'Approval records this revision. Starting work is a separate action.',
+ 'Approve plan revision ',
+ 'Request changes',
+ 'Start building',
+]) assert.match(source, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+
 // Simulate a response slower than the two-second refresh cadence. Multiple
 // callers share the in-flight fetch, and one follow-up applies fresh state.
 async function pollingCheck() {

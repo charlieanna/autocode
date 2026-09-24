@@ -243,6 +243,39 @@ run.mkdir(parents=True,exist_ok=True)
         self.assertEqual('opencode', old_joint['role_engines']['sol'])
         self.assertEqual('opencode', old_joint['role_engines']['glm'])
 
+    def test_supported_model_replacement_is_explicit_future_step_mutation(self):
+        self.console.created_workspaces.append(self.workspace.resolve())
+        state = {'task': 'saved replacement', 'status': 'PAUSED',
+                 'settings': {'engine': 'opencode', 'joint_planning': True,
+                              'roles': {'astra': {'model': 'openai/gpt-6-astra', 'reasoning_effort': 'high'},
+                                        'terra': {'model': 'openai/gpt-5.6-terra', 'reasoning_effort': 'medium'},
+                                        'sol': {'model': 'openai/gpt-6-astra', 'reasoning_effort': 'high'}}}}
+        (self.run / 'state.json').write_text(json.dumps(state))
+        with patch.object(self.console.catalogue, 'fetch', return_value={'usable': True,
+                                                                          'models': ['openai/gpt-6-astra', 'openai/gpt-5.6-terra']}):
+            action = self.console.mutate({'workspace': str(self.workspace), 'run': str(self.run),
+                                          'action': 'set_model', 'role': 'astra',
+                                          'model': 'openai/gpt-5.6-terra', 'request_id': 'replace-1'})
+        self.assertEqual('replace-1', action['request_id'])
+        self.assertEqual(['--astra-model', 'openai/gpt-5.6-terra', '--show-goal', '--no-chat'], action['command'][-4:])
+        self.assertIn('Confirm model replacement for astra', action['label'])
+        with self.assertRaisesRegex(ValueError, 'different from the saved'):
+            self.console.mutate({'workspace': str(self.workspace), 'run': str(self.run),
+                                 'action': 'set_model', 'role': 'astra',
+                                 'model': 'openai/gpt-6-astra', 'request_id': 'replace-same'})
+        state['active_stage'] = {'stage': 'terra', 'pid': 1}
+        (self.run / 'state.json').write_text(json.dumps(state))
+        with self.assertRaisesRegex(ValueError, 'current model step'):
+            self.console.mutate({'workspace': str(self.workspace), 'run': str(self.run),
+                                 'action': 'set_model', 'role': 'astra',
+                                 'model': 'openai/gpt-5.6-terra', 'request_id': 'replace-active'})
+        state.pop('active_stage'); state['status'] = 'TASK_COMPLETE'
+        (self.run / 'state.json').write_text(json.dumps(state))
+        with self.assertRaisesRegex(ValueError, 'read-only'):
+            self.console.mutate({'workspace': str(self.workspace), 'run': str(self.run),
+                                 'action': 'set_model', 'role': 'astra',
+                                 'model': 'openai/gpt-5.6-terra', 'request_id': 'replace-complete'})
+
     def test_legacy_codex_creation_has_explicit_engine_and_never_enables_joint(self):
         action = self.console.create({'project': str(self.workspace), 'goal': 'legacy', 'engine': 'codex'})
         self.assertEqual([sys.executable, str(self.runner.resolve()), '--workspace', str(self.workspace.resolve()), 'legacy', '--engine', 'codex', '--no-chat', '--astra-model', 'gpt-5.6-sol', '--terra-model', 'gpt-5.6-terra', '--sol-model', 'gpt-5.6-sol', '--completion-model', 'gpt-5.6-sol', '--astra-reasoning-effort', 'high', '--terra-reasoning-effort', 'medium', '--sol-reasoning-effort', 'high', '--completion-reasoning-effort', 'medium'], action['command'])
