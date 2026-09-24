@@ -375,7 +375,15 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     if state.get("validation"):
         state.setdefault("validation_archive", []).append({
             "reason": "Superseded by another independent validation", "validation": state["validation"]})
-    state.update(validation=validation, unresolved_findings=value["findings"], next_stage="astra_review")
+    # A PASS or FAIL from Sol is evidence. It cannot withdraw an open Astra
+    # correction or retarget the workflow at a new review of the old candidate.
+    correction_open = bool(state.get("resolution_request")) and state.get("next_stage") == "astra_resolve"
+    if correction_open:
+        state.setdefault("validation_archive", []).append({
+            "reason": "Stored during an open correction; not applied to the current candidate",
+            "validation": validation})
+    else:
+        state.update(validation=validation, unresolved_findings=value["findings"], next_stage="astra_review")
     findings_ledger.record_validation(state, value, record)
     milestones.observe_validation(state, support.snapshot(workspace))
     if modern:
