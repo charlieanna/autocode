@@ -192,8 +192,9 @@ class CommandProviderTests(unittest.TestCase):
         self.assertTrue(provider.CONFIGURED)
         launched, _, _ = provider.launch("terra", Path("/work"), Path("/run"), "ses_saved",
                                           provider.DEFAULT_MODELS["terra"], "medium", True)
-        self.assertEqual(["kilo", "run", "--dir", "/work", "--model", "kilo/~openai/gpt-terra-latest",
+        self.assertEqual(["kilo", "run", "--dir", "/work", "--model", "openai/gpt-5.6-terra",
                           "--variant", "medium", "--format", "json", "--session", "ses_saved"], launched)
+        self.assertEqual("zai-coding-plan/glm-5.3", provider.DEFAULT_MODELS["glm"])
 
     def test_list_models_falls_back_to_configured_role_models(self):
         write_config(self.home, "unlisted", 'name = "unlisted"\ncommand = ["tool"]\n' + ROLES)

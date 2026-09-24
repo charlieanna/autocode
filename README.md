@@ -634,13 +634,18 @@ Changing the config file or the tool version pauses a saved run.
   resumes each role's session with the required `resume` template, for example
   `resume = ["--session", "{session}"]`.
 
-Autocode does not check a config tool's login or billing. A tool that runs out
-of pay-as-you-go credit pauses the run with `PAUSED_BUDGET`.
+Autocode does not check a config tool's login or billing. A tool that reports a
+subscription usage limit or runs out of pay-as-you-go credit pauses the run with
+`PAUSED_BUDGET`.
 
 ### KiloCode
 
-`tools/providers/configs/kilocode.toml` is bundled. It runs `kilo run` with
-Kilo Gateway models, so billing is Kilo's pay-as-you-go account:
+`tools/providers/configs/kilocode.toml` is bundled. It runs `kilo run` with the
+same subscription routes as the OpenCode defaults: `openai/...` models use
+Kilo's ChatGPT OAuth connection and `zai-coding-plan/...` uses its Z.AI Coding
+Plan connection. Connect both with `kilo auth` first. The one difference from
+OpenCode is the plan reviewer, which is GPT-5.6 Sol here because Kilo has no
+Cursor ACP route:
 
 ```toml
 name = "kilocode"
@@ -652,18 +657,20 @@ models_command = ["kilo", "models"]
 version_command = ["kilo", "--version"]
 
 [roles]
-astra = { model = "kilo/~openai/gpt-sol-latest", effort = "high" }
-terra = { model = "kilo/~openai/gpt-terra-latest", effort = "medium" }
-sol = { model = "kilo/~openai/gpt-sol-latest", effort = "high" }
-completion = { model = "kilo/~openai/gpt-sol-latest", effort = "medium" }
-glm = { model = "kilo/~z-ai/glm-latest", effort = "medium" }
-plan_reviewer = { model = "kilo/~anthropic/claude-opus-latest", effort = "high" }
+astra = { model = "openai/gpt-5.6-sol", effort = "high" }
+terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
+sol = { model = "openai/gpt-5.6-sol", effort = "high" }
+completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
+glm = { model = "zai-coding-plan/glm-5.3", effort = "medium" }
+plan_reviewer = { model = "openai/gpt-5.6-sol", effort = "high" }
 ```
 
 Copy it to `~/.config/autocode/providers/kilocode.toml` to change models or
-reasoning levels; any ID from `kilo models` works. Kilo has no sandbox flag, so a
-read-only stage that edits files is caught afterwards by the workspace snapshot
-check and pauses.
+reasoning levels; any ID from `kilo models` works. `kilo/...` IDs bill the Kilo
+Gateway pay-as-you-go account instead of a subscription. Unlike built-in
+OpenCode, Autocode does not check that Kilo's OpenAI route is OAuth rather than
+an API key. Kilo has no sandbox flag, so a read-only stage that edits files is
+caught afterwards by the workspace snapshot check and pauses.
 
 ### Default provider
 
