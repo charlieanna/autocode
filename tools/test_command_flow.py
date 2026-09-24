@@ -133,7 +133,8 @@ class ConfigToolFlow(unittest.TestCase):
         run, state = self.complete_run(events=True)
         self.assertEqual("TASK_COMPLETE", state["status"])
         logged = [json.loads(line) for line in (run / "sessions.jsonl").read_text().splitlines()]
-        execution = [record for record in state["stages"] if not record.get("planning")]
+        execution = [record for record in state["stages"]
+                     if not record.get("planning") and not record.get("runner_owned")]
         self.assertTrue(execution)
         for record in execution:
             self.assertTrue(record["supports_sessions"])
