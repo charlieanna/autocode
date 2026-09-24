@@ -93,7 +93,31 @@ class CommandProvider:
         return sorted(available if available is not None else set(self.DEFAULT_MODELS.values()))
 
     def check_subscription_routes(self, roles, workspace=None):
-        """The registered tool owns its login. Autocode does not inspect it."""
+        """Verify configured subscription routes. Tools without [auth] are not checked."""
+        auth = self._config.get("auth")
+        if not auth:
+            return None
+        name = self._config["name"]
+        selected = [route for route in auth["routes"]
+                    if any(str(entry.get("model", "")).startswith(route["models"]) for entry in roles.values())]
+        if not selected:
+            return None
+        forbidden = [key for key in auth.get("forbid_env", []) if key in os.environ]
+        if forbidden:
+            raise RuntimeError(
+                f"{', '.join(forbidden)} is set; {name} subscription selection will not silently change billing routes")
+        try:
+            result = subprocess.run(auth["command"], cwd=workspace, capture_output=True, text=True, timeout=15)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise RuntimeError(f"cannot verify {name} login; no provider request was launched") from error
+        if result.returncode:
+            raise RuntimeError(f"cannot verify {name} login; {auth['command'][0]} auth listing failed")
+        summary = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", result.stdout + result.stderr)
+        for route in selected:
+            found = re.findall(route["pattern"], summary, re.MULTILINE)
+            if not found or any(mode != route["expect"] for mode in found):
+                raise RuntimeError(
+                    f"{name} {route['models']} models require login mode {route['expect']!r}; found {found or 'nothing'}")
         return None
 
     def launch(self, role, workspace, run_dir, session, model, effort, allow_write, *,
@@ -281,6 +305,40 @@ def _validate(name: str, config: dict) -> None:
             raise ValueError(f"{key} must be an array of non-empty strings")
     if "models" in config and not config["models"]:
         raise ValueError("models must list at least one model")
+    if "auth" in config:
+        _validate_auth(config["auth"])
+
+
+def _validate_auth(auth) -> None:
+    if not isinstance(auth, dict):
+        raise ValueError("[auth] must be a table")
+    command = auth.get("command")
+    if not isinstance(command, list) or not command or not all(isinstance(part, str) and part.strip() for part in command):
+        raise ValueError("[auth] command must be a non-empty array of strings")
+    forbid = auth.get("forbid_env", [])
+    if not isinstance(forbid, list) or not all(isinstance(item, str) and item.strip() for item in forbid):
+        raise ValueError("[auth] forbid_env must be an array of environment variable names")
+    routes = auth.get("routes")
+    if not isinstance(routes, list) or not routes:
+        raise ValueError("[auth] routes must list at least one route")
+    for route in routes:
+        if not isinstance(route, dict):
+            raise ValueError("[auth] routes entries must be tables")
+        prefix = route.get("models")
+        pattern = route.get("pattern")
+        expect = route.get("expect")
+        if not isinstance(prefix, str) or not prefix.strip():
+            raise ValueError("[auth] route models must be a non-empty prefix")
+        if not isinstance(pattern, str):
+            raise ValueError("[auth] route pattern must be a regular expression")
+        try:
+            compiled = re.compile(pattern)
+        except re.error as error:
+            raise ValueError(f"[auth] route pattern is not a valid regular expression: {error}") from error
+        if compiled.groups != 1:
+            raise ValueError("[auth] route pattern must have exactly one capture group")
+        if not isinstance(expect, str) or not expect.strip():
+            raise ValueError("[auth] route expect must be a non-empty string")
 
 
 def _validate_template(parts, allowed) -> None:

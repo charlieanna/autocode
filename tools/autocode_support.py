@@ -138,7 +138,8 @@ def snapshot(workspace):
     ).decode().split("\0")
     files = {}
     for name in sorted(set(filter(None, names))):
-        if name.startswith((".autocode/", ".autocode-ui/", "tools/__pycache__/")):
+        if (name.startswith((".autocode/", ".autocode-ui/"))
+                or "/__pycache__/" in f"/{name}" or name.endswith(".pyc")):
             continue
         path = root / name
         if path.is_symlink():

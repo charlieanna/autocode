@@ -634,9 +634,26 @@ Changing the config file or the tool version pauses a saved run.
   resumes each role's session with the required `resume` template, for example
   `resume = ["--session", "{session}"]`.
 
-Autocode does not check a config tool's login or billing. A tool that reports a
-subscription usage limit or runs out of pay-as-you-go credit pauses the run with
-`PAUSED_BUDGET`.
+A tool can declare how its subscription login is checked. Without an `[auth]`
+table Autocode does not inspect the tool's login. With one, before an OpenAI
+role starts, Autocode runs `command`, strips terminal color codes, and requires
+every match of `pattern` to equal `expect`. A mismatch, a failed listing, or a
+variable in `forbid_env` pauses the run with `PAUSED_BILLING_ROUTE` before any
+model is called:
+
+```toml
+[auth]
+command = ["kilo", "auth", "list"]
+forbid_env = ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"]
+
+[[auth.routes]]
+models = "openai/"
+pattern = "^\\s*[●•]\\s+OpenAI\\s+(\\S+)\\s*$"
+expect = "oauth"
+```
+
+A tool that reports a subscription usage limit or runs out of pay-as-you-go
+credit pauses the run with `PAUSED_BUDGET`.
 
 ### KiloCode
 
@@ -663,14 +680,25 @@ sol = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
 glm = { model = "zai-coding-plan/glm-5.3", effort = "medium" }
 plan_reviewer = { model = "openai/gpt-5.6-sol", effort = "high" }
+
+[auth]
+command = ["kilo", "auth", "list"]
+forbid_env = ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"]
+
+[[auth.routes]]
+models = "openai/"
+pattern = "^\\s*[●•]\\s+OpenAI\\s+(\\S+)\\s*$"
+expect = "oauth"
 ```
 
 Copy it to `~/.config/autocode/providers/kilocode.toml` to change models or
 reasoning levels; any ID from `kilo models` works. `kilo/...` IDs bill the Kilo
-Gateway pay-as-you-go account instead of a subscription. Unlike built-in
-OpenCode, Autocode does not check that Kilo's OpenAI route is OAuth rather than
-an API key. Kilo has no sandbox flag, so a read-only stage that edits files is
-caught afterwards by the workspace snapshot check and pauses.
+Gateway pay-as-you-go account instead of a subscription. The `[auth]` table
+above runs `kilo auth list` before an `openai/` role and pauses with
+`PAUSED_BILLING_ROUTE` unless that login is `oauth`, and also when
+`OPENAI_API_KEY`, `CODEX_API_KEY`, or `OPENAI_BASE_URL` is set. Kilo has no
+sandbox flag, so a read-only stage that edits files is caught afterwards by the
+workspace snapshot check and pauses.
 
 ### Default provider
 

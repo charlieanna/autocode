@@ -17,3 +17,12 @@ sol = { model = "openai/gpt-5.6-sol", effort = "high" }
 completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
 glm = { model = "zai-coding-plan/glm-5.3", effort = "medium" }
 plan_reviewer = { model = "openai/gpt-5.6-sol", effort = "high" }
+
+[auth]
+command = ["kilo", "auth", "list"]
+forbid_env = ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"]
+
+[[auth.routes]]
+models = "openai/"
+pattern = "^\\s*[●•]\\s+OpenAI\\s+(\\S+)\\s*$"
+expect = "oauth"
