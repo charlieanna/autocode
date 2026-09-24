@@ -114,19 +114,21 @@ class Bundle:
         return self.check(name, False, bool(observed))
 
     def expect_raises(self, name: str, exc_type, fn, *args, **kwargs) -> bool:
+        classes = exc_type if isinstance(exc_type, tuple) else (exc_type,)
+        label = "(" + ", ".join(c.__name__ for c in classes) + ")"
         try:
             fn(*args, **kwargs)
-        except exc_type as error:
-            self.rows.append({"name": name, "expected": f"raises {exc_type.__name__}",
+        except classes as error:
+            self.rows.append({"name": name, "expected": f"raises {label}",
                               "observed": f"{type(error).__name__}: {error}", "ok": True})
             self.log("assertion", name=name, ok=True)
             return True
         except Exception as error:  # wrong failure class
-            self.rows.append({"name": name, "expected": f"raises {exc_type.__name__}",
+            self.rows.append({"name": name, "expected": f"raises {label}",
                               "observed": f"wrong class {type(error).__name__}: {error}", "ok": False})
             self.log("assertion", name=name, ok=False)
             return False
-        self.rows.append({"name": name, "expected": f"raises {exc_type.__name__}", "observed": "no exception", "ok": False})
+        self.rows.append({"name": name, "expected": f"raises {label}", "observed": "no exception", "ok": False})
         self.log("assertion", name=name, ok=False)
         return False
 
