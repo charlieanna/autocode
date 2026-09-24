@@ -23,6 +23,10 @@ class UnlimitedTests(unittest.TestCase):
         result=runner.configure(self.args(unlimited_iterations=True),self.state)
         expected=copy.deepcopy(original['settings']);expected['limits']['iteration_ceiling']=None
         expected['report_repair']={'max_attempts':2}
+        expected['provider']='opencode'
+        expected['roles']['completion']={**expected['roles']['astra'],
+            'model':runner.DEFAULT_ROLE_MODELS['completion'],
+            'reasoning_effort':runner.opencode.DEFAULT_REASONING_EFFORTS['completion']}
         self.assertEqual(expected,result)
         self.assertEqual(original,self.state)
 

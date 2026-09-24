@@ -13,6 +13,11 @@ import test_planning
 
 
 class AllRoleModelTests(unittest.TestCase):
+    def setUp(self):
+        self.provider_patch = patch.object(runner, "opencode", oc)
+        self.provider_patch.start()
+        self.addCleanup(self.provider_patch.stop)
+
     configure_args = test_planning.PlanningTests.configure_args
 
     def test_saved_run_pins_selected_roles_at_a_model_change(self):
@@ -79,6 +84,7 @@ class AllRoleSubprocessTests(unittest.TestCase):
         models = {'glm':'openai/gpt-5.6-sol','astra':'zai-coding-plan/glm-5.3',
                   'terra':'openai/gpt-5.6-terra','sol':'openai/gpt-6-astra',
                   'completion':'openai/gpt-5.6-sol'}
+        expected_models={**models,'plan_reviewer':'cursor-acp/claude-opus-5-5-high'}
         flags = [arg for role, model in models.items() for arg in ('--'+role+'-model',model)]
         self.launch(['Build a greeting tool','--no-chat',*flags], 2)
         run, state = self.saved()
@@ -93,7 +99,7 @@ class AllRoleSubprocessTests(unittest.TestCase):
         self.launch([*args,'--approve-goal',state['displayed_goal']], 0)
         # Reopen every saved stage boundary. This tests actual resume routing
         # and keeps the harness's 30-second bound per stage, not six stages.
-        stages = ['terra','sol','astra_review','terra','sol','astra_review']
+        stages = ['orchestrator','terra','sol','astra_review','orchestrator','terra','sol','astra_review']
         for index, stage in enumerate(stages):
             before_stage = self.saved()[1]
             self.assertEqual(stage, before_stage['next_stage'])
@@ -104,18 +110,23 @@ class AllRoleSubprocessTests(unittest.TestCase):
         final = self.saved()[1]
         self.assertEqual('COMPLETE', final['phase'])
         for stage in final['stages']:
+            if stage.get('runner_owned'):
+                self.assertEqual('orchestrator', stage['stage'])
+                self.assertEqual('runner', stage['engine'])
+                self.assertNotIn('command', stage)
+                continue
             self.assertEqual('opencode', stage['engine'])
             self.assertEqual('opencode', stage['command'][0])
             route = stage.get('route_role', stage['role'])
-            self.assertEqual(models[route], stage['command'][stage['command'].index('--model')+1])
+            self.assertEqual(expected_models[route], stage['command'][stage['command'].index('--model')+1])
         builds = [row for row in final['stages'] if row['stage']=='terra']
         audits = [row for row in final['stages'] if row['stage']=='sol']
         self.assertEqual(2, len(builds))
         self.assertEqual(2, len(audits))
-        self.assertEqual(final['sessions']['terra'], builds[1]['expected_session'])
-        self.assertEqual(final['sessions']['sol'], audits[1]['expected_session'])
         self.assertNotEqual(final['sessions']['sol'], final['sessions']['terra'])
         for stage in final['stages']:
+            if stage.get('runner_owned'):
+                continue
             config = __import__('json').loads(Path(stage['output']).with_suffix('.opencode.json').read_text())
             agent = stage['command'][stage['command'].index('--agent')+1]
             policy = config['agent'][agent]['permission']

@@ -297,6 +297,11 @@ class OpenCodeFlow(unittest.TestCase):
         self.assertNotEqual(state["sessions"]["plan_reviewer"], state["sessions"]["sol"])
         engines = {role: "opencode" for role in ("glm", "terra", "astra", "sol", "completion", "plan_reviewer")}
         for record in state["stages"]:
+            if record.get("runner_owned"):
+                self.assertEqual("orchestrator", record["stage"])
+                self.assertEqual("runner", record["engine"])
+                self.assertNotIn("command", record)
+                continue
             command = record["command"]
             role = record.get("route_role", record["role"])
             self.assertEqual(engines[role], record["engine"])

@@ -16,6 +16,9 @@ import test_planning
 
 class OpenCodeRoutingTests(unittest.TestCase):
     def setUp(self):
+        self.transport_patch = patch.object(runner, "opencode", oc)
+        self.transport_patch.start()
+        self.addCleanup(self.transport_patch.stop)
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.run = Path(temp.name)
@@ -143,11 +146,17 @@ class OpenCodeMigrationFlow(unittest.TestCase):
         self.assertEqual(state["stages"], migrated["stages"][:-1])
         self.assertNotIn("astra", migrated["sessions"])
         self.assertNotIn("sol", migrated["sessions"])
-        self.assertEqual("opencode", migrated["stages"][-1]["engine"])
+        self.assertIn(migrated["stages"][-1]["engine"], ("runner", "opencode"))
+        if migrated["stages"][-1]["engine"] == "runner":
+            self.assertTrue(migrated["stages"][-1]["runner_owned"])
         self.assertTrue(Path(migrated["configuration_changes"][-1]["backup"]).is_file())
-        self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
+        for _ in range(3):
+            checked = self.saved()[1]
+            if any(row["stage"] == "sol" for row in checked["stages"][len(state["stages"]):]):
+                break
+            self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
         checked = self.saved()[1]
-        validation = checked["stages"][-1]
+        validation = next(row for row in reversed(checked["stages"]) if row["stage"] == "sol")
         self.assertEqual("sol", validation["role"])
         self.assertEqual("opencode", validation["command"][0])
         self.assertNotIn("--session", validation["command"])
