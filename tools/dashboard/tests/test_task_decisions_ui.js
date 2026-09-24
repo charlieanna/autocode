@@ -82,3 +82,8 @@ assert.deepEqual(Array.from(messages,m=>m.text),['Initial idea','Draft','Saved a
 assert.equal(messages[2].question_text,'Which scope?');
 assert.equal(messages[1].planning_history,true);
 console.log('Current approval authority, resume decisions, workflow phase, model identity, and conversation ordering passed.');
+
+const progress=context.taskMessages({planning_messages:[{text:'Plan',created_at:'2026-09-19T01:00:00Z'}],progress_messages:[{id:'progress-1',role:'assistant',speaker:'Builder',text:'Fix routing',created_at:'2026-09-19T02:00:00Z'},{id:'progress-2',role:'assistant',speaker:'Validator',text:'Blocked: test failed',created_at:'2026-09-19T03:00:00Z'}]});
+assert.deepEqual(Array.from(progress,m=>m.text),['Plan','Fix routing','Blocked: test failed']);
+assert.equal(progress[2].speaker,'Validator');
+assert.match(source.slice(source.indexOf('function renderConversation('),source.indexOf('function renderConversation(')+500),/progress_messages/);

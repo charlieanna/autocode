@@ -320,6 +320,7 @@ def evidence_hashes(refs, workspace, run_dir):
 
 
 def completion_ready(state, decision, current, *, require_human_reviews=True, require_independent=True):
+    human_only_gap = False
     if (require_independent and state.get('settings', {}).get('milestone_checkpoints', {}).get('enabled')
             and state.get('validation', {}).get('reviewer_role') != 'sol'):
         return False
@@ -338,6 +339,9 @@ def completion_ready(state, decision, current, *, require_human_reviews=True, re
             return False
         contract = state["goal_contract"]
         validation = state.get("validation", {})
+        human_ids = [c["id"] for c in contract["body"]["acceptance_criteria"] if c["human_review"]]
+        human_only_gap = (len(human_ids) == 1
+                         and goals.human_only_pending_validation(state, validation, human_ids[0]))
         if (validation.get("contract_revision") != contract["revision"]
                 or validation.get("contract_hash") != contract["hash"]
                 or (state.get("current_task") and validation.get("task_id") != state["current_task"]["id"])
@@ -356,16 +360,16 @@ def completion_ready(state, decision, current, *, require_human_reviews=True, re
         return False
     if any(c["status"] != "verified" or not c["evidence"].strip() for c in decision["acceptance_criteria"]):
         return False
-    if sol.get("verdict") != "PASS" or sol.get("criteria_revision") != state.get("criteria_revision"):
+    if (sol.get("verdict") != "PASS" and not human_only_gap) or sol.get("criteria_revision") != state.get("criteria_revision"):
         return False
     if sol.get("source_revision") != current["revision"] or not sol.get("checks"):
         return False
     outcomes = sol.get("criterion_results", [])
     if sorted(r["id"] for r in outcomes) != sorted(c["id"] for c in criteria):
         return False
-    if any(r["status"] != "PASS" or not r["evidence_refs"] for r in outcomes):
+    if not human_only_gap and any(r["status"] != "PASS" or not r["evidence_refs"] for r in outcomes):
         return False
-    if any(c["exit_code"] != 0 for c in sol["checks"]) or sol.get("unverified_criteria"):
+    if any(c["exit_code"] != 0 for c in sol["checks"]) or (sol.get("unverified_criteria") and not human_only_gap):
         return False
     if any(f["severity"] in ("critical", "high") for f in sol.get("findings", [])):
         return False
@@ -637,6 +641,14 @@ can be plain text. Do not edit runner/state/config or authentication.
 """
 
 
+BASELINE_POLICY = """For an explicitly authorized baseline exception with Vitest default-reporter logs,
+use baseline_compare_command with BASELINE_LOG CANDIDATE_LOG --output REPORT.json.
+Use --baseline-root and --candidate-root only for equivalent checkout paths.
+Do not invent a task-local comparator or loosen its checks. Unknown formats require review.
+A matched comparison does not authorize a waiver: verify identical test selection,
+source provenance, and the saved exception separately; investigate baseline-only failures.
+"""
+
 def context_packet(state, stage, state_path):
     try:
         from . import autocode_milestones as checkpoints
@@ -682,13 +694,15 @@ def context_packet(state, stage, state_path):
     import shlex
     import sys
     base["capture_command"] = shlex.join([sys.executable, str(Path(__file__).with_name("autocode.py")), "capture"])
+    base["baseline_compare_command"] = shlex.join([sys.executable, str(Path(__file__).with_name("autocode.py")), "compare-baseline"])
     instruction = STABLE.get(stage, "")
     if figma_file:
         try:
             from . import autocode_figma as figma
         except ImportError:
             import autocode_figma as figma
-        instruction += figma.instructions(state["settings"])
+        instruction += figma.instructions(state["settings"], stage=stage,
+                                           current_task=state.get("current_task"))
     if stage == "sol" and base["execution_engine"] == "codex":
         instruction += ("Read this stage's events .jsonl. Cite the item.id (item_N) of a completed "
                         "command_execution item.completed event, with its full command and exit_code. "
@@ -702,6 +716,7 @@ def context_packet(state, stage, state_path):
                     brief_feedback=state.get("brief_feedback", []),
                     pending_questions=state.get("pending_questions", []), user_request=state.get("user_request"),
                     agent_request=state.get("agent_request"),
+                    permission_reuse_context=state.get("permission_reuse_context"),
                     human_reviews=state.get("human_reviews", {}), deferred_backlog=state.get("deferred_backlog", []),
                     preserved_checkpoint=state.get("pre_goal_checkpoint"))
         base["milestone_status"] = goals.milestone_status(state, current)
@@ -740,10 +755,18 @@ def context_packet(state, stage, state_path):
             base['consultation_reports']=state.get('consultation_reports',[])[-1:]
             if stage=='astra_checkpoint':
                 instruction+=workflow.FINAL_CHECKPOINT
-    prompt = instruction + milestone_policy + COMMON + "\nCURRENT HANDOFF DATA\n" + json.dumps(base, indent=2)
+    try:
+        from . import autocode_context
+    except ImportError:
+        import autocode_context
+    full_data_bytes = len(json.dumps(base, indent=2).encode())
+    base, externalized = autocode_context.compact(base, state_path)
+    prompt = instruction + milestone_policy + COMMON + BASELINE_POLICY + "\nCURRENT HANDOFF DATA\n" + json.dumps(base)
     return prompt, {"estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
                     "estimate_method": "UTF-8 bytes / 4; excludes resumed history and tool output",
-                    "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000)}
+                    "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000),
+                    "externalized_fields": externalized,
+                    "handoff_bytes_saved": full_data_bytes - len(json.dumps(base).encode())}
 
 
 def migrate_v1(state, run_dir, workspace, settings, schemas):

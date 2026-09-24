@@ -719,6 +719,24 @@ must exactly match the current displayed contract revision. Approval saves
 never launch an agent. This command-per-turn interface also works from scripts and
 other frontends; no continuously attached terminal is required.
 
+Execution roles must consult saved answers before asking for permission. An exact
+repeated permission request under the same approved contract is returned once to the
+Completion Owner with its authenticated answer, including any refusal or conditions.
+It is not automatically granted or extended to a broader request. If the owner repeats
+it again, the runner pauses for reconciliation rather than creating another question
+or spending indefinitely. Older answers without the original request remain available
+in the prompt but are not automatically matched.
+
+A technical report blocked solely on one required human acceptance criterion can be
+presented for that review. Completion still requires the explicit review event, current
+source and evidence hashes, passing automated criteria and checks, and a passing full
+flow. Human acceptance does not rewrite the independent report or waive other failures.
+
+For an assigned implementation or review task, Figma instructions cover the affected
+visual work. Test/parser/harness-only repairs can reuse applicable design evidence;
+they do not require a fresh canvas inspection unless they affect presentation or verify
+a visual criterion. Final visual acceptance requirements remain in force.
+
 `--edit-goal body.json` loads the full contract body (the `goal_contract.body` shape
 from state), creates a new draft revision and displays its delta. It invalidates goal
 approval, validation and human reviews. Previous contracts/evidence stay archived.
@@ -855,6 +873,37 @@ applicable criteria and validation plan. Every role receives the complete approv
 contract and current task and echoes the contract revision/hash and task ID. The Validator gets
 the Builder's full implementation report, workspace/revision and actual changes. The Completion Owner gets
 both reports, milestone status and references to prior validation evidence.
+Bulky evidence indexes, archived-validation indexes, legacy checkpoints and source
+file maps move into hashed run-local `context/*.json` artifacts. The handoff keeps
+recent index entries and exact retrieval paths; requirements, saved answers,
+feedback, permissions, current reports and unresolved findings remain inline.
+Compact JSON reduces repeated formatting overhead. Per-stage context metrics record
+externalized fields and bytes saved. This does not remove provider session history
+or alter independent-review requirements.
+
+For an explicitly authorized existing-failure exception, use the maintained
+comparator instead of generating a new parser inside each task:
+
+```sh
+autocode compare-baseline baseline.log candidate.log --output comparison.json
+# Optional: normalize only the two explicitly equivalent checkout prefixes.
+autocode compare-baseline baseline.log candidate.log --baseline-root /baseline/repo --candidate-root /current/repo --output comparison.json
+```
+
+The comparator supports completed Vitest default-reporter text logs. It checks
+failure identities and full diagnostic signatures, reconciles failed tests and
+unique failed files against summaries, and rejects duplicates, incomplete logs,
+unknown layouts, unhandled errors, reduced totals or newly disabled tests. Numbers,
+assertion operands and source locations remain significant. When dependencies are
+known to be equivalent but installed at different relative depths, the explicit
+`--normalize-dependency-prefixes` option removes the relative prefix before
+`node_modules/` in Vitest stack frames only; package paths, versions and locations
+remain significant, and the report records this option. Exit codes are 0 for
+matching failure evidence, 1 for new/changed failures, and 2 for invalid evidence.
+The report preserves diagnostics and raw input hashes. A match does **not** grant a
+baseline exception or prove task completion: the Validator must still verify the
+approved exception, source provenance and equivalent test selection. Baseline-only
+failures are listed for investigation, not automatically claimed as fixed.
 
 The Completion Owner chooses `CONTINUE`, `REWORK`, `BLOCKED` or `COMPLETE`. The first two require a
 concrete next task; rework describes the smallest correction for a verified defect.
@@ -928,7 +977,21 @@ independent milestone evidence remains mandatory.
 CLI updates and `--status`'s `active_stage.activity` show provider/tool activity,
 elapsed and idle time, active tool time, applicable limits and an observation
 timestamp. A saved observation does not prove a recorded worker is still alive.
-Timeout records and recovery context distinguish `idle`, `tool` and `stage` causes.
+The task conversation also receives durable role-based progress messages: stage
+transitions, blockers with next steps, completion, and a heartbeat every 60 seconds
+while the code runner observes an active stage or Builder batch. Parallel-worker
+status changes publish immediately at checkpoints. Autocode UI shares the same
+stage-transition notifications. Updates appear in the dashboard conversation and
+terminal stderr; existing JSON stdout interfaces remain unchanged. Repeated
+heartbeats replace the previous heartbeat, and the latest 100 messages are retained
+across restarts. These are local task updates, not push messages into external chat
+applications. Existing raw event logs remain available for complete history.
+Timeout records and recovery context distinguish `idle`, `tool` and `stage` causes,
+and preserve the failed task ID and its effective timeout limits. Recovery instructions
+require a changed execution plan: inspect partial work, reuse valid completed checks,
+split long calls, or address the diagnosed stall. The Completion Owner cannot assign
+the identical writer task again under unchanged limits. This guard does not change
+timeouts or grant permission to extend a budget.
 Deadline enforcement runs independently of process-table sampling, state writes
 and event-file reads. A blocked observer cannot leave a worker unsupervised.
 
@@ -938,7 +1001,7 @@ tracked workers are gone, archives the incomplete request and preserves its part
 edits/logs, clears the uncertain role session, and continues from a fresh recovery
 checkpoint. It never replays that timed-out request. Each automatic recovery consumes
 the existing no-progress budget. Consecutive timeouts without an accepted stage also
-pause at that configured limit for every role, including Astra and Sol. An accepted
+pause at that configured limit for every role, including Astra and Sol.
 A successful stage resets the consecutive-timeout counter. A separate ceiling of
 three automatic recoveries covers timeouts and external-directory denials. Accepted
 intermediate reports and milestone-budget extensions do not reset this ceiling.

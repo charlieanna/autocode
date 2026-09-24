@@ -29,6 +29,12 @@ except ImportError:
 DEFAULTS = {"enabled": True, "max_parallel": 2}
 
 
+try:
+    from . import autocode_status
+except ImportError:
+    import autocode_status
+
+
 def enabled(state):
     return (state.get("settings", {}).get("orchestration", {}).get("enabled") is True
             and milestones.enabled(state) and not state["settings"].get("workflow"))
@@ -154,7 +160,7 @@ def prepare(state, workspace, run_dir, selected):
                "run_dir": str(worker_dir), "branch": branch, "status": "PREPARING"}
         batch["workers"].append(row)
     state["orchestration_batch"] = batch
-    s.atomic_json(run_dir / "state.json", state)
+    autocode_status.persist(run_dir / "state.json", state)
     finish_preparation(state, workspace, run_dir, batch)
     return batch
 
@@ -198,9 +204,9 @@ def finish_preparation(state, workspace, run_dir, batch):
         else:
             s.atomic_json(worker_dir / "state.json", child)
         row["status"] = "PENDING"
-        s.atomic_json(run_dir / "state.json", state)
+        autocode_status.persist(run_dir / "state.json", state)
     batch["status"] = "BUILDING"
-    s.atomic_json(run_dir / "state.json", state)
+    autocode_status.persist(run_dir / "state.json", state)
 
 
 def run_workers(state, run_dir, batch):
@@ -233,7 +239,7 @@ def run_workers(state, run_dir, batch):
                     row.pop("retry_requested", None)
                     if mode == "recover":
                         row["recovery_attempted"] = True
-                    s.atomic_json(run_dir / "state.json", state)
+                    autocode_status.persist(run_dir / "state.json", state)
                     with (directory / "worker.log").open("ab") as log:
                         child = subprocess.Popen([sys.executable, str(Path(__file__).with_name("autocode_builder_worker.py")),
                                                   str(directory), mode], stdout=log, stderr=subprocess.STDOUT,
@@ -243,7 +249,7 @@ def run_workers(state, run_dir, batch):
                 tree = processes.ProcessTree(child.pid, checkpoint)
                 active.append((row, child, tree))
                 tree.sample(initial=True)
-                s.atomic_json(run_dir / "state.json", state)
+                autocode_status.persist(run_dir / "state.json", state)
             while any(child.poll() is None for _, child, _ in active):
                 for row, child, tree in active:
                     tree.sample()
@@ -251,7 +257,7 @@ def run_workers(state, run_dir, batch):
                         row["exit_code"] = child.returncode
                         result_path = Path(row["run_dir"]) / "result.json"
                         row["status"] = s.read(result_path).get("status", "PAUSED_ORCHESTRATOR_WORKER") if result_path.is_file() else "INTERRUPTED"
-                s.atomic_json(run_dir / "state.json", state)
+                autocode_status.persist(run_dir / "state.json", state)
                 time.sleep(.2)
             for row, child, tree in active:
                 row["exit_code"] = child.returncode
@@ -267,7 +273,7 @@ def run_workers(state, run_dir, batch):
                     tree.stop(child)
             except processes.ProcessError as error:
                 cleanup_errors.append(str(error))
-        s.atomic_json(run_dir / "state.json", state)
+        autocode_status.persist(run_dir / "state.json", state)
         if cleanup_errors:
             raise s.Paused("PAUSED_PROCESS_CLEANUP", "; ".join(cleanup_errors))
 
@@ -297,7 +303,7 @@ def account_workers(state, run_dir, batch):
         if key in child.get("milestone_progress", {}):
             state.setdefault("milestone_progress", {})[key] = copy.deepcopy(child["milestone_progress"][key])
     batch["accounted_attempts"] = sorted(accounted)
-    s.atomic_json(run_dir / "state.json", state)
+    autocode_status.persist(run_dir / "state.json", state)
 
 
 def collect(state, workspace, run_dir, batch):
@@ -351,7 +357,7 @@ def collect(state, workspace, run_dir, batch):
     patch_file = Path(batch["directory"]) / "combined.patch"
     patch_file.write_bytes(b"".join(patches))
     batch.update(patch=str(patch_file), patch_hash=s.file_hash(patch_file), status="READY_TO_INTEGRATE")
-    s.atomic_json(run_dir / "state.json", state)
+    autocode_status.persist(run_dir / "state.json", state)
 
 
 def integrate(state, workspace, run_dir, batch):
@@ -368,7 +374,7 @@ def integrate(state, workspace, run_dir, batch):
                 if s.snapshot(workspace) != batch["baseline"]:
                     raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Source changed before integration")
                 batch["status"] = "INTEGRATING"
-                s.atomic_json(run_dir / "state.json", state)
+                autocode_status.persist(run_dir / "state.json", state)
                 git(workspace, "apply", "--binary", "-", data=patch)
     elif current != batch["expected"]:
         raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Integration workspace changed; Builder branches and patch retained")
@@ -420,7 +426,7 @@ def dispatch(state, workspace, run_dir):
         batch.update(superseded_status=batch["status"], status="SUPERSEDED", finished_at=s.now())
         state.setdefault("orchestration_history", []).append(copy.deepcopy(batch))
         state.pop("orchestration_batch")
-        s.atomic_json(run_dir / "state.json", state)
+        autocode_status.persist(run_dir / "state.json", state)
         batch = None
     if batch is None:
         selected = select(state)
@@ -449,7 +455,7 @@ def dispatch(state, workspace, run_dir):
     s.atomic_json(output, record)
     state.setdefault("stages", []).append(record)
     state.setdefault("history", []).append(record)
-    s.atomic_json(run_dir / "state.json", state)
+    autocode_status.persist(run_dir / "state.json", state)
     return record
 
 
@@ -475,4 +481,4 @@ def request_retry(state, run_dir, selected):
         rows[mid]["retry_requested"] = True
     state.setdefault("user_events", []).append({"kind": "builder_retry", "actor": "user_cli",
         "at": s.now(), "batch_id": batch["id"], "milestone_ids": list(selected)})
-    s.atomic_json(run_dir / "state.json", state)
+    autocode_status.persist(run_dir / "state.json", state)

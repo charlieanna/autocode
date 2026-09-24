@@ -53,7 +53,7 @@ def load_handoff(run_dir):
     return {**handoff, 'brief': (root / refs['brief']['path']).read_text()}
 
 
-def instructions(settings):
+def instructions(settings, *, stage=None, current_task=None):
     target = settings.get('figma_file')
     if not target:
         return ''
@@ -62,6 +62,17 @@ def instructions(settings):
               'use human_review=false for criteria verified this way. Do not invent a human approval event.'
               if settings.get('figma_review', 'automatic') == 'automatic' else
               'Include a human visual review criterion after independent technical validation.')
+    if current_task and stage in ('terra', 'sol', 'astra_review', 'astra_checkpoint'):
+        return ('\nFIGMA DESIGN INPUT\nReference: ' + target + '\n'
+                'Scope design work to current_task and the actual diff. For visual implementation or '
+                'visual acceptance checks, inspect the relevant reference frames using the connected Figma plugin. '
+                'Load the Figma design-to-code skill before get_design_context. '
+                'A bounded test, parser, or harness repair does not require another Figma inspection when '
+                'no visual behavior changes and no visual criterion is being verified in this task. '
+                'Retain applicable design evidence; do not claim fresh visual validation from nonvisual checks. '
+                'If the repair affects presentation, inspect the affected frames before implementing and validating it. '
+                'Keep the reference Figma file read-only and preserve all required final visual checks. '
+                + policy + '\n')
     return ('\nFIGMA DESIGN INPUT\nInspect the editable design using the connected Figma plugin before planning, '
             'implementation or validation: ' + target + '\nLoad the Figma design-to-code skill before get_design_context. '
             'Use its screenshots, component structure, variables and assets as the visual source of truth. '
