@@ -695,6 +695,79 @@ def abandon_stage(state, run_dir, workspace, selected):
 
 
 MAX_AUTOMATIC_RECOVERIES = 3
+MAX_AUTOMATIC_CAPACITY_RECOVERIES = 2
+
+
+def automatically_recover_capacity_stage(state, run_dir, workspace, error):
+    """Archive a confirmed model-capacity failure for bounded recovery.
+
+    The next stage is an Astra recovery review, so partial work is inspected
+    before another writer runs. Repeated capacity failures stop after two
+    recoveries and require an explicit resume.
+    """
+    record = state.get("active_stage")
+    if (error.status != "PAUSED_PROVIDER_CAPACITY" or not record
+            or (run_dir / "pause-requested").exists()):
+        return False
+    events = support.events(Path(record.get("events", "")))
+    if (not any(event.get("type") == "turn.failed" for event in events)
+            or any(event.get("type") == "turn.completed" for event in events)
+            or not record.get("before_ref") or not Path(record["before_ref"]).is_file()):
+        return False
+    try:
+        assert_stage_stopped(record)
+    except support.Paused:
+        return False
+
+    recovered = state.get("automatic_capacity_recoveries", [])
+    if len(recovered) >= MAX_AUTOMATIC_CAPACITY_RECOVERIES:
+        raise support.Paused(
+            "PAUSED_PROVIDER_CAPACITY",
+            f"Model capacity retry limit reached ({MAX_AUTOMATIC_CAPACITY_RECOVERIES}); "
+            "the failed attempt and partial work remain saved. Wait for provider capacity, "
+            "inspect the recovery history, then explicitly resume.")
+
+    before = read_json(Path(record["before_ref"]))
+    after = support.snapshot(workspace)
+    record["metrics"] = support.event_metrics(record["events"])
+    account_stage(state, record)
+    after_path = Path(record["output"]).with_suffix(".after.json")
+    write_json(after_path, after)
+    reason = "Provider reported temporary model capacity exhaustion; partial work retained for review"
+    record.update(after_ref=str(after_path), source_revision=after["revision"],
+                  changed_files=support.changed_paths(before, after), abandoned=True,
+                  automatic_recovery=True, rejection_reason=reason)
+    originals = archive_rejected_stage(state, run_dir, record, reason)
+    state["sessions"].pop(record.get("route_role", record["role"]), None)
+    state["human_reviews"] = {}
+    state.pop("displayed_review", None)
+
+    next_stage = ("terra" if workflow.final_only(state) and record["role"] in ("terra", "sol")
+                  else "astra_review" if record["role"] != "astra" else record["stage"])
+    retry_number = len(recovered) + 1
+    recovery = {"at": now(), "attempt_id": attempt_id(record), "role": record["role"],
+                "stage": record["stage"], "source_revision": after["revision"],
+                "changed_files": record["changed_files"], "events": record["events"],
+                "source_snapshot": record["after_ref"], "next_stage": next_stage,
+                "retry_number": retry_number,
+                "capacity_error": support.terminal_failure_reason(record["events"])
+                    or "Selected model is at capacity",
+                "instruction": "The provider reported that the selected model was at capacity. Its workers "
+                    "stopped and the partial diff and log were archived. Inspect that work before assigning "
+                    "another writer; do not treat this attempt as a completed report. Capacity retries are "
+                    "bounded and use a fresh provider request after this review."}
+    state.setdefault("automatic_capacity_recoveries", []).append(recovery)
+    state.setdefault("user_events", []).append({"kind": "automatic_capacity_recovery", "actor": "runner",
+        "at": recovery["at"], "attempt_id": recovery["attempt_id"], "retry_number": retry_number,
+        "next_stage": next_stage, "changed_files": record["changed_files"]})
+    state["recovery_context"] = recovery
+    state.update(status="RUNNING", phase="EXECUTING", next_stage=next_stage)
+    state.pop("stop_reason", None)
+    write_json(run_dir / "state.json", state)
+    for artifact in originals:
+        artifact.unlink(missing_ok=True)
+    time.sleep(2 ** (retry_number - 1))
+    return True
 
 
 def recovery_count(state):
@@ -1978,8 +2051,13 @@ def main(unit=None) -> int:
             except ReportRepairQueued:
                 pass  # Durable pending repair is dispatched below, not original work.
             except support.Paused as error:
-                if not (automatically_recover_timed_out_stage(state, run_dir, workspace, error)
-                        or automatically_recover_external_directory_denial(state, run_dir, workspace, error)):
+                capacity_recovered = automatically_recover_capacity_stage(state, run_dir, workspace, error)
+                if capacity_recovered:
+                    recovery = state["recovery_context"]
+                    print(f"Provider capacity recovery {recovery['retry_number']}/{MAX_AUTOMATIC_CAPACITY_RECOVERIES}: "
+                          f"partial work archived; Astra will inspect before the next writer", flush=True)
+                elif not (automatically_recover_timed_out_stage(state, run_dir, workspace, error)
+                          or automatically_recover_external_directory_denial(state, run_dir, workspace, error)):
                     raise
             if state.get("uncertain_artifacts"):
                 raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Legacy partial stage remains unresolved: " + state["uncertain_artifacts"])
@@ -2185,6 +2263,12 @@ def main(unit=None) -> int:
                 except ReportRepairQueued:
                     return orchestrator.SKIP
                 except support.Paused as error:
+                    capacity_recovered = automatically_recover_capacity_stage(current, run_dir, workspace, error)
+                    if capacity_recovered:
+                        recovery = current["recovery_context"]
+                        print(f"{stage}: provider capacity recovery {recovery['retry_number']}/"
+                              f"{MAX_AUTOMATIC_CAPACITY_RECOVERIES}; partial work archived for Astra inspection", flush=True)
+                        return orchestrator.SKIP
                     if (automatically_recover_timed_out_stage(current, run_dir, workspace, error)
                             or automatically_recover_external_directory_denial(current, run_dir, workspace, error)):
                         print(f"{stage}: non-terminal attempt archived; continuing from recovery checkpoint", flush=True)
