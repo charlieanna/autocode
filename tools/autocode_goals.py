@@ -360,7 +360,15 @@ def approve(state, selected):
     state.setdefault("user_events", []).append(event)
     contract.update(approval_status="approved", approval_event=event)
     state.update(phase="READY_TO_EXECUTE", status="RUNNING", next_stage="astra_plan")
+    carried = []
+    if checkpoints.enabled(state):
+        current = current or s.snapshot(Path(state['workspace']))
+        carried = checkpoints.carryforward.carry(state, current)
     if joint:
+        if contract['body']['initial_task']['milestone_id'] in carried:
+            state.update(next_stage='astra_review',
+                         next_action='Preserve carried milestones; assign unfinished work or final integration validation')
+            return
         decision = initial_decision(contract["body"])
         kind = assign_task(state, decision, current)
         try:
@@ -591,6 +599,8 @@ def assign_task(state, decision, current):
             raise ValueError("The timed-out task needs a changed execution plan before another writer; "
                              "the task and timeout limits are unchanged. Preserve completed work and "
                              "split the remaining work or address the diagnosed stall.")
+    if checkpoints.enabled(state):
+        checkpoints.carryforward.before_assignment(state, spec, decision)
     checkpoints.before_assignment(state, decision, current)
     # After before_assignment, so a milestone accepted while advancing counts.
     checkpoints.require_prerequisites(state, spec["milestone_id"])

@@ -14,8 +14,10 @@ import uuid
 
 try:
     from . import autocode_support as s
+    from . import autocode_carryforward as carryforward
 except ImportError:
     import autocode_support as s
+    import autocode_carryforward as carryforward
 
 
 DEFAULTS = {"enabled": True, "max_seconds": 5400, "stalled_reviews": 3, "max_replans": 1}
@@ -44,6 +46,10 @@ REWORK with a materially different approach or a smaller implementation batch wi
 the SAME milestone. Do not rename a milestone or drop criteria to reset the budget.
 Advance only to a milestone whose depends_on milestones are all accepted under the
 current contract; the runner rejects assignments with unaccepted prerequisites.
+Carried milestones are scheduling checkpoints with recorded prior-revision
+provenance. Select unfinished work or final integration validation instead of
+reimplementing them. Their old evidence never satisfies final completion of the
+new contract; validate every criterion and the full flow before COMPLETE.
 The runner allows one such automatic replan before pausing persistent failure.
 Budget exhaustion stops additional writing at a saved boundary; Sol and Astra may
 still verify finished work. File edits and reworded reports alone are not progress.
@@ -231,13 +237,14 @@ def before_assignment(state, decision, current):
 
 def accepted_ids(state):
     contract_hash = state.get("goal_contract", {}).get("hash")
-    return {mid for r in state.get("milestone_progress", {}).values()
+    accepted = {mid for r in state.get("milestone_progress", {}).values()
             if r.get("accepted") and r.get("contract_hash") == contract_hash
             for mid in r.get("milestone_ids", [r["id"]])}
+    return carryforward.current_ids(state, accepted)
 
 
 def require_prerequisites(state, milestone_id):
-    """Acceptance is pinned to the contract hash, so a revised brief re-earns its prerequisites."""
+    """Require current acceptance, including explicitly proven carry-forward."""
     if not enabled(state):
         return
     milestones = {m["id"]: m for m in state.get("goal_contract", {}).get("body", {}).get("milestones", [])}
@@ -250,8 +257,15 @@ def require_prerequisites(state, milestone_id):
 def accept(state, current):
     row = progress(state)
     if row is not None:
+        manifest, reason = carryforward.capture(state, row, current) if evidence_ready(state, current) else (None, 'No fresh acceptance evidence')
         row.update(accepted=True, accepted_at=s.now(), accepted_source_revision=current["revision"],
                    accepted_validation=copy.deepcopy(state["validation"]))
+        if manifest:
+            row['reuse_manifest'] = manifest
+            row.pop('carry_forward_unavailable', None)
+        else:
+            row.pop('reuse_manifest', None)
+            row['carry_forward_unavailable'] = reason
         for member in row.get("members", []):
             member_key = f"{row['contract_hash']}:{member['id']}"
             saved = state["milestone_progress"].setdefault(member_key, copy.deepcopy(member))
@@ -428,7 +442,9 @@ def summary(state):
             active_seconds = 0
     row = state.get("milestone_progress", {}).get(key(state))
     return {"enabled": enabled(state), "seconds_by_role": roles, "hours_by_role": {r: round(t / 3600, 3) for r, t in roles.items()},
-            "current": copy.deepcopy({k: v for k, v in row.items() if k not in ("accepted_validation", "reviews")} if row else None),
+            "current": copy.deepcopy({k: v for k, v in row.items() if k not in ("accepted_validation", "reviews", "reuse_manifest")} if row else None),
+            "carry_forward": copy.deepcopy(next((audit for audit in reversed(state.get('milestone_carry_forward', []))
+                                                   if audit['to_contract_hash'] == state.get('goal_contract', {}).get('hash')), None)),
             "limits": settings(state) if enabled(state) else None,
             "blocker": state.get("milestone_blocker"),
             "active_stage_role": active.get('role'), "active_stage_elapsed_seconds": active_seconds,
