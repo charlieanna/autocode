@@ -464,6 +464,35 @@ def resolve_permission(state, question_id, text):
         state.update(status="RUNNING", phase="READY_TO_EXECUTE")
 
 
+def resolve_passing_checkpoint(state, question_id, text):
+    """Record the user's explicit reconciliation choice for a now-passing gate."""
+    request = state.get("user_request") or {}
+    questions = state.get("pending_questions") or []
+    choices = request.get("options") or []
+    if (state.get("status") != "WAITING_FOR_USER" or state.get("next_stage") != "astra_review"
+            or request.get("kind") != "blocker" or request.get("proposed_delta")
+            or len(questions) != 1 or questions[0].get("id") != question_id
+            or not choices or text != choices[0]
+            or not choices[0].startswith("Reconcile ") or "Sol evidence" not in choices[0]
+            or question_id in state.get("answers", {}) or not approved(state)):
+        raise ValueError("Checkpoint reconciliation requires the explicit saved choice and approved goal")
+    description = str(request.get("discovered", "")).lower()
+    if not all(word in description for word in ("checkpoint", "sol", "evidence")):
+        raise ValueError("The pending request is not a Sol milestone checkpoint")
+    current = s.snapshot(Path(state["workspace"]))
+    if not checkpoints.evidence_ready(state, current) or missing_human_reviews(state):
+        raise ValueError("Current independent evidence or a required human review is still missing")
+    event = {"kind": "checkpoint_answer", "actor": "user_cli", "at": s.now(),
+             "question_id": question_id, "question": questions[0], "text": text,
+             "contract_token": token(state["goal_contract"]),
+             "validation_source_revision": state["validation"]["source_revision"]}
+    state.setdefault("user_events", []).append(event)
+    state.setdefault("answers", {})[question_id] = event
+    state.update(status="RUNNING", phase="READY_TO_EXECUTE", pending_questions=[])
+    state.pop("user_request", None)
+    state.pop("milestone_blocker", None)
+
+
 def wait_for_user(state, request):
     if not request["decision_needed"].strip() or not request["impact"].strip():
         raise ValueError("A user request needs the smallest decision and its impact")

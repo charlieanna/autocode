@@ -884,7 +884,9 @@ then Astra. A switch to a different milestone requires Sol's passing evidence fo
 **all criteria in the current milestone**, current source/contract/task identities,
 intact evidence, no blocking findings, and its required human reviews. A writer's
 self-assessment cannot authorize that switch. Later milestones may still have
-`NOT_VERIFIED` results; full-task completion still requires all contract criteria
+`NOT_VERIFIED` results. The full flow may also be `NOT_VERIFIED` with an explanation
+while a partial milestone or batch unlocks downstream work; a known flow failure
+still blocks acceptance. Full-task completion still requires all contract criteria
 and the complete flow to pass on the current source.
 
 Three independent reviews without any new passing criteria require an evidence-backed

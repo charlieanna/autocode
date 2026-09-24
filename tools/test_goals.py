@@ -20,6 +20,22 @@ from goal_fixtures import body, envelope
 
 
 class GoalTests(unittest.TestCase):
+    def test_model_schema_requires_ownership_without_invalidating_legacy_contracts(self):
+        before = copy.deepcopy(g.DISCOVERY_SCHEMA)
+        schema = s.model_output_schema(g.DISCOVERY_SCHEMA)
+        milestone = schema['properties']['contract']['properties']['milestones']['items']
+        self.assertEqual(set(milestone['properties']), set(milestone['required']))
+        self.assertIn('affected_paths', milestone['required'])
+        self.assertIn('depends_on', milestone['required'])
+        self.assertEqual(before, g.DISCOVERY_SCHEMA)
+        legacy = body()
+        for row in legacy['milestones']:
+            row.pop('affected_paths', None)
+            row.pop('depends_on', None)
+        s.validate_schema({'contract': legacy, 'summary': 'Existing contract'}, g.DISCOVERY_SCHEMA)
+        with self.assertRaisesRegex(ValueError, 'missing'):
+            s.validate_schema({'contract': legacy, 'summary': 'New response'}, schema)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

@@ -5,6 +5,7 @@ No provider calls, credentials, external memory or alternate workflow state.
 from __future__ import annotations
 
 import contextlib
+import copy
 import datetime as dt
 import fcntl
 import hashlib
@@ -159,6 +160,28 @@ def snapshot(workspace):
 def changed_paths(before, after):
     return sorted(p for p in before["files"].keys() | after["files"].keys()
                   if before["files"].get(p) != after["files"].get(p))
+
+
+def model_output_schema(schema):
+    """Strict generation schema; retain permissive schemas for saved reports.
+
+    Codex structured output requires every object property to be required.
+    Requiring fields in new responses must not invalidate sealed old contracts
+    or mutate shared schema constants (e.g. legacy optional milestone ownership).
+    """
+    result = copy.deepcopy(schema)
+    def visit(node):
+        if isinstance(node, dict):
+            if node.get("type") == "object":
+                node["required"] = list(node.get("properties", {}))
+                node["additionalProperties"] = False
+            for child in node.values():
+                visit(child)
+        elif isinstance(node, list):
+            for child in node:
+                visit(child)
+    visit(result)
+    return result
 
 
 def validate_schema(value, schema, where="$"):
@@ -731,6 +754,7 @@ def context_packet(state, stage, state_path):
     milestone_policy = MILESTONE_POLICY
     if checkpoints.enabled(state):
         base['milestone_checkpoint'] = checkpoints.summary(state)
+        base['milestone_checkpoint']['current_evidence_ready'] = checkpoints.evidence_ready(state, current)
         base['current_milestone'] = checkpoints.scope(state)
         milestone_policy += checkpoints.POLICY
         if state.get('current_task', {}).get('milestone_ids'):
