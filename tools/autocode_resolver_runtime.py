@@ -67,14 +67,14 @@ def boundary(runner, state, run_dir, workspace):
                     'failure_key': failed.get('failure_key')}
         proposal = policy.Proposal('retry', {'guidance': 'Use only the existing bounded report-repair path; preserve original execution evidence.'},
                                    'Terminal report failure eligible for report-only repair')
-    elif (validation.get('verdict') in ('FAIL', 'BLOCKED') and failed
+    elif (validation.get('verdict') == 'BLOCKED' and failed
           and validation.get('output') == failed.get('output')):
         if (not Path(validation['output']).is_file()
                 or support.snapshot(workspace)['revision'] != failed.get('source_revision')):
             raise support.Paused('PAUSED_STALE_VALIDATION', 'Failed validation artifact changed before resolution')
-        kind, description = 'validation', 'Independent validation has blocking findings'
+        kind, description = 'validation', 'Independent validation could not complete'
         evidence = [validation['output']]
-        failures.record(state, failed, support.Paused('VALIDATION_FAILURE', description), support.now())
+        failures.record(state, failed, support.Paused('VALIDATION_BLOCKED', description), support.now())
         selected = {'stage': failed['stage'], 'artifact_hash': failed.get('source_revision'),
                     'failure_key': failed.get('failure_key')}
         proposal = policy.Proposal('continue', {'guidance': 'Preserve failed evidence and continue the existing approved repair or review route.'},

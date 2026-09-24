@@ -97,7 +97,9 @@ the failed request, advances at most once for the same failed iteration, and nev
 overwrites an explicit custom model/provider route.
 
 At approved, stopped stage boundaries, the runner consults the bounded resolver
-for report-only repair and independently recorded validation failures. Its ledger
+for report-only repair and independently recorded `BLOCKED` validation. A plain
+`FAIL` uses the normal review/rework loop without a resolver record or resolver
+failure count. Its ledger
 and decisions live in `state.json`; decision artifacts are marked `runner_owned`
 and make no model calls. The existing report-repair limit and persisted failure
 identity cap both apply before a resolver-authorized retry. Identical boundary

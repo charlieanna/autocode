@@ -107,13 +107,22 @@ class ResolverRuntimeTests(unittest.TestCase):
         launch.assert_not_called()
         self.assertEqual(0, self.state['pending_report_repair']['attempts'])
 
-    def test_failed_validation_keeps_original_review_route_and_evidence(self):
+    def test_blocked_validation_keeps_original_review_route_and_evidence(self):
         record = {'stage': 'sol', 'role': 'sol', 'iteration': 5, 'output': str(self.run / 'sol.json'),
                   'source_revision': support.snapshot(self.root)['revision']}
-        support.atomic_json(self.run / 'sol.json', {'verdict': 'FAIL'})
+        support.atomic_json(self.run / 'sol.json', {'verdict': 'BLOCKED'})
         self.state['stages'].append(record)
-        self.state.update(validation={'verdict': 'FAIL', 'output': record['output']}, next_stage='astra_review')
+        self.state.update(validation={'verdict': 'BLOCKED', 'output': record['output']}, next_stage='astra_review')
         self.boundary()
         self.assertEqual('astra_review', self.state['next_stage'])
-        self.assertEqual('FAIL', self.state['validation']['verdict'])
+        self.assertEqual('BLOCKED', self.state['validation']['verdict'])
         self.assertEqual('continue', self.state['stages'][-1]['decision']['action'])
+
+    def test_plain_fail_does_not_record_resolver_or_consume_failure_budget(self):
+        self.state.update(validation={'verdict': 'FAIL', 'output': str(self.run / 'sol.json')},
+                          next_stage='astra_review')
+        self.state['stages'].append({'stage': 'sol', 'output': str(self.run / 'sol.json')})
+        before = copy.deepcopy(self.state)
+        for _ in range(4):
+            self.assertFalse(self.boundary())
+        self.assertEqual(before, self.state)
