@@ -1,4 +1,4 @@
-"""One ledger of reviewer findings: identity, fix task, resolution, and batch limits."""
+"""One ledger of reviewer findings: identity, fix task, explicit dispositions, batch limits."""
 import json
 from pathlib import Path
 import sys
@@ -14,31 +14,74 @@ import autocode_support as support
 SCHEMA_DIR = Path(__file__).resolve().parent / "autocode-schemas" / "v2"
 
 
-def sol(*texts, severity="high"):
+def sol(*texts, severity="high", dispositions=()):
     return {"findings": [{"severity": severity, "finding": text, "evidence": "event:check", "blocking": True,
                           "reproduction_steps": [], "expected": "", "actual": "", "why_it_matters": "",
-                          "suggested_correction": ""} for text in texts]}
+                          "suggested_correction": ""} for text in texts],
+            "finding_dispositions": list(dispositions)}
 
 
-def astra(status, *texts):
-    return {"status": status, "findings": [{"severity": "medium", "finding": text, "evidence": "report"} for text in texts]}
+def astra(status, *texts, dispositions=()):
+    return {"status": status, "findings": [{"severity": "medium", "finding": text, "evidence": "report"} for text in texts],
+            "finding_dispositions": list(dispositions)}
+
+
+def resolved(fid, evidence="Reran the failing check; it passes"):
+    return {"id": fid, "disposition": "resolved", "evidence": evidence}
+
+
+def retracted(fid, evidence="The finding was based on a stale screenshot"):
+    return {"id": fid, "disposition": "retracted", "evidence": evidence}
 
 
 class LedgerTests(unittest.TestCase):
-    def test_sol_findings_open_repeat_and_resolve_by_the_next_validation(self):
+    def test_sol_findings_open_repeat_and_close_only_by_explicit_disposition(self):
         state = {}
         findings.record_validation(state, sol("Empty names are accepted", "Help text missing"), {"output": "sol-01.json"})
         rows = findings.open_entries(state)
         self.assertEqual(2, len(rows))
         self.assertTrue(all(row["source"] == "sol" and row["opened_in"] == "sol-01.json" for row in rows))
         self.assertEqual(rows[0]["id"], findings.finding_id("sol", "  empty   NAMES are accepted "))
+        # A later report that simply omits a finding leaves it open and marks it not rechecked.
         findings.record_validation(state, sol("Empty names are accepted", severity="critical"), {"output": "sol-02.json"})
         open_rows = findings.open_entries(state)
-        self.assertEqual(["Empty names are accepted"], [row["finding"] for row in open_rows])
-        self.assertEqual((2, "critical", "sol-02.json"), (open_rows[0]["times_reported"], open_rows[0]["severity"], open_rows[0]["last_reported_in"]))
-        resolved = [row for row in state["findings_ledger"] if row["status"] == "resolved"]
-        self.assertEqual([("Help text missing", "sol-02.json")], [(row["finding"], row["resolved_in"]) for row in resolved])
-        self.assertEqual({"open": 1, "resolved": 1, "repeated": 1}, {k: findings.summary(state)[k] for k in ("open", "resolved", "repeated")})
+        self.assertEqual({"Empty names are accepted", "Help text missing"}, {row["finding"] for row in open_rows})
+        refreshed = next(row for row in open_rows if row["finding"] == "Empty names are accepted")
+        self.assertEqual((2, "critical", "sol-02.json"), (refreshed["times_reported"], refreshed["severity"], refreshed["last_reported_in"]))
+        self.assertNotIn("not_rechecked_in", refreshed)
+        stale = next(row for row in open_rows if row["finding"] == "Help text missing")
+        self.assertEqual("sol-02.json", stale["not_rechecked_in"])
+        self.assertEqual({"open": 2, "resolved": 0, "retracted": 0, "repeated": 1, "not_rechecked": 1},
+                         {k: findings.summary(state)[k] for k in ("open", "resolved", "retracted", "repeated", "not_rechecked")})
+        # An explicit evidenced disposition closes it; a retraction is a separate outcome.
+        findings.record_validation(state, sol(dispositions=[resolved(stale["id"], "help text is rendered; screenshot evidence")]),
+                                   {"output": "sol-03.json"})
+        findings.record_validation(state, sol(dispositions=[retracted(refreshed["id"])]), {"output": "sol-04.json"})
+        self.assertEqual([], findings.open_entries(state))
+        by_status = {row["finding"]: (row["status"], row["resolved_in"], row["resolution_evidence"]) for row in state["findings_ledger"]}
+        self.assertEqual(("resolved", "sol-03.json", "help text is rendered; screenshot evidence"), by_status["Help text missing"])
+        self.assertEqual(("retracted", "sol-04.json", "The finding was based on a stale screenshot"), by_status["Empty names are accepted"])
+
+    def test_dispositions_are_checked_and_repairs_cannot_close(self):
+        state = {}
+        findings.record_validation(state, sol("Empty names are accepted"), {"output": "sol-01.json"})
+        fid = findings.open_entries(state)[0]["id"]
+        for bad, message in (
+            ([{"id": fid, "disposition": "fixed", "evidence": "x"}], "one of resolved, retracted"),
+            ([{"id": fid, "disposition": "resolved", "evidence": "  "}], "need evidence"),
+            ([{"id": fid, "disposition": "resolved", "evidence": "x"}], "report-only repair"),
+        ):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, message):
+                findings.record_validation(state, sol(dispositions=bad),
+                                           {"output": "sol-repair.json", "report_repaired": message == "report-only repair"})
+        # A disposition for a finding that was never recorded is a no-op, not an error.
+        findings.record_validation(state, sol(dispositions=[resolved("F-never-recorded")]), {"output": "sol-noop.json"})
+        self.assertEqual(1, len(findings.open_entries(state)))
+        # A repair can still add a finding the reformatted report contains.
+        findings.record_validation(state, sol("Empty names are accepted", "Help text missing"),
+                                   {"output": "sol-02.json", "report_repaired": True})
+        self.assertEqual({"Empty names are accepted", "Help text missing"},
+                         {row["finding"] for row in findings.open_entries(state, "sol")})
 
     def test_astra_findings_are_tracked_separately_and_blocked_does_not_close_them(self):
         state = {}
@@ -48,11 +91,16 @@ class LedgerTests(unittest.TestCase):
                          {(row["source"], row["finding"]) for row in findings.open_entries(state)})
         findings.record_decision(state, {"status": "BLOCKED"}, {"output": "astra-02.json"})
         self.assertEqual(3, len(findings.open_entries(state)))
+        # A CONTINUE decision that omits them leaves them open; a disposition closes them.
         findings.record_decision(state, astra("CONTINUE"), {"output": "astra-03.json"})
-        self.assertEqual([("sol", "Empty names are accepted")],
-                         [(row["source"], row["finding"]) for row in findings.open_entries(state)])
+        self.assertEqual(3, len(findings.open_entries(state)))
+        astra_id = next(row["id"] for row in findings.open_entries(state, "astra") if row["finding"] == "No test for blank input")
+        findings.record_decision(state, astra("CONTINUE", dispositions=[resolved(astra_id, "blank-input test added and passing")]),
+                                 {"output": "astra-04.json"})
+        self.assertEqual({("sol", "Empty names are accepted"), ("astra", "Empty names are accepted")},
+                         {(row["source"], row["finding"]) for row in findings.open_entries(state)})
         with self.assertRaisesRegex(ValueError, "severity"):
-            findings.record_decision(state, {"status": "REWORK", "findings": [{"severity": "loud", "finding": "x"}]}, {"output": "astra-04.json"})
+            findings.record_decision(state, {"status": "REWORK", "findings": [{"severity": "loud", "finding": "x"}]}, {"output": "astra-05.json"})
 
     def test_assignment_links_open_findings_and_the_saved_limit_splits_large_rework(self):
         state = {"settings": {"limits": {}}}
@@ -77,7 +125,6 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual({"task-3", "task-1"}, {row["assigned_task"] for row in findings.open_entries(state)})
         with self.assertRaisesRegex(ValueError, "open ledger IDs"):
             findings.assign(state, {"id": "task-4"}, {"kind": "implement", "findings": ["F-missing"]}, {"status": "REWORK"})
-        # CONTINUE tasks are not correction batches; the limit applies to REWORK only.
         findings.assign(state, {"id": "task-5"}, {"kind": "implement"}, {"status": "CONTINUE"})
         state["settings"]["limits"]["max_findings_per_task"] = 0
         findings.assign(state, {"id": "task-6"}, {"kind": "implement"}, {"status": "REWORK"})
@@ -85,7 +132,7 @@ class LedgerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "nonnegative"):
             findings.assign(state, {"id": "task-7"}, {"kind": "implement"}, {"status": "REWORK"})
 
-    def test_astra_decision_schema_accepts_structured_findings_and_task_ids(self):
+    def test_astra_decision_schema_accepts_structured_findings_dispositions_and_task_ids(self):
         legacy = support.read(SCHEMA_DIR / "astra-decision.schema.json")
         schema = goals.role_schema(legacy, "astra")
         strict = support.model_output_schema(schema)
@@ -96,18 +143,30 @@ class LedgerTests(unittest.TestCase):
                     "next_task": {"kind": "implement", "milestone_id": "M1", "requirements": ["r"], "acceptance_criteria": ["C1"],
                                   "validation_plan": ["v"], "findings": ["F-abc"]},
                     "findings": [{"severity": "high", "finding": "Empty names are accepted", "evidence": "event:check", "blocking": True}],
+                    "finding_dispositions": [{"id": "F-abc", "disposition": "resolved", "evidence": "event:check"}],
                     "agreed_limitations": []}
-        # The generation schema sent to the model requires every field, blocking included.
         support.validate_schema(decision, strict)
         with self.assertRaisesRegex(ValueError, "missing blocking"):
             support.validate_schema({**decision, "findings": [{k: v for k, v in decision["findings"][0].items() if k != "blocking"}]}, strict)
-        # Findings and blocking stay optional in the permissive schema used for saved reports.
         support.validate_schema({**decision, "findings": [{k: v for k, v in decision["findings"][0].items() if k != "blocking"}]}, schema)
         without = {**decision, "next_task": {k: v for k, v in decision["next_task"].items() if k != "findings"}}
         without.pop("findings")
+        without.pop("finding_dispositions")
         support.validate_schema(without, schema)
-        with self.assertRaises(ValueError):
-            support.validate_schema({**decision, "findings": [{"severity": "high", "finding": "x"}]}, schema)
+
+    def test_sol_report_schema_accepts_finding_dispositions(self):
+        legacy = support.read(SCHEMA_DIR / "sol-report.schema.json")
+        schema = goals.role_schema(legacy, "sol")
+        strict = support.model_output_schema(schema)
+        report = {"verdict": "PASS", "checks_run": ["c"], "findings": [], "unverified_criteria": [],
+                  "checks": [{"command": "c", "exit_code": 0, "evidence_ref": "event:check"}],
+                  "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["event:check"]}],
+                  "end_to_end_result": {"status": "PASS", "summary": "s", "evidence_refs": ["event:check"]},
+                  "finding_dispositions": [{"id": "F-abc", "disposition": "resolved", "evidence": "event:check"}],
+                  "contract_revision": 1, "contract_hash": "h", "task_id": "t", "deferred_backlog": [],
+                  "user_request": {"kind": "none", "discovered": "", "impact": "", "decision_needed": "", "options": [], "proposed_delta": ""}}
+        support.validate_schema(report, strict)
+        support.validate_schema({**report, "finding_dispositions": []}, schema)
 
     def test_handoff_lists_both_reviewers_open_findings(self):
         state = {"settings": {"limits": {}}}
@@ -117,7 +176,43 @@ class LedgerTests(unittest.TestCase):
         rows = findings.handoff(state)
         self.assertEqual({"sol", "astra"}, {row["source"] for row in rows})
         self.assertEqual({"task-1"}, {row["assigned_task"] for row in rows})
-        self.assertEqual({"id", "source", "severity", "finding", "evidence", "blocking", "assigned_task", "times_reported"}, set(rows[0]))
+        self.assertEqual({"id", "source", "severity", "finding", "evidence", "blocking", "assigned_task", "times_reported",
+                          "milestone", "not_rechecked"}, set(rows[0]))
+
+    def scoped_state(self, milestone_id):
+        return {"settings": {"limits": {}},
+                "goal_contract": {"body": {
+                    "acceptance_criteria": [{"id": cid} for cid in ("C1", "C2", "C3")],
+                    "milestones": [{"id": "M1", "objective": "first", "acceptance_criteria": ["C1"], "depends_on": []},
+                                   {"id": "M2", "objective": "second", "acceptance_criteria": ["C2"], "depends_on": ["M1"]},
+                                   {"id": "M3", "objective": "all", "acceptance_criteria": ["C1", "C2", "C3"], "depends_on": ["M2"]}]}},
+                "current_task": {"id": "task-" + milestone_id, "milestone_id": milestone_id}}
+
+    def test_a_disposition_must_cover_the_scope_the_finding_was_raised_under(self):
+        state = self.scoped_state("M1")
+        findings.record_validation(state, sol("M1 layout clips text"), {"output": "sol-m1.json"})
+        self.assertEqual({"milestone_id": "M1", "criteria": ["C1"]}, findings.open_entries(state)[0]["scope"])
+        state["current_task"] = {"id": "task-M2", "milestone_id": "M2"}
+        fid = findings.open_entries(state)[0]["id"]
+        with self.assertRaisesRegex(ValueError, "did not review"):
+            findings.record_validation(state, sol(dispositions=[resolved(fid)]), {"output": "sol-m2.json"})
+        row = findings.open_entries(state)[0]
+        self.assertEqual(("M1 layout clips text", "sol-m2.json"), (row["finding"], row["not_rechecked_in"]))
+        self.assertEqual([("M1", True)], [(r["milestone"], r["not_rechecked"]) for r in findings.handoff(state)])
+        self.assertEqual(1, findings.summary(state)["not_rechecked"])
+        state["current_task"] = {"id": "task-M3", "milestone_id": "M3"}
+        findings.record_validation(state, sol(dispositions=[resolved(fid)]), {"output": "sol-m3.json"})
+        self.assertEqual([], findings.open_entries(state))
+        resolved_row = state["findings_ledger"][0]
+        self.assertEqual("sol-m3.json", resolved_row["resolved_in"])
+        self.assertNotIn("not_rechecked_in", resolved_row)
+
+    def test_runs_without_milestones_accept_dispositions(self):
+        state = {"goal_contract": {"body": {"acceptance_criteria": [{"id": "C1"}]}}, "current_task": {"id": "t", "milestone_id": ""}}
+        findings.record_validation(state, sol("A"), {"output": "sol-1.json"})
+        self.assertIsNone(findings.open_entries(state)[0]["scope"])
+        findings.record_validation(state, sol(dispositions=[resolved(findings.finding_id("sol", "A"))]), {"output": "sol-2.json"})
+        self.assertEqual([], findings.open_entries(state))
 
 
 class DashboardLedgerTests(unittest.TestCase):
@@ -136,9 +231,8 @@ class DashboardLedgerTests(unittest.TestCase):
             with patch.object(monitor, "process_table") as probe:
                 result = monitor.snapshot(state, run, detailed=True)
             probe.assert_not_called()
-            self.assertEqual({"open": 2, "resolved": 1, "repeated": 1}, result["findings_summary"])
-            self.assertEqual({("sol", "Empty names are accepted", "task-9", 2), ("astra", "No blank-input test", "task-9", 1)},
-                             {(row["source"], row["finding"], row["assigned_task"], row["times_reported"]) for row in result["findings"]})
+            self.assertEqual({"open": 3, "resolved": 0, "repeated": 1, "not_rechecked": 1}, result["findings_summary"])
+            self.assertEqual({(None, False), (None, True)}, {(row["milestone"], row["not_rechecked"]) for row in result["findings"]})
             legacy = monitor.snapshot({"status": "RUNNING", "stages": [], "unresolved_findings": [{"severity": "low", "finding": "old"}]},
                                       run, detailed=True, process_snapshot=None)
             self.assertEqual([{"severity": "low", "finding": "old"}], legacy["findings"])

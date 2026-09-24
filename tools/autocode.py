@@ -147,7 +147,15 @@ def load_stage_report(record, workspace=None, evidence_record=None):
         if workspace is None:
             raise ValueError('Cannot derive check metadata without the validation workspace')
         support.verify_checks(checks, workspace, evidence_record['events'], **check_evidence_options(evidence_record))
-    support.validate_schema(value, read_json(Path(record["schema"])))
+    schema = read_json(Path(record["schema"]))
+    # finding_dispositions may be present in reports validated against schemas
+    # saved before the field was introduced. Strip it before validation rather
+    # than rejecting a correct report.
+    if "finding_dispositions" not in schema.get("properties", {}) and "finding_dispositions" in value:
+        stripped = {k: v for k, v in value.items() if k != "finding_dispositions"}
+        support.validate_schema(stripped, schema)
+    else:
+        support.validate_schema(value, schema)
     if value != reported:
         original = Path(record['output']).with_suffix('.reported.json')
         if original.exists():

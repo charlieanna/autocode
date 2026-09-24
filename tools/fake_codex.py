@@ -8,6 +8,12 @@ import sys
 import uuid
 from goal_fixtures import body
 
+
+def finding_id(source, text):
+    import hashlib
+    return "F-" + hashlib.sha256(json.dumps({"source": source, "finding": " ".join(str(text).split()).lower()},
+                                             sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:10]
+
 if sys.argv[1:] == ["login", "status"]:
     print("Logged in using ChatGPT (offline fixture)")
     raise SystemExit(0)
@@ -16,7 +22,8 @@ data = json.loads(sys.stdin.read().split("CURRENT HANDOFF DATA\n", 1)[1])
 if data.get('report_repair'):
     # This branch only reformats a saved report; never executes the original task.
     result = json.loads(Path(data['original']['output']).read_text())
-    result['summary'] = 'Repaired fixture report'
+    if 'summary' not in result and data['original'].get('stage', '').startswith(('terra', 'astra_discovery')):
+        result['summary'] = 'Repaired fixture report'
     session = str(uuid.uuid4())
     print(json.dumps({'type': 'thread.started', 'thread_id': session}))
     Path(sys.argv[sys.argv.index('-o') + 1]).write_text(json.dumps(result))
@@ -118,6 +125,8 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
               "findings": [{"severity": "high", "finding": "Empty names are accepted by greet.py",
                             "evidence": "Sol events", "blocking": True}] if rework else [],
               "agreed_limitations": ["Local command-line use only"] if complete else [],
+              "finding_dispositions": ([{"id": finding_id("astra", "Empty names are accepted by greet.py"),
+                                          "disposition": "resolved", "evidence": "Sol events"}] if complete else []),
               "evidence": ["Sol events"], "blocker": "",
               "plan": ["Implement greeting", "Run both cases"], "affected_paths": ["greet.py"]}
     if advance:
@@ -163,7 +172,9 @@ else:
               "unverified_criteria": [], "checks": [{"command": command, "exit_code": 0 if passed else 1, "evidence_ref": "event:check"}],
               "end_to_end_result": {"status": "PASS" if passed else "FAIL", "summary": "Executed both CLI user flows",
                                     "evidence_refs": ["event:check"]},
-              "criterion_results": [{"id": "C1", "status": "PASS" if passed else "FAIL", "evidence_refs": ["event:check"]}]}
+              "criterion_results": [{"id": "C1", "status": "PASS" if passed else "FAIL", "evidence_refs": ["event:check"]}],
+              "finding_dispositions": ([{"id": finding_id("sol", "Empty names are accepted"), "disposition": "resolved",
+                                          "evidence": "event:check"}] if passed else [])}
     if mode == 'milestones':
         result['criterion_results'].append({'id': 'C2', 'status': 'PASS' if goodbye_passed else 'NOT_VERIFIED',
                                            'evidence_refs': ['event:check'] if goodbye_passed else []})
@@ -177,7 +188,7 @@ else:
                     "requirements": [] if passed else ["Reject empty input"],
                     "acceptance_criteria": [] if passed else ["C1"],
                     "validation_plan": [] if passed else ["Execute valid and empty input"], "findings": []},
-                "findings": [], "agreed_limitations": [], "evidence": ["event:check"], "blocker": "",
+                "findings": [], "finding_dispositions": [], "agreed_limitations": [], "evidence": ["event:check"], "blocker": "",
                 "plan": ["Implement and independently verify"], "affected_paths": ["greet.py"]}}
 if os.environ.get('AUTOCODE_FIXTURE_REPORT_REPAIR_STAGE') == stage:
     result.pop('summary', None)
@@ -188,7 +199,7 @@ if stage=='terra' and (data.get('workflow') or {}).get('mode')=='glm_final_audit
     command='fixture: GLM tests valid and invalid greetings'
     print(json.dumps({'type':'item.completed','item':{'id':'self-check','type':'command_execution',
         'command':command,'exit_code':0 if passed else 1,'aggregated_output':'fixture checks'}}))
-    assessment={**common,'verdict':'PASS' if passed else 'FAIL','findings':[],'checks_run':[command],
+    assessment={**common,'verdict':'PASS' if passed else 'FAIL','findings':[],'finding_dispositions':[],'checks_run':[command],
         'unverified_criteria':[], 'checks':[{'command':command,'exit_code':0 if passed else 1,'evidence_ref':'event:self-check'}],
         'end_to_end_result':{'status':'PASS' if passed else 'FAIL','summary':'GLM self-check','evidence_refs':['event:self-check']},
         'criterion_results':[{'id':'C1','status':'PASS' if passed else 'FAIL','evidence_refs':['event:self-check']}]}

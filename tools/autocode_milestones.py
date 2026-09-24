@@ -156,9 +156,16 @@ def evidence_ready(state, current):
     human_ids = [c["id"] for c in state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"]]
     human_only_gap = (len(human_ids) == 1 and goals.human_only_pending_validation(state, val, human_ids[0])
                       and not goals.missing_human_reviews(state))
+    try:
+        from . import autocode_findings as findings_ledger
+        ledger_blocking = findings_ledger.blocking_entries(state)
+    except ImportError:
+        import autocode_findings as findings_ledger
+        ledger_blocking = findings_ledger.blocking_entries(state)
     return bool(required and (val.get("verdict") == "PASS" or human_only_gap) and val.get("checks")
         and all(c["exit_code"] == 0 for c in val["checks"])
         and not any(f.get("blocking", True) or f["severity"] in ("critical", "high") for f in val.get("findings", []))
+        and not ledger_blocking
         and (not required.intersection(val.get("unverified_criteria", [])) or human_only_gap)
         and all((results.get(cid, {}).get("status") == "PASS" or
                  (human_only_gap and cid == human_ids[0])) and results[cid].get("evidence_refs") for cid in required)

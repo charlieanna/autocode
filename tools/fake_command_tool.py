@@ -153,7 +153,8 @@ elif stage == "sol":
               "unverified_criteria": [], "checks": [{"command": command, "exit_code": 0 if passed else 1, "evidence_ref": str(evidence)}],
               "end_to_end_result": {"status": "PASS" if passed else "FAIL", "summary": "Executed the greeting CLI",
                                     "evidence_refs": [str(evidence)]},
-              "criterion_results": [{"id": "C1", "status": "PASS" if passed else "FAIL", "evidence_refs": [str(evidence)]}]}
+              "criterion_results": [{"id": "C1", "status": "PASS" if passed else "FAIL", "evidence_refs": [str(evidence)]}],
+              "finding_dispositions": []}
 else:
     complete = stage == "astra_review"
     result = {**common, "status": "COMPLETE" if complete else "CONTINUE",
@@ -165,7 +166,7 @@ else:
                             "acceptance_criteria": [] if complete else ["C1"],
                             "validation_plan": [] if complete else ["Run greet.py with Ada and an empty name"],
                             "findings": []},
-              "findings": [], "agreed_limitations": ["Local command-line use only"] if complete else [],
+              "findings": [], "finding_dispositions": [], "agreed_limitations": ["Local command-line use only"] if complete else [],
               "evidence": ["Sol receipt"], "blocker": "",
               "plan": ["Implement greeting", "Run both cases"], "affected_paths": ["greet.py"]}
 

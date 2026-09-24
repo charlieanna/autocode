@@ -370,7 +370,8 @@ def completion_ready(state, decision, current, *, require_human_reviews=True, re
                 or validation.get("contract_hash") != contract["hash"]
                 or (state.get("current_task") and validation.get("task_id") != state["current_task"]["id"])
                 or (require_human_reviews and goals.missing_human_reviews(state))
-                or any(f.get("blocking", True) for f in validation.get("findings", []))):
+                or any(f.get("blocking", True) for f in validation.get("findings", []))
+                or any(f.get("blocking", True) for f in decision.get("findings", []))):
             return False
         if "end_to_end_flow" in contract["body"]:
             flow = validation.get("end_to_end_result", {})
@@ -379,6 +380,13 @@ def completion_ready(state, decision, current, *, require_human_reviews=True, re
     sol = state.get("validation", {})
     if decision.get("status") not in ("COMPLETE", "TASK_COMPLETE"):
         return False
+    if state.get("findings_ledger"):
+        try:
+            from . import autocode_findings as findings_ledger
+        except ImportError:
+            import autocode_findings as findings_ledger
+        if findings_ledger.blocking_entries(state):
+            return False
     criteria = state.get("acceptance_criteria", [])
     if not criteria or criteria_definition(decision.get("acceptance_criteria", [])) != criteria_definition(criteria):
         return False
@@ -634,7 +642,11 @@ probe, rerun the complete corrected probe; do not count an unexecuted correction
 a pass. Source diff exit 1 means files differ, not a successful verification command.
 Return exact command/exit_code and evidence_ref='event:<id>' from a completed shell
 tool event (also usable in criterion and end-to-end evidence_refs). Follow the
-execution engine's evidence instructions and copy command text verbatim. Do not
+execution engine's evidence instructions and copy command text verbatim.
+open_findings in CURRENT HANDOFF DATA lists both reviewers' open findings. A finding
+you omit from this report stays open; close one you verified in finding_dispositions
+with its ID, disposition resolved and the check that proves it, or retracted with
+evidence that the finding itself was wrong. Do not
 abbreviate commands or invent IDs. The runner saves full events locally.
 For human_review criteria report automated evidence; actual approval is a separate
 runner gate. No evidence files need to be written. Return findings to Astra, who
@@ -657,7 +669,10 @@ use kind=none and empty next-task strings/lists. Report every defect you identif
 structured entry in findings (severity, finding, evidence, blocking); the runner tracks
 each one by identity across reviews and links it to the task that fixes it, so a finding
 described only in prose is not tracked. open_findings in CURRENT HANDOFF DATA lists both
-reviewers' open findings; a defect you no longer see is closed by omitting it. Keep a
+reviewers' open findings. Omitting a finding from a later report does not close it: close
+it in finding_dispositions with its ID, disposition resolved (with verification evidence)
+or retracted (the finding itself was wrong, with evidence), and only after this report
+reviewed the work it was raised under. Keep a
 correction task small: name the ledger IDs it addresses in next_task.findings and leave
 the rest for the next task; an empty list assigns every open finding. Plans may change inside the contract;
 milestones describe the approved scope, not permission to invent requirements.

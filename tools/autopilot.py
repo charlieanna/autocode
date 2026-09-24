@@ -410,6 +410,10 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
                 return
     if (modern and stage == "astra_review" and value.get("status") == "REWORK"
             and not workflow.enabled(state)):
+        # The reviewer's findings are authoritative state; record them before the
+        # resolver diagnosis consumes the rejection. The decision itself is recorded
+        # when the resolver's bounded repair is applied, so it is not duplicated.
+        findings_ledger.record_decision(state, value, record)
         queue_resolution(state, value, record)
         save_record(state, record)
         return
@@ -424,10 +428,14 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
         state["criteria_revision"] = support.digest(definitions)
         state["plan"] = value.get("plan", [value["next_objective"]])
         state["affected_paths"] = value.get("affected_paths", [])
-        if modern:
+        if modern and stage != "astra_resolve":
+            # Only the reviewers reconcile findings. The resolver diagnoses them.
             findings_ledger.record_decision(state, value, record)
         if value["status"] in ("COMPLETE", "TASK_COMPLETE"):
             current = support.snapshot(workspace)
+            if modern and findings_ledger.blocking_entries(state):
+                raise support.Paused("PAUSED_COMPLETION_GATE", "Completion rejected: the findings ledger still lists "
+                                     "open blocking findings; resolve or retract each one with evidence")
             if modern and goals.missing_human_reviews(state):
                 if not support.completion_ready(state, value, current, require_human_reviews=False):
                     raise support.Paused("PAUSED_COMPLETION_GATE", "Artifact review requires current passing independent evidence first")
