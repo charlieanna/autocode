@@ -385,10 +385,39 @@ def check_requirement_trace(state, report, contract):
         if disposition == "superseded" and not _saved_user_basis(state, "user_feedback", evidence) and not _saved_user_basis(state, "user_answer", evidence):
             raise ValueError(f"Requirement {row['id']} cannot be superseded without a saved user event")
     conflicts = handoff.get("conflicts") or []
+    conflict_sets = {frozenset(row.get("requirement_ids") or []) for row in conflicts}
+    resolved = set()
+    resolutions = report.get("conflict_resolutions", [])
+    if not isinstance(resolutions, list):
+        raise ValueError("conflict_resolutions must be an array")
+    for resolution in resolutions:
+        if not isinstance(resolution, dict):
+            raise ValueError("Each conflict resolution needs requirement IDs and a saved user basis")
+        ids = resolution.get("requirement_ids")
+        if not isinstance(ids, list) or not ids or any(not isinstance(rid, str) for rid in ids):
+            raise ValueError("Conflict resolution needs nonempty requirement_ids")
+        key = frozenset(ids)
+        if len(key) != len(ids) or key not in conflict_sets or not key.issubset(by_id):
+            raise ValueError("Conflict resolution must name exactly one recorded requirement conflict")
+        if key in resolved:
+            raise ValueError("Duplicate requirement conflict resolution")
+        basis, answer_id = resolution.get("basis"), resolution.get("answer_id")
+        if not _saved_user_basis(state, basis, answer_id):
+            raise ValueError("Resolving a requirement conflict needs a saved user answer or feedback event")
+        event = (state["answers"][answer_id] if basis == "user_answer" else
+                 next(row for row in state["brief_feedback"] if row.get("id") == answer_id))
+        source = event.get("text", "") if isinstance(event, dict) else ""
+        quote = str(resolution.get("source_quote", "")).strip()
+        if not quote or quote not in source:
+            raise ValueError("Conflict resolution source_quote is not in the cited saved user event")
+        if not str(resolution.get("resolution", "")).strip():
+            raise ValueError("Conflict resolution needs an explanation of how the saved event settles it")
+        resolved.add(key)
     open_questions = contract.get("open_blocking_questions") or []
     for conflict in conflicts:
         ids = conflict.get("requirement_ids") or []
-        settled = all(by_id.get(rid, {}).get("disposition") == "superseded" for rid in ids)
+        settled = (frozenset(ids) in resolved or
+                   all(by_id.get(rid, {}).get("disposition") == "superseded" for rid in ids))
         if not settled and not open_questions:
             raise ValueError("Unresolved requirement conflict must be a blocking question: " + conflict.get("description", ""))
 
@@ -1110,6 +1139,14 @@ string, an exact acceptance criterion ID, or a short explanation citing a define
 criterion ID as a case-sensitive whole token (for example 'AC1 verifies this').
 'AC1' does not match 'AC10', 'XAC1', or 'ac1'. Unknown IDs from a defined ID
 family, including a mixture such as 'AC1 and AC99', do not establish coverage.
+If saved user feedback or an answer already settles a handoff conflict, record it
+in conflict_resolutions: the exact requirement_ids of that conflict, basis
+(user_answer or user_feedback), its saved answer_id, a source_quote copied verbatim
+from that event, and a substantive resolution explaining how it settles the conflict.
+Keep valid requirements covered in requirement_trace; they need not all be superseded.
+Preserve these resolutions in later planner/reviewer reports. Use [] when none apply.
+Agent assumptions and unrelated user events cannot resolve a conflict. Carry genuinely
+unresolved conflicts into open_blocking_questions; do not ask again for a saved decision.
 When revising a plan after review, copy required_behaviors, scope_exclusions,
 constraints, important_failure_cases, acceptance_criteria (including verification
 methods), and permission_boundaries verbatim from goal_contract.body. Add new

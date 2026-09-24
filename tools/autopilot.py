@@ -210,6 +210,10 @@ def _bind_plan(state, value, origin):
 
 
 def apply_planning(state, stage, value, record):
+    # Older saved reports predate explicit, user-backed conflict resolutions.
+    # An absent list supplies no authority to resolve any conflict.
+    if "conflict_resolutions" in planning_unit.SCHEMAS[stage]["properties"]:
+        value = {"conflict_resolutions": [], **value}
     support.validate_schema(value, planning_unit.SCHEMAS[stage])
     if stage == "requirements_gather":
         if not value["intended_outcome"].strip() or not value["required_behaviors"] or not value["acceptance_tests"]:
