@@ -154,7 +154,7 @@ def evidence_ready(state, current):
     except ImportError:
         import autocode_goals as goals
     human_ids = [c["id"] for c in state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"]]
-    human_only_gap = (len(human_ids) == 1 and goals.human_only_pending_validation(state, val, human_ids[0])
+    human_only_gap = (bool(human_ids) and goals.human_only_pending_validation(state, val, human_ids[0])
                       and not goals.missing_human_reviews(state))
     try:
         from . import autocode_findings as findings_ledger

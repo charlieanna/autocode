@@ -734,7 +734,7 @@
     },
     "T15": {
       "status": "DONE, 2 PASS / 3 HONEST BLOCKER / 1 DEFERRED",
-      "summary": "GLM 5.3 (low/high/max only), temp workspaces, oracle verdicts; findings L1 (multi-human-review deadlock), L2 (assignment-path mismatch), L3 (review-schema model quality)",
+      "summary": "GLM 5.3 (low/high/max only), temp workspaces, oracle verdicts; findings L1 (multi-human-review deadlock), L2 (assignment-path mismatch), L3 (review-schema model quality); findings L1+L2 subsequently fixed with regressions and live-state replays",
       "scenarios": {
         "LIVE-01": {
           "status": "PASS",

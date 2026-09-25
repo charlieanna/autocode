@@ -245,6 +245,78 @@ class GoalTests(unittest.TestCase):
         runner.apply_result(self.state, "astra_review", decision, {"output": "complete"}, self.root, self.run)
         self.assertEqual("TASK_COMPLETE", self.state["status"])
 
+    def test_multiple_human_criteria_can_each_be_reviewed_and_completed(self):
+        """LIVE-02 regression: two human-review criteria must not deadlock acceptance."""
+        import autocode_milestones as milestones
+        draft = body(human=True)
+        draft["acceptance_criteria"].append(
+            {"id": "C2", "criterion": "Human README cross-check", "verification_method": "Read and compare",
+             "human_review": True})
+        draft["acceptance_criteria"].append({"id": "C3", "criterion": "Automated checks pass",
+            "verification_method": "Execute CLI cases", "human_review": False})
+        draft["milestones"][0]["acceptance_criteria"] += ["C2", "C3"]
+        g.install_draft(self.state, draft, origin="test")
+        g.present(self.state)
+        g.approve(self.state, self.state["displayed_goal"])
+        self.state["settings"]["milestone_checkpoints"] = copy.deepcopy(milestones.DEFAULTS)
+        next_task = self.decision()
+        next_task["next_task"]["acceptance_criteria"] += ["C2", "C3"]
+        g.assign_task(self.state, next_task, s.snapshot(self.root))
+        current = self.validation()
+        val = self.state["validation"]
+        # Sol's report: both human criteria pending, the technical one passes.
+        by_id = {row["id"]: row for row in val["criterion_results"]}
+        by_id["C1"]["status"] = "NOT_VERIFIED"
+        by_id["C2"]["status"] = "NOT_VERIFIED"
+        by_id["C3"]["status"] = "PASS"
+        val.update(verdict="BLOCKED", unverified_criteria=["C1 human acceptance pending",
+                                                           "C2 human acceptance pending"])
+        decision = self.decision("TASK_COMPLETE")
+        self.assertTrue(s.completion_ready(self.state, decision, current, require_human_reviews=False),
+                        "a two-human contract reaches the artifact review like a one-human contract")
+        runner.apply_result(self.state, "astra_review", decision, {"output": "review"}, self.root, self.run)
+        self.assertEqual("WAITING_FOR_USER", self.state["status"])
+        g.present(self.state)
+        g.approve_review(self.state, "C1", g.review_token(self.state), current)
+        self.assertFalse(s.completion_ready(self.state, decision, current),
+                         "one of two human acceptances is still missing")
+        g.approve_review(self.state, "C2", g.review_token(self.state), current)
+        self.assertTrue(s.completion_ready(self.state, decision, current))
+        runner.apply_result(self.state, "astra_review", decision, {"output": "complete"}, self.root, self.run)
+        self.assertEqual("TASK_COMPLETE", self.state["status"])
+
+    def test_task_ownership_merges_the_named_milestone_paths(self):
+        """LIVE-06 regression: milestone ownership merges into the task, not the builder's blame."""
+        import autocode_milestones as milestones
+        draft = body()
+        draft["acceptance_criteria"].append({"id": "C2", "criterion": "Server behavior",
+            "verification_method": "Execute handler checks", "human_review": False})
+        draft["milestones"].append({"id": "M2", "objective": "server", "acceptance_criteria": ["C2"],
+                                    "depends_on": ["M1"], "affected_paths": ["server/"]})
+        g.install_draft(self.state, draft, origin="test")
+        g.present(self.state)
+        g.approve(self.state, self.state["displayed_goal"])
+        self.state["settings"]["milestone_checkpoints"] = copy.deepcopy(milestones.DEFAULTS)
+        g.assign_task(self.state, self.decision(), s.snapshot(self.root))  # M1 assigned
+        current = self.validation()  # M1's independent validation passes
+        stray = self.decision()
+        stray["next_task"] = {"kind": "implement", "milestone_id": "M2", "requirements": ["server"],
+                              "acceptance_criteria": ["C2"], "validation_plan": ["run"],
+                              "findings": []}
+        stray["affected_paths"] = ["greet.py"]  # M1's path, not M2's server/
+        g.assign_task(self.state, stray, s.snapshot(self.root))
+        task = self.state["current_task"]
+        # The milestone's contract ownership is merged in, so the builder's
+        # contract-legal server work is within the assignment (LIVE-06 fix).
+        self.assertIn("server/", task["affected_paths"])
+        self.assertIn("greet.py", task["affected_paths"])
+        self.assertEqual("M2", task["milestone_id"])
+        # Another milestone's exclusive path stays outside this task's ownership.
+        self.assertNotIn("client/request.py", task["affected_paths"])
+        self.assertTrue(all("client/" != p for p in task["affected_paths"]),
+                        "M2's task must not own M3-style client paths")
+
+
     def test_execution_handoff_scopes_design_and_highlights_saved_permission(self):
         self.approve()
         self.state["settings"]["figma_file"] = "https://www.figma.com/design/Example123/Task"
@@ -400,6 +472,12 @@ class GoalTests(unittest.TestCase):
         self.approve(); current = self.validation()
         self.state["validation"]["findings"] = [{"severity": "medium", "blocking": True, "finding": "Required behavior missing"}]
         self.assertFalse(s.completion_ready(self.state, self.decision("TASK_COMPLETE"), current))
+
+    def test_nonblocking_preference_finding_does_not_prevent_completion(self):
+        self.approve(); current = self.validation()
+        self.state["validation"]["findings"] = [{"severity": "low", "blocking": False,
+                                                    "finding": "Consider renaming this class"}]
+        self.assertTrue(s.completion_ready(self.state, self.decision("TASK_COMPLETE"), current))
 
     def test_missing_criterion_cannot_hide_behind_green_suite(self):
         self.approve(); current = self.validation()

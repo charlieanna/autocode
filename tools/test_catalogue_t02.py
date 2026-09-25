@@ -85,8 +85,10 @@ class DagCase(t01.ApprovalCase):
         # The decision restates every approved criterion; the task owns a subset.
         criteria = [{**c, "status": "unverified", "evidence": ""}
                     for c in self.state["acceptance_criteria"]]
+        owned_paths = next(m for m in self.state["goal_contract"]["body"]["milestones"]
+                           if m["id"] == milestone)["affected_paths"]
         return {**envelope(self.state), "status": status, "acceptance_criteria": criteria,
-                "next_objective": f"Deliver {milestone}", "affected_paths": ["contract/"],
+                "next_objective": f"Deliver {milestone}", "affected_paths": list(owned_paths),
                 "plan": ["Complete the milestone"],
                 "next_task": {"kind": "implement", "milestone_id": milestone,
                               "requirements": ["Real flow"], "validation_plan": ["Execute checks"],

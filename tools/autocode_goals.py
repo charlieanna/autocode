@@ -861,6 +861,13 @@ def assign_task(state, decision, current):
     if milestones and (spec["milestone_id"] not in milestones or
             not set(ids) <= allowed):
         raise ValueError("Task must belong to an approved milestone and its acceptance criteria")
+    # The named milestone's contract-declared paths are authoritative ownership:
+    # merge them into the task so a planner that names only part of the scope
+    # cannot make the builder's contract-legal work look out-of-scope.
+    task_paths = list(decision.get("affected_paths", []))
+    if task_paths and milestones and spec["milestone_id"] not in previous_batch:
+        owned = milestones.get(spec["milestone_id"], {}).get("affected_paths", [])
+        task_paths = list(dict.fromkeys(task_paths + owned))
     recovery = state.get("recovery_context") or {}
     previous_task = state.get("current_task") or {}
     if (spec["kind"] == "implement" and recovery.get("timeout_kind")
@@ -889,7 +896,7 @@ def assign_task(state, decision, current):
         state.setdefault("task_archive", []).append(copy.deepcopy(state["current_task"]))
     contract = state["goal_contract"]
     state["current_task"] = {**copy.deepcopy(spec), "id": "task-" + uuid.uuid4().hex[:12],
-        "objective": decision["next_objective"], "affected_paths": decision["affected_paths"],
+        "objective": decision["next_objective"], "affected_paths": task_paths,
         "contract_revision": contract["revision"], "contract_hash": contract["hash"],
         "assigned_at": s.now(), "source_revision": current["revision"], "decision": decision["status"]}
     if spec["milestone_id"] in previous_batch:
@@ -1090,19 +1097,25 @@ def requested_review_criteria(state, request):
 
 
 def human_only_pending_validation(state, validation, criterion):
-    """A complete technical review whose sole missing result is human acceptance."""
+    """A complete technical review whose only missing results are human acceptance.
+
+    Any number of human-review criteria may be pending together, provided
+    every technical criterion passes with evidence and the pending set is
+    exactly the human set (a single pending criterion remains the common case).
+    """
     criteria = state["goal_contract"]["body"]["acceptance_criteria"]
+    human = {row["id"] for row in criteria if row["human_review"]}
     rows = validation.get("criterion_results", [])
     results = {row["id"]: row for row in rows}
-    pending = validation.get("unverified_criteria", [])
-    if ({row["id"] for row in criteria if row["human_review"]} != {criterion}
+    pending_ids = {entry.split(":", 1)[0].split(" ", 1)[0]
+                   for entry in validation.get("unverified_criteria", [])}
+    if (criterion not in human or not human
             or set(results) != {row["id"] for row in criteria} or len(rows) != len(criteria)
-            or validation.get("verdict") != "BLOCKED" or len(pending) != 1
-            or not (pending[0] == criterion or pending[0].startswith(criterion + " "))
+            or validation.get("verdict") != "BLOCKED" or not pending_ids or pending_ids != human
             or validation.get("findings") or validation.get("end_to_end_result", {}).get("status") != "PASS"):
         return False
     return all(row.get("evidence_refs") and
-               row.get("status") == ("NOT_VERIFIED" if cid == criterion else "PASS")
+               row.get("status") == ("NOT_VERIFIED" if cid in human else "PASS")
                for cid, row in results.items())
 
 

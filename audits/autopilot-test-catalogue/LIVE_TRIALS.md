@@ -20,7 +20,28 @@ Command shape (per trial): `tools/autocode.py --provider kilocode --chat …
 | LIVE-05 C#→Go port | **HONEST BLOCKER** | Attempt budget exhausted on repeated schema-invalid astra_review/resolver reports (wrong finding citation, missing `require_id`, non-JSON finals) across inspected retries. Partial: `reference/Policy.cs` + `golden-cases.json` (all 8 vectors correct); Go implementation missing. No C# compiler exists, so parity would have been golden-vector-only regardless — labeled, not claimed |
 | LIVE-06 parallel diamond | **HONEST BLOCKER** | Milestone A delivered and verified (`contract/schema.json` with the answered schema shape; `dependency_trace.json` with edges A→B, A→C, B→D, C→D). Milestone B blocked by **finding L2** below; builder's correct `server/handler.py` retained for inspection |
 
-## Live findings (product-relevant, none fixed without approval)
+## Post-trial fixes (applied after user approval, same day)
+
+- **L1 fixed:** `human_only_pending_validation` generalized to any number of
+  human-review criteria (pending set == human set, technical criteria PASS
+  with evidence). The LIVE-02 contract now completes: offline replay of the
+  saved run accepts AC6 and AC8 and reaches completion_ready. Regression:
+  `test_goals.test_multiple_human_criteria_can_each_be_reviewed_and_completed`.
+- **L2 fixed:** a fresh single-milestone task's ownership now MERGES the named
+  milestone's contract-declared paths into the decision's declared scope
+  (widening only; unbounded declarations stay unbounded). The LIVE-06
+  builder's contract-legal server work is no longer falsely out-of-scope, and
+  the saved run's pathological assignment replays to the correct merged
+  ownership. Regression:
+  `test_goals.test_task_ownership_merges_the_named_milestone_paths`.
+- L3 is model behavior, not code; no change.
+- Full suite after both fixes: 868 tests, 8 failures — all eight in
+  `tools.test_command_flow`, proven pre-existing (they fail identically with
+  these fixes stashed; cause: schema tightening in commits b8bd10c/945ee3b
+  vs the not-yet-updated `fake_command_tool.py` fixture, in files under
+  active author edits).
+
+## Live findings (as first recorded)
 
 - **L1 — multi-human-review acceptance deadlock (LIVE-02).** A contract with
   two or more `human_review` criteria can never be accepted:

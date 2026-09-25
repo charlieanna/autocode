@@ -369,8 +369,8 @@ def completion_ready(state, decision, current, *, require_human_reviews=True, re
         contract = state["goal_contract"]
         validation = state.get("validation", {})
         human_ids = [c["id"] for c in contract["body"]["acceptance_criteria"] if c["human_review"]]
-        human_only_gap = (len(human_ids) == 1
-                         and goals.human_only_pending_validation(state, validation, human_ids[0]))
+        human_only_gap = (bool(human_ids)
+                          and goals.human_only_pending_validation(state, validation, human_ids[0]))
         if (validation.get("contract_revision") != contract["revision"]
                 or validation.get("contract_hash") != contract["hash"]
                 or (state.get("current_task") and validation.get("task_id") != state["current_task"]["id"])

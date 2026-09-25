@@ -55,12 +55,12 @@ MUTATIONS = [
      '            entry["id"] = "F-" + s.digest(entry["finding"])[:10]',
      ["test_catalogue_t05"]),
     ("M07", "tools/autocode_findings.py",
-     '    _record(state, "astra", decision.get("findings", []), record)\n'
+     '    _record(state, "astra", decision.get("findings", []), record, initial_scope)\n'
      '    if decision.get("status") == "BLOCKED":\n'
      '        return',
      '    if decision.get("status") == "BLOCKED":\n'
      '        return\n'
-     '    _record(state, "astra", decision.get("findings", []), record)',
+     '    _record(state, "astra", decision.get("findings", []), record, initial_scope)',
      ["test_catalogue_t05"]),
     ("M08", "tools/autocode_support.py",
      '    for event_body in _command_bodies(event_command):',
