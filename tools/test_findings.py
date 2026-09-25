@@ -243,6 +243,8 @@ class LedgerTests(unittest.TestCase):
         state["goal_contract"].update(hash="expanded", revision=2)
         state["task_archive"] = [copy.deepcopy(state["current_task"])]
         state["current_task"] = {"id": "fresh-M1", "milestone_id": "M1"}
+        state["validation"] = {"criterion_results": [
+            {"id": "C1", "status": "PASS", "evidence_refs": ["event:fresh-check"]}]}
         findings.record_decision(state, astra("CONTINUE", dispositions=[resolved(fid)]), {"output": "review.json"})
         row = state["findings_ledger"][0]
         self.assertEqual("resolved", row["status"])
