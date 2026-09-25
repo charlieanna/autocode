@@ -314,6 +314,11 @@ def source_texts(state):
     return [text for text in texts if text]
 
 
+def requirement_coverage_text(text):
+    """Ignore Markdown list markers when comparing already verified quotes."""
+    return re.sub(r"(?m)^[ \t]*(?:[-*+]|\d+[.)])[ \t]+", "", str(text)).strip()
+
+
 def check_requirement_handoff(state, report):
     sources = source_texts(state)
     requirements = report.get("requirements", [])
@@ -334,12 +339,16 @@ def check_requirement_handoff(state, report):
     ignored = report.get("ignored_statements", [])
     if not isinstance(ignored, list):
         raise ValueError("ignored_statements must be an array")
+    coverage = [requirement_coverage_text(text) for text in [*quotes, *ignored]]
+    missing = []
     for sentence in (sentence for source in sources for sentence in cue_sentences(source)):
-        if any(quote in sentence or sentence in quote for quote in quotes):
+        normalized = requirement_coverage_text(sentence)
+        if any(quote and (quote in normalized or normalized in quote) for quote in coverage):
             continue
-        if any(str(note).strip() and (str(note).strip() in sentence or sentence in str(note)) for note in ignored):
-            continue
-        raise ValueError("A requirement-like sentence was neither quoted nor explicitly ignored: " + sentence[:120])
+        missing.append(sentence)
+    if missing:
+        raise ValueError("Requirement-like sentences were neither quoted nor explicitly ignored: "
+                         + json.dumps(missing, ensure_ascii=False))
     questions = {q["id"] for q in report.get("open_questions", [])}
     for reframe in report.get("proposed_reframes", []):
         if reframe["requirement_id"] not in seen or not reframe["proposal"].strip():
@@ -396,14 +405,56 @@ def check_requirement_trace(state, report, contract):
         if disposition == "superseded" and not _cites_saved_user_event(state, evidence):
             raise ValueError(f"Requirement {row['id']} cannot be superseded without a saved user event")
     conflicts = handoff.get("conflicts") or []
+    conflict_sets = {frozenset(row.get("requirement_ids") or []) for row in conflicts}
+    # A refreshed handoff may no longer call a settled pair a conflict. Preserve
+    # its explicit resolution only while the same IDs still cite the same user
+    # text; recycled IDs must not inherit an unrelated historical decision.
+    current_quotes = {row["id"]: str(row.get("source_quote") or "").strip()
+                      for row in requirements}
+    for previous in state.get("requirements_history", []):
+        prior = previous.get("report") or {}
+        prior_quotes = {row["id"]: str(row.get("source_quote") or "").strip()
+                        for row in prior.get("requirements", [])}
+        for conflict in prior.get("conflicts", []):
+            ids = conflict.get("requirement_ids") or []
+            if ids and all(prior_quotes.get(rid) and
+                           prior_quotes[rid] == current_quotes.get(rid) for rid in ids):
+                conflict_sets.add(frozenset(ids))
+    resolved = set()
+    resolutions = report.get("conflict_resolutions", [])
+    if not isinstance(resolutions, list):
+        raise ValueError("conflict_resolutions must be an array")
+    for resolution in resolutions:
+        if not isinstance(resolution, dict):
+            raise ValueError("Each conflict resolution needs requirement IDs and a saved user basis")
+        ids = resolution.get("requirement_ids")
+        if not isinstance(ids, list) or not ids or any(not isinstance(rid, str) for rid in ids):
+            raise ValueError("Conflict resolution needs nonempty requirement_ids")
+        key = frozenset(ids)
+        if len(key) != len(ids) or key not in conflict_sets or not key.issubset(by_id):
+            raise ValueError("Conflict resolution must name exactly one recorded requirement conflict")
+        if key in resolved:
+            raise ValueError("Duplicate requirement conflict resolution")
+        basis, answer_id = resolution.get("basis"), resolution.get("answer_id")
+        if not _saved_user_basis(state, basis, answer_id):
+            raise ValueError("Resolving a requirement conflict needs a saved user answer or feedback event")
+        event = (state["answers"][answer_id] if basis == "user_answer" else
+                 next(row for row in state["brief_feedback"] if row.get("id") == answer_id))
+        source = event.get("text", "") if isinstance(event, dict) else ""
+        quote = str(resolution.get("source_quote", "")).strip()
+        if not quote or quote not in source:
+            raise ValueError("Conflict resolution source_quote is not in the cited saved user event")
+        if not str(resolution.get("resolution", "")).strip():
+            raise ValueError("Conflict resolution needs an explanation of how the saved event settles it")
+        resolved.add(key)
     open_questions = contract.get("open_blocking_questions") or []
     for conflict in conflicts:
         ids = conflict.get("requirement_ids") or []
         # A correction replaces the old side, not both sides of a contradiction.
         # For larger conflict sets stay conservative until at most one remains.
-        settled = (bool(ids) and all(rid in by_id for rid in ids)
+        settled = (frozenset(ids) in resolved or (bool(ids) and all(rid in by_id for rid in ids)
                    and sum(by_id[rid]["disposition"] != "superseded" for rid in ids) <= 1
-                   and any(by_id[rid]["disposition"] == "superseded" for rid in ids))
+                   and any(by_id[rid]["disposition"] == "superseded" for rid in ids)))
         if not settled and not open_questions:
             raise ValueError("Unresolved requirement conflict must be a blocking question: " + conflict.get("description", ""))
     for reframe in handoff.get("proposed_reframes", []):
@@ -911,9 +962,113 @@ def review_token(state):
 def missing_human_reviews(state):
     current = review_token(state)
     return [c["id"] for c in state["goal_contract"]["body"]["acceptance_criteria"]
-            if c["human_review"] and (not current or
-                state.get("human_reviews", {}).get(c["id"], {}).get("token") != current or
-                state.get("human_reviews", {}).get(c["id"]) not in state.get("user_events", []))]
+            if c["human_review"] and not review_binding_valid(state, c["id"], current)]
+
+
+def legacy_review_acceptance(state, criterion, answer_id):
+    """Return an authenticated older answer that explicitly accepted a review criterion."""
+    answer = state.get("answers", {}).get(answer_id)
+    if not isinstance(answer, dict) or answer not in state.get("user_events", []):
+        return None
+    question = answer.get("question") or {}
+    if not isinstance(question, dict):
+        return None
+    options = question.get("options") or []
+    if (answer.get("kind") != "permission_answer" or answer.get("actor") != "user_cli"
+            or answer.get("question_id") != answer_id or question.get("id") != answer_id
+            or answer.get("contract_token") != token(state["goal_contract"])
+            or not isinstance(answer.get("at"), str)
+            or not isinstance(options, list) or len(options) != 2
+            or not isinstance(options[0], str) or not options[0].startswith(f"Accept {criterion}:")
+            or not isinstance(options[1], str) or not options[1].startswith(f"Reject {criterion}:")
+            or not isinstance(answer.get("text"), str)
+            or not answer["text"].startswith(f"Accept {criterion}.")):
+        return None
+    return answer
+
+
+def preserved_review_answers(state, criterion, original):
+    """Find later authenticated instructions carrying the old acceptance forward."""
+    result = {}
+    for answer_id, answer in state.get("answers", {}).items():
+        if (not isinstance(answer, dict) or answer not in state.get("user_events", [])
+                or answer.get("kind") != "permission_answer" or answer.get("actor") != "user_cli"
+                or answer.get("contract_token") != token(state["goal_contract"])
+                or not isinstance(answer.get("at"), str) or answer["at"] <= original["at"]):
+            continue
+        response = answer.get("text")
+        if not isinstance(response, str):
+            continue
+        if f"existing {criterion} acceptance" in response and "do not request another human visual approval" in response.lower():
+            result[answer_id] = answer
+    return result
+
+
+def review_binding_valid(state, criterion, current):
+    if not current:
+        return False
+    binding = state.get("human_reviews", {}).get(criterion)
+    if (not isinstance(binding, dict) or binding.get("token") != current
+            or binding.get("criterion") != criterion or binding not in state.get("user_events", [])):
+        return False
+    if binding.get("kind") == "human_review":
+        return binding.get("actor") == "user_cli"
+    if binding.get("kind") != "review_reconciliation" or binding.get("actor") != "runner":
+        return False
+    original = legacy_review_acceptance(state, criterion, binding.get("answer_id"))
+    if not original or binding.get("answer_hash") != s.digest(original):
+        return False
+    preserved = preserved_review_answers(state, criterion, original)
+    receipts = binding.get("preservation_hashes") or {}
+    return bool(receipts) and all(
+        answer_id in preserved and s.digest(preserved[answer_id]) == digest
+        for answer_id, digest in receipts.items())
+
+
+def reconcile_legacy_review(state, criterion, answer_id, selected, current):
+    """Bind an existing user acceptance to current evidence without a new approval."""
+    request = state.get("user_request") or {}
+    pending = state.get("pending_questions") or []
+    required = {c["id"] for c in state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"]}
+    if (criterion not in required or state.get("status") != "WAITING_FOR_USER"
+            or len(pending) != 1 or pending[0].get("question") != request.get("decision_needed")
+            or request.get("kind") != "blocker" or criterion not in request.get("decision_needed", "")
+            or "reconcile" not in request.get("decision_needed", "").lower()
+            or not request.get("proposed_delta", "").startswith("No contract, criterion, source or permission change.")
+            or selected != state.get("displayed_review") or selected != review_token(state)):
+        raise ValueError("No exact legacy review reconciliation is pending")
+    execution_guard(state)
+    val = state.get("validation") or {}
+    if (val.get("verdict") != "PASS" or val.get("source_revision") != current["revision"]
+            or val.get("contract_revision") != state["goal_contract"]["revision"]
+            or val.get("contract_hash") != state["goal_contract"]["hash"]
+            or val.get("criteria_revision") != state.get("criteria_revision")
+            or (state.get("current_task") and val.get("task_id") != state["current_task"]["id"])
+            or (state.get("settings", {}).get("milestone_checkpoints", {}).get("enabled")
+                and val.get("reviewer_role") != "sol")
+            or not val.get("checks") or any(check.get("exit_code") != 0 for check in val["checks"])
+            or val.get("findings") or val.get("unverified_criteria")
+            or not any(row.get("id") == criterion and row.get("status") == "PASS" and row.get("evidence_refs")
+                       for row in val.get("criterion_results", []))
+            or not val.get("evidence_hashes") or any(
+                not Path(path).is_file() or s.file_hash(path) != digest
+                for path, digest in val["evidence_hashes"].items())):
+        raise ValueError("Review reconciliation requires current passing independent evidence")
+    original = legacy_review_acceptance(state, criterion, answer_id)
+    preserved = preserved_review_answers(state, criterion, original) if original else {}
+    if not original or not preserved:
+        raise ValueError("No authenticated acceptance and carry-forward instruction match this criterion")
+    binding = {"kind": "review_reconciliation", "actor": "runner", "at": s.now(),
+               "criterion": criterion, "token": selected, "answer_id": answer_id,
+               "answer_hash": s.digest(original),
+               "preservation_hashes": {key: s.digest(value) for key, value in preserved.items()}}
+    state.setdefault("user_events", []).append(binding)
+    state.setdefault("human_reviews", {})[criterion] = binding
+    if missing_human_reviews(state):
+        raise ValueError("Existing acceptance did not satisfy the current review gate")
+    state["pending_questions"] = []
+    state.pop("user_request", None)
+    state.update(status="RUNNING", phase="READY_TO_EXECUTE", next_stage="astra_review")
 
 
 def requested_review_criteria(state, request):
@@ -1033,6 +1188,19 @@ superseding the old side with a saved correction and covering the replacement.
 A superseded trace does not neutralize a contradictory active required_behaviors entry:
 reword that entry using the saved correction and an exact contract_changes record.
 Keep the old wording in the historical handoff, not as an unconditional active rule.
+If saved user feedback or an answer already settles a handoff conflict, record it
+in conflict_resolutions: the exact requirement_ids of that conflict, basis
+(user_answer or user_feedback), its saved answer_id, a source_quote copied verbatim
+from that event, and a substantive resolution explaining how it settles the conflict.
+Keep valid requirements covered in requirement_trace; they need not all be superseded.
+Preserve these resolutions in later planner/reviewer reports. Use [] when none apply.
+An explicit resolution may cite a conflict recorded in requirements_history after a
+refreshed handoff removes it, but only when all its requirement IDs still have the
+same verbatim source quotes. Do not transfer a resolution to reused or changed IDs.
+If no matching current or historical conflict exists, retain the saved decision in
+accepted_assumptions instead; an empty conflict_resolutions list then is valid.
+Agent assumptions and unrelated user events cannot resolve a conflict. Carry genuinely
+unresolved conflicts into open_blocking_questions; do not ask again for a saved decision.
 When revising a plan after review, copy required_behaviors, scope_exclusions,
 constraints, important_failure_cases, acceptance_criteria (including verification
 methods), and permission_boundaries verbatim from goal_contract.body. Add new

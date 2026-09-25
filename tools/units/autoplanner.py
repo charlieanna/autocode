@@ -23,6 +23,9 @@ DECISION = obj({"concern_id": S, "decision": S, "rationale": S,
                 "acceptance_test": S, "resolved": {"type": "boolean"}})
 REQUIREMENT = obj({"id": S, "text": S, "source_quote": S})
 CONFLICT = obj({"requirement_ids": SS, "description": S})
+CONFLICT_RESOLUTION = obj({"requirement_ids": SS,
+    "basis": {"type": "string", "enum": ["user_answer", "user_feedback"]},
+    "answer_id": S, "source_quote": S, "resolution": S})
 CHANGE = obj({"item": S, "change": {"type": "string", "enum": ["removed", "reworded", "permission_changed"]},
               "basis": {"type": "string", "enum": ["user_answer", "user_feedback", "agent_proposed"]},
               "answer_id": S, "replacement": S})
@@ -41,15 +44,18 @@ SCHEMAS = {
     "astra_discovery": obj({"contract": goals.BODY_SCHEMA, "summary": S,
                             "code_refs": SS, "alternatives": SS, "uncertainties": SS,
                             "contract_changes": {"type": "array", "items": CHANGE},
+                            "conflict_resolutions": {"type": "array", "items": CONFLICT_RESOLUTION},
                             "requirement_trace": {"type": "array", "items": TRACE}}),
     "astra_challenge": obj({"summary": S, "concerns": {"type": "array", "items": CONCERN}}),
     "glm_revise": obj({"contract": goals.BODY_SCHEMA, "summary": S, "code_refs": SS,
                        "responses": {"type": "array", "items": RESPONSE},
                        "contract_changes": {"type": "array", "items": CHANGE},
+                       "conflict_resolutions": {"type": "array", "items": CONFLICT_RESOLUTION},
                        "requirement_trace": {"type": "array", "items": TRACE}}),
     "astra_finalize": obj({"contract": goals.PLANNING_BODY_SCHEMA, "summary": S,
                            "decisions": {"type": "array", "items": DECISION},
                            "contract_changes": {"type": "array", "items": CHANGE},
+                           "conflict_resolutions": {"type": "array", "items": CONFLICT_RESOLUTION},
                            "requirement_trace": {"type": "array", "items": TRACE}}),
 }
 # Optional for old saved reports; new prompts require this whenever intent must change.
@@ -167,8 +173,14 @@ inventory is not evidence of absence. Use source_refs=[] only for an empty works
 Return requirements: each has an id, the requirement text, and a source_quote copied
 verbatim from the task or a saved user event. Put requirement-like sentences you are
 not carrying (must, must not, never, only, required, exactly) in ignored_statements
-with the reason. Put contradictions in conflicts with the requirement ids.
+with the reason. Put unresolved contradictions in conflicts with the requirement ids.
+Do not label an explicit saved clarification or a historical/current distinction as
+an unresolved conflict. Preserve the applicable requirements and their provenance.
 The runner saves this report as a separate artifact for the Planner.
+The requirement_coverage_checklist contains the exact task sentences checked by
+the runner. Account for every entry in requirements using a verbatim source_quote,
+or in ignored_statements with the exact statement and a substantive reason.
+Include requirements from the rest of the task and saved user events as well.
 """,
     "astra_discovery": """You are the Planner, in a session separate from the Requirements Gatherer.
 For a new run, use requirements_handoff and its saved artifact as your input; do not silently
@@ -271,8 +283,17 @@ def context(state, stage, state_path):
               "stage": stage,
               "goal_contract": None if stage == "requirements_gather" else state.get("goal_contract"),
               "requirements_handoff": None if stage == "requirements_gather" else state.get("requirements_handoff"),
+              "requirements_history": None if stage == "requirements_gather" else [
+                  {"output": entry.get("output"),
+                   "requirements": [{"id": row["id"], "source_quote": row.get("source_quote", "")}
+                                    for row in (entry.get("report") or {}).get("requirements", [])],
+                   "conflicts": (entry.get("report") or {}).get("conflicts", [])}
+                  for entry in state.get("requirements_history", [])
+                  if (entry.get("report") or {}).get("conflicts")],
               "saved_answers": state.get("answers", {}), "brief_feedback": state.get("brief_feedback", []),
               "planning": exchange, "budget": "two plan-review calls per explicitly requested cycle"}
+    if stage == "requirements_gather":
+        packet["requirement_coverage_checklist"] = goals.cue_sentences(state.get("task"))
     if state["settings"].get("figma_file"):
         packet["figma_file"] = state["settings"]["figma_file"]
     packet['user_events'] = state.get('user_events', [])

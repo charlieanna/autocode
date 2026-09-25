@@ -14,7 +14,7 @@ runner, support = base.runner, base.s
 class RepairTests(unittest.TestCase):
     setUp = base.RetrofitTest.setUp
 
-    def queue(self, **overrides):
+    def queue(self, error=None, **overrides):
         self.state['settings']['report_repair'] = {'max_attempts': 2}
         path = self.run / 'iterations/005/terra-01'
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -26,14 +26,15 @@ class RepairTests(unittest.TestCase):
             p = Path(str(path)+suffix); p.write_text(value); record[key] = str(p)
         record.update(overrides)
         with self.assertRaises(runner.ReportRepairQueued):
-            runner.reject_completed_stage(self.state, self.run, record, ValueError('Missing summary'))
+            runner.reject_completed_stage(self.state, self.run, record, error or ValueError('Missing summary'))
         return self.state['pending_report_repair']
 
     def reject_repair(self, iteration, error):
         original = self.state['pending_report_repair']['original']
         path = self.run / 'iterations' / f'{iteration:03d}' / 'terra_report_repair-01'
         path.parent.mkdir(parents=True, exist_ok=True)
-        record = {'role': 'terra', 'stage': 'terra_report_repair', 'original_stage': 'terra',
+        role = original['role']
+        record = {'role': role, 'stage': f'{role}_report_repair', 'original_stage': original['stage'],
                   'report_only': True, 'iteration': iteration, 'exit_code': 0,
                   'duration_seconds': 1, 'source_revision': original['source_revision'],
                   'schema': original['schema']}
@@ -43,6 +44,33 @@ class RepairTests(unittest.TestCase):
             shutil.copy2(original[field], destination)
             record[field] = str(destination)
         return runner.reject_completed_stage(self.state, self.run, record, error)
+
+    def test_exact_format_failure_can_request_one_fresh_sol_validation(self):
+        self.state['next_stage'] = 'sol'
+        error = RuntimeError('OpenCode final message is not a JSON report; inspect the saved raw events')
+        self.queue(role='sol', stage='sol', error=error)
+        self.state['pending_report_repair']['attempts'] = 1
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.reject_repair(6, error)
+        self.state = support.read(self.run / 'state.json')
+        self.state['pending_report_repair']['attempts'] = 2
+        with self.assertRaises(support.Paused):
+            self.reject_repair(7, error)
+        self.state = support.read(self.run / 'state.json')
+        selected = runner.attempt_id(self.state['stages'][-1])
+        with self.assertRaises(ValueError):
+            runner.retry_format_failed_report(self.state, self.run, self.root, selected + '-wrong')
+        self.assertIn('pending_report_repair', self.state)
+        changed = self.root / 'changed-input.txt'
+        changed.write_text('new source revision')
+        with self.assertRaises(ValueError):
+            runner.retry_format_failed_report(self.state, self.run, self.root, selected)
+        changed.unlink()
+        runner.retry_format_failed_report(self.state, self.run, self.root, selected)
+        self.assertEqual('sol', self.state['next_stage'])
+        self.assertNotIn('pending_report_repair', self.state)
+        self.assertEqual('report_retry_after_format_fix', self.state['user_events'][-1]['kind'])
+        self.assertTrue(self.state['report_repair_archive'])
 
     def test_terminal_error_is_durably_queued_without_replaying_implementation(self):
         sessions = copy.deepcopy(self.state['sessions'])
@@ -235,6 +263,8 @@ class RepairTests(unittest.TestCase):
         self.assertEqual('read-only', call['sandbox'])
         self.assertEqual('model-terra', call['model'])
         self.assertIn('Do not redo implementation', call['prompt'])
+        self.assertIn('exactly one JSON object', call['prompt'])
+        self.assertIn('independently executed Sol tool event', call['prompt'])
 
     def test_accept_uses_original_evidence_and_does_not_double_count_original(self):
         pending = self.queue()
