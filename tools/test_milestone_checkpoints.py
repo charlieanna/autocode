@@ -154,12 +154,12 @@ class MilestoneCheckpointTests(unittest.TestCase):
     def test_explicit_checkpoint_answer_preserves_approval_and_requires_current_evidence(self):
         self.start()
         self.validate(flow_status='NOT_VERIFIED')
-        choice = 'Reconcile M1 as accepted based on the existing current-revision Sol evidence, then resume at M2.'
+        choice = 'Reconcile M1 as accepted based on the existing current-revision Validator evidence, then resume at M2.'
         question = {'id': 'decision-checkpoint', 'question': 'Reconcile the checkpoint?',
                     'why': 'The earlier gate rejected advancement', 'options': [choice], 'proposed_default': ''}
         self.state.update(status='WAITING_FOR_USER', phase='WAITING_FOR_USER', next_stage='astra_review',
                           pending_questions=[question], user_request={'kind': 'blocker', 'proposed_delta': '',
-                          'discovered': 'The milestone checkpoint remains unaccepted despite passing Sol evidence.',
+                          'discovered': 'The milestone checkpoint remains unaccepted despite passing Validator evidence.',
                           'options': [choice]})
         before = copy.deepcopy(self.state)
         with self.assertRaisesRegex(ValueError, 'explicit saved choice'):

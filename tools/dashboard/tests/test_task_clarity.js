@@ -64,7 +64,7 @@ assert.match(paused.reason, /Request completion/);
 assert.equal(classify({status: 'RUNNING', error: 'Project is unavailable'}).group, 'stopped');
 assert.equal(classify({status: 'WAITING_FOR_USER', state_error: 'Malformed checkpoint'}).label, 'Unavailable');
 
-// A joint draft only needs approval after Astra finalizes it and a token exists.
+// A joint draft only needs approval after the Plan Reviewer finalizes it and a token exists.
 const finalized = {status: 'AWAITING_GOAL_APPROVAL', model_settings: {joint_planning: true},
   goal_token: 'goal:1:hash', goal: {origin: 'astra_finalize', approval_status: 'draft', body: {intended_outcome: 'Build an exercise tracker'}}};
 assert.equal(classify(finalized).label, 'Approve plan');

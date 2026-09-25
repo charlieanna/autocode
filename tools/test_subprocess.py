@@ -107,7 +107,7 @@ class SubprocessFlow(unittest.TestCase):
         self.assertEqual(["FAIL"], [row["validation"]["verdict"] for row in state["validation_archive"]])
         self.assertIn("Keep Unicode support", state["goal_contract"]["body"]["constraints"])
         self.assertEqual(1, sum(e["kind"] == "goal_approval" for e in state["user_events"]))
-        # Sol's failing finding and Astra's structured REWORK finding share one ledger,
+        # The Validator's failing finding and the Plan Reviewer's structured REWORK finding share one ledger,
         # were linked to the correction task, and were closed by the reviewers' next reports.
         ledger = state["findings_ledger"]
         self.assertEqual({"sol", "astra"}, {row["source"] for row in ledger})

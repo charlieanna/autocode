@@ -58,7 +58,7 @@ class ConversationTests(unittest.TestCase):
         self.assertTrue(evidence[0][3].is_dir())
         self.assertFalse(any(self.root.rglob('.git')))
         self.assertIsNone(doc['attachment'])
-        self.assertEqual(['You', 'GLM'], [m['speaker'] for m in doc['messages']])
+        self.assertEqual(['You', 'Planner'], [m['speaker'] for m in doc['messages']])
         self.assertEqual(['received', 'received'], [m['status'] for m in doc['messages']])
         self.assertEqual(0o600, (self.root / (doc['id'] + '.json')).stat().st_mode & 0o777)
         self.assertFalse(any(k.startswith('_') for k in doc))

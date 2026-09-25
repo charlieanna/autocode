@@ -33,7 +33,7 @@ const idlePlanning={...joint,stages:[done('astra_discovery','glm'),done('astra_f
 assert.equal(context.completedPlanningStep(idlePlanning,'glm').stage,'astra_discovery');
 assert.equal(context.completedPlanningStep(idlePlanning,'astra').stage,'astra_finalize');
 const migratedPlanning={...joint,goal:{approval_status:'approved'},stages:[done('astra_discovery','astra')]};
-assert.equal(context.completedPlanningStep(migratedPlanning,'glm'),undefined,'approval does not invent a GLM step');
+assert.equal(context.completedPlanningStep(migratedPlanning,'glm'),undefined,'approval does not invent a Planner step');
 assert.equal(context.completedPlanningStep(migratedPlanning,'astra').stage,'astra_discovery');
 assert.equal(context.completedPlanningStep({...joint,stages:[done('glm_revise','glm',{rejected:true})]},'glm'),undefined);
 console.log('Planning UI routing and approval checks passed.');
@@ -54,10 +54,10 @@ assert.equal(payloadContext.conversationStatus({status:'thinking'}),'Thinking…
 assert.equal(payloadContext.conversationStatus({status:'ready',attachment:{status:'starting'}}),'Connecting project');
 assert.equal(payloadContext.conversationStatus({status:'error'}),'Needs attention');
 assert.deepEqual(plain(payloadContext.orderedMessages([
- {text:'Astra final plan',created_at:'2026-09-20T12:03:00Z'},
- {text:'GLM question',created_at:'2026-09-20T12:00:00Z'},
+ {text:'Plan Reviewer final plan',created_at:'2026-09-20T12:03:00Z'},
+ {text:'Planner question',created_at:'2026-09-20T12:00:00Z'},
  {text:'My answer',created_at:Date.parse('2026-09-20T12:01:00Z')/1000}
-])).map(message=>message.text),['GLM question','My answer','Astra final plan']);
+])).map(message=>message.text),['Planner question','My answer','Plan Reviewer final plan']);
 
 // Lost POST responses retain their idempotency key across page lifetimes.
 const storage=new Map();let ids=0;

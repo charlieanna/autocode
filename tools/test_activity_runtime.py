@@ -400,7 +400,7 @@ class ActivityRuntimeTests(unittest.TestCase):
                   'changed_files': ['greet.py'], 'commands_run': [], 'results': ['Hello, fixture'],
                   'remaining_risks': [], 'evidence_refs': ['event:quiet-check'],
                   'addressed_requirements': ['Greet a valid name'], 'untested_behavior': ['Invalid input'],
-                  'recommended_checks': ['Sol executes valid and invalid CLI cases']}
+                  'recommended_checks': ['The Validator executes valid and invalid CLI cases']}
         script = f'''
             import json, shlex, subprocess, sys
             from pathlib import Path

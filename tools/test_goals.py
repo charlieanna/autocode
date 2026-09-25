@@ -264,7 +264,7 @@ class GoalTests(unittest.TestCase):
         g.assign_task(self.state, next_task, s.snapshot(self.root))
         current = self.validation()
         val = self.state["validation"]
-        # Sol's report: both human criteria pending, the technical one passes.
+        # The Validator's report: both human criteria pending, the technical one passes.
         by_id = {row["id"]: row for row in val["criterion_results"]}
         by_id["C1"]["status"] = "NOT_VERIFIED"
         by_id["C2"]["status"] = "NOT_VERIFIED"

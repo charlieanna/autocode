@@ -28,7 +28,7 @@ class FinalWorkflowTests(unittest.TestCase):
             'untested_behavior':[],'recommended_checks':[]}
         value['continuation']={'action':action,'plan':['Approved task'],'reason':'Concrete debugging issue',
             'question':'Why does the boundary fail?', 'self_assessment':self.report()['validation'],
-            'next_task':{'kind':'implement','objective':'Next approved GLM batch','affected_paths':['greet.py'],
+            'next_task':{'kind':'implement','objective':'Next approved Builder batch','affected_paths':['greet.py'],
                 'milestone_id':'M1','requirements':['Preserve greeting'],'acceptance_criteria':['C1'],
                 'validation_plan':['Run greeting tests']}}
         return value
@@ -41,7 +41,7 @@ class FinalWorkflowTests(unittest.TestCase):
         self.enable();goal=copy.deepcopy(self.state['goal_contract']);iteration=self.state['iteration']
         self.implement()
         self.assertEqual('terra',self.state['next_stage'])
-        self.assertEqual('Next approved GLM batch',self.state['current_task']['objective'])
+        self.assertEqual('Next approved Builder batch',self.state['current_task']['objective'])
         self.assertEqual(goal,self.state['goal_contract'])
         self.assertEqual(iteration+1,self.state['iteration'])
 
@@ -137,7 +137,7 @@ class FinalSubprocessTests(test_workflow.WorkflowSubprocessTests):
         self.assertEqual(before,(run/'state.json').read_bytes())
 
     def test_rework_returns_to_glm_then_independent_checkpoint(self):
-        # Explicit consultation is followed by implementation, never an Astra milestone call.
+        # Explicit consultation is followed by implementation, never a Plan Reviewer milestone call.
         run=self.prepare('sol-escalation')
         self.launch(['--run-dir',str(run),'--resume-paused','--no-chat'],0)
         _,state=self.saved()

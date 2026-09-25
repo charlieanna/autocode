@@ -141,7 +141,7 @@ class ControllerFindingsTests(unittest.TestCase):
 
     def test_completion_rejects_a_blocking_finding_in_the_decision_and_the_ledger(self):
         self.state["current_task"] = {**self.state["current_task"], "id": "task-complete"}
-        # A passing Sol validation exists, so only the findings stand between the run and completion.
+        # A passing Validator validation exists, so only the findings stand between the run and completion.
         evidence = self.run / "sol.jsonl"
         evidence.write_text(json.dumps({"type": "item.completed", "item": {"id": "check", "type": "command_execution",
             "command": "python3 -m unittest", "exit_code": 0, "aggregated_output": "PASS"}}))

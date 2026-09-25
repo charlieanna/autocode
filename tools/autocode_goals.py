@@ -762,11 +762,12 @@ def resolve_passing_checkpoint(state, question_id, text):
             or request.get("kind") != "blocker" or request.get("proposed_delta")
             or len(questions) != 1 or questions[0].get("id") != question_id
             or not choices or text != choices[0]
-            or not choices[0].startswith("Reconcile ") or "Sol evidence" not in choices[0]
+            or not choices[0].startswith("Reconcile ")
+            or ("Sol evidence" not in choices[0] and "Validator evidence" not in choices[0])
             or question_id in state.get("answers", {}) or not approved(state)):
         raise ValueError("Checkpoint reconciliation requires the explicit saved choice and approved goal")
     description = str(request.get("discovered", "")).lower()
-    if not all(word in description for word in ("checkpoint", "sol", "evidence")):
+    if not all(word in description for word in ("checkpoint", "evidence")) or not ("sol" in description or "validator" in description):
         raise ValueError("The pending request is not a Validator milestone checkpoint")
     current = s.snapshot(Path(state["workspace"]))
     if not checkpoints.evidence_ready(state, current) or missing_human_reviews(state):

@@ -165,7 +165,7 @@ else:
     complete = stage == "astra_review"
     result = {**common, "status": "COMPLETE" if complete else "CONTINUE",
               "acceptance_criteria": [{**c, "status": "verified" if complete else "unverified",
-                                       "evidence": "Sol receipt executed the greeting CLI"} for c in data["acceptance_criteria"]],
+                                       "evidence": "Validator receipt executed the greeting CLI"} for c in data["acceptance_criteria"]],
               "next_objective": "" if complete else "Implement a greeting CLI and reject empty input",
               "next_task": {"kind": "none" if complete else "implement", "milestone_id": "" if complete else "M1",
                             "requirements": [] if complete else ["Print a greeting for valid input and reject empty input"],
@@ -173,7 +173,7 @@ else:
                             "validation_plan": [] if complete else ["Run greet.py with Ada and an empty name"],
                             "findings": []},
               "findings": [], "finding_dispositions": [], "agreed_limitations": ["Local command-line use only"] if complete else [],
-              "evidence": ["Sol receipt"], "blocker": "",
+              "evidence": ["Validator receipt"], "blocker": "",
               "plan": ["Implement greeting", "Run both cases"], "affected_paths": ["greet.py"]}
 
 if stage == 'sol' and os.environ.get('AUTOCODE_FIXTURE_MISSING_CHECK_EXIT'):

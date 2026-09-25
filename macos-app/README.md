@@ -16,7 +16,7 @@ Autopilot.app
        └─ dashboard server ──► python tools/autopilot.py …    (--runner flag)
 ```
 
-Project-free "New conversation" chats talk directly to OpenCode planning (GLM),
+Project-free "New conversation" chats talk directly to OpenCode planning (Planner),
 as in the browser; attaching such a conversation to a project launches the task
 through autopilot.
 

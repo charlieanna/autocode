@@ -1,4 +1,4 @@
-"""Revision reuse with real source snapshots and pinned offline Sol evidence."""
+"""Revision reuse with real source snapshots and pinned offline Validator evidence."""
 import copy
 import unittest
 from pathlib import Path

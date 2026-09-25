@@ -129,7 +129,7 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
         complete = False
     result = {**common, "status": "COMPLETE" if complete else "REWORK" if rework else "CONTINUE",
               "acceptance_criteria": [{**c, "status": "verified" if complete else "unverified",
-                                       "evidence": "Sol executed both CLI cases"} for c in data["acceptance_criteria"]],
+                                       "evidence": "Validator executed both CLI cases"} for c in data["acceptance_criteria"]],
               "next_objective": "" if complete else "Implement a greeting CLI and reject empty input",
               "next_task": {"kind": "none" if complete else "implement", "milestone_id": "" if complete else "M1",
                             "requirements": [] if complete else ["Print a greeting for valid input and reject empty input"],
@@ -137,12 +137,12 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
                             "validation_plan": [] if complete else ["Run greet.py with Ada and an empty name"],
                             "findings": []},
               "findings": [{"id": "", "severity": "high", "finding": "Empty names are accepted by greet.py",
-                            "evidence": "Sol events", "blocking": True}] if rework else [],
+                            "evidence": "Validator events", "blocking": True}] if rework else [],
               "agreed_limitations": ["Local command-line use only"] if complete else [],
               "finding_dispositions": ([{"id": open_finding_id("astra", "Empty names are accepted by greet.py"),
-                                          "disposition": "resolved", "evidence": "Sol events"}]
+                                          "disposition": "resolved", "evidence": "Validator events"}]
                                        if complete and open_finding_id("astra", "Empty names are accepted by greet.py") else []),
-              "evidence": ["Sol events"], "blocker": "",
+              "evidence": ["Validator events"], "blocker": "",
               "plan": ["Implement greeting", "Run both cases"], "affected_paths": ["greet.py"]}
     if advance:
         result.update(next_objective='Implement goodbye CLI', affected_paths=['bye.py'])
@@ -203,7 +203,7 @@ else:
         result = {"validation": result, "consult_sol": {"requested": False, "question": "", "reason": ""},
             "decision": {**common, "status": "COMPLETE" if passed else "REWORK",
                 "acceptance_criteria": [{**c, "status": "verified" if passed else "unverified",
-                    "evidence": "Independent Astra executed CLI cases; event:check"} for c in data["acceptance_criteria"]],
+                    "evidence": "Independent Plan Reviewer executed CLI cases; event:check"} for c in data["acceptance_criteria"]],
                 "next_objective": "" if passed else "Reject empty input and rerun the CLI tests",
                 "next_task": {"kind": "none" if passed else "implement", "milestone_id": "" if passed else "M1",
                     "requirements": [] if passed else ["Reject empty input"],
@@ -217,19 +217,19 @@ if stage=='terra' and (data.get('workflow') or {}).get('mode')=='glm_final_audit
     valid=subprocess.run([sys.executable,'greet.py','Ada'],capture_output=True,text=True)
     invalid=subprocess.run([sys.executable,'greet.py',''],capture_output=True,text=True)
     passed=valid.returncode==0 and valid.stdout=='Hello, Ada\n' and invalid.returncode==2
-    command='fixture: GLM tests valid and invalid greetings'
+    command='fixture: Builder tests valid and invalid greetings'
     print(json.dumps({'type':'item.completed','item':{'id':'self-check','type':'command_execution',
         'command':command,'exit_code':0 if passed else 1,'aggregated_output':'fixture checks'}}))
     assessment={**common,'verdict':'PASS' if passed else 'FAIL','findings':[],'finding_dispositions':[],'checks_run':[command],
         'unverified_criteria':[], 'checks':[{'command':command,'exit_code':0 if passed else 1,'evidence_ref':'event:self-check'}],
         'end_to_end_result':{'status':'PASS' if passed else 'FAIL','summary':'Builder self-check','evidence_refs':['event:self-check']},
         'criterion_results':[{'id':'C1','status':'PASS' if passed else 'FAIL','evidence_refs':['event:self-check']}]}
-    second=data.get('next_action')=='Second GLM batch'
+    second=data.get('next_action')=='Second Builder batch'
     consulted=bool(data.get('consultation_reports'))
     action=('REQUEST_FINAL_AUDIT' if consulted else 'ESCALATE_SOL') if mode=='sol-escalation' else ('REQUEST_FINAL_AUDIT' if second else 'CONTINUE')
     result['untested_behavior']=[]
     result['continuation']={'action':action,'plan':['Finish approved greeting'],
-        'next_task':{'kind':'implement','objective':'Second GLM batch','affected_paths':['greet.py'],
+        'next_task':{'kind':'implement','objective':'Second Builder batch','affected_paths':['greet.py'],
             'milestone_id':'M1','requirements':['Verify the final greeting'],'acceptance_criteria':['C1'],
             'validation_plan':['Run valid and invalid CLI cases']},
         'reason':'Fixture-specific debugging question' if action=='ESCALATE_SOL' else 'Continue approved work',
