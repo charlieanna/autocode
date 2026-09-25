@@ -208,6 +208,15 @@ natural-language permissions into OS policy. Codex sandbox and connector setting
 remain responsible for individual tool permissions. Windows-native support was not
 tested; inherited POSIX locking/process inspection requires macOS/Linux or WSL.
 
+## Retained compatibility surface
+
+The `autocode-orchestrator` CLI entry point and `tools/autocode_orchestrator.py`
+are kept as a thin alias over `autopilot` (`from .autopilot import *`). Nothing in
+this repository invokes that command; it is retained only so external scripts and
+documented invocations keep working. The saved stage name `orchestrator` is separate
+and remains the live milestone scheduler — it is not this alias. Dropping the CLI
+name would be a breaking change and was deferred.
+
 ## Extraction provenance
 
 Initial source SHA-256 values recorded when copying the original runner:
