@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 from pathlib import Path
 try:
     from . import autocode_support as support, autocode_goals as goals
@@ -174,35 +175,41 @@ def start_planning(state):
     state.update(status="RUNNING", phase="PLANNING", next_stage="astra_challenge", pending_questions=[])
 
 
-def _check_code_refs(state, refs):
+def _check_code_refs(state, refs, field="code_refs"):
+    if not state.get("workspace"):
+        return
     root = Path(state.get("workspace") or "")
     if not root.is_dir():
         return
-    files = [path for path in root.rglob("*")
-             if path.is_file() and ".git" not in path.parts and ".autocode" not in path.parts
-             and not path.name.endswith(".pyc")]
+    files = planning_unit.workspace_inventory(root, state.get("task", ""))["files"]
     if not files:
         return
     if not refs:
-        raise ValueError("Plan must cite existing source in code_refs")
+        raise ValueError(f"Report must cite existing source in {field}")
     for ref in refs:
         raw, _, line_text = str(ref).partition(":")
         target = (root / raw).resolve()
         if not target.is_relative_to(root.resolve()) or not target.is_file():
-            raise ValueError(f"code_refs entry {ref} is not a file in the workspace")
+            raise ValueError(f"{field} entry {ref} is not a file in the workspace")
         if line_text:
-            try:
-                line = int(line_text)
-            except ValueError as error:
-                raise ValueError(f"code_refs entry {ref} has no line number") from error
+            citation = re.fullmatch(r"(\d+)(?:-(\d+))?(?:\s+.*)?", line_text)
+            if not citation:
+                raise ValueError(f"{field} entry {ref} has no line number")
+            line = int(citation[1])
+            end = int(citation[2] or citation[1])
             count = len(target.read_text(errors="replace").splitlines())
-            if line < 1 or line > max(count, 1):
-                raise ValueError(f"code_refs entry {ref} points past the end of the file")
+            if line < 1 or end < line or end > max(count, 1):
+                raise ValueError(f"{field} entry {ref} points past the end of the file")
 
 
 def _bind_plan(state, value, origin):
     if "contract" not in value:
         return
+    if (origin == "glm_draft" and value["contract"].get("open_blocking_questions")
+            and (value["contract"].get("milestones") or value["contract"].get("technical_approach")
+                 or value["contract"].get("initial_task", {}).get("kind") in ("implement", "validate"))):
+        raise ValueError("Unresolved blocking questions require a clarification-only draft: "
+                         "technical_approach=[] and milestones=[]; no executable initial_task")
     goals.check_requirement_trace(state, value, value["contract"])
     if origin in ("glm_draft", "glm_revise"):
         _check_code_refs(state, value.get("code_refs") or [])
@@ -222,6 +229,13 @@ def apply_planning(state, stage, value, record):
         if previous:
             state.setdefault("requirements_history", []).append(copy.deepcopy(previous))
         goals.check_requirement_handoff(state, value)
+        input_refs = {"task", *state.get("answers", {})}
+        input_refs.update(event["id"] for event in state.get("user_events", []) if event.get("id"))
+        # External design/spec references may accompany local inspection evidence;
+        # they are not filesystem paths and do not satisfy the source-inspection gate.
+        local_refs = [ref for ref in value["source_refs"]
+                      if ref not in input_refs and not ref.startswith(("https://", "http://"))]
+        _check_code_refs(state, local_refs, "source_refs")
         state["requirements_handoff"] = {"report": copy.deepcopy(value), "output": record["output"]}
         state.update(status="RUNNING", phase="PLANNING", next_stage="astra_discovery",
                      discovery_summary=value["summary"])
@@ -260,6 +274,10 @@ def apply_planning(state, stage, value, record):
         if any(not r["evidence_refs"] for r in value["responses"]):
             raise ValueError("GLM responses must cite investigated evidence")
         _bind_plan(state, value, stage)
+        if state.get("pending_questions"):
+            reports[stage] = {"report": copy.deepcopy(value), "output": record["output"]}
+            state["discovery_summary"] = value["summary"]
+            return
         state.update(status="RUNNING", phase="PLANNING", next_stage="astra_finalize", pending_questions=[])
     elif stage == "astra_finalize":
         concerns = reports["astra_challenge"]["report"]["concerns"]

@@ -64,10 +64,10 @@ if stage == "requirements_gather":
         "required_behaviors": draft["required_behaviors"],
         "constraints": draft["constraints"],
         "acceptance_tests": ["Valid and invalid CLI input have the requested outcomes"],
-        "source_refs": ["task"],
+        "source_refs": [f"{name}:1" for name in ("greet.py", "bye.py") if Path(name).is_file()],
         "proposed_assumptions": ["Use a local CLI if the user chooses that interface"],
         "open_questions": draft["open_blocking_questions"],
-        "requirements": [], "ignored_statements": [], "conflicts": [],
+        "requirements": [], "ignored_statements": [], "conflicts": [], "proposed_reframes": [],
     }
 elif stage == "astra_discovery":
     draft = body(questions=not data["saved_answers"], human=mode == "standard")
@@ -85,6 +85,9 @@ elif stage == "astra_discovery":
         draft["accepted_assumptions"].append({"text": feedback["text"], "basis": "user_feedback", "answer_id": feedback["id"]})
     result = {"contract": draft, "summary": "Build a small local greeting CLI with a clear invalid-input failure"}
     if data.get("joint_planning"):
+        if draft["open_blocking_questions"]:
+            draft["milestones"] = []
+            draft["technical_approach"] = []
         source = next((name for name in ("greet.py", "bye.py") if Path(name).is_file()), None)
         result.update(code_refs=[f"{source}:1"] if source else ["goal_contract.body"],
                       alternatives=["A web endpoint would need deployment"],

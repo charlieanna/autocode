@@ -234,6 +234,17 @@ def _saved_user_basis(state, basis, answer_id):
     return False
 
 
+def _cites_saved_user_event(state, evidence):
+    """Accept a saved event ID alone or as a whole token in an explanation."""
+    ids = {key for key in state.get("answers", {}) if _saved_user_basis(state, "user_answer", key)}
+    ids.update(event.get("id") for event in state.get("brief_feedback", [])
+               if _saved_user_basis(state, "user_feedback", event.get("id")))
+    known = any(re.search(r"(?<![\w-])" + re.escape(key) + r"(?![\w-])", evidence) for key in ids)
+    # A valid citation must not mask a fabricated feedback ID alongside it.
+    event_tokens = re.findall(r"(?<![\w-])(?:feedback|intervention)-[\w-]+", evidence)
+    return known and all(key in ids for key in event_tokens)
+
+
 def revision_guard(state, body, changes, origin):
     """A planner revision may not drop protected text or widen permissions on its own."""
     previous_contract = state.get("goal_contract") or {}
@@ -323,12 +334,18 @@ def check_requirement_handoff(state, report):
     ignored = report.get("ignored_statements", [])
     if not isinstance(ignored, list):
         raise ValueError("ignored_statements must be an array")
-    for sentence in cue_sentences(state.get("task")):
+    for sentence in (sentence for source in sources for sentence in cue_sentences(source)):
         if any(quote in sentence or sentence in quote for quote in quotes):
             continue
         if any(str(note).strip() and (str(note).strip() in sentence or sentence in str(note)) for note in ignored):
             continue
         raise ValueError("A requirement-like sentence was neither quoted nor explicitly ignored: " + sentence[:120])
+    questions = {q["id"] for q in report.get("open_questions", [])}
+    for reframe in report.get("proposed_reframes", []):
+        if reframe["requirement_id"] not in seen or not reframe["proposal"].strip():
+            raise ValueError("A proposed reframe must name an existing requirement and a replacement proposal")
+        if reframe["question_id"] not in questions and reframe["question_id"] not in state.get("answers", {}):
+            raise ValueError("A proposed reframe needs an explicit user acceptance question")
 
 
 def check_requirement_trace(state, report, contract):
@@ -343,7 +360,10 @@ def check_requirement_trace(state, report, contract):
     for row in trace:
         if not isinstance(row, dict) or row.get("disposition") not in ("covered", "excluded", "superseded"):
             raise ValueError("requirement_trace entries need requirement_id, disposition and evidence")
-        by_id[row.get("requirement_id")] = row
+        rid = row.get("requirement_id")
+        if rid in by_id or rid not in {r["id"] for r in requirements}:
+            raise ValueError("requirement_trace must contain each known requirement exactly once")
+        by_id[rid] = row
     missing = [row["id"] for row in requirements if row["id"] not in by_id]
     if missing:
         raise ValueError("Planner dropped requirements with no trace: " + ", ".join(missing))
@@ -373,15 +393,23 @@ def check_requirement_trace(state, report, contract):
             raise ValueError(f"Requirement {row['id']} is not covered by a behavior or criterion")
         if disposition == "excluded" and evidence not in exclusions:
             raise ValueError(f"Requirement {row['id']} is not present in scope_exclusions")
-        if disposition == "superseded" and not _saved_user_basis(state, "user_feedback", evidence) and not _saved_user_basis(state, "user_answer", evidence):
+        if disposition == "superseded" and not _cites_saved_user_event(state, evidence):
             raise ValueError(f"Requirement {row['id']} cannot be superseded without a saved user event")
     conflicts = handoff.get("conflicts") or []
     open_questions = contract.get("open_blocking_questions") or []
     for conflict in conflicts:
         ids = conflict.get("requirement_ids") or []
-        settled = all(by_id.get(rid, {}).get("disposition") == "superseded" for rid in ids)
+        # A correction replaces the old side, not both sides of a contradiction.
+        # For larger conflict sets stay conservative until at most one remains.
+        settled = (bool(ids) and all(rid in by_id for rid in ids)
+                   and sum(by_id[rid]["disposition"] != "superseded" for rid in ids) <= 1
+                   and any(by_id[rid]["disposition"] == "superseded" for rid in ids))
         if not settled and not open_questions:
             raise ValueError("Unresolved requirement conflict must be a blocking question: " + conflict.get("description", ""))
+    for reframe in handoff.get("proposed_reframes", []):
+        qid = reframe["question_id"]
+        if qid not in state.get("answers", {}) and qid not in {q["id"] for q in open_questions}:
+            raise ValueError("Unaccepted requirement reframe must remain a blocking question: " + qid)
 
 
 def invalidate(state, reason):
@@ -997,6 +1025,14 @@ string, an exact acceptance criterion ID, or a short explanation citing a define
 criterion ID as a case-sensitive whole token (for example 'AC1 verifies this').
 'AC1' does not match 'AC10', 'XAC1', or 'ac1'. Unknown IDs from a defined ID
 family, including a mixture such as 'AC1 and AC99', do not establish coverage.
+For superseded requirements, evidence must cite an exact saved answer or feedback
+event ID as a whole token; an explanation around that ID is allowed. Retain the
+replacement requirement as covered. Do not mark both sides superseded just to
+resolve a conflict. A question-free plan may resolve a two-sided conflict by
+superseding the old side with a saved correction and covering the replacement.
+A superseded trace does not neutralize a contradictory active required_behaviors entry:
+reword that entry using the saved correction and an exact contract_changes record.
+Keep the old wording in the historical handoff, not as an unconditional active rule.
 When revising a plan after review, copy required_behaviors, scope_exclusions,
 constraints, important_failure_cases, acceptance_criteria (including verification
 methods), and permission_boundaries verbatim from goal_contract.body. Add new
@@ -1010,6 +1046,9 @@ Each milestones[].acceptance_criteria must contain ONLY those existing ID string
 for example ["AC1", "AC2"], never descriptions of checks or shell commands.
 Every milestone needs a nonempty objective and at least one acceptance criterion ID;
 together the milestones must cover all defined acceptance criteria.
+Exception for clarification-only discovery: while blocking questions remain,
+technical_approach=[] and milestones=[]; retain known requirements and questions.
+Do not invent an implementation to fill those arrays before scope is settled.
 Set depends_on on EVERY milestone. Use [] when it can start independently from
 the same approved contract, and IDs of prerequisite milestones otherwise.
 Check shared interfaces, ownership and validation boundaries before declaring
