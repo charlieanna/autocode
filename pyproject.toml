@@ -21,7 +21,6 @@ autoresolver = "autocode_cli.autoresolver:cli"
 autocode-dashboard = "autocode_cli.dashboard.agent_console:main"
 autocode-ui = "autocode_cli.autocode_ui:cli"
 autocode-tasks = "autocode_cli.autocode_tasks:cli"
-hello-world = "autocode_cli.hello:main"
 
 [tool.setuptools]
 packages = ["autocode_cli", "autocode_cli.dashboard", "autocode_cli.providers", "autocode_cli.units"]

@@ -1,23 +1,32 @@
 # Autocode
 
-## Hello-world CLI
+A conversation-first runner for multi-agent coding. Describe a rough idea, approve a
+plan, and Autocode coordinates Requirements Gathering → Planning → Review →
+Implementation → Validation → Completion across separate model sessions — with you
+in control at every decision point.
 
-Install the package, then run:
+Runs on top of [OpenCode](https://opencode.ai) 1.x (default) or [Codex](https://github.com/openai/codex),
+in any committed Git workspace.
 
-```sh
-hello-world
-# Hello, World!
+## Why Autocode
 
-hello-world Ada
-# Hello, Ada!
-```
+- **Roles do one job.** Requirements, planning, building, validation, and completion
+  are separate model sessions with separate budgets — not one agent grading its own homework.
+- **You approve the plan.** Implementation starts only after you explicitly approve
+  the displayed brief. A writer's self-assessment never authorizes completion.
+- **Evidence-based completion.** Green tests and changed files are not completion.
+  Independent validation of every acceptance criterion is.
+- **Crash-safe and resumable.** Checkpoints, atomic state writes, worktree isolation,
+  and bounded recovery. Interrupt it; resume it; nothing gets silently replayed.
+- **Honest status.** Stale state is labeled stale. Failures pause and explain. It
+  never quietly spends your budget on a dead end.
 
-Start with a rough idea and discuss it with the Requirements Planner. It helps define the smallest
-useful end-to-end product, asks focused questions, and drafts a versioned build brief.
-The Plan Reviewer challenges that draft; the Requirements Planner revises; the Plan Reviewer finalizes. You can revise the brief
-in the same conversation. Implementation starts only after you explicitly approve it.
+Compared to "just use one coding agent": Autocode adds process — plan review,
+independent validation, explicit approval gates, and recovery — in exchange for
+trustworthy completion. That trade is worth it for work you need to be able to rely
+on. See [Reliability priorities](RELIABILITY.md) for the project's current focus.
 
-After approval, Autocode handles the handoffs:
+## How it works
 
 ```text
 You → Requirements Gatherer: rough idea → saved requirements report
@@ -31,1377 +40,128 @@ Builder → Validator → Completion Owner
    └──────── REWORK ───────┘
 ```
 
-The Plan Reviewer owns final planning decisions. On new joint runs, the runner-owned
-Autopilot dispatches AutoCode to schedule independent milestone Builders after approval, falling back
-to one Builder when work cannot safely run in parallel. Each Builder implements one bounded
-task. A separate Validator independently inspects and tests the combined code, then the
-Completion Owner proposes completion or rework for Autopilot to evaluate. They all work
-from the same approved brief; you do not explain the product to each agent or relay
-their prompts. The runner saves decisions, tasks and evidence so it can resume.
+| Role | Job |
+| --- | --- |
+| **Requirements Gatherer** | Clarify outcome, scope, constraints, definition of done |
+| **Planner** | Draft the task DAG and technical approach |
+| **Plan Reviewer** | Challenge the draft; owns final planning decisions |
+| **Builder** | Implement one bounded task |
+| **Validator** | Independently inspect and test the combined code |
+| **Completion Owner** | Propose `COMPLETE` / `REWORK` / `CONTINUE` / `BLOCKED` |
 
-### Four units controlled by Autopilot
+`autopilot` is the deterministic controller that wires these together: it dispatches
+units, coordinates recovery, pauses for your approval, and enforces the completion
+gate. Each role's model and reasoning level is configurable. Details:
+[Workflow](docs/workflow.md) · [Models and escalation](docs/models.md).
 
-The same repository contains four callable units:
+## Quickstart
 
-| Unit | Owns | Handoff |
-| --- | --- | --- |
-| Autoplanner | Separate requirements, planner, and plan-reviewer sessions | User-approved contract and task DAG |
-| Autocode | Next-task planning, parallel Builders, implementation and integration | Build candidate with source revision |
-| Autoreview | Independent validation and completion-owner review | Evidence-backed review result |
-| Autoresolver | Read-only diagnosis of reviewer-requested rework | Evidence-linked, bounded repair DAG and retests |
+### Prerequisites
 
-`autopilot` is the deterministic workflow controller in `tools/autopilot.py`. It calls
-all four units, consumes their results, selects the next stage, coordinates recovery,
-pauses for approval, and enforces the final completion gate. Unit reports are proposals;
-Autopilot checks them against the approved plan and current evidence before advancing.
-Planning revisions, implementation handoffs, review outcomes and repair routing are
-applied by Autopilot. The shared runtime supplies provider calls, locking and persistence.
+Python 3.11+, Git, and **OpenCode 1.x** connected to ChatGPT and Z.ai
+(live-checked with 1.18.31). macOS/Linux; Windows needs WSL.
+Full details: [Install](docs/install.md).
 
-The existing `autocode` and `autocode-orchestrator` commands delegate to the same
-controller, including dashboard launches. `tools/autocode_orchestrator.py` is a
-compatibility import. The saved stage named `orchestrator` remains the milestone
-scheduler inside Autocode so existing runs can resume. Autopilot owns the overall loop.
-
-Use the whole workflow, or invoke one unit at a time:
+### Install
 
 ```sh
-autopilot "Build a greeting CLI" --workspace /path/to/project --chat
-# Or invoke individual units at their saved boundaries:
-autoplanner "Build a greeting CLI" --workspace /path/to/project --chat
-# After approval, this stops before any Builder starts.
-# Use the workspace and run directory printed by the planner:
-autocode-build --workspace /path/to/run-workspace --run-dir /path/to/run --no-chat
-autoreview --workspace /path/to/run-workspace --run-dir /path/to/run --no-chat
-# If review requests rework, diagnose it without launching a Builder:
-autoresolver --workspace /path/to/run-workspace --run-dir /path/to/run --no-chat
-# Let Autopilot continue through any remaining build/review cycles:
-autopilot --workspace /path/to/run-workspace --run-dir /path/to/run --no-chat
-```
+# Run from a checkout:
+python3 /path/to/autocode/tools/autocode.py "Your rough idea" --workspace /path/to/project
 
-Each unit command stops successfully before dispatching another unit. Clarification,
-approval and blockers keep their existing explicit checkpoints. `autocode --unit
-autoplanner|autocode|autoreview|autoresolver` provides the same selection; omitting it runs all units.
-
-Unit implementation lives in `tools/units/`. All four share a run directory and its
-authoritative `state.json`; they preserve separate model roles and sessions. Versioned
-JSON handoffs are saved under `handoffs/<unit>/<hash>.json`, with paths in the state's
-`unit_handoffs` field: approved plan, build candidate, and review result. These exports
-are inspectable snapshots, not standalone authorization tokens. Execution still checks
-the saved approval and current evidence; editing a handoff cannot approve a plan or pass
-a review. Existing runs acquire handoffs when they next progress, without migrating
-their approval or replaying completed stages.
-
-In the standard workflow, a reviewer's `REWORK` decision routes to Autoresolver,
-then back to Autocode and independent review. Autoresolver inherits the Astra model
-configuration but has its own saved session. It cannot implement, approve or complete
-a task. Its first version emits one bounded repair task (a one-node DAG with
-`depends_on: []`), preserving integrated-batch accountability. It pins the reviewed
-source, task, contract and validation evidence; stale inputs pause instead of launching
-a writer. Requirements or permission changes still require a user decision and, where
-applicable, a revised approved plan.
-
-Transport/report-format recovery and safety pauses remain runner-owned. Existing
-explicit alternate workflows retain their configured routing; this does not override
-their final-audit-only policy or automatically retry failed integration operations.
-
-New standard-workflow runs use a persisted Builder retry policy per approved milestone:
-the configured Builder gets one ordinary retry, then one stronger-model attempt
-(default `gpt-6-sol` with `high` reasoning), then a safety pause. Set
-`--builder-strong-model MODEL` when creating a run to select the stronger model.
-Explicit model pins and custom providers are never overridden. Existing saved runs
-without this policy retain their previous routing. Restarting/resuming cannot reset
-an exhausted budget. Scope violations, approval requests and transport safety pauses
-are not automatically retried by this policy.
-
-An implementation attempt with no source changes is no progress, not a build candidate.
-The dashboard's named milestone checkpoints distinguish recorded implementation/tool
-activity from independent verification; tool completions alone never verify criteria.
-
-Works against any committed Git workspace; no IdleCampus files or services are required.
-
-Requires Python 3.11+, Git, and OpenCode 1.x connected to ChatGPT and Z.ai.
-macOS/Linux are supported; Windows needs WSL because the inherited process and lock
-mechanisms use POSIX APIs. Native process supervision uses the psutil runtime
-dependency. Installation does not change Codex or OpenCode settings. `--engine codex`
-still starts a Codex-only run.
-
-The current development priority is **reliable completion of agreed work**. Focus on
-completion, recovery, trustworthy status, and clear requests for human input. New
-features require an identified user need and an explicit scope decision; competitor
-feature parity is not a reason to expand scope. See [the reliability priorities](RELIABILITY.md).
-
-## Run or install
-
-Run directly from this checkout:
-
-```sh
-python3 /path/to/autocode/tools/autocode.py "Build a greeting CLI" \
-  --workspace /path/to/project --reasoning-effort high
-```
-
-Install the command once with `pipx` to invoke it from any project:
-
-```sh
+# Or install a command once:
 pipx install --editable /path/to/autocode
 ```
 
-Or install into your own virtual environment:
+### Run
 
-```sh
-python3 -m venv .venv
-.venv/bin/pip install .
-.venv/bin/autocode "Build a greeting CLI" --workspace /path/to/project
-```
-
-New runs use joint Requirements Planner/Plan Reviewer work by default. An approved
-three-role OpenCode run can add GLM planning at a clean execution boundary with
-`--joint-planning --resume-paused`. Its approved work and existing sessions remain;
-GLM joins the next brief revision. Native Codex, including Figma runs, supports
-`--engine codex --joint-planning`: requirements gathering, planning, and plan review
-run in separate read-only Codex sessions using the existing ChatGPT login.
-The three routes inherit the saved planning model unless explicitly selected with
-`--requirements-model`, `--glm-model`, and `--plan-reviewer-model` (bare GPT names).
-Adding joint planning to a saved Codex run at a clean execution or discovery boundary
-backs up the checkpoint, retains the work and existing sessions, and restarts at
-requirements gathering. The reviewed plan needs fresh approval before further
-implementation. Saved runs retain their engine and limits.
-
-| Role | CLI and billing route | Automatic escalation ladder |
-| --- | --- | --- |
-| Requirements Planner — clarification, exploration, draft, evidence-backed revision | OpenCode / Z.ai Coding Plan | Provider default |
-| Plan Reviewer (the legacy `astra` workflow role) — challenge and final planning decisions | OpenCode / ChatGPT login | Sol High → Sol XHigh → Astra High |
-| Builder — implementation | OpenCode / ChatGPT login | Terra Medium → Terra High → Terra XHigh → Terra Max |
-| Validator — independent validation, separate session | OpenCode / ChatGPT login | Sol High → Sol XHigh → Astra High |
-| Completion Owner — complete/rework decision, separate session | OpenCode / ChatGPT login | Sol Medium → Sol High → Astra High |
-
-Autocode advances exactly one rung after durable evidence that the current role
-struggled: an invalid completed response after report repair is exhausted, an
-operator-abandoned uncertain response, a Builder batch with no source progress, or
-failed validation routed back for implementation or revalidation. The next request
-uses the stronger rung and a fresh role session. Autocode does not silently replay
-the failed request, advances at most once for the same failed iteration, and never
-overwrites an explicit custom model/provider route.
-
-At approved, stopped stage boundaries, the runner consults the bounded resolver
-for report-only repair and independently recorded `BLOCKED` validation. A plain
-`FAIL` uses the normal review/rework loop without a resolver record or resolver
-failure count. Its ledger
-and decisions live in `state.json`; decision artifacts are marked `runner_owned`
-and make no model calls. The existing report-repair limit and persisted failure
-identity cap both apply before a resolver-authorized retry. Identical boundary
-requests reuse the saved outcome across restarts.
-
-This adapter permits continuation of the existing workflow, bounded report repair,
-or escalation. It does not authorize contract replanning, implementation replay,
-new permissions, or completion. Permission/goal requests and untyped agent
-`blocker` requests retain the user decision boundary; prose claiming an internal
-issue is not enough to grant authority. The policy's `ACTIONS` and
-`HUMAN_ONLY_KINDS` remain unchanged.
-
-From inside any committed Git project, the normal invocation is simply:
+From inside any committed Git project:
 
 ```sh
 autocode "Your rough idea"
 ```
 
-## Figma design and implementation
+You'll get a Requirements Planner conversation that clarifies the idea, a Plan
+Reviewer that challenges the draft, and then a plan you must approve before any
+code is written. From there the build → validate → complete loop runs within
+your configured limits.
 
-The Figma workflow uses Codex with the connected Figma plugin. Requirements planning,
-plan review, plan finalization, validation, and completion decisions use Sol; the
-review and decision steps default to Sol High. Figma editing uses Terra. OpenCode is
-not needed for this path. The plugin must
-be available in Codex CLI sessions; a connection only in another app is insufficient.
+### What you'll see
 
-```sh
-# Design only (both commands are equivalent):
-autocode-ui "Design a responsive team operations dashboard"
-autocode ui "Design a responsive team operations dashboard"
+1. **DISCOVERING** — answer a few focused questions about scope and definition of done.
+2. **AWAITING_GOAL_APPROVAL** — review the displayed brief; type feedback or `y` to approve.
+3. **EXECUTING** — Builders implement, a Validator checks the combined code independently.
+4. **COMPLETE** — every acceptance criterion has passing evidence, or a clear rework/blocked status.
 
-# Design, review, then hand the accepted Figma result to the implementation runner:
-autocode ui "Build a responsive team operations dashboard" --build
+Status at any time: `autocode --status`. Resume after an interruption:
+`autocode --resume-paused`.
 
-# Refine a selected file:
-autocode-ui "Refine the project detail layout" --figma-file "https://www.figma.com/design/FILEKEY/Project"
+## Commands at a glance
 
-# Implement an existing file, or import a completed design run:
-autocode "Build the supplied design" --figma-file "https://www.figma.com/design/FILEKEY/Project"
-autocode --ui-run /path/to/project/.autocode-ui/runs/RUN
-```
+| Command | Purpose |
+| --- | --- |
+| `autocode "Your rough idea"` | The normal full loop |
+| `autopilot` | Same loop, and the controller behind the dashboard/macOS app |
+| `autoplanner` / `autocode-build` / `autoreview` / `autoresolver` | Individual stages at their saved boundaries |
+| `autocode ui "…"` | Figma design (→ `--build` hands off to implementation) |
+| `autocode tasks flow.json` | Multi-lane task flows |
+| `autocode-dashboard --port 8767` | Local browser dashboard |
+| `autocode --status` / `--resume-paused` / `--approve-goal` | Checkpoint, resume, approve |
 
-The UI path first runs a complete planning exchange: a Requirements Planner drafts
-the brief, an independent Plan Reviewer challenges it, the planner revises it, and
-a Plan Finalizer accepts it or requests rework. It then runs Figma Builder →
-Design Validator → Completion Owner, with build/review rework. Models remain
-configurable separately from these role names. Every attempt has separate prompts,
-event logs and structured reports under `.autocode-ui/runs/`. Failed planning or
-design reviews cannot produce a build handoff.
-By default, planning allows one rework and design allows two. Use
-`--max-plan-reworks none --max-reworks none` to continue review loops until accepted
-or blocked. Numeric limits remain available; `0` allows no rework. The selected
-limits are recorded in the run state.
-An accepted handoff records the Figma URL and hashes of the brief and review reports;
-modified or incomplete artifacts are rejected when imported. The implementation
-roles inspect the live Figma reference again, since the file can change after design.
+Full flag reference: [CLI](docs/cli.md).
 
-`--build` starts the normal implementation brief and orchestration in Codex. Its
-initial product brief still needs approval. Subsequent visual checks use Figma
-comparisons and independent validation by default; they do not require another
-human visual approval. Add `--figma-review human` to a new implementation run if
-that review is wanted. Explicitly supplied review requirements still take precedence.
-The workflow uses the connected Figma editing tools, not an assumed Figma Make API.
+## Feature guides
 
-The Figma and code paths use the same durable Autocode stage driver. `autocode-ui`
-is an installed alias for `autocode ui`, not a separate orchestration product. Each
-target supplies its own prompts, report schemas and acceptance rules while sharing
-stage selection, checkpoint persistence, retry/skip behavior and terminal-state
-handling. With `--build`, the accepted Figma target hands off to the code target.
+| Guide | What's in it |
+| --- | --- |
+| [Install and run](docs/install.md) | Prerequisites, install paths, engine flags |
+| [Workflow](docs/workflow.md) | Planning, approval, Autopilot units, handoffs |
+| [Models and escalation](docs/models.md) | Role model overrides, escalation ladders, retries |
+| [Providers](docs/providers.md) | OpenCode and Codex adapters, custom tools, KiloCode |
+| [Execution and completion](docs/execution.md) | Parallel Builders, milestones, findings, timeouts, completion gate |
+| [CLI reference](docs/cli.md) | Every entry point and flag |
+| [Browser dashboard](docs/dashboard.md) | Local web UI for planning, approvals, monitoring |
+| [macOS app](docs/macos-app.md) | Native wrapper around the dashboard |
+| [Figma design](docs/figma.md) | Design → review → implementation via Figma |
+| [Task lanes](docs/task-lanes.md) | Multi-task flows and worktree isolation |
+| [Registry API](docs/registry-api.md) | Run discovery for browser clients |
+| [Interventions](docs/interventions.md) | Queued feedback and pause requests |
+| [Testing](docs/testing.md) | Test suites, evidence rules, legacy migration |
 
-`autocode ui "Preview the workflow" --dry-run` writes prompts without model calls or
-Figma edits and never emits an accepted handoff. If a design stage is interrupted,
-inspect its saved reports and Figma file before starting a fresh run with
-`--figma-file`; existing run directories are never overwritten.
-
-## Connected task lanes
-
-Use `autocode tasks` (or `autocode-tasks`) when several complete Autocode tasks must
-run in order or independently. Tasks inside one lane run sequentially in the same
-worktree, so later tasks see earlier source changes. Different lanes use different
-worktrees and may run concurrently. Every item invokes the normal UI or code loop;
-the task runner does not replace planning, validation or completion gates.
-
-```json
-{
-  "version": 1,
-  "name": "dashboard release",
-  "lanes": [
-    {
-      "id": "application",
-      "tasks": [
-        {"id": "design", "mode": "ui", "task": "Design the operations dashboard"},
-        {"id": "build", "mode": "code", "task": "Build the dashboard", "ui_from": "design"},
-        {"id": "polish", "mode": "code", "task": "Polish loading and error states"}
-      ]
-    },
-    {
-      "id": "documentation",
-      "tasks": [
-        {"id": "guide", "mode": "code", "task": "Write the operator guide"}
-      ]
-    }
-  ]
-}
-```
-
-```sh
-autocode tasks flow.json --workspace /path/to/project --max-parallel 2
-```
-
-The command saves its checkpoint under `.autocode/task-flows/`. A code task can
-pause at its normal plan-approval or intervention boundary; its `run_dir` appears in
-the JSON result. Review or resume that ordinary Autocode run, then invoke the same
-task-flow command again. Completed UI tasks can feed a later code task through
-`ui_from`. `--dry-run` validates and previews the lanes without creating worktrees.
-
-Parallel lanes intentionally remain separate branches. Autocode does not guess how
-to merge parallel source changes. Put dependent tasks in one lane, or explicitly
-merge completed branches before starting a task that combines them.
-
-## Multiple tasks in one project
-
-New implementation tasks automatically get separate Git worktrees and branches,
-so two terminal commands or dashboard conversations can use the same project:
-
-```sh
-autocode "Add billing history" --workspace /path/to/project
-autocode "Fix search navigation" --workspace /path/to/project
-```
-
-Each task starts from the project's **committed HEAD**, on an `autocode/<task>-<id>`
-branch under `.autocode/worktrees/`. The original checkout and its uncommitted
-changes are retained. Commit changes first if new tasks should include them.
-Dependencies and ignored environment files are not copied into the new worktree.
-The command prints the task workspace and branch; the dashboard discovers its run
-through the registry. Each worktree has its own runner lock, checkpoints, and code.
-Two writers still cannot operate on the same worktree.
-
-Resume with the printed run path and either the original project or task workspace:
-
-```sh
-autocode --workspace /path/to/project \
-  --run-dir /path/to/project/.autocode/worktrees/TASK/.autocode/runs/RUN
-```
-
-Existing runs retain their original checkout. `--in-place` explicitly starts a new
-task in the selected checkout and retains its single-writer lock. Worktrees and
-branches remain available after a task ends; inspect and commit their changes, then
-merge the branch when ready. Autocode does not automatically merge or delete them.
-
-## Browser dashboard
-
-Autocode includes a local browser dashboard for planning work with the Requirements Planner, approving
-the lead-reviewed plan, choosing each execution role's model and reasoning level,
-following active tasks, and sending feedback or a pause
-request at a safe boundary. It reads the same local run registry as the command
-line tool, so tasks started from a terminal appear automatically.
-
-After installing this checkout, start it from any directory:
-
-```sh
-autocode-dashboard --port 8767
-```
-
-Or run it directly from a checkout:
-
-```sh
-python3 tools/dashboard/agent_console.py --port 8767
-```
-
-When `--watch-root` is used, discovery stops at each Git project boundary and
-skips generated or internal trees such as `.git`, `.autocode`, `node_modules`,
-and virtual environments. List responses also keep only the compact stage data
-needed by the task index, so broad workspace roots remain safe to poll from the
-browser without serializing complete provider payloads or process histories.
-Overlapping task-index polls share the same in-progress snapshot, and each
-snapshot reuses one watched-project discovery result instead of building a
-queue of duplicate scans.
-
-Open the printed loopback URL. New conversations do not require a project: the Requirements Planner
-can clarify the idea first, then the conversation can be attached to a Git
-workspace for joint requirements planning and review. A task’s **Now** view presents the runner's
-saved current stage, the exact user action required, plan-revision
-approval, and output-review approval. Archiving tasks, conversations, or
-projects only changes the dashboard’s local visibility; it never deletes source
-files or runner checkpoints.
-
-Choose initial reasoning under **Models & reasoning** when starting a conversation.
-For a saved task, open its **•••** menu and use **Reasoning for next steps**. The
-dashboard changes the saved per-role setting only at a stage boundary; it never
-interrupts or mutates an in-flight provider request.
-
-The dashboard uses `$AUTOCODE_HOME/dashboard` by default (or
-`$AUTOCODE_DASHBOARD_HOME`) for conversations and reversible archive settings.
-It binds only to `127.0.0.1`, starts no development server for task previews,
-and uses documented Autocode commands for task changes.
-
-### One local dashboard, two layouts
-
-The **Now** tab combines the live monitor with the project/task console:
-verified worker identity, exact saved role/model settings, current objective,
-filtered tool activity, review findings, acceptance counts, and artifact progress.
-**Focus view** hides navigation without starting a different server. Dark and
-light themes are local browser preferences. Task links use compact local
-`#run=r-…` identifiers; old `#task=…&run=…` links remain supported. A focused
-link can append `&focus=1` to either form.
-
-Saved status, worker liveness, artifact timestamps, and task-read freshness are
-separate signals. A disconnected task retains its last successful view, labels it
-stale, disables mutations, and offers **Retry status**. Refreshing the project list
-does not make a failed task read look current. HTTP read failures never resume,
-restart, or retry an agent stage.
-
-Project-specific counters are optional. Declare a read-only projection in the
-project's `.autocode/dashboard.json` (not in runner state):
-
-```json
-{
-  "version": 1,
-  "metrics": [{
-    "id": "mapping", "label": "Mapping coverage", "runs": ["EXACT-RUN-DIRECTORY-NAME"],
-    "description": "Dispositioned records, not completion or mastery.",
-    "source": "artifacts/coverage.json", "groups_pointer": "/areas",
-    "completed_field": "done", "total_field": "total"
-  }]
-}
-```
-
-The referenced object contains named groups, each with integer counters or lists
-whose lengths are counted. Sources must remain inside that project (including
-after symlink resolution). Invalid/missing data is **unavailable**, never zero or
-PASS. The artifact modification time is shown prominently. A cached projection
-avoids repeatedly parsing large files; changes to the file or config invalidate
-it. No commands, imports, provider requests, or raw content are executed by these
-metric declarations. Removing the config removes the panel. An exact run-name
-allowlist prevents another task inheriting unrelated progress.
-
-Dashboard verification, with localhost socket access:
-
-```sh
-python3 -m unittest discover -s tools/dashboard/tests -p 'test_*.py'
-for test_file in tools/dashboard/tests/test_*.js; do node "$test_file" || exit 1; done
-python3 tools/dashboard/tests/unified_browser_fixture.py
-```
-
-The browser fixture uses disposable workspaces and cannot launch agents. The
-packaged-import regression tests the installed entry-point layout, not just the
-source-directory import path. Updating files does not reload a running dashboard:
-restart only its server at an idle boundary, preserving the same environment and
-storage paths. Do not interrupt queued dashboard actions or provider requests.
-The autonomous runner is independent and does not need restarting.
-
-## macOS app
-
-`macos-app/` contains a native macOS app that hosts the same dashboard in its
-own window, with every conversation and task action routed through the
-autopilot controller: the app starts the dashboard server with
-`--runner tools/autopilot.py`, so messages, answers, approvals, feedback,
-continue actions, and the status/intervention/registry reads all execute as
-`python tools/autopilot.py …`. Project-free planning conversations still talk
-directly to OpenCode, and attaching one to a project launches through
-autopilot.
-
-```sh
-cd macos-app && ./build-app.sh   # builds dist/Autopilot.app (needs Xcode CLT)
-open dist/Autopilot.app
-```
-
-The server binds to a free loopback port, and quitting the app stops only the
-dashboard server; runner processes are independent and keep their saved state.
-See [the macOS app readme](macos-app/README.md) for details.
-
-## Browser registry API
-
-Autocode automatically records every real new run and ordinary resumed run before a
-provider can start. The registry is a small per-user pointer index, not a copy of
-`state.json`, logs, prompts, credentials, or provider configuration. It is stored at
-`$AUTOCODE_HOME/registry.json`; when `AUTOCODE_HOME` is unset, the storage root is
-`~/.autocode`. Set `AUTOCODE_HOME` for isolated installations and tests.
-
-The browser application should invoke these commands as argument arrays, without a
-shell, using the same environment as the runner:
+## Project layout
 
 ```text
-["autocode", "registry", "location", "--json"]
-["autocode", "registry", "list", "--json"]
-["autocode", "registry", "import", "/selected/root", "--max-depth", "3", "--directory-budget", "10000", "--json"]
+tools/                 runner, units, providers, schemas (Python)
+  units/               autoplanner / autocode / autoreview / autoresolver
+  dashboard/           browser dashboard (Python + JS)
+  providers/configs/   bundled tool TOMLs (OpenCode, KiloCode, …)
+macos-app/             native macOS host for the dashboard
+docs/                  detailed guides (this README links out to them)
+audits/                recorded verification runs
+RELIABILITY.md         current development priorities
+VALIDATION.md          measured results and remaining limits
 ```
 
-`location` and `list` always emit versioned JSON and are read-only: they do not create the
-storage directory or lock file, start/resume a task, migrate a checkpoint, or alter a
-task file. `location` returns `registry_version`, `storage_root`, `registry_path`, and
-`exists`. `list` returns `registry_version`, `workspaces`, `runs`, and `diagnostics`.
-Run records contain stable canonical-path-derived `id`, `workspace_id`, `workspace`,
-`run_dir`, and `task_id` when the run-level checkpoint identity is available. Listings
-derive only a
-small current summary (`status`, `phase`, `next_stage`) from a valid referenced
-checkpoint.
-
-Each listed run has an `availability` value. `available` includes that summary;
-`workspace_missing`, `workspace_invalid`, `checkpoint_missing`, `checkpoint_malformed`,
-`containment_invalid`, `checkpoint_unsupported`, `inaccessible`, and
-`malformed_record` retain an honest stale or invalid pointer
-instead of pruning or repairing it. An absent registry is a successful empty result with
-the `registry_absent` diagnostic. Corrupt or unsupported registry storage returns JSON
-with an `error` object and exits 2 without replacing the file. Successful location/list
-operations exit 0.
-
-Registration resolves workspace and run aliases before deriving IDs. The run must be
-contained by the canonical `<workspace>/.autocode/runs` directory and its direct
-`state.json` must identify that same canonical workspace. The registry stores no alias
-and repeated aliases deduplicate. Updates use fsync-backed atomic replacement under a
-dedicated registry lock with a one-second bounded wait. A runner first holds its
-workspace writer lock, then obtains the registry lock only for the central
-read/update/write, releases it, and only then proceeds toward a provider stage.
-Registration failures pause the preserved run as `PAUSED_REGISTRY`; fix storage
-and explicitly resume the same `--run-dir` to retry its stable identity.
-
-`registry import` is the only registry discovery operation that writes. It requires an
-explicit selected directory, resolves that root canonically, and searches the root at
-depth zero through depth 3 by default. `--max-depth` must be a nonnegative integer;
-`--directory-budget` must be a positive integer and defaults to 10000. The budget counts
-each unique canonical directory inspected, including the selected root and direct run
-candidates; canonical aliases do not consume the budget twice. Repository internals
-(`.git`), `.autocode` contents, and run contents are pruned from general workspace
-discovery.
-
-Import follows only canonical directories contained by the selected root, deduplicates
-aliases and cycles, and reports aliases that escape it before reading their candidate
-contents. It validates each discovered canonical workspace, run and direct `state.json`
-using the same containment and readable checkpoint rules as registration. Valid legacy
-checkpoints do not need an approved goal and their bytes are never migrated or changed.
-Canonical path identities, rather than `task_id`, determine uniqueness: two distinct
-runs with the same task ID remain distinct; repeated imports report `already_registered`.
-
-The JSON result includes `selected_root`, effective bounds, `directories_inspected`,
-`imported`, `already_registered`, `diagnostics`, and `complete`. Expected malformed,
-inaccessible, escaped, duplicate, or out-of-bound candidates are diagnostics. Budget
-exhaustion, inability to enumerate a workspace or its `.autocode/runs` candidates,
-unreadable traversal branches, and escaped aliases set `complete` false and exit 1, so
-retry with a narrower root or deliberately larger bound. Fully enumerated candidates
-with invalid individual checkpoints remain diagnostics without making the traversal
-incomplete. Invalid arguments/root and registry lock/storage/write failures emit an
-`error` or `registry_error` object and exit 2; candidate registration validation failures
-such as a non-Git workspace conservatively use that same `registry_error` exit and abort
-the pass. Any earlier acknowledged imports remain durable and it is safe to retry. Import
-never starts or resumes providers and does not modify imported task files.
-
-## Queued interventions
-
-The browser can submit a durable change request without competing for the workspace
-writer lock or changing `state.json`:
-
-```text
-["autocode", "intervention", "submit", "--workspace", "/project", "--run-dir", "/project/.autocode/runs/run", "--request-id", "request-123", "--kind", "feedback", "--text", "Keep the partial implementation", "--json"]
-["autocode", "intervention", "submit", "--workspace", "/project", "--run-dir", "/project/.autocode/runs/run", "--request-id", "pause-124", "--kind", "pause", "--json"]
-["autocode", "intervention", "inspect", "--workspace", "/project", "--run-dir", "/project/.autocode/runs/run", "--json"]
-```
-
-`submit` writes only the canonical run's `.autocode/runs/<run>/interventions.json`
-under a separate short-held inbox lock. It validates the Git workspace, canonical run
-containment, direct regular `state.json`, checkpoint workspace pointer, and rejects
-symlinked inbox or lock paths. The versioned receipt has `id`, `kind`, original `text`,
-monotonic `order`, `submitted_at`, `observed_goal_token`, and
-`boundary_pause_requested`. Both feedback and pause requests set that boundary intent;
-they never start a provider or write `state.json` from the submitting process.
-
-Request IDs are idempotency keys over `id`, `kind`, and original `text`: an identical
-retry returns the original durable receipt without another record, while changed text or
-kind under the same ID returns `request_conflict`. Concurrent submissions are serialized
-by the inbox lock and receive durable order values. Corrupt, unsupported, unavailable,
-locked, invalid, or failed-write inboxes return JSON errors and exit 2 without claiming a
-receipt. `inspect` is read-only, creates neither inbox nor lock, and reports only pending
-requests; it does not claim that a currently running older binary can consume them.
-
-The workspace-lock owner checks the inbox after recovery and before every provider
-admission, and after every saved stage result, including question, approval, review and
-completion exits. Inbox acceptance and admission are serialized by the short inbox lock:
-a request accepted before admission is consumed first; one accepted after admission waits
-for that stage's saved boundary. The inbox lock is never held while a provider runs.
-Consumption writes the applied receipt ledger and feedback event to authoritative
-`state.json` before removing inbox records. A crash before that state write leaves the
-request pending; a crash after it is recovered by recognizing the applied ID and retrying
-only inbox acknowledgement. If interruption follows inbox acknowledgement but precedes
-the final state write, owner recovery clears the obsolete acknowledgement marker only
-when every marked ID is already applied. Receipts retain their original IDs, text and
-order.
-
-Applied feedback saves a `brief_feedback` provenance event, preserves stage artifacts and
-partial edits, archives stale validation/review authorization, invalidates goal approval,
-and pauses with `astra_discovery` selected. It never starts Astra automatically: invoke
-the existing explicit Continue action as an argument array, for example
-`["autocode", "--workspace", "/project", "--run-dir", "/project/.autocode/runs/run", "--resume-paused"]`.
-The revised brief still requires its exact displayed approval token. Pending feedback also
-blocks goal approval, artifact approval and completion until the owner consumes it.
-
-A pause-only request preserves the selected next stage and any valid goal approval. It
-pauses at the next safe boundary with a `pause_intent`; `--resume-paused` records its
-acknowledgement and resumes that selected stage. `--pause-after-stage` and the existing
-run-local `pause-requested` file continue to stop at saved boundaries. `--status` is
-read-only and adds `interventions` with inspector versus recorded-runner capability,
-pending IDs/count, pause intent, applied receipts, inbox errors and blocked conditions.
-
-Use `--astra-model`, `--terra-model`, `--sol-model`, or `--completion-model` to
-explicitly override a role. Resuming keeps the saved engine, provider mapping and
-limits unless overridden.
-
-## Joint requirements planning and review
-
-This is the new-run default. Older mixed-CLI OpenCode runs move their Codex roles
-to OpenCode when execution resumes at a recovered stage boundary. The runner saves
-a checkpoint backup and archives those Codex session IDs; approvals, task history,
-evidence, limits, and existing OpenCode sessions are preserved.
-
-```sh
-autocode "Your rough idea"
-# Or target another committed Git workspace:
-autocode "Your rough idea" --workspace /path/to/project
-```
-
-```text
-You → Requirements Gatherer: clarify outcome, scope, constraints and definition of done
-Requirements Gatherer → Planner: draft plan and task dependencies
-Planner → Plan Reviewer → Planner revision → Plan Reviewer
-    → you approve that exact plan
-    → Builder → Validator → Completion Owner
-```
-
-| Role in this mode | CLI and billing route | Automatic escalation ladder |
-| --- | --- | --- |
-| Requirements Gatherer — read-only requirements handoff, no task DAG | OpenCode / Z.ai Coding Plan | Provider default |
-| Planner — draft task DAG and evidence-backed revision | OpenCode / Z.ai Coding Plan | Provider default |
-| Plan Reviewer (the legacy `astra` workflow role) — challenge and final planning decisions | OpenCode / ChatGPT login | Sol High → Sol XHigh → Astra High |
-| Builder — implementation | OpenCode / ChatGPT login | Terra Medium → Terra High → Terra XHigh → Terra Max |
-| Validator — independent validation, separate session | OpenCode / ChatGPT login | Sol High → Sol XHigh → Astra High |
-| Completion Owner — complete/rework decision, separate session | OpenCode / ChatGPT login | Sol Medium → Sol High → Astra High |
-
-The Requirements Gatherer saves a separate structured report under the run's `iterations/`
-directory. The Planner receives that artifact, originates alternatives and a task DAG,
-and can push back on the Plan Reviewer using source evidence. Unanswered requirements
-questions cannot silently disappear from the draft.
-Reviewer concerns have stable IDs; every concern requires a Planner response and a reviewer decision,
-including a concrete acceptance test. The final displayed brief includes the technical
-approach, milestones, and **first bounded implementation task**, all covered by its
-revision/hash. Approval dispatches that task directly, without a third Plan Reviewer
-call. The separate Completion Owner's later decisions use the normal execution budget.
-
-Planning is bounded to **two Plan Reviewer request attempts per cycle**, including failed or
-abandoned attempts. There is no automatic debate loop, retry or provider fallback.
-Unresolved final decisions return to you as blocking questions. If the budget is
-exhausted, the run pauses at `PAUSED_PLANNING_BUDGET`; inspect the exchange and explicitly
-send `--feedback '...'` to request a new cycle. Answering final blockers, giving feedback,
-or editing the goal starts fresh joint review and requires fresh approval. Old exchanges
-remain archived. Ordinary resume preserves the cycle and its spent budget.
-
-The default workflow uses OpenCode for every role. The Plan Reviewer, Builder, Validator,
-and Completion Owner use OpenCode's current ChatGPT OAuth connection; the Requirements Gatherer
-and Planner use separate sessions on the Z.ai connection by default. Changing
-the account in ChatGPT's browser or desktop app does not change OpenCode's login.
-To switch this workflow's ChatGPT account, reconnect OpenAI in OpenCode.
-Every role can select any available provider/model
-from `opencode models`. The dashboard shows that live catalogue in all four
-pickers, grouped by provider, plus explicit reasoning selectors for the Plan Reviewer,
-Builder, Validator, and Completion Owner. Each unchanged default route is labeled explicitly.
-The role names describe responsibilities, not mandatory models.
-
-Explicit `provider/model` choices use OpenCode for every role.
-For example, `--glm-model openai/gpt-5.6-sol --astra-model zai-coding-plan/glm-5.3
---terra-model openai/gpt-5.6-terra --sol-model openai/gpt-6-astra` overrides four
-routes through OpenCode; the Completion Owner keeps its default. No Codex login is
-required for the default workflow. Bare model names for the legacy `astra` and `sol`
-CLI roles are expanded to `openai/model` on OpenCode.
-Explicit legacy `--engine codex` runs retain their separate Codex routing.
-Before launching an OpenAI role, Autocode checks the nonsecret `opencode auth list`
-summary for OAuth; missing/unknown/API authentication or API environment overrides
-pause without fallback. This also applies before a project-free planning reply.
-Other providers retain their configured connections. No credentials are copied.
-Models in a catalogue are not proof of entitlement.
-Usage/provider failures pause without silently switching to
-separately billed API access. Actual subscription entitlements are managed by the CLIs.
-
-Planning requests use fresh sessions and focused handoffs: the current brief, code
-references, alternatives, concerns, responses and changes since review. Full reports
-remain in the run's `iterations/` directory. Codex planning uses its read-only sandbox.
-OpenCode planning uses a fresh, read/search-only agent with shell, edit, delegation,
-external-directory access and unlisted tools denied; workspace snapshots are also
-checked. These OpenCode restrictions are tool permissions, not an OS sandbox.
-
-The existing `--chat`, `--answer`, `--feedback`, `--show-goal`, `--approve-goal`, status
-and resume commands work in this mode. Intermediate drafts cannot be approved. The
-saved `planning` object records the exchange, final approval token and Plan Reviewer call count;
-`planning_history` retains prior cycles. Existing runs keep their original routing,
-including earlier OpenCode-only runs and joint-planning runs that used the Requirements Planner model for validation.
-Start a new run to use the current GPT Sol default in that case; saved sessions cannot
-move between CLIs. No global OpenCode or Codex configuration is changed.
-
-## OpenCode adapter
-
-The Requirements Gatherer, Planner and default Builder use the connections already configured in OpenCode. `--engine opencode`
-is accepted but is optional for new runs:
-
-```sh
-python3 tools/autocode.py "Your rough idea" --workspace /path/to/project
-```
-
-Override the three planning roles independently with `--requirements-model`,
-`--glm-model`, and `--plan-reviewer-model` (plus their reasoning-effort flags).
-Override execution roles with `--astra-model`, `--terra-model`,
-`--sol-model`, or `--completion-model` using a provider/model ID from `opencode models`, including
-`openai/…` with an OpenCode ChatGPT OAuth connection. Saved runs retain their original role
-engines and sessions; no existing run is migrated by a dashboard selection.
-OpenCode reasoning variants can be selected in the browser or with the existing
-role-specific reasoning-effort flags. New joint runs start with separate GLM requirements
-and planner sessions, Sol High for the Plan Reviewer, Terra Medium for the Builder, Sol High for
-the Validator, and a separate Sol Medium session for the Completion Owner. The four
-execution roles then follow the automatic ladders documented above. Provider
-credentials remain with OpenCode: Autocode does
-not read its auth file or change your global configuration.
-
-The same approval, task, independent-evidence and completion gates apply. The adapter
-uses OpenCode's [non-interactive JSON event interface](https://opencode.ai/docs/cli/#run),
-validates the final report against the stage schema, and verifies command evidence
-against actual completed bash events. Raw events, session IDs and stage-local
-permission overrides are saved alongside the checkpoint. Token limits include cache
-reads/writes and reasoning tokens. Malformed, truncated or uncertain results pause;
-the runner does not automatically replay the provider request.
-
-OpenCode has a different isolation boundary: Requirements Planner sessions and other
-read-only OpenCode roles have edit tools denied and their workspace snapshots
-checked, but OpenCode tool permissions are **not an OS sandbox**. Shell commands
-and configured external tools retain OpenCode's native permission policy. Autocode
-does not enable `--auto` or override user-level permission rules with blanket allows.
-A denied required operation is reported back as a blocker.
-See OpenCode's [permission documentation](https://opencode.ai/docs/permissions/).
-
-Resuming preserves the saved engine, models and separate role sessions. Start a new
-run when switching between Codex and OpenCode; their session IDs cannot be reused
-across engines. A response with an unexpected session ID pauses the run.
-OpenCode version or configuration drift pauses the saved run, including changes to
-custom config-directory files, agent definitions and local plugin/tool definitions.
-This adapter was live-checked with OpenCode **1.18.31**; OpenCode 2.x is not supported.
-
-## Add a tool
-
-OpenCode is built in. Any other tool registers with one TOML file, not a Python
-package. `--provider <name>` loads `~/.config/autocode/providers/<name>.toml` and,
-if that file is absent, the bundled example at `tools/providers/configs/<name>.toml`.
-Configs inside a project are not loaded.
-
-```toml
-name = "gocode"
-command = ["sh", "-c", "eval \"$(gocode env --shell bash)\" && exec codex exec -C \"$1\" --sandbox \"$2\" --model \"$3\" -c model_reasoning_effort=\"$4\" --output-schema \"$5\" -o \"$6\" -", "gocode", "{workspace}", "{sandbox}", "{model}", "{effort}", "{schema}", "{report}"]
-prompt = "stdin"                      # or "file" (uses {prompt_file})
-models_command = ["gocode", "models"] # optional; or a static list: models = [...]
-version_command = ["gocode", "--version"]
-
-[roles]
-astra = { model = "gpt-5.6-sol", effort = "high" }
-terra = { model = "gpt-5.6-terra", effort = "medium" }
-sol = { model = "gpt-5.6-sol", effort = "high" }
-completion = { model = "gpt-5.6-sol", effort = "medium" }
-glm = { model = "gpt-5.6-sol", effort = "medium" }
-plan_reviewer = { model = "gpt-5.6-sol", effort = "high" }
-```
-
-Placeholders are `{model}`, `{effort}`, `{workspace}`, `{report}`, `{schema}`,
-`{prompt_file}`, `{run_dir}`, `{role}`, and `{sandbox}`. `{sandbox}` is
-`read-only` for planning and review and `workspace-write` for the builder.
-`{effort}` reaches the tool only if the command uses it.
-Use `{{` and `}}` for literal braces in a command argument, such as
-`${{VAR}}` or `{{"key":1}}`; single braces are reserved for placeholders.
-Changing the config file or the tool version pauses a saved run.
-
-`output` says how the result comes back:
-
-- `output = "report_file"` (the default): the tool writes exactly one JSON object
-  to `{report}`, as `codex exec -o` does. Every stage starts fresh. Command
-  evidence is a `capture_command` receipt file, not an `event:` id. These tools
-  report no token usage, so `--max-reported-tokens` pauses with
-  `PAUSED_USAGE_UNKNOWN`.
-- `output = "opencode_events"`: the tool prints OpenCode-format JSON events, as
-  `opencode run --format json` and `kilo run --format json` do. Autocode reads
-  the final report, token usage and command exit codes from those events, and
-  resumes each role's session with the required `resume` template, for example
-  `resume = ["--session", "{session}"]`.
-
-The runner can fill an omitted check exit code from a unique executed event or
-the cited, verified capture receipt before checking the unchanged report schema.
-It never replaces a supplied exit code, guesses from output text, or resolves
-ambiguous executions. The original report is retained as `.reported.json`, and
-the stage records the derived metadata. Nonzero exits remain failures.
-For `report_file` tools, capture commands must inherit `AUTOCODE_CAPTURE_CONTEXT`
-from the tool process: the capture helper records it automatically and the
-validator checks it against the saved attempt. Receipts from another attempt,
-missing capture context, or changed output hashes are rejected. Event providers
-continue to require their independent tool-event attestation.
-
-A tool can declare how its subscription login is checked. Without an `[auth]`
-table Autocode does not inspect the tool's login. With one, before an OpenAI
-role starts, Autocode runs `command`, strips terminal color codes, and requires
-every match of `pattern` to equal `expect`. A mismatch, a failed listing, or a
-variable in `forbid_env` pauses the run with `PAUSED_BILLING_ROUTE` before any
-model is called:
-
-```toml
-[auth]
-command = ["kilo", "auth", "list"]
-forbid_env = ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"]
-
-[[auth.routes]]
-models = "openai/"
-pattern = "^\\s*[●•]\\s+OpenAI\\s+(\\S+)\\s*$"
-expect = "oauth"
-```
-
-A tool that reports a subscription usage limit or runs out of pay-as-you-go
-credit pauses the run with `PAUSED_BUDGET`.
-
-### KiloCode
-
-`tools/providers/configs/kilocode.toml` is bundled. It runs `kilo run` with the
-same subscription routes as the OpenCode defaults: `openai/...` models use
-Kilo's ChatGPT OAuth connection and `zai-coding-plan/...` uses its Z.AI Coding
-Plan connection. Connect both with `kilo auth` first. The one difference from
-OpenCode is the plan reviewer, which is GPT-5.6 Sol here because Kilo has no
-Cursor ACP route:
-
-```toml
-name = "kilocode"
-command = ["kilo", "run", "--dir", "{workspace}", "--model", "{model}", "--variant", "{effort}", "--format", "json"]
-prompt = "stdin"
-output = "opencode_events"
-resume = ["--session", "{session}"]
-models_command = ["kilo", "models"]
-version_command = ["kilo", "--version"]
-
-[roles]
-astra = { model = "openai/gpt-5.6-sol", effort = "high" }
-terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
-sol = { model = "openai/gpt-5.6-sol", effort = "high" }
-completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
-glm = { model = "zai-coding-plan/glm-5.3", effort = "medium" }
-plan_reviewer = { model = "openai/gpt-5.6-sol", effort = "high" }
-
-[auth]
-command = ["kilo", "auth", "list"]
-forbid_env = ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"]
-
-[[auth.routes]]
-models = "openai/"
-pattern = "^\\s*[●•]\\s+OpenAI\\s+(\\S+)\\s*$"
-expect = "oauth"
-```
-
-Copy it to `~/.config/autocode/providers/kilocode.toml` to change models or
-reasoning levels; any ID from `kilo models` works. `kilo/...` IDs bill the Kilo
-Gateway pay-as-you-go account instead of a subscription. The `[auth]` table
-above runs `kilo auth list` before an `openai/` role and pauses with
-`PAUSED_BILLING_ROUTE` unless that login is `oauth`, and also when
-`OPENAI_API_KEY`, `CODEX_API_KEY`, or `OPENAI_BASE_URL` is set. Kilo has no
-sandbox flag, so a read-only stage that edits files is caught afterwards by the
-workspace snapshot check and pauses.
-
-### Default provider
-
-New runs use OpenCode unless you choose otherwise. `--provider <name>` picks the
-tool for one run. To change the default for every new run and for the dashboard,
-set `AUTOCODE_PROVIDER=kilocode` or add this to `~/.config/autocode/config.toml`:
-
-```toml
-default_provider = "kilocode"
-```
-
-A saved run keeps the provider it started with, and `--engine codex` runs still
-use Codex. `autocode-dashboard --provider <name>` overrides the default for the
-dashboard; its model pickers list that tool's models.
-
-## Codex provider overrides
-
-Pass `--engine codex` to start a Codex-engine run. Roles can use different
-**Responses-compatible Codex providers** in one run, e.g. planning on the ChatGPT
-subscription while Sol audits and Terra codes via another compatible provider:
-
-```sh
-python3 tools/autocode.py "Build a greeting CLI" --workspace /path/to/project \
-  --engine codex \
-  --astra-model gpt-6-astra \
-  --sol-model audit-model --sol-provider other_provider \
-  --terra-model implementation-model --terra-provider other_provider --reasoning-effort high
-```
-
-Each role can also have its own reasoning effort. For example, use Astra at
-extra-high (`xhigh`) for read-only discovery and planning:
-
-```sh
-python3 tools/autocode.py "Build a greeting CLI" --workspace /path/to/project \
-  --engine codex --astra-model gpt-6-astra --astra-reasoning-effort xhigh
-```
-
-Role-specific effort overrides the shared `--reasoning-effort` value. All selected
-models and providers are saved in the run checkpoint, so resumed runs retain this
-assignment.
-
-An interactive terminal starts in chat mode by default. Astra presents a few material
-questions at a time; type replies directly or `/default` to accept a proposed default.
-When the build brief is displayed, type feedback to revise it, `y` to approve that exact
-revision, or `/pause` to save and exit. After approval the implementation, validation
-and review loop runs automatically within the configured limits. During questions,
-`/feedback TEXT` sends a broader correction to Astra.
-
-Use `--chat` to select this mode explicitly, or `--no-chat` for one command per turn.
-Non-interactive invocations default to the command-per-turn interface.
-
-`--<role>-provider` is saved per role like models and is passed to Codex as a
-`model_provider` override; roles without a provider keep the local Codex login
-(ChatGPT auth). The named provider must implement the OpenAI **Responses** API.
-For the connected Z.ai Coding Plan, use the OpenCode engine above. Changing the global
-provider/auth in local Codex config still pauses a saved Codex-engine run.
-
-## Conversation and approval
-
-The first stage runs **read-only requirements gathering** and saves a structured JSON handoff
-without milestones. A separate Planner uses it to propose the task DAG and any material
-questions. Chat mode stays in the conversation; command
-mode saves and exits at the checkpoint. Intermediate drafts cannot be approved;
-Astra still has to challenge, GLM revise, and Astra finalize first. State, answers,
-brief feedback, contract history, user events, prompts, schema files, evidence and
-sessions remain in the target workspace's `.autocode/runs/<run>/`. No implementation
-starts from the initial prompt.
-
-Use the printed run path in the following commands (keep the same `--workspace`):
-
-```sh
-autocode --workspace /path/to/project --run-dir /path/to/run --answer 'Q1=CLI only'
-autocode --workspace /path/to/project --run-dir /path/to/run --no-chat
-autocode --workspace /path/to/project --run-dir /path/to/run --feedback 'Keep the first milestone local only'
-autocode --workspace /path/to/project --run-dir /path/to/run --no-chat
-autocode --workspace /path/to/project --run-dir /path/to/run --show-goal
-autocode --workspace /path/to/project --run-dir /path/to/run --approve-goal 'r3:<full displayed hash>'
-autocode --workspace /path/to/project --run-dir /path/to/run --no-chat
-```
-
-`--answer` is repeatable. `--feedback TEXT` saves a correction and returns to Astra
-discovery on the next invocation; a revised brief always needs fresh approval.
-`--delegate Q1` explicitly accepts that question's proposed
-default. Saved answers are included in subsequent interviews; an answered question
-ID cannot be requested again. Answers do not approve the task. The approval token
-must exactly match the current displayed contract revision. Approval saves
-`READY_TO_EXECUTE`; the next ordinary invocation begins execution. User-input commands
-never launch an agent. This command-per-turn interface also works from scripts and
-other frontends; no continuously attached terminal is required.
-
-Execution roles must consult saved answers before asking for permission. An exact
-repeated permission request under the same approved contract is returned once to the
-Completion Owner with its authenticated answer, including any refusal or conditions.
-It is not automatically granted or extended to a broader request. If the owner repeats
-it again, the runner pauses for reconciliation rather than creating another question
-or spending indefinitely. Older answers without the original request remain available
-in the prompt but are not automatically matched.
-
-A technical report blocked solely on one required human acceptance criterion can be
-presented for that review. Completion still requires the explicit review event, current
-source and evidence hashes, passing automated criteria and checks, and a passing full
-flow. Human acceptance does not rewrite the independent report or waive other failures.
-
-For an assigned implementation or review task, Figma instructions cover the affected
-visual work. Test/parser/harness-only repairs can reuse applicable design evidence;
-they do not require a fresh canvas inspection unless they affect presentation or verify
-a visual criterion. Final visual acceptance requirements remain in force.
-
-`--edit-goal body.json` loads the full contract body (the `goal_contract.body` shape
-from state), creates a new draft revision and displays its delta. It invalidates goal
-approval, validation and human reviews. Previous contracts/evidence stay archived.
-Approval can never be inferred from a model response or a generic `--resume-paused`.
-
-The contract records outcome/user, the ordered end-to-end user flow, deliverables,
-behaviors and failures, exclusions,
-constraints/permissions, assumptions and their provenance, delegated decisions,
-stable criterion IDs with verification methods, human-review flags and open questions.
-It also includes a minimal technical approach and small implementation milestones,
-each linked to existing acceptance criteria; every required criterion is covered.
-All listed acceptance criteria are required. Optional enhancements go in the deferred
-backlog and do not participate in the completion gate.
-
-## Execution and completion
-
-### Independent milestone Builders
-
-New joint runs save `orchestration={enabled:true,max_parallel:2}`. Existing saved
-runs retain their saved routing; these defaults do not upgrade them. Set
-`--max-parallel-builders N` when creating a run to choose the concurrency limit;
-`1` runs serially. Explicitly supplying this option also enables orchestration for
-new `--engine codex` runs.
-
-Planner milestones may include optional `affected_paths`: literal,
-repository-relative file or directory ownership, such as `src/api.py` or `tests/api`.
-These are ownership boundaries, not glob patterns. Absolute paths, parent traversal,
-and repository metadata paths such as `.git` and `.autocode` are not allowed.
-The Orchestrator selects ready milestones with disjoint ownership and acceptance
-criteria, and satisfied explicit dependencies. Missing ownership or dependency
-information, overlapping paths, shared criteria, or an unsatisfied dependency
-prevents those milestones from running together; when no independent batch can be
-formed, execution falls back to a serial Builder.
-
-Each selected milestone gets a fresh Builder subprocess, session, and Git worktree.
-The runner combines their patches into the parent workspace only if it still matches
-the captured baseline. Sol validates the combined result before the Completion Owner
-and required human acceptance gates can authorize completion. Builder success or
-patch integration alone does not satisfy those gates. There is no automatic merge
-into `master`.
-
-Failed workers, stale baselines, or overlapping worker changes pause the run and
-retain worktrees and logs for inspection. After inspecting a failed Builder, explicitly
-retry it once all workers have stopped:
-
-```sh
-autocode --run-dir RUN --resume-paused --retry-builder M2
-```
-
-Repeat `--retry-builder` to select additional failed milestones. Successful siblings
-are retained rather than rerun. An explicit retry archives an uncertain stage while
-preserving its edits and logs. Report-only repairs and completed-response recovery
-run automatically through the existing bounded recovery mechanisms. After a revised
-plan is reapproved, child workers and batches from the previous plan are safely
-archived once stopped, preserving their work and logs.
-Interrupted worktree setup resumes only when its source matches the saved baseline;
-an incomplete or manually modified checkout pauses for inspection without overwriting files.
-
-The active batch is saved in
-`state.orchestration_batch`, with `id`, `status`, and `workers`; each worker records
-`milestone_id`, `status`, `workspace`, and `run_dir`. Integrated batches move to
-`state.orchestration_history`. The dashboard labels `orchestrator` as runner-owned
-and displays saved batch/worker statuses and worktree/log locations. Those statuses
-are checkpoint reports, not proof that worker processes are currently alive.
-
-### Milestone checkpoints and acceptance
-
-New runs enforce a milestone checkpoint in the runner. Each task names an outcome,
-affected paths, requirements, acceptance criteria and a validation plan. Terra can
-implement, test and repair within the task; every completed handoff goes to Sol and
-then Astra. A switch to a different milestone requires Sol's passing evidence for
-**all criteria in the current milestone**, current source/contract/task identities,
-intact evidence, no blocking findings, and its required human reviews. A writer's
-self-assessment cannot authorize that switch. Later milestones may still have
-`NOT_VERIFIED` results. The full flow may also be `NOT_VERIFIED` with an explanation
-while a partial milestone or batch unlocks downstream work; a known flow failure
-still blocks acceptance. Full-task completion still requires all contract criteria
-and the complete flow to pass on the current source.
-
-After explicit approval of a revised goal, the runner may carry an accepted serial
-milestone forward **for scheduling only**. At acceptance it saves a reuse manifest
-in the existing `milestone_progress`: the approved contract, exact milestone and
-criterion definitions, literal owned paths, all files changed by its recorded
-stages, source hashes/modes, and pinned stage snapshots and validation evidence.
-The new revision must preserve its criteria text, verification methods, ownership,
-`depends_on`, and all other milestone fields exactly. Global outcome, constraints,
-permissions and other goal fields must also remain unchanged. Reordering milestones
-or changing only an unrelated milestone/criterion can preserve earlier work.
-
-Reuse requires unchanged source bytes/modes and intact evidence, plus reuse of
-every prerequisite. Added files under an owned directory count as changes. Missing
-task history, legacy acceptance without a manifest, ambiguous paths, symlinks,
-submodules, batches and human-review milestones all fall back to revalidation.
-This first version supports only one revision hop; it does not chain old evidence
-through successive revisions or infer undeclared code dependencies.
-
-The existing approval gate still applies. Reuse records `carried_from` provenance
-and a `milestone_carry_forward` audit without rewriting the original validation's
-contract hash or granting human approvals. `--status` and role handoffs expose the
-compact audit through `milestone_checkpoint.carry_forward`; full manifests remain
-in the run's state file. Carried prerequisites are checked again against source and
-evidence before scheduling. The runner rejects redundant implementation assignments
-for intact carried milestones; an explicit evidence-backed `REWORK` or detected
-source/evidence drift revokes scheduling acceptance. Budgets and retry counters are
-preserved. Final completion still requires fresh independent validation of every
-criterion and the full integration flow on the current code and approved revision.
-Deploying this code never retroactively manufactures manifests for existing runs.
-
-Three independent reviews without any new passing criteria require an evidence-backed
-`REWORK` with a changed approach or a smaller batch inside the same milestone. One
-automatic replan is allowed; another three reviews without progress pause the run.
-Changing files, renaming task IDs, or oscillating between previously passing checks
-does not reset progress. The runner compares task fields; Astra remains responsible
-for judging whether the changed approach is substantively useful.
-
-Milestones have a 5,400-second active-time budget by default. This includes writer,
-reviewer and report-repair attempts after the milestone is assigned (or after an
-existing run adopts checkpoints). The budget is checked at stage boundaries and
-prevents further writing; Sol/Astra can still validate finished work. It does not
-replace per-stage timeouts. Use `--max-milestone-seconds N` to change the saved
-budget or `0` to disable this time limit. `--status` includes `milestone_checkpoint`
-with the current milestone, evidence progress, budget, replans, completed stage hours
-per role, and separately estimated elapsed time for any recorded active stage.
-These are elapsed stage durations, not billed model-compute hours or proof a recorded
-process is still alive. Ordinary stage updates also print milestone time and progress.
-
-The saved milestone replan limit defaults to one changed-approach replan. Set
-`--max-milestone-replans 0` on a saved-run resume to allow further evidence-backed
-changed-approach cycles within the same approved milestone. This does not change its
-acceptance criteria, disable the three-review checkpoint, or permit advancement without
-independent passing evidence.
-
-Saved runs keep their existing review routing until explicitly upgraded. At an idle,
-reconciled boundary, enable checkpoints without launching a provider:
-
-```sh
-autocode --workspace /path/to/project --run-dir /path/to/run \
-  --milestone-checkpoints --show-goal
-```
-
-For an active run, queue a safe boundary pause and the upgrade:
-
-```sh
-autocode --workspace /path/to/project --run-dir /path/to/run \
-  --request-milestone-checkpoints
-```
-
-The queued request does not edit `state.json`, signal workers, or acquire the writer
-lock. The old runner observes the pause marker at its next boundary. Its next launch
-reconciles the saved stage and applies the request under the writer lock. An already
-running loop continues without an extra resume gate; saved pauses still require
-their usual explicit resume. Use `--show-goal` to apply and inspect without launching
-a provider. Preexisting operator pause
-markers are preserved. Migration keeps models, sessions, the approved contract and
-artifacts; final-only or combined-review overrides are archived in the user event,
-and existing bounded work goes to the Validator first. Legacy briefs retain their current
-task's criterion scope without rewriting or implicitly approving a new contract.
-If an old stage first needs report-only repair, the upgrade remains queued. An
-explicit `--resume-paused` can finish that bounded read-only repair under the old
-schema, then apply the upgrade and continue to the Validator. It never repeats implementation to migrate.
-
-The Plan Reviewer finalizes the plan, the Builder implements one bounded task, and the Validator independently validates
-actual source with evidence per criterion. Each task records its milestone, requirements,
-applicable criteria and validation plan. Every role receives the complete approved
-contract and current task and echoes the contract revision/hash and task ID. The Validator gets
-the Builder's full implementation report, workspace/revision and actual changes. The Completion Owner gets
-both reports, milestone status and references to prior validation evidence.
-Bulky evidence indexes, archived-validation indexes, legacy checkpoints and source
-file maps move into hashed run-local `context/*.json` artifacts. The handoff keeps
-recent index entries and exact retrieval paths; requirements, saved answers,
-feedback, permissions, current reports and unresolved findings remain inline.
-Compact JSON reduces repeated formatting overhead. Per-stage context metrics record
-externalized fields and bytes saved. This does not remove provider session history
-or alter independent-review requirements.
-
-For an explicitly authorized existing-failure exception, use the maintained
-comparator instead of generating a new parser inside each task:
-
-```sh
-autocode compare-baseline baseline.log candidate.log --output comparison.json
-# Optional: normalize only the two explicitly equivalent checkout prefixes.
-autocode compare-baseline baseline.log candidate.log --baseline-root /baseline/repo --candidate-root /current/repo --output comparison.json
-```
-
-The comparator supports completed Vitest default-reporter text logs. It checks
-failure identities and full diagnostic signatures, reconciles failed tests and
-unique failed files against summaries, and rejects duplicates, incomplete logs,
-unknown layouts, unhandled errors, reduced totals or newly disabled tests. Numbers,
-assertion operands and source locations remain significant. When dependencies are
-known to be equivalent but installed at different relative depths, the explicit
-`--normalize-dependency-prefixes` option removes the relative prefix before
-`node_modules/` in Vitest stack frames only; package paths, versions and locations
-remain significant, and the report records this option. Exit codes are 0 for
-matching failure evidence, 1 for new/changed failures, and 2 for invalid evidence.
-The report preserves diagnostics and raw input hashes. A match does **not** grant a
-baseline exception or prove task completion: the Validator must still verify the
-approved exception, source provenance and equivalent test selection. Baseline-only
-failures are listed for investigation, not automatically claimed as fixed.
-
-The Completion Owner chooses `CONTINUE`, `REWORK`, `BLOCKED` or `COMPLETE`. The first two require a
-concrete next task; rework describes the smallest correction for a verified defect.
-A `CONTINUE` task with `kind=validate` sends existing work directly to the Validator when it only
-needs revalidation. Required behaviors and success cannot be changed by a plan.
-
-A material ambiguity, contradiction, infeasible constraint, scope change or extra
-permission need is reported to the Plan Reviewer at a safe stage boundary. The Plan Reviewer presents a
-`BLOCKED` decision in `WAITING_FOR_USER` when user input is required, with
-the discovery, impact, smallest decision, options and proposed delta. Answers return
-to discovery; a revised goal needs new approval. Useful partial work is retained.
-
-Completion requires the current approved revision, a Validator PASS on the current artifact,
-passing evidence for every required criterion, no blocking findings, intact evidence
-hashes, actual human approvals where required, and the Completion Owner's completion request against
-that same revision. New build briefs also require the Validator's explicit end-to-end flow result
-and its pinned evidence on the current source revision. Completion prints each criterion
-with its evidence and any agreed limitations. Unknown, skipped and untested results cannot pass. Green tests
-cannot substitute for missing criterion results.
-
-For a human-review criterion, inspect the displayed validation and the actual artifact,
-then record your decision in chat or using the displayed artifact-specific token:
-
-```sh
-autocode --workspace /path/to/project --run-dir /path/to/run \
-  --approve-review C1 --review-token 'r3:<goal hash>@<source hash>:<validation hash>'
-autocode --workspace /path/to/project --run-dir /path/to/run
-```
-
-Changing the source or validation invalidates reuse of human approval. Goal approval
-does not count as approval of a subsequently produced artifact. Resuming a completed
-run rechecks its source and evidence before reporting success. Stale completion pauses
-for fresh Sol validation; `--status` reports `completion_current` without changing state.
-Source snapshots include executable modes and changes inside initialized submodules.
-
-Logical phases are `DISCOVERING`, `AWAITING_GOAL_APPROVAL`, `READY_TO_EXECUTE`,
-`EXECUTING`, `WAITING_FOR_USER`, `COMPLETE`, and `PAUSED_OR_BLOCKED`. While an initial
-interview awaits answers its phase is DISCOVERING and its status is WAITING_FOR_USER.
-`--status` and `--dry-run` are read-only. Exit 0 means an action was saved or the task
-completed; exit 2 means user input/pause/error (inspect status, not exit code alone).
-
-Iteration, active-time, per-stage, reported-token and no-progress limits still pause
-with a checkpoint. They never cause completion. New runs distinguish inactivity,
-tool execution and total stage runtime:
-
-| Setting | New-run default | Meaning |
-| --- | --- | --- |
-| `--max-idle-seconds` | `300` | Stop a provider with no new recognized activity while no tool is running. |
-| `--max-tool-seconds` | `1800` | Stop a tool that exceeds its fixed deadline, including a quiet test command. Output and repeated starts do not extend this deadline. |
-| `--max-stage-seconds` | `0` (off) | Optional hard cap for the entire stage, enforced even while activity continues. |
-
-Each flag accepts `0` to disable that limit. Saved stage limits are preserved,
-including an existing five-minute cap or an explicit zero; use
-`--max-stage-seconds 0` to deliberately remove a saved hard cap. Saved runs gain
-the inactivity and tool defaults at their next configured launch. Running worker
-processes keep the code/settings they started with until the runner is relaunched.
-
-The watchdog reads raw Codex/OpenCode events incrementally. Completed tools and
-new provider text count as activity; repeated event IDs, repeated text, tool-output
-updates, malformed lines and arbitrary log chatter do not buy more time. A tracked
-tool uses its own clock, so a healthy quiet command can exceed the provider's idle
-limit. OpenCode versions that report tools only after completion use a bounded
-descendant-process interval instead. Process identity alone cannot distinguish a
-tool from a persistent provider wrapper: status labels this fallback as inferred.
-Only a newly completed tool can renew that interval; output, duplicate completions
-and descendant churn cannot. Without start events, concurrent unreported tools
-cannot each have a precise deadline; an explicit stage cap remains available.
-Explicit tool starts supersede the fallback. These observations measure liveness, not acceptance progress;
-independent milestone evidence remains mandatory.
-
-CLI updates and `--status`'s `active_stage.activity` show provider/tool activity,
-elapsed and idle time, active tool time, applicable limits and an observation
-timestamp. A saved observation does not prove a recorded worker is still alive.
-The task conversation also receives durable role-based progress messages: stage
-transitions, blockers with next steps, completion, and a heartbeat every 60 seconds
-while the code runner observes an active stage or Builder batch. Parallel-worker
-status changes publish immediately at checkpoints. Autocode UI shares the same
-stage-transition notifications. Updates appear in the dashboard conversation and
-terminal stderr; existing JSON stdout interfaces remain unchanged. Repeated
-heartbeats replace the previous heartbeat, and the latest 100 messages are retained
-across restarts. These are local task updates, not push messages into external chat
-applications. Existing raw event logs remain available for complete history.
-Timeout records and recovery context distinguish `idle`, `tool` and `stage` causes,
-and preserve the failed task ID and its effective timeout limits. Recovery instructions
-require a changed execution plan: inspect partial work, reuse valid completed checks,
-split long calls, or address the diagnosed stall. The Completion Owner cannot assign
-the identical writer task again under unchanged limits. This guard does not change
-timeouts or grant permission to extend a budget.
-Deadline enforcement runs independently of process-table sampling, state writes
-and event-file reads. A blocked observer cannot leave a worker unsupervised.
-
-### Open findings
-
-The runner keeps one list of reviewer findings in `state.json` under
-`findings_ledger`. Every Sol finding and every structured Astra finding (the
-optional `findings` array of a decision, with severity, finding, evidence and
-blocking) gets a stable ID derived from the reviewer and the finding text, the
-report that raised it, the task assigned to fix it, and the report that resolved
-it. Only the reviewer who raised a finding can close it, by submitting a newer
-report that no longer lists it; a finding reported again after a fix keeps its ID
-and counts the repeat. With milestone checkpoints, each finding also records the
-milestone criteria it was raised under, and a report closes it only if that report
-reviewed all of those criteria. A validation of different work, or a report-only
-repair that reformats an earlier report, leaves the finding open and marks it as
-not rechecked. Findings written only as prose in `next_task.requirements`
-are not tracked. Role handoffs include `open_findings` for both reviewers, and the
-dashboard's task view shows the list with each finding's source, fix task and
-repeat count. `unresolved_findings` still holds Sol's latest findings unchanged.
-
-Astra can keep a correction batch small by naming the ledger IDs a REWORK task
-addresses in `next_task.findings`; an empty or missing list takes every open finding.
-`--max-findings-per-task N` (saved as `limits.max_findings_per_task`) rejects a
-REWORK task that bundles more than `N` open findings, so the correction has to be
-split. The default is unlimited, and `0` disables the check on a saved run.
-
-`--pause-after-stage` and a run-local `pause-requested` file stop at a saved boundary.
-For a timed-out provider stage with no terminal response, Autocode confirms its
-tracked workers are gone, archives the incomplete request and preserves its partial
-edits/logs, clears the uncertain role session, and continues from a fresh recovery
-checkpoint. It never replays that timed-out request. Each automatic recovery consumes
-the existing no-progress budget. Consecutive timeouts without an accepted stage also
-pause at that configured limit for every role, including Astra and Sol.
-A successful stage resets the consecutive-timeout counter. A separate ceiling of
-three automatic recoveries covers timeouts and external-directory denials. Accepted
-intermediate reports and milestone-budget extensions do not reset this ceiling.
-Inspect the saved cause and adjust limits as needed; explicit `--resume-paused`
-acknowledges `PAUSED_TIMEOUT_RECOVERY` and resets recovery counters while retaining
-history. Setting `--no-progress-limit 0` disables the unchanged-batch limit, but
-never disables the three-recovery safety ceiling.
-A terminal response, live worker or requested pause remains paused for inspection.
-Other uncertain provider requests still require explicit reconciliation.
-`--resume-paused` acknowledges operational pauses only. Saved limits persist unless you
-explicitly override them. For example, resume a run paused at its iteration ceiling with
-`--resume-paused --max-iterations 25` to set the total ceiling to 25. Changing a limit
-does not approve a draft brief.
-
-Provider stages track their subprocesses, including detached tool processes. On normal
-exit, timeout or interruption, Autocode stops tracked workers before taking the final
-snapshot and releasing the workspace lock. Saved process identities also block a new
-runner while known workers remain alive. This is process supervision for trusted local
-tools; it does not replace an OS sandbox or contain deliberately hidden daemons.
-Rejected and recovered attempts count toward the active-time budget.
-
-A completed response with invalid JSON or an invalid report is archived and pauses;
-`--resume-paused` starts a new explicit attempt. Timeouts with no terminal response
-receive the bounded automatic recovery above; other uncertain responses need inspection
-first.
-
-An execution report whose two read-only repairs are exhausted can be retried with
-`--resume-paused`. Autocode archives the rejected reports and starts a fresh role
-session; it does not replay implementation or planning. A transport-change pause
-can be resumed with `--resume-paused --accept-transport-change` after Autocode checks
-that the current OpenCode models and subscription routes are available.
-
-To retain partial edits and set aside a stopped attempt manually:
-
-```sh
-autocode --workspace /path/to/project --run-dir /path/to/run --status
-# Copy the exact attempt_id from that status, after inspecting its events and edits:
-autocode --workspace /path/to/project --run-dir /path/to/run --abandon-stage '001/terra-01'
-autocode --workspace /path/to/project --run-dir /path/to/run --resume-paused
-```
-
-Abandoning a stage preserves its logs, source snapshots and partial edits, clears that
-role's uncertain session and invalidates previous validation. It launches no agent.
-On explicit resume, Astra inspects the retained work and chooses the next step, except
-in final-audit-only routing where GLM/Terra receives the recovery context directly.
-It does not approve an unapproved brief or stop an already-running worker.
-
-Astra/Sol use the read-only sandbox with the Codex engine; Terra uses workspace-write.
-OpenCode uses the native permissions and snapshot checks described above. The runner
-does not pass blanket auto-approval. Contract permission text is a role instruction,
-not a general-purpose OS policy compiler. The Codex sandbox/approval system remains
-responsible for individual tool permissions; custom MCP/connector write permissions
-should be configured accordingly. This is intended for trusted local repositories.
-
-## Legacy migration — opt-in only
-
-Existing v3 approved contracts retain their exact content, hash and approval. New
-discovery drafts include the expanded build-brief fields. Older `TASK_COMPLETE` and
-`VALIDATE` stage results remain readable during recovery; newly requested Astra
-decisions use the four statuses above.
-
-This extraction does not modify or attach to any existing project/run. Keep a live
-legacy process running until it reaches a natural saved exit; it cannot hot-load these
-gates. Do not launch a second writer or restore old state over newer work.
-
-At a confirmed idle boundary, an operator may deliberately use this standalone tool:
-
-```sh
-autocode --workspace /path/to/project --run-dir /path/to/existing/run --migrate-only
-autocode --workspace /path/to/project --run-dir /path/to/existing/run
-```
-
-Migration retains the original task, sessions, completed artifacts, stage history,
-criteria, plan, iteration and limits. It backs up `state.pre-v2.json` where applicable
-and `state.pre-v3.json`, then reconstructs an **unapproved** draft. Old evidence is
-archived for inspection and must be revalidated. Astra uses known answers/artifacts
-to ask only material unresolved questions. User decisions are never backdated.
-Completed interrupted stages reconcile before migration; live/uncertain stages
-refuse migration. No migration was applied to the original IdleCampus run.
-
-## Tests and evidence
-
-AutoReview generation pins contract/task identity and reviewer-owned finding IDs
-in each attempt's schema. Report-only repairs receive the original executed
-commands and exit codes; normal evidence validation still applies. Repairs cannot
-close findings. Fresh reviews can resolve a finding only when all criteria in its
-recorded scope have passing evidence; unsupported closure claims remain open with
-`pending_resolution`. Because older findings carry milestone-wide scope, they
-conservatively require that entire scope to pass. Explicit retractions remain a
-separate disposition.
-
-Reviewers stay read-only. Missing devices, credentials, browser access or compiler
-scratch permissions are verification blockers, not permission to change source
-or bypass restrictions. A shell wrapper exiting zero does not prove its nested
-test command succeeded. Live audit limitations are recorded alongside results.
+## Development status
+
+The stated priority is **reliable completion of agreed work** — completion,
+recovery, trustworthy status, and clear requests for human input. New features
+require an identified user need and an explicit scope decision; competitor feature
+parity is not a reason to expand scope.
+
+Claims of dependable project completion require live trials, not just fixture tests;
+three bounded real-model cases are still outstanding. See
+[RELIABILITY.md](RELIABILITY.md) for the criteria and
+[VALIDATION.md](VALIDATION.md) for what has been measured so far.
+
+## Tests
 
 ```sh
 python3 -m unittest tools/test_escalation.py tools/test_autocode.py tools/test_goals.py tools/test_subprocess.py tools/test_opencode.py tools/test_process.py
 ```
 
-The unit suite uses isolated Git fixtures. The subprocess test drives the actual CLI,
-runner, schemas, snapshots and approval commands with a deterministic **fake Codex**
-provider. That provider writes a tiny greeting program, then executes both success and
-failure cases in its Sol stage. It never calls a real model or reads credentials.
-Set `AUTOCODE_TEST_CLI=/path/to/installed/autocode` to test the installed package.
-These tests prove runner behavior, not a model's interviewing quality or semantic
-review accuracy. See `VALIDATION.md` for measured results and remaining limits.
+The suite uses isolated Git fixtures and a deterministic fake provider — it proves
+runner behavior, not model quality. More: [Testing](docs/testing.md).
 
-The OpenCode subprocess tests use a fake OpenCode executable with native event shapes,
-including separate resumed sessions, command evidence and usage. An optional tiny
-live check is available via `python3 tools/opencode_smoke.py --run-live`; it makes one
-request to each selected provider in a temporary workspace and saves raw evidence.
-Process tests require local `ps` access and exercise detached-worker cleanup, timeouts,
-interruption and checkpoint-write failure. The repair audit under
-`audits/opencode-repair-2026-09-19/` also verifies the original defects with native
-OpenCode metadata and a loopback provider fixture, without hosted model requests.
+## License
 
-Codex launch compatibility was checked against installed exec/resume help and
-[official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
-
-### Intervention ordering and recovery
-
-Each request ID retains its original receipt after application. An identical explicit retry returns it without requeueing; changed text or kind under that ID is a conflict. Receipt order increases across consumed batches. The observed goal token is read under the inbox lock when accepting the request.
-
-Submission and provider admission share the short inbox lock. Preparation occurs before admission; a request accepted first prevents the next provider launch. A request accepted after admission is queued while that stage finishes. The lock is released before waiting for the provider or asking for terminal input. Pending requests also prevent a prepared answer, goal approval, artifact approval or operator completion from committing. Stage results and recovery preserve completed work and consume earlier requests before committing any completion authorization.
-
-The owner commits pause effects, feedback invalidation and applied receipt IDs in one authoritative state write before removing inbox requests. Restart recovers both acknowledgement crash windows without applying an ID twice. Pause confirmation requires the saved paused state, not merely a receipt. Explicit `--resume-paused` acknowledges a saved pause; feedback still requires Astra discovery and a newly displayed exact-token brief approval before implementation can resume.
-
-Applied receipts include `applied_at`; explicit continuation adds `resumed_at` to previously applied receipts. Status exposes these durable timestamps. Submission retries omit these owner-only fields and continue to return the original acceptance receipt.
+See the repository for license terms.
