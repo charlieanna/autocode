@@ -169,13 +169,13 @@ class CatalogueCase(unittest.TestCase):
     def resolve_scenario_id(self) -> str:
         if self.scenario_id:
             return self.scenario_id
-        match = re.search(r"_([a-z]{3})(\d+)", self._testMethodName)
+        match = re.search(r"_([a-z]{2,3})(\d+)", self._testMethodName)
         if match:
             return f"{match.group(1).upper()}-{int(match.group(2))}"
         return self._testMethodName
 
     def setUp(self):
-        assert self.scenario_id or re.search(r"_([a-z]{3})(\d+)", self._testMethodName), \
+        assert self.scenario_id or re.search(r"_([a-z]{2,3})(\d+)", self._testMethodName), \
             "set scenario_id or name the test test_<id>_<case>"
         self.bundle = Bundle(self.resolve_scenario_id())
         self.addCleanup(self._close_bundle)
