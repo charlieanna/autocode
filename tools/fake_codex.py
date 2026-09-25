@@ -153,19 +153,24 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
     if stage == 'astra_resolve':
         result['diagnosis'] = 'Empty names are accepted by the CLI; add input validation and retest both cases.'
 elif stage == "terra":
-    if mode == 'stalled':
-        Path('greet.py').write_text("import sys\nprint('Hello, ' + sys.argv[1])\n# attempt " + str(uuid.uuid4()) + '\n')
+    # Each implement attempt must produce a real tree delta; the runner
+    # measures changed files from the workspace snapshot, not the report.
+    batch = str(uuid.uuid4())
+    milestone = data.get('current_task', {}).get('milestone_id')
+    if mode == 'milestones' and milestone == 'M2':
+        Path('bye.py').write_text("import sys\nprint('Goodbye, ' + sys.argv[1])\n# batch " + batch + "\n")
+    elif mode == 'stalled':
+        Path('greet.py').write_text("import sys\nprint('Hello, ' + sys.argv[1])\n# attempt " + batch + '\n')
     elif mode == "rework" and not data["actionable_findings"]:
-        Path("greet.py").write_text("import sys\nprint('Hello, ' + sys.argv[1])\n")
+        Path("greet.py").write_text("import sys\nprint('Hello, ' + sys.argv[1])\n# attempt " + batch + '\n')
     else:
-        Path("greet.py").write_text("import sys\nif len(sys.argv) != 2 or not sys.argv[1].strip():\n    raise SystemExit(2)\nprint('Hello, ' + sys.argv[1])\n")
+        Path("greet.py").write_text("import sys\nif len(sys.argv) != 2 or not sys.argv[1].strip():\n    raise SystemExit(2)\nprint('Hello, ' + sys.argv[1])\n# batch " + batch + "\n")
     result = {**common, "summary": "Greeting written", "changed_files": ["greet.py"], "commands_run": [],
               "results": ["Written"], "remaining_risks": [], "evidence_refs": ["greet.py"],
               "addressed_requirements": data["current_task"]["requirements"], "untested_behavior": ["CLI execution"],
               "recommended_checks": ["Execute valid and invalid input"]}
-    if mode == 'milestones' and data['current_task']['milestone_id'] == 'M2':
-        Path('bye.py').write_text("import sys\nprint('Goodbye, ' + sys.argv[1])\n")
-        result.update(changed_files=['bye.py'], evidence_refs=['bye.py'])
+    if mode == 'milestones' and milestone == 'M2':
+        result.update(changed_files=['bye.py'], evidence_refs=['bye.py'], summary='Goodbye written')
 else:
     valid = subprocess.run([sys.executable, "greet.py", "Ada"], capture_output=True, text=True)
     invalid = subprocess.run([sys.executable, "greet.py", ""], capture_output=True, text=True)

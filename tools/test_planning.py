@@ -477,13 +477,15 @@ class JointFlow(unittest.TestCase):
             self.assertEqual("opencode", stage["command"][0])
             self.assertEqual("openai/gpt-5.6-terra", stage["command"][stage["command"].index("--model") + 1])
             self.assertEqual("autocode_terra", stage["command"][stage["command"].index("--agent") + 1])
-        # The requested effort applies to the first build. A failed validation
-        # escalates the next Terra attempt and starts a fresh session.
+        # The requested effort applies to every build. Builder retry policy owns
+        # the rework route: the ordinary retry keeps the configured effort and
+        # rotates the session instead of climbing the reasoning ladder.
         self.assertEqual("high", stages[0]["command"][stages[0]["command"].index("--variant") + 1])
-        self.assertEqual("xhigh", stages[1]["command"][stages[1]["command"].index("--variant") + 1])
+        self.assertEqual("high", stages[1]["command"][stages[1]["command"].index("--variant") + 1])
         self.assertIsNone(stages[0]["expected_session"])
         self.assertIsNone(stages[1]["expected_session"])
-        self.assertEqual("validation_rework", final["reasoning_escalations"][-1]["trigger"])
+        self.assertEqual("retry", final["builder_retry_decisions"][-1]["action"])
+        self.assertEqual("high", final["builder_retry_decisions"][-1]["selected_effort"])
         self.assertNotEqual(final["sessions"]["terra"], final["sessions"]["sol"])
         self.assertNotEqual(final["sessions"]["terra"], final["sessions"]["completion"])
 
