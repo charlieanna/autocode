@@ -655,10 +655,15 @@ For criterion and end-to-end evidence from image/MCP calls or retained earlier
 stages, cite the exact existing artifact path (including the owning JSONL log),
 not a foreign or non-command event: ID. These artifacts still require independent
 inspection and source provenance; a file path alone is not proof of acceptance.
+Artifact evidence_refs must resolve inside the project. For checks using external
+temporary artifacts, cite the current executed shell event that records the
+observation, or its project-contained event log, and preserve any limitations.
 open_findings in CURRENT HANDOFF DATA lists both reviewers' open findings. Each
-defect gets its own runner id. Leave id empty when reporting a new defect, even if
-the wording matches an open finding; copy that finding's id only to report the same
-defect again. A finding you omit stays open. Close one you verified in
+defect gets its own runner id. Sol may reuse an id only from an open finding whose
+source is sol, and only to report that same defect again. Leave id empty for a new
+Sol finding, including a defect previously reported only by Astra; preserve the
+defect and evidence without copying Astra's id. A finding you omit stays open.
+Sol may close only its own findings. Close one you verified in
 finding_dispositions with its exact id, disposition resolved and the check that
 proves it, or retracted with evidence that the finding itself was wrong. Do not
 abbreviate commands or invent IDs. The runner saves full events locally.
@@ -681,13 +686,15 @@ requirements, approved acceptance_criteria IDs and validation_plan. Use kind=val
 with CONTINUE when existing work only needs Sol revalidation. For BLOCKED or COMPLETE
 use kind=none and empty next-task strings/lists. Report every defect you identify as a
 structured entry in findings (severity, finding, evidence, blocking). Leave id empty
-for a new defect. Two defects stay separate even when the wording matches; copy an
-open finding's id only when you are reporting that same defect again. The runner
+for a new Astra finding, including a defect previously reported only by Sol. Two
+defects stay separate even when the wording matches; reuse an id only from an open
+finding whose source is astra, and only when reporting that same defect again. The runner
 assigns the id and links it to the task that fixes it, so a finding described only
 in prose is not tracked. A BLOCKED review still lists the defects already found;
 the runner records them before pausing and does not close anything. open_findings
 in CURRENT HANDOFF DATA lists both reviewers' open findings. Omitting a finding
-does not close it: close it in finding_dispositions with its exact id, disposition
+does not close it. Astra may close only its own findings: use finding_dispositions
+with its exact id, disposition
 resolved (with verification evidence) or retracted (the finding itself was wrong,
 with evidence), and only after this report reviewed the work it was raised under. Keep a
 correction task small: name the ledger IDs it addresses in next_task.findings and leave

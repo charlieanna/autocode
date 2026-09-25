@@ -233,6 +233,23 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual(2, len(findings.open_entries(state)))
         self.assertEqual(2, next(row["times_reported"] for row in findings.open_entries(state) if row["evidence"] == "api_a.py:41"))
 
+    def test_report_repair_preserves_foreign_finding_as_new_owned_entry(self):
+        state = {}
+        findings.record_decision(state, astra("REWORK", "Tablet cards are too narrow"), {"output": "astra-01.json"})
+        astra_id = findings.open_entries(state, "astra")[0]["id"]
+        report = sol("Tablet cards are too narrow")
+        report["findings"][0]["id"] = astra_id
+        with self.assertRaisesRegex(ValueError, "not one open finding of this reviewer"):
+            findings.record_validation(state, report, {"output": "sol-01.json"})
+        report["findings"][0]["id"] = ""
+        findings.record_validation(state, report, {"output": "sol-repair.json", "report_repaired": True})
+        self.assertEqual(2, len(findings.open_entries(state)))
+        self.assertEqual(astra_id, findings.open_entries(state, "astra")[0]["id"])
+        sol_entry = findings.open_entries(state, "sol")[0]
+        self.assertNotEqual(astra_id, sol_entry["id"])
+        self.assertEqual(report["findings"][0]["evidence"], sol_entry["evidence"])
+        self.assertTrue(sol_entry["blocking"])
+
     def test_blocked_review_records_new_findings_and_closes_nothing(self):
         state = {}
         findings.record_decision(state, astra("REWORK", "Help text missing"), {"output": "astra-01.json"})

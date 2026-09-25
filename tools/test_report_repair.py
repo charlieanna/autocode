@@ -254,6 +254,9 @@ class RepairTests(unittest.TestCase):
 
     def test_report_request_is_readonly_and_uses_same_role_model(self):
         self.queue()
+        runner.findings_ledger.record_decision(self.state, {"status": "REWORK", "findings": [
+            {"finding": "Tablet cards are too narrow", "severity": "high", "evidence": "astra-01.json"}
+        ]}, {"output": "astra-01.json"})
         with patch.object(runner, 'run_role', side_effect=RuntimeError('fixture stop')) as launch:
             with self.assertRaises(RuntimeError):
                 runner.execute_report_repair(self.state, self.run, self.root)
@@ -263,6 +266,9 @@ class RepairTests(unittest.TestCase):
         self.assertEqual('read-only', call['sandbox'])
         self.assertEqual('model-terra', call['model'])
         self.assertIn('Do not redo implementation', call['prompt'])
+        handoff = json.loads(call['prompt'].split('CURRENT HANDOFF DATA\n', 1)[1])
+        self.assertEqual('astra', handoff['open_findings'][0]['source'])
+        self.assertEqual(self.state['findings_ledger'][0]['id'], handoff['open_findings'][0]['id'])
         self.assertIn('exactly one JSON object', call['prompt'])
         self.assertIn('independently executed Sol tool event', call['prompt'])
 
