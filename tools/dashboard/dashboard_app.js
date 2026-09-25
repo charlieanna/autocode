@@ -316,6 +316,35 @@ function taskIdentity(run) {
   const time=taskStarted(run);
   return time?'Started '+new Date(time).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',second:'2-digit'}):'Saved task · '+basename(run.run).slice(0,22);
 }
+const ARCHIVE_SUGGESTION_AGE_MS=48*60*60*1000;
+function archiveSuggestionKind(run,now=Date.now()) {
+  if(!run?.run||run.error||run.state_error)return '';
+  const checkpoint=Date.parse(run.monitor?.checkpoint_updated||run.updated_at||run.created_at);
+  if(!Number.isFinite(checkpoint)||now-checkpoint<ARCHIVE_SUGGESTION_AGE_MS)return '';
+  if(run.status==='TASK_COMPLETE')return 'Completed';
+  if(run.questions?.length||run.user_request?.decision_needed)return '';
+  if(run.status!=='RUNNING'||run.monitor?.live?.state==='alive')return '';
+  if(run.monitor?.live?.state==='exited')return 'Recorded worker exited';
+  if(!run.active_stage?.stage&&run.monitor?.live?.state==='none')return 'No worker recorded; check before archiving';
+  return '';
+}
+function archiveSuggestionDismissed() {
+  try { const saved=JSON.parse(stored('archive-suggestions-dismissed','{}'));return saved&&typeof saved==='object'&&!Array.isArray(saved)?saved:{}; }
+  catch { return {}; }
+}
+function renderArchiveSuggestions(runs) {
+  const host=$('#archive-suggestions'),dismissed=archiveSuggestionDismissed();
+  const candidates=runs.map(run=>({run,kind:archiveSuggestionKind(run)})).filter(item=>item.kind&&!dismissed[item.run.run]);
+  host.replaceChildren();host.hidden=!candidates.length;
+  if(!candidates.length)return;
+  host.append(n('h2','Older work to review'),n('p','These tasks are complete or have an old, unconfirmed running status. Review each one before archiving; files and history stay saved.'));
+  for(const {run,kind} of candidates){
+    const row=card('','archive-suggestion-row'),copy=card('','archive-suggestion-copy');
+    copy.append(n('strong',taskTitle(run)),n('span',basename(run.workspace)+' · '+kind));
+    row.append(copy,button('Review archive',()=>reviewTaskArchive(run),'text-button'),button('Dismiss',()=>{const next=archiveSuggestionDismissed();next[run.run]=true;persist('archive-suggestions-dismissed',JSON.stringify(next));renderArchiveSuggestions(runs);},'text-button'));
+    host.append(row);
+  }
+}
 function statusInfo(run) {
   const status=run.status||'', questions=run.questions||[], request=run.user_request||{};
   const info=(group,tone,label,action,reason,tab='interview')=>({group,tone,label,action,reason,tab,
@@ -331,6 +360,7 @@ function statusInfo(run) {
     if(run.monitor?.live?.state==='alive')return info('running','running','Running','View progress',stageName(run)+' · Worker verified alive');
     if(stage.stage&&run.monitor?.live?.state==='exited')return info('stopped','attention','Worker stopped','Review checkpoint','The saved step says running, but its worker has exited. Review the checkpoint before continuing.');
     if(stage.stage&&!stage.finished_at&&stage.exit_code==null)return info('stopped','attention','Worker unverified','Check worker status','No live worker is confirmed. '+(run.monitor?.live?.label||'Process inspection is unavailable.')+' Inspect the saved checkpoint before continuing.');
+    if(archiveSuggestionKind(run)==='No worker recorded; check before archiving')return info('stopped','attention','Status needs review','Check saved status','This run still says running, but no worker was recorded and its checkpoint has not changed for two days. Check it before continuing or archiving.');
     if(run.monitor?.orchestration_batch&&run.monitor?.next_stage==='orchestrator')return info('stopped','attention','Worker unverified','Check worker status','Orchestrator · Saved batch statuses do not confirm live workers. Inspect the saved checkpoint before continuing.');
     if(run.review_token&&run.review_criteria?.length&&run.review_criteria.every(criterion=>run.human_reviews?.[criterion.id]?.token===run.review_token))return info('stopped','','Ready to finish','Finish task','Your review is saved. Finish the task to run its final completion check.','execution');
     return info('stopped','','Ready to continue','Open to continue','The task is at a saved checkpoint. Open it to continue when you are ready.');
@@ -929,6 +959,7 @@ function renderInbox(data){
 }
 function renderTasks(data) {
   const runs=data.runs||[],actual=runs.filter(run=>run.run),projects=dashboardProjects(data);
+  renderArchiveSuggestions(actual.filter(run=>!projectFilter||run.workspace===projectFilter));
   const countFor=list=>Object.fromEntries(taskGroups().map(([key])=>[key,list.filter(run=>statusInfo(run).group===key).length]));
   const current=projectCurrentRuns(actual),counts=countFor(current);
   $('#all-count').textContent=current.length+unattachedConversations(data).length;$('#project-count').textContent=projects.length;
@@ -1200,14 +1231,132 @@ function answerSafetyPanel(count) {
   panel.append(Object.assign(n('p',count>1?'Answer '+count+' questions':'Answer needed'),{className:'monitor-kicker'}),n('p','After the final answer is saved, planning continues automatically.'),n('p','This does not approve a plan or start implementation.'));
   return panel;
 }
+/* Session checkpoints: meaningful saved moments in this task's conversation.
+   Derived only from saved state; each answers what changed, what was verified,
+   which findings existed, and which candidate it was. */
+const CHECKPOINT_DISPLAY_LIMIT=30;
+function sessionCheckpoints(run) {
+  const list=[];
+  const goal=run.goal||{};
+  if(goal.approval_status==='approved')list.push({id:'plan',kind:'plan',label:'Plan approved',at:goal.approval_event?.at||goal.updated_at||run.updated_at||run.created_at||'',iteration:null,candidate:0});
+  const slots=new Map();
+  for(const [index,stage] of (run.stages||[]).entries()){
+    if(!stageSucceeded(stage)||!stage.finished_at)continue;
+    const name=String(stage.stage||'').replace(/_report_repair$/,'');
+    const kind=/terra|orchestrator/.test(name)?'built':/^(sol|astra_review|astra_checkpoint)/.test(name)?'review':'';
+    if(!kind)continue;
+    const iteration=stage.iteration??index;
+    const slot=slots.get(iteration)||{iteration,built:null,review:null};
+    slot[kind]={index,stage,name,at:stage.finished_at};
+    slots.set(iteration,slot);
+  }
+  let candidate=0;
+  for(const slot of slots.values()){
+    if(slot.built){candidate+=1;list.push({id:'built-i'+slot.iteration,kind:'built',label:slot.built.name==='orchestrator'?'Builder batch completed':'Build completed',at:slot.built.at,iteration:slot.iteration,candidate,stageIndex:slot.built.index,changedFiles:Array.isArray(slot.built.stage.changed_files)?slot.built.stage.changed_files.filter(file=>typeof file==='string'):[],hasDiff:!!slot.built.stage.diff_ref,sourceRevision:typeof slot.built.stage.source_revision==='string'?slot.built.stage.source_revision:''});}
+    if(slot.review)list.push({id:'review-i'+slot.iteration,kind:'review',label:/^sol/.test(slot.review.name)?'Validation review':'Completion review',at:slot.review.at,iteration:slot.iteration,candidate,stageIndex:slot.review.index,changedFiles:Array.isArray(slot.review.stage.changed_files)?slot.review.stage.changed_files.filter(file=>typeof file==='string'):[],hasDiff:!!slot.review.stage.diff_ref,sourceRevision:typeof slot.review.stage.source_revision==='string'?slot.review.stage.source_revision:''});
+  }
+  if(run.status==='TASK_COMPLETE')list.push({id:'final',kind:'final',label:'Final candidate',at:run.completed_at||list.at(-1)?.at||'',iteration:null,candidate});
+  return list.sort((left,right)=>(Date.parse(left.at)||0)-(Date.parse(right.at)||0));
+}
+function checkpointChangedText(cp) {
+  if(cp.kind==='plan')return 'The approved plan revision only. Approval does not change project files.';
+  if(cp.kind==='final')return 'The completed result of the final candidate. Open Changes to inspect its saved snapshot.';
+  if(!cp.changedFiles.length)return cp.hasDiff?'A saved diff exists for this step; changed file names were not recorded.':'No changed files or diff were recorded for this step.';
+  const shown=cp.changedFiles.slice(0,6).join(' · ');
+  return cp.changedFiles.length>6?shown+' · +'+(cp.changedFiles.length-6)+' more':shown;
+}
+function checkpointVerifiedText(run,cp) {
+  const validation=run.validation||{},counts=run.counts||{};
+  const tally=verdict=>'Saved verification'+(verdict?' · verdict '+verdict:'')+' · '+(counts.pass||0)+' criteria passed · '+(counts.fail||0)+' failed or blocked · '+(counts.unknown||0)+' unverified.';
+  if(cp.kind==='plan')return 'Approval records plan revision '+(run.goal?.revision??'?')+' by '+(run.goal?.approval_event?.actor||'you')+'. It is not implementation verification.';
+  if(cp.kind==='final')return (run.monitor?.validation_verdict||validation.verdict)?tally(run.monitor?.validation_verdict||validation.verdict):'This task is recorded complete, but no independent verification report is saved for the final result.';
+  if(cp.sourceRevision&&validation.source_revision===cp.sourceRevision)return tally(validation.verdict);
+  return 'No independent verification report is saved for this candidate. Recorded implementation and tool activity are not acceptance.';
+}
+function checkpointFindingsText(run,cp,isLatest) {
+  const summary=run.monitor?.findings_summary,open=run.monitor?.findings||[];
+  if(!summary&&!open.length)return 'No findings are recorded in the saved review ledger.';
+  const ledger=summary?summary.open+' open · '+summary.resolved+' resolved'+(summary.repeated?' · '+summary.repeated+' reported again after a fix':'')+'.':'';
+  if(!isLatest)return 'Earlier per-candidate finding history is not saved. Latest ledger: '+ledger;
+  if(!open.length)return 'Latest ledger: '+ledger+' No findings remain open.';
+  const items=open.slice(0,5).map(finding=>(finding.id?finding.id+' · ':'')+concise(finding.finding||'Finding details unavailable',80));
+  return 'Latest ledger: '+ledger+' Open: '+items.join(' | ')+(open.length>5?' · +'+(open.length-5)+' more':'');
+}
+function checkpointCandidateText(cp) {
+  if(cp.kind==='plan')return 'Plan revision checkpoint · recorded before build candidates.';
+  if(cp.kind==='final')return 'Final candidate'+(cp.candidate?' · candidate '+cp.candidate:'')+'.';
+  return 'Candidate '+cp.candidate+' · iteration '+(cp.iteration??'?')+(cp.sourceRevision?' · source '+cp.sourceRevision.slice(0,12):'')+(cp.kind==='review'?' · review of candidate '+cp.candidate:'')+'.';
+}
+function checkpointAnswers(run,cp,isLatest) {
+  const list=n('dl','checkpoint-answers');
+  for(const [question,answer] of [['What changed?',checkpointChangedText(cp)],['What was verified?',checkpointVerifiedText(run,cp)],['What findings existed?',checkpointFindingsText(run,cp,isLatest)],['Which candidate was this?',checkpointCandidateText(cp)]])list.append(n('dt',question),n('dd',answer));
+  return list;
+}
+function requestCheckpointRestore(run,cp,control) {
+  const input=$('#change-text');
+  if(!input)return;
+  const revision=cp.sourceRevision?' (source revision '+cp.sourceRevision.slice(0,12)+')':'';
+  input.value='Restore the workspace to the saved checkpoint “'+cp.label+'” — candidate '+cp.candidate+', iteration '+(cp.iteration??'?')+revision+' — then continue from that state.';
+  changeDrafts.set(run.run,input.value);
+  persist('task-draft:'+run.run,input.value);
+  if(typeof resizeComposer==='function')resizeComposer(input);
+  if(typeof input.oninput==='function')input.oninput({target:input});
+  if(typeof input.focus==='function')input.focus();
+  input.scrollIntoView?.({block:'center'});
+  if(control){control.textContent='Restore request drafted below ✓';control.disabled=true;}
+}
+function revealChangeStage(run,stageIndex) {
+  activateTab('changes');
+  const key='details:'+run.run+'\0diff-stage:'+stageIndex;
+  let attempts=0;
+  const reveal=()=>{
+    const summary=typeof document!=='undefined'?document.querySelector('[data-focus-key="'+key+'"]'):null;
+    if(summary?.parentElement){summary.parentElement.open=true;summary.parentElement.scrollIntoView({block:'start'});return;}
+    if(++attempts<40&&typeof setTimeout==='function')setTimeout(reveal,100);
+  };
+  reveal();
+}
+function renderSessionCheckpoints(run,checkpoints) {
+  if(!checkpoints.length)return null;
+  const host=card('','session-checkpoints');
+  host.setAttribute('aria-label','Session checkpoints');
+  host.append(n('h2','Session checkpoints'),Object.assign(n('p','Meaningful stages saved during this session. Open a checkpoint to see what changed, what was verified, which findings existed, and which candidate it was.'),{className:'field-note'}));
+  const visible=checkpoints.length>CHECKPOINT_DISPLAY_LIMIT?checkpoints.slice(-CHECKPOINT_DISPLAY_LIMIT):checkpoints;
+  if(visible.length<checkpoints.length)host.append(Object.assign(n('p','Showing the latest '+visible.length+' of '+checkpoints.length+' saved checkpoints.'),{className:'field-note'}));
+  const list=n('ol','checkpoint-list'),latest=checkpoints[checkpoints.length-1];
+  for(const cp of visible){
+    const detail=card('','checkpoint-detail');
+    const at=Date.parse(cp.at),stamp=at?new Date(at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'time unavailable';
+    const toggle=focusKey(button('',()=>{detail.hidden=!detail.hidden;toggle.setAttribute('aria-expanded',String(!detail.hidden));},'checkpoint-toggle'),'checkpoint:'+run.run+':'+cp.id);
+    toggle.dataset.staleSafe='true';toggle.setAttribute('aria-expanded','false');
+    const mark=n('span','✓');mark.setAttribute('aria-hidden','true');mark.className='checkpoint-mark';
+    toggle.append(mark,Object.assign(n('span',cp.label),{className:'checkpoint-label'}),Object.assign(n('span',stamp),{className:'checkpoint-time'}));
+    detail.hidden=true;
+    detail.append(checkpointAnswers(run,cp,cp===latest));
+    if(cp.stageIndex!=null&&cp.hasDiff){const open=button('Open saved changes →',()=>revealChangeStage(run,cp.stageIndex),'text-button');open.dataset.staleSafe='true';detail.append(open);}
+    if(cp.kind!=='plan'&&cp.kind!=='final'&&run.status!=='TASK_COMPLETE'&&!taskActionBusy(run)){
+      const restore=button('Restore to here',()=>requestCheckpointRestore(run,cp,restore),'text-button checkpoint-restore');
+      restore.dataset.staleSafe='true';
+      restore.title='Drafts a restore request in the composer below. Sending chat never approves a plan or starts work on its own.';
+      detail.append(restore);
+    }
+    const item=n('li','checkpoint-item checkpoint-'+cp.kind);
+    item.append(toggle,detail);list.append(item);
+  }
+  host.append(list);
+  return host;
+}
 function renderConversation(run) {
-  const root=$('#conversation'),signature=JSON.stringify([run.run,run.progress_messages,run.draft_messages,run.planning_messages,run.discovery_summary,run.answers,run.questions,run.chat_messages,run.user_request,run.status,run.goal?.approval_status,taskChatPending.has(run.run)]);
+  const checkpoints=sessionCheckpoints(run);
+  const root=$('#conversation'),signature=JSON.stringify([run.run,run.progress_messages,run.draft_messages,run.planning_messages,run.discovery_summary,run.answers,run.questions,run.chat_messages,run.user_request,run.status,run.goal?.approval_status,run.goal?.approval_event,run.completed_at,run.monitor?.findings_summary,run.monitor?.findings,run.monitor?.validation_verdict,run.validation?.source_revision,run.counts,taskChatPending.has(run.run),checkpoints]);
   $('#conversation-heading').textContent='Conversation';
   $('#conversation-avatar').textContent=planningSpeaker(run).slice(0,1);
   $('#conversation-description').textContent=jointPlanning(run)?'The Requirements Gatherer captures the scope. The Planner drafts and revises. The independent Plan Reviewer challenges and finalizes.':'Shape the work, then let your team build.';
   if(root.dataset.rendered===signature)return;const scroll=$('#interview');scrollThreadToEnd=scrollThreadToEnd||scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90;root.dataset.rendered=signature;root.replaceChildren();
   const context=card('','conversation-context');context.append(n('strong','Conversation history'),n('p','Earlier drafts and requests remain here as history. Now shows what currently needs your decision.'),button('See current state →',()=>activateTab('now'),'text-button'));root.append(context);
   renderMessageHistory(root,taskMessages(run),run.run);
+  const timeline=renderSessionCheckpoints(run,checkpoints);
+  if(timeline)root.append(timeline);
   if(statusInfo(run).label==='Answer needed'){
     const questions=run.questions||[];
     for(const question of questions)renderQuestion(root,question,run);
