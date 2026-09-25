@@ -15,8 +15,8 @@ import uuid
 DEFAULT_MODELS = {
     "requirements": "zai-coding-plan/glm-5.3",
     "glm": "zai-coding-plan/glm-5.3",
-    # Role names are stable workflow identifiers, not fixed model names.  The
-    # normal lead/reviewer starts on Sol and escalates to Astra only when the
+    # Role keys are stable workflow identifiers, not fixed model names.  The
+    # normal lead/reviewer starts on the Sol tier and escalates to the Astra tier only when the
     # task warrants it.
     "astra": "openai/gpt-5.6-sol",
     "terra": "openai/gpt-5.6-terra",
@@ -208,9 +208,9 @@ def prompt_for_schema(prompt, schema, events):
         "A PASS report must list at least one successful executed check.\n"
         "An evidence_refs entry must contain only a file path or the exact event:<part.id>; "
         "never append a command, exit code, punctuation or explanation to a reference. "
-        "Do not cite a step_finish or text part ID. Terra should prefer the saved capture "
+        "Do not cite a step_finish or text part ID. The Builder should prefer the saved capture "
         "JSON/log file paths in evidence_refs, and list commands separately in commands_run.\n"
-        "OpenCode tool permissions apply. Do not modify application code in Astra or Sol, "
+        "OpenCode tool permissions apply. Do not modify application code in the Plan Reviewer or Validator, "
         "including via shell commands or external tools. If a required operation is denied, "
         "report a blocker; do not bypass the permission.\n"
         "Treat the workspace in CURRENT HANDOFF DATA as a strict filesystem boundary. Do not "

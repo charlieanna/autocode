@@ -246,7 +246,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.start_task()
         source, record = self.interrupted_attempt(terminal=True)
         evidence = self.run / 'retained-check.log'
-        evidence.write_text('Implementation finished; Sol must verify the result.\n')
+        evidence.write_text('Implementation finished; the Validator must verify the result.\n')
         report = {**envelope(self.state), 'summary': 'Retained completed greeting',
                   'changed_files': ['greet.py'], 'commands_run': [], 'results': ['Implementation saved'],
                   'remaining_risks': ['Independent verification pending'], 'evidence_refs': [str(evidence)],
@@ -312,7 +312,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         evidence.write_text('Retained greeting implementation.\n')
         events = self.run / 'completed-terra.jsonl'
         events.write_text('{"type":"turn.completed"}\n')
-        report = {**envelope(self.state), 'summary': 'Implementation ready for Sol',
+        report = {**envelope(self.state), 'summary': 'Implementation ready for the Validator',
                   'changed_files': ['greet.py'], 'commands_run': [], 'results': ['Ready'],
                   'remaining_risks': [], 'evidence_refs': [str(evidence)]}
         record = {'role': 'terra', 'stage': 'terra', 'events': str(events),

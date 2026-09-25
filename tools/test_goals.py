@@ -952,7 +952,7 @@ class GoalTests(unittest.TestCase):
         self.validation()
         correction = self.decision("REWORK")
         correction["acceptance_criteria"][0]["status"] = "unverified"
-        correction["next_objective"] = "Fix the visual gap found by Astra"
+        correction["next_objective"] = "Fix the visual gap found by the Plan Reviewer"
         report = self.run / "visual-gap-review.json"
         report.write_text(json.dumps(correction))
         record = {"output": str(report), "source_revision": s.snapshot(self.root)["revision"]}

@@ -219,11 +219,11 @@ class SystematicCase(t08.CrashCase):
         def run_order(order):
             state = {}
             if order == "sol-first":
-                findings.record_validation(state, sol_report("Sol defect"), {"output": "s1.json"})
-                findings.record_decision(state, astra_report("Astra defect"), {"output": "a1.json"})
+                findings.record_validation(state, sol_report("Validator defect"), {"output": "s1.json"})
+                findings.record_decision(state, astra_report("Plan Reviewer defect"), {"output": "a1.json"})
             else:
-                findings.record_decision(state, astra_report("Astra defect"), {"output": "a1.json"})
-                findings.record_validation(state, sol_report("Sol defect"), {"output": "s1.json"})
+                findings.record_decision(state, astra_report("Plan Reviewer defect"), {"output": "a1.json"})
+                findings.record_validation(state, sol_report("Validator defect"), {"output": "s1.json"})
             return findings.summary(state)
 
         def canonical(summary):

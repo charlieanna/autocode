@@ -279,7 +279,7 @@ def apply_planning(state, stage, value, record):
         concerns = reports["astra_challenge"]["report"]["concerns"]
         planning_unit._coverage(value["responses"], concerns)
         if any(not r["evidence_refs"] for r in value["responses"]):
-            raise ValueError("GLM responses must cite investigated evidence")
+            raise ValueError("Planner responses must cite investigated evidence")
         _bind_plan(state, value, stage)
         if state.get("pending_questions"):
             reports[stage] = {"report": copy.deepcopy(value), "output": record["output"]}
@@ -406,7 +406,7 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     if state.get("validation"):
         state.setdefault("validation_archive", []).append({
             "reason": "Superseded by another independent validation", "validation": state["validation"]})
-    # A PASS or FAIL from Sol is evidence. It cannot withdraw an open Astra
+    # A PASS or FAIL from the Validator is evidence. It cannot withdraw an open Plan Reviewer
     # correction or retarget the workflow at a new review of the old candidate.
     correction_open = bool(state.get("resolution_request")) and state.get("next_stage") == "astra_resolve"
     if correction_open:
@@ -565,7 +565,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
         else:
             if not value["next_objective"].strip():
                 raise support.Paused("PAUSED_INVALID_OUTPUT", "CONTINUE requires an action")
-            # Passing Sol evidence cannot override Astra's rework or unverified criteria.
+            # Passing Validator evidence cannot override the Plan Reviewer's rework or unverified criteria.
             if modern and value["status"] == "CONTINUE":
                 completion_probe = {**value, "status": "TASK_COMPLETE"}
                 if support.completion_ready(state, completion_probe, support.snapshot(workspace)):

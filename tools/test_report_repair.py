@@ -296,7 +296,7 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(self.state['findings_ledger'][0]['id'], handoff['open_findings'][0]['id'])
         self.assertEqual(support.criteria_definition(self.state['acceptance_criteria']), handoff['acceptance_criteria'])
         self.assertIn('exactly one JSON object', call['prompt'])
-        self.assertIn('independently executed Sol tool event', call['prompt'])
+        self.assertIn('independently executed Validator tool event', call['prompt'])
 
     def test_repair_handoff_contains_exact_original_command_receipts(self):
         pending = self.queue()

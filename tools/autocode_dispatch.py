@@ -2,7 +2,7 @@
 
 Planning and approval own scope. This stage owns scheduling, isolated workers and
 integration. Builder reports never accept milestones: the combined artifact still
-passes through the ordinary Sol and completion-owner gates.
+passes through the ordinary Validator and completion-owner gates.
 """
 from __future__ import annotations
 

@@ -472,7 +472,7 @@ class LegacyConsole:
    for role,value in chosen.items():extra+=['--'+role+'-model',value]
    for role,value in efforts.items():extra+=['--'+role+'-reasoning-effort',value]
    return self.enqueue(ws,None,'Create OpenCode task' if self.run_provider=='opencode' else 'Create '+self.run_provider+' task',extra)
-  if d.get('glm_model'):raise ValueError('GLM discovery requires the default joint-planning engine')
+  if d.get('glm_model'):raise ValueError('Planner discovery requires the default joint-planning engine')
   models={r:d.get(r+'_model',v) for r,v in CODEX_DEFAULT_MODELS.items()};provider=self.zai_probe()
   for r,m in models.items():
    if m not in (CODEX_DEFAULT_MODELS[r],GLM_MODELS[r]):raise ValueError('Unsupported model')

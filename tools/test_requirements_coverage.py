@@ -16,7 +16,7 @@ class CoverageTests(unittest.TestCase):
                                  for i, quote in enumerate(quotes)], 'ignored_statements': []}
 
     def test_multisentence_quote_covers_bulleted_requirement(self):
-        quote = 'Sol must inspect the actual images. No human review gate is requested.'
+        quote = 'The Validator must inspect the actual images. No human review gate is requested.'
         for marker in ('- ', '* ', '+ ', '1. ', '2) '):
             with self.subTest(marker=marker):
                 state = {'task': 'Review policy.\n' + marker + quote}
@@ -24,8 +24,8 @@ class CoverageTests(unittest.TestCase):
 
     def test_formatting_normalization_does_not_authorize_invented_quotes(self):
         with self.assertRaisesRegex(ValueError, 'source_quote is not in'):
-            goals.check_requirement_handoff({'task': '- Sol must inspect images.'},
-                                            self.report('Sol must approve images.'))
+            goals.check_requirement_handoff({'task': '- The Validator must inspect images.'},
+                                            self.report('The Validator must approve images.'))
 
     def test_all_missing_sentences_are_reported_without_truncation(self):
         sentences = ['You must preserve the reference.', 'You must inspect ' + 'every image pair ' * 12 + '.']

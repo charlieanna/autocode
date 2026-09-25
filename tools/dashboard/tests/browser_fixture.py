@@ -54,8 +54,8 @@ STATE = {
         "assigned_at": "2026-09-19T22:14:47Z",
         "contract_revision": 5,
         "decision": "CONTINUE",
-        "owner": "Terra",
-        "next_role": "Sol",
+        "owner": "Builder",
+        "next_role": "Validator",
     },
     "task_archive": [{
         "id": "fixture-initial",
@@ -138,7 +138,7 @@ def main():
         print("On New task, enter " + str(entered) + ", keep OpenCode selected, provide a goal, and create it. Confirm the new run appears and its action output contains --engine opencode --no-chat only.", flush=True)
         print("Add " + str(root / "runtime-root") + " in Legacy watch roots, then remove it; the CLI legacy root remains protected.", flush=True)
         print("While a question, goal, or watch-root path field is focused, type text and select part of it; wait for polling and verify draft, focus, and selection remain intact.", flush=True)
-        print("Open Astra planning to inspect the initial historically approved/inactive plan, the current draft awaiting its own approval, current assignment, and the two recorded intermediate assignment/rework cards. Viewing history does not advance the run. Then inspect every complete-brief contract section and criterion metadata before explicitly typing the displayed goal token.", flush=True)
+        print("Open Plan Reviewer planning to inspect the initial historically approved/inactive plan, the current draft awaiting its own approval, current assignment, and the two recorded intermediate assignment/rework cards. Viewing history does not advance the run. Then inspect every complete-brief contract section and criterion metadata before explicitly typing the displayed goal token.", flush=True)
         try:
             threading.Event().wait()
         except KeyboardInterrupt:

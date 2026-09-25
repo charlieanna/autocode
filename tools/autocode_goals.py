@@ -664,7 +664,7 @@ def initial_decision(body):
 
 
 def feedback(state, text):
-    """A free-form brief correction is input to Astra, never authorization to build."""
+    """A free-form brief correction is input to the Plan Reviewer, never authorization to build."""
     if state["status"] not in ("AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER", "PAUSED_PLANNING_BUDGET") or not text.strip():
         raise ValueError("Brief feedback needs nonempty text at a conversation checkpoint")
     if state.get("user_request", {}).get("kind") == "human_review":
@@ -1245,8 +1245,8 @@ Put the check descriptions in acceptance_criteria[].criterion and verification_m
 """
 
 
-DISCOVERY_PROMPT = """You are ASTRA, the product lead, technical planner and final reviewer.
-Terra implements. Sol independently validates. First help the user define what to build.
+DISCOVERY_PROMPT = """You are the Requirements Gatherer, the product lead, technical planner and final reviewer.
+The Builder implements. The Validator independently validates. First help the user define what to build.
 Read the rough idea, saved answers, brief feedback, current artifacts and project instructions.
 Explain your understanding of the intended outcome in plain English in summary.
 Identify decisions that materially affect product, scope, user experience or success.
@@ -1292,9 +1292,9 @@ each discovered repair into a separate permission request. Diagnose within autho
 scope first; when a real boundary remains, present the concrete minimal scope delta.
 Restate acceptance_criteria entries byte-identical from the contract (same ids, criterion
 text, verification methods, human_review flags); any rewording is rejected as a criteria
-change. Do not weaken criteria, change required behavior or expand scope. Astra may change the
-plan inside the goal; a validation task sends preserved implementation straight to Sol.
-Terra implements only the authorized batch. Sol validates the actual current artifact
+change. Do not weaken criteria, change required behavior or expand scope. The Plan Reviewer may change the
+plan inside the goal; a validation task sends preserved implementation straight to the Validator.
+The Builder implements only the authorized batch. The Validator validates the actual current artifact
 and reports evidence for every criterion and an explicit blocking flag on each finding.
 Echo current_task.id as task_id, or the empty string when no task exists yet.
 A CONTINUE/REWORK next_task must set milestone_id to an approved milestone id whose
@@ -1306,7 +1306,7 @@ Put optional improvements in deferred_backlog; they cannot delay completion.
 If a material ambiguity, contradiction, infeasible constraint, permission need or goal
 change appears, STOP at a safe checkpoint and set user_request with the discovery,
 impact, smallest decision, options/consequences and proposed contract delta. Do not
-continue on an assumed answer. Terra and Sol send that request to Astra; Astra decides
+continue on an assumed answer. The Builder and Validator send that request to the Plan Reviewer; the Plan Reviewer decides
 whether a user decision is needed and presents it with BLOCKED. With no user decision needed use kind=none and empty
 strings/lists. Correct an incorrect test only with a documented goal-consistent reason.
 """

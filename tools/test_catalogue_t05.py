@@ -175,7 +175,7 @@ class UnitFindingCases(FindingCase):
         findings.record_decision(state, review, {"output": "astra-01.json"})
         fid = findings.open_entries(state, "astra")[0]["id"]
         before = copy.deepcopy(findings.open_entries(state, "astra"))
-        # The validator (Sol) tries to resolve Astra's finding by explicit id.
+        # The Validator tries to resolve the Plan Reviewer's finding by explicit id.
         cross = sol(dispositions=[resolved(fid, "validator believes it is fixed")])
         self.oracle.apply("sol", cross)
         findings.record_validation(state, cross, {"output": "sol-01.json"})
@@ -369,7 +369,7 @@ class ControllerFindingCases(FindingCase):
         self.bundle.state("before", {"status": self.state["status"], "open": 0})
         self.approve()
         self.assign_first_task()
-        # An earlier Astra finding must survive the BLOCKED report as well.
+        # An earlier Plan Reviewer finding must survive the BLOCKED report as well.
         prior = self.decision("REWORK", "Help text missing")
         findings.record_decision(self.state, prior, {"output": "astra-00.json"})
         self.oracle.apply("astra", prior)

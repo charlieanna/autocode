@@ -222,7 +222,7 @@ if stage=='terra' and (data.get('workflow') or {}).get('mode')=='glm_final_audit
         'command':command,'exit_code':0 if passed else 1,'aggregated_output':'fixture checks'}}))
     assessment={**common,'verdict':'PASS' if passed else 'FAIL','findings':[],'finding_dispositions':[],'checks_run':[command],
         'unverified_criteria':[], 'checks':[{'command':command,'exit_code':0 if passed else 1,'evidence_ref':'event:self-check'}],
-        'end_to_end_result':{'status':'PASS' if passed else 'FAIL','summary':'GLM self-check','evidence_refs':['event:self-check']},
+        'end_to_end_result':{'status':'PASS' if passed else 'FAIL','summary':'Builder self-check','evidence_refs':['event:self-check']},
         'criterion_results':[{'id':'C1','status':'PASS' if passed else 'FAIL','evidence_refs':['event:self-check']}]}
     second=data.get('next_action')=='Second GLM batch'
     consulted=bool(data.get('consultation_reports'))

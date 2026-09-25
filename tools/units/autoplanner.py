@@ -82,7 +82,7 @@ def role_for(state, stage):
 def route_for(state, stage, role=None):
     """Return the saved model route for a semantic workflow role.
 
-    Completion remains an Astra-format decision stage, but it intentionally has
+    Completion remains a Plan Reviewer-format decision stage, but it intentionally has
     its own model, reasoning level, and session so plan review and completion
     ownership can be tuned independently.
     """
@@ -164,9 +164,10 @@ and ask only about what remains ambiguous. Do not ask the user to repeat a clear
 proposed_reframes is only for agent-proposed changes, never user-authored corrections.
 A narrow correction leaves unrelated exclusions in force: adding named actions permits
 those actions, not every possible control. Do not ask permission to expand beyond them.
-Use workspace_inventory to locate relevant existing code, then READ it before making
-claims about current behavior or missing functionality. A missing package.json or src/
-directory does not mean no application exists. Inspect tools/, nested apps and tests.
+Use workspace_inventory to locate relevant existing code, then READ 4-6 key files
+before making claims about current behavior. Do not explore indefinitely — read
+enough to understand the architecture, then produce your structured output.
+A missing package.json or src/ directory does not mean no application exists.
 source_refs must include the actual repository-relative files read (optional :line),
 not only 'task'; do not claim inspected behavior from filenames alone. A truncated
 inventory is not evidence of absence. Use source_refs=[] only for an empty workspace.
@@ -187,7 +188,10 @@ For a new run, use requirements_handoff and its saved artifact as your input; do
 replace its stated requirements or convert its proposed assumptions into user decisions.
 Carry unresolved requirements questions into open_blocking_questions unless saved answers
 resolve them. Older saved runs may lack a requirements handoff; only then gather missing
-requirements yourself. Explore relevant source and return code_refs, alternatives and uncertainties.
+requirements yourself.
+Read 5-8 key source files to understand the architecture, then STOP exploring and return
+your structured output (code_refs, alternatives, uncertainties, contract). Do not read
+every file — the workspace_inventory lists candidates; pick the most relevant ones.
 First assess readiness. If any blocking question remains, return a clarification-only
 contract: preserve known requirements and questions, set technical_approach=[] and
 milestones=[], and do not invent a product, architecture, files, task DAG or initial task.
@@ -244,7 +248,7 @@ There is no further debate round. The user must approve this exact plan before i
 }
 
 
-def workspace_inventory(workspace, task, limit=120, scan_limit=5000):
+def workspace_inventory(workspace, task, limit=40, scan_limit=5000):
     """Bounded filesystem inventory; works in repositories and ordinary directories."""
     root = Path(workspace)
     ignored = {".git", ".autocode", ".venv", "venv", "node_modules", "__pycache__",
@@ -278,6 +282,17 @@ def context(state, stage, state_path):
         # Current contract is included once. Older full drafts stay retrievable
         # via the artifact path; concerns/responses retain the explicit delta.
         entry["report"].pop("contract", None)
+        # Trim verbose fields from older reports to keep the prompt bounded.
+        report = entry.get("report") or {}
+        for key in ("code_refs", "alternatives", "uncertainties", "summary"):
+            if isinstance(report.get(key), list) and len(report[key]) > 5:
+                report[key] = report[key][:5]
+            elif isinstance(report.get(key), str) and len(report[key]) > 500:
+                report[key] = report[key][:500] + "…"
+        for row_key in ("concerns", "responses", "decisions"):
+            rows = report.get(row_key)
+            if isinstance(rows, list) and len(rows) > 6:
+                report[row_key] = rows[:6]
     packet = {"task": state["task"], "workspace": state["workspace"], "state_file": str(state_path),
               "joint_planning": True, "execution_engine": engine_for(state["settings"], route_for(state, stage)),
               "stage": stage,

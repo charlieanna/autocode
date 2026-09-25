@@ -132,7 +132,7 @@ def scenario_states(workspace):
          'options': ['Keep the saved revision', 'Start a new provider request'],
          'why': 'The first unresolved question is preserved.', 'proposed_default': 'Keep the saved revision'},
         {'id': 'question-2', 'question': 'Should recovery return to plan review?', 'options': ['Plan review', 'Remain paused']},
-        {'id': 'question-3', 'question': 'Who should verify the recovered checkpoint?', 'options': ['Sol', 'Astra']},
+        {'id': 'question-3', 'question': 'Who should verify the recovered checkpoint?', 'options': ['Validator', 'Plan Reviewer']},
     ]
 
     plan = base_state(workspace, 'Approve the exact plan revision before building',

@@ -86,7 +86,7 @@ def _models(value):
 
 def _prompt(messages):
     return (
-        'You are the planning partner (GLM workflow role) in the Autocode browser dashboard. '
+        'You are the planning partner (Planner role) in the Autocode browser dashboard. '
         'This is a project-free conversation. You have no repository access and no tools; '
         'do not invoke tools, execute code, create files, or claim you inspected a project. '
         'Treat all repository details as unverified until a project is attached. '

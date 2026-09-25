@@ -1,6 +1,6 @@
 """One authoritative list of reviewer findings.
 
-Sol reports findings in every validation; Astra reports them in review and
+The Validator reports findings in every validation; the Plan Reviewer reports them in review and
 checkpoint decisions.  Both land here with a runner-owned identity, the task assigned
 to fix them, and the report that resolved them.  The identity is not derived
 from the wording or the evidence, so two defects with the same description stay
@@ -99,7 +99,7 @@ def _initial_task_scope(contract, task):
 def restore_initial_plan_scopes(state):
     """Recover only proven initial-plan scope; never infer scope from later assignment.
 
-    Older runners recorded the first Astra plan before assigning its task, leaving
+    Older runners recorded the first Plan Reviewer plan before assigning its task, leaving
     scope null. The accepted plan, first assignment and sealed contract jointly
     identify that scope. Unknown/global findings retain the full-review rule.
     """
@@ -234,7 +234,7 @@ def _record(state, source, reported, record, initial_scope=None):
 
 
 def record_validation(state, validation, record):
-    """Sol's findings open or refresh Sol entries; its dispositions close them."""
+    """The Validator's findings open or refresh Validator entries; its dispositions close them."""
     _record(state, "sol", validation.get("findings", []), record)
     if validation.get("verdict") == "BLOCKED":
         return
@@ -245,7 +245,7 @@ def record_validation(state, validation, record):
 
 
 def record_decision(state, decision, record):
-    """Astra's structured findings behave like Sol's.
+    """The Plan Reviewer's structured findings behave like the Validator's.
 
     A BLOCKED review still records the defects it already identified. It does not
     close anything: the pause is about a missing decision, not a passing recheck.

@@ -2,7 +2,7 @@
 """A durable plan-review → build → validate → completion loop.
 
 The completion owner requests completion; the runner enforces approved-goal and
-current-evidence gates. Terra is the only designated writer; review roles are
+current-evidence gates. The Builder is the only designated writer; review roles are
 checked for source drift.
 """
 
@@ -203,7 +203,7 @@ def repair_limit(state):
 def recover_legacy_report_repair(state, run_dir, workspace):
     """Upgrade one pre-report-repair checkpoint at an explicit resume boundary.
 
-    Older checkpoints could reject a fully completed Terra response for a bad
+    Older checkpoints could reject a fully completed Builder response for a bad
     evidence citation while their saved settings disabled the already-existing
     report-only repair path.  That is a known terminal artifact, not an
     uncertain provider request: re-open it only when its source, contract and
@@ -610,8 +610,8 @@ def execute_report_repair(state, run_dir, workspace):
               'event: IDs or exact file paths, with no appended explanations or line annotations. '
               'Do not invent delegation or approval. '
               'For captured checks, use the command and exit_code inside each receipt, not the '
-              'outer capture invocation. A Sol check still requires an independently executed '
-              'Sol tool event; a capture receipt alone cannot establish that independence. '
+              'outer capture invocation. A Validator check still requires an independently executed '
+              'Validator tool event; a capture receipt alone cannot establish that independence. '
               'Preserve executed successful checks; a PASS verdict '
               'requires at least one. If none are supported by the original events and receipts, '
               'report NOT_VERIFIED. '
@@ -623,11 +623,11 @@ def execute_report_repair(state, run_dir, workspace):
               'Artifact evidence paths must resolve inside the project; for observations retained '
               'only in an external temporary file, cite the original project-contained event log '
               'that records them and preserve the observation and its limitations. '
-              'Finding identities belong to their source reviewer: Sol may reuse only open sol IDs, '
-              'and Astra only open astra IDs. If the original report copied the other reviewer\'s ID, '
+              'Finding identities belong to their source reviewer: the Validator may reuse only open sol IDs, '
+              'and the Plan Reviewer only open astra IDs. If the original report copied the other reviewer\'s ID, '
               'leave id empty while preserving the defect, severity, blocking status and evidence. '
               'A report-only repair cannot resolve or retract findings. '
-              'For an Astra execution decision, return every acceptance_criteria definition '
+              'For a Plan Reviewer execution decision, return every acceptance_criteria definition '
               'from CURRENT HANDOFF DATA in the same order with exact id and criterion text. '
               'Restore omitted criteria as unverified; do not treat milestone scope as permission '
               'to omit approved criteria or invent verified evidence for pending work. '
@@ -790,7 +790,7 @@ MAX_AUTOMATIC_CAPACITY_RECOVERIES = 2
 def automatically_recover_capacity_stage(state, run_dir, workspace, error):
     """Archive a confirmed model-capacity failure for bounded recovery.
 
-    The next stage is an Astra recovery review, so partial work is inspected
+    The next stage is a Plan Reviewer recovery review, so partial work is inspected
     before another writer runs. Repeated capacity failures stop after two
     recoveries and require an explicit resume.
     """
@@ -929,8 +929,8 @@ def automatically_recover_timed_out_stage(state, run_dir, workspace, error):
     state["human_reviews"] = {}
     state.pop("displayed_review", None)
 
-    # Final-audit-only runs keep GLM in charge of implementation. Other routing
-    # modes retain the established Astra recovery review before another writer.
+    # Final-audit-only runs keep the Builder in charge of implementation. Other routing
+    # modes retain the established Plan Reviewer recovery review before another writer.
     next_stage = ("terra" if workflow.final_only(state) and record["role"] in ("terra", "sol")
                   else "astra_review" if record["role"] != "astra" else record["stage"])
     recovery = {"at": now(), "attempt_id": attempt_id(record), "role": record["role"],
@@ -1676,7 +1676,7 @@ def accept_completion(state: dict[str, Any], workspace: Path) -> None:
     current = support.snapshot(workspace)
     contract = state["goal_contract"]
     probe = {"status": "TASK_COMPLETE", "contract_revision": contract["revision"], "contract_hash": contract["hash"],
-             "acceptance_criteria": [{**c, "status": "verified", "evidence": "Current Sol criterion evidence"}
+             "acceptance_criteria": [{**c, "status": "verified", "evidence": "Current Validator criterion evidence"}
                                      for c in state["acceptance_criteria"]]}
     if not support.completion_ready(state, probe, current):
         raise ValueError("Completion acceptance requires current passing independent evidence for every criterion")
