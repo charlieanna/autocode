@@ -1,8 +1,10 @@
 # Bug 001: Plan Reviewer stuck in tool-calling loop, produces no structured output
 
 **Severity:** High
+**Status:** Fixed (2026-09-25)
 **Found:** 2026-09-25 stress test on bounded-repair-tasks feature
 **Run:** `20260925-021232-add-bounded-repair-task-generation-from-findings-34320863`
+**Fix commit:** `60887eb` (tools/units/autoplanner.py)
 
 ## Summary
 
@@ -57,7 +59,19 @@ N tool calls, the system should either:
 - Switch to a stronger model (escalation)
 - Surface a clear error instead of looping
 
-## Suggested fix
+## Fix applied
+
+Three changes in `tools/units/autoplanner.py`:
+
+1. **Workspace inventory**: 120 → 40 files (~1255 tokens saved)
+2. **Stop-exploring signal**: Added "Read 5-8 key source files, then STOP exploring
+   and return your structured output" to `astra_discovery` and `requirements_gather`
+3. **Planning exchange trim**: Cap lists at 5-6 items, strings at 500 chars in
+   older report entries
+
+Static prompt parts: ~4000 → ~3400 tokens. Handoff data significantly smaller
+due to exchange trimming. All 49 core tests + 28 findings tests + 29 milestone
+tests pass.
 
 1. **Trim the prompt**: The workspace inventory (120 files) and handoff JSON
    (~10K tokens) should be summarized, not dumped raw. A file list of 120 paths
