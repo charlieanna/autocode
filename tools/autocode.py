@@ -768,10 +768,14 @@ def abandon_stage(state, run_dir, workspace, selected):
         "source_revision": after["revision"], "changed_files": record["changed_files"],
         "events": record["events"], "source_snapshot": record["after_ref"],
         "instruction": "This response was abandoned. Inspect partial work before assigning a task or validation; its report is not evidence of success."}
-    next_stage = (record["stage"] if record["role"] == "astra" or record.get("planning") else
+    # Report repair is an internal transport stage. A fresh attempt must route
+    # to the owning workflow stage, never to the unowned *_report_repair name.
+    retry_stage = record.get("original_stage") or record["stage"].removesuffix("_report_repair")
+    next_stage = (retry_stage if record["role"] == "astra" or record.get("planning") else
                   "terra" if workflow.final_only(state) and record["role"] in ("terra", "sol") else
                   "astra_review")
-    recovery_role = "Terra" if next_stage == "terra" else "Astra"
+    recovery_role = ("Requirements Planner" if planning.is_planning(state, next_stage) else
+                     "Builder" if next_stage == "terra" else "Plan Reviewer")
     state.update(status="PAUSED_STAGE_ABANDONED", phase="PAUSED_OR_BLOCKED", next_stage=next_stage,
                  stop_reason=f"Partial work retained. Resume explicitly for {recovery_role} to inspect it and choose the next step.")
     write_json(run_dir / "state.json", state)
@@ -1025,6 +1029,22 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
 
 def prepare_planning_retry(state, run_dir):
     """Explicitly retry an exhausted planning report; retain rejected evidence."""
+    # Older runs may already have archived a repair under its internal stage
+    # name. Recover only the exact abandoned attempt on an explicit resume.
+    if (state.get('status') == 'PAUSED_INVALID_OUTPUT' and not state.get('active_stage')
+            and not state.get('pending_report_repair')
+            and str(state.get('next_stage', '')).endswith('_report_repair')):
+        selected = (state.get('recovery_context') or {}).get('attempt_id')
+        archived = next((row for row in reversed(state.get('stages', []))
+                         if row.get('abandoned') and attempt_id(row) == selected), None)
+        if archived and archived.get('stage') == state['next_stage']:
+            owner = archived.get('original_stage') or archived['stage'].removesuffix('_report_repair')
+            if planning.is_planning(state, owner):
+                state['next_stage'] = owner
+                state.setdefault('reconciliation_notes', []).append({
+                    'at': now(), 'stage': owner,
+                    'reason': 'Explicit resume routed an archived report repair to its planning owner'})
+                write_json(run_dir / 'state.json', state)
     # The caller checks unchanged repeated failures before reaching this point.
     # After the cause changes, planning needs the same explicit fresh attempt
     # path as ordinary invalid output, retaining the exhausted repair artifacts.

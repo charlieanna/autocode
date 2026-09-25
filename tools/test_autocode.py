@@ -417,6 +417,36 @@ class RetrofitTest(unittest.TestCase):
         self.assertEqual(["partial.py"], archived["changed_files"])
         self.assertTrue(Path(archived["events"]).is_file())
 
+    def test_abandon_planning_report_repair_routes_to_owner_stage(self):
+        before = self.valid_completion()
+        base = self.run / "iterations/005/glm_revise_report_repair-01"
+        base.parent.mkdir(parents=True)
+        s.atomic_json(base.with_suffix(".before.json"), before)
+        base.with_suffix(".jsonl").write_text('{"type":"turn.completed"}\n')
+        record = {"role":"glm", "stage":"glm_revise_report_repair",
+                  "original_stage":"glm_revise", "planning":True, "report_only":True,
+                  "iteration":5, "duration_seconds":1, "exit_code":0, "processes":[],
+                  "output":str(base.with_suffix(".json")),
+                  "events":str(base.with_suffix(".jsonl")),
+                  "before_ref":str(base.with_suffix(".before.json"))}
+        self.state["active_stage"] = record
+        self.state["pending_report_repair"] = {"original":{"stage":"glm_revise"}}
+        runner.abandon_stage(self.state, self.run, self.root, "005/glm_revise_report_repair-01")
+        self.assertEqual("PAUSED_STAGE_ABANDONED", self.state["status"])
+        self.assertEqual("glm_revise", self.state["next_stage"])
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertTrue(self.state["stages"][-1]["abandoned"])
+
+    def test_explicit_resume_recovers_legacy_archived_repair_stage(self):
+        self.state['settings']['joint_planning'] = True
+        self.state.update(status='PAUSED_INVALID_OUTPUT', next_stage='glm_revise_report_repair',
+                          recovery_context={'attempt_id':'005/glm_revise_report_repair-01'})
+        self.state['stages'].append({'stage':'glm_revise_report_repair', 'original_stage':'glm_revise',
+                                     'iteration':5, 'output':str(self.run / 'iterations/005/glm_revise_report_repair-01.json'),
+                                     'abandoned':True})
+        self.assertTrue(runner.prepare_planning_retry(self.state, self.run))
+        self.assertEqual('glm_revise', self.state['next_stage'])
+
     def test_missing_evidence_and_outside_project_rejected(self):
         for refs in ([],["nope"],["/etc/hosts"]):
             with self.assertRaises(ValueError): s.evidence_hashes(refs,self.root,self.run)
