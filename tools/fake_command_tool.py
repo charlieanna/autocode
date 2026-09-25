@@ -137,6 +137,11 @@ elif stage == "astra_discovery":
     draft = body(questions=not data["saved_answers"], human=False)
     if data["saved_answers"]:
         draft["accepted_assumptions"] = [{"text": "User selected CLI", "basis": "user_answer", "answer_id": "Q1"}]
+    else:
+        # Unresolved blocking questions require a clarification-only draft.
+        draft["technical_approach"] = []
+        draft["milestones"] = []
+        draft.pop("initial_task", None)
     result = {"contract": draft, "summary": "Build a small local greeting CLI with a clear invalid-input failure",
               "code_refs": ["greet.py:1"] if Path("greet.py").is_file() else ["goal_contract.body"],
               "alternatives": ["A web endpoint would need deployment"],
