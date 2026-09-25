@@ -70,8 +70,9 @@ Details and raw evidence: [repair resolution](audits/opencode-repair-2026-09-19/
 # OpenCode integration validation — 2026-09-19 (historical)
 
 OpenCode is the default engine for new runs; `--engine opencode` remains available
-as an explicit selection. Its default role mapping is `openai/gpt-6-astra` for Astra,
-`openai/gpt-5.6-terra` for Terra, and `zai-coding-plan/glm-5.3` for Sol, with separate
+as an explicit selection. Its default role mapping is `openai/gpt-6-astra` for the
+Plan Reviewer (Astra route), `openai/gpt-5.6-terra` for the Builder (Terra route),
+and `zai-coding-plan/glm-5.3` for the Validator (Sol route), with separate
 persisted sessions for each role.
 
 Executed against the final source:
@@ -88,8 +89,9 @@ Executed against the final source:
 - The opt-in `python3 tools/opencode_smoke.py --run-live` check passed against
   installed OpenCode **1.18.31**, using the existing provider authentication.
 
-The live check made two small requests in a temporary empty Git workspace. Astra
-returned a valid JSON object through OpenAI. Sol returned a valid JSON object through
+The live check made two small requests in a temporary empty Git workspace. The
+Plan Reviewer request returned a valid JSON object through OpenAI. The Validator
+request returned a valid JSON object through
 Z.ai after executing a harmless `printf` command; its native event contained the
 matching command, output and exit status zero. These checks verify the two provider
 connections and native event/report handling. They do not constitute a complete
@@ -98,7 +100,7 @@ model-driven product build.
 Offline coverage includes native command evidence and token accounting, malformed
 or incomplete output rejection, terminal-message parsing, permission configuration,
 config drift, metadata timeouts, completed-stage recovery, explicit session reuse,
-distinct Terra/Sol sessions and refusal to change engines on an existing run. The
+distinct Builder/Validator sessions and refusal to change engines on an existing run. The
 subprocess workflows cover approval, implementation, independent validation, rework,
 limits and resumption using a fake OpenCode provider.
 
@@ -110,8 +112,8 @@ configuration or authentication files were changed. This adapter supports OpenCo
 
 # Build-brief workflow validation — 2026-09-19 (historical)
 
-The runner now follows the rough idea → Astra conversation → approved build brief →
-bounded Terra task → independent Sol validation → Astra decision workflow.
+The runner now follows the rough idea → Requirements conversation → approved build brief →
+bounded Builder task → independent Validator validation → Completion Owner decision workflow.
 
 Executed against the final source:
 
@@ -121,12 +123,12 @@ Executed against the final source:
   sources also passed direct syntax and trailing-whitespace checks.
 
 The offline subprocess tests cover brief feedback and renewed approval, an intentionally
-broken implementation followed by Sol FAIL and Astra REWORK, successful revalidation,
+broken implementation followed by a Validator FAIL and a Completion Owner REWORK, successful revalidation,
 artifact review in chat, pause before approval, an iteration-limit pause with the
 correction task retained, and resuming without replaying completed work. They inspect
 saved prompts to verify that execution roles receive the identical approved brief and
-that Sol receives the current task, full Terra report and matching workspace revision.
-The fake Sol provider executes the greeting program's success and failure cases.
+that the Validator receives the current task, full Builder report and matching workspace revision.
+The fake Validator provider executes the greeting program's success and failure cases.
 
 Unit coverage additionally checks complete brief fields and milestone coverage,
 feedback provenance, stale task rejection, explicit end-to-end evidence, forged
@@ -164,7 +166,7 @@ by this work. No learner data, course material or application code was edited.
 The subprocess test uses a deliberately fake Codex executable. It runs the actual
 runner and role subprocesses, validates actual JSON schemas, writes a tiny greeting
 program, executes valid/invalid-input checks, and uses actual CLI user events through
-discovery, approval, implementation, Sol validation, human review and completion.
+discovery, approval, implementation, Validator validation, human review and completion.
 The same test runs against both source and the installed wheel. No network, provider
 inference, credentials, paid model calls or production workspaces are involved.
 
@@ -195,7 +197,7 @@ and stale state reads before acquiring the lock.
 
 ## Limits
 
-Live Astra interviewing, Terra implementation and Sol semantic validation have not
+Live Requirements interviewing, Builder implementation and Validator semantic validation have not
 been exercised against a real model in this extraction. Model output quality and
 completeness of behavioral evidence still require an actual bounded trial. Headroom
 is still disabled and unverified. No production migration or adoption was performed.
