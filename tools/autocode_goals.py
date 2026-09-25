@@ -719,6 +719,7 @@ def answer(state, question_id, text, *, delegated=False):
     state["pending_questions"] = [row for row in state["pending_questions"] if row["id"] != question_id]
     if not state["pending_questions"]:
         state.update(status="RUNNING", phase="DISCOVERING", next_stage="astra_discovery")
+        state["discovery_summary"] = ""
     # Answers are inputs to a new draft, never goal approvals.
     state["goal_contract"].update(approval_status="draft", approval_event=None)
     invalidate(state, "A new user answer requires a reviewed draft")
