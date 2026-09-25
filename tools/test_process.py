@@ -27,12 +27,15 @@ class ProcessTests(unittest.TestCase):
         process.create_time.return_value = 1790019574.123
         process.ppid.return_value = 90
         process.status.return_value = 'sleeping'
-        process.name.return_value = 'mcp-server-darwin-arm64'
+        process._proc.name.return_value = 'mcp-server-darw'
         with patch.object(processes.psutil, 'Process', return_value=process), \
              patch.object(processes.os, 'getpgid', return_value=101), \
              patch.object(processes.psutil, 'pids', return_value=[101]):
             row = processes.process_table()[101]
-        self.assertEqual('mcp-server-darwin-arm64', row['executable'])
+        self.assertEqual('mcp-server-darw', row['executable'])
+        process.name.assert_not_called()
+        process.cmdline.assert_not_called()
+        self.assertTrue(ActivityMonitor._mcp_helper(row))
         self.assertEqual(1790019574.123, processes.identity(row)['birth_time'])
         self.assertTrue(processes.matches(processes.identity(row), row))
         self.assertFalse(processes.matches({**processes.identity(row), 'birth_time': 0}, row))
@@ -45,6 +48,49 @@ class ProcessTests(unittest.TestCase):
                 processes.process_table({101})
         with patch.object(processes.psutil, 'Process', side_effect=processes.psutil.NoSuchProcess(101)):
             self.assertEqual({}, processes.process_table({101}))
+
+    def test_optional_native_name_failure_retains_owned_identity(self):
+        for error in (processes.psutil.AccessDenied(101), PermissionError('native name denied'),
+                      SystemError('proc_cmdline returned a result with an exception set')):
+            with self.subTest(error=type(error).__name__):
+                process = MagicMock()
+                process.create_time.return_value = 1790019574.123
+                process.ppid.return_value = 90
+                process.status.return_value = 'sleeping'
+                process._proc.name.side_effect = error
+                with patch.object(processes.psutil, 'Process', return_value=process), \
+                     patch.object(processes.os, 'getpgid', return_value=101):
+                    row = processes.process_table({101})[101]
+                self.assertIsNone(row['executable'])
+                self.assertFalse(ActivityMonitor._mcp_helper(row))
+                self.assertEqual([row], processes.live_processes([processes.identity(row)], {101: row}))
+                process.name.assert_not_called()
+                process.cmdline.assert_not_called()
+
+    def test_native_identity_system_error_fails_closed(self):
+        for field in ('create_time', 'ppid', 'status'):
+            with self.subTest(field=field):
+                process = MagicMock()
+                getattr(process, field).side_effect = SystemError('native identity unavailable')
+                with patch.object(processes.psutil, 'Process', return_value=process):
+                    with self.assertRaisesRegex(processes.ProcessError, '101.*SystemError.*blocked'):
+                        processes.process_table({101})
+
+    def test_provider_finishes_when_optional_native_name_is_unavailable(self):
+        backend = type(processes.psutil.Process()._proc)
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(.2)'],
+                                 start_new_session=True)
+        owned = []
+        try:
+            with patch.object(backend, 'name', side_effect=SystemError('native name unavailable')):
+                code, expired = processes.wait_for_stage(child, 5, lambda rows: owned.extend(rows))
+            self.assertEqual(0, code)
+            self.assertFalse(expired)
+            self.assertIn(child.pid, [row['pid'] for row in owned])
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=5)
 
     def wait_ready(self, root, child):
         deadline = time.monotonic() + 15
@@ -267,7 +313,8 @@ worker = subprocess.Popen([str(helper.resolve()), '30'], start_new_session=True)
 Path('worker.pid').write_text(str(worker.pid))
 time.sleep(30)
 """
-        with patch.object(processes.psutil.Process, 'name', return_value='mcp-server-fixture'):
+        backend = type(processes.psutil.Process()._proc)
+        with patch.object(backend, 'name', return_value='mcp-server-fixture'):
             code, expired, snapshots, reason = self.activity_child(body, idle=3, tool=5, require_worker=True)
         self.assertNotEqual(0, code)
         self.assertTrue(expired)

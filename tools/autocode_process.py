@@ -38,8 +38,16 @@ def process_table(pids=None):
                 born = process.create_time()
                 parent = process.ppid()
                 status = process.status()
-                executable = process.name()
                 group = os.getpgid(pid)
+                try:
+                    # psutil's public name() may expand a truncated POSIX name
+                    # by reading cmdline(). On macOS that optional query can
+                    # raise a raw SystemError when sysctl denies access. The
+                    # pinned psutil 7 backend reads the native name directly;
+                    # a missing name must not discard verified birth identity.
+                    executable = process._proc.name()
+                except (psutil.AccessDenied, OSError, SystemError, AttributeError):
+                    executable = None
             table[pid] = {"pid": pid, "parent": parent, "group": group,
                           "started": " ".join(time.ctime(born).split()),
                           "birth_time": born,
@@ -50,7 +58,7 @@ def process_table(pids=None):
         except (psutil.AccessDenied, PermissionError) as error:
             if pids is not None:
                 raise ProcessError(f"Cannot inspect owned process {pid}: access denied; workspace remains blocked") from error
-        except (psutil.Error, OSError) as error:
+        except (psutil.Error, OSError, SystemError) as error:
             raise ProcessError(f"Cannot inspect process {pid}: {type(error).__name__}; workspace remains blocked") from error
     return table
 
