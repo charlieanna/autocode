@@ -269,6 +269,7 @@ class RepairTests(unittest.TestCase):
         handoff = json.loads(call['prompt'].split('CURRENT HANDOFF DATA\n', 1)[1])
         self.assertEqual('astra', handoff['open_findings'][0]['source'])
         self.assertEqual(self.state['findings_ledger'][0]['id'], handoff['open_findings'][0]['id'])
+        self.assertEqual(support.criteria_definition(self.state['acceptance_criteria']), handoff['acceptance_criteria'])
         self.assertIn('exactly one JSON object', call['prompt'])
         self.assertIn('independently executed Sol tool event', call['prompt'])
 

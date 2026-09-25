@@ -673,6 +673,10 @@ decides what happens next. Do not declare project completion.
 """,
 }
 ASTRA_DECISIONS = """
+Return the complete ordered acceptance_criteria array from CURRENT HANDOFF DATA,
+preserving every id and criterion text exactly, including criteria outside the
+current milestone. Mark unchecked criteria unverified; narrowing the review scope
+does not authorize dropping criteria from the approved contract.
 Choose exactly one status:
 CONTINUE: the current task passes (or this is the first task), but approved work remains.
 REWORK: a verified defect or unmet requirement needs a focused correction using findings.

@@ -1,4 +1,5 @@
 """One ledger of reviewer findings: identity, fix task, explicit dispositions, batch limits."""
+import copy
 import json
 from pathlib import Path
 import sys
@@ -208,6 +209,89 @@ class LedgerTests(unittest.TestCase):
         resolved_row = state["findings_ledger"][0]
         self.assertEqual("sol-m3.json", resolved_row["resolved_in"])
         self.assertNotIn("not_rechecked_in", resolved_row)
+
+    def test_initial_plan_records_its_explicit_task_scope_before_assignment(self):
+        state = self.scoped_state("M1")
+        state.pop("current_task")
+        report = astra("CONTINUE", "M1 layout clips text")
+        report["next_task"] = {"kind": "implement", "milestone_id": "M1", "acceptance_criteria": ["C1"]}
+        findings.record_decision(state, report, {"stage": "astra_plan", "output": "astra-plan.json"})
+        self.assertEqual({"milestone_id": "M1", "criteria": ["C1"]}, findings.open_entries(state)[0]["scope"])
+
+    def legacy_initial_plan(self):
+        state = self.scoped_state("M1")
+        state["goal_contract"].update(hash="approved", revision=1, approval_status="approved")
+        task = state["current_task"]
+        task.update(kind="implement", acceptance_criteria=["C1"], contract_hash="approved", contract_revision=1)
+        initial = copy.deepcopy(state)
+        initial.pop("current_task")
+        findings.record_decision(initial, astra("CONTINUE", "M1 layout clips text"), {"output": "astra-plan.json"})
+        state["findings_ledger"] = initial["findings_ledger"]
+        fid = state["findings_ledger"][0]["id"]
+        task["findings"] = [fid]
+        state["findings_ledger"][0]["assigned_history"] = [{"task_id": task["id"]}]
+        state["stages"] = [{"stage": "astra_plan", "output": "astra-plan.json", "task_id": None,
+                            "contract_hash": "approved", "contract_revision": 1, "exit_code": 0}]
+        return state, fid
+
+    def test_legacy_initial_scope_restored_from_accepted_plan_and_first_task(self):
+        state, fid = self.legacy_initial_plan()
+        # A later approved brief may retain these exact criteria while adding work.
+        state["contract_history"] = [copy.deepcopy(state["goal_contract"])]
+        state["goal_contract"].update(hash="expanded", revision=2)
+        state["task_archive"] = [copy.deepcopy(state["current_task"])]
+        state["current_task"] = {"id": "fresh-M1", "milestone_id": "M1"}
+        findings.record_decision(state, astra("CONTINUE", dispositions=[resolved(fid)]), {"output": "review.json"})
+        row = state["findings_ledger"][0]
+        self.assertEqual("resolved", row["status"])
+        self.assertEqual({"milestone_id": "M1", "criteria": ["C1"]}, row["scope"])
+        self.assertEqual("task-M1", row["scope_restored_from"]["task_id"])
+
+    def test_legacy_scope_recovery_refuses_unproven_or_changed_scope(self):
+        mutations = {
+            "review_stage": lambda s: s["stages"][0].update(stage="astra_review"),
+            "existing_task": lambda s: s["stages"][0].update(task_id="earlier-task"),
+            "rejected": lambda s: s["stages"][0].update(rejected=True),
+            "failed_execution": lambda s: s["stages"][0].update(exit_code=1),
+            "wrong_contract": lambda s: s["current_task"].update(contract_hash="different"),
+            "unapproved": lambda s: s["goal_contract"].update(approval_status="draft"),
+            "not_first_assignment": lambda s: s["findings_ledger"][0]["assigned_history"].insert(0, {"task_id": "missing"}),
+            "missing_finding_link": lambda s: s["current_task"].update(findings=[]),
+            "out_of_milestone": lambda s: s["current_task"].update(acceptance_criteria=["C2"]),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(name=name):
+                state, fid = self.legacy_initial_plan()
+                mutate(state)
+                with self.assertRaisesRegex(ValueError, "did not review"):
+                    findings.record_decision(state, astra("CONTINUE", dispositions=[resolved(fid)]), {"output": "review.json"})
+                self.assertIsNone(state["findings_ledger"][0]["scope"])
+                self.assertEqual("open", state["findings_ledger"][0]["status"])
+        state, fid = self.legacy_initial_plan()
+        state["contract_history"] = [copy.deepcopy(state["goal_contract"])]
+        state["goal_contract"].update(hash="changed", revision=2)
+        state["goal_contract"]["body"]["acceptance_criteria"][0]["criterion"] = "different meaning"
+        findings.restore_initial_plan_scopes(state)
+        self.assertIsNone(state["findings_ledger"][0]["scope"])
+
+    def test_recovered_scope_still_requires_fresh_owner_review_in_scope(self):
+        state, fid = self.legacy_initial_plan()
+        with self.assertRaisesRegex(ValueError, "report-only repair"):
+            findings.record_decision(state, astra("CONTINUE", dispositions=[resolved(fid)]),
+                                     {"output": "repair.json", "report_repaired": True})
+        state["current_task"]["milestone_id"] = "M2"
+        with self.assertRaisesRegex(ValueError, "did not review"):
+            findings.record_decision(state, astra("CONTINUE", dispositions=[resolved(fid)]), {"output": "M2.json"})
+        self.assertEqual("open", state["findings_ledger"][0]["status"])
+
+    def test_archived_draft_requires_exact_historical_approval_event(self):
+        for token, restored in (("r1:approved", True), ("r2:approved", False), ("r1:other", False)):
+            with self.subTest(token=token):
+                state, _ = self.legacy_initial_plan()
+                state["goal_contract"]["approval_status"] = "draft"
+                state["user_events"] = [{"kind": "goal_approval", "token": token}]
+                findings.restore_initial_plan_scopes(state)
+                self.assertEqual(restored, state["findings_ledger"][0]["scope"] is not None)
 
     def test_runs_without_milestones_accept_dispositions(self):
         state = {"goal_contract": {"body": {"acceptance_criteria": [{"id": "C1"}]}}, "current_task": {"id": "t", "milestone_id": ""}}

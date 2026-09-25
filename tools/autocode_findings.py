@@ -81,6 +81,66 @@ def report_scope(state):
     return {"milestone_id": scope.get("id", ""), "criteria": criteria}
 
 
+def _initial_task_scope(contract, task):
+    """An initial planner's findings belong to its explicit approved task scope."""
+    if task.get("kind") != "implement" or task.get("milestone_ids"):
+        return None
+    body = contract.get("body", {})
+    milestone = next((m for m in body.get("milestones", [])
+                      if m["id"] == task.get("milestone_id")), None)
+    criteria = task.get("acceptance_criteria", [])
+    if (not milestone or not criteria or len(criteria) != len(set(criteria))
+            or not set(criteria) <= set(milestone["acceptance_criteria"])
+            or not set(criteria) <= {c["id"] for c in body.get("acceptance_criteria", [])}):
+        return None
+    return {"milestone_id": milestone["id"], "criteria": sorted(criteria)}
+
+
+def restore_initial_plan_scopes(state):
+    """Recover only proven initial-plan scope; never infer scope from later assignment.
+
+    Older runners recorded the first Astra plan before assigning its task, leaving
+    scope null. The accepted plan, first assignment and sealed contract jointly
+    identify that scope. Unknown/global findings retain the full-review rule.
+    """
+    current = state.get("goal_contract", {})
+    current_criteria = {c["id"]: c for c in current.get("body", {}).get("acceptance_criteria", [])}
+    tasks = [*state.get("task_archive", []), state.get("current_task") or {}]
+    contracts = [*state.get("contract_history", []), current]
+    for row in ledger(state):
+        history = row.get("assigned_history", [])
+        if (row.get("source") != "astra" or row.get("status") != "open"
+                or row.get("scope") is not None or not history):
+            continue
+        plans = [r for r in state.get("stages", []) if r.get("output") == row.get("opened_in")
+                 and r.get("stage") == "astra_plan" and not r.get("task_id")
+                 and r.get("exit_code") == 0 and not r.get("timed_out")
+                 and not r.get("interrupted") and not r.get("rejected") and not r.get("abandoned")]
+        assigned = [t for t in tasks if t.get("id") == history[0].get("task_id")
+                    and row["id"] in t.get("findings", [])]
+        if len(plans) != 1 or len(assigned) != 1:
+            continue
+        plan, task = plans[0], assigned[0]
+        identity = (plan.get("contract_hash"), plan.get("contract_revision"))
+        if not all(identity) or identity != (task.get("contract_hash"), task.get("contract_revision")):
+            continue
+        matched = [c for c in contracts if (c.get("hash"), c.get("revision")) == identity]
+        token = f"r{identity[1]}:{identity[0]}"
+        # Feedback can archive an old contract after resetting its approval flag;
+        # the exact original approval event remains authoritative history.
+        approved_event = any(e.get("kind") == "goal_approval" and e.get("token") == token
+                             for e in state.get("user_events", []))
+        if len(matched) != 1 or not (matched[0].get("approval_status") == "approved" or approved_event):
+            continue
+        scope = _initial_task_scope(matched[0], task)
+        old_criteria = {c["id"]: c for c in matched[0].get("body", {}).get("acceptance_criteria", [])}
+        if not scope or any(current_criteria.get(cid) != old_criteria[cid] for cid in scope["criteria"]):
+            continue
+        row.update(scope=scope, scope_restored_from={
+            "plan_output": plan["output"], "task_id": task["id"],
+            "contract_hash": identity[0], "contract_revision": identity[1], "approval_token": token})
+
+
 def _covers(report, row_scope, all_criteria):
     """True when a report reviewed everything the finding was raised against."""
     if report is None:
@@ -122,12 +182,13 @@ def _apply_dispositions(state, source, dispositions, record, scope, all_criteria
         row.pop("not_rechecked_in", None)
 
 
-def _record(state, source, reported, record):
+def _record(state, source, reported, record, initial_scope=None):
     """Reconcile one reviewer's latest report against that reviewer's open findings."""
     rows = ledger(state)
     at = s.now()
     report = record.get("output")
-    scope = report_scope(state)
+    restore_initial_plan_scopes(state)
+    scope = initial_scope or report_scope(state)
     all_criteria = {c["id"] for c in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])}
     # A repair only reformats an earlier report; it is not a fresh review of the work.
     can_resolve = not (record.get("report_repaired") or record.get("report_only"))
@@ -174,7 +235,9 @@ def record_decision(state, decision, record):
     A BLOCKED review still records the defects it already identified. It does not
     close anything: the pause is about a missing decision, not a passing recheck.
     """
-    _record(state, "astra", decision.get("findings", []), record)
+    initial_scope = (_initial_task_scope(state.get("goal_contract", {}), decision.get("next_task") or {})
+                     if record.get("stage") == "astra_plan" and not state.get("current_task") else None)
+    _record(state, "astra", decision.get("findings", []), record, initial_scope)
     if decision.get("status") == "BLOCKED":
         return
     _apply_dispositions(state, "astra", decision.get("finding_dispositions", []), record,
