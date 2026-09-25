@@ -212,6 +212,9 @@ class CrashScenarios(CrashCase):
         base = self.run / "iterations/005/terra-01"
         base.parent.mkdir(parents=True)
         support.atomic_json(base.with_suffix(".before.json"), before)
+        # The durable report represents a completed edit, not a no-op attempt.
+        # Retain that edit across recovery so the progress guard stays active.
+        (self.root / "greet.py").write_text("print('v2')\n")
         value = {**envelope(self.state), "summary": "saved", "changed_files": ["greet.py"],
                  "commands_run": [], "results": [], "remaining_risks": [],
                  "addressed_requirements": [], "untested_behavior": [], "recommended_checks": [],
@@ -232,6 +235,7 @@ class CrashScenarios(CrashCase):
             runner.reconcile_active(self.state, self.run, self.root)
         self.check("result_applied_once", 1,
                    sum(1 for rec in self.state["stages"] if rec.get("stage") == "terra"))
+        self.check("completed_edit_retained", "print('v2')\n", (self.root / "greet.py").read_text())
         self.check("review_next_step", "sol", self.state["next_stage"])
         self.finish(summary="RECOVERED_RESULT: durable implementation applied without re-execution")
 
