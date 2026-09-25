@@ -2434,7 +2434,7 @@ def main(unit=None) -> int:
                     try:
                         execute_report_repair(current, run_dir, workspace)
                     except ReportRepairQueued:
-                        pass
+                        return orchestrator.SKIP
                     return orchestrator.SKIP
 
             def dispatch_code_stage(current, stage):
@@ -2515,6 +2515,14 @@ def main(unit=None) -> int:
         if state["status"] == "TASK_COMPLETE":
             print(goals.render_completion(state))
         else:
+            if args.chat and state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
+                if not chat_checkpoint(state, run_dir):
+                    write_json(state_path, state)
+                    return 2
+                write_json(state_path, state)
+                if state["status"] == "TASK_COMPLETE":
+                    print(goals.render_completion(state))
+                    return 0
             rendered = goals.present(state)
             write_json(state_path, state)
             print(rendered)

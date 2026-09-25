@@ -219,6 +219,7 @@ class UnitFindingCases(FindingCase):
         state["current_task"] = {"id": "task-m2c", "milestone_id": "M2"}
         covering = sol(dispositions=[resolved(fid)])
         covering["finding_dispositions"][0]["id"] = fid
+        covering["criterion_results"] = [{"id": "C1", "status": "PASS", "evidence_refs": ["event:check"]}]
         state["goal_contract"]["body"]["milestones"][1]["acceptance_criteria"] = ["C1", "C2"]
         findings.record_validation(state, covering, {"output": "sol-m3.json"})
         self.check("scoped_recovery_closes_f1", 0, len(findings.open_entries(state)))
@@ -529,6 +530,7 @@ class ControllerFindingCases(FindingCase):
                                                                  "evidence": "fixed in A"}])
         # A's own reviewer report closes A's finding through the same ledger call
         # the controller routes astra decisions through.
+        self.state["validation"] = {"criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["event:check"]}]}
         findings.record_decision(self.state, a_disposition, {"output": "astra-a2.json"})
         self.expect_raises("cross_project_report_rejected", support.Paused,
                            runner.apply_result, b_state, "astra_review", a_disposition,

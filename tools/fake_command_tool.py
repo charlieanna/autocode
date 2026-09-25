@@ -74,15 +74,44 @@ if invocations:
         handle.write(data.get("stage", "report_repair") + "\n")
 if data.get("report_repair"):
     original = data["original"]
-    deliver({"summary": "Repaired report", "changed_files": ["greet.py"], "commands_run": [],
-                                         "results": ["Repaired"], "remaining_risks": [], "evidence_refs": ["greet.py"],
-                                         "contract_revision": original.get("contract_revision"),
-                                         "contract_hash": original.get("contract_hash"),
-                                         "task_id": original.get("task_id", ""),
-                                         "user_request": {"kind": "none", "discovered": "", "impact": "",
-                                                          "decision_needed": "", "options": [], "proposed_delta": ""},
-                                         "deferred_backlog": [], "addressed_requirements": [],
-                                         "untested_behavior": [], "recommended_checks": []})
+    stage = original.get("stage", "terra")
+    if stage == "requirements_gather":
+        draft = body(questions=False, human=False)
+        deliver({"summary": "Repaired requirements", "intended_outcome": draft["intended_outcome"],
+                 "required_behaviors": draft["required_behaviors"], "constraints": draft["constraints"],
+                 "acceptance_tests": ["Valid and invalid CLI input have the requested outcomes"],
+                 "source_refs": ["task"], "proposed_assumptions": ["Use a local CLI"],
+                 "open_questions": [], "requirements": [], "ignored_statements": [], "conflicts": [],
+                 "proposed_reframes": []})
+    elif stage in ("astra_discovery", "glm_revise"):
+        draft = dict((original.get("contract") or {}).get("body") or body(questions=True, human=False))
+        if draft.get("open_blocking_questions"):
+            draft["technical_approach"] = []
+            draft["milestones"] = []
+            draft.pop("initial_task", None)
+        deliver({"contract": draft, "summary": "Repaired planning report",
+                 "code_refs": ["goal_contract.body"], "alternatives": [], "uncertainties": [],
+                 "contract_changes": [], "conflict_resolutions": [], "requirement_trace": [],
+                 **({"responses": []} if stage == "glm_revise" else {})})
+    elif stage == "astra_challenge":
+        deliver({"summary": "Repaired challenge", "concerns": []})
+    elif stage == "astra_finalize":
+        draft = body(questions=False, human=False)
+        draft["initial_task"] = {"objective": "Implement greeting CLI", "affected_paths": ["greet.py"],
+            "kind": "implement", "milestone_id": "M1", "requirements": ["Greet names"],
+            "acceptance_criteria": ["C1"], "validation_plan": ["Execute valid and empty input"]}
+        deliver({"contract": draft, "summary": "Repaired finalize", "decisions": [],
+                 "contract_changes": [], "conflict_resolutions": [], "requirement_trace": []})
+    else:
+        deliver({"summary": "Repaired report", "changed_files": ["greet.py"], "commands_run": [],
+                 "results": ["Repaired"], "remaining_risks": [], "evidence_refs": ["greet.py"],
+                 "contract_revision": original.get("contract_revision"),
+                 "contract_hash": original.get("contract_hash"),
+                 "task_id": original.get("task_id", ""),
+                 "user_request": {"kind": "none", "discovered": "", "impact": "",
+                                  "decision_needed": "", "options": [], "proposed_delta": ""},
+                 "deferred_backlog": [], "addressed_requirements": [],
+                 "untested_behavior": [], "recommended_checks": []})
     raise SystemExit(0)
 stage = data.get("stage", "terra")
 contract = data["goal_contract"] or {"revision": 0, "hash": ""}
@@ -102,6 +131,7 @@ if stage == "requirements_gather":
         "proposed_assumptions": ["Use a local CLI if the user chooses that interface"],
         "open_questions": draft["open_blocking_questions"],
         "requirements": [], "ignored_statements": [], "conflicts": [],
+        "proposed_reframes": [],
     }
 elif stage == "astra_discovery":
     draft = body(questions=not data["saved_answers"], human=False)
@@ -110,7 +140,7 @@ elif stage == "astra_discovery":
     result = {"contract": draft, "summary": "Build a small local greeting CLI with a clear invalid-input failure",
               "code_refs": ["greet.py:1"] if Path("greet.py").is_file() else ["goal_contract.body"],
               "alternatives": ["A web endpoint would need deployment"],
-              "uncertainties": [], "contract_changes": [], "requirement_trace": []}
+              "uncertainties": [], "contract_changes": [], "conflict_resolutions": [], "requirement_trace": []}
 elif stage == "astra_challenge":
     result = {"summary": "Check whitespace-only input", "concerns": [{"id": "P1", "concern": "Empty includes whitespace",
         "evidence_refs": ["goal_contract.body.important_failure_cases"], "requested_change": "Specify whitespace rejection",
@@ -121,7 +151,7 @@ elif stage == "glm_revise":
     draft["important_failure_cases"] = [*draft["important_failure_cases"], "Reject whitespace-only input"]
     result = {"contract": draft, "summary": "Added whitespace case",
               "code_refs": ["greet.py:1"] if Path("greet.py").is_file() else ["goal_contract.body"],
-              "contract_changes": [], "requirement_trace": [],
+              "contract_changes": [], "conflict_resolutions": [], "requirement_trace": [],
         "responses": [{"concern_id": "P1", "response": "Whitespace is invalid", "evidence_refs": ["goal_contract.body"],
                        "change": "Added whitespace case", "acceptance_test": "Whitespace input exits 2"}]}
 elif stage == "astra_finalize":
@@ -130,7 +160,7 @@ elif stage == "astra_finalize":
         "kind": "implement", "milestone_id": "M1", "requirements": ["Greet names; reject empty/whitespace input"],
         "acceptance_criteria": ["C1"], "validation_plan": ["Execute valid, empty and whitespace input"]}
     result = {"contract": draft, "summary": "Ready for approval",
-        "contract_changes": [], "requirement_trace": [],
+        "contract_changes": [], "conflict_resolutions": [], "requirement_trace": [],
         "decisions": [{"concern_id": "P1", "decision": "Reject whitespace",
             "rationale": "Consistent invalid-input contract", "acceptance_test": "Whitespace input exits 2", "resolved": True}]}
 elif stage == "terra":
