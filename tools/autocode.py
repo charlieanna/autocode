@@ -2435,6 +2435,9 @@ def main(unit=None) -> int:
                         execute_report_repair(current, run_dir, workspace)
                     except ReportRepairQueued:
                         return orchestrator.SKIP
+                    # Repair completed and applied the result. Run the after
+                    # callback so chat_checkpoint and pipeline advancement fire.
+                    after_code_stage(current, current.get('next_stage', 'report_repair'), None)
                     return orchestrator.SKIP
 
             def dispatch_code_stage(current, stage):
