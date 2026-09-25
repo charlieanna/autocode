@@ -12,7 +12,7 @@
     "cd757af (T07)",
     "46be615 (T08/T09)",
     "7e9d2d6 (T10/T11/T13)",
-    "see git log for T12/T14"
+    "ff5583d (T12/T14 + coverage map)"
   ],
   "environment": {
     "python": "3.14.6 (.venv, psutil 7.2.2)",
@@ -685,7 +685,7 @@
       }
     },
     "T12": {
-      "status": "DONE (final rerun in flight)",
+      "status": "DONE, 14/14 (11 PASS + 3 recorded limitations)",
       "summary": "14/14: 11 PASS + UI-02/UI-03/UI-13 honestly recorded limitations",
       "scenarios": {
         "UI-01": {
@@ -737,5 +737,5 @@
     "T15 (live trials \u2014 require explicit scope/workspace/spend approval)"
   ],
   "suite_baseline": "648 tests OK at 153d89c (includes the user's uncommitted tools/test_goals.py addition)",
-  "suite_after": "final count recorded in the closing report"
+  "suite_after": "828 tests OK (690 after T00/T05/T06 + 138 catalogue tests T01-T14)"
 }
