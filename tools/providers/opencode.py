@@ -104,8 +104,13 @@ def transport_drift(current, checkpoint):
 
 
 def check_models(roles, workspace=None):
+    # Slow opencode installations can take well over 30s just to list models
+    # (observed ~57s on a free cursor-acp plan with 250+ entries). The call is
+    # read-only and infrequent; give it room rather than failing the run before
+    # any agent is launched.
     try:
-        result = subprocess.run(["opencode", "models"], cwd=workspace, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(["opencode", "models"], cwd=workspace,
+                                capture_output=True, text=True, timeout=180)
     except subprocess.TimeoutExpired as error:
         raise RuntimeError("OpenCode model listing timed out; no agent was launched") from error
     if result.returncode:
