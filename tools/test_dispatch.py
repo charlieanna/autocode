@@ -177,6 +177,17 @@ class DispatchTests(unittest.TestCase):
             d.collect(self.state, self.root, self.run, batch)
         self.assertFalse((self.root / "outside.txt").exists())
 
+    def test_empty_legacy_built_receipt_cannot_be_integrated(self):
+        self.prepare()
+        batch = d.prepare(self.state, self.root, self.run, d.select(self.state))
+        d.run_workers(self.state, self.run, batch)
+        # Simulate a legacy result whose purported implementation has no tree
+        # delta. The collector must reject independently of the worker's label.
+        with patch.object(d, 'snapshot_commit', return_value=batch['base_commit']):
+            with self.assertRaisesRegex(s.Paused, 'empty implementation candidate'):
+                d.collect(self.state, self.root, self.run, batch)
+        self.assertFalse((self.root / 'a.txt').exists())
+
     def test_snapshot_commit_ignores_generated_python_bytecode_at_any_depth(self):
         self.prepare()
         batch = d.prepare(self.state, self.root, self.run, d.select(self.state))

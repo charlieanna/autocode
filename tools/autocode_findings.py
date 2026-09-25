@@ -92,7 +92,7 @@ def _covers(report, row_scope, all_criteria):
     return set(row_scope["criteria"]) <= reviewed
 
 
-def _apply_dispositions(state, source, dispositions, record, scope, all_criteria, can_resolve):
+def _apply_dispositions(state, source, dispositions, record, scope, all_criteria, can_resolve, validation=None):
     rows = ledger(state)
     report = record.get("output")
     open_rows = {row["id"]: row for row in rows if row.get("source") == source and row.get("status") == "open"}
@@ -118,7 +118,20 @@ def _apply_dispositions(state, source, dispositions, record, scope, all_criteria
             raise ValueError("A report-only repair cannot close findings; resubmit the review")
         if not _covers(scope, row.get("scope"), all_criteria):
             raise ValueError(f"{source} disposition {target} belongs to work this report did not review")
+        if disposition == "resolved" and all_criteria:
+            required = set((row.get("scope") or scope or {}).get("criteria", all_criteria))
+            results = (validation or {}).get("criterion_results", [])
+            passed = {r.get("id") for r in results if r.get("status") == "PASS" and r.get("evidence_refs")}
+            uncertain = {r.get("id") for r in results if r.get("status") != "PASS"}
+            if not required <= passed - uncertain:
+                # Preserve newly found defects even when an old closure claim is
+                # unsupported. Source inspection alone cannot close runtime gaps.
+                row["pending_resolution"] = {"report": report, "evidence": evidence,
+                    "reason": "Finding scope lacks fully passing verification",
+                    "unverified_criteria": sorted(required - (passed - uncertain))}
+                continue
         row.update(status=disposition, resolved_at=s.now(), resolved_in=report, resolution_evidence=evidence)
+        row.pop("pending_resolution", None)
         row.pop("not_rechecked_in", None)
 
 
@@ -162,10 +175,12 @@ def _record(state, source, reported, record):
 def record_validation(state, validation, record):
     """Sol's findings open or refresh Sol entries; its dispositions close them."""
     _record(state, "sol", validation.get("findings", []), record)
+    if validation.get("verdict") == "BLOCKED":
+        return
     _apply_dispositions(state, "sol", validation.get("finding_dispositions", []), record,
                         report_scope(state),
                         {c["id"] for c in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])},
-                        not (record.get("report_repaired") or record.get("report_only")))
+                        not (record.get("report_repaired") or record.get("report_only")), validation)
 
 
 def record_decision(state, decision, record):
@@ -180,7 +195,7 @@ def record_decision(state, decision, record):
     _apply_dispositions(state, "astra", decision.get("finding_dispositions", []), record,
                         report_scope(state),
                         {c["id"] for c in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])},
-                        not (record.get("report_repaired") or record.get("report_only")))
+                        not (record.get("report_repaired") or record.get("report_only")), state.get("validation"))
 
 
 def batch_limit(state):

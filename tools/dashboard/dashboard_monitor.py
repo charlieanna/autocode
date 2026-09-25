@@ -221,6 +221,19 @@ def snapshot(state, run, detailed=False, process_snapshot=_PROCESS_TABLE_UNSET):
     result['orchestration'] = {key: value for key, value in mapping(settings.get('orchestration')).items()
                                if key in ('enabled', 'max_parallel')}
     result['orchestration_batch'] = batch_summary(state.get('orchestration_batch'))
+    result['checkpoints'] = mapping(state.get('execution_checkpoints'))
+    if detailed and result['orchestration_batch']:
+        for worker in result['orchestration_batch']['workers']:
+            try:
+                child_run = Path(worker['run_dir']).resolve()
+                allowed = (Path(state['workspace']) / '.autocode' / 'builders' / result['orchestration_batch']['id']).resolve()
+                allowed.relative_to(Path(state['workspace']).resolve())
+                child_run.relative_to(allowed)
+                child = json.loads((child_run / 'state.json').read_text())
+                if child.get('parent_run') == str(run) and child.get('parent_batch') == result['orchestration_batch']['id']:
+                    worker['checkpoints'] = mapping(child.get('execution_checkpoints'))
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
     if detailed:
         result['orchestration_history'] = [batch_summary(batch) for batch in rows(state.get('orchestration_history'))
                                            if isinstance(batch, dict) and batch]

@@ -607,6 +607,15 @@ function workflowModelsPanel(run) {
   if(!jointPlanning(run)&&!['glm_first_v1','glm_final_audit_v2'].includes(run.monitor?.workflow_mode))host.append(Object.assign(n('p','This run combines requirements and discovery, and has no independent plan-review stage.'),{className:'workflow-gap'}));
   host.append(workflowCards(run,taskOverviewState(run)));return host;
 }
+function executionCheckpoints(saved) {
+  const host=card('','monitor-activity');
+  host.append(n('h3','Milestone checkpoints'+(saved.milestone_id?' · '+saved.milestone_id:'')),
+    n('p','Saved execution progress. Only independent validation can verify criteria; recorded implementation is not acceptance.'));
+  for(const checkpoint of saved.rows||[]){const row=card('','monitor-event');
+    row.append(n('strong',checkpoint.label),n('span',human(checkpoint.status)+(checkpoint.completed_tools!=null?' · '+checkpoint.completed_tools+' completed tool events':'')));host.append(row);}
+  if(saved.paused)host.append(n('p','Paused — completed work and evidence retained.'));
+  return host;
+}
 function orchestrationPanel(batch, historical=false) {
   const host=card('','monitor-activity');
   host.append(n('h3',(historical?'Saved':'Current')+' Builder batch · '+(batch.id||'ID unavailable')),
@@ -615,12 +624,14 @@ function orchestrationPanel(batch, historical=false) {
   for(const worker of batch.workers||[]){const row=card('','monitor-event');
     row.append(n('strong','Builder · '+(worker.milestone_id||'Milestone unavailable')),n('span','Saved status · '+human(worker.status||'unknown')),
       n('p','Worktree · '+(worker.workspace||'Not recorded')),n('p','Run / logs · '+(worker.run_dir||'Not recorded')));host.append(row);
+    if(worker.checkpoints?.rows?.length)row.append(executionCheckpoints(worker.checkpoints));
   }
   if(!batch.workers?.length)host.append(n('p','No workers recorded yet.'));
   return host;
 }
 function monitorDetailsPanel(run) {
   const monitor=run.monitor||{},host=card('','monitor-panel');
+  if(monitor.checkpoints?.rows?.length)host.append(executionCheckpoints(monitor.checkpoints));
   host.append(disclosure('Models & role history','monitor-roles',[workflowCards(run,taskOverviewState(run))],run.run));
     if(monitor.orchestration_batch)host.append(orchestrationPanel(monitor.orchestration_batch));
     if(monitor.orchestration_history?.length)host.append(disclosure('Saved Builder batches ('+monitor.orchestration_history.length+')','orchestration-history',monitor.orchestration_history.map(batch=>orchestrationPanel(batch,true)),run.run));
@@ -1394,7 +1405,10 @@ function renderTaskNow(run){
   host.append(monitorPanel(run));
   if(decision.required){const decisionCard=card('','decision-card needs-decision');decisionCard.append(Object.assign(n('p','YOUR NEXT ACTION'),{className:'eyebrow'}),n('h2',decision.title),n('p',decision.description),Object.assign(n('p',decision.after),{className:'decision-after'}));host.append(decisionCard);}
   if(statusInfo(run).label==='Answer needed')host.append(answerSafetyPanel((run.questions||[]).length));
-  host.append(path,workflowModelsPanel(run));
+  host.append(path);
+  if(run.monitor?.checkpoints?.rows?.length)host.append(executionCheckpoints(run.monitor.checkpoints));
+  if(run.monitor?.orchestration_batch)host.append(orchestrationPanel(run.monitor.orchestration_batch));
+  host.append(workflowModelsPanel(run));
   if(assignment)host.append(disclosure('Assignment scope & checks','current-assignment:'+assignment.id,[renderDocument(assignment)],run.run));
   const context=card('','current-context'),plan=card('','');plan.append(n('h3','Current plan'),n('p',run.goal?.revision!=null?'Revision '+run.goal.revision+' · '+(run.goal.approval_status==='approved'?'Approved':decision.action.kind==='plan'?'Ready for review':'Draft'):'No plan revision saved'),button('Read current plan →',()=>activateTab('plan'),'text-button'));context.append(plan);
   const checkpoint=card('',''),latest=[...(run.monitor?.history||[])].sort((a,b)=>Date.parse(b.finished_at)-Date.parse(a.finished_at))[0];checkpoint.append(n('h3','Last saved step'));

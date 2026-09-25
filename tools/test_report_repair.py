@@ -14,6 +14,31 @@ runner, support = base.runner, base.s
 class RepairTests(unittest.TestCase):
     setUp = base.RetrofitTest.setUp
 
+    def test_builder_repair_preserves_failed_results_commands_and_user_decisions(self):
+        report = self.run / 'original-builder.json'
+        original = {'stage': 'terra', 'output': str(report), 'events': str(self.run / 'events.jsonl')}
+        value = {'commands_run': ['failed-test'], 'results': ['exit=1'], 'changed_files': ['x.py'],
+                 'remaining_risks': ['not verified'], 'user_request': {'kind': 'permission', 'decision_needed': 'Allow?'}}
+        report.write_text(json.dumps(value))
+        runner.assert_repair_preserves_builder_history(original, {**value, 'summary': 'Added missing summary',
+                                                                 'evidence_refs': ['event:check']})
+        for field, replacement in [('commands_run', ['invented-test']), ('results', ['PASS']),
+                                   ('remaining_risks', []), ('changed_files', []),
+                                   ('user_request', {'kind': 'none'})]:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                runner.assert_repair_preserves_builder_history(original, {**value, field: replacement})
+
+    def test_builder_repair_missing_commands_must_use_original_events(self):
+        report = self.run / 'original-builder.json'
+        report.write_text('{')
+        events = self.run / 'original-events.jsonl'
+        events.write_text(json.dumps({'type': 'item.completed', 'item': {'type': 'command_execution',
+            'command': 'real-test', 'exit_code': 1}}))
+        original = {'stage': 'terra', 'output': str(report), 'events': str(events)}
+        runner.assert_repair_preserves_builder_history(original, {'commands_run': ['real-test']})
+        with self.assertRaisesRegex(ValueError, 'invented a command'):
+            runner.assert_repair_preserves_builder_history(original, {'commands_run': ['fake-test']})
+
     def queue(self, error=None, **overrides):
         self.state['settings']['report_repair'] = {'max_attempts': 2}
         path = self.run / 'iterations/005/terra-01'
@@ -265,6 +290,20 @@ class RepairTests(unittest.TestCase):
         self.assertIn('Do not redo implementation', call['prompt'])
         self.assertIn('exactly one JSON object', call['prompt'])
         self.assertIn('independently executed Sol tool event', call['prompt'])
+
+    def test_repair_handoff_contains_exact_original_command_receipts(self):
+        pending = self.queue()
+        event = {'type': 'item.completed', 'item': {'type': 'command_execution',
+            'id': 'item_7', 'command': "/bin/zsh -lc \"printf 'quoted'\"", 'exit_code': 2}}
+        Path(pending['original']['events']).write_text(json.dumps(event))
+        pending['pins'][pending['original']['events']] = support.file_hash(Path(pending['original']['events']))
+        with patch.object(runner, 'run_role', side_effect=RuntimeError('fixture stop')) as launch:
+            with self.assertRaisesRegex(RuntimeError, 'fixture stop'):
+                runner.execute_report_repair(self.state, self.run, self.root)
+        data = json.loads(launch.call_args.kwargs['prompt'].split('CURRENT HANDOFF DATA\n', 1)[1])
+        self.assertEqual([{'command': event['item']['command'], 'exit_code': 2,
+                           'evidence_ref': 'event:item_7'}], data['original_executed_checks'])
+        self.assertIn('contract_hash', data['report_identity'])
 
     def test_accept_uses_original_evidence_and_does_not_double_count_original(self):
         pending = self.queue()

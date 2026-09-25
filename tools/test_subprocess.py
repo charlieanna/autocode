@@ -61,15 +61,13 @@ class SubprocessFlow(unittest.TestCase):
         self.assertGreater(status['milestone_checkpoint']['seconds_by_role']['sol'], 0)
         self.assertEqual(unchanged, (run / 'state.json').read_bytes())
 
-    def test_changing_code_with_repeated_failed_checks_stops_after_one_replan(self):
+    def test_changing_code_with_repeated_failed_checks_exhausts_builder_policy(self):
         self.env['AUTOCODE_FIXTURE_MODE'] = 'stalled'
         self.launch(['Build greeting', '--chat'], 2, answers='CLI\nyes\n')
         _, state = self.saved()
-        self.assertEqual('PAUSED_MILESTONE_STALLED', state['status'])
-        progress = next(iter(state['milestone_progress'].values()))
-        self.assertEqual(1, progress['replans'])
-        self.assertEqual(6, len(progress['reviews']))
-        self.assertEqual(6, sum(r['stage'] == 'terra' for r in state['stages']))
+        self.assertEqual('PAUSED_BUILDER_RETRY_LIMIT', state['status'])
+        self.assertEqual(['retry','escalate','pause'], [r['action'] for r in state['builder_retry_decisions']])
+        self.assertEqual(3, sum(r['stage'] == 'terra' for r in state['stages']))
 
     def test_queued_checkpoint_migration_preserves_work_and_never_launches_on_activation(self):
         self.env['AUTOCODE_FIXTURE_MODE'] = 'no-human'

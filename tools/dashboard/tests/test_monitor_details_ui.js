@@ -13,9 +13,12 @@ const context = vm.createContext({
   workflowCards: () => element('div'), taskOverviewState: () => ({}),
   metricPanel: metric => element('div', metric.label), button: label => element('button', label),
 });
-vm.runInContext(source.slice(source.indexOf('function orchestrationPanel('), source.indexOf('function operationalPreview(')), context);
+vm.runInContext(source.slice(source.indexOf('function executionCheckpoints('), source.indexOf('function operationalPreview(')), context);
 const text = node => [node.textContent, ...node.children.map(text)].join(' ');
 const panel = context.monitorDetailsPanel({run: '/fixture/run', monitor: {
+  checkpoints: {milestone_id:'M2',paused:true,rows:[
+    {label:'Independent validation',status:'not_verified'},
+    {label:'Builder tool activity',status:'recorded',completed_tools:21}]},
   orchestration_batch: {id: 'batch-current', status: 'validating', workers: [
     {milestone_id: 'M2', status: 'integrated', workspace: '/fixture/M2', run_dir: '/fixture/logs'},
   ]},
@@ -28,7 +31,9 @@ const panel = context.monitorDetailsPanel({run: '/fixture/run', monitor: {
 const rendered = text(panel);
 for (const expected of ['batch-current', 'batch-prior', '/fixture/M2', '/fixture/logs',
   'saved reports, not live process checks', '193 tests passed', '1 open · 2 resolved',
-  'F1 · Preserve saved review evidence', 'raised by astra', 'fix: repair-1', 'not rechecked']) {
+  'F1 · Preserve saved review evidence', 'raised by astra', 'fix: repair-1', 'not rechecked',
+  'Milestone checkpoints · M2','21 completed tool events','not_verified',
+  'recorded implementation is not acceptance','completed work and evidence retained']) {
   assert.ok(rendered.includes(expected), 'Missing monitoring detail: ' + expected);
 }
 assert.match(text(context.monitorDetailsPanel({monitor: {}})), /No open findings recorded\. This is not proof of completion/);

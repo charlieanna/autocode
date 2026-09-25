@@ -203,7 +203,9 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual([("M1", True)], [(r["milestone"], r["not_rechecked"]) for r in findings.handoff(state)])
         self.assertEqual(1, findings.summary(state)["not_rechecked"])
         state["current_task"] = {"id": "task-M3", "milestone_id": "M3"}
-        findings.record_validation(state, sol(dispositions=[resolved(fid)]), {"output": "sol-m3.json"})
+        report = sol(dispositions=[resolved(fid)])
+        report['criterion_results'] = [{'id': 'C1', 'status': 'PASS', 'evidence_refs': ['event:check']}]
+        findings.record_validation(state, report, {"output": "sol-m3.json"})
         self.assertEqual([], findings.open_entries(state))
         resolved_row = state["findings_ledger"][0]
         self.assertEqual("sol-m3.json", resolved_row["resolved_in"])
@@ -213,8 +215,62 @@ class LedgerTests(unittest.TestCase):
         state = {"goal_contract": {"body": {"acceptance_criteria": [{"id": "C1"}]}}, "current_task": {"id": "t", "milestone_id": ""}}
         findings.record_validation(state, sol("A"), {"output": "sol-1.json"})
         self.assertIsNone(findings.open_entries(state)[0]["scope"])
-        findings.record_validation(state, sol(dispositions=[resolved(findings.open_entries(state)[0]["id"])]), {"output": "sol-2.json"})
+        report = sol(dispositions=[resolved(findings.open_entries(state)[0]["id"])])
+        report['criterion_results'] = [{'id': 'C1', 'status': 'PASS', 'evidence_refs': ['event:check']}]
+        findings.record_validation(state, report, {"output": "sol-2.json"})
         self.assertEqual([], findings.open_entries(state))
+
+    def test_unverified_resolution_retains_old_and_new_findings(self):
+        state = self.scoped_state('M1')
+        findings.record_validation(state, sol('Persistence broken'), {'output': 'first'})
+        fid = findings.open_entries(state)[0]['id']
+        report = sol('New data loss', dispositions=[resolved(fid, 'Source looks fixed; runtime blocked')])
+        report['criterion_results'] = [{'id': 'C1', 'status': 'NOT_VERIFIED', 'evidence_refs': ['event:read']}]
+        findings.record_validation(state, report, {'output': 'second'})
+        self.assertEqual(2, len(findings.open_entries(state)))
+        self.assertEqual(['C1'], state['findings_ledger'][0]['pending_resolution']['unverified_criteria'])
+        # Retraction is distinct: proving the finding was wrong is not a fix claim.
+        findings.record_validation(state, sol(dispositions=[retracted(fid)]), {'output': 'third'})
+        self.assertEqual('retracted', state['findings_ledger'][0]['status'])
+
+    def test_generation_schema_pins_identity_without_mutating_input(self):
+        schema = goals.role_schema(support.read(SCHEMA_DIR / 'sol-report.schema.json'), 'sol')
+        state = {'goal_contract': {'hash': 'exact-hash', 'revision': 4},
+                 'current_task': {'id': 'task-4'}, 'findings_ledger': [
+                     {'id': 'own', 'source': 'sol', 'status': 'open'},
+                     {'id': 'foreign', 'source': 'astra', 'status': 'open'},
+                     {'id': 'closed', 'source': 'sol', 'status': 'resolved'}]}
+        bound = support.review_generation_schema(schema, state, 'sol')['properties']
+        self.assertEqual(['exact-hash'], bound['contract_hash']['enum'])
+        self.assertEqual([4], bound['contract_revision']['enum'])
+        self.assertEqual(['task-4'], bound['task_id']['enum'])
+        self.assertEqual(['', 'own'], bound['findings']['items']['properties']['id']['enum'])
+        self.assertNotIn('enum', schema['properties']['contract_hash'])
+
+    def test_completion_cannot_close_unverified_finding_and_fresh_pass_can(self):
+        state = self.scoped_state('M1')
+        findings.record_decision(state, astra('REWORK', 'Persistence broken'), {'output': 'first'})
+        fid = findings.open_entries(state)[0]['id']
+        decision = astra('REWORK', dispositions=[resolved(fid)])
+        state['validation'] = {'criterion_results': [
+            {'id': 'C1', 'status': 'NOT_VERIFIED', 'evidence_refs': ['event:blocked']}]}
+        findings.record_decision(state, decision, {'output': 'second'})
+        self.assertEqual('open', state['findings_ledger'][0]['status'])
+        state['validation']['criterion_results'][0]['status'] = 'PASS'
+        state['validation']['criterion_results'][0]['evidence_refs'] = ['event:rerun']
+        findings.record_decision(state, decision, {'output': 'third'})
+        self.assertEqual('resolved', state['findings_ledger'][0]['status'])
+        self.assertNotIn('pending_resolution', state['findings_ledger'][0])
+
+    def test_blocked_validator_cannot_close_even_with_passing_subset(self):
+        state = self.scoped_state('M1')
+        findings.record_validation(state, sol('Persistence broken'), {'output': 'first'})
+        fid = findings.open_entries(state)[0]['id']
+        report = sol(dispositions=[resolved(fid)])
+        report.update(verdict='BLOCKED', criterion_results=[
+            {'id': 'C1', 'status': 'PASS', 'evidence_refs': ['event:check']}])
+        findings.record_validation(state, report, {'output': 'second'})
+        self.assertEqual('open', state['findings_ledger'][0]['status'])
 
     def test_same_wording_with_different_evidence_stays_two_findings(self):
         state = {}

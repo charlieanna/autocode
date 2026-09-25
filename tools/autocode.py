@@ -312,6 +312,10 @@ def run_role(
     if output.exists() or events.exists() or prompt_file.exists():
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", f"Existing stage artifacts require reconciliation: {base}")
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
+    if original_stage in ('sol', 'astra_review', 'astra_checkpoint'):
+        bound_schema = support.review_generation_schema(read_json(schema), state, original_stage)
+        schema = base.with_suffix('.schema.json')
+        write_json(schema, bound_schema)
     route_role = planning.route_for(state, original_stage, role)
     supports_sessions = getattr(opencode, "SUPPORTS_SESSIONS", True)
     configured_tool = getattr(opencode, "CONFIGURED", False)
@@ -506,6 +510,40 @@ def run_role(
     return value, record
 
 
+def assert_repair_preserves_builder_history(original, value):
+    """Repair a report's shape/citations, never rewrite a recorded execution.
+
+    Schema-valid history fields in the original report are immutable. Missing or
+    ill-typed fields may still be repaired, but newly supplied command names must
+    come from the original execution events, not a new repair-stage execution.
+    """
+    if original.get('stage') != 'terra':
+        return
+    try:
+        previous = read_json(Path(original['output']))
+    except (ValueError, OSError):
+        previous = {}
+    if not isinstance(previous, dict):
+        previous = {}
+    for field in ('commands_run', 'results', 'changed_files', 'remaining_risks',
+                  'untested_behavior', 'addressed_requirements', 'deferred_backlog'):
+        old = previous.get(field)
+        if isinstance(old, list) and all(isinstance(item, str) for item in old):
+            if value.get(field) != old:
+                raise ValueError(f'Report repair changed recorded Builder history: {field}')
+    old_request = previous.get('user_request')
+    if isinstance(old_request, dict) and old_request.get('kind') not in (None, 'none'):
+        if value.get('user_request') != old_request:
+            raise ValueError('Report repair changed the original Builder user decision request')
+    old_commands = previous.get('commands_run')
+    if not isinstance(old_commands, list) or not all(isinstance(c, str) for c in old_commands):
+        commands = {e['item'].get('command') for e in support.events(original['events'])
+                    if e.get('type') == 'item.completed'
+                    and e.get('item', {}).get('type') == 'command_execution'}
+        if any(command not in commands for command in value.get('commands_run', [])):
+            raise ValueError('Report repair invented a command absent from original execution events')
+
+
 def accept_repaired_report(state, run_dir, workspace, value, repair_record):
     owner = state
     state = copy.deepcopy(state)
@@ -517,9 +555,10 @@ def accept_repaired_report(state, run_dir, workspace, value, repair_record):
             or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending['pins'].items())):
         raise support.Paused('PAUSED_STALE_VALIDATION', 'Original report evidence or goal changed during repair')
     # Evidence checks use ORIGINAL tool events, not new commands from the repairer.
-    original.update(output=repair_record['output'], repaired_by=repair_record['events'],
-                    rejected=False, report_repaired=True)
     try:
+        assert_repair_preserves_builder_history(original, value)
+        original.update(output=repair_record['output'], repaired_by=repair_record['events'],
+                        rejected=False, report_repaired=True)
         apply_result(state, original['stage'], value, original, workspace, run_dir)
     except (ValueError, KeyError, support.Paused) as error:
         # Rejection is an authoritative checkpoint, not a speculative result.
@@ -562,8 +601,14 @@ def execute_report_repair(state, run_dir, workspace):
               'report from this completed stage. Do not redo '
               'implementation, rerun tests, modify files, restart discovery or change the approved goal. '
               'Read the original report, prompt and evidence at the supplied paths. Correct format '
-              'and evidence citations; preserve findings, failures and uncertainty. Missing evidence '
-              'must remain NOT_VERIFIED, never invented PASS. Do not invent delegation or approval. '
+              'and evidence citations; preserve findings, failures and uncertainty. '
+              'Missing evidence must remain NOT_VERIFIED, never invented PASS. '
+              'For Builder reports, copy existing valid commands_run, results, changed_files, '
+              'remaining_risks, untested_behavior, addressed_requirements and deferred_backlog '
+              'arrays exactly. These are immutable execution history, even when a check failed. '
+              'Do not remove or reinterpret a user_request. Evidence references must be bare '
+              'event: IDs or exact file paths, with no appended explanations or line annotations. '
+              'Do not invent delegation or approval. '
               'For captured checks, use the command and exit_code inside each receipt, not the '
               'outer capture invocation. A Sol check still requires an independently executed '
               'Sol tool event; a capture receipt alone cannot establish that independence. '
@@ -583,6 +628,22 @@ def execute_report_repair(state, run_dir, workspace):
                                 'Legacy report validation failed without a recorded error')), 'original': original,
                             'protected_contract': (goals.protected_contract_snapshot(state)
                                 if original['stage'] in ('glm_revise', 'astra_finalize') else None),
+                            'report_identity': {
+                                'contract_hash': (state.get('goal_contract') or {}).get('hash'),
+                                'contract_revision': (state.get('goal_contract') or {}).get('revision'),
+                                'task_id': (state.get('current_task') or {}).get('id', '')},
+                            'original_executed_checks': [
+                                {'command': e['item']['command'], 'exit_code': e['item']['exit_code'],
+                                 'evidence_ref': 'event:' + e['item']['id']}
+                                for e in support.events(original['events'])
+                                if e.get('type') == 'item.completed'
+                                and e.get('item', {}).get('type') == 'command_execution'
+                                and isinstance(e['item'].get('command'), str)
+                                and isinstance(e['item'].get('id'), str)
+                                and type(e['item'].get('exit_code')) is int],
+                            'finding_identity_policy': 'Only reuse open IDs belonging to this reviewer; '
+                                'use an empty id for new findings. Copy exact commands and exits from '
+                                'original_executed_checks when citing those events. Never change an exit code.',
                             'state_file': str(run_dir / 'state.json')}, indent=2))
     role = original['role']
     route_role = planning.route_for(state, original['stage'], role)
@@ -1180,6 +1241,8 @@ def capture_command(argv):
 
 def configure(args, state):
     started = bool(state.get("settings") or state.get("sessions") or state.get("history"))
+    if started and getattr(args, 'builder_strong_model', None):
+        raise ValueError('--builder-strong-model is a new-run policy; existing runs keep their persisted budget and route')
     saved_provider = dict(state.get("settings") or {})
     # Checkpoints created before provider selection shipped were necessarily
     # OpenCode runs.  Treating that as explicit prevents an unsafe transport
@@ -1350,6 +1413,8 @@ def configure(args, state):
     for role in getattr(args, "pin_model_role", []):
         roles[role]["model_pinned"] = True
     settings = {"roles": roles, "transport_identity": local, "engine": engine, "provider": provider_name,
+            "builder_retry": {**autopilot.builder_policy.DEFAULTS,
+                "strong_model": getattr(args, 'builder_strong_model', None) or autopilot.builder_policy.DEFAULTS['strong_model']},
             "orchestration": {"enabled": joint or getattr(args, "max_parallel_builders", None) is not None,
                               "max_parallel": getattr(args, "max_parallel_builders", None) or 2},
             "report_repair": {"max_attempts": 2},
@@ -1831,6 +1896,7 @@ def main(unit=None) -> int:
     parser.add_argument("--in-place", action="store_true", help="Use this checkout directly; otherwise new tasks get independent worktrees from HEAD")
     parser.add_argument("--max-parallel-builders", type=int,
                         help="Orchestrator concurrency for independent milestones (new joint runs: 2; 1 dispatches serially)")
+    parser.add_argument('--builder-strong-model', help='New-run Builder escalation model after one ordinary retry (default gpt-6-sol, high); pinned routes never escalate')
     parser.add_argument("--retry-builder", action="append", default=[], metavar="MILESTONE_ID",
                         help="Explicitly retry a stopped Builder after inspecting its retained work; requires --resume-paused")
     parser.add_argument("--figma-file", help="Figma Design URL to implement using the connected Codex plugin")

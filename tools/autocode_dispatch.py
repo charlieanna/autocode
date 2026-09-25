@@ -339,6 +339,8 @@ def collect(state, workspace, run_dir, batch):
         # before the provider's own before-snapshot (or retained from retries).
         paths = list(filter(None, git(workspace, "diff", "--name-only", "--no-renames", "-z",
                                       batch["base_commit"], commit).decode().split("\0")))
+        if not paths and row['task'].get('kind') == 'implement':
+            raise s.Paused('PAUSED_NO_PROGRESS', 'Builder has no source delta; refusing an empty implementation candidate')
         if changed.intersection(paths) or any(not any(contains(p, name) for p in row["task"]["affected_paths"]) for name in paths):
             raise s.Paused("PAUSED_ORCHESTRATOR_OWNERSHIP", "Builder changes overlap or exceed declared milestone paths; worktrees retained")
         changed.update(paths)

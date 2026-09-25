@@ -8,7 +8,7 @@ from pathlib import Path
 try:
     from . import autocode_support as support, autocode_goals as goals
     from . import autocode_workflow as workflow, autocode_milestones as milestones, autocode_escalation as escalation
-    from . import autocode_findings as findings_ledger
+    from . import autocode_findings as findings_ledger, autocode_builder_policy as builder_policy
     from .units import autoplanner as planning_unit
 except ImportError:
     import autocode_support as support
@@ -17,6 +17,7 @@ except ImportError:
     import autocode_milestones as milestones
     import autocode_escalation as escalation
     import autocode_findings as findings_ledger
+    import autocode_builder_policy as builder_policy
     from units import autoplanner as planning_unit
 
 SKIP = object()
@@ -130,6 +131,8 @@ def publish_handoffs(state, run_dir):
 
 def dispatch_unit(runtime, state, stage, workspace, run_dir):
     """Call one unit using the runner's durable provider/recovery services."""
+    if stage == 'terra':
+        builder_policy.guard(state)
     runtime.milestones.dispatch_guard(state, stage)
     runtime.workflow.dispatch_guard(state, stage, workspace)
     unit = unit_module(stage)
@@ -340,6 +343,12 @@ def apply_build_result(runtime, state, value, record, workspace, run_dir):
                  next_stage=workflow.review_stage(state), diff_ref=record.get("diff_ref"))
     if not record["changed_files"]:
         state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
+        if state.get('current_task', {}).get('kind') == 'implement':
+            state.setdefault('no_progress_reports', []).append(state.pop('implementation'))
+            state.setdefault('unit_handoffs', {}).pop('autocode', None)
+            state['next_stage'] = 'terra'
+            builder_policy.failure(state, record['output'], 'Builder completed an implementation attempt without source changes')
+            return
         escalation.advance(state, "terra", trigger="no_progress",
                            detail="Builder completed a batch without source changes",
                            struggle_id=f"iteration:{record.get('iteration', state.get('iteration', 0))}")
@@ -568,6 +577,16 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
                     return
             if stage in ("astra_review", "astra_resolve"):
                 state["iteration"] += 1
+            if (stage == 'astra_resolve' and builder_policy.enabled(state)
+                    and value.get('next_task', {}).get('kind') == 'implement'):
+                action = builder_policy.failure(state, state['resolution_request']['review_output'], value['diagnosis'])
+                if action == 'pause':
+                    # Exhaustion precedes assignment/replan gates and cannot be
+                    # converted into another completion-owner/model round trip.
+                    state['next_stage'] = 'terra'
+                    goals.record_decision(state, value)
+                    save_record(state, record)
+                    return
             current = support.snapshot(workspace)
             try:
                 kind = goals.assign_task(state, value, current) if modern else "implement"
@@ -579,7 +598,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
                 save_record(state, record)
                 return
             validation_verdict = state.get("validation", {}).get("verdict")
-            if validation_verdict in ("FAIL", "BLOCKED"):
+            if validation_verdict in ("FAIL", "BLOCKED") and not (kind == 'implement' and builder_policy.enabled(state)):
                 escalation.advance(state, "sol" if kind == "validate" else "terra",
                                    trigger="validation_rework",
                                    detail=f"{validation_verdict}: {value['next_objective']}",

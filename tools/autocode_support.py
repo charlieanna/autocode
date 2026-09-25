@@ -740,6 +740,28 @@ A matched comparison does not authorize a waiver: verify identical test selectio
 source provenance, and the saved exception separately; investigate baseline-only failures.
 """
 
+def review_generation_schema(schema, state, stage):
+    """Constrain runner-owned identity at generation, not by accepting bad reports."""
+    result = copy.deepcopy(schema)
+    if stage not in ("sol", "astra_review", "astra_checkpoint"):
+        return result
+    props = result.get("properties", {})
+    contract = state.get("goal_contract") or {}
+    for field, value in (("contract_hash", contract.get("hash")),
+                         ("contract_revision", contract.get("revision")),
+                         ("task_id", (state.get("current_task") or {}).get("id", ""))):
+        if field in props and value is not None:
+            props[field] = {**props[field], "enum": [value]}
+    source = "sol" if stage == "sol" else "astra"
+    own = [r["id"] for r in state.get("findings_ledger", [])
+           if r.get("source") == source and r.get("status") == "open"]
+    for field in ("findings", "finding_dispositions"):
+        fields = props.get(field, {}).get("items", {}).get("properties", {})
+        if "id" in fields:
+            fields["id"] = {**fields["id"], "enum": ["", *own]}
+    return result
+
+
 def context_packet(state, stage, state_path):
     try:
         from . import autocode_milestones as checkpoints
@@ -766,6 +788,16 @@ def context_packet(state, stage, state_path):
     base.update(workspace=state["workspace"], source_revision=current["revision"], git_head=current["head"],
                 current_task=state.get("current_task"), execution_limits=state["settings"].get("limits", {}),
                 execution_engine=planning.engine_for(state["settings"], planning.role_for(state, stage)))
+    if stage == 'terra':
+        base['builder_artifact_policy'] = {
+            'evidence_directory': str(Path(state_path).parent / 'evidence'),
+            'instruction': 'Source writes must stay within current_task.affected_paths. '
+                'Do not create a top-level evidence/ directory or other unassigned source files. '
+                'Command events are already retained by the runner; extra evidence files are optional. '
+                'If needed, write only under evidence_directory above using a unique filename, '
+                'never runner state/config. Cite bare event: IDs or exact existing paths in evidence_refs; '
+                'put explanations in summary/results, not in paths. Create missing assigned outputs '
+                'rather than treating them as missing prerequisites.'}
     figma_file = state["settings"].get("figma_file")
     if figma_file:
         base["figma_file"] = figma_file
@@ -776,6 +808,17 @@ def context_packet(state, stage, state_path):
     if state.get("findings_ledger"):
         # Both reviewers' open findings, each with its identity and assigned fix task.
         base["open_findings"] = findings_ledger.handoff(state)
+    if stage in ("sol", "astra_review", "astra_checkpoint"):
+        source = "sol" if stage == "sol" else "astra"
+        base["review_identity_policy"] = {
+            "own_open_finding_ids": [r["id"] for r in findings_ledger.open_entries(state, source)],
+            "instruction": "Only reuse your own open IDs. Use an empty id for a new finding, "
+                "including a defect also found by the other reviewer. Give every finding a nonempty title. "
+                "Resolve only with passing evidence for its scope; unavailable execution remains NOT_VERIFIED. "
+                "Do not bypass sandbox or browser restrictions. Missing devices, credentials, tools, "
+                "permissions or human judgment are verification blockers, NOT implementation defects: "
+                "record them in unverified_criteria/user_request with BLOCKED/NOT_VERIFIED, not as findings. "
+                "Retain independently evidenced code defects even when other checks are blocked."}
     if stage == "terra":
         base.update(affected_paths=state.get("affected_paths", []), actionable_findings=state.get("unresolved_findings", []))
         repair = state.get('repair_plan') or {}

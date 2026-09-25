@@ -279,6 +279,9 @@ class RetrofitTest(unittest.TestCase):
         self.assertNotIn("PRIVATE_BULK_HISTORY",text)
         self.assertIn("specific bug",text)
         self.assertIn("repair the full cohort",text)
+        self.assertIn(str(self.run/'evidence'),text)
+        self.assertIn('Do not create a top-level evidence/',text)
+        self.assertIn('Source writes must stay within current_task.affected_paths',text)
         self.assertGreater(metrics["estimated_prompt_tokens"],0)
 
     def test_context_packet_includes_only_runner_provided_private_source_exceptions(self):

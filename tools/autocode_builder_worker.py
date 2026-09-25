@@ -11,7 +11,25 @@ except ImportError:
 
 def execute(state, directory, workspace, mode):
     runner.goals.execution_guard(state)
+    runner.autopilot.builder_policy.guard(state)
     runner.opencode = runner.autocode_providers.resolve(state["settings"].get("provider", "opencode"))
+    if (mode == "recover" and not state.get("active_stage") and not state.get("stages")
+            and not state.get("implementation") and not (directory / "iterations").exists()
+            and not (directory / "result.json").exists()):
+        # The parent persisted launch intent but no provider attempt ever began.
+        # Called under the worker workspace lock, after parent process-ownership
+        # checks. A pristine, bound worktree can start; partial work cannot replay.
+        parent = runner.read_json(Path(state["parent_run"]) / "state.json")
+        batch = parent.get("orchestration_batch") or {}
+        row = next((r for r in batch.get("workers", []) if r.get("task") == state["current_task"]), None)
+        current = runner.support.snapshot(workspace)
+        expected = {p: h for p, h in batch.get("baseline", {}).get("files", {}).items() if h != "deleted"}
+        if (not row or batch.get("id") != state.get("parent_batch")
+                or batch.get("contract_hash") != state["goal_contract"]["hash"]
+                or Path(row["run_dir"]).resolve() != directory.resolve()
+                or current["head"] != batch.get("base_commit") or current["files"] != expected):
+            raise runner.support.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Unlaunched Builder baseline changed; no automatic replay")
+        mode = "start"
     if state.get("active_stage"):
         try:
             runner.reconcile_active(state, directory, workspace)
@@ -36,6 +54,10 @@ def execute(state, directory, workspace, mode):
         prompt, metrics = runner.support.context_packet(state, "terra", directory / "state.json")
         prompt = ("\nYou are one isolated Builder in a parallel milestone batch. Write only within "
                    "current_task.affected_paths. Other Builders own the other milestones. Do not "
+                   "treat a missing assigned output file as a missing prerequisite: create new "
+                   "files and parent directories inside your assigned paths when the task requires them. "
+                   "Use bare event: IDs or exact existing file paths in evidence_refs; put "
+                   "explanations in summary/results, never append prose to a path. Do not "
                    "change branches, commit, merge, edit Git metadata, or write outside this worktree. "
                    "If the assignment needs shared changes or a permission decision, report a "
                    "structured user_request. Keep all evidence under this run directory.\n") + prompt
@@ -57,6 +79,10 @@ def execute(state, directory, workspace, mode):
                     runner.execute_report_repair(state, directory, workspace)
                 except runner.ReportRepairQueued:
                     continue
+    if not state.get('implementation') and state.get('no_progress_reports'):
+        if state['status'] == 'RUNNING':
+            return execute(state, directory, workspace, 'retry')
+        raise runner.support.Paused(state['status'], state.get('stop_reason', 'No implementation progress'))
     implementation = state.get("implementation", {})
     runner.goals.execution_guard(state, implementation)
     request = implementation.get("user_request", {})

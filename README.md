@@ -104,6 +104,19 @@ Transport/report-format recovery and safety pauses remain runner-owned. Existing
 explicit alternate workflows retain their configured routing; this does not override
 their final-audit-only policy or automatically retry failed integration operations.
 
+New standard-workflow runs use a persisted Builder retry policy per approved milestone:
+the configured Builder gets one ordinary retry, then one stronger-model attempt
+(default `gpt-6-sol` with `high` reasoning), then a safety pause. Set
+`--builder-strong-model MODEL` when creating a run to select the stronger model.
+Explicit model pins and custom providers are never overridden. Existing saved runs
+without this policy retain their previous routing. Restarting/resuming cannot reset
+an exhausted budget. Scope violations, approval requests and transport safety pauses
+are not automatically retried by this policy.
+
+An implementation attempt with no source changes is no progress, not a build candidate.
+The dashboard's named milestone checkpoints distinguish recorded implementation/tool
+activity from independent verification; tool completions alone never verify criteria.
+
 Works against any committed Git workspace; no IdleCampus files or services are required.
 
 Requires Python 3.11+, Git, and OpenCode 1.x connected to ChatGPT and Z.ai.
@@ -1320,6 +1333,20 @@ Completed interrupted stages reconcile before migration; live/uncertain stages
 refuse migration. No migration was applied to the original IdleCampus run.
 
 ## Tests and evidence
+
+AutoReview generation pins contract/task identity and reviewer-owned finding IDs
+in each attempt's schema. Report-only repairs receive the original executed
+commands and exit codes; normal evidence validation still applies. Repairs cannot
+close findings. Fresh reviews can resolve a finding only when all criteria in its
+recorded scope have passing evidence; unsupported closure claims remain open with
+`pending_resolution`. Because older findings carry milestone-wide scope, they
+conservatively require that entire scope to pass. Explicit retractions remain a
+separate disposition.
+
+Reviewers stay read-only. Missing devices, credentials, browser access or compiler
+scratch permissions are verification blockers, not permission to change source
+or bypass restrictions. A shell wrapper exiting zero does not prove its nested
+test command succeeded. Live audit limitations are recorded alongside results.
 
 ```sh
 python3 -m unittest tools/test_escalation.py tools/test_autocode.py tools/test_goals.py tools/test_subprocess.py tools/test_opencode.py tools/test_process.py

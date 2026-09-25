@@ -165,14 +165,16 @@ class AssignmentScenarios(unittest.TestCase):
         self.seed()
         self.greeting_contract(self.partner())
         self.install_builder("no_change")
-        self.build()
+        with self.assertRaisesRegex(s.Paused, 'without source changes'):
+            self.build()
         self.assertEqual(HELLO, (self.root / "src/greeting.py").read_text())
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
-        workers = self.state["orchestration_history"][-1]["workers"]
+        workers = self.state["orchestration_batch"]["workers"]
         greeting = next(row for row in workers if row["milestone_id"] == "M1")
         child = s.read(Path(greeting["run_dir"]) / "state.json")
         self.assertGreaterEqual(child["no_progress_batches"], 1)
-        self.assertEqual([], greeting["changed_files"])
+        self.assertNotIn('implementation', child)
+        self.assertNotEqual('BUILT', greeting.get('status'))
 
     def test_compile_failure_is_not_completion(self):
         self.seed()
