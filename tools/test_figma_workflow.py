@@ -195,6 +195,41 @@ class FigmaWorkflow(unittest.TestCase):
         self.assertEqual(2, stages.count('requirements_revision'))
         self.assertLess(stages.index('plan_finalizer'), stages.index('builder'))
 
+    def test_unlimited_reworks_reach_independent_acceptance_beyond_default_limits(self):
+        code, root, _ = self.run_ui(('FAIL', 'FAIL', 'FAIL', 'PASS'),
+                                    plan_outcomes=('REWORK', 'REWORK', 'REWORK', 'ACCEPT'),
+                                    max_reworks='none', max_plan_reworks='none')
+        self.assertEqual(0, code)
+        state = json.loads((root / 'state.json').read_text())
+        self.assertEqual({'max_reworks': None, 'max_plan_reworks': None}, state['limits'])
+        self.assertEqual((3, 3), (state['iteration'], state['planning_iteration']))
+        handoff = figma.load_handoff(root)
+        self.assertEqual('validator-03.json', handoff['artifacts']['validator']['path'])
+        self.assertEqual('plan-finalization-03.json', handoff['artifacts']['plan_finalizer']['path'])
+
+    def test_numeric_rework_limits_still_stop_without_an_accepted_handoff(self):
+        for limit in (0, 1, 3):
+            with self.subTest(limit=limit):
+                code, root, _ = self.run_ui(('FAIL',), max_reworks=limit)
+                state = json.loads((root / 'state.json').read_text())
+                self.assertEqual((3, 'REWORK_REQUIRED', limit), (code, state['status'], state['iteration']))
+                self.assertFalse((root / 'handoff.json').exists())
+                code, root, _ = self.run_ui(plan_outcomes=('REWORK',), max_plan_reworks=limit)
+                state = json.loads((root / 'state.json').read_text())
+                self.assertEqual((3, 'PLAN_REWORK_REQUIRED', limit),
+                                 (code, state['status'], state['planning_iteration']))
+                self.assertNotIn('builder', state['outputs'])
+                self.assertFalse((root / 'handoff.json').exists())
+
+    def test_invalid_rework_limits_are_rejected_before_creating_a_run(self):
+        for flag in ('--max-reworks', '--max-plan-reworks'):
+            for value in ('-1', '1.5', 'unlimited'):
+                with self.subTest(flag=flag, value=value), contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit) as error:
+                        ui.cli(['Design a dashboard', '--workspace', str(self.root), flag, value])
+                    self.assertEqual(2, error.exception.code)
+                    self.assertEqual([], list(self.root.iterdir()))
+
     def test_modified_report_and_incomplete_run_cannot_be_imported(self):
         _, root, _ = self.run_ui()
         (root / 'validator-00.json').write_text('{}')
