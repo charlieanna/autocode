@@ -535,7 +535,7 @@ def migrate(state):
 def render(state):
     contract = state.get("goal_contract")
     if not contract:
-        return "No contract yet; resume to interview with Astra."
+        return "No contract yet; resume to interview with the Requirements Gatherer."
     body = contract["body"]
     lines = [f"Build brief r{contract['revision']} ({contract['approval_status']})",
              f"Approval token: {token(contract)}"]
@@ -631,7 +631,7 @@ def approve(state, selected):
         raise ValueError("Blocking questions still need answers")
     joint = state.get("settings", {}).get("joint_planning")
     if joint and (state.get("planning", {}).get("final_token") != selected or "initial_task" not in contract["body"]):
-        raise ValueError("Joint planning requires Astra's final plan before approval")
+        raise ValueError("Joint planning requires the Plan Reviewer's final plan before approval")
     current = s.snapshot(Path(state["workspace"])) if joint else None
     event = {"kind": "goal_approval", "actor": "user_cli", "at": s.now(), "token": selected}
     state.setdefault("user_events", []).append(event)
@@ -697,11 +697,11 @@ def apply_intervention_feedback(state, receipt, applied_receipt):
         state.pop("completion_actor", None)
     if contract:
         contract.update(approval_status="draft", approval_event=None)
-    invalidate(state, "Queued feedback requires Astra review, refreshed approval and validation")
+    invalidate(state, "Queued feedback requires Plan Reviewer review, refreshed approval and validation")
     first_stage = ("requirements_gather" if "requirements" in state.get("settings", {}).get("roles", {})
                    else "astra_discovery")
     state.update(status="PAUSED_INTERVENTION", phase="PAUSED_OR_BLOCKED", next_stage=first_stage,
-                 pending_questions=[], stop_reason="Queued feedback was applied; explicitly continue to Astra discovery.")
+                 pending_questions=[], stop_reason="Queued feedback was applied; explicitly continue to Requirements discovery.")
 
 
 def answer(state, question_id, text, *, delegated=False):
@@ -767,7 +767,7 @@ def resolve_passing_checkpoint(state, question_id, text):
         raise ValueError("Checkpoint reconciliation requires the explicit saved choice and approved goal")
     description = str(request.get("discovered", "")).lower()
     if not all(word in description for word in ("checkpoint", "sol", "evidence")):
-        raise ValueError("The pending request is not a Sol milestone checkpoint")
+        raise ValueError("The pending request is not a Validator milestone checkpoint")
     current = s.snapshot(Path(state["workspace"]))
     if not checkpoints.evidence_ready(state, current) or missing_human_reviews(state):
         raise ValueError("Current independent evidence or a required human review is still missing")

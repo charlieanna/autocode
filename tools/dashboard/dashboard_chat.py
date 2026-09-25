@@ -38,7 +38,7 @@ def planning_messages(state, run=None):
             if isinstance(summary, str) and summary:
                 record = by_output.get(entry.get('output'), {})
                 result.append({'id': f'planning-{number}-{stage}', 'role': 'assistant',
-                               'speaker': 'GLM' if stage in ('astra_discovery', 'glm_revise') else 'Astra',
+                               'speaker': 'Planner' if stage in ('astra_discovery', 'glm_revise') else 'Plan Reviewer',
                                'text': summary, 'stage': stage, 'status': 'received',
                                'created_at': record.get('finished_at') or record.get('started_at')})
                 if entry.get('output'):
@@ -58,7 +58,7 @@ def planning_messages(state, run=None):
                 text = object_value(report).get('summary')
                 if isinstance(text, str) and text:
                     result.append({'id': 'discovery-' + hashlib.sha256(str(path).encode()).hexdigest()[:16],
-                                   'role': 'assistant', 'speaker': 'GLM' if record.get('role') == 'glm' else 'Astra',
+                                   'role': 'assistant', 'speaker': 'Planner' if record.get('role') == 'glm' else 'Plan Reviewer',
                                    'text': text, 'status': 'received', 'created_at': record.get('finished_at') or record.get('started_at')})
             except (KeyError, TypeError, OSError, ValueError):
                 continue
@@ -191,7 +191,7 @@ class ConversationMixin:
                 data = {**data, 'workspace': attachment['workspace'], 'project': '', 'create_project': False}
 
             if doc.get('status') != 'ready':
-                raise ValueError('Wait for GLM’s reply before attaching a project')
+                raise ValueError('Wait for the Planner’s reply before attaching a project')
             self.joint_models(doc.get('models', {}))
             self.joint_efforts(doc.get('models', {}))
             raw = data.get('project') or data.get('workspace')
@@ -224,7 +224,7 @@ class ConversationMixin:
             transcript = '\n\n'.join(f"{message.get('speaker', message.get('role', 'Message'))}:\n{message.get('text', '')}" for message in doc['messages'])
             goal = (doc['title'] + '\n\nConversation reference: ' + doc['id'] +
                     '\nThe following is the user’s saved project-free planning discussion. Use it as context, including corrections. '
-                    'Inspect this repository, resolve remaining questions, and run the GLM/Astra joint planning process. '
+                    'Inspect this repository, resolve remaining questions, and run the Planner/Plan Reviewer joint planning process. '
                     'Prior discussion is a draft, not approval to implement. Present the final repository-aware plan for explicit approval.\n\n' + transcript)
             attachment = {'status': 'starting', 'workspace': str(workspace), 'goal_hash': hashlib.sha256(goal.encode()).hexdigest(), 'started_at': time.time(), 'run': None, 'action_id': None, 'error': None}
             claimed_doc, claimed = self.conversations.claim_attachment(doc['id'], attachment, expected_attachment=expected_attachment)

@@ -258,7 +258,7 @@ def execute(args, workspace, run_dir):
             if report['status'] != 'COMPLETE' or not report['figma_file'] or not report['evidence'] or report['required_changes']:
                 raise ValueError('The Figma Builder did not produce a completed editable result')
             if current['figma_file'] and url_key(report['figma_file']) != url_key(current['figma_file']):
-                raise ValueError('Terra returned a different Figma file than the selected target')
+                raise ValueError('The Builder returned a different Figma file than the selected target')
             current.update(figma_file=report['figma_file'], next_stage='validator')
             return
         if stage == 'validator':

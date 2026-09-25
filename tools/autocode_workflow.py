@@ -38,7 +38,7 @@ def final_only(state):
 
 def guard(state):
     if state.get('settings', {}).get('milestone_checkpoints', {}).get('enabled') and enabled(state):
-        raise support.Paused('PAUSED_WORKFLOW_CONFLICT', 'Milestone checkpoints require Terra → Sol → Astra routing')
+        raise support.Paused('PAUSED_WORKFLOW_CONFLICT', 'Milestone checkpoints require Builder → Validator → Plan Reviewer routing')
     if not enabled(state):
         return
     policy = state["settings"]["workflow"]
@@ -128,7 +128,7 @@ def apply_implementation(runner,state,value,record,workspace,run_dir):
         goals.record_decision(state,decision)
     elif action=='ESCALATE_SOL':
         if not c['question'].strip() or not c['reason'].strip():
-            raise ValueError('Sol escalation needs a specific question and evidence of the blocker')
+            raise ValueError('A Validator escalation needs a specific question and evidence of the blocker')
         state['targeted_consultation']={'question':c['question'],'reason':c['reason'],
             'task_id':value['task_id'],'contract_hash':value['contract_hash'],'source_revision':record['source_revision']}
         state['next_stage']='sol'
@@ -186,7 +186,7 @@ evidence for every criterion. Human review and runner gates still apply.
 def activate(state, *, approval_source):
     """Called only by an explicit operator action at an idle, reconciled boundary."""
     if state.get('settings', {}).get('milestone_checkpoints', {}).get('enabled'):
-        raise ValueError('Enforced milestone checkpoints require the separate Sol review')
+        raise ValueError('Enforced milestone checkpoints require the separate Validator review')
     if state.get("active_stage") or state.get("pending_report_repair") or state.get("uncertain_artifacts"):
         raise ValueError("Finish/reconcile the in-flight stage before changing workflow")
     if state.get("status") == "RUNNING" or not goals.approved(state):
@@ -222,9 +222,9 @@ def rollback(state):
         return
     old = state["settings"].pop("workflow")
     state.setdefault("configuration_changes", []).append({"at": support.now(),
-        "reason": "Explicit rollback to legacy Sol validation routing", "previous_workflow": old})
+        "reason": "Explicit rollback to legacy Validator routing", "previous_workflow": old})
     if state.get("validation", {}).get("reviewer_role") == "astra":
-        state.setdefault("validation_archive", []).append({"reason":"Routing rollback requires Sol revalidation",
+        state.setdefault("validation_archive", []).append({"reason":"Routing rollback requires Validator revalidation",
             "validation":state.pop("validation")})
         state["human_reviews"] = {}
         state.pop("displayed_review", None)
@@ -233,7 +233,7 @@ def rollback(state):
             state.setdefault("completion_archive", []).append({"completed_at":state.pop("completed_at",None),
                 "decision":state.pop("final_decision",None)})
         state.update(next_stage="sol",status="PAUSED_WORKFLOW_ROLLBACK",phase="PAUSED_OR_BLOCKED",
-            stop_reason="Legacy routing restored; resume the same run for Sol validation")
+            stop_reason="Legacy routing restored; resume the same run for Validator validation")
 
 
 POLICY = """
@@ -278,7 +278,7 @@ command_execution events, not conversation call IDs. Never invent test results.
 def apply_checkpoint(runner, state, value, record, workspace, run_dir):
     guard(state)
     if not enabled(state) or record.get("role") != "astra":
-        raise ValueError("Independent checkpoint must run under the approved Astra role")
+        raise ValueError("Independent checkpoint must run under the approved Plan Reviewer role")
     support.validate_schema(value, checkpoint_schema(runner.SCHEMA_DIR))
     current = support.snapshot(workspace)
     if record.get("source_revision") != current["revision"] or record.get("changed_files"):
@@ -287,15 +287,16 @@ def apply_checkpoint(runner, state, value, record, workspace, run_dir):
     if final_only(state):
         dispatch_guard(state,'astra_checkpoint',workspace)
         if consult['requested']:
-            raise ValueError('Final audit returns findings to GLM; Sol is only GLM-requested escalation')
+            raise ValueError('Final audit returns findings to the Builder; a Validator escalation is only Builder-requested')
     if validation["user_request"] != decision["user_request"]:
         raise ValueError("Validation and decision must agree on the pending user decision")
     if consult["requested"] and (not consult["question"].strip() or not consult["reason"].strip()
             or decision["status"] != "CONTINUE" or decision["next_task"]["kind"] != "validate"
             or decision["user_request"]["kind"] != "none"):
-        raise ValueError("Sol escalation requires a concrete question and a non-completion validate decision")
+        raise ValueError("A Validator escalation requires a concrete question and a non-completion validate decision")
+
     if not consult["requested"] and (consult["question"] or consult["reason"]):
-        raise ValueError("Unused Sol escalation must be empty")
+        raise ValueError("Unused Validator escalation must be empty")
     stages, history = len(state.get("stages", [])), len(state.get("history", []))
     # Reuse existing validators and goal transitions transactionally. These are two
     # logical results from ONE provider call, so persist only its single receipt.

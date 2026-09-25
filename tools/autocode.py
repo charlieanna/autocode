@@ -1779,7 +1779,7 @@ def commit_boundary_candidate(state, candidate, run_dir, workspace):
 
 def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
     """Collect discovery answers and goal approval in a single terminal conversation."""
-    speaker = "GLM" if planning.enabled(state) else "Astra"
+    speaker = "Planner" if planning.enabled(state) else "Plan Reviewer"
     def action(callback):
         candidate = copy.deepcopy(state)
         callback(candidate)
@@ -1837,7 +1837,7 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
                     break
                 print("Please enter an answer, or /default when a suggested default is available.")
     if state["status"] == "AWAITING_GOAL_APPROVAL":
-        print("\nJoint proposed build brief:\n" if planning.enabled(state) else "\nAstra's proposed build brief:\n")
+        print("\nJoint proposed build brief:\n" if planning.enabled(state) else "\nPlan Reviewer's proposed build brief:\n")
         print(goals.present(state))
         while True:
             try:
@@ -1941,17 +1941,17 @@ def main(unit=None) -> int:
                             help=f"Override the {label} model (joint default: "
                                  f"{opencode.DEFAULT_MODELS[role]}; "
                                  f"Codex-only default: {model}; resumes keep the saved model)")
-    parser.add_argument("--astra-provider", help="Codex model_provider override for the plan reviewer (legacy Astra role name)")
-    parser.add_argument("--terra-provider", help="Codex model_provider override for Terra (e.g. ZAI); default is the local Codex login")
-    parser.add_argument("--sol-provider", help="Codex model_provider override for Sol (e.g. ZAI); default is the local Codex login")
+    parser.add_argument("--astra-provider", help="Codex model_provider override for the Plan Reviewer (flag keeps the legacy Astra name)")
+    parser.add_argument("--terra-provider", help="Codex model_provider override for the Builder (e.g. ZAI); default is the local Codex login")
+    parser.add_argument("--sol-provider", help="Codex model_provider override for the Validator (e.g. ZAI); default is the local Codex login")
     parser.add_argument("--completion-provider", help="Codex model_provider override for the completion owner; default is the local Codex login")
     parser.add_argument("--reasoning-effort", choices=["low","medium","high","xhigh","max"])
     parser.add_argument("--astra-reasoning-effort", choices=["low","medium","high","xhigh","max"],
                         help="Override reasoning effort for plan review only")
     parser.add_argument("--terra-reasoning-effort", choices=["low","medium","high","xhigh","max"],
-                        help="Override reasoning effort for Terra only")
+                        help="Override reasoning effort for the Builder only")
     parser.add_argument("--sol-reasoning-effort", choices=["low","medium","high","xhigh","max"],
-                        help="Override reasoning effort for Sol only")
+                        help="Override reasoning effort for the Validator only")
     parser.add_argument("--completion-reasoning-effort", choices=["low","medium","high","xhigh","max"],
                         help="Override reasoning effort for the completion owner only")
     parser.add_argument("--pin-model-role", action="append", choices=tuple(DEFAULT_ROLE_MODELS), default=[],
@@ -1969,7 +1969,7 @@ def main(unit=None) -> int:
     parser.add_argument("--legacy-iteration-ceiling", type=int)
     parser.add_argument("--max-seconds", type=int)
     parser.add_argument("--milestone-checkpoints", action="store_true",
-                        help="Enable enforced Terra/Sol/Astra milestone checkpoints on a saved run; new runs enable them by default")
+                        help="Enable enforced Builder/Validator/review milestone checkpoints on a saved run; new runs enable them by default")
     parser.add_argument("--request-milestone-checkpoints", action="store_true",
                         help="Queue a boundary pause and milestone configuration for an active saved run; never launches or stops workers")
     parser.add_argument("--max-milestone-seconds", type=int,
@@ -1997,7 +1997,7 @@ def main(unit=None) -> int:
                         help="Set aside exactly this stopped uncertain attempt, preserving edits and logs; no agent is launched")
     parser.add_argument("--show-goal", action="store_true", help="Display the exact contract revision and approval token")
     parser.add_argument("--answer", action="append", default=[], metavar="QUESTION_ID=TEXT")
-    parser.add_argument("--feedback", metavar="TEXT", help="Send brief feedback to Astra; never approves implementation")
+    parser.add_argument("--feedback", metavar="TEXT", help="Send brief feedback to the Requirements Gatherer; never approves implementation")
     parser.add_argument("--delegate", action="append", default=[], metavar="QUESTION_ID",
                         help="Explicitly accept the proposed default and delegate this decision")
     parser.add_argument("--approve-goal", metavar="TOKEN", help="Approve exactly a previously displayed revision")
@@ -2233,7 +2233,7 @@ def main(unit=None) -> int:
                 if capacity_recovered:
                     recovery = state["recovery_context"]
                     print(f"Provider capacity recovery {recovery['retry_number']}/{MAX_AUTOMATIC_CAPACITY_RECOVERIES}: "
-                          f"partial work archived; Astra will inspect before the next writer", flush=True)
+                          f"partial work archived; the Plan Reviewer will inspect before the next writer", flush=True)
                 elif not (automatically_recover_timed_out_stage(state, run_dir, workspace, error)
                           or automatically_recover_external_directory_denial(state, run_dir, workspace, error)):
                     raise
@@ -2452,7 +2452,7 @@ def main(unit=None) -> int:
                     if capacity_recovered:
                         recovery = current["recovery_context"]
                         print(f"{stage}: provider capacity recovery {recovery['retry_number']}/"
-                              f"{MAX_AUTOMATIC_CAPACITY_RECOVERIES}; partial work archived for Astra inspection", flush=True)
+                              f"{MAX_AUTOMATIC_CAPACITY_RECOVERIES}; partial work archived for Plan Reviewer inspection", flush=True)
                         return orchestrator.SKIP
                     if (automatically_recover_timed_out_stage(current, run_dir, workspace, error)
                             or automatically_recover_external_directory_denial(current, run_dir, workspace, error)):

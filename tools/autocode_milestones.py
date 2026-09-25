@@ -292,18 +292,18 @@ def dispatch_guard(state, stage):
     if not enabled(state):
         return
     if state.get("settings", {}).get("workflow"):
-        raise s.Paused("PAUSED_WORKFLOW_CONFLICT", "Milestone checkpoints require Terra → Sol → Astra routing")
+        raise s.Paused("PAUSED_WORKFLOW_CONFLICT", "Milestone checkpoints require Builder → Validator → Plan Reviewer routing")
     if stage in ("terra", "orchestrator"):
         row = progress(state)
         if row is None:
-            raise s.Paused("PAUSED_MILESTONE_TASK", "Astra must assign a bounded milestone task before implementation")
+            raise s.Paused("PAUSED_MILESTONE_TASK", "The Plan Reviewer must assign a bounded milestone task before implementation")
         check_budget(state)
         if row.get("needs_replan") and settings(state)["stalled_reviews"]:
-            raise s.Paused("PAUSED_MILESTONE_REPLAN", "Astra must reassess repeated failed checks before another writer attempt")
+            raise s.Paused("PAUSED_MILESTONE_REPLAN", "The Plan Reviewer must reassess repeated failed checks before another writer attempt")
 
 
 def handle_gate(state, error, current):
-    """Keep a rejected advancement in the review loop; never replay Terra."""
+    """Keep a rejected advancement in the review loop; never replay the Builder."""
     if error.status in ("PAUSED_MILESTONE_STALLED", "PAUSED_MILESTONE_BUDGET"):
         state.update(status=error.status, phase="PAUSED_OR_BLOCKED", next_stage="astra_review", stop_reason=str(error))
         return

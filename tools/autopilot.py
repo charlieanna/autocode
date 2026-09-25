@@ -293,7 +293,7 @@ def apply_planning(state, stage, value, record):
         if unresolved and not value["contract"]["open_blocking_questions"]:
             raise ValueError("Unresolved planning decisions must return to the user as blocking questions")
         if not value["contract"]["open_blocking_questions"] and "initial_task" not in value["contract"]:
-            raise ValueError("Final plan needs an initial_task so approval does not spend another Astra call")
+            raise ValueError("Final plan needs an initial_task so approval does not spend another Plan Reviewer call")
         _bind_plan(state, value, stage)
         planning["final_token"] = goals.token(state["goal_contract"])
     reports[stage] = {"report": copy.deepcopy(value), "output": record["output"]}
@@ -387,7 +387,7 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     ids = [row["id"] for row in value["criterion_results"]]
     known = {c["id"] for c in state["acceptance_criteria"]}
     if len(ids) != len(set(ids)) or not set(ids) <= known:
-        raise ValueError("Sol criterion results must use unique approved IDs")
+        raise ValueError("Validator criterion results must use unique approved IDs")
     for ref in refs:
         if ref.startswith("event:"):
             event_id = ref.split(":", 1)[1]
@@ -402,7 +402,7 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
                   "source_revision": record["source_revision"], "output": record["output"],
                   "reviewer_role": record.get("role", stage)}
     if value["verdict"] == "PASS" and (not value["checks"] or any(c["exit_code"] for c in value["checks"])):
-        raise support.Paused("PAUSED_INVALID_OUTPUT", "Sol PASS lacks successful executed checks")
+        raise support.Paused("PAUSED_INVALID_OUTPUT", "Validator PASS lacks successful executed checks")
     if state.get("validation"):
         state.setdefault("validation_archive", []).append({
             "reason": "Superseded by another independent validation", "validation": state["validation"]})
@@ -493,7 +493,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
                 return
             if stage.startswith("astra"):
                 if value["status"] != "BLOCKED":
-                    raise ValueError("Astra must choose BLOCKED when requesting a user decision")
+                    raise ValueError("The Plan Reviewer must choose BLOCKED when requesting a user decision")
                 # Record the defects already identified, then pause. The early return
                 # below never reaches the normal review path.
                 findings_ledger.record_decision(state, value, record)
@@ -525,7 +525,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
             raise support.Paused("PAUSED_INVALID_OUTPUT", "Duplicate acceptance IDs")
         old = state.get("acceptance_criteria", [])
         if old and definitions != support.criteria_definition(old):
-            raise support.Paused("PAUSED_CRITERIA_CHANGE", "Astra proposed a criteria change; previous revision remains authoritative")
+            raise support.Paused("PAUSED_CRITERIA_CHANGE", "The Plan Reviewer proposed a criteria change; previous revision remains authoritative")
         state["acceptance_criteria"] = value["acceptance_criteria"]
         state["criteria_revision"] = support.digest(definitions)
         state["plan"] = value.get("plan", [value["next_objective"]])

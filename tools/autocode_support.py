@@ -514,7 +514,7 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
                     check["evidence_ref"] = "event:" + alternates[0]["id"]
                     check['exit_code'] = alternates[0]['exit_code']
                     continue
-            raise ValueError("Check is not supported by an exact executed Sol event")
+            raise ValueError("Check is not supported by an exact executed Validator event")
         path = Path(check["evidence_ref"])
         path = path if path.is_absolute() else Path(workspace) / path
         if not path.resolve().is_relative_to(Path(workspace).resolve() / ".autocode"):
@@ -555,7 +555,7 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
                 except ValueError:
                     pass
         if not matched:
-            raise ValueError("No independently executed Sol tool event matches receipt")
+            raise ValueError("No independently executed Validator tool event matches receipt")
         check['exit_code'] = receipt['exit_code']
     # Failed or ambiguous normalization must not partly repair the caller's report.
     for original, derived in zip(checks, normalized):
