@@ -386,6 +386,20 @@ def check_requirement_trace(state, report, contract):
             raise ValueError(f"Requirement {row['id']} cannot be superseded without a saved user event")
     conflicts = handoff.get("conflicts") or []
     conflict_sets = {frozenset(row.get("requirement_ids") or []) for row in conflicts}
+    # A refreshed handoff may no longer call a settled pair a conflict. Preserve
+    # its explicit resolution only while the same IDs still cite the same user
+    # text; recycled IDs must not inherit an unrelated historical decision.
+    current_quotes = {row["id"]: str(row.get("source_quote") or "").strip()
+                      for row in requirements}
+    for previous in state.get("requirements_history", []):
+        prior = previous.get("report") or {}
+        prior_quotes = {row["id"]: str(row.get("source_quote") or "").strip()
+                        for row in prior.get("requirements", [])}
+        for conflict in prior.get("conflicts", []):
+            ids = conflict.get("requirement_ids") or []
+            if ids and all(prior_quotes.get(rid) and
+                           prior_quotes[rid] == current_quotes.get(rid) for rid in ids):
+                conflict_sets.add(frozenset(ids))
     resolved = set()
     resolutions = report.get("conflict_resolutions", [])
     if not isinstance(resolutions, list):
@@ -1145,6 +1159,11 @@ in conflict_resolutions: the exact requirement_ids of that conflict, basis
 from that event, and a substantive resolution explaining how it settles the conflict.
 Keep valid requirements covered in requirement_trace; they need not all be superseded.
 Preserve these resolutions in later planner/reviewer reports. Use [] when none apply.
+An explicit resolution may cite a conflict recorded in requirements_history after a
+refreshed handoff removes it, but only when all its requirement IDs still have the
+same verbatim source quotes. Do not transfer a resolution to reused or changed IDs.
+If no matching current or historical conflict exists, retain the saved decision in
+accepted_assumptions instead; an empty conflict_resolutions list then is valid.
 Agent assumptions and unrelated user events cannot resolve a conflict. Carry genuinely
 unresolved conflicts into open_blocking_questions; do not ask again for a saved decision.
 When revising a plan after review, copy required_behaviors, scope_exclusions,

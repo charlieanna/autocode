@@ -207,6 +207,13 @@ def context(state, stage, state_path):
               "stage": stage,
               "goal_contract": None if stage == "requirements_gather" else state.get("goal_contract"),
               "requirements_handoff": None if stage == "requirements_gather" else state.get("requirements_handoff"),
+              "requirements_history": None if stage == "requirements_gather" else [
+                  {"output": entry.get("output"),
+                   "requirements": [{"id": row["id"], "source_quote": row.get("source_quote", "")}
+                                    for row in (entry.get("report") or {}).get("requirements", [])],
+                   "conflicts": (entry.get("report") or {}).get("conflicts", [])}
+                  for entry in state.get("requirements_history", [])
+                  if (entry.get("report") or {}).get("conflicts")],
               "saved_answers": state.get("answers", {}), "brief_feedback": state.get("brief_feedback", []),
               "planning": exchange, "budget": "two plan-review calls per explicitly requested cycle"}
     if stage == "requirements_gather":
