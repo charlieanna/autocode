@@ -721,7 +721,11 @@ def answer(state, question_id, text, *, delegated=False):
     if "open_blocking_questions" in body:
         body["open_blocking_questions"] = [row for row in body["open_blocking_questions"] if row.get("id") != question_id]
     if not state["pending_questions"]:
-        state.update(status="RUNNING", phase="DISCOVERING", next_stage="astra_discovery")
+        body = state.get("goal_contract", {}).get("body", {})
+        if not body.get("open_blocking_questions"):
+            state.update(status="AWAITING_GOAL_APPROVAL", phase="AWAITING_GOAL_APPROVAL", next_stage="astra_plan")
+        else:
+            state.update(status="RUNNING", phase="DISCOVERING", next_stage="astra_discovery")
         state["discovery_summary"] = ""
     # Answers are inputs to a new draft, never goal approvals.
     state["goal_contract"].update(approval_status="draft", approval_event=None)
