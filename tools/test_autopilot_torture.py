@@ -195,7 +195,7 @@ class PlanningTests(TortureBase):
     def test_planner_cannot_drop_a_requirement_or_weaken_a_criterion(self):
         self.planning_state()
         report = {"summary": "s", "intended_outcome": "o", "required_behaviors": ["Greet"],
-                  "constraints": [], "acceptance_tests": ["run"], "source_refs": ["task"],
+                  "constraints": [], "acceptance_tests": ["run"], "source_refs": ["greet.py:1"],
                   "proposed_assumptions": [], "open_questions": [], "requirements": [
                       {"id": "R1", "text": "Reject whitespace", "source_quote": "Reject a name that is only whitespace, exit 2."}],
                   "ignored_statements": [], "conflicts": []}

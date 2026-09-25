@@ -135,6 +135,8 @@ class TraceTests(unittest.TestCase):
             planning.apply(current, "astra_discovery", payload, {"output": "draft.json"})
         asked = copy.deepcopy(payload)
         asked["contract"] = body(questions=True)
+        asked["contract"]["milestones"] = []
+        asked["contract"]["technical_approach"] = []
         asked["contract"]["constraints"] = draft["constraints"]
         planning.apply(current, "astra_discovery", asked, {"output": "draft.json"})
         self.assertTrue(current["goal_contract"]["body"]["open_blocking_questions"])
