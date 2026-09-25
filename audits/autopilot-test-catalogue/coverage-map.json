@@ -731,11 +731,40 @@
           "status": "PASS"
         }
       }
+    },
+    "T15": {
+      "status": "DONE, 2 PASS / 3 HONEST BLOCKER / 1 DEFERRED",
+      "summary": "GLM 5.3 (low/high/max only), temp workspaces, oracle verdicts; findings L1 (multi-human-review deadlock), L2 (assignment-path mismatch), L3 (review-schema model quality)",
+      "scenarios": {
+        "LIVE-01": {
+          "status": "PASS",
+          "oracle": "12/12"
+        },
+        "LIVE-02": {
+          "status": "HONEST_BLOCKER",
+          "note": "behavior verified; finding L1"
+        },
+        "LIVE-03": {
+          "status": "PASS",
+          "oracle": "7/7"
+        },
+        "LIVE-04": {
+          "status": "DEFERRED",
+          "note": "frozen FX04 reference absent"
+        },
+        "LIVE-05": {
+          "status": "HONEST_BLOCKER",
+          "note": "budget exhausted on review-schema failures; partial deliverables; finding L3"
+        },
+        "LIVE-06": {
+          "status": "HONEST_BLOCKER",
+          "note": "milestone A delivered; finding L2"
+        }
+      }
     }
   },
-  "not_started": [
-    "T15 (live trials \u2014 require explicit scope/workspace/spend approval)"
-  ],
+  "not_started": [],
   "suite_baseline": "648 tests OK at 153d89c (includes the user's uncommitted tools/test_goals.py addition)",
-  "suite_after": "828 tests OK (690 after T00/T05/T06 + 138 catalogue tests T01-T14)"
+  "suite_after": "828 tests OK (690 after T00/T05/T06 + 138 catalogue tests T01-T14)",
+  "live_authorized_by_user": "2026-09-24: 'with real model using glm 5.3 low and high and max only'"
 }

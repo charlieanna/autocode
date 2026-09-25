@@ -230,11 +230,15 @@ autocode --ui-run /path/to/project/.autocode-ui/runs/RUN
 
 The UI path first runs a complete planning exchange: a Requirements Planner drafts
 the brief, an independent Plan Reviewer challenges it, the planner revises it, and
-a Plan Finalizer accepts it or requests bounded rework. It then runs Figma Builder →
-Design Validator → Completion Owner, with bounded build/review rework. Models remain
+a Plan Finalizer accepts it or requests rework. It then runs Figma Builder →
+Design Validator → Completion Owner, with build/review rework. Models remain
 configurable separately from these role names. Every attempt has separate prompts,
 event logs and structured reports under `.autocode-ui/runs/`. Failed planning or
 design reviews cannot produce a build handoff.
+By default, planning allows one rework and design allows two. Use
+`--max-plan-reworks none --max-reworks none` to continue review loops until accepted
+or blocked. Numeric limits remain available; `0` allows no rework. The selected
+limits are recorded in the run state.
 An accepted handoff records the Figma URL and hashes of the brief and review reports;
 modified or incomplete artifacts are rejected when imported. The implementation
 roles inspect the live Figma reference again, since the file can change after design.
