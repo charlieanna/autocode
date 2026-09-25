@@ -311,7 +311,29 @@ def normalized_events(rows):
     return normalized
 
 
-def final_report(path):
+def _repeated_repair_report(final):
+    """Recover a report-only reply with brief prose and duplicate identical JSON."""
+    start = final.find("{")
+    if start < 0 or start > 500 or "```" in final[:start]:
+        return None
+    decoder = json.JSONDecoder()
+    reports = []
+    remaining = final[start:].strip()
+    while remaining and len(reports) < 2:
+        try:
+            report, end = decoder.raw_decode(remaining)
+        except ValueError:
+            return None
+        if not isinstance(report, dict):
+            return None
+        reports.append(report)
+        remaining = remaining[end:].strip()
+    if remaining or not reports or any(report != reports[0] for report in reports[1:]):
+        return None
+    return reports[0]
+
+
+def final_report(path, *, recover_wrapped=False):
     rows = raw_events(path)
     normalized = normalized_events(rows)
     if not any(row.get("type") == "turn.completed" for row in normalized):
@@ -353,6 +375,8 @@ def final_report(path):
                 break
             except ValueError:
                 continue
+        if report is None and recover_wrapped:
+            report = _repeated_repair_report(final)
     if not isinstance(report, dict):
         raise RuntimeError("OpenCode final message is not a JSON report; inspect the saved raw events")
     return report

@@ -130,6 +130,21 @@ class RuntimeReportTests(unittest.TestCase):
         self.final_message(['The implementation needs independent validation.', '{"status":"CONTINUE"}'])
         self.assertEqual({'status': 'CONTINUE'}, opencode.final_report(self.log))
 
+    def test_report_only_recovery_accepts_identical_complete_json_copies(self):
+        report = '{"verdict":"PASS","unverified_criteria":["T01"]}'
+        self.final_message(['The saved receipts support this report.' + report + report])
+        with self.assertRaises(RuntimeError):
+            opencode.final_report(self.log)
+        self.assertEqual(json.loads(report), opencode.final_report(self.log, recover_wrapped=True))
+
+    def test_report_only_recovery_rejects_conflicting_or_trailing_content(self):
+        for message in ('Receipt.' + '{"status":"PASS"}' + '{"status":"FAIL"}',
+                        'Receipt.' + '{"status":"PASS"}' + 'changed my mind',
+                        'Receipt.' + '{"status":"PASS"}' * 3):
+            self.final_message([message])
+            with self.subTest(message=message[:35]), self.assertRaises(RuntimeError):
+                opencode.final_report(self.log, recover_wrapped=True)
+
     def test_ambiguous_json_or_commentary_after_report_is_rejected(self):
         for texts in [['{"status":"A"}', '{"status":"B"}'],
                       ['{"status":"A"}', 'Changed my mind.']]:

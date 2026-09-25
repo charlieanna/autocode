@@ -156,7 +156,7 @@ class CommandProvider:
             + json.dumps(schema, indent=2) + "\n")
         return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
 
-    def final_report(self, path):
+    def final_report(self, path, *, recover_wrapped=False):
         if self.OUTPUT == "opencode_events":
             return _opencode_events.final_report(path)
         report_path = Path(path).with_suffix(".json")

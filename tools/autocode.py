@@ -136,7 +136,7 @@ def check_evidence_options(record):
 def load_stage_report(record, workspace=None, evidence_record=None):
     if record.get("engine") == "opencode":
         # Raw provider events are authoritative, including during recovery.
-        value = opencode.final_report(record["events"])
+        value = opencode.final_report(record["events"], recover_wrapped=bool(record.get("report_only")))
     else:
         value = final_json(Path(record["output"]))
     reported = copy.deepcopy(value)
@@ -557,13 +557,17 @@ def execute_report_repair(state, run_dir, workspace):
     pending['attempts'] += 1
     state.update(phase='REPORT_REPAIR')
     write_json(run_dir / 'state.json', state)
-    prompt = ('Repair only the final structured report from this completed stage. Do not redo '
+    prompt = ('Return exactly one JSON object matching the saved stage schema, with no prose, '
+              'fence, or duplicate report before or after it. Repair only the final structured '
+              'report from this completed stage. Do not redo '
               'implementation, rerun tests, modify files, restart discovery or change the approved goal. '
               'Read the original report, prompt and evidence at the supplied paths. Correct format '
               'and evidence citations; preserve findings, failures and uncertainty. Missing evidence '
               'must remain NOT_VERIFIED, never invented PASS. Do not invent delegation or approval. '
               'For captured checks, use the command and exit_code inside each receipt, not the '
-              'outer capture invocation. Preserve executed successful checks; a PASS verdict '
+              'outer capture invocation. A Sol check still requires an independently executed '
+              'Sol tool event; a capture receipt alone cannot establish that independence. '
+              'Preserve executed successful checks; a PASS verdict '
               'requires at least one. If none are supported by the original events and receipts, '
               'report NOT_VERIFIED. '
               'An event: reference must identify a completed shell command in original.events; '
@@ -980,7 +984,7 @@ def prepare_planning_retry(state, run_dir):
     return True
 
 
-def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None):
+def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None, *, allow_repeated=False):
     """Allow an explicit fresh execution report after bounded repairs fail."""
     if state.get('status') not in ('PAUSED_REPORT_REPAIR_LIMIT', 'PAUSED_INVALID_OUTPUT', 'PAUSED_REPEATED_FAILURE') or state.get('active_stage'):
         return False
@@ -1001,7 +1005,7 @@ def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None):
             or pending.get('attempts') != repair_limit(state)):
         return False
     repeated = failures.repeated(state, original)
-    if repeated and (workspace is None or support.snapshot(workspace)['revision'] == original.get('source_revision')):
+    if repeated and not allow_repeated and (workspace is None or support.snapshot(workspace)['revision'] == original.get('source_revision')):
         message = ("The same stage, artifact and error class failed "
                    f"{repeated['count']} times. Inspect failure_history and saved output; "
                    "change the cause before another execution request.")
@@ -1024,6 +1028,35 @@ def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None):
         'reason': 'Explicit fresh execution retry; rejected reports retained'})
     write_json(run_dir / 'state.json', state)
     return True
+
+
+def retry_format_failed_report(state, run_dir, workspace, selected):
+    """Explicitly request fresh independent evidence after a bounded format failure."""
+    pending = state.get('pending_report_repair') or {}
+    original = pending.get('original') or {}
+    repair = next((row for row in reversed(state.get('stages', []))
+                   if row.get('report_only') and row.get('rejected')), None)
+    if (state.get('status') != 'PAUSED_REPEATED_FAILURE'
+            or pending.get('error') != 'OpenCode final message is not a JSON report; inspect the saved raw events'
+            or original.get('stage') != 'sol'
+            or not repair or selected != attempt_id(repair)
+            or repair.get('original_stage') != original.get('stage')
+            or repair.get('source_revision') != original.get('source_revision')
+            or repair.get('schema') != original.get('schema')
+            or pending.get('attempts') != repair_limit(state)):
+        raise ValueError('--retry-report must match the exhausted rejected report-only attempt')
+    if (support.snapshot(workspace)['revision'] != original['source_revision']
+            or (state.get('goal_contract') or {}).get('hash') != pending.get('contract_hash')
+            or any(not Path(p).is_file() or support.file_hash(p) != h
+                   for p, h in pending.get('pins', {}).items())):
+        raise ValueError('Saved report inputs changed; reconcile them before retrying')
+    if not prepare_exhausted_execution_report_retry(
+            state, run_dir, workspace, allow_repeated=True):
+        raise ValueError('Saved stage cannot be retried as a fresh execution report')
+    state.setdefault('user_events', []).append({
+        'kind': 'report_retry_after_format_fix', 'actor': 'user_cli', 'at': now(),
+        'attempt_id': selected, 'source_revision': original['source_revision']})
+    write_json(run_dir / 'state.json', state)
 
 
 def repeated_failure_resume_guard(state, workspace):
@@ -1877,6 +1910,8 @@ def main(unit=None) -> int:
     parser.add_argument("--max-findings-per-task", type=int,
                         help="Reject a REWORK task that bundles more than this many open findings (default: unlimited; 0 disables)")
     parser.add_argument("--resume-paused", action="store_true", help="Acknowledge a saved pause; uncertain stages still require reconciliation")
+    parser.add_argument("--retry-report", metavar="ATTEMPT_ID",
+                        help="With --resume-paused, retry an exact exhausted format-failed report as fresh independent validation")
     parser.add_argument("--accept-transport-change", action="store_true",
                         help="With --resume-paused, accept the current validated OpenCode configuration at a clean transport-change pause")
     parser.add_argument("--abandon-stage", metavar="ATTEMPT_ID",
@@ -1903,6 +1938,8 @@ def main(unit=None) -> int:
         parser.error('--unlimited-iterations cannot be combined with an explicit iteration ceiling')
     if args.accept_transport_change and (not args.run_dir or not args.resume_paused):
         parser.error("--accept-transport-change requires --run-dir and --resume-paused")
+    if args.retry_report and (not args.run_dir or not args.resume_paused):
+        parser.error("--retry-report requires --run-dir and --resume-paused")
     if unit and args.unit != unit:
         parser.error(f"This entry point runs only {unit}")
     if args.unit in ("autocode", "autoreview", "autoresolver") and not args.run_dir:
@@ -2099,9 +2136,16 @@ def main(unit=None) -> int:
             # Recovery interprets terminal artifacts only. It never replays a model call.
             try:
                 if args.resume_paused:
-                    repeated_failure_resume_guard(state, workspace)
-                    prepare_planning_retry(state, run_dir)
-                    prepare_exhausted_execution_report_retry(state, run_dir, workspace)
+                    if args.retry_report:
+                        try:
+                            retry_format_failed_report(state, run_dir, workspace, args.retry_report)
+                        except ValueError as error:
+                            print(f"Input rejected: {error}", file=sys.stderr)
+                            return 2
+                    else:
+                        repeated_failure_resume_guard(state, workspace)
+                        prepare_planning_retry(state, run_dir)
+                        prepare_exhausted_execution_report_retry(state, run_dir, workspace)
                 reconcile_active(state, run_dir, workspace)
             except ReportRepairQueued:
                 pass  # Durable pending repair is dispatched below, not original work.
