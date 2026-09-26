@@ -1,12 +1,19 @@
-"""Unlimited iterations by default, with optional explicit limits."""
+"""Unlimited iterations is explicit and does not disable other limits."""
+# path bootstrap: runtime in tools/, fakes in tests/fakes/
+import sys as _sys
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / 'tools'
+_FAKES = _ROOT / 'tests' / 'fakes'
+for _p in (_ROOT, _TOOLS, _ROOT / 'tests', _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 import copy
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
-try:
-    from . import test_goals, test_autocode, test_subprocess
-except ImportError:
-    import test_goals, test_autocode, test_subprocess
+from . import test_goals, test_autocode, test_subprocess
 import autocode as runner
 import autocode_support as s
 
@@ -26,14 +33,10 @@ class UnlimitedTests(unittest.TestCase):
         result=runner.configure(self.args(unlimited_iterations=True),self.state)
         expected=copy.deepcopy(original['settings']);expected['limits']['iteration_ceiling']=None
         expected['report_repair']={'max_attempts':2}
-<<<<<<< Updated upstream
         expected['provider']='opencode'
         expected['roles']['completion']={**expected['roles']['astra'],
             'model':runner.DEFAULT_ROLE_MODELS['completion'],
             'reasoning_effort':runner.opencode.DEFAULT_REASONING_EFFORTS['completion']}
-=======
-        expected['roles']['completion']={'model':'gpt-5.6-sol','reasoning_effort':'medium'}
->>>>>>> Stashed changes
         self.assertEqual(expected,result)
         self.assertEqual(original,self.state)
 

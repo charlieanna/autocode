@@ -200,9 +200,9 @@ class ReportRepairQueued(Exception):
 
 
 def repair_limit(state):
-    limit = state.get('settings', {}).get('report_repair', {}).get('max_attempts', 0)
-    if type(limit) is not int or not 0 <= limit <= 2:
-        raise ValueError('report_repair.max_attempts must be an integer from 0 to 2')
+    limit = state.get('settings', {}).get('report_repair', {}).get('max_attempts', 4)
+    if type(limit) is not int or not 0 <= limit <= 6:
+        raise ValueError('report_repair.max_attempts must be an integer from 0 to 6')
     return limit
 
 
@@ -802,8 +802,8 @@ def abandon_stage(state, run_dir, workspace, selected):
         artifact.unlink(missing_ok=True)
 
 
-MAX_AUTOMATIC_RECOVERIES = 3
-MAX_AUTOMATIC_CAPACITY_RECOVERIES = 2
+MAX_AUTOMATIC_RECOVERIES = 6
+MAX_AUTOMATIC_CAPACITY_RECOVERIES = 3
 
 
 def automatically_recover_capacity_stage(state, run_dir, workspace, error):
@@ -891,10 +891,11 @@ def timeout_recovery_guard(state):
     exhausted = recovery_count(state) >= MAX_AUTOMATIC_RECOVERIES
     consecutive = limit and state.get("consecutive_timeout_recoveries", 0) >= limit
     if exhausted or consecutive:
-        cause = state.get("recovery_context", {}).get("timeout_reason") or state.get("recovery_context", {}).get("instruction", "Inspect saved provider logs")
+        ctx = state.get("recovery_context") or {}
+        cause = ctx.get("timeout_reason") or ctx.get("instruction", "Inspect saved provider logs")
         raise support.Paused("PAUSED_TIMEOUT_RECOVERY",
             f"Automatic recovery budget exhausted; no further provider will launch. Last cause: {cause}. "
-            "Fix the cause, then explicitly resume. Accepted review reports and extended task budgets do not reset this limit.")
+            "Fix the cause, then explicitly resume with --resume-paused to reset the recovery budget.")
 
 
 def count_automatic_recovery(state):
@@ -2132,6 +2133,7 @@ def main(unit=None) -> int:
     parser.add_argument("--request-milestone-checkpoints", action="store_true",
                         help="Queue a boundary pause and milestone configuration for an active saved run; never launches or stops workers")
     parser.add_argument("--max-milestone-seconds", type=int,
+                        help="Raise the per-milestone active-time budget; with --resume-paused this also resets spent time")
                         help="Active-time budget per milestone, checked at stage boundaries (new-run default: 5400; 0 disables)")
     parser.add_argument("--max-milestone-replans", type=int,
                         help="Maximum changed-approach replans per milestone (saved default: 1; 0 means unbounded)")
@@ -2396,6 +2398,28 @@ def main(unit=None) -> int:
             # Recovery interprets terminal artifacts only. It never replays a model call.
             try:
                 if args.resume_paused:
+                    # Explicit resume resets the recovery budget so operators can
+                    # retry after fixing the underlying cause (provider timeout,
+                    # rate limit, transient failure).
+                    state["automatic_recoveries_since_resume"] = 0
+                    state["consecutive_timeout_recoveries"] = 0
+                    state.setdefault("automatic_timeout_recoveries", [])
+                    if state.get("recovery_context") is None:
+                        state["recovery_context"] = {}
+                    # Reset milestone budget counters when raising the limit
+                    if args.max_milestone_seconds is not None:
+                        for row in state.get("milestone_progress", {}).values():
+                            if isinstance(row, dict):
+                                row["seconds"] = 0
+                                row["seconds_by_role"] = {}
+                    # Reset report repair attempts on explicit resume
+                    pending = state.get("pending_report_repair")
+                    if pending and isinstance(pending, dict):
+                        pending["attempts"] = 0
+                    # Reset resolver attempts
+                    resolver_state = state.get("resolver")
+                    if resolver_state and isinstance(resolver_state, dict):
+                        resolver_state["attempts"] = {}
                     if args.retry_report:
                         try:
                             retry_format_failed_report(state, run_dir, workspace, args.retry_report)

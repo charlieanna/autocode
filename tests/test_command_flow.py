@@ -1,3 +1,20 @@
+# path bootstrap: runtime in tools/, fakes in tests/fakes/
+import sys as _sys
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / 'tools'
+_FAKES = _ROOT / 'tests' / 'fakes'
+for _p in (_ROOT, _TOOLS, _ROOT / 'tests', _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / "tools"
+_FAKES = _ROOT / "tests" / "fakes"
+for _p in (_ROOT, _TOOLS, _ROOT / "tests", _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 """One config-registered tool runs planning, build, receipt-backed validation, and completion."""
 import copy
 import json
@@ -26,7 +43,7 @@ class ConfigToolFlow(unittest.TestCase):
                         "commit", "--allow-empty", "-qm", "fixture"], check=True)
         bin_dir = self.root / "bin"
         bin_dir.mkdir()
-        source = Path(__file__).resolve().parent
+        source = _TOOLS
         shutil.copy2(source / "fake_command_tool.py", bin_dir / "fixture-tool")
         shutil.copy2(source / "goal_fixtures.py", bin_dir / "goal_fixtures.py")
         (bin_dir / "fixture-tool").chmod(0o755)

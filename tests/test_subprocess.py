@@ -1,3 +1,20 @@
+# path bootstrap: runtime in tools/, fakes in tests/fakes/
+import sys as _sys
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / 'tools'
+_FAKES = _ROOT / 'tests' / 'fakes'
+for _p in (_ROOT, _TOOLS, _ROOT / 'tests', _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / "tools"
+_FAKES = _ROOT / "tests" / "fakes"
+for _p in (_ROOT, _TOOLS, _ROOT / "tests", _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 """Full command-line flow with real processes and an explicitly fake provider."""
 import json
 import os
@@ -13,9 +30,7 @@ class SubprocessFlow(unittest.TestCase):
     new_run_engine_args = ("--engine", "codex")
 
     def setUp(self):
-        evidence = Path(__file__).resolve().parents[1] / ".autocode" / "evidence" / "subprocess-flow-workspaces"
-        evidence.mkdir(parents=True, exist_ok=True)
-        temp = tempfile.TemporaryDirectory(dir=evidence)
+        temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name).resolve()
         self.project = self.root / "unrelated-project"
@@ -25,9 +40,9 @@ class SubprocessFlow(unittest.TestCase):
                         "commit", "--allow-empty", "-qm", "fixture"], check=True)
         bin_dir = self.root / "fixture-bin"
         bin_dir.mkdir()
-        source = Path(__file__).resolve().parent
+        source = _TOOLS
         for filename in ("fake_codex.py", "goal_fixtures.py"):
-            shutil.copy2(source / filename, bin_dir / ("codex" if filename == "fake_codex.py" else filename))
+            shutil.copy2(_FAKES / filename, bin_dir / ("codex" if filename == "fake_codex.py" else filename))
         (bin_dir / "codex").chmod(0o755)
         # Hermetic provider/model resolution: the child autocode.py process
         # must never read a contributor's own ~/.config/autocode or ~/.codex.
@@ -36,17 +51,10 @@ class SubprocessFlow(unittest.TestCase):
         codex_home = self.root / "codex-home"
         codex_home.mkdir()
         self.env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
-<<<<<<< Updated upstream
                     "PYTHONDONTWRITEBYTECODE": "1", "AUTOCODE_HOME": str(self.root / "registry-home"),
                     "XDG_CONFIG_HOME": str(config_home), "CODEX_HOME": str(codex_home)}
         self.env.pop("AUTOCODE_PROVIDER", None)
         self.entry = [os.environ["AUTOCODE_TEST_CLI"]] if os.environ.get("AUTOCODE_TEST_CLI") else [sys.executable, str(source / "autocode.py")]
-=======
-                    "PYTHONDONTWRITEBYTECODE": "1", "AUTOCODE_HOME": str(self.root / "registry-home")}
-        # Fixture flows must execute this checkout, not a runner-provided CLI
-        # from a different source revision.
-        self.entry = [sys.executable, str(source / "autocode.py")]
->>>>>>> Stashed changes
 
     def launch(self, args, expected, *, answers=None):
         if "--run-dir" not in args and "--engine" not in args:
@@ -80,8 +88,7 @@ class SubprocessFlow(unittest.TestCase):
 
     def test_changing_code_with_repeated_failed_checks_exhausts_builder_policy(self):
         self.env['AUTOCODE_FIXTURE_MODE'] = 'stalled'
-        self.launch(['Build greeting', '--chat', '--max-milestone-replans', '1',
-                     '--max-milestone-stalled-reviews', '3'], 2, answers='CLI\nyes\n')
+        self.launch(['Build greeting', '--chat'], 2, answers='CLI\nyes\n')
         _, state = self.saved()
         self.assertEqual('PAUSED_BUILDER_RETRY_LIMIT', state['status'])
         self.assertEqual(['retry','escalate','pause'], [r['action'] for r in state['builder_retry_decisions']])

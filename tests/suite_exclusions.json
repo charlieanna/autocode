@@ -1,0 +1,4 @@
+{
+  "tests.test_planning_flow_v2": "Tests a planning-v2 feature (autocode_planning.V2_STAGES/V2_STAGE_ROLES/entry_stage, autocode_goals.apply_requirements, a 'technical_planner' role, etc.) that does not exist in tools/ on this branch or on any other branch in the repository (checked 2026-09-26). Implementing it is a large, unscoped new feature, which RELIABILITY.md asks to defer until a user need and scope decision exist. Tracked here rather than silently deleted; remove this entry once the feature lands or the tests are retired.",
+  "tests.test_planning_artifacts": "Same unimplemented planning-v2 feature as tools.test_planning_flow_v2 (autocode_planning_artifacts predecessor/delta/orphan-reconciliation behavior); see that entry."
+}

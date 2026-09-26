@@ -117,11 +117,26 @@ approach, milestones, and **first bounded implementation task**, all covered by 
 revision/hash. Approval dispatches that task directly, without a third Plan Reviewer
 call. The separate Completion Owner's later decisions use the normal execution budget.
 
-Planning is bounded to **two Plan Reviewer request attempts per cycle**, including failed or
-abandoned attempts. There is no automatic debate loop, retry or provider fallback.
-Unresolved final decisions return to you as blocking questions. If the budget is
-exhausted, the run pauses at `PAUSED_PLANNING_BUDGET`; inspect the exchange and explicitly
-send `--feedback '...'` to request a new cycle. Answering final blockers, giving feedback,
+Planning defaults to **two Plan Reviewer request attempts per cycle**, including failed or
+abandoned attempts. Bounded recovery does not refund attempts or automatically extend
+the allowance. Unresolved final decisions return to you as blocking questions. If the
+budget is exhausted, the run pauses at `PAUSED_PLANNING_BUDGET`. After inspecting a
+reconciled checkpoint, an operator can permit one more attempt without discarding the
+accepted challenge and revision (for example, increase a total allowance of 2 to 3):
+
+```sh
+autocode --workspace /path/to/project --run-dir /path/to/run --planning-review-call-limit 3
+autocode --workspace /path/to/project --run-dir /path/to/run --resume-paused --unit autoplanner --no-chat
+```
+
+The first command only saves an audited, finite **total** allowance for this cycle;
+repeating it does not add another attempt. Failed attempts remain counted, unresolved
+provider work must be reconciled first, and final review and exact user approval remain
+mandatory. Unlimited allowances and decreases are rejected. A new cycle returns to the
+default of two attempts; its predecessor's allowance and exchange remain in history.
+
+Alternatively, explicitly send `--feedback '...'` to request a new cycle.
+Answering final blockers, giving feedback,
 or editing the goal starts fresh joint review and requires fresh approval. Old exchanges
 remain archived. Ordinary resume preserves the cycle and its spent budget.
 

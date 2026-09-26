@@ -1,4 +1,14 @@
 """Goal gates in isolated Git workspaces. No real model or live run is used."""
+# path bootstrap: runtime in tools/, fakes in tests/fakes/
+import sys as _sys
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / 'tools'
+_FAKES = _ROOT / 'tests' / 'fakes'
+for _p in (_ROOT, _TOOLS, _ROOT / 'tests', _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 import copy
 import contextlib
 import io
@@ -11,7 +21,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+for _p in (_ROOT, _ROOT / 'tools', _ROOT / 'tests', _ROOT / 'tests' / 'fakes'):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 import autocode as runner
 import autocode_interventions as interventions
 import autocode_support as s
@@ -469,7 +483,6 @@ class GoalTests(unittest.TestCase):
             g.approve_review(self.state, "C1", g.review_token(self.state), s.snapshot(self.root))
         self.assertFalse(s.completion_ready(self.state, self.decision("TASK_COMPLETE"), s.snapshot(self.root)))
 
-<<<<<<< Updated upstream
     def test_accept_completion_probe_carries_the_current_task_identity(self):
         """F7: --accept-completion was unreachable whenever a task was assigned."""
         self.approve()
@@ -482,24 +495,6 @@ class GoalTests(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", self.state["status"])
         self.assertEqual("user_cli", self.state.get("completion_actor"))
         self.assertEqual(task_id, self.state["final_decision"].get("task_id"))
-=======
-    def test_human_only_pending_validation_closes_only_after_current_review(self):
-        self.approve(human=True)
-        current = self.validation()
-        validation = self.state["validation"]
-        validation["verdict"] = "BLOCKED"
-        validation["criterion_results"][0]["status"] = "NOT_VERIFIED"
-        validation["unverified_criteria"] = ["C1 — awaiting explicit human review"]
-        g.present(self.state)
-        selected = g.review_token(self.state)
-        self.assertFalse(s.completion_ready(self.state, self.decision("TASK_COMPLETE"), current))
-        g.approve_review(self.state, "C1", selected, current)
-        self.assertTrue(s.completion_ready(self.state, self.decision("TASK_COMPLETE"), current))
-        self.state["human_reviews"].clear()
-        self.assertFalse(s.completion_ready(self.state, self.decision("TASK_COMPLETE"), current))
-        self.state["validation"]["unverified_criteria"] = ["C2 — unrelated failure"]
-        self.assertFalse(g.human_only_pending_validation(self.state, self.state["validation"], "C1"))
->>>>>>> Stashed changes
 
     def test_medium_blocking_finding_blocks_even_with_tests_passing(self):
         self.approve(); current = self.validation()

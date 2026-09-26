@@ -54,6 +54,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | Flag | Meaning |
 | --- | --- |
 | `--resume-paused` | Acknowledge an operational pause and continue. Does not approve a draft. |
+| `--planning-review-call-limit N` | At a reconciled planning-budget pause, save a finite total allowance for the current cycle only. No model launch or approval; resume separately. |
 | `--pause-after-stage` | Stop at the next saved boundary. |
 | `--retry-builder M2` | Explicitly retry a failed milestone Builder (after all workers stopped). |
 | `--abandon-stage '001/terra-01'` | Archive a stopped attempt, keep partial edits and logs. |

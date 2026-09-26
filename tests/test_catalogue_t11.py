@@ -4,6 +4,16 @@ Threat-model scope: the runner's documented trusted-workspace boundaries.
 Unsupported prevention (kernel sandbox, multi-tenant hardening) is reported
 as an explicit limitation, never claimed as verified.
 """
+# path bootstrap: runtime in tools/, fakes in tests/fakes/
+import sys as _sys
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / 'tools'
+_FAKES = _ROOT / 'tests' / 'fakes'
+for _p in (_ROOT, _TOOLS, _ROOT / 'tests', _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 import copy
 import io
 import json
@@ -16,7 +26,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+_ROOT = _Path(__file__).resolve().parents[1] if _Path(__file__).name != 'live_trial.py' else _Path(__file__).resolve().parent.parent
+for _p in (_ROOT, _ROOT / 'tools', _ROOT / 'tests', _ROOT / 'tests' / 'fakes'):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 import autopilot_testkit as kit
 import autocode as runner
 import autocode_goals as goals
@@ -129,7 +143,6 @@ class BoundaryScenarios(BoundaryCase):
 
     def test_sec07_archiving_never_deletes_source(self):
         """SEC-07. Compact: the archive action moves run metadata, never the repository."""
-        sys.path.insert(0, str(Path(__file__).resolve().parent / "dashboard"))
         project = self.root / "proj"
         project.mkdir()
         subprocess.run(["git", "init", "-q", str(project)], check=True)

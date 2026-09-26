@@ -1,3 +1,20 @@
+# path bootstrap: runtime in tools/, fakes in tests/fakes/
+import sys as _sys
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / 'tools'
+_FAKES = _ROOT / 'tests' / 'fakes'
+for _p in (_ROOT, _TOOLS, _ROOT / 'tests', _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / "tools"
+_FAKES = _ROOT / "tests" / "fakes"
+for _p in (_ROOT, _TOOLS, _ROOT / "tests", _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 """AutoPilot state-machine torture suite.
 
 Fake reviewers and builders misbehave. The runner must keep the approved
@@ -643,7 +660,7 @@ class HumanGateParallelAndUpgradeTests(TortureBase):
     def test_runner_upgrade_is_explicit_and_old_workers_stay_stale(self):
         legacy = {"version": 1, "iteration": 1, "status": "TASK_COMPLETE", "task": "old", "sessions": {}}
         migrated = support.migrate_v1(legacy, self.run, self.root, self.state["settings"],
-                                      Path(__file__).resolve().parent / "autocode-schemas" / "v2")
+                                      _TOOLS / "autocode-schemas" / "v2")
         self.assertEqual("PAUSED_LEGACY_COMPLETION_UNVERIFIED", migrated["status"])
         self.assertNotEqual("TASK_COMPLETE", migrated["status"])
         active = copy.deepcopy(self.state)
@@ -689,7 +706,7 @@ class BadOutputAndPropertyTests(TortureBase):
                                                                    "evidence": "imagined"}])
         self.apply("astra_review", hallucinated, review)
         self.assertTrue(findings.blocking_entries(self.state))
-        schema_path = Path(__file__).resolve().parent / "autocode-schemas" / "v2" / "astra-decision.schema.json"
+        schema_path = _TOOLS / "autocode-schemas" / "v2" / "astra-decision.schema.json"
         strict = support.model_output_schema(goals.role_schema(support.read(schema_path), "astra"))
         missing = self.astra("REWORK")[0]
         missing.pop("next_objective")

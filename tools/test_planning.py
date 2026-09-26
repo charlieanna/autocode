@@ -208,6 +208,64 @@ class PlanningTests(unittest.TestCase):
             runner.apply_result(state, "astra_finalize", final, record, None, None)
         self.assertEqual(original, state)
 
+    def test_explicit_review_allowance_preserves_cycle_and_failed_charges(self):
+        state = self.state()
+        planning.charge(state, "astra_challenge")
+        planning.charge(state, "astra_challenge")
+        state.update(status="PAUSED_PLANNING_BUDGET", next_stage="astra_finalize")
+        before = copy.deepcopy(state)
+        planning.set_review_call_limit(state, 3)
+        self.assertEqual(before["goal_contract"], state["goal_contract"])
+        self.assertEqual(before["planning"]["reports"], state["planning"]["reports"])
+        self.assertEqual(2, state["planning"]["astra_calls"])
+        self.assertEqual("PAUSED_PLANNING_BUDGET", state["status"])
+        event = state["user_events"][-1]
+        self.assertEqual((2, 3, 2), (event["previous_limit"], event["limit"], event["calls_used"]))
+        saved = copy.deepcopy(state)
+        planning.set_review_call_limit(state, 3)
+        self.assertEqual(saved, state)
+        self.assertIn("2/3 plan-review calls used", goals.render(state))
+        state.update(workspace="/fixture")
+        state["settings"]["roles"] = {"astra": {}}
+        prompt, _ = planning.context(state, "astra_finalize", Path("/fixture/state.json"))
+        self.assertIn("3 plan-review calls in this cycle", prompt)
+        planning.charge(state, "astra_finalize")
+        with self.assertRaises(support.Paused):
+            planning.charge(state, "astra_finalize")
+        self.assertEqual(3, state["planning"]["astra_calls"])
+        goals.feedback(state, "Start a genuinely new cycle")
+        goals.install_draft(state, body(), origin="glm_draft")
+        self.assertEqual(2, planning.review_call_limit(state))
+        self.assertEqual(0, state["planning"]["astra_calls"])
+        self.assertEqual(3, state["planning_history"][-1]["review_call_limit"])
+
+    def test_review_allowance_rejects_invalid_limits_and_unreconciled_boundaries(self):
+        state = self.state()
+        state.update(status="PAUSED_PLANNING_BUDGET", next_stage="astra_finalize")
+        state["planning"]["astra_calls"] = 2
+        for limit in (None, True, -1, 0, 1, 2.5, "3"):
+            before = copy.deepcopy(state)
+            with self.subTest(limit=limit), self.assertRaises(ValueError):
+                planning.set_review_call_limit(state, limit)
+            self.assertEqual(before, state)
+        planning.set_review_call_limit(state, 3)
+        before = copy.deepcopy(state)
+        with self.assertRaises(ValueError):
+            planning.set_review_call_limit(state, 2)
+        self.assertEqual(before, state)
+        for change in ({"status": "RUNNING"}, {"status": "AWAITING_GOAL_APPROVAL"},
+                       {"next_stage": "terra"}, {"active_stage": {"pid": 1}},
+                       {"pending_report_repair": {"pending": True}}, {"uncertain_artifacts": "pending"}):
+            candidate = {**copy.deepcopy(state), **change}
+            before = copy.deepcopy(candidate)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                planning.set_review_call_limit(candidate, 4)
+            self.assertEqual(before, candidate)
+        for invalid in (0, True, "3"):
+            state["planning"]["review_call_limit"] = invalid
+            with self.subTest(stored_limit=invalid), self.assertRaises(ValueError):
+                planning.charge(state, "astra_finalize")
+
     def test_planner_permissions_deny_shell_custom_tools_and_delegation(self):
         with patch.dict(os.environ, {"OPENCODE_CONFIG_CONTENT": json.dumps({
                 "agent": {"autocode_glm": {"permission": {"custom_writer": "allow", "bash": "allow"}}}})}):
@@ -559,6 +617,86 @@ class JointFlow(unittest.TestCase):
         self.assertFalse((self.project / "greet.py").exists())
         self.launch(["--run-dir", str(run), "--no-chat"], 2)
         self.assertEqual("AWAITING_GOAL_APPROVAL", self.saved()[1]["status"])
+
+    def test_timeout_retry_can_receive_one_explicit_final_review_without_replanning(self):
+        self.prepare()
+        fake = self.root / "fixture-bin/opencode"
+        fake.write_text(fake.read_text().replace('with tempfile.TemporaryDirectory() as temp:', '''
+if data["stage"] == "astra_challenge":
+    marker = Path(os.environ["AUTOCODE_FIXTURE_TIMEOUT_ONCE"])
+    if not marker.exists():
+        marker.write_text("first challenge attempt")
+        import time
+        time.sleep(60)
+with tempfile.TemporaryDirectory() as temp:'''))
+        self.env["AUTOCODE_FIXTURE_TIMEOUT_ONCE"] = str(self.root / "timeout-once")
+        self.launch(["Build a greeting tool", "--no-chat", "--max-stage-seconds", "5"], 2)
+        run, _ = self.saved()
+        args = ["--run-dir", str(run), "--no-chat"]
+        self.launch([*args, "--answer", "Q1=CLI"], 0)
+        self.launch(args, 2)
+        paused = self.saved()[1]
+        self.assertEqual("PAUSED_PLANNING_BUDGET", paused["status"])
+        self.assertEqual("astra_finalize", paused["next_stage"])
+        self.assertEqual(2, paused["planning"]["astra_calls"])
+        self.assertEqual("stage", paused["automatic_timeout_recoveries"][-1]["timeout_kind"])
+        self.assertIn("glm_revise", paused["planning"]["reports"])
+        self.launch([*args, "--resume-paused"], 2)
+        self.assertEqual(paused["stages"], self.saved()[1]["stages"])
+        self.launch([*args, "--planning-review-call-limit", "3"], 0)
+        extended = self.saved()[1]
+        self.assertEqual(paused["planning"]["reports"], extended["planning"]["reports"])
+        self.assertEqual(paused["goal_contract"], extended["goal_contract"])
+        self.assertEqual(paused["stages"], extended["stages"])
+        self.assertEqual(paused.get("planning_history"), extended.get("planning_history"))
+        self.launch([*args, "--planning-review-call-limit", "3"], 0)
+        self.assertEqual(extended["user_events"], self.saved()[1]["user_events"])
+        self.launch([*args, "--approve-goal", extended["displayed_goal"]], 2)
+        self.launch([*args, "--resume-paused", "--unit", "autoplanner"], 2)
+        final = self.saved()[1]
+        self.assertEqual("AWAITING_GOAL_APPROVAL", final["status"])
+        self.assertEqual(3, final["planning"]["astra_calls"])
+        self.assertEqual(["astra_finalize"], [r["stage"] for r in final["stages"][len(paused["stages"]):]])
+        self.assertEqual(final["displayed_goal"], final["planning"]["final_token"])
+        self.assertFalse(goals.approved(final))
+        self.assertFalse((self.project / "greet.py").exists())
+        self.launch([*args, "--approve-goal", extended["displayed_goal"]], 2)
+        # A lost final transition is reconciled, not charged as a fourth call.
+        extended["active_stage"] = final["stages"][-1]
+        extended["planning"]["astra_calls"] = 3
+        (run / "state.json").write_text(json.dumps(extended))
+        self.launch([*args, "--resume-paused"], 2)
+        recovered = self.saved()[1]
+        self.assertEqual("AWAITING_GOAL_APPROVAL", recovered["status"])
+        self.assertEqual(3, recovered["planning"]["astra_calls"])
+        self.assertEqual(len(final["stages"]), len(recovered["stages"]))
+        self.assertIn("recovered_at", recovered["stages"][-1])
+
+    def test_failed_extended_review_still_exhausts_budget_and_new_cycle_defaults_to_two(self):
+        run, _ = self.draft("planning-invalid", report_repair=0)
+        args = ["--run-dir", str(run), "--no-chat"]
+        self.launch([*args, "--resume-paused"], 2)
+        self.launch([*args, "--planning-review-call-limit", "3"], 0)
+        self.launch([*args, "--resume-paused"], 2)
+        failed = self.saved()[1]
+        self.assertEqual(3, failed["planning"]["astra_calls"])
+        self.launch([*args, "--resume-paused"], 2)
+        self.assertEqual("PAUSED_PLANNING_BUDGET", self.saved()[1]["status"])
+        self.launch([*args, "--planning-review-call-limit", "3"], 0)
+        self.launch([*args, "--resume-paused"], 2)
+        self.assertEqual(failed["stages"], self.saved()[1]["stages"])
+        self.assertFalse((self.project / "greet.py").exists())
+        for value in ("0", "1", "-1", "unlimited"):
+            checkpoint = (run / "state.json").read_bytes()
+            self.launch([*args, "--planning-review-call-limit", value], 2)
+            self.assertEqual(checkpoint, (run / "state.json").read_bytes())
+        self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
+        self.launch([*args, "--feedback", "Start a new cycle with the simpler plan"], 0)
+        self.launch(args, 2)
+        fresh = self.saved()[1]
+        self.assertEqual("AWAITING_GOAL_APPROVAL", fresh["status"])
+        self.assertEqual(2, planning.review_call_limit(fresh))
+        self.assertEqual(3, fresh["planning_history"][-1]["review_call_limit"])
 
     def test_checkpoint_and_recovery_preserve_budget_without_replaying_final(self):
         self.prepare()

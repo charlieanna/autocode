@@ -115,13 +115,42 @@ def start(state):
     return autopilot.start_planning(state)
 
 
+def review_call_limit(state):
+    limit = state.get("planning", {}).get("review_call_limit", 2)
+    if type(limit) is not int or limit < 2:
+        raise ValueError("Planning review call limit must be an integer of at least 2")
+    return limit
+
+
+def set_review_call_limit(state, limit):
+    """An explicit current-cycle allowance, not a refund or approval."""
+    if (not enabled(state) or not state.get("planning")
+            or state.get("status") != "PAUSED_PLANNING_BUDGET"
+            or state.get("next_stage") not in ("astra_challenge", "astra_finalize")
+            or any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts"))):
+        raise ValueError("Planning allowance requires a reconciled PAUSED_PLANNING_BUDGET checkpoint")
+    previous = review_call_limit(state)
+    if type(limit) is not int or limit < previous or limit < state["planning"]["astra_calls"]:
+        raise ValueError("Planning review call limit must be a finite integer no smaller than the current limit and usage")
+    if limit == previous:
+        return
+    state["planning"]["review_call_limit"] = limit
+    state.setdefault("user_events", []).append({
+        "kind": "planning_budget_change", "actor": "user_cli", "at": s.now(),
+        "previous_limit": previous, "limit": limit, "calls_used": state["planning"]["astra_calls"],
+        "stage": state["next_stage"], "contract_token": goals.token(state["goal_contract"])})
+
+
 def charge(state, stage):
     if stage not in ("astra_challenge", "astra_finalize"):
         return
     planning = state["planning"]
-    if planning["astra_calls"] >= 2:
-        raise s.Paused("PAUSED_PLANNING_BUDGET", "Two plan-review calls used. Inspect the saved exchange; "
-                       "use --feedback to explicitly request a new planning cycle. No automatic retry or fallback.")
+    limit = review_call_limit(state)
+    if planning["astra_calls"] >= limit:
+        raise s.Paused("PAUSED_PLANNING_BUDGET", f"{planning['astra_calls']}/{limit} plan-review calls used. "
+                       "Inspect the saved exchange; use --planning-review-call-limit N to explicitly increase "
+                       "this cycle's total allowance, then --resume-paused; or --feedback for a new cycle. "
+                       "No automatic budget extension or approval.")
     planning["astra_calls"] += 1
 
 
@@ -211,7 +240,7 @@ Declare affected_paths for each milestone, including its tests and shared files.
 Autopilot dispatches the Builder scheduler using approved dependencies and disjoint path ownership.
 Do not implement. You may challenge assumptions and propose better approaches.
 """,
-    "astra_challenge": """You are the independent Plan Reviewer, challenging the Planner's draft (review call 1 of 2).
+    "astra_challenge": """You are the independent Plan Reviewer, challenging the Planner's draft (first review stage).
 Inspect additional source when needed. Check every dependency edge, missing prerequisite,
 cycle and claimed independent milestone against source evidence and interface ownership.
 Check affected_paths for every milestone; overlapping writes must not be called independent.
@@ -236,7 +265,7 @@ scope, ask a blocking question. Do not settle it by adding an agent_proposed ass
 that the requested real behavior will remain unverified. Testing mocks is not implementing
 the real requirement. Preserve the user's outcome until they explicitly change it.
 """,
-    "astra_finalize": """You are the independent Plan Reviewer, making the final planning decision (review call 2 of 2).
+    "astra_finalize": """You are the independent Plan Reviewer, making the final planning decision (final review stage).
 Settle EVERY concern by ID using the Planner's evidence-backed responses and source inspection as needed.
 Confirm that milestone dependencies are complete and acyclic, and that [] is used only
 for genuinely independent work. Do not schedule or launch milestones.
@@ -310,7 +339,9 @@ def context(state, stage, state_path):
                   for entry in state.get("requirements_history", [])
                   if (entry.get("report") or {}).get("conflicts")],
               "saved_answers": state.get("answers", {}), "brief_feedback": state.get("brief_feedback", []),
-              "planning": exchange, "budget": "two plan-review calls per explicitly requested cycle"}
+               "planning": exchange,
+               "budget": f"{review_call_limit(state)} plan-review calls in this cycle, including failed attempts; "
+                         "only an explicit operator action can extend the allowance"}
     if stage == "requirements_gather":
         packet["requirement_coverage_checklist"] = goals.cue_sentences(state.get("task"))
     if state["settings"].get("figma_file"):

@@ -1,3 +1,13 @@
+# path bootstrap: runtime in tools/, fakes in tests/fakes/
+import sys as _sys
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / 'tools'
+_FAKES = _ROOT / 'tests' / 'fakes'
+for _p in (_ROOT, _TOOLS, _ROOT / 'tests', _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 #!/usr/bin/env python3
 """Offline OpenCode event protocol fixture; never calls an actual provider."""
 import json
@@ -12,13 +22,8 @@ if sys.argv[1:] == ["--version"]:
     print("1.18.31")
     raise SystemExit(0)
 if sys.argv[1:] == ["models"]:
-<<<<<<< Updated upstream
     print("xiaomi-token-plan-sgp/mimo-v2.6-pro\nzai-coding-plan/glm-5.3\n"
           "openai/gpt-6-astra\nopenai/gpt-5.6-terra\nopenai/gpt-5.6-sol")
-=======
-    print("openai/gpt-6-astra\nopenai/gpt-5.6-terra\nopenai/gpt-5.6-sol\n"
-          "zai-coding-plan/glm-5.3\ncursor-acp/grok-4.7-xhigh\ncursor-acp/claude-opus-5-5-high")
->>>>>>> Stashed changes
     raise SystemExit(0)
 if sys.argv[1:] == ["auth", "list"]:
     print("● OpenAI " + os.environ.get("AUTOCODE_FIXTURE_OPENAI_AUTH", "oauth"))
@@ -39,11 +44,6 @@ prompt = sys.stdin.read()
 assert "OPENCODE OUTPUT CONTRACT" in prompt
 data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
 assert data["execution_engine"] == "opencode"
-v2_roles = {"requirements": "requirements_planner", "plan": "technical_planner",
-            "plan_review": "plan_reviewer", "plan_revise": "technical_planner",
-            "plan_finalize": "plan_reviewer"}
-if data["stage"] in v2_roles:
-    assert agent.startswith("autocode_" + v2_roles[data["stage"]] + "_plan_")
 session = sys.argv[sys.argv.index("--session") + 1] if "--session" in sys.argv else "ses_" + uuid.uuid4().hex
 if os.environ.get("AUTOCODE_FIXTURE_SESSION_DRIFT"):
     session = "ses_" + uuid.uuid4().hex

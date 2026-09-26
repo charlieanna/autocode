@@ -239,7 +239,9 @@ def _serve_gate(state: dict, run_dir: Path, project: Path, profile: dict, step) 
         return True
 
     questions = state.get("pending_questions") or []
-    if questions and status in ("DISCOVERING", "RUNNING", "WAITING_FOR_USER"):
+    # Answer whenever questions are outstanding: a pause does not make them
+    # optional, and refusing to answer is how DAG-10 drops become permanent.
+    if questions:
         for question in questions:
             qid = question.get("id")
             options = question.get("options") or []
@@ -327,6 +329,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="model profile from live_profiles (default: fixture)")
     parser.add_argument("--workspace", type=Path,
                         help="parent directory for the disposable project (default: temp)")
+    parser.add_argument("--source", type=Path,
+                        help="existing project directory to use as the baseline")
     parser.add_argument("--budget-stages", type=int, default=40,
                         help="max CLI invocations before an honest budget stop")
     parser.add_argument("--timeout", type=int, default=1800,
@@ -360,6 +364,22 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         project = make_workspace(root)
+        # Optional pre-existing project: "feature in an existing project" trials.
+        source = getattr(args, "source", None) or spec.get("seed_from")
+        if source:
+            src = Path(source).resolve()
+            if not src.is_dir():
+                raise TrialError(f"--source is not a directory: {src}")
+            shutil.copytree(src, project, dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns(
+                                ".git", ".autocode", ".autocode-ui", "__pycache__",
+                                ".venv", "node_modules", "*.pyc", ".tmp-*"))
+            subprocess.run(["git", "-C", str(project), "add", "-A"], check=True)
+            subprocess.run(
+                ["git", "-C", str(project), "-c", "user.name=LiveTrial",
+                 "-c", "user.email=live@example.test", "commit", "-qm",
+                 "baseline: existing project"], check=True)
+            bundle.log("seeded_from", source=str(src))
         seed = spec.get("seed") or {}
         for rel, body in seed.items():
             target = project / rel

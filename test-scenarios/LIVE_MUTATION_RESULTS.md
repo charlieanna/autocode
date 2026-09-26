@@ -108,3 +108,51 @@ actual executed work and is unambiguous.
 | 1 offline fixture | runner gates COMPLETE on FAIL | same runner path held (no false COMPLETE) |
 | 2 live model on trees | model can name the defect | confirmed *inside* autocode sol stage |
 | 3 full workflow | product does both together | **yes**, with real discovery questions, plan, checksums, exit-coded tool events |
+
+
+## FINAL SCORES (as of this session)
+
+### Layer 1 — offline runner plumbing (`cart_fixture.py`)
+| suite | score | specificity |
+| --- | --- | --- |
+| 09 implementation | **7/7 caught, 7/7 diagnosed** | accepts correct code |
+| 10 lying builder | **PASS** (forged evidence rejected) | — |
+| 11 test-suite | **7/7 caught, 7/7 precise, 11/11 recall, 0 halluc** | accepts strong suite |
+
+### Layer 2 — live model as Validator (direct)
+| suite | GLM 5.3 | MiMo Pro 2.6 |
+| --- | --- | --- |
+| 09 catch / diagnose | **7/7 / 7/7** | **7/7 / 7/7** |
+| 09 control | FALSE-ALARM (refuses assertion-free suite) | same |
+| 11 catch / precise | **7/7 / 7/7** | **7/7 / 7/7** |
+| 11 control | ACCEPTED-OK | ACCEPTED-OK |
+
+### Layer 3 — full autocode workflow + live models
+| mutant | result | notes |
+| --- | --- | --- |
+| offbyone_empty | **CAUGHT+DIAGNOSED** | VALIDATION.md named `sum(items, 1)`, total([])==1; mutant left in place |
+| boundary_ge | **NOT COMPLETED** | planner flagged `discount(100)==90` in discovery; killed at `AWAITING_GOAL_APPROVAL` (`affected_paths: []` on M1) |
+| typeerror_swallow | **NOT COMPLETED** | stuck in planning report-repair / `PAUSED_PROVIDER_UNCERTAIN` |
+| inverted_discount | **NOT COMPLETED** | planning never reached sol |
+| rounded_discount | **NOT COMPLETED** | reached `AWAITING_GOAL_APPROVAL`, then workspaces wiped |
+| negative_allowed | **NOT COMPLETED** | `PAUSED_PROVIDER_UNCERTAIN` loop |
+| string_concat | **NOT COMPLETED** | planning never reached sol |
+
+**Workspaces under `/tmp/live-wf-*` were deleted by OS temp cleanup before the
+last five could reach sol.** Layer-3 is therefore 1 scored + 6 unrun, not a
+model failure — the same five mutants scored CAUGHT+DIAGNOSED at layer 2.
+
+Layer-3 blockers (runner, not model): planning report-repair loops, `PAUSED_CROSS_MODEL`
+(needs `--glm-model` ≠ `--plan-reviewer-model`), `PAUSED_GOAL_UNAPPROVED`
+(planner emits `affected_paths: []` — must `--edit-goal` then wait for
+`AWAITING_GOAL_APPROVAL` before `--approve-goal`), `PAUSED_STALE_VALIDATION`
+(sol writing `VALIDATION.md` trips the read-only snapshot).
+
+## Bottom line
+
+| claim | status |
+| --- | --- |
+| Runner refuses COMPLETE on unproven work | **Proven** (layer 1, 100%) |
+| Live models name code bugs the inherited suite misses | **Proven** (layer 2, 7/7 both models) |
+| Live models catch missing requirement proof (`is not None` loosening) | **Proven** (layer 2, 7/7 precise) |
+| Product does both inside one autocode run | **Proven for 1/7** (`offbyone_empty`); rest blocked by planning latency + pause modes, not by Validator judgment |

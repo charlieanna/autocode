@@ -21,7 +21,7 @@ jobs:
       - name: Run the suite gate
         # tools/run_suite.py wraps the same discovery as
         # `python -m unittest discover -s tools -t . -p 'test_*.py'`, minus
-        # the modules documented in tools/suite_exclusions.json (each with a
+        # the modules documented in tests/suite_exclusions.json (each with a
         # recorded reason). It fails if any non-excluded test fails, and
         # separately fails if an exclusion entry no longer matches anything
         # discovered, so a stale exclusion cannot mask real coverage.

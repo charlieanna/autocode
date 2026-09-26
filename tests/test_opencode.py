@@ -1,4 +1,14 @@
 """OpenCode transport tests with native JSON events and no network/model calls."""
+# path bootstrap: runtime in tools/, fakes in tests/fakes/
+import sys as _sys
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / 'tools'
+_FAKES = _ROOT / 'tests' / 'fakes'
+for _p in (_ROOT, _TOOLS, _ROOT / 'tests', _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 import copy
 import json
 import os
@@ -11,7 +21,13 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / 'tools'
+_FAKES = _ROOT / 'tests' / 'fakes'
+for _p in (_ROOT, _TOOLS, _ROOT / 'tests', _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 import autocode as runner
 import autocode_opencode as oc
 import autocode_support as support
@@ -272,7 +288,7 @@ class OpenCodeFlow(unittest.TestCase):
 
     def setUp(self):
         subprocess_tests.SubprocessFlow.setUp(self)
-        source = Path(__file__).resolve().parent
+        source = _TOOLS
         target = self.root / "fixture-bin/opencode"
         shutil.copy2(source / "fake_opencode.py", target)
         target.chmod(0o755)
@@ -286,31 +302,17 @@ class OpenCodeFlow(unittest.TestCase):
         _, state = self.saved()
         self.assertEqual("opencode", state["settings"]["engine"])
         self.assertTrue(state["settings"]["joint_planning"])
-<<<<<<< Updated upstream
         self.assertEqual("requirements", state["stages"][0]["role"])
         expected = {"requirements": "zai-coding-plan/glm-5.3", "glm": "zai-coding-plan/glm-5.3",
                     "astra": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
                     "terra": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "sol": "zai-coding-plan/glm-5.3",
                     "completion": "zai-coding-plan/glm-5.3",
                     "plan_reviewer": "xiaomi-token-plan-sgp/mimo-v2.6-pro"}
-=======
-        self.assertEqual("v2", state["settings"]["planning_flow"])
-        self.assertEqual("requirements_planner", state["stages"][0]["role"])
-        expected = {"glm": "zai-coding-plan/glm-5.3", "astra": "openai/gpt-5.6-sol",
-                    "terra": "openai/gpt-5.6-terra", "sol": "openai/gpt-5.6-sol",
-                    "completion": "openai/gpt-5.6-sol", "requirements_planner": "zai-coding-plan/glm-5.3",
-                    "technical_planner": "zai-coding-plan/glm-5.3",
-                    "plan_reviewer": "cursor-acp/claude-opus-5-5-high"}
->>>>>>> Stashed changes
         self.assertEqual(expected, {role: settings["model"] for role, settings in state["settings"]["roles"].items()})
         self.assertEqual("COMPLETE", state["phase"])
         self.assertNotEqual(state["sessions"]["terra"], state["sessions"]["sol"])
         self.assertNotEqual(state["sessions"]["plan_reviewer"], state["sessions"]["sol"])
-<<<<<<< Updated upstream
         engines = {role: "opencode" for role in ("requirements", "glm", "terra", "astra", "sol", "completion", "plan_reviewer")}
-=======
-        engines = {role: "opencode" for role in expected}
->>>>>>> Stashed changes
         for record in state["stages"]:
             if record.get("runner_owned"):
                 self.assertIn(record['stage'], ('orchestrator', 'resolver'))
@@ -326,8 +328,6 @@ class OpenCodeFlow(unittest.TestCase):
             self.assertEqual(engines[role], command[0])
             self.assertNotIn("--auto", command)
             self.assertEqual(expected[role], command[command.index("--model") + 1])
-        self.assertTrue(all(record["expected_session"] is None for record in state["stages"]
-                            if record["stage"] in ("requirements", "plan", "plan_review", "plan_revise", "plan_finalize")))
 
 
 if __name__ == "__main__":

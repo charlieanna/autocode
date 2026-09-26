@@ -1,9 +1,23 @@
+# path bootstrap: runtime in tools/, fakes in tests/fakes/
+import sys as _sys
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / 'tools'
+_FAKES = _ROOT / 'tests' / 'fakes'
+for _p in (_ROOT, _TOOLS, _ROOT / 'tests', _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 import copy
 from pathlib import Path
 import sys
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+_ROOT = _Path(__file__).resolve().parents[1] if _Path(__file__).name != 'live_trial.py' else _Path(__file__).resolve().parent.parent
+for _p in (_ROOT, _TOOLS, _ROOT / 'tests', _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 import autocode_planning_graph as graph
 
 
@@ -49,7 +63,7 @@ class GraphTests(unittest.TestCase):
         self.assertIn({"milestones": ["M2", "M3"], "boundaries": ["b.py"]}, output["shared_boundaries"])
 
     def test_orchestration_graph_is_not_consumed_by_launch_or_dispatch_modules(self):
-        root = Path(__file__).resolve().parent
+        root = _TOOLS
         for name in ("autocode.py", "autocode_tasks.py", "autocode_milestones.py", "autocode_workflow.py",
                      "autocode_opencode.py"):
             with self.subTest(name=name):

@@ -599,7 +599,8 @@ def render(state):
         lines += ["", "Decision needed:", json.dumps(state["user_request"], indent=2)]
         lines += [f"Answer ID: {q['id']} — {q['question']}" for q in state.get("pending_questions", [])]
     if state.get("planning"):
-        lines += ["", f"Joint planning: {state['planning']['astra_calls']}/2 plan-review calls used"]
+        lines += ["", f"Joint planning: {state['planning']['astra_calls']}/"
+                      f"{state['planning'].get('review_call_limit', 2)} plan-review calls used"]
         for stage, report in state["planning"]["reports"].items():
             lines.append(f"  {stage}: {report['output']}")
         final = state["planning"]["reports"].get("astra_finalize", {}).get("report", {})

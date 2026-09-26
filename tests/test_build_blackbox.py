@@ -1,3 +1,20 @@
+# path bootstrap: runtime in tools/, fakes in tests/fakes/
+import sys as _sys
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / 'tools'
+_FAKES = _ROOT / 'tests' / 'fakes'
+for _p in (_ROOT, _TOOLS, _ROOT / 'tests', _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / "tools"
+_FAKES = _ROOT / "tests" / "fakes"
+for _p in (_ROOT, _TOOLS, _ROOT / "tests", _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 """Handwritten plans -> public CLI -> actual candidate. No runner state injection.
 
 Provider is deterministic, not a live LLM. Set BUILD_AUDIT_ARTIFACTS to retain
@@ -14,7 +31,7 @@ import tempfile
 import time
 import unittest
 
-from .goal_fixtures import body
+from goal_fixtures import body
 from . import build_product_fixtures as products
 
 
@@ -76,7 +93,7 @@ class BuildBlackbox(unittest.TestCase):
             self.root = Path(temp.name).resolve()
         self.project = self.root / 'project'
         self.project.mkdir()
-        self.source = Path(__file__).resolve().parent
+        self.source = _TOOLS
         subprocess.run(['git', 'init', '-q', str(self.project)], check=True)
         subprocess.run(['git', '-C', str(self.project), '-c', 'user.name=Fixture', '-c', 'user.email=f@example.test',
                         'commit', '--allow-empty', '-qm', 'baseline'], check=True)

@@ -1,14 +1,21 @@
 """Complete browser-consumer protocol through the real CLI and fake OpenCode."""
+# path bootstrap: runtime in tools/, fakes in tests/fakes/
+import sys as _sys
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / 'tools'
+_FAKES = _ROOT / 'tests' / 'fakes'
+for _p in (_ROOT, _TOOLS, _ROOT / 'tests', _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 import json
 from pathlib import Path
 import subprocess
 import sys
 import time
 import unittest
-try:
-    from . import test_opencode
-except ImportError:
-    import test_opencode
+from . import test_opencode
 
 
 class DashboardConsumerTests(unittest.TestCase):
@@ -91,11 +98,7 @@ if stage == "terra" and os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
 
         state=flow.saved()[1]
         self.assertEqual('PAUSED_INTERVENTION',state['status'])
-<<<<<<< Updated upstream
         self.assertEqual('requirements_gather',state['next_stage'])
-=======
-        self.assertEqual('requirements',state['next_stage'])
->>>>>>> Stashed changes
         self.assertTrue((flow.project/'greet.py').is_file())
         self.assertEqual(1,sum(row['stage']=='terra' for row in state['stages']))
         self.assertEqual(0,sum(row['stage']=='sol' for row in state['stages']))

@@ -1,3 +1,13 @@
+# path bootstrap: runtime in tools/, fakes in tests/fakes/
+import sys as _sys
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / 'tools'
+_FAKES = _ROOT / 'tests' / 'fakes'
+for _p in (_ROOT, _TOOLS, _ROOT / 'tests', _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 #!/usr/bin/env python3
 """Deterministic offline provider for end-to-end tests; never contacts a model."""
 import json
@@ -34,11 +44,7 @@ if data.get('report_repair'):
     raise SystemExit(0)
 stage = data["stage"]
 mode = os.environ.get("AUTOCODE_FIXTURE_MODE", "standard")
-<<<<<<< Updated upstream
 contract = data["goal_contract"] or {"revision": 0, "hash": ""}
-=======
-contract = data.get("goal_contract")
->>>>>>> Stashed changes
 probe = os.environ.get("AUTOCODE_REGISTRY_LAUNCH_PROBE")
 if probe:
     registry_path = Path(os.environ["AUTOCODE_HOME"]) / "registry.json"
@@ -49,7 +55,7 @@ if probe:
         observed = {"error": str(error)}
     with Path(probe).open("a") as stream:
         stream.write(json.dumps({"stage": stage, "runs": observed}) + "\n")
-common = {"contract_revision": contract["revision"] if contract else 0, "contract_hash": contract["hash"] if contract else "",
+common = {"contract_revision": contract["revision"], "contract_hash": contract["hash"],
           "task_id": (data.get("current_task") or {}).get("id", ""),
           "deferred_backlog": ["Optional web UI"], "user_request": {"kind": "none", "discovered": "", "impact": "",
               "decision_needed": "", "options": [], "proposed_delta": ""}}
@@ -60,7 +66,6 @@ print(json.dumps({"type": "thread.started", "thread_id": session}))
 if os.environ.get("AUTOCODE_FIXTURE_QUOTA_STAGE") == stage:
     print(json.dumps({"type": "error", "error": {"message": "subscription usage limit reached"}}))
     raise SystemExit(3)
-<<<<<<< Updated upstream
 if stage == "requirements_gather":
     draft = body(questions=not data["saved_answers"])
     result = {
@@ -74,61 +79,6 @@ if stage == "requirements_gather":
         "open_questions": draft["open_blocking_questions"],
         "requirements": [], "ignored_statements": [], "conflicts": [], "proposed_reframes": [],
     }
-=======
-if stage == "requirements":
-    draft = body(questions=not data["saved_answers"], human=mode == "standard")
-    for field in ("end_to_end_flow", "technical_approach", "milestones"):
-        draft.pop(field)
-    if data["saved_answers"]:
-        draft["accepted_assumptions"] = [{"text": "User selected CLI", "basis": "user_answer", "answer_id": "Q1"}]
-    for feedback in data["brief_feedback"]:
-        draft["constraints"].append(feedback["text"])
-        draft["accepted_assumptions"].append({"text": feedback["text"], "basis": "user_feedback", "answer_id": feedback["id"]})
-    result = {"requirements": draft, "summary": "Clarify the greeting interface before technical planning"}
-elif stage == "plan":
-    draft = body(human=mode == "standard")
-    for feedback in data["brief_feedback"]:
-        draft["constraints"].append(feedback["text"])
-        draft["accepted_assumptions"].append({"text": feedback["text"], "basis": "user_feedback",
-                                              "answer_id": feedback["id"]})
-    for milestone in draft["milestones"]:
-        milestone["boundaries"] = ["greet.py", "tools/test_greet.py"]
-    draft["initial_task"] = {"objective": "Implement greeting CLI", "affected_paths": ["greet.py"],
-        "kind": "implement", "milestone_id": "M1", "requirements": ["Greet names; reject empty/whitespace input"],
-        "acceptance_criteria": ["C1"], "validation_plan": ["Execute valid and invalid greeting cases"]}
-    result = {"contract": draft, "summary": "Technical greeting plan with verified boundaries"}
-elif stage == "plan_review":
-    result = {"summary": "Check whitespace-only input", "concerns": [{"id": "P1", "concern": "Empty includes whitespace",
-        "evidence_refs": ["goal_contract.body.important_failure_cases"], "requested_change": "Specify whitespace rejection",
-        "acceptance_test": "Whitespace input exits 2", "blocking": True}]}
-elif stage == "plan_revise":
-    draft = dict(contract["body"])
-    draft["important_failure_cases"] = [*draft["important_failure_cases"], "Reject whitespace-only input"]
-    result = {"contract": draft, "summary": "Added whitespace case", "responses": [{"concern_id": "P1",
-        "response": "Whitespace is invalid", "evidence_refs": ["goal_contract.body"], "change": "Added whitespace case",
-        "acceptance_test": "Whitespace input exits 2"}]}
-elif stage == "plan_finalize":
-    draft = dict(contract["body"])
-    concern_id = "C1" if contract.get("origin") == "astra_discovery" else "P1"
-    # A saved legacy plan reaches the v2 finalizer without the field that the
-    # v2 technical-planning stage would normally have supplied.
-    if "initial_task" not in draft:
-        draft["initial_task"] = {"objective": "Implement greeting CLI", "affected_paths": ["greet.py"],
-            "kind": "implement", "milestone_id": "M1", "requirements": ["Greet names; reject empty/whitespace input"],
-            "acceptance_criteria": ["C1"], "validation_plan": ["Execute valid, empty and whitespace input"]}
-    for milestone in draft["milestones"]:
-        milestone.setdefault("boundaries", ["greet.py", "tools/test_greet.py"])
-    blocked = mode == "planning-blocked"
-    if blocked:
-        draft["open_blocking_questions"] = [{"id": "P2", "question": "Should whitespace be rejected?",
-            "why": "Unresolved input semantics", "options": ["Reject", "Accept"], "proposed_default": ""}]
-    result = {"contract": draft, "summary": "Ready for approval" if not blocked else "User decision required",
-        "decisions": [{"concern_id": concern_id, "decision": "Reject whitespace" if not blocked else "Ask the user",
-            "rationale": "Consistent invalid-input contract", "acceptance_test": "Whitespace input exits 2",
-            "resolved": not blocked}]}
-    if mode == "planning-invalid":
-        result["decisions"] = []
->>>>>>> Stashed changes
 elif stage == "astra_discovery":
     draft = body(questions=not data["saved_answers"], human=mode == "standard")
     if mode == "milestones":

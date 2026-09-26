@@ -1,4 +1,14 @@
 """Joint planning gates, billing routes, bounded calls, and OpenCode handoffs."""
+# path bootstrap: runtime in tools/, fakes in tests/fakes/
+import sys as _sys
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / 'tools'
+_FAKES = _ROOT / 'tests' / 'fakes'
+for _p in (_ROOT, _TOOLS, _ROOT / 'tests', _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 import copy
 import json
 import os
@@ -10,19 +20,21 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+for _p in (_ROOT, _ROOT / 'tools', _ROOT / 'tests', _ROOT / 'tests' / 'fakes'):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 import autocode as runner
 import autocode_goals as goals
 import autocode_opencode as oc
 import autocode_planning as planning
-import autocode_planning_graph as planning_graph
 import autocode_support as support
 from goal_fixtures import body
 import test_subprocess
 
 
 class PlanningTests(unittest.TestCase):
-<<<<<<< Updated upstream
     def setUp(self):
         # Hermetic default-provider resolution: a contributor's own
         # ~/.config/autocode/config.toml or AUTOCODE_PROVIDER must never
@@ -35,32 +47,6 @@ class PlanningTests(unittest.TestCase):
         previous_provider = os.environ.pop("AUTOCODE_PROVIDER", None)
         if previous_provider is not None:
             self.addCleanup(os.environ.__setitem__, "AUTOCODE_PROVIDER", previous_provider)
-=======
-    def test_discovery_schema_keeps_boundaries_optional_for_legacy_contracts(self):
-        milestone = goals.DISCOVERY_SCHEMA['properties']['contract']['properties']['milestones']['items']
-        self.assertIn('boundaries', milestone['properties'])
-        self.assertNotIn('boundaries', milestone['required'])
-
-    def test_delta_schema_rejects_malformed_structured_rows(self):
-        delta = {"schema_version": 1, "stage": "plan_review", "input_path": "planning/plan-1.json",
-                 "input_sha256": "abc", "changed_paths": [], "answers_consumed": [], "feedback_consumed": [],
-                 "concerns": [{"id": "C1", "concern": "issue", "evidence_refs": ["x"],
-                               "requested_change": "fix", "acceptance_test": "test", "blocking": True}],
-                 "responses": [{"concern_id": "C1", "response": "fixed", "evidence_refs": ["x"],
-                                "change": "fix", "acceptance_test": "test"}],
-                 "decisions": [{"concern_id": "C1", "decision": "accept", "rationale": "covered",
-                                "acceptance_test": "test", "resolved": True}],
-                 "graph_node_diffs": [{"id": "M1", "change": "added"}],
-                 "graph_edge_diffs": [{"from": "M2", "to": "M1", "change": "added"}]}
-        support.validate_schema(delta, goals.DELTA_SCHEMA)
-        for field, malformed in (("concerns", ["bad"]), ("responses", [42]), ("decisions", [None]),
-                                 ("graph_node_diffs", ["bad"]), ("graph_edge_diffs", ["bad"])):
-            with self.subTest(field=field):
-                invalid = copy.deepcopy(delta)
-                invalid[field] = malformed
-                with self.assertRaises(ValueError):
-                    support.validate_schema(invalid, goals.DELTA_SCHEMA)
->>>>>>> Stashed changes
 
     def test_planner_dependencies_are_validated_and_rendered(self):
         draft = body()
@@ -76,7 +62,7 @@ class PlanningTests(unittest.TestCase):
             goals.validate_body(state, cyclic)
         missing = copy.deepcopy(draft)
         missing["milestones"][1].pop("depends_on")
-        with self.assertRaisesRegex(ValueError, "depends_on"):
+        with self.assertRaisesRegex(ValueError, "Every milestone"):
             goals.validate_body(state, missing)
         initial = {"objective": "Build component", "affected_paths": ["greet.py"], "kind": "implement",
                    "milestone_id": "M2", "requirements": ["Real flow"], "acceptance_criteria": ["C1"],
@@ -88,7 +74,7 @@ class PlanningTests(unittest.TestCase):
         state["settings"]["roles"] = {"plan_reviewer": {"engine": "opencode"}}
         bare = body()
         bare["milestones"][0].pop("depends_on")
-        with self.assertRaisesRegex(ValueError, "depends_on"):
+        with self.assertRaisesRegex(ValueError, "declare depends_on"):
             planning.apply(state, "astra_discovery", {"contract": bare, "summary": "draft",
                            "code_refs": [], "alternatives": [], "uncertainties": [],
                            "contract_changes": [], "requirement_trace": []}, {"output": "draft.json"})
@@ -428,15 +414,11 @@ class JointFlow(unittest.TestCase):
             # Explicitly exercise compatibility with saved no-recovery runs.
             state['settings']['report_repair'] = {'max_attempts': report_repair}
             (run/'state.json').write_text(json.dumps(state))
-<<<<<<< Updated upstream
         self.assertEqual(["requirements", "glm"], [row["role"] for row in state["stages"]])
         handoff = state["requirements_handoff"]
         self.assertEqual(state["stages"][0]["output"], handoff["output"])
         self.assertNotIn("milestones", json.loads(Path(handoff["output"]).read_text()))
         self.assertNotEqual(state["sessions"]["requirements"], state["sessions"]["glm"])
-=======
-        self.assertEqual("requirements_planner", state["stages"][0]["role"])
->>>>>>> Stashed changes
         self.assertEqual("WAITING_FOR_USER", state["status"])
         self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
         self.launch(["--run-dir", str(run), "--no-chat"], 2)
@@ -445,13 +427,8 @@ class JointFlow(unittest.TestCase):
     def test_opencode_planning_approval_then_implementation_and_validation(self):
         run, state = self.draft()
         stages = state["stages"]
-<<<<<<< Updated upstream
         self.assertEqual(["requirements", "glm", "glm", "astra", "glm", "astra"],
                          [r["role"] for r in stages])
-=======
-        self.assertEqual(["requirements_planner", "requirements_planner", "technical_planner", "plan_reviewer",
-                          "technical_planner", "plan_reviewer"], [r["role"] for r in stages])
->>>>>>> Stashed changes
         self.assertEqual(["opencode"] * 6, [r["engine"] for r in stages])
         self.assertEqual("AWAITING_GOAL_APPROVAL", state["status"])
         self.assertEqual(2, state["planning"]["astra_calls"])
@@ -468,17 +445,12 @@ class JointFlow(unittest.TestCase):
         args = ["--run-dir", str(run)]
         self.launch([*args, "--approve-goal", state["displayed_goal"]], 0)
         approved = self.saved()[1]
-<<<<<<< Updated upstream
         self.assertEqual("orchestrator", approved["next_stage"])
-=======
-        self.assertEqual("terra", approved["next_stage"])
->>>>>>> Stashed changes
         self.assertEqual(6, len(approved["stages"]))
         self.assertEqual(approved["goal_contract"]["hash"], approved["current_task"]["contract_hash"])
         self.launch([*args, "--no-chat"], 0)
         final = self.saved()[1]
         self.assertEqual("COMPLETE", final["phase"])
-<<<<<<< Updated upstream
         self.assertEqual(["orchestrator", "terra", "sol", "astra_review"], [r["stage"] for r in final["stages"][6:]])
         self.assertEqual(["runner", "opencode", "opencode", "opencode"], [r["engine"] for r in final["stages"][6:]])
         sol = final["stages"][8]
@@ -487,78 +459,13 @@ class JointFlow(unittest.TestCase):
         config = json.loads(Path(sol["output"]).with_suffix(".opencode.json").read_text())
         self.assertEqual("deny", config["agent"]["autocode_sol"]["permission"]["edit"])
         completion = final["stages"][9]
-=======
-        self.assertEqual(["terra", "sol", "astra_review"], [r["stage"] for r in final["stages"][6:]])
-        self.assertEqual(["opencode"] * 3, [r["engine"] for r in final["stages"][6:]])
-        sol = final["stages"][7]
-        self.assertEqual("openai/gpt-5.6-sol", sol["command"][sol["command"].index("--model") + 1])
-        self.assertEqual("high", sol["command"][sol["command"].index("--variant") + 1])
-        config = json.loads(Path(sol["output"]).with_suffix(".opencode.json").read_text())
-        self.assertEqual("deny", config["agent"]["autocode_sol"]["permission"]["edit"])
-        completion = final["stages"][8]
->>>>>>> Stashed changes
         self.assertEqual("astra", completion["role"])
         self.assertEqual("completion", completion["route_role"])
         self.assertEqual("zai-coding-plan/glm-5.3", completion["command"][completion["command"].index("--model") + 1])
         self.assertEqual("medium", completion["command"][completion["command"].index("--variant") + 1])
         self.assertIn("autocode_completion", completion["command"])
-        self.assertTrue(all(stage["expected_session"] is None for stage in stages))
-        self.assertEqual(6, len({final["sessions"][role] for role in (
-            "requirements_planner", "technical_planner", "plan_reviewer", "terra", "sol", "completion")}))
+        self.assertEqual(3, len({final["sessions"][role] for role in ("plan_reviewer", "sol", "completion")}))
         self.assertEqual(2, final["planning"]["astra_calls"])
-
-    def test_v2_fixture_flow_persists_handoffs_and_consumes_approved_graph(self):
-        run, state = self.draft()
-        planning_stages = [record["stage"] for record in state["stages"]]
-        self.assertEqual(
-            ["requirements", "requirements", "plan", "plan_review", "plan_revise", "plan_finalize"],
-            planning_stages,
-        )
-        self.assertEqual(2, state["planning"]["astra_calls"])
-
-        expected_predecessors = {
-            "requirements": None,
-            "plan": "requirements",
-            "plan_review": "plan",
-            "plan_revise": "plan_review",
-            "plan_finalize": "plan_revise",
-        }
-        for stage, predecessor in expected_predecessors.items():
-            with self.subTest(stage=stage):
-                handoff = state["planning_artifacts"][stage]
-                for kind in ("artifact", "delta"):
-                    identity = handoff[kind]
-                    path = run / identity["path"]
-                    self.assertTrue(path.is_file())
-                    self.assertEqual(identity["sha256"], support.file_hash(path))
-                artifact = json.loads((run / handoff["artifact"]["path"]).read_text())
-                delta = json.loads((run / handoff["delta"]["path"]).read_text())
-                self.assertEqual(stage, artifact["stage"])
-                if predecessor is None:
-                    self.assertEqual("", delta["input_path"])
-                    self.assertEqual("", delta["input_sha256"])
-                else:
-                    prior = state["planning_artifacts"][predecessor]["artifact"]
-                    self.assertEqual(prior["path"], delta["input_path"])
-                    self.assertEqual(prior["sha256"], delta["input_sha256"])
-
-        final = state["planning_final"]
-        self.assertEqual(state["planning"]["final_token"], final["final_token"])
-        self.assertEqual(planning_graph.derive(state["goal_contract"]["body"]), state["planning"]["derived_graph"])
-        for kind in ("artifact", "delta", "graph"):
-            identity = final[kind]
-            self.assertTrue((run / identity["path"]).is_file())
-            self.assertEqual(identity["sha256"], support.file_hash(run / identity["path"]))
-
-        before_approval_stages = list(state["stages"])
-        self.assertEqual("not-approved", planning_graph.consume(state, run)["status"])
-        self.launch(["--run-dir", str(run), "--approve-goal", state["displayed_goal"]], 0)
-        approved = self.saved()[1]
-        approval = approved["goal_contract"]["approval_event"]
-        self.assertEqual(approved["displayed_goal"], approval["token"])
-        self.assertIn(approval, approved["user_events"])
-        self.assertEqual("ready", planning_graph.consume(approved, run)["status"])
-        self.assertEqual(before_approval_stages, approved["stages"])
 
     def test_gpt_sol_revalidates_terras_rework_in_its_own_opencode_session(self):
         run, state = self.draft("rework")
@@ -567,7 +474,6 @@ class JointFlow(unittest.TestCase):
         self.launch([*args, "--no-chat"], 0)
         final = self.saved()[1]
         self.assertEqual("COMPLETE", final["phase"])
-<<<<<<< Updated upstream
         self.assertEqual(["orchestrator", "terra", "sol", "astra_review", "astra_resolve",
                           "orchestrator", "terra", "sol", "astra_review"],
                          [r["stage"] for r in final["stages"][6:]])
@@ -575,9 +481,6 @@ class JointFlow(unittest.TestCase):
         self.assertEqual('resolver', resolution['route_role'])
         self.assertIsNone(resolution['expected_session'])
         self.assertNotEqual(final['sessions']['resolver'], final['sessions']['completion'])
-=======
-        self.assertEqual(["terra", "sol", "astra_review"] * 2, [r["stage"] for r in final["stages"][6:]])
->>>>>>> Stashed changes
         validations = [r for r in final["stages"] if r["stage"] == "sol"]
         self.assertEqual(["opencode", "opencode"], [r["engine"] for r in validations])
         self.assertEqual(final["sessions"]["sol"], validations[1]["expected_session"])
@@ -664,7 +567,7 @@ class JointFlow(unittest.TestCase):
         path.write_text(json.dumps(edited))
         self.launch(["--run-dir", str(run), "--edit-goal", str(path)], 0)
         revised = self.saved()[1]
-        self.assertEqual("plan_review", revised["next_stage"])
+        self.assertEqual("astra_challenge", revised["next_stage"])
         self.launch(["--run-dir", str(run), "--approve-goal", old_token], 2)
         self.launch(["--run-dir", str(run), "--approve-goal", revised["displayed_goal"]], 2)
         self.assertFalse((self.project / "greet.py").exists())
@@ -677,7 +580,7 @@ class JointFlow(unittest.TestCase):
         run, _ = self.saved()
         args = ["--run-dir", str(run), "--no-chat"]
         self.launch(["--run-dir", str(run), "--answer", "Q1=CLI"], 0)
-        for next_stage, count in (("plan", 0), ("plan_review", 0), ("plan_revise", 1), ("plan_finalize", 1)):
+        for next_stage, count in (("astra_challenge", 0), ("glm_revise", 1), ("astra_finalize", 1)):
             self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
             state = self.saved()[1]
             self.assertEqual(next_stage, state["next_stage"])
@@ -699,7 +602,7 @@ class JointFlow(unittest.TestCase):
 
     def test_quota_pauses_without_fallback_or_automatic_replay(self):
         self.prepare()
-        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "plan_review"
+        self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "astra_challenge"
         self.launch(["Build a greeting tool", "--no-chat"], 2)
         run, _ = self.saved()
         args = ["--run-dir", str(run), "--no-chat"]

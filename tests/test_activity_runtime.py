@@ -1,4 +1,14 @@
 """Offline runner coverage for activity timeouts, durable status, and recovery."""
+# path bootstrap: runtime in tools/, fakes in tests/fakes/
+import sys as _sys
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).resolve().parents[2] if 'fakes' in _Path(__file__).parts else _Path(__file__).resolve().parents[1]
+_TOOLS = _ROOT / 'tools'
+_FAKES = _ROOT / 'tests' / 'fakes'
+for _p in (_ROOT, _TOOLS, _ROOT / 'tests', _FAKES):
+    _s = str(_p)
+    if _s not in _sys.path:
+        _sys.path.insert(0, _s)
 import contextlib
 import copy
 import io
@@ -11,10 +21,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-try:
-    from . import test_goals
-except ImportError:
-    import test_goals
+from . import test_goals
 import autocode as runner
 import autocode_goals as goals
 import autocode_milestones as milestones
@@ -69,13 +76,8 @@ class ActivityRuntimeTests(unittest.TestCase):
                 self.assertEqual(saved_cap, configured['limits']['stage_timeout_seconds'])
                 self.assertEqual(300, configured['limits']['idle_timeout_seconds'])
                 self.assertEqual(1800, configured['limits']['tool_timeout_seconds'])
-<<<<<<< Updated upstream
                 self.assertEqual(original['settings']['roles'],
                     {role: configured['roles'][role] for role in original['settings']['roles']})
-=======
-                for role, config in original['settings']['roles'].items():
-                    self.assertEqual(config, configured['roles'][role])
->>>>>>> Stashed changes
                 self.assertIn('completion', configured['roles'])
                 self.assertEqual(original, self.state, 'configure must return a new configuration')
 
