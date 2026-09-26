@@ -16,9 +16,6 @@ dist/
 .autocode-ui/
 .DS_Store
 
-# October desktop — local canvas state
-.october/
-
-# October (generated — context bus / browser MCP)
+# Local Codex config and hooks
 .codex/config.toml
 .codex/hooks.json
