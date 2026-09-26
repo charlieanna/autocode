@@ -8,15 +8,25 @@ import sys
 import uuid
 from goal_fixtures import body
 
+
 if sys.argv[1:] == ["login", "status"]:
     print("Logged in using ChatGPT (offline fixture)")
     raise SystemExit(0)
 
 data = json.loads(sys.stdin.read().split("CURRENT HANDOFF DATA\n", 1)[1])
+
+
+def open_finding_id(source, text):
+    for row in data.get("open_findings") or []:
+        if row.get("source") == source and row.get("finding") == text:
+            return row["id"]
+    return None
+
 if data.get('report_repair'):
     # This branch only reformats a saved report; never executes the original task.
     result = json.loads(Path(data['original']['output']).read_text())
-    result['summary'] = 'Repaired fixture report'
+    if 'summary' not in result and data['original'].get('stage', '').startswith(('terra', 'astra_discovery')):
+        result['summary'] = 'Repaired fixture report'
     session = str(uuid.uuid4())
     print(json.dumps({'type': 'thread.started', 'thread_id': session}))
     Path(sys.argv[sys.argv.index('-o') + 1]).write_text(json.dumps(result))
@@ -24,7 +34,7 @@ if data.get('report_repair'):
     raise SystemExit(0)
 stage = data["stage"]
 mode = os.environ.get("AUTOCODE_FIXTURE_MODE", "standard")
-contract = data["goal_contract"]
+contract = data["goal_contract"] or {"revision": 0, "hash": ""}
 probe = os.environ.get("AUTOCODE_REGISTRY_LAUNCH_PROBE")
 if probe:
     registry_path = Path(os.environ["AUTOCODE_HOME"]) / "registry.json"
@@ -46,12 +56,26 @@ print(json.dumps({"type": "thread.started", "thread_id": session}))
 if os.environ.get("AUTOCODE_FIXTURE_QUOTA_STAGE") == stage:
     print(json.dumps({"type": "error", "error": {"message": "subscription usage limit reached"}}))
     raise SystemExit(3)
-if stage == "astra_discovery":
+if stage == "requirements_gather":
+    draft = body(questions=not data["saved_answers"])
+    result = {
+        "summary": "Requirements for a local greeting CLI, without an implementation plan",
+        "intended_outcome": draft["intended_outcome"],
+        "required_behaviors": draft["required_behaviors"],
+        "constraints": draft["constraints"],
+        "acceptance_tests": ["Valid and invalid CLI input have the requested outcomes"],
+        "source_refs": [f"{name}:1" for name in ("greet.py", "bye.py") if Path(name).is_file()],
+        "proposed_assumptions": ["Use a local CLI if the user chooses that interface"],
+        "open_questions": draft["open_blocking_questions"],
+        "requirements": [], "ignored_statements": [], "conflicts": [], "proposed_reframes": [],
+    }
+elif stage == "astra_discovery":
     draft = body(questions=not data["saved_answers"], human=mode == "standard")
     if mode == "milestones":
         draft['acceptance_criteria'].append({'id': 'C2', 'criterion': 'Goodbye CLI prints Goodbye, NAME',
             'verification_method': 'Execute bye.py with Ada', 'human_review': False})
-        draft['milestones'].append({'id': 'M2', 'objective': 'Deliver goodbye CLI', 'acceptance_criteria': ['C2']})
+        draft['milestones'].append({'id': 'M2', 'objective': 'Deliver goodbye CLI',
+                                    'acceptance_criteria': ['C2'], 'depends_on': ['M1'], 'affected_paths': ['goodbye.py']})
         draft['deliverables'].append('bye.py')
         draft['required_behaviors'].append('Print Goodbye, NAME from bye.py')
     if data["saved_answers"]:
@@ -61,7 +85,13 @@ if stage == "astra_discovery":
         draft["accepted_assumptions"].append({"text": feedback["text"], "basis": "user_feedback", "answer_id": feedback["id"]})
     result = {"contract": draft, "summary": "Build a small local greeting CLI with a clear invalid-input failure"}
     if data.get("joint_planning"):
-        result.update(code_refs=["goal_contract.body"], alternatives=["A web endpoint would need deployment"], uncertainties=[])
+        if draft["open_blocking_questions"]:
+            draft["milestones"] = []
+            draft["technical_approach"] = []
+        source = next((name for name in ("greet.py", "bye.py") if Path(name).is_file()), None)
+        result.update(code_refs=[f"{source}:1"] if source else ["goal_contract.body"],
+                      alternatives=["A web endpoint would need deployment"],
+                      uncertainties=[], contract_changes=[], requirement_trace=[], conflict_resolutions=[])
 elif stage == "astra_challenge":
     result = {"summary": "Check whitespace-only input", "concerns": [{"id": "P1", "concern": "Empty includes whitespace",
         "evidence_refs": ["goal_contract.body.important_failure_cases"], "requested_change": "Specify whitespace rejection",
@@ -70,7 +100,10 @@ elif stage == "glm_revise":
     draft = dict(contract["body"])
     draft.pop("initial_task", None)
     draft["important_failure_cases"] = [*draft["important_failure_cases"], "Reject whitespace-only input"]
-    result = {"contract": draft, "summary": "Added whitespace case", "code_refs": ["goal_contract.body"],
+    source = next((name for name in ("greet.py", "bye.py") if Path(name).is_file()), None)
+    result = {"contract": draft, "summary": "Added whitespace case",
+        "code_refs": [f"{source}:1"] if source else ["goal_contract.body"],
+        "contract_changes": [], "requirement_trace": [], "conflict_resolutions": [],
         "responses": [{"concern_id": "P1", "response": "Whitespace is invalid", "evidence_refs": ["goal_contract.body"],
                        "change": "Added whitespace case", "acceptance_test": "Whitespace input exits 2"}]}
 elif stage == "astra_finalize":
@@ -83,6 +116,7 @@ elif stage == "astra_finalize":
         draft["open_blocking_questions"] = [{"id": "P2", "question": "Should whitespace be rejected?",
             "why": "Unresolved input semantics", "options": ["Reject", "Accept"], "proposed_default": ""}]
     result = {"contract": draft, "summary": "Ready for approval" if not blocked else "User decision required",
+        "contract_changes": [], "requirement_trace": [], "conflict_resolutions": [],
         "decisions": [{"concern_id": "P1", "decision": "Reject whitespace" if not blocked else "Ask the user",
             "rationale": "Consistent invalid-input contract", "acceptance_test": "Whitespace input exits 2", "resolved": not blocked}]}
     if mode == "planning-invalid":
@@ -95,14 +129,20 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
         complete = False
     result = {**common, "status": "COMPLETE" if complete else "REWORK" if rework else "CONTINUE",
               "acceptance_criteria": [{**c, "status": "verified" if complete else "unverified",
-                                       "evidence": "Sol executed both CLI cases"} for c in data["acceptance_criteria"]],
+                                       "evidence": "Validator executed both CLI cases"} for c in data["acceptance_criteria"]],
               "next_objective": "" if complete else "Implement a greeting CLI and reject empty input",
               "next_task": {"kind": "none" if complete else "implement", "milestone_id": "" if complete else "M1",
                             "requirements": [] if complete else ["Print a greeting for valid input and reject empty input"],
                             "acceptance_criteria": [] if complete else ["C1"],
-                            "validation_plan": [] if complete else ["Run greet.py with Ada and an empty name"]},
+                            "validation_plan": [] if complete else ["Run greet.py with Ada and an empty name"],
+                            "findings": []},
+              "findings": [{"id": "", "severity": "high", "finding": "Empty names are accepted by greet.py",
+                            "evidence": "Validator events", "blocking": True}] if rework else [],
               "agreed_limitations": ["Local command-line use only"] if complete else [],
-              "evidence": ["Sol events"], "blocker": "",
+              "finding_dispositions": ([{"id": open_finding_id("astra", "Empty names are accepted by greet.py"),
+                                          "disposition": "resolved", "evidence": "Validator events"}]
+                                       if complete and open_finding_id("astra", "Empty names are accepted by greet.py") else []),
+              "evidence": ["Validator events"], "blocker": "",
               "plan": ["Implement greeting", "Run both cases"], "affected_paths": ["greet.py"]}
     if advance:
         result.update(next_objective='Implement goodbye CLI', affected_paths=['bye.py'])
@@ -110,20 +150,27 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
                                   acceptance_criteria=['C2'], validation_plan=['Execute both greeting and goodbye'])
     if mode == 'stalled' and ((data.get('milestone_checkpoint') or {}).get('current') or {}).get('needs_replan'):
         result['next_objective'] = 'Isolate empty input with a focused reproduction before repair'
+    if stage == 'astra_resolve':
+        result['diagnosis'] = 'Empty names are accepted by the CLI; add input validation and retest both cases.'
 elif stage == "terra":
-    if mode == 'stalled':
-        Path('greet.py').write_text("import sys\nprint('Hello, ' + sys.argv[1])\n# attempt " + str(uuid.uuid4()) + '\n')
+    # Each implement attempt must produce a real tree delta; the runner
+    # measures changed files from the workspace snapshot, not the report.
+    batch = str(uuid.uuid4())
+    milestone = data.get('current_task', {}).get('milestone_id')
+    if mode == 'milestones' and milestone == 'M2':
+        Path('bye.py').write_text("import sys\nprint('Goodbye, ' + sys.argv[1])\n# batch " + batch + "\n")
+    elif mode == 'stalled':
+        Path('greet.py').write_text("import sys\nprint('Hello, ' + sys.argv[1])\n# attempt " + batch + '\n')
     elif mode == "rework" and not data["actionable_findings"]:
-        Path("greet.py").write_text("import sys\nprint('Hello, ' + sys.argv[1])\n")
+        Path("greet.py").write_text("import sys\nprint('Hello, ' + sys.argv[1])\n# attempt " + batch + '\n')
     else:
-        Path("greet.py").write_text("import sys\nif len(sys.argv) != 2 or not sys.argv[1].strip():\n    raise SystemExit(2)\nprint('Hello, ' + sys.argv[1])\n")
+        Path("greet.py").write_text("import sys\nif len(sys.argv) != 2 or not sys.argv[1].strip():\n    raise SystemExit(2)\nprint('Hello, ' + sys.argv[1])\n# batch " + batch + "\n")
     result = {**common, "summary": "Greeting written", "changed_files": ["greet.py"], "commands_run": [],
               "results": ["Written"], "remaining_risks": [], "evidence_refs": ["greet.py"],
               "addressed_requirements": data["current_task"]["requirements"], "untested_behavior": ["CLI execution"],
               "recommended_checks": ["Execute valid and invalid input"]}
-    if mode == 'milestones' and data['current_task']['milestone_id'] == 'M2':
-        Path('bye.py').write_text("import sys\nprint('Goodbye, ' + sys.argv[1])\n")
-        result.update(changed_files=['bye.py'], evidence_refs=['bye.py'])
+    if mode == 'milestones' and milestone == 'M2':
+        result.update(changed_files=['bye.py'], evidence_refs=['bye.py'], summary='Goodbye written')
 else:
     valid = subprocess.run([sys.executable, "greet.py", "Ada"], capture_output=True, text=True)
     invalid = subprocess.run([sys.executable, "greet.py", ""], capture_output=True, text=True)
@@ -137,7 +184,7 @@ else:
     print(json.dumps({"type": "item.completed", "item": {"id": "check", "type": "command_execution",
         "command": command, "exit_code": 0 if passed else 1,
         "aggregated_output": json.dumps({"valid": [valid.returncode, valid.stdout], "invalid": invalid.returncode})}}))
-    findings = [] if passed else [{"severity": "high", "blocking": True, "finding": "Empty names are accepted",
+    findings = [] if passed else [{"id": "", "severity": "high", "blocking": True, "finding": "Empty names are accepted",
         "evidence": "event:check", "reproduction_steps": ["Run greet.py with an empty argument"],
         "expected": "Exit 2", "actual": f"Exit {invalid.returncode}", "why_it_matters": "Required invalid-input behavior",
         "suggested_correction": "Reject an empty or whitespace-only name"}]
@@ -145,7 +192,10 @@ else:
               "unverified_criteria": [], "checks": [{"command": command, "exit_code": 0 if passed else 1, "evidence_ref": "event:check"}],
               "end_to_end_result": {"status": "PASS" if passed else "FAIL", "summary": "Executed both CLI user flows",
                                     "evidence_refs": ["event:check"]},
-              "criterion_results": [{"id": "C1", "status": "PASS" if passed else "FAIL", "evidence_refs": ["event:check"]}]}
+              "criterion_results": [{"id": "C1", "status": "PASS" if passed else "FAIL", "evidence_refs": ["event:check"]}],
+              "finding_dispositions": ([{"id": open_finding_id("sol", "Empty names are accepted"), "disposition": "resolved",
+                                          "evidence": "event:check"}]
+                                       if passed and open_finding_id("sol", "Empty names are accepted") else [])}
     if mode == 'milestones':
         result['criterion_results'].append({'id': 'C2', 'status': 'PASS' if goodbye_passed else 'NOT_VERIFIED',
                                            'evidence_refs': ['event:check'] if goodbye_passed else []})
@@ -153,13 +203,13 @@ else:
         result = {"validation": result, "consult_sol": {"requested": False, "question": "", "reason": ""},
             "decision": {**common, "status": "COMPLETE" if passed else "REWORK",
                 "acceptance_criteria": [{**c, "status": "verified" if passed else "unverified",
-                    "evidence": "Independent Astra executed CLI cases; event:check"} for c in data["acceptance_criteria"]],
+                    "evidence": "Independent Plan Reviewer executed CLI cases; event:check"} for c in data["acceptance_criteria"]],
                 "next_objective": "" if passed else "Reject empty input and rerun the CLI tests",
                 "next_task": {"kind": "none" if passed else "implement", "milestone_id": "" if passed else "M1",
                     "requirements": [] if passed else ["Reject empty input"],
                     "acceptance_criteria": [] if passed else ["C1"],
-                    "validation_plan": [] if passed else ["Execute valid and empty input"]},
-                "agreed_limitations": [], "evidence": ["event:check"], "blocker": "",
+                    "validation_plan": [] if passed else ["Execute valid and empty input"], "findings": []},
+                "findings": [], "finding_dispositions": [], "agreed_limitations": [], "evidence": ["event:check"], "blocker": "",
                 "plan": ["Implement and independently verify"], "affected_paths": ["greet.py"]}}
 if os.environ.get('AUTOCODE_FIXTURE_REPORT_REPAIR_STAGE') == stage:
     result.pop('summary', None)
@@ -167,19 +217,19 @@ if stage=='terra' and (data.get('workflow') or {}).get('mode')=='glm_final_audit
     valid=subprocess.run([sys.executable,'greet.py','Ada'],capture_output=True,text=True)
     invalid=subprocess.run([sys.executable,'greet.py',''],capture_output=True,text=True)
     passed=valid.returncode==0 and valid.stdout=='Hello, Ada\n' and invalid.returncode==2
-    command='fixture: GLM tests valid and invalid greetings'
+    command='fixture: Builder tests valid and invalid greetings'
     print(json.dumps({'type':'item.completed','item':{'id':'self-check','type':'command_execution',
         'command':command,'exit_code':0 if passed else 1,'aggregated_output':'fixture checks'}}))
-    assessment={**common,'verdict':'PASS' if passed else 'FAIL','findings':[],'checks_run':[command],
+    assessment={**common,'verdict':'PASS' if passed else 'FAIL','findings':[],'finding_dispositions':[],'checks_run':[command],
         'unverified_criteria':[], 'checks':[{'command':command,'exit_code':0 if passed else 1,'evidence_ref':'event:self-check'}],
-        'end_to_end_result':{'status':'PASS' if passed else 'FAIL','summary':'GLM self-check','evidence_refs':['event:self-check']},
+        'end_to_end_result':{'status':'PASS' if passed else 'FAIL','summary':'Builder self-check','evidence_refs':['event:self-check']},
         'criterion_results':[{'id':'C1','status':'PASS' if passed else 'FAIL','evidence_refs':['event:self-check']}]}
-    second=data.get('next_action')=='Second GLM batch'
+    second=data.get('next_action')=='Second Builder batch'
     consulted=bool(data.get('consultation_reports'))
     action=('REQUEST_FINAL_AUDIT' if consulted else 'ESCALATE_SOL') if mode=='sol-escalation' else ('REQUEST_FINAL_AUDIT' if second else 'CONTINUE')
     result['untested_behavior']=[]
     result['continuation']={'action':action,'plan':['Finish approved greeting'],
-        'next_task':{'kind':'implement','objective':'Second GLM batch','affected_paths':['greet.py'],
+        'next_task':{'kind':'implement','objective':'Second Builder batch','affected_paths':['greet.py'],
             'milestone_id':'M1','requirements':['Verify the final greeting'],'acceptance_criteria':['C1'],
             'validation_plan':['Run valid and invalid CLI cases']},
         'reason':'Fixture-specific debugging question' if action=='ESCALATE_SOL' else 'Continue approved work',

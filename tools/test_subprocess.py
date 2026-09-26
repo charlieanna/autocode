@@ -34,8 +34,10 @@ class SubprocessFlow(unittest.TestCase):
     def launch(self, args, expected, *, answers=None):
         if "--run-dir" not in args and "--engine" not in args:
             args = [*self.new_run_engine_args, *args]
+        if "--run-dir" not in args and "--in-place" not in args:
+            args = [*args, "--in-place"]
         result = subprocess.run([*self.entry, "--workspace", str(self.project), *args], cwd=self.root, env=self.env,
-                                input=answers, capture_output=True, text=True, timeout=30)
+                                input=answers, capture_output=True, text=True, timeout=60)
         self.assertEqual(expected, result.returncode, result.stdout + result.stderr)
         return result
 
@@ -59,15 +61,13 @@ class SubprocessFlow(unittest.TestCase):
         self.assertGreater(status['milestone_checkpoint']['seconds_by_role']['sol'], 0)
         self.assertEqual(unchanged, (run / 'state.json').read_bytes())
 
-    def test_changing_code_with_repeated_failed_checks_stops_after_one_replan(self):
+    def test_changing_code_with_repeated_failed_checks_exhausts_builder_policy(self):
         self.env['AUTOCODE_FIXTURE_MODE'] = 'stalled'
         self.launch(['Build greeting', '--chat'], 2, answers='CLI\nyes\n')
         _, state = self.saved()
-        self.assertEqual('PAUSED_MILESTONE_STALLED', state['status'])
-        progress = next(iter(state['milestone_progress'].values()))
-        self.assertEqual(1, progress['replans'])
-        self.assertEqual(6, len(progress['reviews']))
-        self.assertEqual(6, sum(r['stage'] == 'terra' for r in state['stages']))
+        self.assertEqual('PAUSED_BUILDER_RETRY_LIMIT', state['status'])
+        self.assertEqual(['retry','escalate','pause'], [r['action'] for r in state['builder_retry_decisions']])
+        self.assertEqual(3, sum(r['stage'] == 'terra' for r in state['stages']))
 
     def test_queued_checkpoint_migration_preserves_work_and_never_launches_on_activation(self):
         self.env['AUTOCODE_FIXTURE_MODE'] = 'no-human'
@@ -107,9 +107,20 @@ class SubprocessFlow(unittest.TestCase):
         self.assertEqual(["FAIL"], [row["validation"]["verdict"] for row in state["validation_archive"]])
         self.assertIn("Keep Unicode support", state["goal_contract"]["body"]["constraints"])
         self.assertEqual(1, sum(e["kind"] == "goal_approval" for e in state["user_events"]))
+        # The Validator's failing finding and the Plan Reviewer's structured REWORK finding share one ledger,
+        # were linked to the correction task, and were closed by the reviewers' next reports.
+        ledger = state["findings_ledger"]
+        self.assertEqual({"sol", "astra"}, {row["source"] for row in ledger})
+        self.assertTrue(all(row["status"] == "resolved" and row["resolved_in"] for row in ledger))
+        rework_task = [t for t in [*state.get("task_archive", []), state["current_task"]] if t.get("decision") == "REWORK"][0]
+        self.assertTrue(all(row["assigned_task"] == rework_task["id"] for row in ledger))
+        self.assertEqual(sorted(row["id"] for row in ledger), sorted(rework_task["findings"]))
+        rework_prompt = Path(next(r for r in state["stages"] if r["stage"] == "terra" and r.get("task_id") == rework_task["id"])["prompt"]).read_text()
+        handoff = json.loads(rework_prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual({"sol", "astra"}, {row["source"] for row in handoff["open_findings"]})
         self.assertIn("Acceptance evidence:", result.stdout)
         self.assertIn("End-to-end flow: PASS", result.stdout)
-        executed = [row for row in state["stages"] if row["stage"] != "astra_discovery"]
+        executed = [row for row in state["stages"] if row["stage"] != "astra_discovery" and not row.get('runner_owned')]
         for record in executed:
             prompt = Path(record["prompt"]).read_text()
             data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
@@ -225,6 +236,65 @@ class SubprocessFlow(unittest.TestCase):
         self.assertEqual(1, len(state["human_reviews"]))
         self.assertIn("Approve artifact criterion C1", result.stdout)
 
+    def test_abandoned_completion_revalidates_before_completing(self):
+        self.check_abandoned_completion_recovery()
+
+    def test_legacy_completion_failure_loop_recovers_on_explicit_resume(self):
+        self.check_abandoned_completion_recovery(legacy=True)
+
+    def check_abandoned_completion_recovery(self, *, legacy=False):
+        self.env['AUTOCODE_FIXTURE_MODE'] = 'no-human'
+        self.env['AUTOCODE_FIXTURE_QUOTA_STAGE'] = 'astra_review'
+        self.launch(['Build a greeting tool', '--chat'], 2, answers='CLI\nyes\n')
+        run, interrupted = self.saved()
+        self.assertEqual('PASS', interrupted['validation']['verdict'])
+        self.assertEqual('astra_review', interrupted['active_stage']['stage'])
+        source = (self.project / 'greet.py').read_bytes()
+        contract = interrupted['goal_contract']
+        args = ['--run-dir', str(run), '--no-chat']
+        status = json.loads(self.launch([*args, '--status'], 0).stdout)
+        del self.env['AUTOCODE_FIXTURE_QUOTA_STAGE']
+
+        self.launch([*args, '--abandon-stage', status['attempt_id']], 0)
+        _, abandoned = self.saved()
+        self.assertEqual('PAUSED_STAGE_ABANDONED', abandoned['status'])
+        self.assertEqual('sol', abandoned['next_stage'])
+        self.assertNotIn('validation', abandoned)
+        self.assertEqual(interrupted['validation'], abandoned['validation_archive'][-1]['validation'])
+        self.assertTrue(abandoned['stages'][-1]['abandoned'])
+        self.assertTrue(Path(abandoned['stages'][-1]['events']).is_file())
+        self.assertEqual(source, (self.project / 'greet.py').read_bytes())
+        if legacy:
+            from .test_autocode import runner, s
+            # Recreate the durable state written by the old completion router.
+            abandoned.update(status='PAUSED_REPEATED_FAILURE', next_stage='astra_review')
+            error = s.Paused('PAUSED_COMPLETION_GATE',
+                'Completion rejected: missing, stale, failed or unverified independent evidence')
+            for attempt in range(3):
+                record = {'stage': 'astra_review', 'role': 'astra', 'iteration': 1,
+                          'output': str(run / f'failed-completion-{attempt}.json'),
+                          'source_revision': abandoned['recovery_context']['source_revision'],
+                          'rejected': True, 'rejection_reason': str(error)}
+                runner.failures.record(abandoned, record, error, s.now())
+                abandoned['stages'].append(record)
+            (run / 'state.json').write_text(json.dumps(abandoned))
+        count = len(abandoned['stages'])
+        # Merely inspecting or launching a paused run must not authorize recovery.
+        self.launch(args, 2)
+        self.assertEqual(count, len(self.saved()[1]['stages']))
+
+        self.launch([*args, '--resume-paused', '--unit', 'autoreview'], 0)
+        _, final = self.saved()
+        self.assertEqual('TASK_COMPLETE', final['status'])
+        self.assertEqual(['sol', 'astra_review'], [r['stage'] for r in final['stages'][count:]])
+        self.assertEqual('PASS', final['validation']['verdict'])
+        self.assertEqual(1, sum(r['stage'] == 'terra' for r in final['stages']))
+        self.assertEqual(contract, final['goal_contract'])
+        self.assertEqual(source, (self.project / 'greet.py').read_bytes())
+        if legacy:
+            self.assertEqual(abandoned['failure_history'], final['failure_history'])
+        self.assertTrue(json.loads(self.launch([*args, '--status'], 0).stdout)['completion_current'])
+
     def test_unexpected_session_pauses_and_can_be_explicitly_abandoned(self):
         self.launch(["Build a greeting tool"], 2)
         run, initial = self.saved()
@@ -269,7 +339,8 @@ class SubprocessFlow(unittest.TestCase):
     def test_standalone_cli_full_interview_approval_review_and_completion(self):
         project, launch = self.project, self.launch
         launch(["Build a useful greeting tool", "--reasoning-effort", "high", "--terra-provider", "ZAI"], 2)
-        expected_models = {"astra": "gpt-6-astra", "terra": "gpt-5.6-terra", "sol": "gpt-5.6-sol"}
+        expected_models = {"astra": "gpt-5.6-sol", "terra": "gpt-5.6-terra",
+                           "sol": "gpt-5.6-sol", "completion": "gpt-5.6-sol"}
         run = next((project / ".autocode/runs").iterdir())
         args = ["--run-dir", str(run)]
         def state(): return json.loads((run / "state.json").read_text())
@@ -305,6 +376,10 @@ class SubprocessFlow(unittest.TestCase):
         launch(args, 0)
         self.assertEqual(len(final["stages"]), len(state()["stages"]))
         for record in final["stages"]:
+            if record.get('runner_owned'):
+                self.assertEqual('runner', record['engine'])
+                self.assertNotIn('command', record)
+                continue
             command = record["command"]
             expected = "workspace-write" if record["role"] == "terra" else "read-only"
             self.assertEqual(expected, command[command.index("--sandbox") + 1])

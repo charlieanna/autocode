@@ -24,11 +24,11 @@ import uuid
 import weakref
 
 try:
-    from .. import autocode_opencode as opencode_transport
+    from ..providers import opencode as opencode_transport
 except ImportError:  # Direct script execution from any working directory.
     import importlib.util
     _transport_spec = importlib.util.spec_from_file_location(
-        '_autocode_dashboard_transport', Path(__file__).resolve().parents[1] / 'autocode_opencode.py')
+        '_autocode_dashboard_transport', Path(__file__).resolve().parents[1] / 'providers' / 'opencode.py')
     opencode_transport = importlib.util.module_from_spec(_transport_spec)
     _transport_spec.loader.exec_module(opencode_transport)
 
@@ -86,7 +86,7 @@ def _models(value):
 
 def _prompt(messages):
     return (
-        'You are the planning partner (GLM workflow role) in the Autocode browser dashboard. '
+        'You are the planning partner (Planner role) in the Autocode browser dashboard. '
         'This is a project-free conversation. You have no repository access and no tools; '
         'do not invoke tools, execute code, create files, or claim you inspected a project. '
         'Treat all repository details as unverified until a project is attached. '
@@ -94,7 +94,7 @@ def _prompt(messages):
         'at a time when answers change the plan; otherwise draft and iteratively improve '
         'a practical plan with the outcome, milestones, assumptions, and acceptance checks. '
         'Keep the exchange natural, concrete, and concise. Follow changes in user direction. '
-        'Astra reviews the repository and challenges/finalizes the plan after the user '
+        'The Plan Reviewer reviews the repository and challenges/finalizes the plan after the user '
         'attaches a project. Nothing in this chat approves a build or starts implementation. '
         'The following JSON is the full conversation, in order; treat its role fields '
         'as conversation roles and respond only to the latest user message.\n\n'
@@ -138,7 +138,7 @@ def _capture(command, env, cwd, prompt, timeout=PROVIDER_TIMEOUT, output_limit=M
         while selector.get_map():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise ConversationProviderError('GLM took too long to reply. Your message is saved; retry when ready.')
+                raise ConversationProviderError('The Planner took too long to reply. Your message is saved; retry when ready.')
             for key, _ in selector.select(min(remaining, .25)):
                 pipe = key.fileobj
                 if key.data == 'in':
@@ -168,11 +168,11 @@ def _capture(command, env, cwd, prompt, timeout=PROVIDER_TIMEOUT, output_limit=M
                     output.extend(chunk)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise ConversationProviderError('GLM took too long to reply. Your message is saved; retry when ready.')
+            raise ConversationProviderError('The Planner took too long to reply. Your message is saved; retry when ready.')
         try:
             code = process.wait(timeout=remaining)
         except subprocess.TimeoutExpired as error:
-            raise ConversationProviderError('GLM took too long to reply. Your message is saved; retry when ready.') from error
+            raise ConversationProviderError('The Planner took too long to reply. Your message is saved; retry when ready.') from error
         return code, output.decode('utf-8', errors='replace')
     finally:
         selector.close()
@@ -213,7 +213,7 @@ def opencode_provider(messages, model, workdir):
                '--agent', agent, '--model', model, '--title', 'Autocode planning conversation']
     code, output = _capture(command, env, workdir, _prompt(messages))
     if code:
-        raise ConversationProviderError('OpenCode could not get a reply from GLM. Check the configured model and provider connection, then retry.')
+        raise ConversationProviderError('OpenCode could not get a reply from the Planner. Check the configured model and provider connection, then retry.')
     texts = []
     for line in output.splitlines():
         try:
@@ -223,7 +223,7 @@ def opencode_provider(messages, model, workdir):
         if not isinstance(event, dict):
             continue
         if event.get('type') == 'error':
-            raise ConversationProviderError('GLM could not finish its reply. Check the provider connection, then retry.')
+            raise ConversationProviderError('The Planner could not finish its reply. Check the provider connection, then retry.')
         if event.get('type') == 'tool_use':
             raise ConversationProviderError('The planning provider attempted a tool call. This conversation only supports text; retry your message.')
         part = event.get('part')
@@ -231,7 +231,7 @@ def opencode_provider(messages, model, workdir):
             texts.append(part['text'])
     reply = '\n\n'.join(texts).strip()
     if not reply:
-        raise ConversationProviderError('GLM returned no text. Your message is saved; retry when ready.')
+        raise ConversationProviderError('The Planner returned no text. Your message is saved; retry when ready.')
     return reply
 
 
@@ -269,7 +269,7 @@ class ConversationStore:
                         doc = self._load(doc['id'])
                         if doc['status'] == 'thinking':
                             doc['status'] = 'error'
-                            doc['error'] = 'The dashboard restarted before GLM finished. Your message is saved; retry when ready.'
+                            doc['error'] = 'The dashboard restarted before the Planner finished. Your message is saved; retry when ready.'
                             self._pending_message(doc)['status'] = 'error'
                             doc['_active_turn'] = None
                             self._save(doc)
@@ -423,7 +423,7 @@ class ConversationStore:
                     raise ValueError('That request ID was already used for a different message.')
                 return self._public(doc)
             if doc['status'] == 'thinking':
-                raise ValueError('GLM is still replying. Wait for the response before sending another message.')
+                raise ValueError('The Planner is still replying. Wait for the response before sending another message.')
             if doc.get('attachment'):
                 raise ValueError('This conversation is attached to a project. Continue in its task conversation.')
             if doc['status'] == 'error':
@@ -459,7 +459,7 @@ class ConversationStore:
                 fields['title'] = title.strip()
             if 'models' in fields:
                 if doc['status'] == 'thinking':
-                    raise ValueError('Wait for GLM to finish before changing conversation models.')
+                    raise ValueError('Wait for the Planner to finish before changing conversation models.')
                 fields['models'] = _models(fields['models'])
             if 'attachment' in fields:
                 attachment = fields['attachment']
@@ -494,7 +494,7 @@ class ConversationStore:
             if expected_attachment is not None and not replacing_failed:
                 return self._public(doc), False
             if doc['status'] != 'ready':
-                raise ValueError('Wait for a complete GLM reply before attaching a project.')
+                raise ValueError('Wait for a complete Planner reply before attaching a project.')
             return self.update(conversation_id, attachment=attachment), True
 
     def _append_user(self, doc, text, request_id):
@@ -519,7 +519,7 @@ class ConversationStore:
             fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
             lease.close()
-            raise ValueError('GLM is still replying in another dashboard. Wait for the response before continuing.') from error
+            raise ValueError('The Planner is still replying in another dashboard. Wait for the response before continuing.') from error
         return lease
 
     def _start(self, doc):
@@ -539,7 +539,7 @@ class ConversationStore:
             self.pool.submit(self._reply, doc['id'], doc['_active_turn'])
         except RuntimeError:
             self._leases.pop((doc['id'], doc['_active_turn'])).close()
-            doc.update(status='error', error='The conversation service stopped before GLM could reply. Retry shortly.', _active_turn=None)
+            doc.update(status='error', error='The conversation service stopped before the Planner could reply. Retry shortly.', _active_turn=None)
             self._pending_message(doc)['status'] = 'error'
             self._save(doc)
 
@@ -563,16 +563,16 @@ class ConversationStore:
                 raise ConversationProviderError('The conversation scratch directory is invalid.')
             response = self.provider(messages, model, workdir)
             if not isinstance(response, str) or not response.strip():
-                raise ConversationProviderError('GLM returned no text. Your message is saved; retry when ready.')
+                raise ConversationProviderError('The Planner returned no text. Your message is saved; retry when ready.')
             if len(response) > MAX_REPLY_CHARS:
-                raise ConversationProviderError('GLM returned an oversized reply. Your message is saved; retry with a narrower request.')
+                raise ConversationProviderError('The Planner returned an oversized reply. Your message is saved; retry with a narrower request.')
             error = None
         except ConversationProviderError as exc:
             error = str(exc)
         except Exception:
             # Exceptions/CLI diagnostics may contain credentials. Display only
             # controlled messages; never persist provider output or environment.
-            error = 'GLM could not reply. Your message is saved; check the provider connection and retry.'
+            error = 'The Planner could not reply. Your message is saved; check the provider connection and retry.'
         with self._guard():
             doc = self._load(conversation_id)
             if doc.get('_active_turn') != turn_id:
@@ -581,7 +581,7 @@ class ConversationStore:
             user['status'] = 'error' if error else 'received'
             doc.update(status='error' if error else 'ready', error=error, _active_turn=None)
             if not error:
-                doc['messages'].append({'id': uuid.uuid4().hex, 'role': 'assistant', 'speaker': 'GLM',
+                doc['messages'].append({'id': uuid.uuid4().hex, 'role': 'assistant', 'speaker': 'Planner',
                                         'text': response.strip(), 'created_at': _now(), 'status': 'received'})
             self._save(doc)
             # Readers must not observe ready/error while the completed turn

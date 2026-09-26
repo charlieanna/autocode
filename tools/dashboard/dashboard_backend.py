@@ -2,16 +2,18 @@
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 import sys
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 try:
-    from .dashboard_monitor import snapshot as monitor_snapshot
+    from .dashboard_monitor import process_table as monitor_process_table, snapshot as monitor_snapshot
 except ImportError:  # Support direct execution from this source directory.
-    from dashboard_monitor import snapshot as monitor_snapshot
+    from dashboard_monitor import process_table as monitor_process_table, snapshot as monitor_snapshot
 
 
 def mapping(value):
@@ -28,9 +30,11 @@ def capability(value):
 
 
 class RegistryInterventionMixin:
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, registry_ttl=30.0, **kwargs):
         super().__init__(*args, **kwargs)
         self.registry_lock = threading.RLock()
+        self.registry_scope = threading.local()
+        self.registry_ttl = max(0.0, float(registry_ttl))
         self.registry_cache = {'at': 0, 'workspaces': [], 'runs': {}, 'diagnostics': [], 'error': None, 'location': None}
         self.status_cache = {}
         self.intervention_actions = {}
@@ -53,10 +57,13 @@ class RegistryInterventionMixin:
         return data, None
 
     def _registered(self):
+        pinned = getattr(self.registry_scope, 'value', None)
+        if pinned is not None:
+            return pinned
         with self.registry_lock:
-            if time.monotonic() - self.registry_cache['at'] < 2:
+            if time.monotonic() - self.registry_cache['at'] < self.registry_ttl:
                 return self.registry_cache
-            result = {'workspaces': [], 'runs': {}, 'diagnostics': [], 'error': None, 'location': None}
+            result = {'workspaces': [], 'workspace_ids': {}, 'runs': {}, 'diagnostics': [], 'error': None, 'location': None}
             location, error = self._json_command(['registry', 'location', '--json'])
             if error:
                 result['error'] = error['message']
@@ -71,12 +78,17 @@ class RegistryInterventionMixin:
                     result['error'] = 'Unsupported or malformed registry listing.'
                 else:
                     for item in data['workspaces']:
-                        raw = mapping(item).get('workspace')
+                        item = mapping(item)
+                        raw = item.get('workspace')
                         try:
                             path = Path(raw).resolve(strict=True)
                             if str(path) != raw or not path.is_dir() or not (path / '.git').exists():
                                 raise ValueError('Not an available canonical Git workspace')
                             result['workspaces'].append(path)
+                            ident = item.get('id')
+                            if (item.get('availability') == 'available' and isinstance(ident, str)
+                                    and re.fullmatch(r'workspace-[a-f0-9]{24}', ident)):
+                                result['workspace_ids'][ident] = str(path)
                         except (OSError, TypeError, ValueError) as failure:
                             result['diagnostics'].append({'workspace': str(raw), 'error': str(failure)})
                     for item in data['runs']:
@@ -98,6 +110,51 @@ class RegistryInterventionMixin:
             result['at'] = time.monotonic()
             self.registry_cache = result
             return result
+
+    @contextmanager
+    def pin_registry(self):
+        """Reuse one membership snapshot throughout a composite dashboard read."""
+        prior = getattr(self.registry_scope, 'value', None)
+        if prior is None:
+            self.registry_scope.value = self._registered()
+        try:
+            yield self.registry_scope.value
+        finally:
+            if prior is None:
+                del self.registry_scope.value
+            else:
+                self.registry_scope.value = prior
+
+    @contextmanager
+    def pin_discovery(self):
+        """Reuse one watched-project set throughout a composite dashboard read."""
+        prior = getattr(self.registry_scope, 'discovered', None)
+        prior_errors = getattr(self.registry_scope, 'discovery_errors', None)
+        if prior is None:
+            self.registry_scope.discovered = super()._discovered()
+            with self.scan_lock:
+                self.registry_scope.discovery_errors = [
+                    {'workspace': str(root), 'error': entry['error']}
+                    for root in self.watch_roots
+                    if (entry := self.discovery_cache.get(str(root))) and entry.get('error')
+                ]
+        try:
+            yield self.registry_scope.discovered
+        finally:
+            if prior is None:
+                del self.registry_scope.discovered
+                del self.registry_scope.discovery_errors
+            else:
+                self.registry_scope.discovered = prior
+                self.registry_scope.discovery_errors = prior_errors
+
+    def _discovered(self):
+        pinned = getattr(self.registry_scope, 'discovered', None)
+        return pinned if pinned is not None else super()._discovered()
+
+    def root_error_rows(self):
+        pinned = getattr(self.registry_scope, 'discovery_errors', None)
+        return list(pinned) if pinned is not None else super().root_error_rows()
 
     def registry_status(self):
         registry = self._registered()
@@ -144,6 +201,7 @@ class RegistryInterventionMixin:
         registry = self._registered()
         result = self.root_error_rows() + list(registry['diagnostics'])
         seen = set()
+        process_snapshot, process_snapshot_loaded = None, False
         # One traversal uses one membership snapshot even if its reads outlast
         # the TTL. run_for still checks each current path and checkpoint identity.
         for workspace in self._workspaces_for_registry(registry):
@@ -170,7 +228,11 @@ class RegistryInterventionMixin:
                     if not isinstance(state, dict):
                         raise ValueError('State is not an object')
                     view = super().view(workspace, run, state)
-                    view['monitor'] = monitor_snapshot(mapping(state), run)
+                    active = mapping(state.get('active_stage'))
+                    if type(active.get('pid')) is int and not process_snapshot_loaded:
+                        process_snapshot = monitor_process_table()
+                        process_snapshot_loaded = True
+                    view['monitor'] = monitor_snapshot(mapping(state), run, process_snapshot=process_snapshot)
                 except (OSError, ValueError):
                     view = super().view(workspace, run)
                 if view.get('state_error'):

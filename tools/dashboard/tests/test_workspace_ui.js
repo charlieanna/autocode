@@ -5,8 +5,9 @@ const c=vm.createContext({URL,URLSearchParams});
 vm.runInContext(source.slice(source.indexOf('const basename ='),source.indexOf("document.addEventListener('focusin'"))+source.slice(source.indexOf('function concise('),source.indexOf('function badge('))+source.slice(source.indexOf('function jointPlanning('),source.indexOf('function setView('))+source.slice(source.indexOf('function interruptedAttempt('),source.indexOf('function renderPrimaryAction('))+source.slice(source.indexOf('function localPreviewUrl('),source.indexOf('function stopPreview(')),c);
 const active={status:'RUNNING',stage:'terra',active_stage:{stage:'terra',started_at:'2026-09-21T00:00:00Z'},monitor:{live:{state:'alive'}}};
 assert.equal(c.primaryAction(active).kind,'pause');
+assert.equal(c.primaryAction(active).label,'Pause after current step');
 assert.equal(c.primaryAction({...active,questions:[{id:'old'}]}).kind,'pause');
-assert.equal(c.primaryAction({...active,monitor:{live:{state:'unknown'}}}).kind,'pause');
+assert.equal(c.primaryAction({...active,monitor:{live:{state:'unknown'}}}).kind,'checks');
 assert.equal(c.primaryAction({...active,monitor:{live:{state:'exited'}}}).kind,'continue');
 assert.equal(c.primaryAction({status:'WAITING_FOR_USER',questions:[{id:'Q1',question:'Which platform?'}]}).kind,'answer');
 assert.equal(c.primaryAction({status:'WAITING_FOR_USER',questions:[{id:'Q1'}]},true).disabled,true);
@@ -22,6 +23,39 @@ assert.equal(c.primaryAction(review).kind,'checks');
 assert.equal(c.primaryAction({...review,human_reviews:{C1:{token:'old'}}}).kind,'checks');
 assert.equal(c.primaryAction({...review,human_reviews:{C1:{token:'current'}}}).label,'Finish task');
 assert.equal(c.primaryAction({...review,status:'RUNNING',user_request:null,human_reviews:{C1:{token:'current'}}}).label,'Finish task');
+
+// Workspace runtime wording and ordering are independent from decorative status
+// colors. A saved active stage must never be promoted to a live worker.
+assert.equal(c.runtimeLabel(active),'Running · worker verified alive');
+assert.equal(c.runtimeLabel({...active,monitor:{live:{state:'unknown'}}}),'Activity reported · live process not confirmed');
+assert.equal(c.runtimeLabel({...active,monitor:{live:{state:'exited'}}}),'Worker stopped');
+assert.equal(c.runtimeLabel({status:'WAITING_FOR_USER',questions:[{id:'q1'}]}),'Waiting on you · Answer needed');
+assert.equal(c.runtimeLabel({status:'AWAITING_GOAL_APPROVAL',goal_token:'r7',goal:{origin:'astra_finalize',approval_status:'draft'},model_settings:{joint_planning:true}}),'Waiting on you · Approve plan');
+assert.equal(c.runtimeLabel({status:'PAUSED_PROVIDER_UNCERTAIN',interventions:{attempt_id:'req-1'}}),'Interrupted · saved work preserved');
+assert.equal(c.runtimeLabel({status:'TASK_COMPLETE'}),'Completed · recorded evidence');
+assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(workspaceFilterDefinitions)',c)),[
+ ['attention','Waiting on you'],['running','In progress'],['stopped','Paused / issues'],['complete','Completed']
+]);
+const ordered=c.orderedWorkspaceRuns([
+ {run:'completed',status:'TASK_COMPLETE',created_at:'2026-09-22T00:00:00Z'},
+ {run:'reported',status:'RUNNING',active_stage:{stage:'terra'},monitor:{live:{state:'unknown'}},created_at:'2026-09-22T00:00:00Z'},
+ {run:'paused',status:'PAUSED_INTERVENTION',created_at:'2026-09-22T00:00:00Z'},
+ {run:'live',status:'RUNNING',active_stage:{stage:'terra'},monitor:{live:{state:'alive'}},created_at:'2026-09-22T00:00:00Z'},
+ {run:'waiting',status:'WAITING_FOR_USER',questions:[{id:'q'}],created_at:'2026-09-22T00:00:00Z'},
+]);
+// Unknown worker liveness belongs with stopped issues, ahead of verified work.
+assert.deepEqual(Array.from(ordered,row=>row.run),['waiting','paused','reported','live','completed']);
+const facts=c.workspaceRowFacts({...active,run:'running',created_at:'2026-09-22T00:00:00Z'});
+assert.match(facts.step,/Step:/);assert.match(facts.freshness,/Current verification/);assert.match(facts.updated,/Updated/);
+assert.equal(c.completionEvidenceStatement({validation:{source_revision:'abc123',checks:[{name:'8 checks were recorded as passing'}]}}),
+ '8 checks were recorded as passing for source abc123. Current freshness is unavailable.');
+const completion='2026-09-22T12:44:00Z';
+const recordedCompletion=JSON.parse(vm.runInContext('JSON.stringify(completionTimestamp({completed_at:'+JSON.stringify(completion)+'}))',c));
+assert.equal(recordedCompletion.state,'recorded');
+assert.equal(recordedCompletion.raw,completion);
+assert.match(recordedCompletion.text,/2026/);
+assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(completionTimestamp({}))',c)),{state:'unavailable',raw:'',text:'Completion timestamp unavailable.'});
+assert.deepEqual(JSON.parse(vm.runInContext('JSON.stringify(completionTimestamp({completed_at:"not-a-completion-timestamp"}))',c)),{state:'invalid',raw:'not-a-completion-timestamp',text:'Completion timestamp unavailable — saved value is invalid.'});
 assert.equal(c.localPreviewUrl('http://localhost:3000/demo','http://127.0.0.1:8767'),'http://localhost:3000/demo');
 for(const url of ['https://example.com','javascript:alert(1)','file:///tmp/test','http://localhost:8767/','http://127.0.0.1:8767/','http://user:secret@localhost:3000','http://localhost.evil.test:3000'])assert.throws(()=>c.localPreviewUrl(url,'http://127.0.0.1:8767/'));
 console.log('State-specific primary actions, stale questions, approval gates, and local preview boundaries passed.');

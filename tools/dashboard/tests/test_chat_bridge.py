@@ -62,7 +62,7 @@ else:
   if (root/'fail-before-checkpoint').exists():
    print('fixture startup failed before checkpoint',file=sys.stderr);raise SystemExit(1)
   run=workspace/'.autocode/runs/created';run.mkdir(parents=True)
-  roles={role:{'model':arg('--'+role+'-model')} for role in ('glm','astra','terra','sol') if '--'+role+'-model' in args}
+  roles={role:{'model':arg('--'+role+'-model')} for role in ('glm','astra','terra','sol','completion') if '--'+role+'-model' in args}
   state={'workspace':str(workspace),'task':goal,'status':'WAITING_FOR_USER','phase':'discovery',
    'settings':{'joint_planning':'--joint-planning' in args,'engine':'opencode','roles':roles},'pending_questions':[],
    'intervention_capability':{'supported':True,'version':1}}
@@ -97,7 +97,7 @@ class ChatFixture:
 
     def provider(self, messages, model, workdir):
         self.provider_calls.append((messages, model, workdir))
-        return 'GLM: ' + messages[-1]['text']
+        return 'Planner: ' + messages[-1]['text']
 
     def make_console(self):
         console = Console([self.workspace], self.fake, lambda: None,
@@ -156,6 +156,15 @@ class ChatFixture:
 
 
 class ChatBridgeTests(ChatFixture, unittest.TestCase):
+    def test_saved_progress_is_exposed_without_launching_runner(self):
+        self.make_run()
+        self.state['progress_messages'] = [{'id': 'progress-1', 'role': 'assistant',
+            'speaker': 'Builder', 'text': 'Fix routing', 'created_at': '2026-09-24T01:00:00Z'}]
+        self.save_state()
+        view = self.console.view(self.workspace, self.run, self.read_state())
+        self.assertEqual(self.state['progress_messages'], view['progress_messages'])
+        self.assertEqual([], self.commands())
+
     def test_project_free_conversation_persists_and_replays_without_starting_runner(self):
         data = {'text': 'Plan a journal', 'request_id': 'conversation-start'}
         first = self.ready(self.console.conversation_create(data))
@@ -163,7 +172,7 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         second = self.ready(self.console.conversations.send(first['id'], 'Keep it local', 'followup-request'))
         restored = self.make_console().conversation_get(first['id'])
         self.assertEqual(second['messages'], restored['messages'])
-        self.assertEqual(['Plan a journal', 'GLM: Plan a journal', 'Keep it local', 'GLM: Keep it local'],
+        self.assertEqual(['Plan a journal', 'Planner: Plan a journal', 'Keep it local', 'Planner: Keep it local'],
                          [row['text'] for row in restored['messages']])
         self.assertIsNone(restored['attachment'])
         self.assertEqual([], self.commands())
@@ -172,7 +181,10 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
 
     def test_attachment_carries_full_transcript_models_joint_flag_and_canonical_project(self):
         models = {'glm_model': 'zai-coding-plan/glm-5.3', 'astra_model': 'gpt-6-astra',
-                  'terra_model': 'zai-coding-plan/glm-5.3-flash', 'sol_model': 'gpt-5.6-sol'}
+                  'terra_model': 'zai-coding-plan/glm-5.3-flash', 'sol_model': 'gpt-5.6-sol',
+                  'completion_model': 'gpt-5.6-sol',
+                  'astra_reasoning_effort': 'xhigh', 'terra_reasoning_effort': 'medium',
+                  'sol_reasoning_effort': 'high', 'completion_reasoning_effort': 'medium'}
         doc = self.create_conversation(models=models)
         doc = self.ready(self.console.conversations.send(doc['id'], 'Actually include review notes', 'revise-request'))
         alias = self.root / 'project-alias'
@@ -434,7 +446,7 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         oversized.write_text(json.dumps({'summary': 'x' * 524288}))
         rejected = self.run / 'rejected.json'
         rejected.write_text(json.dumps({'summary': 'Rejected stage text'}))
-        state = {'planning': {'reports': {'astra_discovery': {'output': str(joint), 'report': {'summary': 'Current GLM draft'}}}},
+        state = {'planning': {'reports': {'astra_discovery': {'output': str(joint), 'report': {'summary': 'Current Planner draft'}}}},
                  'stages': [
                      {'stage': 'astra_discovery', 'role': 'glm', 'output': str(initial), 'exit_code': 0,
                       'started_at': '2026-09-20T10:00:00Z', 'finished_at': '2026-09-20T10:01:00Z'},
@@ -443,11 +455,11 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
                      *[{'stage': 'astra_discovery', 'output': str(path), 'exit_code': 0} for path in (outside, escaped, oversized)],
                      {'stage': 'astra_discovery', 'output': str(rejected), 'exit_code': 0, 'rejected': True}]}
         messages = planning_messages(state, self.run)
-        self.assertEqual({'First clarification reply', 'Current GLM draft'}, {row['text'] for row in messages})
+        self.assertEqual({'First clarification reply', 'Current Planner draft'}, {row['text'] for row in messages})
         by_text = {row['text']: row for row in messages}
         self.assertEqual('2026-09-20T10:01:00Z', by_text['First clarification reply']['created_at'])
-        self.assertEqual('2026-09-20T10:02:00Z', by_text['Current GLM draft']['created_at'])
-        self.assertEqual(['GLM', 'GLM'], [row['speaker'] for row in messages])
+        self.assertEqual('2026-09-20T10:02:00Z', by_text['Current Planner draft']['created_at'])
+        self.assertEqual(['Planner', 'Planner'], [row['speaker'] for row in messages])
 
     def test_stale_question_and_conflicting_replay_are_rejected_without_commands(self):
         self.make_run([{'id': 'current', 'question': 'Current question'}])

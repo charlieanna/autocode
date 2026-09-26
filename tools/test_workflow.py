@@ -1,4 +1,4 @@
-"""GLM-first routing uses fake providers; tests never contact subscription services."""
+"""Builder-first routing uses fake providers; tests never contact subscription services."""
 import copy
 import json
 import unittest

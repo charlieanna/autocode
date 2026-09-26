@@ -42,8 +42,14 @@ class OpenCodeTests(unittest.TestCase):
         self.assertEqual(7, events[-1]["usage"]["output_tokens"])
 
     def test_absent_exit_code_or_model_claims_cannot_be_command_evidence(self):
-        for state in ({"status": "completed", "input": {"command": "tests"}, "output": "PASS"},
-                      {"status": "error", "input": {"command": "tests"}, "metadata": {"exit": 0}},
+        # Completed output without an integer exit can attest a capture receipt.
+        # It is not a command_execution, so it cannot be cited as event: evidence.
+        output_only = oc.normalized_events([event("tool_use", tool="bash", state={
+            "status": "completed", "input": {"command": "tests"}, "output": "PASS"}), terminal()])
+        completed = [row["item"] for row in output_only if row["type"] == "item.completed"]
+        self.assertEqual(["tool_output"], [item["type"] for item in completed])
+        self.assertNotIn("exit_code", completed[0])
+        for state in ({"status": "error", "input": {"command": "tests"}, "metadata": {"exit": 0}},
                       {"status": "completed", "input": {"command": "tests"}, "metadata": {"exit": False}}):
             events = oc.normalized_events([event("tool_use", tool="bash", state=state), terminal()])
             self.assertFalse(any(row["type"] == "item.completed" for row in events))
@@ -280,17 +286,28 @@ class OpenCodeFlow(unittest.TestCase):
         _, state = self.saved()
         self.assertEqual("opencode", state["settings"]["engine"])
         self.assertTrue(state["settings"]["joint_planning"])
-        self.assertEqual("glm", state["stages"][0]["role"])
-        expected = {"glm": "zai-coding-plan/glm-5.3", "astra": "openai/gpt-6-astra",
-                    "terra": "zai-coding-plan/glm-5.3", "sol": "openai/gpt-5.6-sol"}
+        self.assertEqual("requirements", state["stages"][0]["role"])
+        expected = {"requirements": "zai-coding-plan/glm-5.3", "glm": "zai-coding-plan/glm-5.3",
+                    "astra": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+                    "terra": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "sol": "zai-coding-plan/glm-5.3",
+                    "completion": "zai-coding-plan/glm-5.3",
+                    "plan_reviewer": "xiaomi-token-plan-sgp/mimo-v2.6-pro"}
         self.assertEqual(expected, {role: settings["model"] for role, settings in state["settings"]["roles"].items()})
         self.assertEqual("COMPLETE", state["phase"])
         self.assertNotEqual(state["sessions"]["terra"], state["sessions"]["sol"])
-        self.assertNotEqual(state["sessions"]["astra"], state["sessions"]["sol"])
-        engines = {role: "opencode" for role in ("glm", "terra", "astra", "sol")}
+        self.assertNotEqual(state["sessions"]["plan_reviewer"], state["sessions"]["sol"])
+        engines = {role: "opencode" for role in ("requirements", "glm", "terra", "astra", "sol", "completion", "plan_reviewer")}
         for record in state["stages"]:
+            if record.get("runner_owned"):
+                self.assertIn(record['stage'], ('orchestrator', 'resolver'))
+                self.assertEqual("runner", record["engine"])
+                self.assertNotIn("command", record)
+                if record['stage'] == 'resolver':
+                    self.assertEqual(0, record['runner_calls'])
+                    self.assertIn(record['decision']['action'], ('continue', 'retry', 'escalate'))
+                continue
             command = record["command"]
-            role = record["role"]
+            role = record.get("route_role", record["role"])
             self.assertEqual(engines[role], record["engine"])
             self.assertEqual(engines[role], command[0])
             self.assertNotIn("--auto", command)

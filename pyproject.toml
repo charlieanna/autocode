@@ -4,20 +4,29 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autocode-supervisor"
-version = "0.5.4"
+version = "0.7.1"
 description = "Conversation-first Astra/Terra/Sol runner for Codex and OpenCode"
 requires-python = ">=3.11"
 readme = "README.md"
-dependencies = []
+dependencies = ["psutil>=7.0,<8"]
 
 [project.scripts]
+autopilot = "autocode_cli.autopilot:cli"
 autocode = "autocode_cli.autocode:cli"
+autocode-orchestrator = "autocode_cli.autocode_orchestrator:cli"
+autoplanner = "autocode_cli.autoplanner:cli"
+autocode-build = "autocode_cli.autocode_build:cli"
+autoreview = "autocode_cli.autoreview:cli"
+autoresolver = "autocode_cli.autoresolver:cli"
 autocode-dashboard = "autocode_cli.dashboard.agent_console:main"
+autocode-ui = "autocode_cli.autocode_ui:cli"
+autocode-tasks = "autocode_cli.autocode_tasks:cli"
 
 [tool.setuptools]
-packages = ["autocode_cli", "autocode_cli.dashboard"]
+packages = ["autocode_cli", "autocode_cli.dashboard", "autocode_cli.providers", "autocode_cli.units"]
 package-dir = {autocode_cli = "tools"}
 
 [tool.setuptools.package-data]
 autocode_cli = ["autocode-schemas/*.json", "autocode-schemas/v2/*.json"]
 "autocode_cli.dashboard" = ["*.html", "*.css", "*.js"]
+"autocode_cli.providers" = ["configs/*.toml"]

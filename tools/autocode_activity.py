@@ -343,7 +343,7 @@ class ActivityMonitor:
                 "idle_seconds": round(max(0, now - self._last_activity), 3),
                 "tool_elapsed_seconds": round(elapsed, 3) if elapsed is not None else None,
                 "idle_limit_seconds": self.idle_limit, "tool_limit_seconds": self.tool_limit,
-                "active_tool_count": len(self._active),
+                "active_tool_count": len(self._active), "completed_tool_count": len(self._closed),
                 "process_fallback": self._fallback_started is not None}
 
     def snapshot(self):

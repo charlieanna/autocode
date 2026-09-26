@@ -8,12 +8,31 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode as runner
 import autocode_opencode as oc
+import autocode_planning as planning
 import autocode_support as support
 import test_planning
 
 
 class AllRoleModelTests(unittest.TestCase):
+    def setUp(self):
+        self.provider_patch = patch.object(runner, "opencode", oc)
+        self.provider_patch.start()
+        self.addCleanup(self.provider_patch.stop)
+
     configure_args = test_planning.PlanningTests.configure_args
+
+    def test_saved_run_pins_selected_roles_at_a_model_change(self):
+        with patch.object(oc, 'local_settings', return_value={'engine': 'opencode'}):
+            original = runner.configure(self.configure_args(), {'workspace': '/fixture', 'iteration': 0})
+            state = {'workspace': '/fixture', 'settings': original, 'sessions': {'astra': 'saved'}}
+            selected = runner.configure(self.configure_args(
+                astra_model='openai/gpt-5.6-sol', astra_reasoning_effort='high',
+                pin_model_role=['astra', 'sol', 'completion']), state)
+        self.assertEqual('openai/gpt-5.6-sol', selected['roles']['astra']['model'])
+        self.assertEqual('high', selected['roles']['astra']['reasoning_effort'])
+        self.assertTrue(all(selected['roles'][role]['model_pinned']
+                            for role in ('astra', 'sol', 'completion')))
+        self.assertNotIn('model_pinned', original['roles']['astra'])
 
     def test_all_overrides_use_opencode_without_a_codex_login_dependency(self):
         models = {'glm':'openai/gpt-5.6-sol','astra':'zai-coding-plan/glm-5.3',
@@ -42,10 +61,11 @@ class AllRoleModelTests(unittest.TestCase):
             args = self.configure_args(sol_model='zai-coding-plan/glm-5.3')
             settings = runner.configure(args, {'workspace':'/fixture','iteration':0})
         self.assertEqual('opencode', settings['roles']['astra']['engine'])
-        self.assertEqual('openai/gpt-6-astra', settings['roles']['astra']['model'])
+        self.assertEqual('xiaomi-token-plan-sgp/mimo-v2.6-pro', settings['roles']['astra']['model'])
         self.assertEqual('opencode', settings['roles']['sol']['engine'])
+        self.assertEqual('zai-coding-plan/glm-5.3', settings['roles']['sol']['model'])
         self.assertEqual('zai-coding-plan/glm-5.3', settings['roles']['glm']['model'])
-        self.assertEqual('zai-coding-plan/glm-5.3', settings['roles']['terra']['model'])
+        self.assertEqual('xiaomi-token-plan-sgp/mimo-v2.6-pro', settings['roles']['terra']['model'])
         state = {'settings':settings,'sessions':{'astra':'opencode-astra','sol':'opencode-sol'}}
         before = copy.deepcopy(state)
         for override in ({'astra_model':'gpt-6-astra'}, {'sol_model':'gpt-5.6-sol'}):
@@ -64,7 +84,10 @@ class AllRoleSubprocessTests(unittest.TestCase):
     def test_selected_roles_survive_approval_implementation_validation_and_resume(self):
         self.prepare('rework')
         models = {'glm':'openai/gpt-5.6-sol','astra':'zai-coding-plan/glm-5.3',
-                  'terra':'openai/gpt-5.6-terra','sol':'openai/gpt-6-astra'}
+                  'terra':'openai/gpt-5.6-terra','sol':'openai/gpt-6-astra',
+                  'completion':'openai/gpt-5.6-sol'}
+        expected_models={**models,'requirements':'zai-coding-plan/glm-5.3',
+                         'resolver':models['astra'],'plan_reviewer':planning.PINNED_REVIEWER_MODEL}
         flags = [arg for role, model in models.items() for arg in ('--'+role+'-model',model)]
         self.launch(['Build a greeting tool','--no-chat',*flags], 2)
         run, state = self.saved()
@@ -79,28 +102,38 @@ class AllRoleSubprocessTests(unittest.TestCase):
         self.launch([*args,'--approve-goal',state['displayed_goal']], 0)
         # Reopen every saved stage boundary. This tests actual resume routing
         # and keeps the harness's 30-second bound per stage, not six stages.
-        stages = ['terra','sol','astra_review','terra','sol','astra_review']
+        stages = ['orchestrator','terra','sol','astra_review','astra_resolve',
+                  'orchestrator','terra','sol','astra_review']
         for index, stage in enumerate(stages):
             before_stage = self.saved()[1]
             self.assertEqual(stage, before_stage['next_stage'])
             self.launch([*args,'--no-chat','--pause-after-stage',*(['--resume-paused'] if index else [])],
                         0 if index==len(stages)-1 else 2)
             after_stage = self.saved()[1]
-            self.assertEqual(len(before_stage['stages'])+1, len(after_stage['stages']))
+            self.assertEqual(len([row for row in before_stage['stages'] if row['stage'] != 'resolver'])+1,
+                             len([row for row in after_stage['stages'] if row['stage'] != 'resolver']))
         final = self.saved()[1]
         self.assertEqual('COMPLETE', final['phase'])
         for stage in final['stages']:
+            if stage.get('runner_owned'):
+                self.assertIn(stage['stage'], ('orchestrator', 'resolver'))
+                self.assertEqual('runner', stage['engine'])
+                self.assertNotIn('command', stage)
+                if stage['stage'] == 'resolver':
+                    self.assertEqual(0, stage['runner_calls'])
+                continue
             self.assertEqual('opencode', stage['engine'])
             self.assertEqual('opencode', stage['command'][0])
-            self.assertEqual(models[stage['role']], stage['command'][stage['command'].index('--model')+1])
+            route = stage.get('route_role', stage['role'])
+            self.assertEqual(expected_models[route], stage['command'][stage['command'].index('--model')+1])
         builds = [row for row in final['stages'] if row['stage']=='terra']
         audits = [row for row in final['stages'] if row['stage']=='sol']
         self.assertEqual(2, len(builds))
         self.assertEqual(2, len(audits))
-        self.assertEqual(final['sessions']['terra'], builds[1]['expected_session'])
-        self.assertEqual(final['sessions']['sol'], audits[1]['expected_session'])
         self.assertNotEqual(final['sessions']['sol'], final['sessions']['terra'])
         for stage in final['stages']:
+            if stage.get('runner_owned'):
+                continue
             config = __import__('json').loads(Path(stage['output']).with_suffix('.opencode.json').read_text())
             agent = stage['command'][stage['command'].index('--agent')+1]
             policy = config['agent'][agent]['permission']

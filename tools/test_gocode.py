@@ -109,6 +109,7 @@ class GoCodeTransportTests(unittest.TestCase):
         self.assertEqual("gocode-openai/terra", settings["roles"]["terra"]["model"])
         self.assertEqual("gocode-openai/sol", settings["roles"]["sol"]["model"])
         self.assertEqual("gocode-openai/luna", settings["roles"]["glm"]["model"])
+        self.assertEqual("gocode-openai/sol", settings["roles"]["completion"]["model"])
         self.assertEqual("xhigh", settings["roles"]["glm"]["reasoning_effort"])
 
 
@@ -160,11 +161,15 @@ os.execvp(sys.argv[2], sys.argv[2:])
         return run, json.loads((run / "state.json").read_text())
 
     def test_four_roles_complete_through_gocode_without_opencode(self):
-        self.launch(["Build a greeting tool", "--chat"], 0, answers="CLI\nyes\nyes\n")
+        self.launch(["Build a greeting tool", "--chat", "--in-place"], 0, answers="CLI\nyes\nyes\n")
         _, state = self.saved()
         self.assertEqual("TASK_COMPLETE", state["status"])
-        self.assertEqual({"gocode"}, {stage["engine"] for stage in state["stages"]})
+        engines = {stage["engine"] for stage in state["stages"]}
+        self.assertIn("gocode", engines)
+        self.assertLessEqual(engines, {"gocode", "runner"})
         for stage in state["stages"]:
+            if stage["engine"] == "runner":
+                continue
             self.assertEqual(["gocode", "exec", "codex", "exec"], stage["command"][:4])
             self.assertNotIn("opencode", stage["command"])
 

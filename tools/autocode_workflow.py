@@ -13,17 +13,17 @@ except ImportError:
 MODE = "glm_first_v1"
 FINAL_MODE = "glm_final_audit_v2"
 FINAL_APPROVAL = (
-    "GLM owns technical planning, implementation, tests, routine fixes and continuation "
-    "across approved milestones. Sol runs only for a concrete GLM debugging escalation. "
-    "Astra runs only for the final full-task independent audit and any necessary final "
+    "The Builder owns technical planning, implementation, tests, routine fixes and continuation "
+    "across approved milestones. The Validator runs only for a concrete Builder debugging escalation. "
+    "The Plan Reviewer runs only for the final full-task independent audit and any necessary final "
     "audit recheck. Preserve the approved goal, criteria, evidence checks, human approvals, "
     "permissions, models, sessions and limits; no automatic milestone GPT review."
 )
 APPROVAL_TEXT = (
-    "GLM owns substantial implementation, tests and routine fixes. Astra performs "
+    "The Builder owns substantial implementation, tests and routine fixes. The Plan Reviewer performs "
     "independent milestone validation and completion judgment in one read-only call. "
-    "Sol is a targeted escalation only. Existing Sol reviewer references mean the "
-    "independent reviewer responsibility, now assigned to Astra; evidence requirements, "
+    "The Validator is a targeted escalation only. Existing Validator reviewer references mean the "
+    "independent reviewer responsibility, now assigned to the Plan Reviewer; evidence requirements, "
     "scope, permissions, human reviews and execution limits are unchanged."
 )
 
@@ -38,7 +38,7 @@ def final_only(state):
 
 def guard(state):
     if state.get('settings', {}).get('milestone_checkpoints', {}).get('enabled') and enabled(state):
-        raise support.Paused('PAUSED_WORKFLOW_CONFLICT', 'Milestone checkpoints require Terra → Sol → Astra routing')
+        raise support.Paused('PAUSED_WORKFLOW_CONFLICT', 'Milestone checkpoints require Builder → Validator → Plan Reviewer routing')
     if not enabled(state):
         return
     policy = state["settings"]["workflow"]
@@ -75,7 +75,7 @@ def activate_final(state, *, approval_source):
         'previous_workflow':old,'previous_next_stage':state.get('next_stage')})
     if state['status'] not in ('TASK_COMPLETE','WAITING_FOR_USER','AWAITING_GOAL_APPROVAL'):
         state['next_stage']='terra'
-    # Preserve the approved current task and all already completed reports. GLM
+    # Preserve the approved current task and all already completed reports. The Builder
     # consumes the saved review and owns subsequent in-scope technical planning.
 
 
@@ -128,7 +128,7 @@ def apply_implementation(runner,state,value,record,workspace,run_dir):
         goals.record_decision(state,decision)
     elif action=='ESCALATE_SOL':
         if not c['question'].strip() or not c['reason'].strip():
-            raise ValueError('Sol escalation needs a specific question and evidence of the blocker')
+            raise ValueError('A Validator escalation needs a specific question and evidence of the blocker')
         state['targeted_consultation']={'question':c['question'],'reason':c['reason'],
             'task_id':value['task_id'],'contract_hash':value['contract_hash'],'source_revision':record['source_revision']}
         state['next_stage']='sol'
@@ -142,7 +142,7 @@ def apply_implementation(runner,state,value,record,workspace,run_dir):
         runner._apply_result(probe,'self_check',c['self_assessment'],record,workspace,run_dir)
         decision={'status':'COMPLETE','contract_hash':value['contract_hash'],'contract_revision':value['contract_revision'],
             'task_id':value['task_id'],'user_request':value['user_request'],
-            'acceptance_criteria':[{**a,'status':'verified','evidence':'GLM self-check; not independent'} for a in state['acceptance_criteria']]}
+            'acceptance_criteria':[{**a,'status':'verified','evidence':'Builder self-check; not independent'} for a in state['acceptance_criteria']]}
         if not support.completion_ready(probe,decision,support.snapshot(workspace),require_human_reviews=False,require_independent=False):
             raise ValueError('Final audit requires current executed self-check evidence for every approved criterion')
         state['final_audit_request']={**probe['validation'],'requested_at':support.now(),'independent':False}
@@ -151,34 +151,34 @@ def apply_implementation(runner,state,value,record,workspace,run_dir):
 
 FINAL_POLICY = """
 FINAL-AUDIT-ONLY WORKFLOW v2 — user-approved override of earlier routing instructions.
-GLM (the legacy Terra role) owns technical planning and execution across ALL approved
+The Builder owns technical planning and execution across ALL approved
 milestones: inspect, implement, test, fix and self-review. Do not hand each milestone
-to Astra. Choose and specify the next in-scope task yourself in continuation.
-CONTINUE returns to GLM automatically, with the approved criteria and genuine next
+to the Plan Reviewer. Choose and specify the next in-scope task yourself in continuation.
+CONTINUE returns to the Builder automatically, with the approved criteria and genuine next
 task preserved. Plan substantial batches, not one edit per call. Existing limits
 still apply; limits mean paused, not complete, and must not be silently extended.
 ESCALATE_SOL requires a specific difficult debugging question, attempts and evidence.
-Sol's read-only advice returns directly to GLM; it cannot complete the task.
+The Validator's read-only advice returns directly to the Builder; it cannot complete the task.
 For unresolved scope/permission/requirements decisions, use structured user_request
-and WAITING_FOR_USER. Do not call Astra to re-plan settled goals or expand the task.
+and WAITING_FOR_USER. Do not call the Plan Reviewer to re-plan settled goals or expand the task.
 REQUEST_FINAL_AUDIT is only for the entire approved task, not the current milestone.
 Include a self_assessment with executed checks, criterion_results for EVERY required
 criterion and end_to_end_result. This is self-evidence, NOT independent validation.
 For ordinary continuation, self_assessment may report NOT_VERIFIED and empty checks;
 do not invent checks. All envelopes echo the current contract/hash/task before any
 next-task assignment. evidence_refs must be bare file paths, never annotations.
-Astra audits the complete task at the end; any final-audit findings go back to GLM.
-Astra does not author routine next steps. Historical mandatory Sol/milestone-review
+The Plan Reviewer audits the complete task at the end; any final-audit findings go back to the Builder.
+The Plan Reviewer does not author routine next steps. Historical mandatory Validator/milestone-review
 language is overridden only for reviewer routing, never evidence/content quality.
-No completion without passing current independent Astra evidence and human reviews.
+No completion without passing current independent Plan Reviewer evidence and human reviews.
 """
 
 FINAL_CHECKPOINT = """
 This is the FINAL FULL-TASK audit, not a milestone review. Independently inspect the
-approved deliverables, real source and executed checks; GLM's self-assessment is not
+approved deliverables, real source and executed checks; the Builder's self-assessment is not
 proof. Return the existing validation+decision schema. If not done, specify concrete
-blocking findings and return REWORK/CONTINUE to GLM to plan and repair. Do not propose
-new scope or route to Sol: consult_sol must be false. If done, request COMPLETE with
+blocking findings and return REWORK/CONTINUE to the Builder to plan and repair. Do not propose
+new scope or route to the Validator: consult_sol must be false. If done, request COMPLETE with
 evidence for every criterion. Human review and runner gates still apply.
 """
 
@@ -186,7 +186,7 @@ evidence for every criterion. Human review and runner gates still apply.
 def activate(state, *, approval_source):
     """Called only by an explicit operator action at an idle, reconciled boundary."""
     if state.get('settings', {}).get('milestone_checkpoints', {}).get('enabled'):
-        raise ValueError('Enforced milestone checkpoints require the separate Sol review')
+        raise ValueError('Enforced milestone checkpoints require the separate Validator review')
     if state.get("active_stage") or state.get("pending_report_repair") or state.get("uncertain_artifacts"):
         raise ValueError("Finish/reconcile the in-flight stage before changing workflow")
     if state.get("status") == "RUNNING" or not goals.approved(state):
@@ -222,9 +222,9 @@ def rollback(state):
         return
     old = state["settings"].pop("workflow")
     state.setdefault("configuration_changes", []).append({"at": support.now(),
-        "reason": "Explicit rollback to legacy Sol validation routing", "previous_workflow": old})
+        "reason": "Explicit rollback to legacy Validator routing", "previous_workflow": old})
     if state.get("validation", {}).get("reviewer_role") == "astra":
-        state.setdefault("validation_archive", []).append({"reason":"Routing rollback requires Sol revalidation",
+        state.setdefault("validation_archive", []).append({"reason":"Routing rollback requires Validator revalidation",
             "validation":state.pop("validation")})
         state["human_reviews"] = {}
         state.pop("displayed_review", None)
@@ -233,35 +233,35 @@ def rollback(state):
             state.setdefault("completion_archive", []).append({"completed_at":state.pop("completed_at",None),
                 "decision":state.pop("final_decision",None)})
         state.update(next_stage="sol",status="PAUSED_WORKFLOW_ROLLBACK",phase="PAUSED_OR_BLOCKED",
-            stop_reason="Legacy routing restored; resume the same run for Sol validation")
+            stop_reason="Legacy routing restored; resume the same run for Validator validation")
 
 
 POLICY = """
-GLM-FIRST WORKFLOW v1 (explicit user-approved reviewer-routing override)
-GLM is the implementation role (legacy name Terra). Own the substantial assigned
+BUILDER-FIRST WORKFLOW v1 (explicit user-approved reviewer-routing override)
+The Builder is the implementation role. Own the substantial assigned
 milestone end to end: implementation, tests, self-review and routine fixes. Keep test
 failures and local debugging inside that work; do not request GPT approval per edit.
 Do not widen the approved task. Stop for real permissions, ambiguity or usage limits.
-Astra independently inspects code and executes checks at milestone boundaries in a
+The Plan Reviewer independently inspects code and executes checks at milestone boundaries in a
 single read-only checkpoint that supplies both validation and the next decision.
-Sol is NOT an automatic stage. Astra may request one targeted Sol consultation for
+The Validator is NOT an automatic stage. The Plan Reviewer may request one targeted Validator consultation for
 a specific unresolved issue. Never remove required independent or human review.
-Historical references to Sol's mandatory review name the independent reviewer
-responsibility now assigned to Astra, not a waiver of any evidence or quality gate.
-The runner, not GLM or a prose verdict, enforces completion. Failed, missing or stale
+Historical references to the Validator's mandatory review name the independent reviewer
+responsibility now assigned to the Plan Reviewer, not a waiver of any evidence or quality gate.
+The runner, not the Builder or a prose verdict, enforces completion. Failed, missing or stale
 evidence stays failed/unverified. Optional improvements go into deferred_backlog.
 No task restart or discovery for settled requirements. Existing limits still apply.
 """
 
 CHECKPOINT = """
-You are ASTRA performing independent validation AND milestone judgment in ONE call.
-Read the approved contract, exact changes and relevant source. Terra's summary is not
+You are the Plan Reviewer performing independent validation AND milestone judgment in ONE call.
+Read the approved contract, exact changes and relevant source. The Builder's summary is not
 proof. Run the relevant checks read-only; do not fix files. Return a validation object
 with actual command/event evidence for each tested criterion, and a decision object.
-Apply the same independent validation rules formerly assigned to Sol. Record unknown
+Apply the same independent validation rules formerly assigned to the Validator. Record unknown
 criteria as NOT_VERIFIED. COMPLETE requires passing evidence for EVERY criterion,
 current artifact/contract, required human reviews and the complete required flow.
-REWORK assigns a coherent GLM correction of blocking findings. CONTINUE assigns the
+REWORK assigns a coherent Builder correction of blocking findings. CONTINUE assigns the
 next substantial approved milestone. Preserve requirements; never invent extra scope.
 For consult_sol.requested=true, supply a narrow question and reason and choose
 CONTINUE with next_task.kind=validate. This consult preserves the current task. It
@@ -278,7 +278,7 @@ command_execution events, not conversation call IDs. Never invent test results.
 def apply_checkpoint(runner, state, value, record, workspace, run_dir):
     guard(state)
     if not enabled(state) or record.get("role") != "astra":
-        raise ValueError("Independent checkpoint must run under the approved Astra role")
+        raise ValueError("Independent checkpoint must run under the approved Plan Reviewer role")
     support.validate_schema(value, checkpoint_schema(runner.SCHEMA_DIR))
     current = support.snapshot(workspace)
     if record.get("source_revision") != current["revision"] or record.get("changed_files"):
@@ -287,15 +287,16 @@ def apply_checkpoint(runner, state, value, record, workspace, run_dir):
     if final_only(state):
         dispatch_guard(state,'astra_checkpoint',workspace)
         if consult['requested']:
-            raise ValueError('Final audit returns findings to GLM; Sol is only GLM-requested escalation')
+            raise ValueError('Final audit returns findings to the Builder; a Validator escalation is only Builder-requested')
     if validation["user_request"] != decision["user_request"]:
         raise ValueError("Validation and decision must agree on the pending user decision")
     if consult["requested"] and (not consult["question"].strip() or not consult["reason"].strip()
             or decision["status"] != "CONTINUE" or decision["next_task"]["kind"] != "validate"
             or decision["user_request"]["kind"] != "none"):
-        raise ValueError("Sol escalation requires a concrete question and a non-completion validate decision")
+        raise ValueError("A Validator escalation requires a concrete question and a non-completion validate decision")
+
     if not consult["requested"] and (consult["question"] or consult["reason"]):
-        raise ValueError("Unused Sol escalation must be empty")
+        raise ValueError("Unused Validator escalation must be empty")
     stages, history = len(state.get("stages", [])), len(state.get("history", []))
     # Reuse existing validators and goal transitions transactionally. These are two
     # logical results from ONE provider call, so persist only its single receipt.

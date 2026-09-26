@@ -6,6 +6,7 @@ a real run. Its fake runner creates an OpenCode task, removes answered questions
 from temporary state, and prints action arguments for browser inspection.
 """
 import json
+import os
 import sys
 import tempfile
 import threading
@@ -53,8 +54,8 @@ STATE = {
         "assigned_at": "2026-09-19T22:14:47Z",
         "contract_revision": 5,
         "decision": "CONTINUE",
-        "owner": "Terra",
-        "next_role": "Sol",
+        "owner": "Builder",
+        "next_role": "Validator",
     },
     "task_archive": [{
         "id": "fixture-initial",
@@ -108,13 +109,21 @@ def make_workspace(root, name):
     (run / "state.json").write_text(json.dumps(state))
     return workspace
 
+
+def fixture_base_directory():
+    """Keep disposable browser-fixture files inside the checked-out workspace."""
+    configured = os.environ.get("AUTOCODE_FIXTURE_ROOT")
+    base = Path(configured) if configured else Path(__file__).resolve().parents[3] / ".autocode" / "evidence" / "fixture-tmp"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
 def main():
-    with tempfile.TemporaryDirectory(prefix="agent-console-browser-") as temp:
+    with tempfile.TemporaryDirectory(prefix="agent-console-browser-", dir=fixture_base_directory()) as temp:
         root = Path(temp)
         left, right = make_workspace(root, "left"), make_workspace(root, "right")
         entered = root / "entered-worktree"
         entered.mkdir()
-        (entered / ".git").write_text("gitdir: /tmp/fake-worktree")
+        (entered / ".git").write_text("gitdir: " + str(root / "fake-worktree"))
         legacy_root = root / "legacy-root"
         make_workspace(legacy_root, "discovered")
         (root / "runtime-root").mkdir()
@@ -129,7 +138,7 @@ def main():
         print("On New task, enter " + str(entered) + ", keep OpenCode selected, provide a goal, and create it. Confirm the new run appears and its action output contains --engine opencode --no-chat only.", flush=True)
         print("Add " + str(root / "runtime-root") + " in Legacy watch roots, then remove it; the CLI legacy root remains protected.", flush=True)
         print("While a question, goal, or watch-root path field is focused, type text and select part of it; wait for polling and verify draft, focus, and selection remain intact.", flush=True)
-        print("Open Astra planning to inspect the initial historically approved/inactive plan, the current draft awaiting its own approval, current assignment, and the two recorded intermediate assignment/rework cards. Viewing history does not advance the run. Then inspect every complete-brief contract section and criterion metadata before explicitly typing the displayed goal token.", flush=True)
+        print("Open Plan Reviewer planning to inspect the initial historically approved/inactive plan, the current draft awaiting its own approval, current assignment, and the two recorded intermediate assignment/rework cards. Viewing history does not advance the run. Then inspect every complete-brief contract section and criterion metadata before explicitly typing the displayed goal token.", flush=True)
         try:
             threading.Event().wait()
         except KeyboardInterrupt:

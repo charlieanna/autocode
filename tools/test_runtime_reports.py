@@ -64,6 +64,46 @@ class RuntimeReportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             support.implementation_evidence_paths(['event:command-one'], self.log)
 
+    def test_cursor_shell_output_can_attest_a_capture_receipt_only(self):
+        raw = self.run / 'captured.log'
+        raw.write_text('1 test, 0 failures\n')
+        receipt = {'command': ['python', '-m', 'unittest'], 'exit_code': 0,
+                   'duration_seconds': 1, 'full_output': str(raw),
+                   'full_output_sha256': support.file_hash(raw),
+                   'summary': {'format': 'text', 'content': raw.read_text(),
+                               'omitted_progress_lines': 0, 'repeated_lines': {}}}
+        receipt_path = self.workspace / '.autocode/evidence/cursor-check.json'
+        receipt_path.parent.mkdir(parents=True)
+        receipt_path.write_text(json.dumps(receipt))
+        self.rows[1]['part'].update(tool='shell', state={
+            'status': 'completed',
+            'input': {'command': 'autocode capture --output .autocode/evidence/cursor-check.json -- python -m unittest'},
+            'metadata': {}, 'output': json.dumps(receipt)})
+        self.save()
+        support.verify_checks([{'command': 'python -m unittest', 'exit_code': 0,
+                                'evidence_ref': str(receipt_path)}], self.workspace, self.log)
+        with self.assertRaises(ValueError):
+            support.verify_checks([{'command': 'python -m unittest', 'exit_code': 0,
+                                    'evidence_ref': 'event:command-one'}], self.workspace, self.log)
+
+    def test_opencode_bash_output_without_exit_can_attest_capture_receipt(self):
+        raw = self.run / 'captured.log'
+        raw.write_text('OK\n')
+        receipt = {'command': ['python', '-m', 'unittest'], 'exit_code': 0,
+                   'full_output': str(raw), 'full_output_sha256': support.file_hash(raw)}
+        receipt_path = self.workspace / '.autocode/evidence/bash-check.json'
+        receipt_path.parent.mkdir(parents=True)
+        receipt_path.write_text(json.dumps(receipt))
+        self.rows[1]['part'].update(tool='bash', state={
+            'status': 'completed', 'input': {'command': 'autocode capture --output .autocode/evidence/bash-check.json -- python -m unittest'},
+            'metadata': {'truncated': False}, 'output': json.dumps(receipt)})
+        self.save()
+        support.verify_checks([{'command': 'python -m unittest', 'exit_code': 0,
+                                'evidence_ref': str(receipt_path)}], self.workspace, self.log)
+        with self.assertRaises(ValueError):
+            support.verify_checks([{'command': 'python -m unittest', 'exit_code': 0,
+                                    'evidence_ref': 'event:command-one'}], self.workspace, self.log)
+
     def test_evidence_advances_only_to_independent_validation_without_approval_changes(self):
         state = {'version': 2, 'workspace': str(self.workspace), 'task': 'Fixture task',
                  'status': 'RUNNING', 'iteration': 1, 'stages': [], 'history': [],
@@ -89,6 +129,21 @@ class RuntimeReportTests(unittest.TestCase):
     def test_commentary_before_one_final_json_part_is_accepted(self):
         self.final_message(['The implementation needs independent validation.', '{"status":"CONTINUE"}'])
         self.assertEqual({'status': 'CONTINUE'}, opencode.final_report(self.log))
+
+    def test_report_only_recovery_accepts_identical_complete_json_copies(self):
+        report = '{"verdict":"PASS","unverified_criteria":["T01"]}'
+        self.final_message(['The saved receipts support this report.' + report + report])
+        with self.assertRaises(RuntimeError):
+            opencode.final_report(self.log)
+        self.assertEqual(json.loads(report), opencode.final_report(self.log, recover_wrapped=True))
+
+    def test_report_only_recovery_rejects_conflicting_or_trailing_content(self):
+        for message in ('Receipt.' + '{"status":"PASS"}' + '{"status":"FAIL"}',
+                        'Receipt.' + '{"status":"PASS"}' + 'changed my mind',
+                        'Receipt.' + '{"status":"PASS"}' * 3):
+            self.final_message([message])
+            with self.subTest(message=message[:35]), self.assertRaises(RuntimeError):
+                opencode.final_report(self.log, recover_wrapped=True)
 
     def test_ambiguous_json_or_commentary_after_report_is_rejected(self):
         for texts in [['{"status":"A"}', '{"status":"B"}'],

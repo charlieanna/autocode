@@ -1,0 +1,770 @@
+{
+  "catalogue": "autopilot-test-catalogue",
+  "grounded_at": "6e38c37b6fb96b925493ec5c62be73564274872a",
+  "executed_at": "2026-09-24",
+  "baseline_commit": "153d89ceeaa50d6350f9230775036d8da8e89681",
+  "work_commits": [
+    "672ccff (T00)",
+    "49b3a7b (T05)",
+    "2bffec0 (T06)",
+    "0b00777 (T01/T03)",
+    "c2d17a8 (T02/T04)",
+    "cd757af (T07)",
+    "46be615 (T08/T09)",
+    "7e9d2d6 (T10/T11/T13)",
+    "ff5583d (T12/T14 + coverage map)"
+  ],
+  "environment": {
+    "python": "3.14.6 (.venv, psutil 7.2.2)",
+    "platform": "darwin 25.6.0 arm64",
+    "network": "offline; sockets blocked in smoke; providers faked/patched everywhere else"
+  },
+  "commands": {
+    "full_suite": "env -u AUTOCODE_TEST_CLI .venv/bin/python -m unittest discover -s tools -t . -p 'test_*.py'",
+    "t00": "env -u AUTOCODE_TEST_CLI .venv/bin/python -m unittest tools.test_catalogue_t00",
+    "t05": "env -u AUTOCODE_TEST_CLI .venv/bin/python -m unittest tools.test_catalogue_t05",
+    "t06": "env -u AUTOCODE_TEST_CLI .venv/bin/python -m unittest tools.test_catalogue_t06",
+    "replay_evd03_defect": "git checkout 49b3a7b -- tools/autocode_support.py && .venv/bin/python -m unittest tools.test_catalogue_t06 (EVD-03 FAILs); git checkout HEAD -- tools/autocode_support.py"
+  },
+  "artifacts_root": ".tmp-autopilot-testkit/artifacts (gitignored); override with AUTOCODE_TEST_ARTIFACTS",
+  "tasks": {
+    "T00": {
+      "status": "DONE",
+      "summary": "harness kit (Bundle evidence writer, FindingsOracle, CommandOracle, FakeProvider, offline guard) + 4 smoke tests; deliberately wrong fixture proven detectable",
+      "scenarios": {
+        "T00-SMOKE": {
+          "status": "PASS",
+          "executed_by": "tools/test_catalogue_t00.py::HarnessSmokeTests"
+        }
+      }
+    },
+    "T05": {
+      "status": "DONE, 14/14 PASS",
+      "summary": "finding identity/lifecycle; no product defects; two scoped notes (FND-13 historical linkage, FND-14 per-run id isolation)",
+      "scenarios": {
+        "FND-01": {
+          "status": "PASS",
+          "coverage_before": "full",
+          "test": "UnitFindingCases.test_fnd01_identical_wording_keeps_two_defects",
+          "existing": [
+            "test_findings.test_same_wording_with_different_evidence_stays_two_findings"
+          ]
+        },
+        "FND-02": {
+          "status": "PASS",
+          "coverage_before": "full",
+          "test": "test_fnd02_omission_is_not_resolution",
+          "existing": [
+            "test_findings.test_sol_findings_open_repeat_and_close_only_by_explicit_disposition"
+          ]
+        },
+        "FND-03": {
+          "status": "PASS",
+          "coverage_before": "full",
+          "test": "ControllerFindingCases.test_fnd03_blocked_review_still_records_findings",
+          "existing": [
+            "test_findings.test_blocked_review_records_new_findings_and_closes_nothing",
+            "test_findings_controller.test_blocked_user_request_records_the_finding_before_pausing"
+          ]
+        },
+        "FND-04": {
+          "status": "PASS",
+          "coverage_before": "partial",
+          "test": "test_fnd04_replayed_report_applies_exactly_once",
+          "existing": [
+            "test_autocode.test_crash_after_completed_terra_reconciles_without_reexecution"
+          ]
+        },
+        "FND-05": {
+          "status": "PASS",
+          "coverage_before": "full",
+          "test": "test_fnd05_update_by_cited_identity_preserves_history"
+        },
+        "FND-06": {
+          "status": "PASS",
+          "coverage_before": "gap",
+          "test": "test_fnd06_other_reviewer_cannot_close"
+        },
+        "FND-07": {
+          "status": "PASS",
+          "coverage_before": "full",
+          "test": "test_fnd07_disposition_outside_reviewed_scope",
+          "existing": [
+            "test_findings.test_a_disposition_must_cover_the_scope_the_finding_was_raised_under"
+          ]
+        },
+        "FND-08": {
+          "status": "PASS",
+          "coverage_before": "full",
+          "test": "test_fnd08_unknown_disposition_ids_are_harmless"
+        },
+        "FND-09": {
+          "status": "PASS",
+          "coverage_before": "full",
+          "test": "test_fnd09_report_only_repair_cannot_close"
+        },
+        "FND-10": {
+          "status": "PASS",
+          "coverage_before": "full",
+          "test": "test_fnd10_retraction_recorded_separately_from_fix"
+        },
+        "FND-11": {
+          "status": "PASS",
+          "coverage_before": "partial",
+          "test": "ControllerFindingCases.test_fnd11_builder_claim_cannot_close_its_fix"
+        },
+        "FND-12": {
+          "status": "PASS",
+          "coverage_before": "partial",
+          "test": "test_fnd12_partial_fix_keeps_unselected_findings"
+        },
+        "FND-13": {
+          "status": "PASS",
+          "coverage_before": "gap",
+          "test": "test_fnd13_recurrence_after_closure_tracks_new_occurrence",
+          "scoped_note": "no explicit link to the historical resolution beyond the retained closed row"
+        },
+        "FND-14": {
+          "status": "PASS",
+          "coverage_before": "gap",
+          "test": "ControllerFindingCases.test_fnd14_cross_project_disposition_is_isolated",
+          "scoped_note": "isolation by run/contract binding, not globally unique id strings"
+        }
+      }
+    },
+    "T06": {
+      "status": "DONE, 18/18 PASS after one narrowly scoped fix",
+      "summary": "executed-command/receipt verification, drift and completion-gate identity; EVD-03 defect fixed in autocode_support._command_bodies",
+      "scenarios": {
+        "EVD-01": {
+          "status": "PASS",
+          "coverage_before": "partial",
+          "test": "UnitEvidenceCase.test_evd01_quoted_operators_are_not_executed_operators",
+          "existing": [
+            "test_autocode.test_same_command_preserves_shell_quoting"
+          ]
+        },
+        "EVD-02": {
+          "status": "PASS",
+          "coverage_before": "full",
+          "test": "test_evd02_legitimate_wrapper_accepted",
+          "existing": [
+            "test_autocode.test_same_command_normalizes_wrapper_on_either_side"
+          ]
+        },
+        "EVD-03": {
+          "status": "PASS",
+          "coverage_before": "gap",
+          "test": "test_evd03_wrapper_with_trailing_executable_text_rejected",
+          "defect": "wrapper unwrap dropped trailing executable text; reproduced in bundle attempts 01-08, fixed, attempts 09+ PASS"
+        },
+        "EVD-04": {
+          "status": "PASS",
+          "coverage_before": "partial",
+          "test": "test_evd04_printed_pass_is_not_an_executed_check"
+        },
+        "EVD-05": {
+          "status": "PASS",
+          "coverage_before": "full",
+          "test": "test_evd05_wrong_kind_event_references_rejected",
+          "existing": [
+            "test_runtime_reports.test_step_markers_missing_events_and_decorated_refs_are_rejected"
+          ]
+        },
+        "EVD-06": {
+          "status": "PASS",
+          "coverage_before": "gap",
+          "test": "test_evd06_fallback_requires_a_unique_match"
+        },
+        "EVD-07": {
+          "status": "PASS",
+          "coverage_before": "partial",
+          "test": "test_evd07_reported_exit_contradiction_rejected"
+        },
+        "EVD-08": {
+          "status": "PASS",
+          "coverage_before": "partial",
+          "test": "test_evd08_receipt_from_another_attempt_rejected"
+        },
+        "EVD-09": {
+          "status": "PASS",
+          "coverage_before": "partial",
+          "test": "CompletionEvidenceCase.test_evd09_drifted_or_deleted_pinned_evidence_blocks_completion",
+          "existing": [
+            "test_autocode.test_completion_requires_current_code_criteria_sol_and_evidence"
+          ]
+        },
+        "EVD-10": {
+          "status": "PASS",
+          "coverage_before": "partial",
+          "test": "test_evd10_source_drift_variants_change_candidate_identity",
+          "existing": [
+            "test_autocode dirty-untracked/exec-bit/submodule tests"
+          ]
+        },
+        "EVD-11": {
+          "status": "PASS",
+          "coverage_before": "gap",
+          "test": "test_evd11_stale_capture_cannot_approve_new_candidate"
+        },
+        "EVD-12": {
+          "status": "PASS",
+          "coverage_before": "gap (mapped to evidence-hash pinning)",
+          "test": "test_evd12_silent_reference_change_is_not_fidelity",
+          "scoped_note": "UI reference-manifest framing belongs to T12/FX04"
+        },
+        "EVD-13": {
+          "status": "PASS",
+          "coverage_before": "partial",
+          "test": "test_evd13_criterion_coverage_is_exact"
+        },
+        "EVD-14": {
+          "status": "PASS",
+          "coverage_before": "gap",
+          "test": "test_evd14_pass_with_empty_check_set_rejected"
+        },
+        "EVD-15": {
+          "status": "PASS",
+          "coverage_before": "partial",
+          "test": "test_evd15_unavailable_verification_stays_unverified"
+        },
+        "EVD-16": {
+          "status": "PASS",
+          "coverage_before": "gap",
+          "test": "test_evd16_source_drift_during_verdict_application_is_caught",
+          "scoped_note": "deterministic patched-snapshot barrier; process-level schedules remain SYS-03"
+        },
+        "EVD-17": {
+          "status": "PASS",
+          "coverage_before": "gap",
+          "test": "UnitEvidenceCase.test_evd17_tampered_receipt_rejected"
+        },
+        "EVD-18": {
+          "status": "PASS",
+          "coverage_before": "gap",
+          "test": "test_evd18_fresh_verification_after_stale_rejection_completes"
+        }
+      }
+    },
+    "T01": {
+      "status": "DONE",
+      "summary": "12/12 PASS; no defects; APP-05 duplicate-approval is an explicit refusal",
+      "scenarios": {
+        "APP-01": {
+          "status": "PASS"
+        },
+        "APP-02": {
+          "status": "PASS"
+        },
+        "APP-03": {
+          "status": "PASS"
+        },
+        "APP-04": {
+          "status": "PASS"
+        },
+        "APP-05": {
+          "status": "PASS"
+        },
+        "APP-06": {
+          "status": "PASS"
+        },
+        "APP-07": {
+          "status": "PASS"
+        },
+        "APP-08": {
+          "status": "PASS"
+        },
+        "APP-09": {
+          "status": "PASS"
+        },
+        "APP-10": {
+          "status": "PASS"
+        },
+        "APP-11": {
+          "status": "PASS"
+        },
+        "APP-12": {
+          "status": "PASS"
+        }
+      }
+    },
+    "T02": {
+      "status": "DONE",
+      "summary": "10/10 PASS; ReadySetOracle; DAG-10 scoped note (direct install_draft on unapproved drafts)",
+      "scenarios": {
+        "DAG-01": {
+          "status": "PASS"
+        },
+        "DAG-02": {
+          "status": "PASS"
+        },
+        "DAG-03": {
+          "status": "PASS"
+        },
+        "DAG-04": {
+          "status": "PASS"
+        },
+        "DAG-05": {
+          "status": "PASS"
+        },
+        "DAG-06": {
+          "status": "PASS"
+        },
+        "DAG-07": {
+          "status": "PASS"
+        },
+        "DAG-08": {
+          "status": "PASS"
+        },
+        "DAG-09": {
+          "status": "PASS"
+        },
+        "DAG-10": {
+          "status": "PASS"
+        }
+      }
+    },
+    "T03": {
+      "status": "DONE",
+      "summary": "12/12 PASS; SES-06 gate lives in load_stage_report; SES-12 wrong-session new",
+      "scenarios": {
+        "SES-01": {
+          "status": "PASS"
+        },
+        "SES-02": {
+          "status": "PASS"
+        },
+        "SES-03": {
+          "status": "PASS"
+        },
+        "SES-04": {
+          "status": "PASS"
+        },
+        "SES-05": {
+          "status": "PASS"
+        },
+        "SES-06": {
+          "status": "PASS"
+        },
+        "SES-07": {
+          "status": "PASS"
+        },
+        "SES-08": {
+          "status": "PASS"
+        },
+        "SES-09": {
+          "status": "PASS"
+        },
+        "SES-10": {
+          "status": "PASS"
+        },
+        "SES-11": {
+          "status": "PASS"
+        },
+        "SES-12": {
+          "status": "PASS"
+        }
+      }
+    },
+    "T04": {
+      "status": "DONE",
+      "summary": "14/14 PASS; REV-12 scoped note (direct apply_result re-points next_stage only)",
+      "scenarios": {
+        "REV-01": {
+          "status": "PASS"
+        },
+        "REV-02": {
+          "status": "PASS"
+        },
+        "REV-03": {
+          "status": "PASS"
+        },
+        "REV-04": {
+          "status": "PASS"
+        },
+        "REV-05": {
+          "status": "PASS"
+        },
+        "REV-06": {
+          "status": "PASS"
+        },
+        "REV-07": {
+          "status": "PASS"
+        },
+        "REV-08": {
+          "status": "PASS"
+        },
+        "REV-09": {
+          "status": "PASS"
+        },
+        "REV-10": {
+          "status": "PASS"
+        },
+        "REV-11": {
+          "status": "PASS"
+        },
+        "REV-12": {
+          "status": "PASS"
+        },
+        "REV-13": {
+          "status": "PASS"
+        },
+        "REV-14": {
+          "status": "PASS"
+        }
+      }
+    },
+    "T07": {
+      "status": "DONE",
+      "summary": "9 PASS + FIX-04 scoped gap (intra-repair checkpoints are a proposed capability)",
+      "scenarios": {
+        "FIX-01": {
+          "status": "PASS"
+        },
+        "FIX-02": {
+          "status": "PASS"
+        },
+        "FIX-03": {
+          "status": "PASS"
+        },
+        "FIX-04": {
+          "status": "PASS"
+        },
+        "FIX-05": {
+          "status": "PASS"
+        },
+        "FIX-06": {
+          "status": "PASS"
+        },
+        "FIX-07": {
+          "status": "PASS"
+        },
+        "FIX-08": {
+          "status": "PASS"
+        },
+        "FIX-09": {
+          "status": "PASS"
+        },
+        "FIX-10": {
+          "status": "PASS"
+        }
+      }
+    },
+    "T08": {
+      "status": "DONE",
+      "summary": "14/14 PASS; filesystem-injection labeled (not power-loss proof)",
+      "scenarios": {
+        "CRH-01": {
+          "status": "PASS"
+        },
+        "CRH-02": {
+          "status": "PASS"
+        },
+        "CRH-03": {
+          "status": "PASS"
+        },
+        "CRH-04": {
+          "status": "PASS"
+        },
+        "CRH-05": {
+          "status": "PASS"
+        },
+        "CRH-06": {
+          "status": "PASS"
+        },
+        "CRH-07": {
+          "status": "PASS"
+        },
+        "CRH-08": {
+          "status": "PASS"
+        },
+        "CRH-09": {
+          "status": "PASS"
+        },
+        "CRH-10": {
+          "status": "PASS"
+        },
+        "CRH-11": {
+          "status": "PASS"
+        },
+        "CRH-12": {
+          "status": "PASS"
+        },
+        "CRH-13": {
+          "status": "PASS"
+        },
+        "CRH-14": {
+          "status": "PASS"
+        }
+      }
+    },
+    "T09": {
+      "status": "DONE",
+      "summary": "12/12 PASS; FX05 mapped to intervention request-id semantics",
+      "scenarios": {
+        "OWN-01": {
+          "status": "PASS"
+        },
+        "OWN-02": {
+          "status": "PASS"
+        },
+        "OWN-03": {
+          "status": "PASS"
+        },
+        "OWN-04": {
+          "status": "PASS"
+        },
+        "OWN-05": {
+          "status": "PASS"
+        },
+        "OWN-06": {
+          "status": "PASS"
+        },
+        "OWN-07": {
+          "status": "PASS"
+        },
+        "OWN-08": {
+          "status": "PASS"
+        },
+        "OWN-09": {
+          "status": "PASS"
+        },
+        "OWN-10": {
+          "status": "PASS"
+        },
+        "OWN-11": {
+          "status": "PASS"
+        },
+        "OWN-12": {
+          "status": "PASS"
+        }
+      }
+    },
+    "T10": {
+      "status": "DONE",
+      "summary": "10/10 PASS; four subprocess-fixture regressions re-executed programmatically",
+      "scenarios": {
+        "PAR-01": {
+          "status": "PASS"
+        },
+        "PAR-02": {
+          "status": "PASS"
+        },
+        "PAR-03": {
+          "status": "PASS"
+        },
+        "PAR-04": {
+          "status": "PASS"
+        },
+        "PAR-05": {
+          "status": "PASS"
+        },
+        "PAR-06": {
+          "status": "PASS"
+        },
+        "PAR-07": {
+          "status": "PASS"
+        },
+        "PAR-08": {
+          "status": "PASS"
+        },
+        "PAR-09": {
+          "status": "PASS"
+        },
+        "PAR-10": {
+          "status": "PASS"
+        }
+      }
+    },
+    "T11": {
+      "status": "DONE",
+      "summary": "10/10 PASS; kernel sandbox/multi-tenant hardening explicitly out of scope",
+      "scenarios": {
+        "SEC-01": {
+          "status": "PASS"
+        },
+        "SEC-02": {
+          "status": "PASS"
+        },
+        "SEC-03": {
+          "status": "PASS"
+        },
+        "SEC-04": {
+          "status": "PASS"
+        },
+        "SEC-05": {
+          "status": "PASS"
+        },
+        "SEC-06": {
+          "status": "PASS"
+        },
+        "SEC-07": {
+          "status": "PASS"
+        },
+        "SEC-08": {
+          "status": "PASS"
+        },
+        "SEC-09": {
+          "status": "PASS"
+        },
+        "SEC-10": {
+          "status": "PASS"
+        }
+      }
+    },
+    "T13": {
+      "status": "DONE",
+      "summary": "11 PASS + CFG-03 scoped note (no --version flag); installed CLI 0.7.1 verified offline outside repo",
+      "scenarios": {
+        "CFG-01": {
+          "status": "PASS"
+        },
+        "CFG-02": {
+          "status": "PASS"
+        },
+        "CFG-03": {
+          "status": "PASS"
+        },
+        "CFG-04": {
+          "status": "PASS"
+        },
+        "CFG-05": {
+          "status": "PASS"
+        },
+        "CFG-06": {
+          "status": "PASS"
+        },
+        "CFG-07": {
+          "status": "PASS"
+        },
+        "CFG-08": {
+          "status": "PASS"
+        },
+        "CFG-09": {
+          "status": "PASS"
+        },
+        "CFG-10": {
+          "status": "PASS"
+        },
+        "CFG-11": {
+          "status": "PASS"
+        },
+        "CFG-12": {
+          "status": "PASS"
+        }
+      }
+    },
+    "T14": {
+      "status": "DONE",
+      "summary": "8/8 PASS; 12/12 mutations killed; EVD-3 replay verified; coverage measured via stdlib trace",
+      "scenarios": {
+        "SYS-01": {
+          "status": "PASS"
+        },
+        "SYS-02": {
+          "status": "PASS"
+        },
+        "SYS-03": {
+          "status": "PASS"
+        },
+        "SYS-04": {
+          "status": "PASS"
+        },
+        "SYS-05": {
+          "status": "PASS"
+        },
+        "SYS-06": {
+          "status": "PASS"
+        },
+        "SYS-07": {
+          "status": "PASS"
+        },
+        "SYS-08": {
+          "status": "PASS"
+        }
+      }
+    },
+    "T12": {
+      "status": "DONE, 14/14 (11 PASS + 3 recorded limitations)",
+      "summary": "14/14: 11 PASS + UI-02/UI-03/UI-13 honestly recorded limitations",
+      "scenarios": {
+        "UI-01": {
+          "status": "PASS"
+        },
+        "UI-02": {
+          "status": "PASS"
+        },
+        "UI-03": {
+          "status": "PASS"
+        },
+        "UI-04": {
+          "status": "PASS"
+        },
+        "UI-05": {
+          "status": "PASS"
+        },
+        "UI-06": {
+          "status": "PASS"
+        },
+        "UI-07": {
+          "status": "PASS"
+        },
+        "UI-08": {
+          "status": "PASS"
+        },
+        "UI-09": {
+          "status": "PASS"
+        },
+        "UI-10": {
+          "status": "PASS"
+        },
+        "UI-11": {
+          "status": "PASS"
+        },
+        "UI-12": {
+          "status": "PASS"
+        },
+        "UI-13": {
+          "status": "PASS"
+        },
+        "UI-14": {
+          "status": "PASS"
+        }
+      }
+    },
+    "T15": {
+      "status": "DONE, 2 PASS / 3 HONEST BLOCKER / 1 DEFERRED",
+      "summary": "GLM 5.3 (low/high/max only), temp workspaces, oracle verdicts; findings L1 (multi-human-review deadlock), L2 (assignment-path mismatch), L3 (review-schema model quality); findings L1+L2 subsequently fixed with regressions and live-state replays",
+      "scenarios": {
+        "LIVE-01": {
+          "status": "PASS",
+          "oracle": "12/12"
+        },
+        "LIVE-02": {
+          "status": "HONEST_BLOCKER",
+          "note": "behavior verified; finding L1"
+        },
+        "LIVE-03": {
+          "status": "PASS",
+          "oracle": "7/7"
+        },
+        "LIVE-04": {
+          "status": "DEFERRED",
+          "note": "frozen FX04 reference absent"
+        },
+        "LIVE-05": {
+          "status": "HONEST_BLOCKER",
+          "note": "budget exhausted on review-schema failures; partial deliverables; finding L3"
+        },
+        "LIVE-06": {
+          "status": "HONEST_BLOCKER",
+          "note": "milestone A delivered; finding L2"
+        }
+      }
+    }
+  },
+  "not_started": [],
+  "suite_baseline": "648 tests OK at 153d89c (includes the user's uncommitted tools/test_goals.py addition)",
+  "suite_after": "828 tests OK (690 after T00/T05/T06 + 138 catalogue tests T01-T14)",
+  "live_authorized_by_user": "2026-09-24: 'with real model using glm 5.3 low and high and max only'"
+}

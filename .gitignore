@@ -5,8 +5,17 @@ build/
 dist/
 .venv/
 .autocode/
+.pytest_cache/
+.kilo/
+.zcode/
+.zcodeignore
 
 # Nested target workspaces used for local Autocode runs
 .tmp-*/
-learner-loop/
-engineering-readiness-cli/
+
+.autocode-ui/
+.DS_Store
+
+# Local Codex config and hooks
+.codex/config.toml
+.codex/hooks.json

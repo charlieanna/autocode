@@ -20,6 +20,27 @@ import autocode_goals as goals
 from goal_fixtures import approve_fixture, envelope
 
 
+class DetachedOutputTest(unittest.TestCase):
+    def test_closed_progress_pipe_does_not_stop_runner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "stage-finished"
+            read_fd, write_fd = os.pipe()
+            os.close(read_fd)
+            disconnected = os.fdopen(write_fd, "w", buffering=1)
+            try:
+                def run_stage():
+                    print("sol: still reviewing", flush=True)
+                    marker.write_text("finished")
+                    return 0
+
+                with patch.object(sys, "stdout", disconnected), patch.object(runner, "main", side_effect=run_stage):
+                    self.assertEqual(0, runner.cli())
+            finally:
+                with contextlib.suppress(BrokenPipeError):
+                    disconnected.close()
+            self.assertEqual("finished", marker.read_text())
+
+
 class RetrofitTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -60,6 +81,29 @@ class RetrofitTest(unittest.TestCase):
             with self.assertRaises(OSError): s.atomic_json(p,{"new":True})
         self.assertEqual({"old":True},s.read(p))
         self.assertEqual([],list(self.run.glob(".checkpoint-*")))
+
+    def test_builder_no_progress_advances_automatic_ladder(self):
+        self.state["settings"]["engine"] = "opencode"
+        self.state["settings"]["roles"]["terra"].update(
+            engine="opencode", provider=None, model="xiaomi-token-plan-sgp/mimo-v2.6-pro", reasoning_effort="medium")
+        record = {"role":"terra", "stage":"terra", "output":str(self.run/"terra.json"),
+                  "events":str(self.run/"terra.jsonl"), "source_revision":"same",
+                  "changed_files":[], "after_ref":str(self.run/"after.json"), "diff_ref":None}
+        runner._apply_result(self.state, "terra", {"evidence_refs":[str(self.evidence)]}, record, self.root, self.run)
+        self.assertEqual("high", self.state["settings"]["roles"]["terra"]["reasoning_effort"])
+        self.assertEqual("Mimo Pro High", self.state["reasoning_escalations"][-1]["selected"]["profile"])
+        self.assertNotIn("terra", self.state["sessions"])
+
+    def test_failed_validation_rework_advances_builder_ladder(self):
+        self.state["settings"]["engine"] = "opencode"
+        self.state["settings"]["roles"]["terra"].update(
+            engine="opencode", provider=None, model="xiaomi-token-plan-sgp/mimo-v2.6-pro", reasoning_effort="high")
+        self.state["validation"] = {"verdict":"FAIL"}
+        record = {"role":"astra", "route_role":"completion", "stage":"astra_review",
+                  "output":str(self.run/"decision.json")}
+        runner._apply_result(self.state, "astra_review", self.decision(), record, self.root, self.run)
+        self.assertEqual("xhigh", self.state["settings"]["roles"]["terra"]["reasoning_effort"])
+        self.assertEqual("Mimo Pro XHigh", self.state["reasoning_escalations"][-1]["selected"]["profile"])
 
     def test_process_guard_targets_only_real_runner_processes(self):
         marker=".autocode/runs/run-x"
@@ -103,6 +147,24 @@ class RetrofitTest(unittest.TestCase):
         self.assertTrue(s.same_command(event, event.replace("-lc", "-l -c")))
         self.assertFalse(s.same_command(event, "/usr/local/bin/python3 -c 'print(2)'"))
 
+    def test_same_command_preserves_shell_quoting(self):
+        pairs = (
+            ("printf '%s\\n' '&&' false", "printf '%s\\n' && false"),
+            ("printf '%s\\n' ';' false", "printf '%s\\n' ; false"),
+            ("printf '%s\\n' '|' false", "printf '%s\\n' | false"),
+            ("printf '%s\\n' '>' /no/such/autocode-evidence", "printf '%s\\n' > /no/such/autocode-evidence"),
+        )
+        for printed, executed in pairs:
+            with self.subTest(printed=printed):
+                ran = subprocess.run(printed, shell=True, executable="/bin/zsh", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                claimed = subprocess.run(executed, shell=True, executable="/bin/zsh", stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.assertEqual(0, ran.returncode)
+                self.assertNotEqual(0, claimed.returncode)
+                self.assertFalse(s.same_command(printed, executed))
+                wrapped = "/bin/zsh -lc " + shlex.quote(printed)
+                self.assertTrue(s.same_command(wrapped, printed))
+                self.assertFalse(s.same_command(wrapped, executed))
+
     def test_explicit_models_high_and_rotation_rollback_persist(self):
         args=SimpleNamespace(astra_model="gpt-6-astra", terra_model="gpt-5.6-terra",
             sol_model="gpt-5.6-sol", reasoning_effort="high", headroom="off",
@@ -134,7 +196,8 @@ class RetrofitTest(unittest.TestCase):
         kept=runner.configure(SimpleNamespace(astra_model=None,terra_model=None,sol_model=None,
             reasoning_effort=None,headroom=None,context_soft_tokens=None,rotate_after_input_tokens=None),resumed)
         self.assertEqual("ZAI",kept["roles"]["terra"]["provider"])
-        self.assertEqual({r:f"model-{r}" for r in ("astra","terra","sol")},
+        self.assertEqual({**{r:f"model-{r}" for r in ("astra","terra","sol")},
+                          "completion": "gpt-5.6-sol"},
                          {r:settings["model"] for r,settings in kept["roles"].items()})
 
     def test_model_and_provider_precedence_on_new_run(self):
@@ -148,7 +211,7 @@ class RetrofitTest(unittest.TestCase):
             legacy_iteration_ceiling=None,max_iterations=15,max_seconds=None,max_reported_tokens=None,no_progress_limit=3)
         with patch.object(s,"local_settings",return_value=local):
             result=runner.configure(args,state)
-        self.assertEqual("gpt-6-astra",result["roles"]["astra"]["model"])  # role default, not local-model
+        self.assertEqual("gpt-5.6-sol",result["roles"]["astra"]["model"])  # role default, not local-model
         self.assertEqual("custom-terra",result["roles"]["terra"]["model"])  # explicit flag
         self.assertEqual("glm-5.3",result["roles"]["sol"]["model"])         # saved legacy launch
         self.assertEqual("ZAI",result["roles"]["terra"]["provider"])   # explicit flag
@@ -243,6 +306,9 @@ class RetrofitTest(unittest.TestCase):
         self.assertNotIn("PRIVATE_BULK_HISTORY",text)
         self.assertIn("specific bug",text)
         self.assertIn("repair the full cohort",text)
+        self.assertIn(str(self.run/'evidence'),text)
+        self.assertIn('Do not create a top-level evidence/',text)
+        self.assertIn('Source writes must stay within current_task.affected_paths',text)
         self.assertGreater(metrics["estimated_prompt_tokens"],0)
 
     def test_context_packet_includes_only_runner_provided_private_source_exceptions(self):
@@ -377,6 +443,132 @@ class RetrofitTest(unittest.TestCase):
         self.assertTrue(archived["abandoned"])
         self.assertEqual(["partial.py"], archived["changed_files"])
         self.assertTrue(Path(archived["events"]).is_file())
+
+    def test_abandon_planning_report_repair_routes_to_owner_stage(self):
+        before = self.valid_completion()
+        base = self.run / "iterations/005/glm_revise_report_repair-01"
+        base.parent.mkdir(parents=True)
+        s.atomic_json(base.with_suffix(".before.json"), before)
+        base.with_suffix(".jsonl").write_text('{"type":"turn.completed"}\n')
+        record = {"role":"glm", "stage":"glm_revise_report_repair",
+                  "original_stage":"glm_revise", "planning":True, "report_only":True,
+                  "iteration":5, "duration_seconds":1, "exit_code":0, "processes":[],
+                  "output":str(base.with_suffix(".json")),
+                  "events":str(base.with_suffix(".jsonl")),
+                  "before_ref":str(base.with_suffix(".before.json"))}
+        self.state["active_stage"] = record
+        self.state["pending_report_repair"] = {"original":{"stage":"glm_revise"}}
+        runner.abandon_stage(self.state, self.run, self.root, "005/glm_revise_report_repair-01")
+        self.assertEqual("PAUSED_STAGE_ABANDONED", self.state["status"])
+        self.assertEqual("glm_revise", self.state["next_stage"])
+        self.assertNotIn("pending_report_repair", self.state)
+        self.assertTrue(self.state["stages"][-1]["abandoned"])
+
+    def test_abandon_completion_report_repair_requires_fresh_validation(self):
+        before = self.valid_completion()
+        base = self.run / 'iterations/005/astra_review_report_repair-01'
+        base.parent.mkdir(parents=True)
+        s.atomic_json(base.with_suffix('.before.json'), before)
+        base.with_suffix('.jsonl').write_text('{"type":"thread.started","thread_id":"incomplete"}\n')
+        self.state['sessions']['completion'] = 'completion-session'
+        self.state['human_reviews'] = {'C1': {'approved': True}}
+        self.state['active_stage'] = {
+            'role': 'astra', 'route_role': 'completion', 'stage': 'astra_review_report_repair',
+            'original_stage': 'astra_review', 'report_only': True, 'iteration': 5,
+            'exit_code': -15, 'processes': [], 'duration_seconds': 1,
+            'output': str(base.with_suffix('.json')), 'events': str(base.with_suffix('.jsonl')),
+            'before_ref': str(base.with_suffix('.before.json'))}
+        pending = {'original': {'stage': 'astra_review'}}
+        self.state['pending_report_repair'] = pending
+        runner.abandon_stage(self.state, self.run, self.root, '005/astra_review_report_repair-01')
+        self.assertEqual('sol', self.state['next_stage'])
+        self.assertIn('Validator', self.state['stop_reason'])
+        self.assertNotIn('validation', self.state)
+        self.assertNotIn('active_stage', self.state)
+        self.assertNotIn('pending_report_repair', self.state)
+        self.assertEqual(pending, self.state['report_repair_archive'][-1]['repair'])
+        self.assertNotIn('completion', self.state['sessions'])
+        self.assertEqual({}, self.state['human_reviews'])
+        self.assertEqual(before['revision'], s.snapshot(self.root)['revision'])
+
+    def test_explicit_resume_recovers_legacy_archived_repair_stage(self):
+        self.state['settings']['joint_planning'] = True
+        self.state.update(status='PAUSED_INVALID_OUTPUT', next_stage='glm_revise_report_repair',
+                          recovery_context={'attempt_id':'005/glm_revise_report_repair-01'})
+        self.state['stages'].append({'stage':'glm_revise_report_repair', 'original_stage':'glm_revise',
+                                     'iteration':5, 'output':str(self.run / 'iterations/005/glm_revise_report_repair-01.json'),
+                                     'abandoned':True})
+        self.assertTrue(runner.prepare_planning_retry(self.state, self.run))
+        self.assertEqual('glm_revise', self.state['next_stage'])
+
+    def test_saved_abandoned_completion_recovery_is_narrow(self):
+        current = self.valid_completion()
+        abandoned = {'stage': 'astra_review_report_repair', 'original_stage': 'astra_review',
+                     'role': 'astra', 'iteration': 5,
+                     'output': str(self.run / 'astra_review_report_repair-01.json'),
+                     'source_revision': current['revision'], 'abandoned': True, 'rejected': True}
+        selected = runner.attempt_id(abandoned)
+        self.state.update(status='PAUSED_REPEATED_FAILURE', next_stage='astra_review',
+                          recovery_context={'attempt_id': selected, 'source_revision': current['revision']},
+                          user_events=[{'kind': 'stage_abandoned', 'attempt_id': selected}])
+        self.state['validation_archive'] = [{'reason': 'Uncertain stage abandoned',
+                                            'validation': self.state.pop('validation')}]
+        self.state['stages'].append(abandoned)
+        error = s.Paused('PAUSED_COMPLETION_GATE',
+            'Completion rejected: missing, stale, failed or unverified independent evidence')
+        for attempt in range(3):
+            record = {'stage': 'astra_review_report_repair' if attempt < 2 else 'astra_review',
+                      'original_stage': 'astra_review', 'role': 'astra', 'iteration': 5,
+                      'output': str(self.run / f'rejected-{attempt}.json'),
+                      'source_revision': current['revision'], 'rejected': True,
+                      'rejection_reason': str(error)}
+            runner.failures.record(self.state, record, error, s.now())
+            self.state['stages'].append(record)
+            if attempt == 0:
+                self.state['stages'].append({'stage': 'resolver', 'runner_owned': True,
+                                            'decision': {'action': 'retry'}})
+        s.atomic_json(self.run / 'state.json', self.state)
+        saved = (self.run / 'state.json').read_bytes()
+        for override in ({'validation': {'verdict': 'PASS'}}, {'active_stage': {'stage': 'astra_review'}},
+                         {'pending_report_repair': {'original': {'stage': 'astra_review'}}},
+                         {'uncertain_artifacts': 'unresolved'}, {'recovery_context': {}},
+                         {'user_events': []}, {'validation_archive': []},
+                         {'status': 'PAUSED_BUDGET'}, {'next_stage': 'sol'},
+                         {'current_task': {'id': 'different-task'}}):
+            with self.subTest(override=override):
+                state = {**copy.deepcopy(self.state), **override}
+                before = copy.deepcopy(state)
+                self.assertFalse(runner.prepare_abandoned_completion_revalidation(state, self.run, self.root))
+                self.assertEqual(before, state)
+                self.assertEqual(saved, (self.run / 'state.json').read_bytes())
+        for mismatch in ('other_error', 'accepted_progress', 'changed_source', 'validator_failure'):
+            with self.subTest(mismatch=mismatch):
+                state = copy.deepcopy(self.state)
+                if mismatch == 'other_error':
+                    state['stages'][1]['rejection_reason'] = 'Completion rejected: blocking findings'
+                elif mismatch == 'accepted_progress':
+                    state['stages'].append({'stage': 'sol', 'source_revision': current['revision']})
+                elif mismatch == 'changed_source':
+                    state['recovery_context']['source_revision'] = 'old-source'
+                else:
+                    for attempt in range(3):
+                        runner.failures.record(state, {'stage': 'sol', 'iteration': 5,
+                            'source_revision': current['revision'], 'output': str(self.run / f'sol-{attempt}.json')},
+                            ValueError('invalid validation'), s.now())
+                before = copy.deepcopy(state)
+                self.assertFalse(runner.prepare_abandoned_completion_revalidation(state, self.run, self.root))
+                self.assertEqual(before, state)
+                self.assertEqual(saved, (self.run / 'state.json').read_bytes())
+        history = copy.deepcopy(self.state['failure_history'])
+        self.assertTrue(runner.prepare_abandoned_completion_revalidation(self.state, self.run, self.root))
+        self.assertEqual('sol', self.state['next_stage'])
+        self.assertEqual('PAUSED_STAGE_ABANDONED', self.state['status'])
+        self.assertEqual(history, self.state['failure_history'])
+        self.assertNotIn('validation', self.state)
+        self.assertEqual(selected, self.state['reconciliation_notes'][-1]['attempt_id'])
+        reloaded = s.read(self.run / 'state.json')
+        runner.repeated_failure_resume_guard(reloaded, self.root)
+        self.assertFalse(runner.prepare_abandoned_completion_revalidation(reloaded, self.run, self.root))
 
     def test_missing_evidence_and_outside_project_rejected(self):
         for refs in ([],["nope"],["/etc/hosts"]):
@@ -524,6 +716,7 @@ class RetrofitTest(unittest.TestCase):
         self.assertEqual("terra", self.state["next_stage"])
         self.assertNotIn("active_stage", self.state)
         self.assertEqual(1, len(self.state["automatic_permission_recoveries"]))
+        self.assertEqual(1, runner.recovery_count(self.state))
         self.assertIn("workspace-contained", self.state["recovery_context"]["instruction"])
 
     def test_crash_after_completed_terra_reconciles_without_reexecution(self):

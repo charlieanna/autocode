@@ -1,10 +1,12 @@
 """Registry polling stays bounded when refresh or discovery outlasts the TTL."""
 import copy
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -31,7 +33,7 @@ class RegistryCacheTests(unittest.TestCase):
             'runs': [{'workspace': str(self.workspace), 'run_dir': str(run), 'availability': 'available'}
                      for run in self.runs],
         }
-        self.console = Console([], self.root / 'unused-runner.py', lambda: None)
+        self.console = Console([], self.root / 'unused-runner.py', lambda: None, registry_ttl=2)
         self.addCleanup(self.console.pool.shutdown, wait=True)
         self.now = 100.0
         self.command_delay = 0.0
@@ -114,6 +116,40 @@ class RegistryCacheTests(unittest.TestCase):
             found = self.console.discover()
         self.assertEqual({str(run) for run in self.runs if run != changed}, {row['run'] for row in found})
         self.assertEqual(2, self.command.call_count)
+
+    def test_dashboard_snapshot_pins_registry_across_slow_composite_read(self):
+        original = self.console.run_for
+
+        def slow_run_for(workspace, raw, **kwargs):
+            self.now += 3
+            return original(workspace, raw, **kwargs)
+
+        with patch.object(self.console, 'run_for', side_effect=slow_run_for):
+            snapshot = self.console.dashboard_snapshot()
+        self.assertEqual({str(run) for run in self.runs}, {row['run'] for row in snapshot['runs']})
+        self.assertEqual(2, self.command.call_count)
+
+    def test_overlapping_dashboard_polls_share_one_snapshot_build(self):
+        original = self.console._build_dashboard_snapshot
+        started, release = threading.Event(), threading.Event()
+        calls = []
+
+        def slow_snapshot():
+            calls.append(True)
+            started.set()
+            self.assertTrue(release.wait(2))
+            return original()
+
+        with patch.object(self.console, '_build_dashboard_snapshot', side_effect=slow_snapshot):
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                first = pool.submit(self.console.dashboard_snapshot)
+                self.assertTrue(started.wait(2))
+                followers = [pool.submit(self.console.dashboard_snapshot) for _ in range(2)]
+                release.set()
+                snapshots = [first.result(), *(future.result() for future in followers)]
+        self.assertEqual(1, len(calls))
+        self.assertIs(snapshots[0], snapshots[1])
+        self.assertIs(snapshots[0], snapshots[2])
 
 
 if __name__ == '__main__':

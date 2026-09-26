@@ -12,6 +12,11 @@ assert.doesNotMatch(html, /data-task-filter/);
 assert.doesNotMatch(html, /data-filter=/);
 assert.match(app, /\$\('#task-status-filter'\)\.onchange = event => filterTasks\(event\.target\.value\)/);
 assert.match(app, /\$\('#task-status-filter'\)\.value=taskFilter/);
-assert.match(app, /button\('',\(\)=>filterTasks\(key\),'summary-filter'\)/);
+assert.match(app, /workspaceFilterDefinitions=\[/);
+for (const label of ['Waiting on you', 'In progress', 'Paused \/ issues', 'Completed']) {
+  assert.match(app, new RegExp("['\"]" + label + "['\"]"));
+}
+assert.match(app, /item\.dataset\.workspaceFilter=key/);
+assert.match(app, /orderedWorkspaceRuns\(filtered\)/);
 assert.match(css, /summary-filter/);
-console.log('Task navigation has one clickable status-count control per status.');
+console.log('Task navigation has four labeled aggregate controls and priority-ordered rows.');

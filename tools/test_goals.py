@@ -20,6 +20,22 @@ from goal_fixtures import body, envelope
 
 
 class GoalTests(unittest.TestCase):
+    def test_model_schema_requires_ownership_without_invalidating_legacy_contracts(self):
+        before = copy.deepcopy(g.DISCOVERY_SCHEMA)
+        schema = s.model_output_schema(g.DISCOVERY_SCHEMA)
+        milestone = schema['properties']['contract']['properties']['milestones']['items']
+        self.assertEqual(set(milestone['properties']), set(milestone['required']))
+        self.assertIn('affected_paths', milestone['required'])
+        self.assertIn('depends_on', milestone['required'])
+        self.assertEqual(before, g.DISCOVERY_SCHEMA)
+        legacy = body()
+        for row in legacy['milestones']:
+            row.pop('affected_paths', None)
+            row.pop('depends_on', None)
+        s.validate_schema({'contract': legacy, 'summary': 'Existing contract'}, g.DISCOVERY_SCHEMA)
+        with self.assertRaisesRegex(ValueError, 'missing'):
+            s.validate_schema({'contract': legacy, 'summary': 'New response'}, schema)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -63,7 +79,9 @@ class GoalTests(unittest.TestCase):
         current = s.snapshot(self.root)
         value = {**envelope(self.state), "verdict": "PASS", "findings": [], "unverified_criteria": [],
                  "checks_run": ["python3 -m unittest"], "checks": [{"command": "python3 -m unittest", "exit_code": 0,
-                    "evidence_ref": "event:check"}], "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["event:check"]}]}
+                    "evidence_ref": "event:check"}], "criterion_results": [
+                        {"id": c["id"], "status": "PASS", "evidence_refs": ["event:check"]}
+                        for c in self.state["acceptance_criteria"]]}
         value["end_to_end_result"] = {"status": "PASS", "summary": "Both CLI flows checked", "evidence_refs": ["event:check"]}
         record = {"events": str(evidence), "source_revision": current["revision"], "output": str(evidence)}
         runner.apply_result(self.state, "sol", value, record, self.root, self.run)
@@ -75,8 +93,9 @@ class GoalTests(unittest.TestCase):
         with patch.object(sys, "argv", argv), patch.object(s, "assert_no_legacy_process"), \
              patch.object(s, "local_settings", return_value=self.local), \
              patch.object(runner, "run_role", side_effect=role or AssertionError("No agent may launch")), \
-             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+             contextlib.redirect_stdout(io.StringIO()) as stdout, contextlib.redirect_stderr(io.StringIO()) as stderr:
             code = runner.main()
+        self.stdout, self.stderr = stdout.getvalue(), stderr.getvalue()
         self.state = s.read(self.run / "state.json")
         return code
 
@@ -118,6 +137,224 @@ class GoalTests(unittest.TestCase):
         self.assertEqual("astra_review", self.state["next_stage"])
         self.assertNotIn("user_request", self.state)
         self.assertEqual("permission_answer", self.state["answers"]["decision-limit"]["kind"])
+
+    def permission_request(self):
+        return {"kind": "permission", "decision_needed": "Repair the fallback test?",
+                "impact": "The exact test is excluded", "options": ["Repair", "Keep excluded"],
+                "discovered": "An assertion races navigation", "proposed_delta": "Only the fallback test"}
+
+    def answer_permission(self, text="Repair only that test"):
+        request = self.permission_request()
+        g.wait_for_user(self.state, request)
+        qid = self.state["pending_questions"][0]["id"]
+        g.resolve_permission(self.state, qid, text)
+        return request, qid
+
+    def test_exact_permission_reuses_real_answer_including_a_denial(self):
+        for answer in ("Repair only that test", "No, leave it excluded"):
+            with self.subTest(answer=answer):
+                self.approve()
+                request, qid = self.answer_permission(answer)
+                original_contract = copy.deepcopy(self.state["goal_contract"])
+                g.wait_for_user(self.state, copy.deepcopy(request))
+                self.assertEqual("RUNNING", self.state["status"])
+                self.assertEqual("astra_review", self.state["next_stage"])
+                self.assertEqual([], self.state["pending_questions"])
+                self.assertEqual(answer, self.state["permission_reuse_context"]["answer"])
+                self.assertEqual(qid, self.state["permission_reuse_context"]["answer_id"])
+                self.assertEqual(original_contract, self.state["goal_contract"])
+                with self.assertRaises(s.Paused) as caught:
+                    g.wait_for_user(self.state, request)
+                self.assertEqual("PAUSED_PERMISSION_RECONCILIATION", caught.exception.status)
+
+    def test_permission_reuse_never_expands_scope_or_trusts_missing_provenance(self):
+        for mode in ("wider_scope", "changed_contract", "forged_event", "legacy_answer"):
+            with self.subTest(mode=mode):
+                self.approve()
+                request, qid = self.answer_permission()
+                answer = self.state["answers"][qid]
+                if mode == "wider_scope":
+                    request["proposed_delta"] = "Change production navigation too"
+                elif mode == "changed_contract":
+                    answer["contract_token"] = "stale"
+                elif mode == "forged_event":
+                    self.state["user_events"].remove(answer)
+                else:
+                    answer.pop("request")
+                g.wait_for_user(self.state, request)
+                self.assertEqual("WAITING_FOR_USER", self.state["status"])
+                self.assertNotEqual(qid, self.state["pending_questions"][0]["id"])
+
+    def test_timeout_requires_a_changed_plan_or_explicitly_changed_limits(self):
+        self.approve()
+        decision = self.decision()
+        current = s.snapshot(self.root)
+        g.assign_task(self.state, decision, current)
+        self.state["settings"]["limits"].update(tool_timeout_seconds=1800)
+        self.state["recovery_context"] = {
+            "task_id": self.state["current_task"]["id"], "timeout_kind": "tool",
+            "execution_limits": {"tool_timeout_seconds": 1800}}
+        unchanged = copy.deepcopy(self.state)
+        with self.assertRaisesRegex(ValueError, "changed execution plan"):
+            g.assign_task(self.state, decision, current)
+        self.assertEqual(unchanged, self.state)
+        self.state["settings"]["limits"]["stage_timeout_seconds"] = 7200
+        with self.assertRaisesRegex(ValueError, "changed execution plan"):
+            g.assign_task(self.state, decision, current)
+        self.state = copy.deepcopy(unchanged)
+        revised = copy.deepcopy(decision)
+        revised["next_task"]["validation_plan"] = ["Reuse the pinned CLI result; run remaining invalid-name check separately"]
+        g.assign_task(self.state, revised, current)
+        self.assertNotEqual(unchanged["current_task"]["id"], self.state["current_task"]["id"])
+        self.state = unchanged
+        self.state["settings"]["limits"]["tool_timeout_seconds"] = 3600
+        g.assign_task(self.state, decision, current)
+
+    def test_human_only_pending_review_can_be_presented_accepted_and_completed(self):
+        import autocode_milestones as milestones
+        draft = body(human=True)
+        draft["acceptance_criteria"].append({"id": "C2", "criterion": "Automated checks pass",
+            "verification_method": "Execute CLI cases", "human_review": False})
+        draft["milestones"][0]["acceptance_criteria"].append("C2")
+        g.install_draft(self.state, draft, origin="test")
+        g.present(self.state)
+        g.approve(self.state, self.state["displayed_goal"])
+        self.state["settings"]["milestone_checkpoints"] = copy.deepcopy(milestones.DEFAULTS)
+        next_task = self.decision()
+        next_task["next_task"]["acceptance_criteria"].append("C2")
+        g.assign_task(self.state, next_task, s.snapshot(self.root))
+        current = self.validation()
+        val = self.state["validation"]
+        val.update(verdict="BLOCKED", unverified_criteria=["C1 human acceptance pending"])
+        val["criterion_results"][0]["status"] = "NOT_VERIFIED"
+        decision = self.decision("TASK_COMPLETE")
+        self.assertFalse(s.completion_ready(self.state, decision, current))
+        self.assertFalse(milestones.evidence_ready(self.state, current))
+        self.assertTrue(s.completion_ready(self.state, decision, current, require_human_reviews=False))
+        runner.apply_result(self.state, "astra_review", decision, {"output": "review"}, self.root, self.run)
+        self.assertEqual("WAITING_FOR_USER", self.state["status"])
+        g.present(self.state)
+        g.approve_review(self.state, "C1", g.review_token(self.state), current)
+        self.assertTrue(s.completion_ready(self.state, decision, current))
+        self.assertTrue(milestones.evidence_ready(self.state, current))
+        val = self.state["validation"]
+        val["criterion_results"][1]["status"] = "FAIL"
+        self.assertFalse(s.completion_ready(self.state, decision, current))
+        self.assertFalse(milestones.evidence_ready(self.state, current))
+        val["criterion_results"][1]["status"] = "PASS"
+        self.assertEqual("BLOCKED", val["verdict"], "Do not rewrite the independent report")
+        runner.apply_result(self.state, "astra_review", decision, {"output": "complete"}, self.root, self.run)
+        self.assertEqual("TASK_COMPLETE", self.state["status"])
+
+    def test_multiple_human_criteria_can_each_be_reviewed_and_completed(self):
+        """LIVE-02 regression: two human-review criteria must not deadlock acceptance."""
+        import autocode_milestones as milestones
+        draft = body(human=True)
+        draft["acceptance_criteria"].append(
+            {"id": "C2", "criterion": "Human README cross-check", "verification_method": "Read and compare",
+             "human_review": True})
+        draft["acceptance_criteria"].append({"id": "C3", "criterion": "Automated checks pass",
+            "verification_method": "Execute CLI cases", "human_review": False})
+        draft["milestones"][0]["acceptance_criteria"] += ["C2", "C3"]
+        g.install_draft(self.state, draft, origin="test")
+        g.present(self.state)
+        g.approve(self.state, self.state["displayed_goal"])
+        self.state["settings"]["milestone_checkpoints"] = copy.deepcopy(milestones.DEFAULTS)
+        next_task = self.decision()
+        next_task["next_task"]["acceptance_criteria"] += ["C2", "C3"]
+        g.assign_task(self.state, next_task, s.snapshot(self.root))
+        current = self.validation()
+        val = self.state["validation"]
+        # The Validator's report: both human criteria pending, the technical one passes.
+        by_id = {row["id"]: row for row in val["criterion_results"]}
+        by_id["C1"]["status"] = "NOT_VERIFIED"
+        by_id["C2"]["status"] = "NOT_VERIFIED"
+        by_id["C3"]["status"] = "PASS"
+        val.update(verdict="BLOCKED", unverified_criteria=["C1 human acceptance pending",
+                                                           "C2 human acceptance pending"])
+        decision = self.decision("TASK_COMPLETE")
+        self.assertTrue(s.completion_ready(self.state, decision, current, require_human_reviews=False),
+                        "a two-human contract reaches the artifact review like a one-human contract")
+        runner.apply_result(self.state, "astra_review", decision, {"output": "review"}, self.root, self.run)
+        self.assertEqual("WAITING_FOR_USER", self.state["status"])
+        g.present(self.state)
+        g.approve_review(self.state, "C1", g.review_token(self.state), current)
+        self.assertFalse(s.completion_ready(self.state, decision, current),
+                         "one of two human acceptances is still missing")
+        g.approve_review(self.state, "C2", g.review_token(self.state), current)
+        self.assertTrue(s.completion_ready(self.state, decision, current))
+        runner.apply_result(self.state, "astra_review", decision, {"output": "complete"}, self.root, self.run)
+        self.assertEqual("TASK_COMPLETE", self.state["status"])
+
+    def test_task_ownership_merges_the_named_milestone_paths(self):
+        """LIVE-06 regression: milestone ownership merges into the task, not the builder's blame."""
+        import autocode_milestones as milestones
+        draft = body()
+        draft["acceptance_criteria"].append({"id": "C2", "criterion": "Server behavior",
+            "verification_method": "Execute handler checks", "human_review": False})
+        draft["milestones"].append({"id": "M2", "objective": "server", "acceptance_criteria": ["C2"],
+                                    "depends_on": ["M1"], "affected_paths": ["server/"]})
+        g.install_draft(self.state, draft, origin="test")
+        g.present(self.state)
+        g.approve(self.state, self.state["displayed_goal"])
+        self.state["settings"]["milestone_checkpoints"] = copy.deepcopy(milestones.DEFAULTS)
+        g.assign_task(self.state, self.decision(), s.snapshot(self.root))  # M1 assigned
+        current = self.validation()  # M1's independent validation passes
+        stray = self.decision()
+        stray["next_task"] = {"kind": "implement", "milestone_id": "M2", "requirements": ["server"],
+                              "acceptance_criteria": ["C2"], "validation_plan": ["run"],
+                              "findings": []}
+        stray["affected_paths"] = ["greet.py"]  # M1's path, not M2's server/
+        g.assign_task(self.state, stray, s.snapshot(self.root))
+        task = self.state["current_task"]
+        # The milestone's contract ownership is merged in, so the builder's
+        # contract-legal server work is within the assignment (LIVE-06 fix).
+        self.assertIn("server/", task["affected_paths"])
+        self.assertIn("greet.py", task["affected_paths"])
+        self.assertEqual("M2", task["milestone_id"])
+        # Another milestone's exclusive path stays outside this task's ownership.
+        self.assertNotIn("client/request.py", task["affected_paths"])
+        self.assertTrue(all("client/" != p for p in task["affected_paths"]),
+                        "M2's task must not own M3-style client paths")
+
+
+    def test_execution_handoff_scopes_design_and_highlights_saved_permission(self):
+        self.approve()
+        self.state["settings"]["figma_file"] = "https://www.figma.com/design/Example123/Task"
+        request, qid = self.answer_permission()
+        g.wait_for_user(self.state, request)
+        g.assign_task(self.state, self.decision(), s.snapshot(self.root))
+        prompt, _ = s.context_packet(self.state, "terra", self.run / "state.json")
+        self.assertIn('bounded test, parser, or harness repair', prompt)
+        self.assertNotIn('before planning, implementation or validation', prompt)
+        self.assertIn('"permission_reuse_context"', prompt)
+        self.assertIn(qid, prompt)
+        self.assertIn('Read saved_answers before raising', prompt)
+
+    def test_human_acceptance_cannot_cover_invalid_technical_evidence(self):
+        self.approve(human=True)
+        current = self.validation()
+        self.state["validation"].update(verdict="BLOCKED", unverified_criteria=["C1"])
+        self.state["validation"]["criterion_results"][0]["status"] = "NOT_VERIFIED"
+        original = copy.deepcopy(self.state)
+        mutations = [
+            lambda v: v.update(unverified_criteria=["C1", "another gap"]),
+            lambda v: v["checks"][0].update(exit_code=1),
+            lambda v: v.update(findings=[{"blocking": True, "severity": "medium"}]),
+            lambda v: v.update(criteria_revision="stale"),
+            lambda v: v.update(source_revision="stale"),
+            lambda v: v["end_to_end_result"].update(status="NOT_VERIFIED"),
+            lambda v: v["criterion_results"].append(copy.deepcopy(v["criterion_results"][0])),
+            lambda v: v["criterion_results"][0].update(evidence_refs=[]),
+        ]
+        for mutate in mutations:
+            self.state = copy.deepcopy(original)
+            mutate(self.state["validation"])
+            g.present(self.state)
+            with self.assertRaises(ValueError):
+                g.approve_review(self.state, "C1", g.review_token(self.state), current)
+            self.assertFalse(s.completion_ready(self.state, self.decision("TASK_COMPLETE"), current,
+                                                require_human_reviews=False))
 
     def test_answer_is_never_approval_and_resume_does_not_bypass_remaining_question(self):
         draft = body(questions=True)
@@ -232,10 +469,29 @@ class GoalTests(unittest.TestCase):
             g.approve_review(self.state, "C1", g.review_token(self.state), s.snapshot(self.root))
         self.assertFalse(s.completion_ready(self.state, self.decision("TASK_COMPLETE"), s.snapshot(self.root)))
 
+    def test_accept_completion_probe_carries_the_current_task_identity(self):
+        """F7: --accept-completion was unreachable whenever a task was assigned."""
+        self.approve()
+        g.assign_task(self.state, self.decision(), s.snapshot(self.root))
+        self.validation()
+        self.assertEqual([], g.missing_human_reviews(self.state))
+        task_id = (self.state.get("current_task") or {}).get("id", "")
+        self.assertTrue(task_id)
+        runner.accept_completion(self.state, self.root)
+        self.assertEqual("TASK_COMPLETE", self.state["status"])
+        self.assertEqual("user_cli", self.state.get("completion_actor"))
+        self.assertEqual(task_id, self.state["final_decision"].get("task_id"))
+
     def test_medium_blocking_finding_blocks_even_with_tests_passing(self):
         self.approve(); current = self.validation()
         self.state["validation"]["findings"] = [{"severity": "medium", "blocking": True, "finding": "Required behavior missing"}]
         self.assertFalse(s.completion_ready(self.state, self.decision("TASK_COMPLETE"), current))
+
+    def test_nonblocking_preference_finding_does_not_prevent_completion(self):
+        self.approve(); current = self.validation()
+        self.state["validation"]["findings"] = [{"severity": "low", "blocking": False,
+                                                    "finding": "Consider renaming this class"}]
+        self.assertTrue(s.completion_ready(self.state, self.decision("TASK_COMPLETE"), current))
 
     def test_missing_criterion_cannot_hide_behind_green_suite(self):
         self.approve(); current = self.validation()
@@ -266,7 +522,7 @@ class GoalTests(unittest.TestCase):
             saved["user_events"].append({"kind": "concurrent-user-event"})
             s.atomic_json(self.run / "state.json", saved)
             yield
-        with patch.object(s, "workspace_lock", concurrent_update):
+        with patch.object(s, "run_lock", concurrent_update):
             self.assertEqual(0, self.invoke("--show-goal"))
         self.assertIn({"kind": "concurrent-user-event"}, self.state["user_events"])
 
@@ -368,6 +624,104 @@ class GoalTests(unittest.TestCase):
                 self.assertEqual(expected, self.state["status"])
                 self.assertEqual("PAUSED_OR_BLOCKED", self.state["phase"])
                 self.state = saved
+
+    def test_interrupted_abandoned_unknown_usage_stays_paused_on_resume_and_larger_cap(self):
+        self.approve()
+        self.state["settings"]["limits"]["max_reported_tokens"] = 100
+        base = self.run / "iterations/001/terra-01"
+        base.parent.mkdir(parents=True)
+        s.atomic_json(base.with_suffix(".before.json"), s.snapshot(self.root))
+        raw_events = '{"type":"thread.started","thread_id":"interrupted-session"}\n'
+        base.with_suffix(".jsonl").write_text(raw_events)
+        (self.root / "partial.py").write_text("# retained partial work\n")
+        self.state.update(status="PAUSED_INTERRUPTED", phase="PAUSED_OR_BLOCKED", next_stage="terra",
+            active_stage={"role": "terra", "stage": "terra", "iteration": 1, "duration_seconds": 8,
+                          "output": str(base.with_suffix(".json")), "events": str(base.with_suffix(".jsonl")),
+                          "before_ref": str(base.with_suffix(".before.json")), "exit_code": -15})
+        self.state["sessions"]["terra"] = "interrupted-session"
+        self.assertEqual(2, self.invoke("--resume-paused"))
+        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", self.state["status"])
+        self.assertIn("--abandon-stage 001/terra-01", self.stderr)
+        self.assertEqual(0, self.invoke("--abandon-stage", "001/terra-01"))
+        self.assertEqual("PAUSED_STAGE_ABANDONED", self.state["status"])
+        self.assertNotIn("active_stage", self.state)
+        self.assertNotIn("terra", self.state["sessions"])
+        archived = copy.deepcopy(self.state["stages"])
+        self.assertTrue(archived[0]["abandoned"])
+        self.assertIsNone(archived[0]["metrics"]["provider_tokens"]["input_tokens"])
+        self.assertIsNone(archived[0]["metrics"]["provider_tokens"]["output_tokens"])
+        events = archived[0]["events"]
+        self.assertNotEqual(str(base.with_suffix(".jsonl")), events)
+        for args, cap in [(('--resume-paused',), 100), ((), 100), (('--resume-paused',), 100),
+                          (('--resume-paused', '--max-reported-tokens', '1000'), 1000),
+                          (('--resume-paused',), 1000)]:
+            with self.subTest(args=args, cap=cap):
+                self.assertEqual(2, self.invoke(*args))
+                self.assertEqual("PAUSED_USAGE_UNKNOWN", self.state["status"])
+                self.assertEqual("PAUSED_OR_BLOCKED", self.state["phase"])
+                self.assertEqual(cap, self.state["settings"]["limits"]["max_reported_tokens"])
+                reason = self.state["stop_reason"]
+                for detail in ("001/terra-01", events, "--abandon-stage", "--resume-paused",
+                               "larger positive --max-reported-tokens do not resolve unknown consumption",
+                               "unchanged-cap run remains paused", "--max-reported-tokens 0",
+                               "policy change, not usage recovery"):
+                    self.assertIn(detail, reason)
+                self.assertIn(reason, self.stdout + self.stderr)
+                self.assertEqual(archived, self.state["stages"])
+                self.assertEqual(raw_events, Path(events).read_text())
+                self.assertEqual("# retained partial work\n", (self.root / "partial.py").read_text())
+                self.assertEqual(8, self.state["active_seconds"])
+
+    def test_unknown_usage_lists_all_affected_attempts_and_legacy_record_locations(self):
+        self.approve()
+        self.state["settings"]["limits"]["max_reported_tokens"] = 100
+        self.state["stages"] = [
+            {"iteration": 1, "output": str(self.run / "terra-01.json"), "events": str(self.run / "terra-01.jsonl"),
+             "metrics": {"provider_tokens": {"input_tokens": None, "output_tokens": 1}}},
+            {"iteration": 1, "output": str(self.run / "sol-01.json"), "events": str(self.run / "sol-01.jsonl"),
+             "metrics": {"provider_tokens": {"input_tokens": 1}}},
+            {},
+            {"iteration": 1, "output": str(self.run / "known.json"), "events": str(self.run / "known.jsonl"),
+             "metrics": {"provider_tokens": {"input_tokens": 100, "output_tokens": 1}}}]
+        records = copy.deepcopy(self.state["stages"])
+        self.assertEqual(2, self.invoke())
+        self.assertEqual("PAUSED_USAGE_UNKNOWN", self.state["status"])
+        for name in ("terra-01", "sol-01"):
+            self.assertIn(f"001/{name}", self.stderr)
+            self.assertIn(str(self.run / f"{name}.jsonl"), self.stderr)
+        self.assertIn("stages[2] (events: not recorded)", self.stderr)
+        self.assertNotIn("known.jsonl", self.stderr)
+        self.assertEqual(records, self.state["stages"])
+
+    def test_reported_token_known_threshold_still_controls_stage_admission(self):
+        self.approve()
+        self.state["stages"] = [{"metrics": {"provider_tokens": {"input_tokens": 1, "output_tokens": 1}}}]
+        self.assertEqual(2, self.invoke("--max-reported-tokens", "2"))
+        self.assertEqual("PAUSED_BUDGET", self.state["status"])
+        calls = []
+        def attempted(**kwargs):
+            calls.append(kwargs)
+            raise s.Paused("PAUSED_TEST_LAUNCH", "Mock stage admitted; no provider called")
+        self.assertEqual(2, self.invoke("--resume-paused", "--max-reported-tokens", "3", role=attempted))
+        self.assertEqual("PAUSED_TEST_LAUNCH", self.state["status"])
+        self.assertEqual(1, len(calls))
+
+    def test_autopilot_runtime_uses_same_reported_token_guard(self):
+        self.approve()
+        self.state["settings"]["limits"]["max_reported_tokens"] = 2
+        args = runner.argparse.Namespace(unit=None, resume_paused=True)
+        for tokens, status in [({}, "PAUSED_USAGE_UNKNOWN"),
+                               ({"input_tokens": 1, "output_tokens": 1}, "PAUSED_BUDGET")]:
+            with self.subTest(status=status):
+                self.state["stages"] = [{"metrics": {"provider_tokens": tokens}}]
+                with patch.object(runner.autopilot, "dispatch_unit") as dispatch:
+                    with self.assertRaises(s.Paused) as caught:
+                        runner.autopilot.run(runner, self.state, self.root, self.run, args)
+                    dispatch.assert_not_called()
+                self.assertEqual(status, caught.exception.status)
+                with self.assertRaises(s.Paused) as shared:
+                    s.enforce_reported_token_limit(self.state)
+                self.assertEqual(str(shared.exception), str(caught.exception))
 
     def test_cli_approve_saves_ready_without_launching(self):
         self.draft()
@@ -509,6 +863,169 @@ class GoalTests(unittest.TestCase):
         self.assertEqual([], g.missing_human_reviews(self.state))
         self.assertNotEqual("COMPLETE", self.state["phase"])
 
+    def test_artifact_approval_closes_its_question_and_is_idempotent(self):
+        self.approve(human=True)
+        current = self.validation()
+        request = {"kind": "human_review", "criteria": ["C1"],
+                   "decision_needed": "Review C1 on the current artifact.",
+                   "impact": "C1 needs human acceptance", "options": ["Approve", "Reject"],
+                   "proposed_delta": ""}
+        g.wait_for_user(self.state, request)
+        question = copy.deepcopy(self.state["pending_questions"][0])
+        g.present(self.state)
+        selected = g.review_token(self.state)
+        self.assertEqual(["C1"], question["review_criteria"])
+        self.assertEqual(selected, question["review_token"])
+        g.approve_review(self.state, "C1", selected, current)
+        self.assertEqual([], self.state["pending_questions"])
+        self.assertNotIn("user_request", self.state)
+        self.assertEqual("RUNNING", self.state["status"])
+        saved = copy.deepcopy(self.state)
+        g.approve_review(self.state, "C1", selected, current)
+        self.assertEqual(saved, self.state)
+        with self.assertRaises(ValueError):
+            g.answer(self.state, question["id"], "Approve again")
+        self.assertEqual(saved, self.state)
+
+    def legacy_review_fixture(self):
+        self.approve(human=True)
+        current = self.validation()
+        original_id = "original-review"
+        question = {"id": original_id, "question": "Record the required C1 decision: accept or reject the result.",
+                    "options": ["Accept C1: record acceptance.", "Reject C1: request correction."]}
+        original = {"kind": "permission_answer", "actor": "user_cli", "at": "2026-09-23T10:00:00Z",
+                    "question_id": original_id, "question": question,
+                    "contract_token": g.token(self.state["goal_contract"]),
+                    "text": "Accept C1. I reviewed the result."}
+        carry = {"kind": "permission_answer", "actor": "user_cli", "at": "2026-09-24T10:00:00Z",
+                 "question_id": "carry-review", "contract_token": g.token(self.state["goal_contract"]),
+                 "text": "Preserve the existing C1 acceptance; do not request another human visual approval."}
+        self.state.setdefault("user_events", []).extend([original, carry])
+        self.state.setdefault("answers", {}).update({original_id: original, "carry-review": carry})
+        request = {"kind": "blocker", "decision_needed": "Reconcile existing C1 acceptance with the runner gate.",
+                   "proposed_delta": "No contract, criterion, source or permission change."}
+        self.state.update(status="WAITING_FOR_USER", phase="WAITING_FOR_USER",
+                          next_stage="astra_review", user_request=request,
+                          pending_questions=[{"id": "runner-reconcile", "question": request["decision_needed"]}])
+        g.present(self.state)
+        return current, original_id
+
+    def test_legacy_review_reconciliation_preserves_the_original_user_event(self):
+        current, original_id = self.legacy_review_fixture()
+        old_user_events = [event for event in self.state["user_events"] if event.get("actor") == "user_cli"]
+        g.reconcile_legacy_review(self.state, "C1", original_id, g.review_token(self.state), current)
+        self.assertEqual([], g.missing_human_reviews(self.state))
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertEqual([], self.state["pending_questions"])
+        self.assertNotIn("user_request", self.state)
+        self.assertEqual(old_user_events, [event for event in self.state["user_events"] if event.get("actor") == "user_cli"])
+        self.assertEqual("review_reconciliation", self.state["human_reviews"]["C1"]["kind"])
+        self.assertEqual("runner", self.state["human_reviews"]["C1"]["actor"])
+        self.assertFalse(g.missing_human_reviews(self.state))
+        self.state["validation"]["source_revision"] = "changed"
+        self.assertEqual(["C1"], g.missing_human_reviews(self.state))
+
+    def test_legacy_review_reconciliation_rejects_forged_or_missing_provenance(self):
+        current, original_id = self.legacy_review_fixture()
+        for change in (lambda state: state["user_events"].remove(state["answers"][original_id]),
+                       lambda state: state["answers"][original_id].update(text="Reject C1."),
+                       lambda state: state["answers"].pop("carry-review"),
+                       lambda state: state["validation"].update(verdict="FAIL")):
+            candidate = copy.deepcopy(self.state)
+            change(candidate)
+            with self.assertRaises(ValueError):
+                g.reconcile_legacy_review(candidate, "C1", original_id, g.review_token(candidate), current)
+            self.assertNotIn("C1", candidate.get("human_reviews", {}))
+
+    def test_cli_legacy_review_reconciliation_saves_without_launching_a_provider(self):
+        current, original_id = self.legacy_review_fixture()
+        token = g.review_token(self.state)
+        with patch.object(s, "snapshot", return_value=current):
+            self.assertEqual(0, self.invoke("--reconcile-review", f"C1={original_id}", "--review-token", token))
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertEqual([], g.missing_human_reviews(self.state))
+
+    def test_sql_shaped_legacy_permission_question_closes_on_artifact_approval(self):
+        self.approve(human=True)
+        current = self.validation()
+        request = {"kind": "permission", "decision_needed": "Approve or reject C1 based on the current M5V evidence.",
+                   "impact": "M5V cannot advance without human review.",
+                   "options": ["Approve C1", "Reject C1"], "proposed_delta": ""}
+        g.wait_for_user(self.state, request)
+        # This is how the SQL question was saved before review bindings existed.
+        question = self.state["pending_questions"][0]
+        question.pop("review_criteria")
+        question.pop("review_token")
+        g.present(self.state)
+        selected = g.review_token(self.state)
+        g.approve_review(self.state, "C1", selected, current)
+        self.assertEqual([], self.state["pending_questions"])
+        self.assertEqual("RUNNING", self.state["status"])
+        with self.assertRaises(ValueError):
+            g.answer(self.state, question["id"], "Approve C1")
+        self.assertTrue(g.approved(self.state))
+
+    def test_review_approval_keeps_unrelated_question_and_rejects_stale_token(self):
+        self.approve(human=True)
+        current = self.validation()
+        request = {"kind": "human_review", "criteria": ["C1"],
+                   "decision_needed": "Review C1 on the current artifact.",
+                   "impact": "C1 needs human acceptance", "options": ["Approve", "Reject"],
+                   "proposed_delta": ""}
+        g.wait_for_user(self.state, request)
+        unrelated = {"id": "other", "question": "Choose a project name", "why": "Needed later",
+                     "options": [], "proposed_default": ""}
+        self.state["pending_questions"].append(unrelated)
+        g.present(self.state)
+        selected = g.review_token(self.state)
+        with self.assertRaises(ValueError):
+            g.approve_review(self.state, "C1", "stale", current)
+        self.assertEqual(2, len(self.state["pending_questions"]))
+        g.approve_review(self.state, "C1", selected, current)
+        self.assertEqual([unrelated], self.state["pending_questions"])
+        self.assertEqual("WAITING_FOR_USER", self.state["status"])
+
+    def test_one_of_two_review_approvals_closes_question_but_keeps_review_request(self):
+        draft = body(human=True)
+        draft["acceptance_criteria"].append({"id": "C2", "criterion": "Review a second flow",
+            "verification_method": "Inspect the saved flow", "human_review": True})
+        draft["milestones"][0]["acceptance_criteria"].append("C2")
+        g.install_draft(self.state, draft, origin="test")
+        g.present(self.state)
+        g.approve(self.state, self.state["displayed_goal"])
+        current = self.validation()
+        g.wait_for_user(self.state, {"kind": "human_review", "criteria": ["C1", "C2"],
+            "decision_needed": "Review both criteria.", "impact": "Both need human acceptance",
+            "options": ["Approve", "Reject"], "proposed_delta": ""})
+        question_id = self.state["pending_questions"][0]["id"]
+        g.present(self.state)
+        g.approve_review(self.state, "C1", g.review_token(self.state), current)
+        self.assertEqual([], self.state["pending_questions"])
+        self.assertEqual("WAITING_FOR_USER", self.state["status"])
+        self.assertEqual(["C1", "C2"], self.state["user_request"]["criteria"])
+        with self.assertRaises(ValueError):
+            g.answer(self.state, question_id, "Approve both")
+
+    def test_review_cli_retry_after_restart_keeps_approval_and_goal(self):
+        # Keep CLI registry writes out of the source snapshot under review.
+        with tempfile.TemporaryDirectory() as registry_home, patch.dict(os.environ, {"AUTOCODE_HOME": registry_home}):
+            self.approve(human=True)
+            self.validation()
+            g.wait_for_user(self.state, {"kind": "human_review", "criteria": ["C1"],
+                "decision_needed": "Review C1 on the current artifact.", "impact": "Approval required",
+                "options": ["Approve", "Reject"], "proposed_delta": ""})
+            g.present(self.state)
+            selected = g.review_token(self.state)
+            question_id = self.state["pending_questions"][0]["id"]
+            self.assertEqual(0, self.invoke("--approve-review", "C1", "--review-token", selected))
+            first = copy.deepcopy(self.state)
+            self.assertEqual([], first["pending_questions"])
+            self.assertEqual(0, self.invoke("--approve-review", "C1", "--review-token", selected))
+            self.assertEqual(first["user_events"], self.state["user_events"])
+            self.assertEqual(2, self.invoke("--answer", question_id + "=Approve"))
+            self.assertEqual(first["goal_contract"], self.state["goal_contract"])
+            self.assertEqual("RUNNING", self.state["status"])
+
     def test_human_review_not_requested_before_passing_automated_evidence(self):
         self.approve(human=True)
         before = copy.deepcopy(self.state)
@@ -550,7 +1067,14 @@ class GoalTests(unittest.TestCase):
         self.state["validation"]["criterion_results"][0]["status"] = "FAIL"
         correction = self.decision("REWORK")
         correction["next_objective"] = "Reject empty names"
-        runner.apply_result(self.state, "astra_review", correction, {"output": "correction"}, self.root, self.run)
+        report = self.run / 'correction.json'
+        report.write_text(json.dumps(correction))
+        record = {"output": str(report), "source_revision": s.snapshot(self.root)['revision']}
+        runner.apply_result(self.state, "astra_review", correction, record, self.root, self.run)
+        self.assertEqual("astra_resolve", self.state["next_stage"])
+        self.assertEqual(previous, self.state["current_task"]["id"])
+        correction['diagnosis'] = 'The empty-name path does not reject invalid input'
+        runner.apply_result(self.state, "astra_resolve", correction, record, self.root, self.run)
         self.assertEqual("terra", self.state["next_stage"])
         self.assertNotEqual(previous, self.state["current_task"]["id"])
         self.assertEqual("Reject empty names", self.state["current_task"]["objective"])
@@ -558,6 +1082,31 @@ class GoalTests(unittest.TestCase):
         self.assertEqual(previous, self.state["task_archive"][0]["id"])
         with self.assertRaisesRegex(s.Paused, "another implementation task"):
             g.execution_guard(self.state, {**envelope(self.state), "task_id": previous})
+
+    def test_astra_rework_survives_passing_sol_evidence(self):
+        self.approve()
+        runner.apply_result(self.state, "astra_plan", self.decision(), {"output": "plan"}, self.root, self.run)
+        self.validation()
+        correction = self.decision("REWORK")
+        correction["acceptance_criteria"][0]["status"] = "unverified"
+        correction["next_objective"] = "Fix the visual gap found by the Plan Reviewer"
+        report = self.run / "visual-gap-review.json"
+        report.write_text(json.dumps(correction))
+        record = {"output": str(report), "source_revision": s.snapshot(self.root)["revision"]}
+        runner.apply_result(self.state, "astra_review", correction, record, self.root, self.run)
+        self.assertEqual("astra_resolve", self.state["next_stage"])
+        self.assertEqual("RUNNING", self.state["status"])
+        self.assertEqual("unverified", self.state["acceptance_criteria"][0]["status"])
+
+    def test_continue_does_not_invent_verified_astra_criteria(self):
+        self.approve()
+        runner.apply_result(self.state, "astra_plan", self.decision(), {"output": "plan"}, self.root, self.run)
+        self.validation()
+        decision = self.decision()
+        decision["acceptance_criteria"][0]["status"] = "unverified"
+        runner.apply_result(self.state, "astra_review", decision, {"output": "review"}, self.root, self.run)
+        self.assertEqual("terra", self.state["next_stage"])
+        self.assertEqual("unverified", self.state["acceptance_criteria"][0]["status"])
 
     def test_continue_can_dispatch_revalidation_without_an_implementation(self):
         self.approve()

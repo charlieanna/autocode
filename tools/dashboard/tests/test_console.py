@@ -16,6 +16,12 @@ class Tests(unittest.TestCase):
   self.fail('timed out')
  def test_v3_adapter(self):
    v=self.c.view(self.ws,self.run);self.assertEqual('saved',v['answers']['Q0']['text']);self.assertEqual('terra',v['stage']);self.assertEqual(1,len(v['stages']));self.assertEqual(1,v['counts']['pass']);self.assertEqual(['current plan\nwith recorded line break'],v['plan']);self.assertEqual('review',v['review_token'])
+ def test_completion_timestamp_projection_is_optional_and_not_derived(self):
+  completion='2026-09-22T12:44:00Z';polling='2026-09-22T13:07:00Z';stage='2026-09-22T12:48:00Z';evidence='2026-09-22T12:51:00Z'
+  self.state.update(status='TASK_COMPLETE',completed_at=completion,updated_at=polling,stages=[{'stage':'sol','role':'sol','finished_at':stage,'exit_code':0}],validation={'recorded_at':evidence,'criterion_results':[{'id':'C1','status':'PASS'}]})
+  view=self.c.view(self.ws,self.run,self.state);self.assertEqual(completion,view['completed_at']);self.assertNotIn(polling,[view['completed_at']]);self.assertNotIn(stage,[view['completed_at']]);self.assertNotIn(evidence,[view['completed_at']])
+  self.state['completed_at']='not-a-completion-timestamp';self.assertEqual('not-a-completion-timestamp',self.c.view(self.ws,self.run,self.state)['completed_at'])
+  self.state.pop('completed_at');self.assertIsNone(self.c.view(self.ws,self.run,self.state)['completed_at'])
  def test_astra_plan_history_is_defensive_chronological_and_deduplicated(self):
    self.state['goal_contract']['approval_status']='approved';self.state['contract_history']=[{'revision':1,'approval_status':'proposed','created_at':'2026-09-19T19:00:00Z'},{'revision':2,'approval_status':'approved','approval_event':{'at':'2026-09-19T20:00:00Z'}}];(self.run/'state.json').write_text(json.dumps(self.state));history=self.c.view(self.ws,self.run)['astra_plan'];self.assertEqual(['approved first step'],history['initial_plan']);self.assertEqual('approved',history['initial_plan_approval']);self.assertEqual('approved',history['current_plan_approval']);self.assertEqual([1,2],[entry['revision'] for entry in history['revision_history']]);self.assertEqual(['current plan\nwith recorded line break'],history['current_plan']);self.assertEqual('current',history['current_assignment']['id']);self.assertEqual(['older','rework','current'],[entry['id'] for entry in history['history']]);self.assertEqual('recorded rationale\nonly',history['history'][1]['reason']);self.assertIsNone(history['history'][0]['owner'])
    self.state['task_archive']=[None,{'id':['malformed']}];self.state['current_task']='legacy';self.state['plan']='legacy';(self.run/'state.json').write_text(json.dumps(self.state));history=self.c.view(self.ws,self.run)['astra_plan'];self.assertEqual([],history['current_plan']);self.assertIsNone(history['current_assignment'])
@@ -61,7 +67,7 @@ class Tests(unittest.TestCase):
   self.c.mutate({'workspace':str(self.ws),'run':str(self.run),'action':'delegate','id':'Q1'});self.wait();x=self.c.mutate({'workspace':str(self.ws),'run':str(self.run),'action':'approve_goal','token':'r3:abc','confirmation':'r3:abc'});self.assertIn('--approve-goal',x['command']);self.wait();x=self.c.mutate({'workspace':str(self.ws),'run':str(self.run),'action':'approve_review','id':'C11','token':'review'});self.assertEqual(['--approve-review','C11','--review-token','review'],x['command'][-4:]);self.wait()
   with self.assertRaises(ValueError):self.c.mutate({'workspace':str(self.ws),'run':str(self.run),'action':'approve_goal','token':'stale','confirmation':'stale'})
  def test_explicit_codex_provider_and_capture_serialization(self):
-  p=Path(self.tmp.name)/'c.toml';p.write_text('# zai\n[model_providers.ZAI]\nx=1\n');self.assertEqual('ZAI',configured_zai(p));p.write_text('# [model_providers.ZAI]\n');self.assertIsNone(configured_zai(p));x=self.c.create({'workspace':str(self.ws),'goal':'x','engine':'codex','astra_model':'glm-5.3'});self.assertIn('--astra-provider',x['command']);self.assertIn('--reasoning-effort',x['command']);self.wait(False)
+  p=Path(self.tmp.name)/'c.toml';p.write_text('# zai\n[model_providers.ZAI]\nx=1\n');self.assertEqual('ZAI',configured_zai(p));p.write_text('# [model_providers.ZAI]\n');self.assertIsNone(configured_zai(p));x=self.c.create({'workspace':str(self.ws),'goal':'x','engine':'codex','astra_model':'glm-5.3'});self.assertIn('--astra-provider',x['command']);self.assertIn('--astra-reasoning-effort',x['command']);self.wait(False)
   self.c.mutate({'workspace':str(self.ws),'run':str(self.run),'action':'continue'})
   with self.assertRaises(ValueError):self.c.mutate({'workspace':str(self.ws),'run':str(self.run),'action':'continue'})
   x=self.wait();self.assertEqual(0,x['exit_status']);self.assertGreater(len(x['stdout']),1000);self.assertGreater(len(x['stderr']),1000)
@@ -121,6 +127,39 @@ class Tests(unittest.TestCase):
  def test_watch_root_itself_is_eligible_workspace(self):
   root=self.make_ws(Path(self.tmp.name).resolve()/'rootws');c=Console([],self.fake,lambda:'ZAI',watch_roots=[root])
   rows=[r for r in c.discover() if r.get('run')];self.assertEqual([str(root)],sorted(r['workspace'] for r in rows));self.assertEqual([str(root/'.autocode/runs/r')],[r['run'] for r in rows])
+ def test_discovery_stops_at_git_project_and_skips_generated_trees(self):
+  root=Path(self.tmp.name).resolve()/'projects';project=self.make_ws(root/'project')
+  nested=self.make_ws(project/'node_modules'/'dependency'/'nested-project')
+  generated=self.make_ws(project/'.autocode'/'worktrees'/'generated-project')
+  c=Console([],self.fake,lambda:'ZAI',watch_roots=[root],watch_depth=8,watch_ttl=0)
+  rows=[r for r in c.discover() if r.get('run')]
+  self.assertEqual([str(project)],[r['workspace'] for r in rows])
+  self.assertNotIn(str(nested),str(rows));self.assertNotIn(str(generated),str(rows))
+ def test_task_list_snapshot_omits_bulky_stage_internals(self):
+  self.state['active_stage'].update(processes=[{'pid':number,'detail':'x'*200} for number in range(1000)])
+  self.state['stages'][0]['provider_payload']='y'*1000000
+  (self.run/'state.json').write_text(json.dumps(self.state))
+  row=self.c.dashboard_snapshot()['runs'][0]
+  self.assertNotIn('processes',row['active_stage']);self.assertNotIn('provider_payload',row['stages'][0])
+  self.assertEqual('terra',row['active_stage']['stage']);self.assertEqual('astra',row['stages'][0]['stage'])
+  self.assertLess(len(json.dumps(row)),50000)
+  detail=self.c.task_view(self.ws,self.run)
+  self.assertIn('processes',detail['active_stage']);self.assertIn('provider_payload',detail['stages'][0])
+ def test_one_discovery_reuses_one_process_table_snapshot(self):
+  self.state['active_stage']['pid']=123
+  (self.run/'state.json').write_text(json.dumps(self.state))
+  other=self.make_ws(Path(self.tmp.name)/'other');other_state={**self.state,'active_stage':{**self.state['active_stage'],'pid':456}}
+  (other/'.autocode/runs/r/state.json').write_text(json.dumps(other_state))
+  c=Console([self.ws,other],self.fake,lambda:'ZAI')
+  with patch('dashboard_backend.monitor_process_table',return_value=None) as inspect:
+   rows=[row for row in c.discover() if row.get('run')]
+  self.assertEqual(2,len(rows));inspect.assert_called_once_with()
+ def test_dashboard_snapshot_pins_one_watch_root_scan(self):
+  root=Path(self.tmp.name).resolve()/'projects';self.make_ws(root/'project')
+  c=Console([],self.fake,lambda:'ZAI',watch_roots=[root],watch_depth=3,watch_ttl=0)
+  with patch.object(c,'_scan_watch_root',wraps=c._scan_watch_root) as inspect:
+   rows=[row for row in c.dashboard_snapshot()['runs'] if row.get('run')]
+  self.assertEqual(1,len(rows));inspect.assert_called_once_with(root)
  def test_watch_root_symlink_escape_rejected_like_explicit(self):
   base=Path(self.tmp.name).resolve();root=base/'wroot';root.mkdir();external=self.make_ws(base/'external')
   (root/'link').symlink_to(external,target_is_directory=True)
@@ -141,12 +180,12 @@ class Tests(unittest.TestCase):
   self.assertIn('already queued or running',str(ctx.exception));self.wait_done(c,shared,run)
  def test_discovered_workspace_supports_create_and_actions(self):
   root=Path(self.tmp.name).resolve()/'dw';dw=self.make_ws(root/'disc');c=Console([],self.fake,lambda:'ZAI',watch_roots=[root])
-  x=c.create({'workspace':str(dw),'goal':'build it'});self.assertEqual(['--workspace',str(dw)],x['command'][2:4]);self.assertEqual(['build it','--engine','opencode','--joint-planning','--no-chat'],x['command'][4:]);self.assertEqual(0,self.wait_done(c,dw)['exit_status'])
+  x=c.create({'workspace':str(dw),'goal':'build it'});self.assertEqual(['--workspace',str(dw)],x['command'][2:4]);self.assertEqual(['build it','--engine','opencode','--provider','opencode','--joint-planning','--no-chat'],x['command'][4:]);self.assertEqual(0,self.wait_done(c,dw)['exit_status'])
   run=dw/'.autocode/runs/r';y=c.mutate({'workspace':str(dw),'run':str(run),'action':'continue'});self.assertEqual([sys.executable,c.runner,'--workspace',str(dw),'--run-dir',str(run),'--no-chat'],y['command']);self.wait_done(c,dw,run)
  def test_opencode_creation_accepts_entered_git_worktree_and_preserves_actions(self):
   external=Path(self.tmp.name).resolve()/'external';external.mkdir();(external/'.git').write_text('gitdir: /tmp/worktree')
   fake=Path(self.tmp.name)/'creator.py';fake.write_text("import json,sys\nfrom pathlib import Path\na=sys.argv[1:];w=Path(a[a.index('--workspace')+1]);r=w/'.autocode/runs/new';r.mkdir(parents=True,exist_ok=True);defaults={'glm':'zai-coding-plan/glm-5.3','astra':'gpt-6-astra','terra':'zai-coding-plan/glm-5.3','sol':'gpt-5.6-sol'};assert not any(x.endswith('-model') for x in a);(r/'state.json').write_text(json.dumps({'task':'new','phase':'WAITING_FOR_USER','models':defaults}));(w/'argv.json').write_text(json.dumps(a))")
-  c=Console([],fake,lambda:None);x=c.create({'project':str(external),'goal':'make it','engine':'opencode'});self.assertEqual([sys.executable,str(fake.resolve()),'--workspace',str(external),'make it','--engine','opencode','--joint-planning','--no-chat'],x['command']);self.assertNotIn('--reasoning-effort',x['command']);self.assertFalse(any('provider' in arg for arg in x['command']));self.wait_done(c,external,False)
+  c=Console([],fake,lambda:None);x=c.create({'project':str(external),'goal':'make it','engine':'opencode'});self.assertEqual([sys.executable,str(fake.resolve()),'--workspace',str(external),'make it','--engine','opencode','--provider','opencode','--joint-planning','--no-chat'],x['command']);self.assertNotIn('--reasoning-effort',x['command']);self.assertFalse(any(arg.endswith('-provider') and arg!='--provider' for arg in x['command']));self.wait_done(c,external,False)
   self.assertEqual({'glm':'zai-coding-plan/glm-5.3','astra':'gpt-6-astra','terra':'zai-coding-plan/glm-5.3','sol':'gpt-5.6-sol'},json.loads((external/'.autocode/runs/new/state.json').read_text())['models']);self.assertEqual([str(external)],[str(w) for w in c.workspaces]);self.assertEqual([str(external/'.autocode/runs/new')],[r['run'] for r in c.discover() if r.get('run')]);y=c.mutate({'workspace':str(external),'run':str(external/'.autocode/runs/new'),'action':'continue'});self.assertEqual([sys.executable,str(fake.resolve()),'--workspace',str(external),'--run-dir',str(external/'.autocode/runs/new'),'--no-chat'],y['command']);self.wait_done(c,external,external/'.autocode/runs/new')
  def test_create_rejects_non_git_or_missing_entered_project_without_authority(self):
   c=Console([],self.fake,lambda:None);missing=Path(self.tmp.name)/'missing';plain=Path(self.tmp.name)/'plain';plain.mkdir()

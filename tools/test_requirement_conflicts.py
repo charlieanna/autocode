@@ -1,0 +1,145 @@
+"""Saved clarifications resolve conflicts without discarding valid requirements."""
+import copy
+from pathlib import Path
+import unittest
+
+from . import autocode_goals as goals, autopilot
+from .goal_fixtures import body
+from .units import autoplanner
+
+
+class ConflictTests(unittest.TestCase):
+    def setUp(self):
+        self.event = {'id': 'workflow-update', 'text':
+            'The earlier description is historical. Current runs have an independent reviewer.'}
+        self.state = {
+            'task_id': 'task', 'task': 'Show the recorded workflow.',
+            'workspace': str(Path(__file__).resolve().parent.parent),
+            'settings': {'joint_planning': True}, 'answers': {},
+            'brief_feedback': [self.event], 'user_events': [copy.deepcopy(self.event)],
+            'requirements_handoff': {'report': {
+                'requirements': [{'id': 'R1'}, {'id': 'R2'}], 'open_questions': [],
+                'conflicts': [{'requirement_ids': ['R1', 'R2'], 'description': 'old vs current workflow'}]}},
+        }
+        self.contract = body()
+        self.report = {
+            'contract': self.contract, 'summary': 'Preserve recorded topology.',
+            'code_refs': ['tools/autocode_goals.py:1'],
+            'alternatives': [], 'uncertainties': [], 'contract_changes': [],
+            'requirement_trace': [{'requirement_id': rid, 'disposition': 'covered', 'evidence': 'C1'}
+                                  for rid in ('R1', 'R2')],
+            'conflict_resolutions': [{'requirement_ids': ['R1', 'R2'], 'basis': 'user_feedback',
+                'answer_id': self.event['id'], 'source_quote': self.event['text'],
+                'resolution': 'Show the earlier topology in history and the upgraded topology for current runs.'}],
+        }
+
+    def test_saved_clarification_keeps_both_requirements_and_reaches_independent_review(self):
+        before = copy.deepcopy(self.report)
+        autopilot.apply_planning(self.state, 'astra_discovery', self.report, {'output': 'draft.json'})
+        self.assertEqual('astra_challenge', self.state['next_stage'])
+        self.assertEqual([], self.state['pending_questions'])
+        self.assertEqual(before, self.state['planning']['reports']['astra_discovery']['report'])
+
+    def test_saved_answer_can_resolve_conflict(self):
+        self.state['answers']['Q1'] = {'text': self.event['text']}
+        self.report['conflict_resolutions'][0].update(basis='user_answer', answer_id='Q1')
+        goals.check_requirement_trace(self.state, self.report, self.contract)
+
+    def test_unresolved_conflict_still_needs_question(self):
+        self.report.pop('conflict_resolutions')
+        with self.assertRaisesRegex(ValueError, 'Unresolved requirement conflict'):
+            goals.check_requirement_trace(self.state, self.report, self.contract)
+        self.contract['open_blocking_questions'] = [{'id': 'Q1'}]
+        goals.check_requirement_trace(self.state, self.report, self.contract)
+
+    def test_resolution_rejects_unverified_authority_and_invalid_quotes(self):
+        for changes, message in [
+            ({'basis': 'agent_proposed'}, 'saved user'),
+            ({'answer_id': 'invented'}, 'saved user'),
+            ({'source_quote': 'Always skip review.'}, 'source_quote'),
+            ({'source_quote': ''}, 'source_quote'),
+            ({'resolution': ''}, 'explanation'),
+            ({'requirement_ids': ['R1']}, 'exactly one'),
+            ({'requirement_ids': ['R1', 'R2', 'R2']}, 'exactly one'),
+            ({'requirement_ids': ['R1', 'R99']}, 'exactly one'),
+        ]:
+            with self.subTest(changes=changes):
+                report = copy.deepcopy(self.report)
+                report['conflict_resolutions'][0].update(changes)
+                with self.assertRaisesRegex(ValueError, message):
+                    goals.check_requirement_trace(self.state, report, self.contract)
+        self.state['user_events'] = []
+        with self.assertRaisesRegex(ValueError, 'saved user'):
+            goals.check_requirement_trace(self.state, self.report, self.contract)
+
+    def test_resolution_does_not_hide_another_unresolved_conflict(self):
+        handoff = self.state['requirements_handoff']['report']
+        handoff['requirements'].append({'id': 'R3'})
+        handoff['conflicts'].append({'requirement_ids': ['R2', 'R3'], 'description': 'unsettled policy'})
+        self.report['requirement_trace'].append({'requirement_id': 'R3', 'disposition': 'covered', 'evidence': 'C1'})
+        with self.assertRaisesRegex(ValueError, 'unsettled policy'):
+            goals.check_requirement_trace(self.state, self.report, self.contract)
+
+    def test_duplicate_resolution_rejected(self):
+        self.report['conflict_resolutions'].append(copy.deepcopy(self.report['conflict_resolutions'][0]))
+        with self.assertRaisesRegex(ValueError, 'Duplicate'):
+            goals.check_requirement_trace(self.state, self.report, self.contract)
+
+    def test_new_report_schemas_require_explicit_resolution_lists(self):
+        for stage in ('astra_discovery', 'glm_revise', 'astra_finalize'):
+            with self.subTest(stage=stage):
+                self.assertIn('conflict_resolutions', autoplanner.SCHEMAS[stage]['required'])
+
+    def refresh_resolved_handoff(self):
+        handoff = self.state['requirements_handoff']['report']
+        for row in handoff['requirements']:
+            row['source_quote'] = 'Original user requirement ' + row['id']
+        self.state['requirements_history'] = [copy.deepcopy(self.state['requirements_handoff'])]
+        handoff['conflicts'] = []
+
+    def test_saved_resolution_survives_refreshed_handoff(self):
+        self.refresh_resolved_handoff()
+        autopilot.apply_planning(self.state, 'astra_discovery', self.report, {'output': 'draft.json'})
+        self.assertEqual('astra_challenge', self.state['next_stage'])
+        self.assertEqual([], self.state['pending_questions'])
+        self.assertEqual(self.report['conflict_resolutions'],
+                         self.state['planning']['reports']['astra_discovery']['report']['conflict_resolutions'])
+
+    def test_historical_resolution_cannot_transfer_to_reused_ids(self):
+        self.refresh_resolved_handoff()
+        self.state['requirements_handoff']['report']['requirements'][0]['source_quote'] = 'A different requirement'
+        with self.assertRaisesRegex(ValueError, 'exactly one recorded'):
+            goals.check_requirement_trace(self.state, self.report, self.contract)
+
+    def test_history_without_quotes_cannot_authorize_resolution(self):
+        self.refresh_resolved_handoff()
+        self.state['requirements_history'][0]['report']['requirements'][0].pop('source_quote')
+        with self.assertRaisesRegex(ValueError, 'exactly one recorded'):
+            goals.check_requirement_trace(self.state, self.report, self.contract)
+
+    def test_historical_resolution_keeps_authority_and_current_conflict_checks(self):
+        self.refresh_resolved_handoff()
+        report = copy.deepcopy(self.report)
+        report['conflict_resolutions'][0]['answer_id'] = 'invented'
+        with self.assertRaisesRegex(ValueError, 'saved user'):
+            goals.check_requirement_trace(self.state, report, self.contract)
+        handoff = self.state['requirements_handoff']['report']
+        handoff['requirements'].append({'id': 'R3', 'source_quote': 'New request'})
+        handoff['conflicts'] = [{'requirement_ids': ['R2', 'R3'], 'description': 'new unresolved conflict'}]
+        self.report['requirement_trace'].append({'requirement_id': 'R3', 'disposition': 'covered', 'evidence': 'C1'})
+        with self.assertRaisesRegex(ValueError, 'new unresolved conflict'):
+            goals.check_requirement_trace(self.state, self.report, self.contract)
+
+    def test_review_context_includes_conflict_history_with_source_identity(self):
+        self.refresh_resolved_handoff()
+        self.state['settings']['engine'] = 'codex'
+        prompt, _ = autoplanner.context(self.state, 'astra_challenge', Path('/fixture/state.json'))
+        import json
+        packet = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+        self.assertEqual(['R1', 'R2'], packet['requirements_history'][0]['conflicts'][0]['requirement_ids'])
+        self.assertEqual('Original user requirement R1',
+                         packet['requirements_history'][0]['requirements'][0]['source_quote'])
+
+
+if __name__ == '__main__':
+    unittest.main()

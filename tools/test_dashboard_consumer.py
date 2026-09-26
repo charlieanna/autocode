@@ -30,6 +30,11 @@ if stage == "terra" and os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
             if time.monotonic() > deadline: raise SystemExit("fixture barrier timed out")
             time.sleep(0.02)
 ''')
+        # This test exercises reapproval and human-review transport, not no-op
+        # detection: make the fixture's post-replan implementation a real delta.
+        source = source.replace('    result = {**common, "summary": "Greeting written"',
+            '    with Path("greet.py").open("a") as fixture_output: fixture_output.write("# revision " + str(uuid.uuid4()) + "\\n")\n'
+            '    result = {**common, "summary": "Greeting written"')
         provider.write_text(source)
         barrier = flow.root/'hold-terra'
         flow.env['AUTOCODE_CONSUMER_BARRIER'] = str(barrier)
@@ -83,7 +88,7 @@ if stage == "terra" and os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
 
         state=flow.saved()[1]
         self.assertEqual('PAUSED_INTERVENTION',state['status'])
-        self.assertEqual('astra_discovery',state['next_stage'])
+        self.assertEqual('requirements_gather',state['next_stage'])
         self.assertTrue((flow.project/'greet.py').is_file())
         self.assertEqual(1,sum(row['stage']=='terra' for row in state['stages']))
         self.assertEqual(0,sum(row['stage']=='sol' for row in state['stages']))

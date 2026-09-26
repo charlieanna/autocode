@@ -90,18 +90,20 @@ class JointPlanningContractTests(unittest.TestCase):
         self.assertFalse((self.workspace / '.autocode').exists())
         return settings
 
-    def assert_joint_routes(self, settings, *, glm='zai-coding-plan/glm-5.3', terra='zai-coding-plan/glm-5.3'):
+    def assert_joint_routes(
+            self, settings, *, glm='zai-coding-plan/glm-5.3', astra='openai/gpt-5.6-sol',
+            terra='openai/gpt-5.6-terra', sol='openai/gpt-5.6-sol'):
         self.assertTrue(settings['joint_planning'])
         self.assertEqual('opencode', settings['engine'])
         self.assertEqual({'opencode'}, set(settings['transport_identities']))
         state = {'settings': settings}
         expected_stages = {
             'astra_discovery': ('glm', 'opencode', glm),
-            'astra_challenge': ('astra', 'opencode', 'openai/gpt-6-astra'),
+            'astra_challenge': ('astra', 'opencode', astra),
             'glm_revise': ('glm', 'opencode', glm),
-            'astra_finalize': ('astra', 'opencode', 'openai/gpt-6-astra'),
+            'astra_finalize': ('astra', 'opencode', astra),
             'terra': ('terra', 'opencode', terra),
-            'sol': ('sol', 'opencode', 'openai/gpt-5.6-sol'),
+            'sol': ('sol', 'opencode', sol),
         }
         for stage, (expected_role, expected_engine, expected_model) in expected_stages.items():
             with self.subTest(stage=stage):
@@ -118,12 +120,14 @@ class JointPlanningContractTests(unittest.TestCase):
         settings = self.create_settings(
             engine='opencode', glm_model='zai-coding-plan/glm-5.3-flash',
             astra_model='gpt-6-astra', terra_model='zai-coding-plan/glm-5.3-flash', sol_model='gpt-5.6-sol')
-        self.assert_joint_routes(settings, glm='zai-coding-plan/glm-5.3-flash', terra='zai-coding-plan/glm-5.3-flash')
+        self.assert_joint_routes(
+            settings, glm='zai-coding-plan/glm-5.3-flash', astra='openai/gpt-6-astra', terra='zai-coding-plan/glm-5.3-flash',
+            sol='openai/gpt-5.6-sol')
 
     def test_explicit_opencode_model_ids_are_preserved_without_double_prefixes(self):
         settings = self.create_settings(
             engine='opencode', astra_model='openai/gpt-6-astra', sol_model='openai/gpt-5.6-sol')
-        self.assert_joint_routes(settings)
+        self.assert_joint_routes(settings, astra='openai/gpt-6-astra', sol='openai/gpt-5.6-sol')
 
     def test_explicit_legacy_codex_choice_does_not_inherit_opencode_default(self):
         settings = self.create_settings(engine='codex')

@@ -23,7 +23,7 @@ class MilestoneCheckpointTests(unittest.TestCase):
             {'id': 'C2', 'criterion': 'Reject invalid input', 'verification_method': 'Execute empty input', 'human_review': False},
             {'id': 'C3', 'criterion': 'Preserve Unicode', 'verification_method': 'Execute Unicode input', 'human_review': human}]
         draft['milestones'][0]['acceptance_criteria'] = ['C1', 'C2']
-        draft['milestones'].append({'id': 'M2', 'objective': 'Unicode flow', 'acceptance_criteria': ['C3']})
+        draft['milestones'].append({'id': 'M2', 'objective': 'Unicode flow', 'acceptance_criteria': ['C3'], 'depends_on': []})
         goals.install_draft(self.state, draft, origin='test')
         goals.present(self.state)
         goals.approve(self.state, self.state['displayed_goal'])
@@ -42,9 +42,16 @@ class MilestoneCheckpointTests(unittest.TestCase):
     def assign(self, milestone='M1', status='CONTINUE', **changes):
         decision = self.decision(milestone, status)
         decision.update(changes)
-        runner.apply_result(self.state, 'astra_review', decision, {'output': 'astra.json'}, self.root, self.run)
+        output = self.run / f'astra-{len(self.state["stages"])}.json'
+        output.write_text(json.dumps(decision))
+        record = {'output': str(output), 'source_revision': s.snapshot(self.root)['revision']}
+        runner.apply_result(self.state, 'astra_review', decision, record, self.root, self.run)
+        if status == 'REWORK':
+            self.assertEqual('astra_resolve', self.state['next_stage'])
+            runner.apply_result(self.state, 'astra_resolve', {**decision, 'diagnosis': 'Independent checks failed'},
+                                record, self.root, self.run)
 
-    def validate(self, statuses=None, verdict=None):
+    def validate(self, statuses=None, verdict=None, flow_status=None):
         statuses = statuses or {'C1': 'PASS', 'C2': 'PASS', 'C3': 'NOT_VERIFIED'}
         criterion_ids = m.scope(self.state)['acceptance_criteria']
         passed = all(statuses.get(cid) == 'PASS' for cid in criterion_ids)
@@ -56,9 +63,40 @@ class MilestoneCheckpointTests(unittest.TestCase):
             'checks_run': ['execute-milestone'], 'checks': [{'command': 'execute-milestone', 'exit_code': 0 if passed else 1, 'evidence_ref': 'event:check'}],
             'findings': [], 'unverified_criteria': [cid for cid, status in statuses.items() if status == 'NOT_VERIFIED'],
             'criterion_results': [{'id': cid, 'status': status, 'evidence_refs': ['event:check']} for cid, status in statuses.items()],
-            'end_to_end_result': {'status': 'PASS' if passed else 'FAIL', 'summary': 'Executed current outcome', 'evidence_refs': ['event:check']}}
+            'end_to_end_result': {'status': flow_status or ('PASS' if passed else 'FAIL'), 'summary': 'Executed current outcome; later work may remain', 'evidence_refs': ['event:check']}}
         record = {'role': 'sol', 'stage': 'sol', 'events': str(events), 'output': str(events), 'source_revision': s.snapshot(self.root)['revision']}
         runner.apply_result(self.state, 'sol', value, record, self.root, self.run)
+
+    def test_dependent_milestone_waits_for_accepted_prerequisites(self):
+        draft = body()
+        draft['acceptance_criteria'] += [
+            {'id': 'C3', 'criterion': 'Preserve Unicode', 'verification_method': 'Execute Unicode input', 'human_review': False},
+            {'id': 'C4', 'criterion': 'Document usage', 'verification_method': 'Run --help', 'human_review': False}]
+        draft['milestones'] = [
+            {'id': 'M1', 'objective': 'Greeting flow', 'acceptance_criteria': ['C1'], 'depends_on': []},
+            {'id': 'M2', 'objective': 'Unicode flow', 'acceptance_criteria': ['C3'], 'depends_on': ['M3']},
+            {'id': 'M3', 'objective': 'Usage help', 'acceptance_criteria': ['C4'], 'depends_on': []}]
+        goals.install_draft(self.state, draft, origin='test')
+        goals.present(self.state)
+        goals.approve(self.state, self.state['displayed_goal'])
+        self.state['settings']['milestone_checkpoints'] = copy.deepcopy(m.DEFAULTS)
+
+        def assign(milestone, criteria):
+            decision = self.decision(milestone)
+            decision['next_task']['acceptance_criteria'] = criteria
+            runner.apply_result(self.state, 'astra_review', decision, {'output': 'astra.json'}, self.root, self.run)
+
+        assign('M1', ['C1'])
+        self.validate({'C1': 'PASS', 'C3': 'NOT_VERIFIED', 'C4': 'NOT_VERIFIED'})
+        with self.assertRaisesRegex(ValueError, 'M2 cannot start until its prerequisites are accepted: M3'):
+            assign('M2', ['C3'])
+        self.assertEqual('M1', self.state['current_task']['milestone_id'])
+        assign('M3', ['C4'])
+        self.assertEqual('M3', self.state['current_task']['milestone_id'])
+        self.validate({'C1': 'PASS', 'C3': 'NOT_VERIFIED', 'C4': 'PASS'})
+        assign('M2', ['C3'])
+        self.assertEqual('M2', self.state['current_task']['milestone_id'])
+        self.assertEqual(['M1', 'M3'], m.summary(self.state)['accepted_milestones'])
 
     def test_cannot_advance_without_sol_even_when_astra_claims_success(self):
         self.start()
@@ -78,13 +116,79 @@ class MilestoneCheckpointTests(unittest.TestCase):
 
     def test_pass_advances_with_later_criteria_unverified_and_retains_receipt(self):
         self.start()
-        self.validate()
+        self.validate(flow_status='NOT_VERIFIED')
         old_key = m.key(self.state)
         self.assign('M2')
         self.assertEqual('M2', self.state['current_task']['milestone_id'])
         self.assertEqual('terra', self.state['next_stage'])
         self.assertTrue(self.state['milestone_progress'][old_key]['accepted'])
         self.assertEqual('sol', self.state['milestone_progress'][old_key]['accepted_validation']['reviewer_role'])
+
+    def test_unverified_whole_flow_cannot_complete_even_when_all_criteria_pass(self):
+        self.start()
+        self.validate({'C1': 'PASS', 'C2': 'PASS', 'C3': 'PASS'}, flow_status='NOT_VERIFIED')
+        decision = self.decision(status='COMPLETE')
+        decision['acceptance_criteria'] = [{**c, 'status': 'verified', 'evidence': 'event:check'}
+                                           for c in self.state['acceptance_criteria']]
+        current = s.snapshot(self.root)
+        self.assertTrue(m.evidence_ready(self.state, current))
+        self.assertFalse(s.completion_ready(self.state, decision, current))
+        self.state['validation']['end_to_end_result']['status'] = 'PASS'
+        self.assertTrue(s.completion_ready(self.state, decision, current))
+
+    def test_review_handoff_evaluates_current_gate_without_erasing_history(self):
+        self.start()
+        self.validate(flow_status='NOT_VERIFIED')
+        self.state['milestone_blocker'] = 'Previous evidence gate rejection'
+        before = copy.deepcopy(self.state)
+        prompt, _ = s.context_packet(self.state, 'astra_review', self.run / 'state.json')
+        packet = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+        self.assertTrue(packet['milestone_checkpoint']['current_evidence_ready'])
+        self.assertEqual('Previous evidence gate rejection', packet['milestone_checkpoint']['blocker'])
+        self.assertEqual(before, self.state)
+        self.state['validation']['end_to_end_result']['status'] = 'FAIL'
+        prompt, _ = s.context_packet(self.state, 'astra_review', self.run / 'state.json')
+        packet = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+        self.assertFalse(packet['milestone_checkpoint']['current_evidence_ready'])
+
+    def test_explicit_checkpoint_answer_preserves_approval_and_requires_current_evidence(self):
+        self.start()
+        self.validate(flow_status='NOT_VERIFIED')
+        choice = 'Reconcile M1 as accepted based on the existing current-revision Validator evidence, then resume at M2.'
+        question = {'id': 'decision-checkpoint', 'question': 'Reconcile the checkpoint?',
+                    'why': 'The earlier gate rejected advancement', 'options': [choice], 'proposed_default': ''}
+        self.state.update(status='WAITING_FOR_USER', phase='WAITING_FOR_USER', next_stage='astra_review',
+                          pending_questions=[question], user_request={'kind': 'blocker', 'proposed_delta': '',
+                          'discovered': 'The milestone checkpoint remains unaccepted despite passing Validator evidence.',
+                          'options': [choice]})
+        before = copy.deepcopy(self.state)
+        with self.assertRaisesRegex(ValueError, 'explicit saved choice'):
+            goals.resolve_passing_checkpoint(self.state, question['id'], 'Resume anyway')
+        self.assertEqual(before, self.state)
+        self.state['validation']['end_to_end_result']['status'] = 'FAIL'
+        with self.assertRaisesRegex(ValueError, 'independent evidence'):
+            goals.resolve_passing_checkpoint(self.state, question['id'], choice)
+        self.state['validation']['end_to_end_result']['status'] = 'NOT_VERIFIED'
+        goals.resolve_passing_checkpoint(self.state, question['id'], choice)
+        self.assertTrue(goals.approved(self.state))
+        self.assertEqual('RUNNING', self.state['status'])
+        self.assertEqual('astra_review', self.state['next_stage'])
+        self.assertEqual('checkpoint_answer', self.state['answers'][question['id']]['kind'])
+        self.assertFalse(self.state['milestone_progress'][m.key(self.state)]['accepted'])
+
+    def test_full_scope_and_known_flow_failure_still_require_passing_flow(self):
+        self.start()
+        self.validate(flow_status='FAIL')
+        self.assign('M2')
+        self.assertEqual('M1', self.state['current_task']['milestone_id'])
+        self.validate({'C1': 'PASS', 'C2': 'PASS', 'C3': 'PASS'}, flow_status='NOT_VERIFIED')
+        self.state['current_task']['milestone_ids'] = ['M1', 'M2']
+        self.state['validation']['milestone_results'] = [
+            {'milestone_id': mid, 'status': 'PASS', 'summary': 'Validated', 'evidence_refs': ['event:check']}
+            for mid in ('M1', 'M2')]
+        self.assertFalse(m.evidence_ready(self.state, s.snapshot(self.root)))
+        self.state['validation']['end_to_end_result']['status'] = 'PASS'
+        self.assertTrue(m.evidence_ready(self.state, s.snapshot(self.root)))
 
     def test_entire_milestone_must_pass_even_if_last_task_only_covers_one_criterion(self):
         self.start()
@@ -120,6 +224,16 @@ class MilestoneCheckpointTests(unittest.TestCase):
         for i in range(3): self.validate({'C1': 'FAIL', 'C2': 'FAIL'})
         self.assign(status='REWORK', next_objective='Another attempt')
         self.assertEqual('PAUSED_MILESTONE_STALLED', self.state['status'])
+
+    def test_unbounded_replans_still_require_a_changed_approach(self):
+        self.start()
+        self.state['settings']['milestone_checkpoints']['max_replans'] = None
+        for cycle in range(3):
+            for _ in range(3):
+                self.validate({'C1': 'FAIL', 'C2': 'FAIL'})
+            self.assign(status='REWORK', next_objective=f'Changed approach {cycle + 1}')
+            self.assertEqual(cycle + 1, m.progress(self.state)['replans'])
+            self.assertEqual('RUNNING', self.state['status'])
 
     def test_new_passing_criterion_counts_as_progress_but_oscillation_does_not(self):
         self.start()

@@ -16,6 +16,9 @@ import test_planning
 
 class OpenCodeRoutingTests(unittest.TestCase):
     def setUp(self):
+        self.transport_patch = patch.object(runner, "opencode", oc)
+        self.transport_patch.start()
+        self.addCleanup(self.transport_patch.stop)
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.run = Path(temp.name)
@@ -46,13 +49,18 @@ class OpenCodeRoutingTests(unittest.TestCase):
         self.addCleanup(p.stop)
 
     def test_new_defaults_and_bare_aliases_never_read_codex_login(self):
-        for overrides in ({}, {"astra_model": "gpt-6-astra", "sol_model": "gpt-5.6-sol"}):
+        for overrides, expected_sol in (
+            ({}, "zai-coding-plan/glm-5.3"),
+            ({"astra_model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+              "sol_model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"},
+             "xiaomi-token-plan-sgp/mimo-v2.6-pro"),
+        ):
             args = test_planning.PlanningTests.configure_args(self, **overrides)
             with patch.object(support, "local_settings", side_effect=AssertionError("Codex must not be used")):
                 settings = runner.configure(args, {"workspace": str(self.run), "iteration": 0})
             self.assertEqual({"opencode"}, {c["engine"] for c in settings["roles"].values()})
-            self.assertEqual("openai/gpt-6-astra", settings["roles"]["astra"]["model"])
-            self.assertEqual("openai/gpt-5.6-sol", settings["roles"]["sol"]["model"])
+            self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", settings["roles"]["astra"]["model"])
+            self.assertEqual(expected_sol, settings["roles"]["sol"]["model"])
             self.assertEqual({"opencode"}, set(settings["transport_identities"]))
 
     def test_migration_preserves_approved_work_and_archives_only_codex_sessions(self):
@@ -102,6 +110,20 @@ class OpenCodeRoutingTests(unittest.TestCase):
             runner.migrate_opencode_roles(self.state, self.run, self.run)
         self.assertEqual(before, self.state)
 
+    def test_explicit_transport_acceptance_uses_validated_current_identity_only_at_clean_pause(self):
+        current = {**self.identity, "version": "1.18.32", "config_hashes": {"mimo-token-plan": "current"}}
+        self.state["status"] = "PAUSED_TRANSPORT_CHANGED"
+        self.state["workspace"] = str(self.run)
+        args = test_planning.PlanningTests.configure_args(
+            self, resume_paused=True, accept_transport_change=True)
+        with patch.object(oc, "local_settings", return_value=current):
+            settings = runner.configure(args, self.state)
+        self.assertEqual(current, settings["transport_identity"])
+        self.assertEqual(current, settings["transport_identities"]["opencode"])
+        self.state["status"] = "RUNNING"
+        with self.assertRaisesRegex(ValueError, "paused for a transport change"):
+            runner.configure(args, self.state)
+
 
 class OpenCodeMigrationFlow(unittest.TestCase):
     setUp = test_planning.JointFlow.setUp
@@ -118,7 +140,7 @@ class OpenCodeMigrationFlow(unittest.TestCase):
         state = self.saved()[1]
         for role in ("astra", "sol"):
             cfg = state["settings"]["roles"][role]
-            cfg.update(engine="codex", provider="openai", model=cfg["model"].removeprefix("openai/"))
+            cfg.update(engine="codex", provider="openai", model="gpt-5.6-sol")
             state["sessions"][role] = "legacy-codex-" + role
         state["settings"]["transport_identities"]["codex"] = {"auth_mode": "ChatGPT"}
         (run / "state.json").write_text(json.dumps(state))
@@ -128,11 +150,17 @@ class OpenCodeMigrationFlow(unittest.TestCase):
         self.assertEqual(state["stages"], migrated["stages"][:-1])
         self.assertNotIn("astra", migrated["sessions"])
         self.assertNotIn("sol", migrated["sessions"])
-        self.assertEqual("opencode", migrated["stages"][-1]["engine"])
+        self.assertIn(migrated["stages"][-1]["engine"], ("runner", "opencode"))
+        if migrated["stages"][-1]["engine"] == "runner":
+            self.assertTrue(migrated["stages"][-1]["runner_owned"])
         self.assertTrue(Path(migrated["configuration_changes"][-1]["backup"]).is_file())
-        self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
+        for _ in range(3):
+            checked = self.saved()[1]
+            if any(row["stage"] == "sol" for row in checked["stages"][len(state["stages"]):]):
+                break
+            self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
         checked = self.saved()[1]
-        validation = checked["stages"][-1]
+        validation = next(row for row in reversed(checked["stages"]) if row["stage"] == "sol")
         self.assertEqual("sol", validation["role"])
         self.assertEqual("opencode", validation["command"][0])
         self.assertNotIn("--session", validation["command"])

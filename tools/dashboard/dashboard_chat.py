@@ -38,7 +38,7 @@ def planning_messages(state, run=None):
             if isinstance(summary, str) and summary:
                 record = by_output.get(entry.get('output'), {})
                 result.append({'id': f'planning-{number}-{stage}', 'role': 'assistant',
-                               'speaker': 'GLM' if stage in ('astra_discovery', 'glm_revise') else 'Astra',
+                               'speaker': 'Planner' if stage in ('astra_discovery', 'glm_revise') else 'Plan Reviewer',
                                'text': summary, 'stage': stage, 'status': 'received',
                                'created_at': record.get('finished_at') or record.get('started_at')})
                 if entry.get('output'):
@@ -58,7 +58,7 @@ def planning_messages(state, run=None):
                 text = object_value(report).get('summary')
                 if isinstance(text, str) and text:
                     result.append({'id': 'discovery-' + hashlib.sha256(str(path).encode()).hexdigest()[:16],
-                                   'role': 'assistant', 'speaker': 'GLM' if record.get('role') == 'glm' else 'Astra',
+                                   'role': 'assistant', 'speaker': 'Planner' if record.get('role') == 'glm' else 'Plan Reviewer',
                                    'text': text, 'status': 'received', 'created_at': record.get('finished_at') or record.get('started_at')})
             except (KeyError, TypeError, OSError, ValueError):
                 continue
@@ -90,7 +90,10 @@ class ConversationMixin:
         if not isinstance(models, dict):
             raise ValueError('Models must be an object')
         chosen = self.joint_models(models)
-        return self.conversations.create(data.get('text'), models={key + '_model': value for key, value in chosen.items()}, request_id=data.get('request_id'))
+        efforts = self.joint_efforts(models)
+        settings = {key + '_model': value for key, value in chosen.items()}
+        settings.update({key + '_reasoning_effort': value for key, value in efforts.items()})
+        return self.conversations.create(data.get('text'), models=settings, request_id=data.get('request_id'))
 
     def _attachment_state(self, doc):
         attachment = object_value(doc.get('attachment'))
@@ -99,29 +102,52 @@ class ConversationMixin:
         workspace = self.selected_workspace(attachment.get('workspace'))
         if not workspace:
             return self.conversations.update(doc['id'], attachment={**attachment, 'status': 'failed', 'error': 'The attached project is unavailable.'})
-        found = []
-        root = workspace / '.autocode/runs'
         try:
-            root.resolve().relative_to(workspace)
+            (workspace / '.autocode/runs').resolve().relative_to(workspace)
         except ValueError:
             return self.conversations.update(doc['id'], attachment={**attachment, 'status': 'failed', 'error': 'Task storage escapes the attached project. Fix the project storage path before retrying.'})
-        for path in root.iterdir() if root.is_dir() else []:
-            if path.is_symlink() or not path.is_dir() or not self._contained_run(workspace, str(path), identity=True):
+        found = []
+        candidates = [workspace]
+        # New CLI tasks live in independent worktrees. Include them after a
+        # dashboard restart, before relying on registry discovery or action logs.
+        worktrees = workspace / '.autocode/worktrees'
+        safe_storage = worktrees.resolve().is_relative_to(workspace)
+        for child in worktrees.iterdir() if safe_storage and worktrees.is_dir() else []:
+            if child.is_symlink() or not child.is_dir():
                 continue
-            path = path.resolve()
             try:
-                state_path = path / 'state.json'
-                if state_path.is_symlink():
+                metadata_path = child / '.autocode/task-workspace.json'
+                if metadata_path.is_symlink() or not metadata_path.resolve().is_relative_to(child.resolve()):
                     continue
-                state = json.loads(state_path.read_text())
-                if isinstance(state.get('task'), str) and hashlib.sha256(state['task'].encode()).hexdigest() == attachment.get('goal_hash') and state.get('workspace') == str(workspace):
-                    found.append(path)
+                meta = json.loads(metadata_path.read_text())
+                if meta.get('project_workspace') == str(workspace) and meta.get('workspace') == str(child.resolve()):
+                    candidates.append(child.resolve())
             except (OSError, ValueError):
                 continue
+        for candidate in candidates:
+            root = candidate / '.autocode/runs'
+            try:
+                root.resolve().relative_to(candidate)
+            except ValueError:
+                continue
+            for path in root.iterdir() if root.is_dir() else []:
+                if path.is_symlink() or not path.is_dir() or not self._contained_run(candidate, str(path), identity=True):
+                    continue
+                path = path.resolve()
+                try:
+                    state_path = path / 'state.json'
+                    if state_path.is_symlink():
+                        continue
+                    state = json.loads(state_path.read_text())
+                    if isinstance(state.get('task'), str) and hashlib.sha256(state['task'].encode()).hexdigest() == attachment.get('goal_hash') and state.get('workspace') == str(candidate):
+                        found.append((candidate, path))
+                except (OSError, ValueError):
+                    continue
         if len(found) == 1:
-            if workspace not in self.created_workspaces:
-                self.created_workspaces.append(workspace)
-            return self.conversations.update(doc['id'], attachment={**attachment, 'status': 'linked', 'run': str(found[0]), 'error': None})
+            candidate, run = found[0]
+            if candidate not in self.created_workspaces:
+                self.created_workspaces.append(candidate)
+            return self.conversations.update(doc['id'], attachment={**attachment, 'status': 'linked', 'project_workspace': str(workspace), 'workspace': str(candidate), 'run': str(run), 'error': None})
         if len(found) > 1:
             return self.conversations.update(doc['id'], attachment={**attachment, 'status': 'uncertain', 'error': 'Multiple task checkpoints match this conversation. Inspect the project before starting anything else.'})
         action = next((a for a in self.action_log(workspace) if a['id'] == attachment.get('action_id')), None)
@@ -165,8 +191,9 @@ class ConversationMixin:
                 data = {**data, 'workspace': attachment['workspace'], 'project': '', 'create_project': False}
 
             if doc.get('status') != 'ready':
-                raise ValueError('Wait for GLM’s reply before attaching a project')
+                raise ValueError('Wait for the Planner’s reply before attaching a project')
             self.joint_models(doc.get('models', {}))
+            self.joint_efforts(doc.get('models', {}))
             raw = data.get('project') or data.get('workspace')
             if not isinstance(raw, str) or not raw.strip():
                 raise ValueError('Choose an existing project or enter a new project path')
@@ -197,7 +224,7 @@ class ConversationMixin:
             transcript = '\n\n'.join(f"{message.get('speaker', message.get('role', 'Message'))}:\n{message.get('text', '')}" for message in doc['messages'])
             goal = (doc['title'] + '\n\nConversation reference: ' + doc['id'] +
                     '\nThe following is the user’s saved project-free planning discussion. Use it as context, including corrections. '
-                    'Inspect this repository, resolve remaining questions, and run the GLM/Astra joint planning process. '
+                    'Inspect this repository, resolve remaining questions, and run the Planner/Plan Reviewer joint planning process. '
                     'Prior discussion is a draft, not approval to implement. Present the final repository-aware plan for explicit approval.\n\n' + transcript)
             attachment = {'status': 'starting', 'workspace': str(workspace), 'goal_hash': hashlib.sha256(goal.encode()).hexdigest(), 'started_at': time.time(), 'run': None, 'action_id': None, 'error': None}
             claimed_doc, claimed = self.conversations.claim_attachment(doc['id'], attachment, expected_attachment=expected_attachment)

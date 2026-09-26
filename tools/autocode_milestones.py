@@ -14,8 +14,10 @@ import uuid
 
 try:
     from . import autocode_support as s
+    from . import autocode_carryforward as carryforward
 except ImportError:
     import autocode_support as s
+    import autocode_carryforward as carryforward
 
 
 DEFAULTS = {"enabled": True, "max_seconds": 5400, "stalled_reviews": 3, "max_replans": 1}
@@ -23,20 +25,33 @@ POLICY = """
 ENFORCED MILESTONE CHECKPOINTS
 Finish one observable outcome within the approved scope before starting another
 milestone. Each task needs an objective, affected paths, requirements, criterion IDs
-and an executable validation plan. Terra may implement, test and fix within that task.
-Every completed implementation handoff goes to Sol, then Astra. Writer self-reports
-cannot authorize advancement. Sol's verdict and end_to_end_result cover the CURRENT
-milestone's outcome; provide criterion evidence for all of its acceptance criteria.
+and an executable validation plan. The Builder may implement, test and fix within that task.
+Every completed implementation handoff goes to the Validator, then the Plan Reviewer. Writer self-reports
+cannot authorize advancement. The Validator's verdict covers the CURRENT milestone's outcome;
+provide criterion evidence for all of its acceptance criteria. end_to_end_result
+always covers the full approved user flow. For a partial milestone or batch it may
+remain NOT_VERIFIED while later milestones are unfinished; explain what remains.
 Report other, unbuilt criteria as NOT_VERIFIED without treating them as milestone
 defects. Before overall COMPLETE, validate every contract criterion and the complete
 approved flow on the current artifact. Never weaken the full-task completion gate.
-Astra may advance only with current independent evidence for the entire milestone,
-no blocking findings and any required human reviews. After repeated reviews with no
+The Plan Reviewer may advance only with current independent evidence for the entire milestone,
+no blocking findings and any required human reviews. milestone_checkpoint.current_evidence_ready
+is the freshly evaluated evidence gate, not an acceptance decision. The checkpoint's
+blocker and rejected_advances describe historical attempts, not the current gate.
+When current evidence is ready, propose the next eligible milestone; the runner
+accepts the current milestone as part of that transition. Do not wait for it to be
+marked accepted before proposing advancement. After repeated reviews with no
 new passing criteria, inspect milestone_checkpoint and choose an evidence-backed
 REWORK with a materially different approach or a smaller implementation batch within
 the SAME milestone. Do not rename a milestone or drop criteria to reset the budget.
+Advance only to a milestone whose depends_on milestones are all accepted under the
+current contract; the runner rejects assignments with unaccepted prerequisites.
+Carried milestones are scheduling checkpoints with recorded prior-revision
+provenance. Select unfinished work or final integration validation instead of
+reimplementing them. Their old evidence never satisfies final completion of the
+new contract; validate every criterion and the full flow before COMPLETE.
 The runner allows one such automatic replan before pausing persistent failure.
-Budget exhaustion stops additional writing at a saved boundary; Sol and Astra may
+Budget exhaustion stops additional writing at a saved boundary; the Validator and Plan Reviewer may
 still verify finished work. File edits and reworded reports alone are not progress.
 """
 
@@ -51,11 +66,20 @@ def settings(state):
 
 def key(state, task=None):
     task = task if task is not None else state.get("current_task", {})
+    if task.get("milestone_ids"):
+        return f"{state.get('goal_contract', {}).get('hash', '')}:batch:{s.digest(sorted(task['milestone_ids']))[:16]}"
     return f"{state.get('goal_contract', {}).get('hash', '')}:{task.get('milestone_id', '')}"
 
 
 def scope(state, task=None):
     task = task if task is not None else state.get("current_task", {})
+    if task.get("milestone_ids"):
+        members = [m for m in state.get("goal_contract", {}).get("body", {}).get("milestones", [])
+                   if m["id"] in task["milestone_ids"]]
+        return {"id": "batch:" + s.digest(sorted(task["milestone_ids"]))[:16],
+                "milestone_ids": list(task["milestone_ids"]), "members": members,
+                "objective": "; ".join(m["objective"] for m in members),
+                "acceptance_criteria": list(dict.fromkeys(c for m in members for c in m["acceptance_criteria"]))}
     for milestone in state.get("goal_contract", {}).get("body", {}).get("milestones", []):
         if milestone["id"] == task.get("milestone_id"):
             return milestone
@@ -110,17 +134,47 @@ def evidence_ready(state, current):
     required = set(scope(state)["acceptance_criteria"])
     results = {r["id"]: r for r in val.get("criterion_results", [])}
     flow = val.get("end_to_end_result", {})
-    return bool(required and val.get("verdict") == "PASS" and val.get("checks")
+    all_criteria = {c["id"] for c in state["goal_contract"]["body"]["acceptance_criteria"]}
+    partial_scope = required < all_criteria
+    flow_ready = bool(flow.get("status") == "PASS" and flow.get("summary", "").strip()
+                      and flow.get("evidence_refs"))
+    # Partial acceptance unlocks downstream work, not whole-task completion.
+    # A known flow failure still blocks; only unfinished verification may wait.
+    if partial_scope and flow.get("status") == "NOT_VERIFIED" and flow.get("summary", "").strip():
+        flow_ready = True
+    members = state.get("current_task", {}).get("milestone_ids", [])
+    if members:
+        results_by_milestone = {r["milestone_id"]: r for r in val.get("milestone_results", [])}
+        if set(results_by_milestone) != set(members) or any(
+                r.get("status") != "PASS" or not r.get("summary", "").strip() or not r.get("evidence_refs")
+                for r in results_by_milestone.values()):
+            return False
+    try:
+        from . import autocode_goals as goals
+    except ImportError:
+        import autocode_goals as goals
+    human_ids = [c["id"] for c in state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"]]
+    human_only_gap = (bool(human_ids) and goals.human_only_pending_validation(state, val, human_ids[0])
+                      and not goals.missing_human_reviews(state))
+    try:
+        from . import autocode_findings as findings_ledger
+        ledger_blocking = findings_ledger.blocking_entries(state)
+    except ImportError:
+        import autocode_findings as findings_ledger
+        ledger_blocking = findings_ledger.blocking_entries(state)
+    return bool(required and (val.get("verdict") == "PASS" or human_only_gap) and val.get("checks")
         and all(c["exit_code"] == 0 for c in val["checks"])
         and not any(f.get("blocking", True) or f["severity"] in ("critical", "high") for f in val.get("findings", []))
-        and not required.intersection(val.get("unverified_criteria", []))
-        and all(results.get(cid, {}).get("status") == "PASS" and results[cid].get("evidence_refs") for cid in required)
-        and flow.get("status") == "PASS" and flow.get("summary", "").strip() and flow.get("evidence_refs"))
+        and not ledger_blocking
+        and (not required.intersection(val.get("unverified_criteria", [])) or human_only_gap)
+        and all((results.get(cid, {}).get("status") == "PASS" or
+                 (human_only_gap and cid == human_ids[0])) and results[cid].get("evidence_refs") for cid in required)
+        and flow_ready)
 
 
 def approach(task):
     # Compare substantive task fields, not random task IDs, timestamps or prose
-    # evidence references. Semantic adequacy remains Astra's responsibility.
+    # evidence references. Semantic adequacy remains the Plan Reviewer's responsibility.
     return s.digest({field: task.get(field) for field in
                      ("objective", "affected_paths", "requirements", "validation_plan")})
 
@@ -146,7 +200,8 @@ def observe_validation(state, current):
     row["last_approach"] = approach(state["current_task"])
     row["reviews"].append({"receipt": receipt, "output": val["output"], "source_revision": current["revision"],
                            "passed": sorted(passed), "remaining": sorted(required - passed), "ready": ready})
-    row["needs_replan"] = row["reviews_without_progress"] >= settings(state)["stalled_reviews"]
+    stalled_limit = settings(state)["stalled_reviews"]
+    row["needs_replan"] = bool(stalled_limit and row["reviews_without_progress"] >= stalled_limit)
 
 
 def before_assignment(state, decision, current):
@@ -158,7 +213,7 @@ def before_assignment(state, decision, current):
     row = progress(state)
     if row is None:
         return
-    if spec["milestone_id"] != row["id"]:
+    if spec["milestone_id"] not in row.get("milestone_ids", [row["id"]]):
         if not evidence_ready(state, current):
             raise s.Paused("PAUSED_MILESTONE_EVIDENCE", "Current milestone needs independent passing evidence before advancement")
         try:
@@ -173,8 +228,9 @@ def before_assignment(state, decision, current):
         raise ValueError("A saved milestone cannot silently expand its criteria")
     if spec['kind'] == 'implement':
         check_budget(state)
-    if row.get("needs_replan"):
-        if row["replans"] >= settings(state)["max_replans"]:
+    if row.get("needs_replan") and settings(state)["stalled_reviews"]:
+        max_replans = settings(state)["max_replans"]
+        if max_replans is not None and max_replans > 0 and row["replans"] >= max_replans:
             raise s.Paused("PAUSED_MILESTONE_STALLED", "Milestone still fails after bounded replanning; inspect the saved failing evidence")
         proposed = {**spec, "objective": decision["next_objective"], "affected_paths": decision["affected_paths"]}
         if (decision["status"] != "REWORK" or not decision.get("evidence")
@@ -186,11 +242,43 @@ def before_assignment(state, decision, current):
         state['no_progress_batches'] = 0
 
 
+def accepted_ids(state):
+    contract_hash = state.get("goal_contract", {}).get("hash")
+    accepted = {mid for r in state.get("milestone_progress", {}).values()
+            if r.get("accepted") and r.get("contract_hash") == contract_hash
+            for mid in r.get("milestone_ids", [r["id"]])}
+    return carryforward.current_ids(state, accepted)
+
+
+def require_prerequisites(state, milestone_id):
+    """Require current acceptance, including explicitly proven carry-forward."""
+    if not enabled(state):
+        return
+    milestones = {m["id"]: m for m in state.get("goal_contract", {}).get("body", {}).get("milestones", [])}
+    missing = set(milestones.get(milestone_id, {}).get("depends_on", [])) - accepted_ids(state)
+    if missing:
+        raise ValueError(f"Milestone {milestone_id} cannot start until its prerequisites are accepted: "
+                         + ", ".join(sorted(missing)))
+
+
 def accept(state, current):
     row = progress(state)
     if row is not None:
+        manifest, reason = carryforward.capture(state, row, current) if evidence_ready(state, current) else (None, 'No fresh acceptance evidence')
         row.update(accepted=True, accepted_at=s.now(), accepted_source_revision=current["revision"],
                    accepted_validation=copy.deepcopy(state["validation"]))
+        if manifest:
+            row['reuse_manifest'] = manifest
+            row.pop('carry_forward_unavailable', None)
+        else:
+            row.pop('reuse_manifest', None)
+            row['carry_forward_unavailable'] = reason
+        for member in row.get("members", []):
+            member_key = f"{row['contract_hash']}:{member['id']}"
+            saved = state["milestone_progress"].setdefault(member_key, copy.deepcopy(member))
+            saved.update(contract_hash=row["contract_hash"], accepted=True, accepted_at=row["accepted_at"],
+                         accepted_source_revision=current["revision"], accepted_batch=row["id"],
+                         accepted_validation=copy.deepcopy(state["validation"]))
 
 
 def check_budget(state):
@@ -204,18 +292,18 @@ def dispatch_guard(state, stage):
     if not enabled(state):
         return
     if state.get("settings", {}).get("workflow"):
-        raise s.Paused("PAUSED_WORKFLOW_CONFLICT", "Milestone checkpoints require Terra → Sol → Astra routing")
-    if stage == "terra":
+        raise s.Paused("PAUSED_WORKFLOW_CONFLICT", "Milestone checkpoints require Builder → Validator → Plan Reviewer routing")
+    if stage in ("terra", "orchestrator"):
         row = progress(state)
         if row is None:
-            raise s.Paused("PAUSED_MILESTONE_TASK", "Astra must assign a bounded milestone task before implementation")
+            raise s.Paused("PAUSED_MILESTONE_TASK", "The Plan Reviewer must assign a bounded milestone task before implementation")
         check_budget(state)
-        if row.get("needs_replan"):
-            raise s.Paused("PAUSED_MILESTONE_REPLAN", "Astra must reassess repeated failed checks before another writer attempt")
+        if row.get("needs_replan") and settings(state)["stalled_reviews"]:
+            raise s.Paused("PAUSED_MILESTONE_REPLAN", "The Plan Reviewer must reassess repeated failed checks before another writer attempt")
 
 
 def handle_gate(state, error, current):
-    """Keep a rejected advancement in the review loop; never replay Terra."""
+    """Keep a rejected advancement in the review loop; never replay the Builder."""
     if error.status in ("PAUSED_MILESTONE_STALLED", "PAUSED_MILESTONE_BUDGET"):
         state.update(status=error.status, phase="PAUSED_OR_BLOCKED", next_stage="astra_review", stop_reason=str(error))
         return
@@ -234,7 +322,7 @@ def handle_gate(state, error, current):
         return
     row = progress(state)
     row["rejected_advances"] = row.get("rejected_advances", 0) + 1
-    if row["rejected_advances"] >= 3:
+    if settings(state)["stalled_reviews"] and row["rejected_advances"] >= settings(state)["stalled_reviews"]:
         state.update(status="PAUSED_MILESTONE_REPLAN", phase="PAUSED_OR_BLOCKED", stop_reason=str(error))
     state["next_stage"] = "astra_review" if fresh_validation(state, current) else "sol"
 
@@ -361,12 +449,13 @@ def summary(state):
             active_seconds = 0
     row = state.get("milestone_progress", {}).get(key(state))
     return {"enabled": enabled(state), "seconds_by_role": roles, "hours_by_role": {r: round(t / 3600, 3) for r, t in roles.items()},
-            "current": copy.deepcopy({k: v for k, v in row.items() if k not in ("accepted_validation", "reviews")} if row else None),
+            "current": copy.deepcopy({k: v for k, v in row.items() if k not in ("accepted_validation", "reviews", "reuse_manifest")} if row else None),
+            "carry_forward": copy.deepcopy(next((audit for audit in reversed(state.get('milestone_carry_forward', []))
+                                                   if audit['to_contract_hash'] == state.get('goal_contract', {}).get('hash')), None)),
             "limits": settings(state) if enabled(state) else None,
             "blocker": state.get("milestone_blocker"),
             "active_stage_role": active.get('role'), "active_stage_elapsed_seconds": active_seconds,
-            "accepted_milestones": [r["id"] for r in state.get("milestone_progress", {}).values()
-                                    if r.get("accepted") and r["contract_hash"] == state.get("goal_contract", {}).get("hash")]}
+            "accepted_milestones": sorted(accepted_ids(state))}
 
 
 def status_line(state):

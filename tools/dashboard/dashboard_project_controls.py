@@ -8,10 +8,37 @@ except ImportError:  # Support direct execution from this source directory.
     from dashboard_projects import ProjectStore
 
 
+def compact_run(row):
+    """Project only the fields used by task lists; detail has its own endpoint."""
+    if not isinstance(row, dict) or not row.get('run'):
+        return row
+    goal = row.get('goal') if isinstance(row.get('goal'), dict) else {}
+    body = goal.get('body') if isinstance(goal.get('body'), dict) else {}
+    active = row.get('active_stage') if isinstance(row.get('active_stage'), dict) else {}
+    stage_keys = ('stage', 'role', 'route_role', 'started_at', 'finished_at', 'duration_seconds',
+                  'exit_code', 'rejected', 'interrupted', 'timed_out')
+    keep = ('workspace', 'project_workspace', 'task_branch', 'run', 'created_at', 'task', 'phase',
+            'status', 'stage', 'iteration', 'state_error', 'error', 'stop_reason', 'goal_token',
+            'questions', 'user_request', 'review_token', 'review_criteria', 'human_reviews',
+            'model_settings', 'monitor')
+    result = {key: row.get(key) for key in keep if key in row}
+    result['goal'] = {key: goal.get(key) for key in ('origin', 'revision', 'approval_status') if key in goal}
+    if 'intended_outcome' in body:
+        result['goal']['body'] = {'intended_outcome': body['intended_outcome']}
+    result['active_stage'] = {key: active.get(key) for key in stage_keys if key in active}
+    result['stages'] = [{key: stage.get(key) for key in stage_keys if key in stage}
+                        for stage in row.get('stages', []) if isinstance(stage, dict)]
+    return result
+
+
 class ProjectRemovalMixin:
     def __init__(self, *args, project_store_root=None, **kwargs):
         self._project_store = None
         self._project_store_lock = threading.RLock()
+        self._dashboard_snapshot_condition = threading.Condition()
+        self._dashboard_snapshot_building = False
+        self._dashboard_snapshot_generation = 0
+        self._dashboard_snapshot_cache = None
         self._project_store_root = project_store_root
         if project_store_root is None and kwargs.get('conversation_root') is not None:
             self._project_store_root = Path(kwargs['conversation_root']).parent
@@ -75,21 +102,49 @@ class ProjectRemovalMixin:
             self.project_preferences.restore(workspace)
         return {'action': action, 'workspace': workspace, 'removed': action == 'remove'}
 
+    def _build_dashboard_snapshot(self):
+        with self.pin_registry(), self.pin_discovery():
+            removed = self.removed_projects()
+            visible = lambda raw: self.removed_project(raw, removed) is None
+            workspaces = [path for path in self.workspaces if visible(path)]
+            workspace_ids = {ident: path for ident, path in self._registered().get('workspace_ids', {}).items()
+                              if Path(path) in workspaces}
+            return {
+                'workspaces': [str(path) for path in workspaces],
+                'workspace_ids': workspace_ids,
+                'runs': [compact_run(row) for row in super().discover() if visible(row.get('workspace'))],
+                'workspace_actions': {str(path): self.action_log(path) for path in workspaces},
+                'watch_roots': self.watch_root_rows(),
+                'registry': self.registry_status(),
+                'zai': bool(self.zai_probe()),
+                'conversations': [doc for doc in super().conversation_list()
+                                  if visible((doc.get('attachment') or {}).get('workspace'))],
+                'removed_projects': removed,
+            }
+
     def dashboard_snapshot(self):
-        removed = self.removed_projects()
-        visible = lambda raw: self.removed_project(raw, removed) is None
-        workspaces = [path for path in self.workspaces if visible(path)]
-        return {
-            'workspaces': [str(path) for path in workspaces],
-            'runs': [row for row in super().discover() if visible(row.get('workspace'))],
-            'workspace_actions': {str(path): self.action_log(path) for path in workspaces},
-            'watch_roots': self.watch_root_rows(),
-            'registry': self.registry_status(),
-            'zai': bool(self.zai_probe()),
-            'conversations': [doc for doc in super().conversation_list()
-                              if visible((doc.get('attachment') or {}).get('workspace'))],
-            'removed_projects': removed,
-        }
+        """Coalesce overlapping polls without making later reads stale."""
+        with self._dashboard_snapshot_condition:
+            generation = self._dashboard_snapshot_generation
+            if self._dashboard_snapshot_building:
+                while self._dashboard_snapshot_building and generation == self._dashboard_snapshot_generation:
+                    self._dashboard_snapshot_condition.wait()
+                if self._dashboard_snapshot_generation > generation and self._dashboard_snapshot_cache is not None:
+                    return self._dashboard_snapshot_cache
+            self._dashboard_snapshot_building = True
+        try:
+            snapshot = self._build_dashboard_snapshot()
+        except BaseException:
+            with self._dashboard_snapshot_condition:
+                self._dashboard_snapshot_building = False
+                self._dashboard_snapshot_condition.notify_all()
+            raise
+        with self._dashboard_snapshot_condition:
+            self._dashboard_snapshot_cache = snapshot
+            self._dashboard_snapshot_generation += 1
+            self._dashboard_snapshot_building = False
+            self._dashboard_snapshot_condition.notify_all()
+        return snapshot
 
     def discover(self):
         removed = self.removed_projects()

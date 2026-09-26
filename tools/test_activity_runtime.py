@@ -66,7 +66,9 @@ class ActivityRuntimeTests(unittest.TestCase):
                 self.assertEqual(saved_cap, configured['limits']['stage_timeout_seconds'])
                 self.assertEqual(300, configured['limits']['idle_timeout_seconds'])
                 self.assertEqual(1800, configured['limits']['tool_timeout_seconds'])
-                self.assertEqual(original['settings']['roles'], configured['roles'])
+                self.assertEqual(original['settings']['roles'],
+                    {role: configured['roles'][role] for role in original['settings']['roles']})
+                self.assertIn('completion', configured['roles'])
                 self.assertEqual(original, self.state, 'configure must return a new configuration')
 
     def test_saved_activity_limits_are_not_reset_on_resume(self):
@@ -141,8 +143,9 @@ class ActivityRuntimeTests(unittest.TestCase):
                 run = self.run / kind
                 observed = []
 
-                def wait(child, hard_limit, checkpoint, *, activity, activity_checkpoint):
+                def wait(child, hard_limit, checkpoint, *, activity, activity_checkpoint, startup_grace):
                     self.assertEqual(20, hard_limit)
+                    self.assertEqual(5, startup_grace)
                     checkpoint([])
                     activity.timeout = {'kind': kind, 'reason': reason}
                     detail = {**activity.snapshot(),
@@ -195,6 +198,8 @@ class ActivityRuntimeTests(unittest.TestCase):
 
     def test_partial_timeout_archives_once_preserves_work_and_routes_to_astra(self):
         self.start_task()
+        self.state['settings']['limits'].update(tool_timeout_seconds=1800, idle_timeout_seconds=600,
+                                                stage_timeout_seconds=5400)
         source, record = self.interrupted_attempt()
         original_source = source.read_bytes()
         original_goal = copy.deepcopy(self.state['goal_contract'])
@@ -209,10 +214,27 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertNotIn('active_stage', self.state)
         self.assertNotIn('terra', self.state['sessions'])
         self.assertEqual(1, len(self.state['automatic_timeout_recoveries']))
+        recovery = self.state['recovery_context']
+        self.assertEqual(self.state['current_task']['id'], recovery['task_id'])
+        self.assertEqual(1800, recovery['execution_limits']['tool_timeout_seconds'])
+        self.assertEqual(600, recovery['execution_limits']['idle_timeout_seconds'])
+        self.assertIn('split long tool work into bounded calls', recovery['instruction'])
         archived = self.state['stages'][-1]
         self.assertEqual('idle', archived['timeout_kind'])
         self.assertTrue(Path(archived['events']).is_file())
         self.assertEqual(['greet.py'], archived['changed_files'])
+
+    def test_uncertain_recovery_requires_a_durable_timeout_not_just_an_error_label(self):
+        self.start_task()
+        _, record = self.interrupted_attempt()
+        record['timed_out'] = False
+        original = copy.deepcopy(self.state)
+        self.assertFalse(runner.automatically_recover_timed_out_stage(
+            self.state, self.run, self.root, support.Paused('PAUSED_PROVIDER_UNCERTAIN', 'no final')))
+        self.assertEqual(original, self.state)
+        record['timed_out'] = True
+        self.assertFalse(runner.automatically_recover_timed_out_stage(
+            self.state, self.run, self.root, support.Paused('PAUSED_BILLING_ROUTE', 'not authorized')))
         decision = self.decision('VALIDATE')
         decision['next_task']['kind'] = 'validate'
         runner.apply_result(self.state, 'astra_review', decision, {'output': 'review.json'}, self.root, self.run)
@@ -224,7 +246,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.start_task()
         source, record = self.interrupted_attempt(terminal=True)
         evidence = self.run / 'retained-check.log'
-        evidence.write_text('Implementation finished; Sol must verify the result.\n')
+        evidence.write_text('Implementation finished; the Validator must verify the result.\n')
         report = {**envelope(self.state), 'summary': 'Retained completed greeting',
                   'changed_files': ['greet.py'], 'commands_run': [], 'results': ['Implementation saved'],
                   'remaining_risks': ['Independent verification pending'], 'evidence_refs': [str(evidence)],
@@ -276,6 +298,11 @@ class ActivityRuntimeTests(unittest.TestCase):
                 model='fixture-astra', allow_write=False, dry_run=False)
         self.assertEqual('PAUSED_TIMEOUT_RECOVERY', caught.exception.status)
         self.assertEqual(3, len(self.state['automatic_timeout_recoveries']))
+        failures = list(support.read(self.run / 'state.json')['failure_history'].values())
+        self.assertEqual(1, len(failures))
+        self.assertEqual(3, failures[0]['count'])
+        self.assertEqual('PAUSED_PROVIDER_TIMEOUT', failures[0]['identity']['error_class'])
+        self.assertEqual(1, failures[0]['output_probe']['attempts'])
         self.assertNotIn('active_stage', self.state)
 
     def test_only_an_accepted_result_resets_consecutive_timeout_recoveries(self):
@@ -285,7 +312,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         evidence.write_text('Retained greeting implementation.\n')
         events = self.run / 'completed-terra.jsonl'
         events.write_text('{"type":"turn.completed"}\n')
-        report = {**envelope(self.state), 'summary': 'Implementation ready for Sol',
+        report = {**envelope(self.state), 'summary': 'Implementation ready for the Validator',
                   'changed_files': ['greet.py'], 'commands_run': [], 'results': ['Ready'],
                   'remaining_risks': [], 'evidence_refs': [str(evidence)]}
         record = {'role': 'terra', 'stage': 'terra', 'events': str(events),
@@ -301,11 +328,28 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual(0, self.state.get('consecutive_timeout_recoveries', 0))
         self.assertEqual('sol', self.state['next_stage'])
 
-    def test_zero_no_progress_budget_explicitly_disables_timeout_recovery_cap(self):
+    def test_zero_no_progress_budget_does_not_disable_aggregate_recovery_ceiling(self):
         self.state['settings']['limits']['no_progress_batches'] = 0
-        self.state['consecutive_timeout_recoveries'] = 100
+        self.state['consecutive_timeout_recoveries'] = 0
+        self.state['automatic_recoveries_since_resume'] = 3
+        with self.assertRaises(support.Paused):
+            runner.timeout_recovery_guard(self.state)
+
+    def test_legacy_recent_failures_seed_the_aggregate_recovery_ceiling(self):
+        self.state['settings']['limits']['no_progress_batches'] = 0
+        self.state.update(consecutive_timeout_recoveries=1, no_progress_batches=3,
+                          automatic_timeout_recoveries=[{}, {}],
+                          automatic_permission_recoveries=[{}])
+        self.assertEqual(3, runner.recovery_count(self.state))
+        with self.assertRaises(support.Paused):
+            runner.timeout_recovery_guard(self.state)
+
+    def test_legacy_recovered_history_does_not_exhaust_a_new_resume(self):
+        self.state.update(consecutive_timeout_recoveries=0, no_progress_batches=0,
+                          automatic_timeout_recoveries=[{}, {}, {}],
+                          automatic_recoveries_since_resume=0)
+        self.assertEqual(0, runner.recovery_count(self.state))
         runner.timeout_recovery_guard(self.state)
-        self.assertEqual(100, self.state['consecutive_timeout_recoveries'])
 
     def test_explicit_resume_reopens_recovery_budget_without_erasing_history(self):
         self.start_task()
@@ -313,12 +357,13 @@ class ActivityRuntimeTests(unittest.TestCase):
                    for n in range(1, 4)]
         self.state.update(status='PAUSED_TIMEOUT_RECOVERY', next_stage='astra_review',
                           consecutive_timeout_recoveries=3, no_progress_batches=3,
-                          automatic_timeout_recoveries=copy.deepcopy(history))
+                          automatic_timeout_recoveries=copy.deepcopy(history), automatic_recoveries_since_resume=3)
         calls = []
 
         def inspect(**kwargs):
             calls.append(kwargs['role'])
             self.assertEqual(0, kwargs['state'].get('consecutive_timeout_recoveries', 0))
+            self.assertEqual(0, runner.recovery_count(kwargs['state']))
             self.assertEqual(history, kwargs['state']['automatic_timeout_recoveries'])
             raise support.Paused('PAUSED_TEST', 'Offline dispatch inspected')
 
@@ -355,7 +400,7 @@ class ActivityRuntimeTests(unittest.TestCase):
                   'changed_files': ['greet.py'], 'commands_run': [], 'results': ['Hello, fixture'],
                   'remaining_risks': [], 'evidence_refs': ['event:quiet-check'],
                   'addressed_requirements': ['Greet a valid name'], 'untested_behavior': ['Invalid input'],
-                  'recommended_checks': ['Sol executes valid and invalid CLI cases']}
+                  'recommended_checks': ['The Validator executes valid and invalid CLI cases']}
         script = f'''
             import json, shlex, subprocess, sys
             from pathlib import Path

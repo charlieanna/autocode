@@ -60,6 +60,7 @@ const formatting = vm.createContext({
   n: (tag, text) => new Element(tag, text),
   card: (_, className) => Object.assign(new Element('div'), {className}),
   human: text => String(text),
+  roleDisplayName: text => ({GLM: 'Requirements planner', Astra: 'Plan reviewer', Terra: 'Builder', Sol: 'Validator', Planner: 'Planner', 'Plan Reviewer': 'Plan reviewer'})[String(text)] || String(text),
   concise: (text, limit) => String(text).slice(0, limit),
   messageTime: () => 0,
   messageBody: text => Object.assign(new Element('div', text), {className: 'message-body'}),
@@ -79,9 +80,9 @@ const earlierText = 'Earlier draft. ' + 'Detail. '.repeat(180);
 const latestText = 'The revised plan. ' + 'Detail. '.repeat(180) + '\nWhich option do you prefer?';
 const thread = new Element('div');
 formatting.renderMessageHistory(thread, [
-  {role: 'assistant', speaker: 'GLM', text: earlierText},
+  {role: 'assistant', speaker: 'Planner', text: earlierText},
   {role: 'user', text: 'Please revise the plan.'},
-  {role: 'assistant', speaker: 'GLM', text: latestText},
+  {role: 'assistant', speaker: 'Planner', text: latestText},
 ], 'conversation-one');
 const earlier = thread.children[0];
 const latest = thread.children[2];
@@ -92,9 +93,15 @@ assert.equal(latest.children.some(node => node.className === 'message-body' && n
 // A user reply must not collapse the last assistant message on the next refresh.
 const afterReply = new Element('div');
 formatting.renderMessageHistory(afterReply, [
-  {role: 'assistant', speaker: 'GLM', text: latestText},
+  {role: 'assistant', speaker: 'Planner', text: latestText},
   {role: 'user', text: 'Use the first option.'},
 ], 'conversation-one');
 assert.equal(afterReply.children[0].children.some(node => node.tagName === 'DETAILS'), false);
+
+assert.match(source, /After the final answer is saved, planning continues automatically\./);
+assert.match(source, /This does not approve a plan or start implementation\./);
+assert.match(source, /Refresh status and reconcile this request ID before retrying to avoid a duplicate mutation\./);
+assert.doesNotMatch(functionSource('requestRow').split("else if(entry.status==='failed'")[0], /Retry same request/,
+  'an uncertain receipt must be reconciled before any retry is offered');
 
 console.log('Chat keyboard handling, blocked sends, and visible latest assistant reply passed.');

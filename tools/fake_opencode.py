@@ -12,7 +12,8 @@ if sys.argv[1:] == ["--version"]:
     print("1.18.31")
     raise SystemExit(0)
 if sys.argv[1:] == ["models"]:
-    print("openai/gpt-6-astra\nopenai/gpt-5.6-terra\nopenai/gpt-5.6-sol\nzai-coding-plan/glm-5.3")
+    print("xiaomi-token-plan-sgp/mimo-v2.6-pro\nzai-coding-plan/glm-5.3\n"
+          "openai/gpt-6-astra\nopenai/gpt-5.6-terra\nopenai/gpt-5.6-sol")
     raise SystemExit(0)
 if sys.argv[1:] == ["auth", "list"]:
     print("● OpenAI " + os.environ.get("AUTOCODE_FIXTURE_OPENAI_AUTH", "oauth"))

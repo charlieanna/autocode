@@ -3,7 +3,7 @@ import unittest
 from test_chat_bridge import ChatFixture
 
 
-class TerraConversationTests(ChatFixture, unittest.TestCase):
+class BuilderConversationTests(ChatFixture, unittest.TestCase):
     def test_every_selected_role_is_preserved_through_chat_restart_and_attachment(self):
         models = {'glm_model':'openai/gpt-5.6-sol','astra_model':'zai-coding-plan/glm-5.3',
                   'terra_model':'openai/gpt-5.6-terra','sol_model':'openai/gpt-6-astra'}

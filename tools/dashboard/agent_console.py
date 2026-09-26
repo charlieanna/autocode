@@ -6,11 +6,41 @@ from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs,urlparse
 sys.dont_write_bytecode=True
-CODEX_DEFAULT_MODELS={'astra':'gpt-6-astra','terra':'gpt-5.6-terra','sol':'gpt-5.6-sol'}
-GLM_MODELS={'astra':'glm-5.3','terra':'glm-5.3-flash','sol':'glm-5.3'}
+CODEX_DEFAULT_MODELS={'astra':'gpt-5.6-sol','terra':'gpt-5.6-terra','sol':'gpt-5.6-sol','completion':'gpt-5.6-sol'}
+GLM_MODELS={'astra':'glm-5.3','terra':'glm-5.3-flash','sol':'glm-5.3','completion':'glm-5.3'}
+DEFAULT_REASONING_EFFORTS={'astra':'high','terra':'medium','sol':'high','completion':'medium'}
+REASONING_EFFORTS={'low','medium','high','xhigh','max'}
+BARE_OPENAI_ALIASES={'gpt-5.6-sol','gpt-5.6-terra','gpt-6-astra'}
 MODEL_ID=re.compile(r'^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._:/-]{0,120}$',re.I)
 def obj(x): return x if isinstance(x,dict) else {}
 def items(x): return x if isinstance(x,list) else []
+def pending_decisions(state):
+ """Project unresolved decisions without changing the saved checkpoint."""
+ questions=[q for q in items(state.get('pending_questions')) if isinstance(q,dict)]
+ answers=obj(state.get('answers'));request=obj(state.get('user_request'))
+ def answered(question):
+  ident=question.get('id')
+  answer=obj(answers.get(ident)) if isinstance(ident,str) else {}
+  return bool(answer.get('text')) and (not answer.get('question') or answer['question']==question)
+ pending=[q for q in questions if not answered(q)]
+ request_resolved=bool(request.get('decision_needed')) and any(
+  q not in pending and q.get('question')==request['decision_needed'] for q in questions)
+ # Permission decisions record provenance and the exact approved contract scope.
+ # Older checkpoints can still retain a duplicate question under a new ID.
+ contract=obj(state.get('goal_contract'))
+ token=f"r{contract.get('revision')}:{contract.get('hash')}"
+ if request.get('kind')=='permission' and contract.get('approval_status')=='approved':
+  for raw in answers.values():
+   answer=obj(raw)
+   if (answer.get('kind')=='permission_answer' and answer.get('actor')=='user_cli'
+       and answer.get('text') and answer in items(state.get('user_events'))
+       and answer.get('contract_token')==token and answer.get('request')==request):
+    pending=[q for q in pending if q.get('question')!=request.get('decision_needed')]
+    request_resolved=True
+    break
+ if request_resolved:
+  request={}
+ return pending,request or None
 def json_file(p):
  try:
   x=json.loads(p.read_text(encoding='utf8'));return x if isinstance(x,dict) else {'_console_error':'state is not a JSON object'}
@@ -23,15 +53,17 @@ def configured_zai(config_path=None):
  return None
 def string_list(x):return [v for v in items(x) if isinstance(v,str)]
 def saved_models(state):
- state=obj(state);settings=obj(state.get('settings'));roles=obj(settings.get('roles'));models=obj(state.get('models'));result={};engines={}
+ state=obj(state);settings=obj(state.get('settings'));roles=obj(settings.get('roles'));models=obj(state.get('models'));result={};engines={};efforts={}
  engine=settings.get('engine') if isinstance(settings.get('engine'),str) else state.get('engine') if isinstance(state.get('engine'),str) else None
- names=['astra','terra','sol']+(['glm'] if 'glm' in roles or 'glm' in models else [])
+ names=['astra','terra','sol']+[role for role in ('requirements','glm','plan_reviewer','completion','resolver') if role in roles or role in models]
  for role in names:
   config=obj(roles.get(role));value=config.get('model')
   if not isinstance(value,str):value=models.get(role)
   result[role]=value if isinstance(value,str) else None
   engines[role]=config.get('engine') if isinstance(config.get('engine'),str) else engine if config or result[role] is not None else None
- return {'engine':engine,'joint_planning':settings.get('joint_planning') is True,'roles':result,'role_engines':engines}
+  effort=config.get('reasoning_effort')
+  efforts[role]=effort if isinstance(effort,str) else None
+ return {'engine':engine,'joint_planning':settings.get('joint_planning') is True,'roles':result,'role_engines':engines,'role_efforts':efforts}
 def discovery_role(state):
  state=obj(state);joint=obj(state.get('settings')).get('joint_planning') is True
  for record in reversed(items(state.get('stages'))):
@@ -45,9 +77,22 @@ def discovery_role(state):
  if origin in ('astra_discovery','astra_finalize'):return 'astra'
  if joint and origin in ('glm_draft','glm_revise'):return 'glm'
  return None
+def provider_registry():
+    """The runner's own provider registry, so the dashboard and CLI resolve tools identically."""
+    try:
+        from .. import autocode_providers
+    except ImportError:  # Running from a source checkout, not the installed package.
+        tools = str(Path(__file__).resolve().parents[1])
+        if tools not in sys.path:
+            sys.path.insert(0, tools)
+        import autocode_providers
+    return autocode_providers
+
+
 class ModelCatalogue:
-    def __init__(self, command=('opencode', 'models'), ttl=300, timeout=10, output_limit=65536):
+    def __init__(self, command=('opencode', 'models'), ttl=300, timeout=10, output_limit=65536, lister=None, provider='opencode'):
         self.command = tuple(command)
+        self.lister, self.provider = lister, provider
         self.ttl, self.timeout, self.output_limit = ttl, timeout, output_limit
         self.lock = threading.Condition()
         self.models, self.at, self.loading, self.error = None, 0, False, None
@@ -101,15 +146,20 @@ class ModelCatalogue:
             self.loading, self.error = True, None
         values, error = None, None
         try:
-            code, stdout, stderr = self._read_command()
-            if code:
-                raise ValueError((stderr.strip() or 'opencode models exited with status ' + str(code))[:400])
-            values = sorted({line.strip() for line in stdout.splitlines() if MODEL_ID.fullmatch(line.strip())})
-            if not values:
-                raise ValueError('No usable provider/model identifiers were returned')
+            if self.lister:
+                values = sorted({value for value in self.lister() if isinstance(value, str) and value and not any(c.isspace() for c in value)})
+                if not values:
+                    raise ValueError('No usable model identifiers were returned')
+            else:
+                code, stdout, stderr = self._read_command()
+                if code:
+                    raise ValueError((stderr.strip() or 'opencode models exited with status ' + str(code))[:400])
+                values = sorted({line.strip() for line in stdout.splitlines() if MODEL_ID.fullmatch(line.strip())})
+                if not values:
+                    raise ValueError('No usable provider/model identifiers were returned')
         except subprocess.TimeoutExpired:
             error = 'Model catalogue lookup timed out.'
-        except (OSError, ValueError) as failure:
+        except (OSError, ValueError, RuntimeError) as failure:
             error = 'Model catalogue unavailable: ' + str(failure)
         finally:
             with self.lock:
@@ -122,7 +172,7 @@ class ModelCatalogue:
     def status(self):
         with self.lock:
             return {'models': list(self.models or []), 'usable': bool(self.models) and not self.error and not self.loading,
-                    'loading': self.loading, 'error': self.error}
+                    'loading': self.loading, 'error': self.error, 'provider': self.provider}
 def assignment_snapshot(raw,source,at=None,reason=None):
  raw=obj(raw)
  if not raw:return None
@@ -211,8 +261,11 @@ def astra_plan_state(s):
   'current_plan_approval':contract.get('approval_status') if isinstance(contract.get('approval_status'),str) else None,
   'current_assignment':current,'history':history,'briefs':briefs,'decisions':decisions,'revision_history':revisions}
 class LegacyConsole:
- def __init__(self,workspaces,runner,zai_probe=configured_zai,watch_roots=(),watch_depth=3,watch_ttl=4.0,catalogue_command=('opencode','models')):
-  self.explicit=list(dict.fromkeys(Path(x).resolve() for x in workspaces));self._explicit_set=set(self.explicit);self.created_workspaces=[];self.runner=str(Path(runner).resolve());self.zai_probe=zai_probe;self.catalogue=ModelCatalogue(catalogue_command);self.actions={};self.pending=set();self.workspace_busy=set();self.lock=threading.Lock();self.cli_watch_roots=list(dict.fromkeys(Path(x).resolve() for x in watch_roots));self.runtime_watch_roots=[];self.watch_depth=max(0,int(watch_depth));self.watch_ttl=max(0.0,float(watch_ttl));self.scan_lock=threading.Lock();self.discovery_cache={};self.pool=ThreadPoolExecutor(max_workers=max(4,len(self.explicit)))
+ def __init__(self,workspaces,runner,zai_probe=configured_zai,watch_roots=(),watch_depth=3,watch_ttl=4.0,catalogue_command=('opencode','models'),run_provider='opencode'):
+  self.run_provider=run_provider
+  if run_provider=='opencode':self.catalogue=ModelCatalogue(catalogue_command)
+  else:self.catalogue=ModelCatalogue(lister=provider_registry().resolve(run_provider).list_models,provider=run_provider)
+  self.explicit=list(dict.fromkeys(Path(x).resolve() for x in workspaces));self._explicit_set=set(self.explicit);self.created_workspaces=[];self.runner=str(Path(runner).resolve());self.zai_probe=zai_probe;self.actions={};self.pending=set();self.workspace_busy=set();self.lock=threading.Lock();self.cli_watch_roots=list(dict.fromkeys(Path(x).resolve() for x in watch_roots));self.runtime_watch_roots=[];self.watch_depth=max(0,int(watch_depth));self.watch_ttl=max(0.0,float(watch_ttl));self.scan_lock=threading.Lock();self.discovery_cache={};self.pool=ThreadPoolExecutor(max_workers=max(4,len(self.explicit)))
  @property
  def watch_roots(self):return self.cli_watch_roots+self.runtime_watch_roots
  def watch_root_rows(self):
@@ -259,7 +312,12 @@ class LegacyConsole:
  def _scan_watch_root(self,root):
   found=set()
   try:
-   if (root/'.git').exists() and (root/'.autocode/runs').is_dir():found.add(root)
+   # A Git repository is a discovery boundary. Descending into repositories
+   # makes a broad watch root walk dependency trees, build output and every
+   # saved Autocode artifact on each cache refresh.
+   if (root/'.git').exists():
+    if (root/'.autocode/runs').is_dir():found.add(root)
+    return found,None
    stack=[(root,0)]
    while stack:
     base,level=stack.pop()
@@ -268,10 +326,12 @@ class LegacyConsole:
      if level==0:return found,'watch root unavailable: '+str(e)
      continue
     for entry in entries:
-     if entry.name=='.git' or level>=self.watch_depth:continue
+     if entry.name in ('.git','.autocode','node_modules','.next','.venv','venv','__pycache__') or level>=self.watch_depth:continue
      try:
       isdir=entry.is_dir(follow_symlinks=False);resolved=Path(entry.path).resolve();resolved.relative_to(root)
-      if (resolved/'.git').exists() and (resolved/'.autocode/runs').is_dir():found.add(resolved)
+      if (resolved/'.git').exists():
+       if (resolved/'.autocode/runs').is_dir():found.add(resolved)
+       continue
       if isdir:stack.append((Path(entry.path),level+1))
      except (OSError,ValueError):continue
   except OSError as e:return found,'watch root unavailable: '+str(e)
@@ -294,8 +354,8 @@ class LegacyConsole:
   s=obj(s) if s is not None else json_file(run/'state.json');contract=obj(s.get('goal_contract'));body=obj(contract.get('body'));criteria=items(body.get('acceptance_criteria')) or items(s.get('acceptance_criteria'));result={str(x.get('id')):str(x.get('status','unknown')).lower() for x in items(obj(s.get('validation')).get('criterion_results')) if isinstance(x,dict)};counts={'pass':0,'fail':0,'unknown':0}
   for c in criteria:
    status=result.get(str(obj(c).get('id')),'unknown');counts['pass' if status in ('pass','verified') else 'fail' if status in ('fail','blocked') else 'unknown']+=1
-  active=obj(s.get('active_stage'))
-  return {'workspace':str(ws),'run':str(run),'created_at':s.get('created_at'),'task':s.get('task','unavailable'),'phase':s.get('phase','unavailable'),'status':s.get('status','unavailable'),'stage':active.get('stage') or s.get('stage') or s.get('next_stage') or 'unavailable','iteration':s.get('iteration','unavailable'),'state_error':s.get('_console_error'),'stop_reason':s.get('stop_reason'),'goal':contract,'goal_token':s.get('displayed_goal') if isinstance(s.get('displayed_goal'),str) else '','criteria':criteria,'counts':counts,'questions':items(s.get('pending_questions')),'answers':obj(s.get('answers')),'discovery_summary':s.get('discovery_summary') if isinstance(s.get('discovery_summary'),str) else '','discovery_role':discovery_role(s),'stages':[x for x in items(s.get('stages')) if isinstance(x,dict)],'active_stage':active,'plan':items(s.get('plan')),'astra_plan':astra_plan_state(s),'user_request':s.get('user_request') if isinstance(s.get('user_request'),dict) else None,'review_token':s.get('displayed_review') if isinstance(s.get('displayed_review'),str) else '','review_criteria':[obj(c) for c in criteria if obj(c).get('human_review')],'human_reviews':obj(s.get('human_reviews')),'zai':bool(self.zai_probe()),'model_settings':saved_models(s)}
+  active=obj(s.get('active_stage'));questions,request=pending_decisions(s)
+  return {'workspace':str(ws),'project_workspace':s.get('project_workspace',str(ws)),'task_branch':s.get('task_branch'),'run':str(run),'created_at':s.get('created_at'),'task':s.get('task','unavailable'),'phase':s.get('phase','unavailable'),'status':s.get('status','unavailable'),'completed_at':s.get('completed_at') if isinstance(s.get('completed_at'),str) else None,'stage':active.get('stage') or s.get('stage') or s.get('next_stage') or 'unavailable','iteration':s.get('iteration','unavailable'),'state_error':s.get('_console_error'),'stop_reason':s.get('stop_reason'),'goal':contract,'goal_token':s.get('displayed_goal') if isinstance(s.get('displayed_goal'),str) else '','criteria':criteria,'counts':counts,'questions':questions,'answers':obj(s.get('answers')),'discovery_summary':s.get('discovery_summary') if isinstance(s.get('discovery_summary'),str) else '','discovery_role':discovery_role(s),'stages':[x for x in items(s.get('stages')) if isinstance(x,dict)],'active_stage':active,'progress_messages':items(s.get('progress_messages')),'plan':items(s.get('plan')),'astra_plan':astra_plan_state(s),'user_request':request,'review_token':s.get('displayed_review') if isinstance(s.get('displayed_review'),str) else '','review_criteria':[obj(c) for c in criteria if obj(c).get('human_review')],'human_reviews':obj(s.get('human_reviews')),'reasoning_escalations':items(s.get('reasoning_escalations')),'zai':bool(self.zai_probe()),'model_settings':saved_models(s)}
  def discover(self):
   rows=self.root_error_rows()
   for ws in self.workspaces:
@@ -313,11 +373,13 @@ class LegacyConsole:
   with self.lock:self.actions.setdefault(key,[]).append(x)
   return x
  def enqueue(self,ws,run,label,extra,on_complete=None):
-  key=str(run or ws)
+  isolated=run is None
+  key=str(run) if run else str(ws)+':new:'+uuid.uuid4().hex
   with self.lock:
-   if key in self.pending or str(ws) in self.workspace_busy:raise ValueError('A run or workspace action is already queued or running')
-   self.pending.add(key);self.workspace_busy.add(str(ws))
-  cmd=[sys.executable,self.runner,'--workspace',str(ws)]+(['--run-dir',str(run)] if run else [])+list(extra);x=self._record(key,label,cmd);self.pool.submit(self._execute,key,str(ws),x,on_complete);return x
+   if key in self.pending or (not isolated and str(ws) in self.workspace_busy):raise ValueError('A run or workspace action is already queued or running')
+   self.pending.add(key)
+   if not isolated:self.workspace_busy.add(str(ws))
+  cmd=[sys.executable,self.runner,'--workspace',str(ws)]+(['--run-dir',str(run)] if run else [])+list(extra);x=self._record(str(run or ws),label,cmd);x['isolated_task']=isolated;self.pool.submit(self._execute,key,str(ws),x,on_complete);return x
  def _execute(self,key,ws,x,on_complete=None):
   x['status']='running';x['started_at']=time.time()
   try:
@@ -341,7 +403,9 @@ class LegacyConsole:
   except Exception as e:x.update(stdout='',stderr=str(e),exit_status=None,status='launch_failed',uncertain=True)
   finally:
    x['finished_at']=time.time()
-   with self.lock:self.pending.discard(key);self.workspace_busy.discard(ws)
+   with self.lock:
+    self.pending.discard(key)
+    if not x.get('isolated_task'):self.workspace_busy.discard(ws)
   if on_complete:
    try:on_complete(x)
    except Exception as error:x['callback_error']=str(error)
@@ -350,13 +414,21 @@ class LegacyConsole:
   except OSError:key=str(run or ws)
   return list(self.actions.get(key,[]))
  def joint_models(self,d):
-  explicit={role:d.get(role+'_model','') for role in ('glm','astra','terra','sol')}
+  explicit={role:d.get(role+'_model','') for role in ('glm','astra','terra','sol','completion')}
   if any(not isinstance(value,str) for value in explicit.values()):raise ValueError('Model choices must be strings')
   chosen={role:value for role,value in explicit.items() if value}
+  if self.run_provider!='opencode':
+   if any(any(c.isspace() for c in value) for value in chosen.values()):raise ValueError('Model names cannot contain whitespace')
+   if chosen:
+    catalogue=self.catalogue.fetch()
+    if not catalogue['usable']:raise ValueError(catalogue['error'] or 'Model catalogue is unavailable; reset role choices to Use Autocode default')
+    for value in chosen.values():
+     if value not in catalogue['models']:raise ValueError('Choose a current model from the '+self.run_provider+' catalogue')
+   return chosen
   # Retain bare OpenAI aliases in older conversations. The runner expands them
   # to openai/model on OpenCode; they never select a separate Codex login.
   opencode_choices={role:value for role,value in chosen.items()
-                    if not (role in ('astra','sol') and value in CODEX_DEFAULT_MODELS.values())}
+                    if not (role in ('astra','sol','completion') and value in BARE_OPENAI_ALIASES)}
   for role,value in opencode_choices.items():
    if not MODEL_ID.fullmatch(value):raise ValueError(role.title()+' requires an OpenCode provider/model identifier')
   if opencode_choices:
@@ -365,6 +437,29 @@ class LegacyConsole:
    for value in opencode_choices.values():
     if value not in catalogue['models']:raise ValueError('Choose a current provider/model identifier from the catalogue')
   return chosen
+ def joint_efforts(self,d):
+  explicit={role:d.get(role+'_reasoning_effort','') for role in ('astra','terra','sol','completion')}
+  if any(not isinstance(value,str) for value in explicit.values()):raise ValueError('Reasoning choices must be strings')
+  if any(value and value not in REASONING_EFFORTS for value in explicit.values()):raise ValueError('Choose a supported reasoning level')
+  return {role:value for role,value in explicit.items() if value}
+ def confirm_model_replacement(self,d,ws,run,v):
+  role=d.get('role');model=d.get('model');request_id=d.get('request_id')
+  roles=obj(obj(v.get('model_settings')).get('roles'))
+  if not isinstance(role,str) or role not in roles or not isinstance(roles.get(role),str):raise ValueError('Choose a saved role with a recorded model')
+  if not isinstance(model,str) or not model.strip():raise ValueError('Choose a replacement model')
+  if not isinstance(request_id,str) or not request_id.strip():raise ValueError('A replacement request ID is required')
+  if model==roles[role]:raise ValueError('Choose a model different from the saved model')
+  if v.get('active_stage'):raise ValueError('Wait for the current model step to finish before replacing a model')
+  if v.get('status')=='TASK_COMPLETE':raise ValueError('Completed task configuration is read-only')
+  engine=obj(v.get('model_settings')).get('engine')
+  if engine=='opencode':
+   selected=self.joint_models({role+'_model':model}).get(role)
+  else:
+   if role=='glm' or model not in (CODEX_DEFAULT_MODELS.get(role),GLM_MODELS.get(role)):raise ValueError('This saved route does not support the selected replacement model')
+   selected=model
+  action=self.enqueue(ws,run,'Confirm model replacement for '+role,['--'+role+'-model',selected,'--show-goal','--no-chat'])
+  action['request_id']=request_id
+  return action
  def create(self,d):
   raw=d.get('project') if isinstance(d.get('project'),str) and d.get('project').strip() else d.get('workspace','');ws=self.selected_workspace(raw);goal=d.get('goal','');engine=d.get('engine','opencode')
   if not ws:raise ValueError('Select or enter an existing Git workspace')
@@ -372,16 +467,20 @@ class LegacyConsole:
   if engine not in ('opencode','codex'):raise ValueError('Unsupported engine')
   if ws not in self.created_workspaces and ws not in self.explicit:self.created_workspaces.append(ws)
   if engine=='opencode':
-   chosen=self.joint_models(d)
-   extra=[goal,'--engine','opencode','--joint-planning','--no-chat']
+   chosen=self.joint_models(d);efforts=self.joint_efforts(d)
+   extra=[goal,'--engine','opencode','--provider',self.run_provider,'--joint-planning','--no-chat']
    for role,value in chosen.items():extra+=['--'+role+'-model',value]
-   return self.enqueue(ws,None,'Create OpenCode task',extra)
-  if d.get('glm_model'):raise ValueError('GLM discovery requires the default joint-planning engine')
+   for role,value in efforts.items():extra+=['--'+role+'-reasoning-effort',value]
+   return self.enqueue(ws,None,'Create OpenCode task' if self.run_provider=='opencode' else 'Create '+self.run_provider+' task',extra)
+  if d.get('glm_model'):raise ValueError('Planner discovery requires the default joint-planning engine')
   models={r:d.get(r+'_model',v) for r,v in CODEX_DEFAULT_MODELS.items()};provider=self.zai_probe()
   for r,m in models.items():
    if m not in (CODEX_DEFAULT_MODELS[r],GLM_MODELS[r]):raise ValueError('Unsupported model')
    if m==GLM_MODELS[r] and not provider:raise ValueError('Z.ai is not configured in local Codex')
-  extra=[goal,'--engine','codex','--no-chat','--astra-model',models['astra'],'--terra-model',models['terra'],'--sol-model',models['sol'],'--reasoning-effort','high']
+  efforts={**DEFAULT_REASONING_EFFORTS,**self.joint_efforts(d)}
+  extra=[goal,'--engine','codex','--no-chat']
+  for role,model in models.items():extra+=['--'+role+'-model',model]
+  for role,value in efforts.items():extra+=['--'+role+'-reasoning-effort',value]
   for r,m in models.items():
    if m==GLM_MODELS[r]:extra+=['--'+r+'-provider',provider]
   return self.enqueue(ws,None,'Create Codex task',extra)
@@ -405,6 +504,14 @@ class LegacyConsole:
    ident,token=str(d.get('id','')),d.get('token','')
    if ident not in {str(c.get('id')) for c in v['review_criteria']} or not isinstance(token,str) or token!=v['review_token']:raise ValueError('Displayed review token changed or criterion is not eligible')
    return self.enqueue(ws,run,'Approve review '+ident,['--approve-review',ident,'--review-token',token])
+  if action=='set_reasoning':
+   efforts=self.joint_efforts(d)
+   if not efforts:raise ValueError('Choose at least one reasoning level')
+   if v.get('active_stage'):raise ValueError('Wait for the current model step to finish before changing reasoning')
+   extra=[]
+   for role,value in efforts.items():extra+=['--'+role+'-reasoning-effort',value]
+   return self.enqueue(ws,run,'Save reasoning settings',extra+['--show-goal','--no-chat'])
+  if action=='set_model':return self.confirm_model_replacement(d,ws,run,v)
   if action=='continue':return self.enqueue(ws,run,'Continue',[])
   raise ValueError('Unknown action')
 try:
@@ -445,12 +552,16 @@ class Handler(BaseHTTPRequestHandler):
   return p.scheme=='http' and p.netloc==hosts[0] and p.hostname is not None and p.username is None and p.password is None and not(p.path or p.params or p.query or p.fragment)
  def do_GET(self):
   try:return self.get_request()
-  except (OSError,ValueError,TypeError) as error:return self.reply(503,{'error':str(error)})
+  except (BrokenPipeError,ConnectionResetError):return
+  except (OSError,ValueError,TypeError) as error:
+   try:return self.reply(503,{'error':str(error)})
+   except (BrokenPipeError,ConnectionResetError):return
   except Exception as error:
    # A failed view must not close the socket or look like a fresh checkpoint.
    # Do not send state, credentials, or arbitrary exception text to the browser.
    print('Dashboard GET failed: '+type(error).__name__,file=sys.stderr,flush=True)
-   return self.reply(500,{'error':'Task status could not be loaded. Saved work is unchanged; retry or check the dashboard server log.'})
+   try:return self.reply(500,{'error':'Task status could not be loaded. Saved work is unchanged; retry or check the dashboard server log.'})
+   except (BrokenPipeError,ConnectionResetError):return
  def get_request(self):
   p=urlparse(self.path)
   if not self.same_origin():return self.reply(403,{'error':'cross-origin request rejected'})
@@ -503,9 +614,15 @@ class Handler(BaseHTTPRequestHandler):
     else:raise ValueError('Unknown watch-root action')
    else:raise ValueError('not found')
    self.reply(202,x)
-  except (ValueError,TypeError,OSError,json.JSONDecodeError) as e:self.reply(400,{'error':str(e)})
+  except (BrokenPipeError,ConnectionResetError):return
+  except (ValueError,TypeError,OSError,json.JSONDecodeError) as e:
+   try:self.reply(400,{'error':str(e)})
+   except (BrokenPipeError,ConnectionResetError):return
 def main():
-  p=argparse.ArgumentParser();p.add_argument('--workspace',action='append',default=[]);p.add_argument('--watch-root',action='append',default=[]);p.add_argument('--watch-depth',type=int,default=3);p.add_argument('--runner',default=str(Path(__file__).resolve().parents[1]/'autocode.py'));p.add_argument('--port',type=int,default=8765);a=p.parse_args()
+  p=argparse.ArgumentParser();p.add_argument('--workspace',action='append',default=[]);p.add_argument('--watch-root',action='append',default=[]);p.add_argument('--watch-depth',type=int,default=3);p.add_argument('--runner',default=str(Path(__file__).resolve().parents[1]/'autocode.py'));p.add_argument('--port',type=int,default=8765);p.add_argument('--provider',help='Tool for new runs (default: AUTOCODE_PROVIDER, then default_provider in ~/.config/autocode/config.toml, then opencode)');a=p.parse_args()
   if a.watch_depth<0:p.error('--watch-depth must be zero or greater')
-  c=Console(a.workspace,a.runner,watch_roots=a.watch_root,watch_depth=a.watch_depth);s=ThreadingHTTPServer(('127.0.0.1',a.port),Handler);s.console=c;s.hosts={'127.0.0.1:'+str(s.server_port),'localhost:'+str(s.server_port)};print('http://127.0.0.1:'+str(s.server_port),flush=True);s.serve_forever()
+  try:
+   registry=provider_registry();run_provider=a.provider or registry.default_name();registry.resolve(run_provider)
+  except (RuntimeError,ValueError) as error:p.error(str(error))
+  c=Console(a.workspace,a.runner,watch_roots=a.watch_root,watch_depth=a.watch_depth,run_provider=run_provider);c._discovered();s=ThreadingHTTPServer(('127.0.0.1',a.port),Handler);s.console=c;s.hosts={'127.0.0.1:'+str(s.server_port),'localhost:'+str(s.server_port)};print('http://127.0.0.1:'+str(s.server_port),flush=True);s.serve_forever()
 if __name__=='__main__':main()

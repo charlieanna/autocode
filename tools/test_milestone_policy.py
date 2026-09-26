@@ -32,9 +32,13 @@ class MilestonePolicyTests(unittest.TestCase):
         state = self.state()
         for stage in planning.STAGES:
             prompt, _ = planning.context(state, stage, '/fixture/state.json')
-            self.assertEqual(1, prompt.count('MILESTONE HANDOFF POLICY v1'))
-            self.assertIn('never bypass limits', prompt)
-            self.assertIn('grants no new goal or permission approval', prompt)
+            if stage == 'requirements_gather':
+                self.assertNotIn('MILESTONE HANDOFF POLICY v1', prompt)
+                self.assertIn('Do not create a technical approach, milestone, dependency graph', prompt)
+            else:
+                self.assertEqual(1, prompt.count('MILESTONE HANDOFF POLICY v1'))
+                self.assertIn('never bypass limits', prompt)
+                self.assertIn('grants no new goal or permission approval', prompt)
 
     def test_old_microtask_instruction_removed_but_approval_retained(self):
         self.assertNotIn('Make it small and executable', planning.PROMPTS['astra_finalize'])

@@ -1,27 +1,88 @@
-# Autocode
+# AutoCode
 
-Start with a rough idea and discuss it with GLM. GLM helps define the smallest
-useful end-to-end product, asks focused questions, and drafts a versioned build brief.
-Astra challenges that draft; GLM revises; Astra finalizes. You can revise the brief
-in the same conversation. Implementation starts only after you explicitly approve it.
+**One conversation for engineering work. Evidence before “done.”**
 
-After approval, Autocode handles the handoffs:
+AutoCode is a local, conversation-first system for coordinating AI-assisted software engineering. It turns a rough request into a reviewed, explicitly approved plan, runs bounded implementation work, independently checks the result, and preserves the findings and evidence needed to decide what happens next.
+
+Today, it provides a working planning/build/review runner, local dashboard, provider adapters, and recovery infrastructure. The larger vision is one engineering workspace for discussing, designing, building, debugging, reviewing, and verifying software—not just generating code.
+
+> **Our north star:** Describe the engineering outcome you want in one continuous conversation. AutoCode helps make the requirements clear, breaks the work down appropriately, coordinates specialists, combines their results, and shows what is happening, why work is still open, and what evidence supports calling it ready.
+>
+> **Chat tells the story. State shows the current record. Evidence earns “ready.”**
+
+**Status:** Active development. “Implemented” below means present in the repository, not proven reliable for every project or provider. This status snapshot is based on [`372e3f2`](https://github.com/charlieanna/autocode/tree/372e3f2adbd7e1f2267e65b3d8a8cd61be508ff0), reviewed on September 25, 2026. See [validation records](VALIDATION.md) and [reliability priorities](RELIABILITY.md) for the distinction between fixture coverage and live delivery evidence.
+
+## Why we are building this
+
+The problem is not simply getting a model to write code. It is preserving intent and control while work moves between planning, implementation, testing, review, correction, and integration.
+
+An implementation can look finished while a requirement is missing. Tests can pass against an older candidate. A reviewer can identify a defect that disappears from the next summary. Several components can pass individually and fail together. A long correction run can make progress without explaining what remains.
+
+AutoCode is being built to make those handoffs explicit and inspectable. The user should not have to relay prompts between agents, reconcile contradictory completion claims, or watch several terminals to understand one task.
+
+**We optimize for the requested engineering outcome, not the number of agents, model calls, files changed, or lines generated.** We are building it for our own projects first; dependable everyday use comes before adding more modes or integrations.
+
+## What is implemented today
+
+The detailed guides describe supported paths, defaults, and limitations. They are not interchangeable with roadmap promises.
+
+| Capability | Present behavior | Details |
+| --- | --- | --- |
+| Requirements and reviewed planning | Separate requirements, planner, and plan-reviewer stages produce a versioned brief with constraints, acceptance criteria, milestones, dependencies, and an initial task. Questions and revisions remain explicit. | [Workflow](docs/workflow.md) |
+| Human approval | Implementation requires approval of the exact displayed plan revision. Answering a question or resuming a run is not plan approval. Revised briefs require renewed approval. | [Approval](docs/workflow.md#conversation-and-approval) |
+| Bounded implementation | Builders receive an approved task and relevant context. New top-level tasks use separate Git worktrees by default; existing runs retain their saved workspace. | [Workspaces](docs/task-lanes.md#multiple-tasks-in-one-project) |
+| Parallel milestone Builders | Eligible milestones with satisfied dependencies and disjoint ownership can run in isolated worktrees. Their patches are combined only against the expected parent baseline, then independently validated. Unsafe or insufficiently specified batches fall back to serial execution. | [Execution](docs/execution.md#independent-milestone-builders) |
+| Independent review and completion checks | A Validator checks the candidate; a separate Completion Owner proposes the next outcome. AutoPilot applies the authoritative transition and completion checks. | [Completion](docs/execution.md#completion-gate) |
+| Durable findings and evidence | Reviewer findings have runner-owned identities. Omission does not close them. Explicit, scoped dispositions and evidence are required; blocked reviews retain defects already discovered. | [Findings code](tools/autocode_findings.py), [Evidence rules](docs/testing.md) |
+| Repair, retries, and recovery | Read-only repair diagnosis, report-format recovery, persisted retry/escalation policies, process supervision, locking, and checkpoints support bounded recovery. Unsafe or uncertain situations can require inspection and an explicit resume. | [Execution](docs/execution.md), [Models](docs/models.md) |
+| Local conversation and monitoring | CLI conversations and a browser dashboard support planning, approvals, task visibility, findings, checkpoints, and safe-boundary feedback. A native macOS host wraps the dashboard. | [Dashboard](docs/dashboard.md), [macOS](docs/macos-app.md) |
+| Figma workflow | A Codex/plugin-backed design → review → implementation-handoff path exists. It requires the relevant Figma tools to be available to the CLI; it does not assume a Figma Make API. | [Figma](docs/figma.md) |
+| Configurable runtimes and models | OpenCode is the default engine; Codex and configured command-tool adapters are available, including a bundled KiloCode configuration. Roles and supported reasoning settings are configurable. | [Providers](docs/providers.md), [Models](docs/models.md) |
+| Multiple task lanes | Tasks in a lane run sequentially; separate lanes can run concurrently in separate worktrees. Lane branches are **not** automatically merged into one product. | [Task lanes](docs/task-lanes.md) |
+
+**Important boundaries:** Parallel milestone integration is not automatic merging into `master`. Task lanes are not yet hierarchical product planning. Existing conversations and checkpoints are the foundation for the broader one-conversation workspace—not a claim that all planned engineering workflows already exist.
+
+## How the current workflow fits together
 
 ```text
-You ↔ GLM: rough idea → clarification → draft brief
-GLM explores → Astra challenges → GLM revises → Astra finalizes → your approval
-
-Astra assigns → Terra builds → Sol verifies → Astra decides
-                    ↑                            |
-                    └──── CONTINUE / REWORK ─────┘
+Rough idea + repository context
+              |
+              v
+      Requirements gathering
+              |
+              v
+    Plan -> challenge -> revision -> final planning review
+              |
+              v
+       You approve the exact brief
+              |
+              v
+    Eligible bounded task / milestone batch
+              |
+              v
+      Builder(s) -> combined candidate
+              |
+              v
+       Independent Validator
+              |
+              v
+          Completion Owner
+              |
+              v
+     AutoPilot applies the next transition
+          /             |              \
+     correction      needs input       ready
+         |               |               |
+   AutoResolver       pause with      evidence-backed
+         |            explanation     completion record
+   bounded repair
+         |
+   Builder(s) -> independent review again
 ```
 
-Astra owns the final planning decisions and the completion decision. Terra implements
-one bounded task. Sol independently inspects and tests the actual code. They all work
-from the same approved brief; you do not explain the product to each agent or relay
-their prompts. The runner saves decisions, tasks and evidence so it can resume.
+This describes the standard code workflow. Saved runs and explicitly selected alternate workflows can retain different routing; they must not be silently upgraded or stripped of their existing approval rules. See [workflow details](docs/workflow.md).
 
-Works against any committed Git workspace; no IdleCampus files or services are required.
+### Runtime requirements and GoCode support
 
 Requires Python 3.11+ and Git. The legacy OpenCode route remains available for
 existing runs. For a GoCode-native run, GoCode must be in managed mode with its
@@ -79,699 +140,244 @@ The saved display names resolve to the API's exact model IDs: `astra` to
 `gpt-6-astra`, and `terra`, `sol`, and `luna` to their `gpt-5.6-*` IDs.
 The `gocode-openai/` display prefix is never sent as part of the API model ID.
 
-| Role | CLI and billing route | Default model |
+### One controller, four bounded units
+
+| Component | Responsibility | Output—not authority to do everything |
 | --- | --- | --- |
-| GLM — clarification, exploration, draft, evidence-backed revision | OpenCode / Z.ai Coding Plan | `zai-coding-plan/glm-5.3` |
-| Astra — challenge, final planning decisions, implementation reviews | OpenCode / ChatGPT login | `openai/gpt-6-astra` |
-| Terra — implementation | OpenCode / Z.ai Coding Plan | `zai-coding-plan/glm-5.3` |
-| Sol — independent validation, separate session | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` |
+| **AutoPilot** | Deterministic workflow control, state transitions, dispatch, approval boundaries, recovery, and completion checks. | The next permitted action and current authoritative run state. |
+| **AutoPlanner** | Understand the request and develop a reviewed executable plan. | A plan candidate; user approval remains explicit. |
+| **AutoCode — build unit** | Schedule approved work, run Builders, and integrate eligible results. | A source-identified implementation candidate, not product acceptance. |
+| **AutoReview** | Independently validate the candidate and provide completion-owner review. | Evidence, criterion outcomes, findings, and a proposed outcome. |
+| **AutoResolver** | Diagnose reviewer-requested rework without changing application source. | A bounded repair task and retests, or a blocker requiring a decision. |
 
-From inside any committed Git project, the normal invocation is simply:
+**AutoCode** is also the name of the whole project. The internal build unit retains its existing name; **AutoPilot** is the controller above it. These are modules in one application, not a requirement to deploy separate services.
 
-```sh
-autocode "Your rough idea"
+The current AutoResolver emits one bounded repair task, represented as a one-node repair graph. It does not implement the fix, close findings, grant permissions, or approve completion. This model-assisted diagnosis is distinct from the runner's bounded recovery-policy machinery. See [unit handoffs](docs/workflow.md#four-units-controlled-by-autopilot).
+
+### One conversation is not one model session
+
+The user-facing conversation can remain continuous while requirements, planning, building, and review run in separate contexts. Existing sessions can be resumed where supported; a role change must not silently erase its boundaries.
+
+Run memory lives in saved state and artifacts—not solely in a model's conversation history. The shared run directory includes authoritative `state.json`, report/evidence artifacts, and versioned unit handoffs. Exported handoffs are inspectable snapshots, not standalone authorization tokens.
+
+Separate sessions provide context separation. They do not make models infallible or eliminate shared blind spots.
+
+## What “ready” means
+
+For the standard full-task completion path, AutoPilot checks the current approved contract, task identity, candidate source revision, independent validation, required criterion evidence, end-to-end evidence, open blockers, required human approvals, and the completion request. See the [completion gate](docs/execution.md#completion-gate).
+
+The rules we preserve are:
+
+| Rule | Practical meaning |
+| --- | --- |
+| Evidence belongs to a candidate. | A check against C17 does not automatically approve C18. Dirty source changes matter, not only Git commits. |
+| Missing verification stays missing. | Unknown, skipped, unavailable, and untested are not synonyms for passed. |
+| Findings survive handoffs. | A fix claim or omitted finding is not an independently verified resolution. |
+| Approval has a scope. | Plan approval, artifact acceptance, permission to access an external system, and permission to deploy are distinct. |
+| Partial progress is not final completion. | A milestone can unlock downstream work without proving the entire product. |
+| Limits and failures do not mean success. | A timeout, exhausted retry budget, or successful provider exit cannot by itself establish completion. |
+
+“Ready” means the required gates are satisfied for the identified candidate. **It does not mean zero bugs, permission to merge, or permission to deploy.** Code and model reviews can still miss defects; the adequacy of requirements and verification matters as much as the checks' execution.
+
+## Where we are going
+
+The following is the intended direction. It is **not** a list of features already shipped, and it does not authorize unattended implementation of the whole roadmap.
+
+### 1. Strengthen AutoReview first — immediate non-UX priority
+
+**Current:** Validator + Completion Owner, candidate-bound checks, a findings ledger, and controller-owned gates.
+
+**Next:** Make the review obligation explicit before carrying out the checks:
+
+```text
+Approved contract + exact candidate + open findings
+                         |
+                         v
+                 Review coverage plan
+                         |
+                         v
+            Tester produces executed evidence
+                         |
+                         v
+             Independent technical review
+                         |
+                         v
+        Deterministic assessment of gaps and findings
+                         |
+                         v
+            AutoPilot selects the permitted next action
 ```
 
-## Browser dashboard
+The planned review model should identify which criteria were checked, how, against what source and environment, with what evidence, and what remains unverified. A result may contain **both** confirmed defects and missing verification; neither should hide the other.
 
-Autocode includes a local browser dashboard for planning work with GLM, approving
-the Astra-reviewed plan, following active tasks, and sending feedback or a pause
-request at a safe boundary. It reads the same local run registry as the command
-line tool, so tasks started from a terminal appear automatically.
+Start by strengthening existing command evidence and review contracts. Add domain-specific verification only where a real task requires it: browser interactions, design comparison, migration parity, or behavioral simulations. Testing generates observations; review interprets them; the controller enforces advancement. A schema-complete review plan is not proof that its tests are sufficient.
 
-After installing this checkout, start it from any directory:
+Evolve the existing units and compatibility paths. Do not create a second findings database or silently remove required reviews from saved runs.
+
+### 2. Make one conversation work across the engineering lifecycle — UX track
+
+**Current:** Planning conversations, task views, checkpoint history, and feedback/control surfaces exist.
+
+**Target:** One continuous conversation for a piece of engineering work, with project-wide visibility and relevant artifacts alongside it. While the human clarifies the request, a Planner maintains a versioned draft; a Plan Reviewer checks it before approval. Questions, status requests, proposed scope changes, and control actions have distinct effects.
+
+The user should be able to ask “Why is this still open?” and see the current blocking findings and missing evidence—not read every agent transcript. A live preview makes UI work tangible. Task, plan, finding, and evidence details remain available without losing the conversation.
+
+Show concise explanations of actions, decisions, and observations—not private model reasoning or invented progress percentages. UX work can proceed separately from backend review improvements.
+
+### 3. Support the engineering outcome, not one compulsory coding pipeline
+
+**Current:** The main approved-build workflow, callable units, and a dedicated Figma path exist.
+
+**Planned:** Composable workflows that produce the artifact the user actually requested:
+
+| Request | Intended result |
+| --- | --- |
+| “Build this feature.” | An integrated candidate with requirement-linked verification. |
+| “Find and fix this bug.” | Reproduction, diagnosis, bounded correction, and regression evidence. |
+| “Review this PR.” | Findings and check results without changing the code; fixing it is a separate authorized action. |
+| “Review or implement this architecture.” | A design assessment, or a plan that faithfully implements the approved design. |
+| “Discuss these tradeoffs.” | Options, assumptions, consequences, and a decision record—not unsolicited implementation. |
+| “Review or build this UI.” | A design assessment or implementation, with rendered and interaction evidence. |
+
+These are target workflows, not claims that today's CLI automatically classifies and implements every intent. Reuse the same units and approval rules instead of building a different engine for every request.
+
+### 4. Grow from bounded tasks to large projects
+
+**Current:** Milestones, dependency-aware Builder batches, and manually defined task lanes.
+
+**Planned:** A bounded hierarchy:
+
+```text
+Project -> Workstream -> Milestone -> Task
+```
+
+A large adaptive-learning platform might need domain modeling, backend APIs, frontend, learning policies, content, evaluation, and deployment work. It should not become one enormous prompt or an unreviewable list of hundreds of tasks.
+
+The parent plan should establish product requirements and shared interfaces. Each workstream should inherit those constraints, develop its own reviewed plan, and produce an identifiable result. Cross-workstream contract changes must be explicit; child agents must not redefine the product independently.
+
+Integrate early through small end-to-end slices—for example, one learner studies one concept, submits an attempt, and receives a next activity—rather than waiting for every subsystem to be “finished.” Component checks and simulations do not by themselves establish real learning effectiveness. Final product verification must return to the original user journey.
+
+Keep small jobs small. A typo fix does not need a program hierarchy. Deployment, credentials, and external mutations remain separately authorized.
+
+### 5. Add specialist delegation only when it helps
+
+**Exploratory, not a V1 dependency:** A unit may eventually request bounded specialists for independent investigation, security review, compatibility checks, or other task-specific questions.
+
+AutoPilot must still control allowed execution, workspace ownership, required reviews, budgets, and completion. A supervisor cannot skip an acceptance gate because it considers itself confident.
+
+Model choice is configuration, not the product. Keep explicit defaults and bounded escalation; do not make the user benchmark hundreds of models or build unrestricted recursive delegation before the basic workflow is dependable.
+
+## Principles that keep us on course
+
+**Make the human's outcome the primary object.** Tasks, candidates, requirements, findings, and evidence matter more than agent identities. A collection of terminal windows is not the desired product.
+
+**Preserve intent before optimizing execution.** Shared interfaces and explicit boundaries come before parallelism. More agents are useful only when their outputs can fit together safely.
+
+**Keep workflow authority in code.** Models propose plans, changes, diagnoses, and review judgments. AutoPilot validates and applies transitions; models do not manufacture human approval or broaden permission.
+
+**Prefer honest partial results to false completion.** “The implementation exists, but this criterion could not be verified” is useful. Quietly treating it as passed is not.
+
+**Build on existing infrastructure.** Use coding runtimes and provider adapters underneath AutoCode. Do not rebuild a generic editor, model gateway, or general-purpose agent framework merely to add another layer.
+
+**Improve reliability before expanding the surface area.** Fix reproducible handoff defects, preserve regression coverage, and prove useful bounded flows before recursive planning, distributed execution, or more integrations. The operational priority remains [RELIABILITY.md](RELIABILITY.md).
+
+## Run AutoCode today
+
+### Requirements
+
+Python 3.11+, Git, and macOS/Linux or WSL. The default route uses OpenCode 1.x with the configured provider connections; the documented stock setup uses ChatGPT and Z.ai connections. Codex and custom command-tool configurations are alternatives. The current adapter does not support OpenCode 2.x.
+
+Configure the selected runtime's credentials and model access first. A model appearing in a catalog is not proof that your account can use it. AutoCode does not provide inference credits. Consult [installation](docs/install.md), [providers](docs/providers.md), and [model settings](docs/models.md) before launching paid or subscription-backed work.
+
+### Install and start
 
 ```sh
+git clone https://github.com/charlieanna/autocode.git
+cd autocode
+pipx install --editable "$PWD"
+
+autocode --help
+
+# Use an existing Git project with a committed HEAD.
+autocode "I want a small notes tool that keeps my notes between runs" \
+  --workspace /absolute/path/to/project --chat
+```
+
+Review and approve the displayed brief before implementation starts. Keep the task workspace and run paths printed by the runner. New task worktrees start from the project's committed HEAD; ignored environment files and dependencies are not automatically copied. See [workspace behavior](docs/task-lanes.md).
+
+```sh
+# Local dashboard; open the loopback URL it prints.
 autocode-dashboard --port 8767
+
+# Inspect a specific saved run using its printed paths.
+autocode --workspace /printed/task/workspace --run-dir /printed/run/path --status
 ```
 
-Or run it directly from a checkout:
+`--status` is inspection. `--resume-paused` is an explicit execution action, not a substitute for resolving a blocker or approving a new plan. Use the [CLI reference](docs/cli.md) for resume, feedback, review approval, and unit-by-unit commands.
+
+## Testing and confidence
+
+Test each unit's contract independently, test handoff compatibility, and test the complete controller with deterministic fake providers. Exercise both safety and progress: refusing false completion is necessary, but correctly completing valid work is necessary too.
+
+The test strategy includes stale results, reviewer disagreement, findings retention, evidence integrity, interruptions, duplicate operations, integration drift, and user approval boundaries. Keep generated sequences and targeted broken-guard tests as additions to real boundary tests—not substitutes for them.
+
+A documented starting suite is:
 
 ```sh
-python3 tools/dashboard/agent_console.py --port 8767
+python3 -m unittest tools/test_escalation.py tools/test_autocode.py \
+  tools/test_goals.py tools/test_subprocess.py tools/test_opencode.py \
+  tools/test_process.py
 ```
 
-Open the printed loopback URL. New conversations do not require a project: GLM
-can clarify the idea first, then the conversation can be attached to a Git
-workspace for joint GLM/Astra planning. A task’s **Now** view presents the runner's
-saved current stage, the exact user action required, plan-revision
-approval, and output-review approval. Archiving tasks, conversations, or
-projects only changes the dashboard’s local visibility; it never deletes source
-files or runner checkpoints.
+This is not the entire suite. See [testing](docs/testing.md), [dashboard tests](docs/dashboard.md#dashboard-verification), [recorded validation](VALIDATION.md), and [audit artifacts](audits/).
 
-The dashboard uses `$AUTOCODE_HOME/dashboard` by default (or
-`$AUTOCODE_DASHBOARD_HOME`) for conversations and reversible archive settings.
-It binds only to `127.0.0.1`, starts no development server for task previews,
-and uses documented Autocode commands for task changes.
+**Fixture tests establish behavior under the exercised conditions, not model quality or universal correctness.** Test counts and historical results must be tied to their recorded source/environment. Do not present them as a fresh run of current master. The reliability plan also calls for bounded real-model delivery trials: a small application, a feature in an existing project, and a bug fix.
 
-### One local dashboard, two layouts
+## Limitations and trust boundary
 
-The **Now** tab combines the live monitor with the project/task console:
-verified worker identity, exact saved role/model settings, current objective,
-filtered tool activity, review findings, acceptance counts, and artifact progress.
-**Focus view** hides navigation without starting a different server. Dark and
-light themes are local browser preferences. Task links use compact local
-`#run=r-…` identifiers; old `#task=…&run=…` links remain supported. A focused
-link can append `&focus=1` to either form.
+AutoCode is currently a local, trusted-workspace tool—not a production-hardened multi-tenant execution service. Provider tool permissions and after-the-fact source checks are not a universal OS sandbox. OpenCode restrictions, Codex sandboxing, external tools, and operator permissions have different boundaries; consult the provider guide rather than assuming identical isolation.
 
-Saved status, worker liveness, artifact timestamps, and task-read freshness are
-separate signals. A disconnected task retains its last successful view, labels it
-stale, disables mutations, and offers **Retry status**. Refreshing the project list
-does not make a failed task read look current. HTTP read failures never resume,
-restart, or retry an agent stage.
+State and evidence files support integrity checks inside this model; they are not a tamper-proof security boundary against a hostile process with write access to the same files. Recovery can pause for reconciliation instead of automatically retrying. Installing an update does not hot-reload a running process or certify existing results under the new version.
 
-Project-specific counters are optional. Declare a read-only projection in the
-project's `.autocode/dashboard.json` (not in runner state):
+There is no promise of bug-free output, arbitrary exactly-once external effects, fully autonomous deployment, universal model support, or completed hierarchical project delivery. Each of those requires its own scope, implementation, and evidence.
 
-```json
-{
-  "version": 1,
-  "metrics": [{
-    "id": "mapping", "label": "Mapping coverage", "runs": ["EXACT-RUN-DIRECTORY-NAME"],
-    "description": "Dispositioned records, not completion or mastery.",
-    "source": "artifacts/coverage.json", "groups_pointer": "/areas",
-    "completed_field": "done", "total_field": "total"
-  }]
-}
-```
-
-The referenced object contains named groups, each with integer counters or lists
-whose lengths are counted. Sources must remain inside that project (including
-after symlink resolution). Invalid/missing data is **unavailable**, never zero or
-PASS. The artifact modification time is shown prominently. A cached projection
-avoids repeatedly parsing large files; changes to the file or config invalidate
-it. No commands, imports, provider requests, or raw content are executed by these
-metric declarations. Removing the config removes the panel. An exact run-name
-allowlist prevents another task inheriting unrelated progress.
-
-Dashboard verification, with localhost socket access:
-
-```sh
-python3 -m unittest discover -s tools/dashboard/tests -p 'test_*.py'
-for test_file in tools/dashboard/tests/test_*.js; do node "$test_file" || exit 1; done
-python3 tools/dashboard/tests/unified_browser_fixture.py
-```
-
-The browser fixture uses disposable workspaces and cannot launch agents. The
-packaged-import regression tests the installed entry-point layout, not just the
-source-directory import path. Updating files does not reload a running dashboard:
-restart only its server at an idle boundary, preserving the same environment and
-storage paths. Do not interrupt queued dashboard actions or provider requests.
-The autonomous runner is independent and does not need restarting.
-
-## Browser registry API
-
-Autocode automatically records every real new run and ordinary resumed run before a
-provider can start. The registry is a small per-user pointer index, not a copy of
-`state.json`, logs, prompts, credentials, or provider configuration. It is stored at
-`$AUTOCODE_HOME/registry.json`; when `AUTOCODE_HOME` is unset, the storage root is
-`~/.autocode`. Set `AUTOCODE_HOME` for isolated installations and tests.
-
-The browser application should invoke these commands as argument arrays, without a
-shell, using the same environment as the runner:
+## Repository map and guides
 
 ```text
-["autocode", "registry", "location", "--json"]
-["autocode", "registry", "list", "--json"]
-["autocode", "registry", "import", "/selected/root", "--max-depth", "3", "--directory-budget", "10000", "--json"]
+tools/autopilot.py       overall workflow controller
+tools/units/            planning, build, review, and repair units
+tools/autocode_*.py     contracts, findings, evidence, execution, and recovery
+tools/providers/        runtime adapters and bundled command-tool configs
+tools/dashboard/        local browser interface
+macos-app/              native host for the dashboard
+docs/                   operational guides
+audits/                 recorded verification artifacts
+RELIABILITY.md          current reliability priorities
+VALIDATION.md           recorded results and limitations
 ```
 
-`location` and `list` always emit versioned JSON and are read-only: they do not create the
-storage directory or lock file, start/resume a task, migrate a checkpoint, or alter a
-task file. `location` returns `registry_version`, `storage_root`, `registry_path`, and
-`exists`. `list` returns `registry_version`, `workspaces`, `runs`, and `diagnostics`.
-Run records contain stable canonical-path-derived `id`, `workspace_id`, `workspace`,
-`run_dir`, and `task_id` when the run-level checkpoint identity is available. Listings
-derive only a
-small current summary (`status`, `phase`, `next_stage`) from a valid referenced
-checkpoint.
+| Topic | Guide |
+| --- | --- |
+| Setup and commands | [Install](docs/install.md) · [CLI](docs/cli.md) |
+| Planning, approval, and handoffs | [Workflow](docs/workflow.md) |
+| Models and runtime integration | [Models](docs/models.md) · [Providers](docs/providers.md) |
+| Build, recovery, and completion | [Execution](docs/execution.md) · [Interventions](docs/interventions.md) |
+| Conversation and monitoring | [Dashboard](docs/dashboard.md) · [Registry API](docs/registry-api.md) · [macOS app](docs/macos-app.md) |
+| Visual work and multi-task runs | [Figma](docs/figma.md) · [Task lanes](docs/task-lanes.md) |
+| Verification and project priorities | [Testing](docs/testing.md) · [Validation](VALIDATION.md) · [Reliability](RELIABILITY.md) |
 
-Each listed run has an `availability` value. `available` includes that summary;
-`workspace_missing`, `workspace_invalid`, `checkpoint_missing`, `checkpoint_malformed`,
-`containment_invalid`, `checkpoint_unsupported`, `inaccessible`, and
-`malformed_record` retain an honest stale or invalid pointer
-instead of pruning or repairing it. An absent registry is a successful empty result with
-the `registry_absent` diagnostic. Corrupt or unsupported registry storage returns JSON
-with an `error` object and exits 2 without replacing the file. Successful location/list
-operations exit 0.
+## Keep this README honest
 
-Registration resolves workspace and run aliases before deriving IDs. The run must be
-contained by the canonical `<workspace>/.autocode/runs` directory and its direct
-`state.json` must identify that same canonical workspace. The registry stores no alias
-and repeated aliases deduplicate. Updates use fsync-backed atomic replacement under a
-dedicated registry lock with a one-second bounded wait. A runner first holds its
-workspace writer lock, then obtains the registry lock only for the central
-read/update/write, releases it, and only then proceeds toward a provider stage.
-Registration failures pause the preserved run as `PAUSED_REGISTRY`; fix storage
-and explicitly resume the same `--run-dir` to retry its stable identity.
+Move a capability from **planned** to **implemented** only when the relevant code, supported entry point, and regression coverage exist. Link its validation evidence and known limits; label incomplete or environment-blocked verification explicitly. Update the status snapshot when reviewing a newer revision.
 
-`registry import` is the only registry discovery operation that writes. It requires an
-explicit selected directory, resolves that root canonically, and searches the root at
-depth zero through depth 3 by default. `--max-depth` must be a nonnegative integer;
-`--directory-budget` must be a positive integer and defaults to 10000. The budget counts
-each unique canonical directory inspected, including the selected root and direct run
-candidates; canonical aliases do not consume the budget twice. Repository internals
-(`.git`), `.autocode` contents, and run contents are pruned from general workspace
-discovery.
+A conversation, design, prompt, schema, or test specification is not by itself a shipped capability. Changes to this document do not grant permission to run tasks or deploy software.
 
-Import follows only canonical directories contained by the selected root, deduplicates
-aliases and cycles, and reports aliases that escape it before reading their candidate
-contents. It validates each discovered canonical workspace, run and direct `state.json`
-using the same containment and readable checkpoint rules as registration. Valid legacy
-checkpoints do not need an approved goal and their bytes are never migrated or changed.
-Canonical path identities, rather than `task_id`, determine uniqueness: two distinct
-runs with the same task ID remain distinct; repeated imports report `already_registered`.
+When deciding what to build next, ask:
 
-The JSON result includes `selected_root`, effective bounds, `directories_inspected`,
-`imported`, `already_registered`, `diagnostics`, and `complete`. Expected malformed,
-inaccessible, escaped, duplicate, or out-of-bound candidates are diagnostics. Budget
-exhaustion, inability to enumerate a workspace or its `.autocode/runs` candidates,
-unreadable traversal branches, and escaped aliases set `complete` false and exit 1, so
-retry with a narrower root or deliberately larger bound. Fully enumerated candidates
-with invalid individual checkpoints remain diagnostics without making the traversal
-incomplete. Invalid arguments/root and registry lock/storage/write failures emit an
-`error` or `registry_error` object and exit 2; candidate registration validation failures
-such as a non-Git workspace conservatively use that same `registry_error` exit and abort
-the pass. Any earlier acknowledged imports remain durable and it is safe to retry. Import
-never starts or resumes providers and does not modify imported task files.
+> **Does this help a person get their intended engineering outcome with less coordination work, clearer control, and better evidence?**
 
-## Queued interventions
+If not, it is probably not the next priority.
 
-The browser can submit a durable change request without competing for the workspace
-writer lock or changing `state.json`:
+## License
 
-```text
-["autocode", "intervention", "submit", "--workspace", "/project", "--run-dir", "/project/.autocode/runs/run", "--request-id", "request-123", "--kind", "feedback", "--text", "Keep the partial implementation", "--json"]
-["autocode", "intervention", "submit", "--workspace", "/project", "--run-dir", "/project/.autocode/runs/run", "--request-id", "pause-124", "--kind", "pause", "--json"]
-["autocode", "intervention", "inspect", "--workspace", "/project", "--run-dir", "/project/.autocode/runs/run", "--json"]
-```
-
-`submit` writes only the canonical run's `.autocode/runs/<run>/interventions.json`
-under a separate short-held inbox lock. It validates the Git workspace, canonical run
-containment, direct regular `state.json`, checkpoint workspace pointer, and rejects
-symlinked inbox or lock paths. The versioned receipt has `id`, `kind`, original `text`,
-monotonic `order`, `submitted_at`, `observed_goal_token`, and
-`boundary_pause_requested`. Both feedback and pause requests set that boundary intent;
-they never start a provider or write `state.json` from the submitting process.
-
-Request IDs are idempotency keys over `id`, `kind`, and original `text`: an identical
-retry returns the original durable receipt without another record, while changed text or
-kind under the same ID returns `request_conflict`. Concurrent submissions are serialized
-by the inbox lock and receive durable order values. Corrupt, unsupported, unavailable,
-locked, invalid, or failed-write inboxes return JSON errors and exit 2 without claiming a
-receipt. `inspect` is read-only, creates neither inbox nor lock, and reports only pending
-requests; it does not claim that a currently running older binary can consume them.
-
-The workspace-lock owner checks the inbox after recovery and before every provider
-admission, and after every saved stage result, including question, approval, review and
-completion exits. Inbox acceptance and admission are serialized by the short inbox lock:
-a request accepted before admission is consumed first; one accepted after admission waits
-for that stage's saved boundary. The inbox lock is never held while a provider runs.
-Consumption writes the applied receipt ledger and feedback event to authoritative
-`state.json` before removing inbox records. A crash before that state write leaves the
-request pending; a crash after it is recovered by recognizing the applied ID and retrying
-only inbox acknowledgement. If interruption follows inbox acknowledgement but precedes
-the final state write, owner recovery clears the obsolete acknowledgement marker only
-when every marked ID is already applied. Receipts retain their original IDs, text and
-order.
-
-Applied feedback saves a `brief_feedback` provenance event, preserves stage artifacts and
-partial edits, archives stale validation/review authorization, invalidates goal approval,
-and pauses with `astra_discovery` selected. It never starts Astra automatically: invoke
-the existing explicit Continue action as an argument array, for example
-`["autocode", "--workspace", "/project", "--run-dir", "/project/.autocode/runs/run", "--resume-paused"]`.
-The revised brief still requires its exact displayed approval token. Pending feedback also
-blocks goal approval, artifact approval and completion until the owner consumes it.
-
-A pause-only request preserves the selected next stage and any valid goal approval. It
-pauses at the next safe boundary with a `pause_intent`; `--resume-paused` records its
-acknowledgement and resumes that selected stage. `--pause-after-stage` and the existing
-run-local `pause-requested` file continue to stop at saved boundaries. `--status` is
-read-only and adds `interventions` with inspector versus recorded-runner capability,
-pending IDs/count, pause intent, applied receipts, inbox errors and blocked conditions.
-
-Use `--astra-model`, `--terra-model`, or `--sol-model` to explicitly override a
-role. Resuming keeps the saved engine, provider mapping and limits unless overridden.
-
-## Joint GLM + Astra planning
-
-This is the new-run default. Older mixed-CLI OpenCode runs move their Codex roles
-to OpenCode when execution resumes at a recovered stage boundary. The runner saves
-a checkpoint backup and archives those Codex session IDs; approvals, task history,
-evidence, limits, and existing OpenCode sessions are preserved.
-
-```sh
-autocode "Your rough idea"
-# Or target another committed Git workspace:
-autocode "Your rough idea" --workspace /path/to/project
-```
-
-```text
-You ↔ GLM: clarify outcome, scope, constraints and definition of done
-GLM explores and drafts → Astra challenges → GLM investigates and revises
-    → Astra resolves and finalizes → you approve that exact plan
-    → Terra builds → Sol verifies → Astra reviews
-```
-
-| Role in this mode | CLI and billing route | Default model |
-| --- | --- | --- |
-| GLM — clarification, exploration, draft, evidence-backed revision | OpenCode / Z.ai Coding Plan | `zai-coding-plan/glm-5.3` |
-| Astra — challenge, final planning decisions, implementation reviews | OpenCode / ChatGPT login | `openai/gpt-6-astra` |
-| Terra — implementation | OpenCode / Z.ai Coding Plan | `zai-coding-plan/glm-5.3` |
-| Sol — independent validation, separate session | OpenCode / ChatGPT login | `openai/gpt-5.6-sol` |
-
-GLM can originate alternatives and push back on Astra using source evidence. Astra's
-concerns have stable IDs; every concern requires a GLM response and an Astra decision,
-including a concrete acceptance test. The final displayed brief includes the technical
-approach, milestones, and **first bounded implementation task**, all covered by its
-revision/hash. Approval dispatches that task directly, without a third Astra planning
-call. Astra's later implementation reviews use the normal execution budget.
-
-Planning is bounded to **two Astra request attempts per cycle**, including failed or
-abandoned attempts. There is no automatic debate loop, retry or provider fallback.
-Unresolved final decisions return to you as blocking questions. If the budget is
-exhausted, the run pauses at `PAUSED_PLANNING_BUDGET`; inspect the exchange and explicitly
-send `--feedback '...'` to request a new cycle. Answering final blockers, giving feedback,
-or editing the goal starts fresh joint review and requires fresh approval. Old exchanges
-remain archived. Ordinary resume preserves the cycle and its spent budget.
-
-The default workflow uses OpenCode for every role. Astra and Sol use OpenCode's
-current ChatGPT OAuth connection; GLM and Terra use its Z.ai connection. Changing
-the account in ChatGPT's browser or desktop app does not change OpenCode's login.
-To switch this workflow's ChatGPT account, reconnect OpenAI in OpenCode.
-Every role can select any available provider/model
-from `opencode models`. The dashboard shows that live catalogue in all four
-pickers, grouped by provider, with each unchanged default route labeled explicitly.
-The role names describe responsibilities, not mandatory models.
-
-Explicit `provider/model` choices use OpenCode, including for Astra and Sol.
-For example, `--glm-model openai/gpt-5.6-sol --astra-model zai-coding-plan/glm-5.3
---terra-model openai/gpt-5.6-terra --sol-model openai/gpt-6-astra` runs all four
-roles through OpenCode. No Codex login is required for the default workflow.
-Bare Astra/Sol model names in new runs are expanded to `openai/model` on OpenCode.
-Explicit legacy `--engine codex` runs retain their separate Codex routing.
-Before launching an OpenAI role, Autocode checks the nonsecret `opencode auth list`
-summary for OAuth; missing/unknown/API authentication or API environment overrides
-pause without fallback. This also applies before a project-free planning reply.
-Other providers retain their configured connections. No credentials are copied.
-Models in a catalogue are not proof of entitlement.
-Usage/provider failures pause without silently switching to
-separately billed API access. Actual subscription entitlements are managed by the CLIs.
-
-Planning requests use fresh sessions and focused handoffs: the current brief, code
-references, alternatives, concerns, responses and changes since review. Full reports
-remain in the run's `iterations/` directory. Codex planning uses its read-only sandbox.
-OpenCode planning uses a fresh, read/search-only agent with shell, edit, delegation,
-external-directory access and unlisted tools denied; workspace snapshots are also
-checked. These OpenCode restrictions are tool permissions, not an OS sandbox.
-
-The existing `--chat`, `--answer`, `--feedback`, `--show-goal`, `--approve-goal`, status
-and resume commands work in this mode. Intermediate drafts cannot be approved. The
-saved `planning` object records the exchange, final approval token and Astra call count;
-`planning_history` retains prior cycles. Existing runs keep their original routing,
-including earlier OpenCode-only runs and joint-planning runs that used GLM for Sol.
-Start a new run to use the current GPT Sol default in that case; saved sessions cannot
-move between CLIs. No global OpenCode or Codex configuration is changed.
-
-## OpenCode adapter
-
-GLM and the default Terra use the connections already configured in OpenCode. `--engine opencode`
-is accepted but is optional for new runs:
-
-```sh
-python3 tools/autocode.py "Your rough idea" --workspace /path/to/project
-```
-
-Override any role with `--glm-model`, `--astra-model`, `--terra-model` or
-`--sol-model` using a provider/model ID from `opencode models`, including
-`openai/…` with an OpenCode ChatGPT OAuth connection. Saved runs retain their original role
-engines and sessions; no existing run is migrated by a dashboard selection.
-OpenCode reasoning
-variants can be selected with the existing role-specific reasoning-effort flags; no
-variant is forced by default. Provider credentials remain with OpenCode: Autocode does
-not read its auth file or change your global configuration.
-
-The same approval, task, independent-evidence and completion gates apply. The adapter
-uses OpenCode's [non-interactive JSON event interface](https://opencode.ai/docs/cli/#run),
-validates the final report against the stage schema, and verifies command evidence
-against actual completed bash events. Raw events, session IDs and stage-local
-permission overrides are saved alongside the checkpoint. Token limits include cache
-reads/writes and reasoning tokens. Malformed, truncated or uncertain results pause;
-the runner does not automatically replay the provider request.
-
-OpenCode has a different isolation boundary: GLM planning agents and other
-read-only OpenCode roles have edit tools denied and their workspace snapshots
-checked, but OpenCode tool permissions are **not an OS sandbox**. Shell commands
-and configured external tools retain OpenCode's native permission policy. Autocode
-does not enable `--auto` or override user-level permission rules with blanket allows.
-A denied required operation is reported back as a blocker.
-See OpenCode's [permission documentation](https://opencode.ai/docs/permissions/).
-
-Resuming preserves the saved engine, models and separate role sessions. Start a new
-run when switching between Codex and OpenCode; their session IDs cannot be reused
-across engines. A response with an unexpected session ID pauses the run.
-OpenCode version or configuration drift pauses the saved run, including changes to
-custom config-directory files, agent definitions and local plugin/tool definitions.
-This adapter was live-checked with OpenCode **1.18.31**; OpenCode 2.x is not supported.
-
-## Codex provider overrides
-
-Pass `--engine codex` to start a Codex-engine run. Roles can use different
-**Responses-compatible Codex providers** in one run, e.g. planning on the ChatGPT
-subscription while Sol audits and Terra codes via another compatible provider:
-
-```sh
-python3 tools/autocode.py "Build a greeting CLI" --workspace /path/to/project \
-  --engine codex \
-  --astra-model gpt-6-astra \
-  --sol-model audit-model --sol-provider other_provider \
-  --terra-model implementation-model --terra-provider other_provider --reasoning-effort high
-```
-
-Each role can also have its own reasoning effort. For example, use Astra at
-extra-high (`xhigh`) for read-only discovery and planning:
-
-```sh
-python3 tools/autocode.py "Build a greeting CLI" --workspace /path/to/project \
-  --engine codex --astra-model gpt-6-astra --astra-reasoning-effort xhigh
-```
-
-Role-specific effort overrides the shared `--reasoning-effort` value. All selected
-models and providers are saved in the run checkpoint, so resumed runs retain this
-assignment.
-
-An interactive terminal starts in chat mode by default. Astra presents a few material
-questions at a time; type replies directly or `/default` to accept a proposed default.
-When the build brief is displayed, type feedback to revise it, `y` to approve that exact
-revision, or `/pause` to save and exit. After approval the implementation, validation
-and review loop runs automatically within the configured limits. During questions,
-`/feedback TEXT` sends a broader correction to Astra.
-
-Use `--chat` to select this mode explicitly, or `--no-chat` for one command per turn.
-Non-interactive invocations default to the command-per-turn interface.
-
-`--<role>-provider` is saved per role like models and is passed to Codex as a
-`model_provider` override; roles without a provider keep the local Codex login
-(ChatGPT auth). The named provider must implement the OpenAI **Responses** API.
-For the connected Z.ai Coding Plan, use the OpenCode engine above. Changing the global
-provider/auth in local Codex config still pauses a saved Codex-engine run.
-
-## Conversation and approval
-
-The first stage runs **read-only GLM discovery**, presenting a small batch of
-material questions or a draft. Chat mode stays in the conversation; command
-mode saves and exits at the checkpoint. Intermediate drafts cannot be approved;
-Astra still has to challenge, GLM revise, and Astra finalize first. State, answers,
-brief feedback, contract history, user events, prompts, schema files, evidence and
-sessions remain in the target workspace's `.autocode/runs/<run>/`. No implementation
-starts from the initial prompt.
-
-Use the printed run path in the following commands (keep the same `--workspace`):
-
-```sh
-autocode --workspace /path/to/project --run-dir /path/to/run --answer 'Q1=CLI only'
-autocode --workspace /path/to/project --run-dir /path/to/run --no-chat
-autocode --workspace /path/to/project --run-dir /path/to/run --feedback 'Keep the first milestone local only'
-autocode --workspace /path/to/project --run-dir /path/to/run --no-chat
-autocode --workspace /path/to/project --run-dir /path/to/run --show-goal
-autocode --workspace /path/to/project --run-dir /path/to/run --approve-goal 'r3:<full displayed hash>'
-autocode --workspace /path/to/project --run-dir /path/to/run --no-chat
-```
-
-`--answer` is repeatable. `--feedback TEXT` saves a correction and returns to Astra
-discovery on the next invocation; a revised brief always needs fresh approval.
-`--delegate Q1` explicitly accepts that question's proposed
-default. Saved answers are included in subsequent interviews; an answered question
-ID cannot be requested again. Answers do not approve the task. The approval token
-must exactly match the current displayed contract revision. Approval saves
-`READY_TO_EXECUTE`; the next ordinary invocation begins execution. User-input commands
-never launch an agent. This command-per-turn interface also works from scripts and
-other frontends; no continuously attached terminal is required.
-
-`--edit-goal body.json` loads the full contract body (the `goal_contract.body` shape
-from state), creates a new draft revision and displays its delta. It invalidates goal
-approval, validation and human reviews. Previous contracts/evidence stay archived.
-Approval can never be inferred from a model response or a generic `--resume-paused`.
-
-The contract records outcome/user, the ordered end-to-end user flow, deliverables,
-behaviors and failures, exclusions,
-constraints/permissions, assumptions and their provenance, delegated decisions,
-stable criterion IDs with verification methods, human-review flags and open questions.
-It also includes a minimal technical approach and small implementation milestones,
-each linked to existing acceptance criteria; every required criterion is covered.
-All listed acceptance criteria are required. Optional enhancements go in the deferred
-backlog and do not participate in the completion gate.
-
-## Execution and completion
-
-New runs enforce a milestone checkpoint in the runner. Each task names an outcome,
-affected paths, requirements, acceptance criteria and a validation plan. Terra can
-implement, test and repair within the task; every completed handoff goes to Sol and
-then Astra. A switch to a different milestone requires Sol's passing evidence for
-**all criteria in the current milestone**, current source/contract/task identities,
-intact evidence, no blocking findings, and its required human reviews. A writer's
-self-assessment cannot authorize that switch. Later milestones may still have
-`NOT_VERIFIED` results; full-task completion still requires all contract criteria
-and the complete flow to pass on the current source.
-
-Three independent reviews without any new passing criteria require an evidence-backed
-`REWORK` with a changed approach or a smaller batch inside the same milestone. One
-automatic replan is allowed; another three reviews without progress pause the run.
-Changing files, renaming task IDs, or oscillating between previously passing checks
-does not reset progress. The runner compares task fields; Astra remains responsible
-for judging whether the changed approach is substantively useful.
-
-Milestones have a 5,400-second active-time budget by default. This includes writer,
-reviewer and report-repair attempts after the milestone is assigned (or after an
-existing run adopts checkpoints). The budget is checked at stage boundaries and
-prevents further writing; Sol/Astra can still validate finished work. It does not
-replace per-stage timeouts. Use `--max-milestone-seconds N` to change the saved
-budget or `0` to disable this time limit. `--status` includes `milestone_checkpoint`
-with the current milestone, evidence progress, budget, replans, completed stage hours
-per role, and separately estimated elapsed time for any recorded active stage.
-These are elapsed stage durations, not billed model-compute hours or proof a recorded
-process is still alive. Ordinary stage updates also print milestone time and progress.
-
-Saved runs keep their existing review routing until explicitly upgraded. At an idle,
-reconciled boundary, enable checkpoints without launching a provider:
-
-```sh
-autocode --workspace /path/to/project --run-dir /path/to/run \
-  --milestone-checkpoints --show-goal
-```
-
-For an active run, queue a safe boundary pause and the upgrade:
-
-```sh
-autocode --workspace /path/to/project --run-dir /path/to/run \
-  --request-milestone-checkpoints
-```
-
-The queued request does not edit `state.json`, signal workers, or acquire the writer
-lock. The old runner observes the pause marker at its next boundary. Its next launch
-reconciles the saved stage and applies the request under the writer lock. An already
-running loop continues without an extra resume gate; saved pauses still require
-their usual explicit resume. Use `--show-goal` to apply and inspect without launching
-a provider. Preexisting operator pause
-markers are preserved. Migration keeps models, sessions, the approved contract and
-artifacts; final-only or combined-review overrides are archived in the user event,
-and existing bounded work goes to Sol first. Legacy briefs retain their current
-task's criterion scope without rewriting or implicitly approving a new contract.
-If an old stage first needs report-only repair, the upgrade remains queued. An
-explicit `--resume-paused` can finish that bounded read-only repair under the old
-schema, then apply the upgrade and continue to Sol. It never repeats implementation to migrate.
-
-Astra plans/reviews, Terra implements one bounded task, and Sol independently validates
-actual source with evidence per criterion. Each task records its milestone, requirements,
-applicable criteria and validation plan. Every role receives the complete approved
-contract and current task and echoes the contract revision/hash and task ID. Sol gets
-Terra's full implementation report, workspace/revision and actual changes. Astra gets
-both reports, milestone status and references to prior validation evidence.
-
-Astra chooses `CONTINUE`, `REWORK`, `BLOCKED` or `COMPLETE`. The first two require a
-concrete next task; rework describes the smallest correction for a verified defect.
-A `CONTINUE` task with `kind=validate` sends existing work directly to Sol when it only
-needs revalidation. Required behaviors and success cannot be changed by a plan.
-
-A material ambiguity, contradiction, infeasible constraint, scope change or extra
-permission need is reported to Astra at a safe stage boundary. Astra presents a
-`BLOCKED` decision in `WAITING_FOR_USER` when user input is required, with
-the discovery, impact, smallest decision, options and proposed delta. Answers return
-to discovery; a revised goal needs new approval. Useful partial work is retained.
-
-Completion requires the current approved revision, Sol PASS on the current artifact,
-passing evidence for every required criterion, no blocking findings, intact evidence
-hashes, actual human approvals where required, and Astra's completion request against
-that same revision. New build briefs also require Sol's explicit end-to-end flow result
-and its pinned evidence on the current source revision. Completion prints each criterion
-with its evidence and any agreed limitations. Unknown, skipped and untested results cannot pass. Green tests
-cannot substitute for missing criterion results.
-
-For a human-review criterion, inspect the displayed validation and the actual artifact,
-then record your decision in chat or using the displayed artifact-specific token:
-
-```sh
-autocode --workspace /path/to/project --run-dir /path/to/run \
-  --approve-review C1 --review-token 'r3:<goal hash>@<source hash>:<validation hash>'
-autocode --workspace /path/to/project --run-dir /path/to/run
-```
-
-Changing the source or validation invalidates reuse of human approval. Goal approval
-does not count as approval of a subsequently produced artifact. Resuming a completed
-run rechecks its source and evidence before reporting success. Stale completion pauses
-for fresh Sol validation; `--status` reports `completion_current` without changing state.
-Source snapshots include executable modes and changes inside initialized submodules.
-
-Logical phases are `DISCOVERING`, `AWAITING_GOAL_APPROVAL`, `READY_TO_EXECUTE`,
-`EXECUTING`, `WAITING_FOR_USER`, `COMPLETE`, and `PAUSED_OR_BLOCKED`. While an initial
-interview awaits answers its phase is DISCOVERING and its status is WAITING_FOR_USER.
-`--status` and `--dry-run` are read-only. Exit 0 means an action was saved or the task
-completed; exit 2 means user input/pause/error (inspect status, not exit code alone).
-
-Iteration, active-time, per-stage, reported-token and no-progress limits still pause
-with a checkpoint. They never cause completion. New runs distinguish inactivity,
-tool execution and total stage runtime:
-
-| Setting | New-run default | Meaning |
-| --- | --- | --- |
-| `--max-idle-seconds` | `300` | Stop a provider with no new recognized activity while no tool is running. |
-| `--max-tool-seconds` | `1800` | Stop a tool that exceeds its fixed deadline, including a quiet test command. Output and repeated starts do not extend this deadline. |
-| `--max-stage-seconds` | `0` (off) | Optional hard cap for the entire stage, enforced even while activity continues. |
-
-Each flag accepts `0` to disable that limit. Saved stage limits are preserved,
-including an existing five-minute cap or an explicit zero; use
-`--max-stage-seconds 0` to deliberately remove a saved hard cap. Saved runs gain
-the inactivity and tool defaults at their next configured launch. Running worker
-processes keep the code/settings they started with until the runner is relaunched.
-
-The watchdog reads raw Codex/OpenCode events incrementally. Completed tools and
-new provider text count as activity; repeated event IDs, repeated text, tool-output
-updates, malformed lines and arbitrary log chatter do not buy more time. A tracked
-tool uses its own clock, so a healthy quiet command can exceed the provider's idle
-limit. OpenCode versions that report tools only after completion use a bounded
-descendant-process interval instead. Process identity alone cannot distinguish a
-tool from a persistent provider wrapper: status labels this fallback as inferred.
-Only a newly completed tool can renew that interval; output, duplicate completions
-and descendant churn cannot. Without start events, concurrent unreported tools
-cannot each have a precise deadline; an explicit stage cap remains available.
-Explicit tool starts supersede the fallback. These observations measure liveness, not acceptance progress;
-independent milestone evidence remains mandatory.
-
-CLI updates and `--status`'s `active_stage.activity` show provider/tool activity,
-elapsed and idle time, active tool time, applicable limits and an observation
-timestamp. A saved observation does not prove a recorded worker is still alive.
-Timeout records and recovery context distinguish `idle`, `tool` and `stage` causes.
-Deadline enforcement runs independently of process-table sampling, state writes
-and event-file reads. A blocked observer cannot leave a worker unsupervised.
-
-`--pause-after-stage` and a run-local `pause-requested` file stop at a saved boundary.
-For a timed-out provider stage with no terminal response, Autocode confirms its
-tracked workers are gone, archives the incomplete request and preserves its partial
-edits/logs, clears the uncertain role session, and continues from a fresh recovery
-checkpoint. It never replays that timed-out request. Each automatic recovery consumes
-the existing no-progress budget. Consecutive timeouts without an accepted stage also
-pause at that configured limit for every role, including Astra and Sol. An accepted
-stage resets this consecutive-timeout counter. Inspect the saved cause and adjust
-limits as needed; explicit `--resume-paused` acknowledges `PAUSED_TIMEOUT_RECOVERY`
-and resets that counter while retaining recovery history. Setting `--no-progress-limit 0`
-disables this recovery cap as well as the existing unchanged-batch limit.
-A terminal response, live worker or requested pause remains paused for inspection.
-Other uncertain provider requests still require explicit reconciliation.
-`--resume-paused` acknowledges operational pauses only. Saved limits persist unless you
-explicitly override them. For example, resume a run paused at its iteration ceiling with
-`--resume-paused --max-iterations 25` to set the total ceiling to 25. Changing a limit
-does not approve a draft brief.
-
-Provider stages track their subprocesses, including detached tool processes. On normal
-exit, timeout or interruption, Autocode stops tracked workers before taking the final
-snapshot and releasing the workspace lock. Saved process identities also block a new
-runner while known workers remain alive. This is process supervision for trusted local
-tools; it does not replace an OS sandbox or contain deliberately hidden daemons.
-Rejected and recovered attempts count toward the active-time budget.
-
-A completed response with invalid JSON or an invalid report is archived and pauses;
-`--resume-paused` starts a new explicit attempt. Timeouts with no terminal response
-receive the bounded automatic recovery above; other uncertain responses need inspection
-first. To retain partial edits and set aside a stopped attempt manually:
-
-```sh
-autocode --workspace /path/to/project --run-dir /path/to/run --status
-# Copy the exact attempt_id from that status, after inspecting its events and edits:
-autocode --workspace /path/to/project --run-dir /path/to/run --abandon-stage '001/terra-01'
-autocode --workspace /path/to/project --run-dir /path/to/run --resume-paused
-```
-
-Abandoning a stage preserves its logs, source snapshots and partial edits, clears that
-role's uncertain session and invalidates previous validation. It launches no agent.
-On explicit resume, Astra inspects the retained work and chooses the next step, except
-in final-audit-only routing where GLM/Terra receives the recovery context directly.
-It does not approve an unapproved brief or stop an already-running worker.
-
-Astra/Sol use the read-only sandbox with the Codex engine; Terra uses workspace-write.
-OpenCode uses the native permissions and snapshot checks described above. The runner
-does not pass blanket auto-approval. Contract permission text is a role instruction,
-not a general-purpose OS policy compiler. The Codex sandbox/approval system remains
-responsible for individual tool permissions; custom MCP/connector write permissions
-should be configured accordingly. This is intended for trusted local repositories.
-
-## Legacy migration — opt-in only
-
-Existing v3 approved contracts retain their exact content, hash and approval. New
-discovery drafts include the expanded build-brief fields. Older `TASK_COMPLETE` and
-`VALIDATE` stage results remain readable during recovery; newly requested Astra
-decisions use the four statuses above.
-
-This extraction does not modify or attach to any existing project/run. Keep a live
-legacy process running until it reaches a natural saved exit; it cannot hot-load these
-gates. Do not launch a second writer or restore old state over newer work.
-
-At a confirmed idle boundary, an operator may deliberately use this standalone tool:
-
-```sh
-autocode --workspace /path/to/project --run-dir /path/to/existing/run --migrate-only
-autocode --workspace /path/to/project --run-dir /path/to/existing/run
-```
-
-Migration retains the original task, sessions, completed artifacts, stage history,
-criteria, plan, iteration and limits. It backs up `state.pre-v2.json` where applicable
-and `state.pre-v3.json`, then reconstructs an **unapproved** draft. Old evidence is
-archived for inspection and must be revalidated. Astra uses known answers/artifacts
-to ask only material unresolved questions. User decisions are never backdated.
-Completed interrupted stages reconcile before migration; live/uncertain stages
-refuse migration. No migration was applied to the original IdleCampus run.
-
-## Tests and evidence
-
-```sh
-python3 -m unittest tools/test_autocode.py tools/test_goals.py tools/test_subprocess.py tools/test_opencode.py tools/test_process.py
-```
-
-The unit suite uses isolated Git fixtures. The subprocess test drives the actual CLI,
-runner, schemas, snapshots and approval commands with a deterministic **fake Codex**
-provider. That provider writes a tiny greeting program, then executes both success and
-failure cases in its Sol stage. It never calls a real model or reads credentials.
-Set `AUTOCODE_TEST_CLI=/path/to/installed/autocode` to test the installed package.
-These tests prove runner behavior, not a model's interviewing quality or semantic
-review accuracy. See `VALIDATION.md` for measured results and remaining limits.
-
-The OpenCode subprocess tests use a fake OpenCode executable with native event shapes,
-including separate resumed sessions, command evidence and usage. An optional tiny
-live check is available via `python3 tools/opencode_smoke.py --run-live`; it makes one
-request to each selected provider in a temporary workspace and saves raw evidence.
-Process tests require local `ps` access and exercise detached-worker cleanup, timeouts,
-interruption and checkpoint-write failure. The repair audit under
-`audits/opencode-repair-2026-09-19/` also verifies the original defects with native
-OpenCode metadata and a loopback provider fixture, without hosted model requests.
-
-Codex launch compatibility was checked against installed exec/resume help and
-[official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
-
-### Intervention ordering and recovery
-
-Each request ID retains its original receipt after application. An identical explicit retry returns it without requeueing; changed text or kind under that ID is a conflict. Receipt order increases across consumed batches. The observed goal token is read under the inbox lock when accepting the request.
-
-Submission and provider admission share the short inbox lock. Preparation occurs before admission; a request accepted first prevents the next provider launch. A request accepted after admission is queued while that stage finishes. The lock is released before waiting for the provider or asking for terminal input. Pending requests also prevent a prepared answer, goal approval, artifact approval or operator completion from committing. Stage results and recovery preserve completed work and consume earlier requests before committing any completion authorization.
-
-The owner commits pause effects, feedback invalidation and applied receipt IDs in one authoritative state write before removing inbox requests. Restart recovers both acknowledgement crash windows without applying an ID twice. Pause confirmation requires the saved paused state, not merely a receipt. Explicit `--resume-paused` acknowledges a saved pause; feedback still requires Astra discovery and a newly displayed exact-token brief approval before implementation can resume.
-
-Applied receipts include `applied_at`; explicit continuation adds `resumed_at` to previously applied receipts. Status exposes these durable timestamps. Submission retries omit these owner-only fields and continue to return the original acceptance receipt.
+No root-level license file is present in the status snapshot above, and the package metadata does not specify a license. The maintainer still needs to document the project's licensing; this README does not choose a license.
