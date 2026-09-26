@@ -688,12 +688,24 @@ SCENARIOS = {
 }
 
 
-def scenario(scenario_id: str) -> dict:
+def registry() -> dict:
+    """Every registered scenario: the LIVE-* set here plus the task-type catalogue."""
+    merged = dict(SCENARIOS)
     try:
-        return dict(SCENARIOS[scenario_id])
+        from . import task_scenarios
+    except ImportError:
+        import task_scenarios
+    merged.update(task_scenarios.SCENARIOS)
+    return merged
+
+
+def scenario(scenario_id: str) -> dict:
+    known = registry()
+    try:
+        return dict(known[scenario_id])
     except KeyError:
-        known = ", ".join(sorted(SCENARIOS))
-        raise ValueError(f"unknown scenario {scenario_id!r}; choose one of: {known}") from None
+        names = ", ".join(sorted(known))
+        raise ValueError(f"unknown scenario {scenario_id!r}; choose one of: {names}") from None
 
 
 def classify_runner_status(status: str) -> str:

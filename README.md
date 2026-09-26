@@ -39,8 +39,10 @@ The detailed guides describe supported paths, defaults, and limitations. They ar
 | Figma workflow | A Codex/plugin-backed design → review → implementation-handoff path exists. It requires the relevant Figma tools to be available to the CLI; it does not assume a Figma Make API. | [Figma](docs/figma.md) |
 | Configurable runtimes and models | OpenCode is the default engine; Codex and configured command-tool adapters are available, including a bundled KiloCode configuration. Roles and supported reasoning settings are configurable. | [Providers](docs/providers.md), [Models](docs/models.md) |
 | Multiple task lanes | Tasks in a lane run sequentially; separate lanes can run concurrently in separate worktrees. Lane branches are **not** automatically merged into one product. | [Task lanes](docs/task-lanes.md) |
+| Program workstreams | A large requirement becomes a manifest of workstreams with explicit dependencies and literal ownership, derived from an approved plan. Each workstream is an ordinary reviewed run in its own worktree; completed workstreams are merged `--no-ff` onto one integration branch in dependency order, conflicts pause, and deployment workstreams wait for explicit authorization. The integration branch is **not** merged into your default branch. | [Programs](docs/program.md) |
+| Task-type scenario catalogue | Frozen scenarios for a bug fix, a feature in an existing project, an architecture task, a multi-service program, and a design-reference UI, each with an independent executable oracle proven against reference and broken deliveries. A driver seeds, runs, serves human gates, and scores; `--score-only` scores any delivered workspace. No live baselines are recorded yet. | [Scenarios](docs/scenarios.md) |
 
-**Important boundaries:** Parallel milestone integration is not automatic merging into `master`. Task lanes are not yet hierarchical product planning. Existing conversations and checkpoints are the foundation for the broader one-conversation workspace—not a claim that all planned engineering workflows already exist.
+**Important boundaries:** Parallel milestone integration is not automatic merging into `master`. Programs add one level (workstreams with an integration branch), not the full Project → Workstream → Milestone → Task hierarchy, and their merged branch still needs your review. The scenario oracles prove what a delivery must do; they do not yet record that any model delivered it. Existing conversations and checkpoints are the foundation for the broader one-conversation workspace—not a claim that all planned engineering workflows already exist.
 
 ## How the current workflow fits together
 
@@ -239,11 +241,11 @@ Show concise explanations of actions, decisions, and observations—not private 
 | “Discuss these tradeoffs.” | Options, assumptions, consequences, and a decision record—not unsolicited implementation. |
 | “Review or build this UI.” | A design assessment or implementation, with rendered and interaction evidence. |
 
-These are target workflows, not claims that today's CLI automatically classifies and implements every intent. Reuse the same units and approval rules instead of building a different engine for every request.
+These are target workflows, not claims that today's CLI automatically classifies and implements every intent. Reuse the same units and approval rules instead of building a different engine for every request. The [task-type scenarios](docs/scenarios.md) freeze one request of each kind with an independent oracle, so a claim that a workflow works can be tested rather than asserted.
 
 ### 4. Grow from bounded tasks to large projects
 
-**Current:** Milestones, dependency-aware Builder batches, and manually defined task lanes.
+**Current:** Milestones, dependency-aware Builder batches, manually defined task lanes, and [programs](docs/program.md): an approved plan's milestones become workstreams, each an ordinary reviewed run in its own worktree, merged in dependency order onto an integration branch with an integration workstream that validates the whole flow. Deployment workstreams need explicit authorization.
 
 **Planned:** A bounded hierarchy:
 
@@ -329,7 +331,11 @@ python3 -m unittest tools/test_escalation.py tools/test_autocode.py \
   tools/test_process.py
 ```
 
-This is not the entire suite. See [testing](docs/testing.md), [dashboard tests](docs/dashboard.md#dashboard-verification), [recorded validation](VALIDATION.md), and [audit artifacts](audits/).
+This is not the entire suite. See [testing](docs/testing.md), [dashboard tests](docs/dashboard.md#dashboard-verification), [recorded validation](VALIDATION.md), and [audit artifacts](audits/). Oracle proofs for the task-type scenarios and the program runner's offline coverage run with:
+
+```sh
+python3 -m unittest tools/test_scenario_oracles.py tools/test_program.py tools/test_live_trial.py
+```
 
 **Fixture tests establish behavior under the exercised conditions, not model quality or universal correctness.** Test counts and historical results must be tied to their recorded source/environment. Do not present them as a fresh run of current master. The reliability plan also calls for bounded real-model delivery trials: a small application, a feature in an existing project, and a bug fix.
 
@@ -347,6 +353,9 @@ There is no promise of bug-free output, arbitrary exactly-once external effects,
 tools/autopilot.py       overall workflow controller
 tools/units/            planning, build, review, and repair units
 tools/autocode_*.py     contracts, findings, evidence, execution, and recovery
+tools/autocode_program.py  program workstreams: manifest, derive, waves, integration branch
+tools/task_scenarios.py    task-type scenarios and their independent oracles
+tools/live_trial.py     scenario driver: seed, run, serve gates, score
 tools/providers/        runtime adapters and bundled command-tool configs
 tools/dashboard/        local browser interface
 macos-app/              native host for the dashboard
@@ -363,8 +372,8 @@ VALIDATION.md           recorded results and limitations
 | Models and runtime integration | [Models](docs/models.md) · [Providers](docs/providers.md) |
 | Build, recovery, and completion | [Execution](docs/execution.md) · [Interventions](docs/interventions.md) |
 | Conversation and monitoring | [Dashboard](docs/dashboard.md) · [Registry API](docs/registry-api.md) · [macOS app](docs/macos-app.md) |
-| Visual work and multi-task runs | [Figma](docs/figma.md) · [Task lanes](docs/task-lanes.md) |
-| Verification and project priorities | [Testing](docs/testing.md) · [Validation](VALIDATION.md) · [Reliability](RELIABILITY.md) |
+| Visual work and multi-task runs | [Figma](docs/figma.md) · [Task lanes](docs/task-lanes.md) · [Programs](docs/program.md) |
+| Verification and project priorities | [Testing](docs/testing.md) · [Scenarios](docs/scenarios.md) · [Validation](VALIDATION.md) · [Reliability](RELIABILITY.md) |
 
 ## Keep this README honest
 

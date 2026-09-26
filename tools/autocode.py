@@ -2051,6 +2051,12 @@ def main(unit=None) -> int:
         except ImportError:
             import autocode_ui
         return autocode_ui.cli(sys.argv[2:])
+    if sys.argv[1:2] == ["program"]:
+        try:
+            from . import autocode_program
+        except ImportError:
+            import autocode_program
+        return autocode_program.cli(sys.argv[2:])
     if sys.argv[1:2] == ["compare-baseline"]:
         try:
             from . import autocode_baseline
