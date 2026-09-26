@@ -13,6 +13,19 @@ from tools.providers import command
 
 
 class ProviderRegistryTests(unittest.TestCase):
+    def setUp(self):
+        # Hermetic provider resolution: a contributor's own
+        # ~/.config/autocode/{config.toml,providers/*.toml} must never shadow
+        # the bundled provider configs these tests check against.
+        config_home = tempfile.TemporaryDirectory()
+        self.addCleanup(config_home.cleanup)
+        self._env_patch = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": config_home.name})
+        self._env_patch.start()
+        self.addCleanup(self._env_patch.stop)
+        previous_provider = os.environ.pop("AUTOCODE_PROVIDER", None)
+        if previous_provider is not None:
+            self.addCleanup(os.environ.__setitem__, "AUTOCODE_PROVIDER", previous_provider)
+
     def test_opencode_is_the_builtin_default(self):
         provider = autocode_providers.resolve("opencode")
         self.assertEqual("tools.providers.opencode", provider.__name__)

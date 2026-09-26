@@ -27,8 +27,16 @@ class SubprocessFlow(unittest.TestCase):
         for filename in ("fake_codex.py", "goal_fixtures.py"):
             shutil.copy2(source / filename, bin_dir / ("codex" if filename == "fake_codex.py" else filename))
         (bin_dir / "codex").chmod(0o755)
+        # Hermetic provider/model resolution: the child autocode.py process
+        # must never read a contributor's own ~/.config/autocode or ~/.codex.
+        config_home = self.root / "xdg-config"
+        config_home.mkdir()
+        codex_home = self.root / "codex-home"
+        codex_home.mkdir()
         self.env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
-                    "PYTHONDONTWRITEBYTECODE": "1", "AUTOCODE_HOME": str(self.root / "registry-home")}
+                    "PYTHONDONTWRITEBYTECODE": "1", "AUTOCODE_HOME": str(self.root / "registry-home"),
+                    "XDG_CONFIG_HOME": str(config_home), "CODEX_HOME": str(codex_home)}
+        self.env.pop("AUTOCODE_PROVIDER", None)
         self.entry = [os.environ["AUTOCODE_TEST_CLI"]] if os.environ.get("AUTOCODE_TEST_CLI") else [sys.executable, str(source / "autocode.py")]
 
     def launch(self, args, expected, *, answers=None):
