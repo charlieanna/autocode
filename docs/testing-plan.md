@@ -69,12 +69,13 @@ These are test-infrastructure findings to resolve or isolate, not completed fixe
 | The live driver uses `--accept-review`, while the current CLI supports `--approve-review ID --review-token TOKEN`. | Repair and test the human-review path before qualifying those cases. No automatic human-review approval. |
 | Some live profiles select identical/disallowed model pairings under current cross-model verification. | Validate the saved role map against the current routing policy before launch. Do not disable independence guards to make a profile run. |
 
-`live_trial.py`, its profile/scenario helpers, and `test-scenarios/` are currently
-untracked work in progress. Version and review intended harness code before using
-it as release evidence. The live driver registers `LIVE-01`, `LIVE-02`, `LIVE-05`,
-and `LIVE-06`; its fake provider implements the greeting case only. A historical
+`live_trial.py`, its profile/scenario helpers, and `test-scenarios/` are versioned.
+Review harness changes like product changes before using them as release evidence.
+The live driver registers `LIVE-01`, `LIVE-02`, `LIVE-05`, `LIVE-06` and the
+[task-type scenarios](scenarios.md) `BUGFIX-01`, `FEATURE-01`, `ARCH-01`,
+`PROGRAM-01` and `UI-01`; its fake provider implements the greeting case only. A
 scenario name, especially one beginning with `LIVE`, does not establish live-model
-coverage or that a scenario is currently runnable.
+coverage or that a scenario is currently runnable; only a recorded bundle does.
 
 ## 3. Complexity Ladder
 
@@ -88,8 +89,8 @@ concurrency deliberately rather than letting it obscure the basic baseline.
 | --- | --- | --- | --- |
 | **T00: Environment and harness** | No product task yet. Verify source CLI, fake transport, test environment, scorer, and packaged installation. | Imports and help work; positive oracle control passes; broken/forged controls fail; fake-only runs emit no hosted requests; schemas/assets/configs exist in the installed wheel. | Dry-run and status cannot authorize work; protected state/source remain unchanged; evidence includes executable and revision identity. |
 | **T01: Tiny CLI** | Build a small greeting CLI from a precise brief, using the existing FX01 specification if reusing that harness. | Exact stdout/stderr and exit behavior for normal input, missing input, whitespace, Unicode, and help as specified; only agreed deliverables; no unnecessary dependency. | Full requirements -> plan -> exact approval -> build -> independent validation -> completion flow. No source implementation before approval. |
-| **T02: One bug in existing code** | Fix a seeded blank-name validation bug in a committed CLI without changing valid-input behavior. | The new regression fails on the seed and passes on the candidate; existing tests still pass; invalid input cannot silently succeed; unrelated files remain unchanged. | The task remains a bug fix, not a rewrite; the original defect and tested source are traceable in evidence. |
-| **T03: Feature in an existing project** | Add case-insensitive tag filtering to a seeded notes CLI while retaining its existing commands and output contract. | Matches, no matches, mixed case, empty/invalid filters, and old commands; tests start with realistic saved notes; existing behavior and stored data remain intact. | Planner identifies affected files and compatibility constraints; all roles receive the same approved requirements. |
+| **T02: One bug in existing code** (`BUGFIX-01`) | Fix a seeded blank-name validation bug in a committed CLI without changing valid-input behavior. | The new regression fails on the seed and passes on the candidate; existing tests still pass; invalid input cannot silently succeed; unrelated files remain unchanged. | The task remains a bug fix, not a rewrite; the original defect and tested source are traceable in evidence. |
+| **T03: Feature in an existing project** (`FEATURE-01`) | Add case-insensitive tag filtering to a seeded notes CLI while retaining its existing commands and output contract. | Matches, no matches, mixed case, empty/invalid filters, and old commands; tests start with realistic saved notes; existing behavior and stored data remain intact. | Planner identifies affected files and compatibility constraints; all roles receive the same approved requirements. |
 | **T04: Multi-module application** | Build a local persistent task CLI: add, list, complete, and delete tasks across storage, domain, and CLI modules. | Restart persistence, stable IDs, duplicate input policy, invalid commands, missing records, and failed-write behavior; approved error handling must not corrupt previous data. | Several dependent milestones execute in order; a seeded failed check produces bounded rework and independent retesting. |
 | **T05: API and database** | Expose a seeded task store through a local HTTP CRUD API using the fixture's chosen stack. | Status codes, request validation, pagination boundaries, missing records, persistence after restart, transaction failure, and duplicate/concurrent requests according to the contract. | Test-server lifecycle is owned and bounded; green unit tests cannot replace HTTP/database integration evidence. |
 | **T06: Full-stack user flow** | Add a responsive browser interface to that API for create, edit, complete, filter, and delete. | Real browser -> HTTP -> database flow; refresh persistence; empty/loading/error states; keyboard operation and labels; declared desktop/mobile viewports; user text renders safely. | Exercise both artifact behavior and Autocode's dashboard approval/status flow. Screenshots or DOM stubs alone do not prove end-to-end behavior. |

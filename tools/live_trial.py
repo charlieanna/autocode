@@ -250,12 +250,102 @@ def _serve_gate(state: dict, run_dir: Path, project: Path, profile: dict, step) 
     return False
 
 
+# --- program mode --------------------------------------------------------
+
+PROGRAM_TERMINAL = ("COMPLETE",)
+PROGRAM_PAUSES = ("WAITING", "PAUSED_", "AUTHORIZATION_REQUIRED")
+
+
+def program_command(project: Path, profile: dict, manifest_path: Path) -> list[str]:
+    """`autocode program run` with the profile's role flags passed through to child runs."""
+    child = autocode_command(project, profile, None, None, [])
+    # Everything after the workspace/in-place/no-chat trio is child-run configuration.
+    passthrough = child[child.index("--no-chat") + 1:]
+    passthrough = [flag for flag in passthrough if flag != "--in-place"]
+    return [sys.executable, str(AUTOCODE), "program", "run", str(manifest_path), "--workspace", str(project),
+            "--max-parallel", "2", "--authorize-deployment", *passthrough]
+
+
+def drive_program(project: Path, root: Path, profile: dict, manifest: dict,
+                  budget_stages: int, timeout: int, bundle: Bundle) -> dict:
+    """Run a scenario as a program: every workstream is a child run whose gates are served here.
+
+    The program controller never approves anything; this driver serves the
+    same explicit CLI gates it serves for a single run, per child run dir.
+    """
+    env = dict(os.environ, AUTOCODE_HOME=str(root / "registry"), PYTHONDONTWRITEBYTECODE="1")
+    if profile["provider"] == "fixture":
+        env.update(install_fixture_provider(root))
+    manifest_path = root / "program.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+    steps: list[dict] = []
+    started = time.monotonic()
+
+    def step(kind: str, cmd: list[str], *, allow_codes=(0, 2)) -> subprocess.CompletedProcess:
+        if time.monotonic() - started > timeout:
+            raise TrialError(f"wall-clock budget exceeded after {len(steps)} CLI steps")
+        if len(steps) >= budget_stages:
+            raise TrialError(f"stage budget exceeded after {len(steps)} CLI steps")
+        bundle.log("cli_step", kind=kind, cmd=cmd)
+        proc = invoke(cmd, env, root, timeout)
+        record = {"kind": kind, "cmd": cmd, "returncode": proc.returncode,
+                  "stdout_tail": proc.stdout[-800:], "stderr_tail": proc.stderr[-800:]}
+        steps.append(record)
+        bundle.log("cli_result", kind=kind, returncode=proc.returncode,
+                   stdout_tail=record["stdout_tail"], stderr_tail=record["stderr_tail"])
+        if proc.returncode not in allow_codes:
+            raise TrialError(f"{kind} exited {proc.returncode}: {(proc.stderr or proc.stdout)[-500:]}")
+        return proc
+
+    summary: dict = {}
+    for _ in range(budget_stages):
+        proc = step("program", program_command(project, profile, manifest_path))
+        try:
+            summary = json.loads(proc.stdout)
+        except ValueError:
+            raise TrialError(f"program run printed no JSON summary: {proc.stdout[-300:]}") from None
+        bundle.state(f"program.{len(steps)}", summary)
+        status = summary.get("status", "")
+        if status in PROGRAM_TERMINAL:
+            break
+        served = False
+        for row in summary.get("workstreams", []):
+            if row.get("status") not in ("WAITING", "PAUSED") or not row.get("run_dir"):
+                continue
+            run_dir = Path(row["run_dir"])
+            state = load_state(run_dir)
+            if state.get("status", "").startswith("PAUSED_") and not _resumable(state):
+                continue
+            if _serve_gate(state, run_dir, Path(row["workspace"]), profile, step):
+                served = True
+        if not served:
+            # No gate this driver may serve: an honest stop, a blocked worker, or a run at
+            # a pause that needs a person. Never poke it with a blind resume loop.
+            break
+    else:
+        raise TrialError("program did not finish within the stage budget")
+    final_status = summary.get("status", "")
+    bundle.log("drive_finished", status=final_status, steps=len(steps))
+    state = {"status": final_status, "program": summary}
+    return {"state": state, "steps": steps, "run_dir": Path(summary.get("state_file", root)).parent,
+            "product": Path(summary["integration_workspace"]) if summary.get("integration_workspace") else project}
+
+
+def classify_program_status(status: str) -> str:
+    if status in PROGRAM_TERMINAL:
+        return "complete"
+    if any(status.startswith(prefix) for prefix in PROGRAM_PAUSES):
+        return "paused"
+    return "stopped"
+
+
 # --- verdict -------------------------------------------------------------
 
 def judge(run: dict, spec: dict, project: Path, bundle: Bundle) -> scenarios.OracleResult:
     state = run["state"]
     status = state.get("status", "")
-    kind = scenarios.classify_runner_status(status)
+    kind = (classify_program_status(status) if "program" in state
+            else scenarios.classify_runner_status(status))
 
     # The oracle scores the delivered workspace regardless of how the run ended,
     # so a blocked run with correct work is reported as such, not as a failure
@@ -291,11 +381,14 @@ def write_report(bundle: Bundle, scenario_id: str, spec: dict,
                  run: dict) -> Path:
     payload = {
         "scenario": scenario_id, "title": spec["title"],
+        "task_type": spec.get("task_type", "live"),
         "profile": profile_name, "profile_detail": profile,
         "verdict": result.status, "summary": result.summary,
         "oracle": spec["oracle_name"], "checks": result.checks,
         "runner_status": run["state"].get("status"),
         "runner_phase": run["state"].get("phase"),
+        "mode": run.get("mode", "run"),
+        "product": str(run.get("product", "")),
         "baseline": spec.get("baseline"),
         "source": source_revision(),
     }
@@ -309,7 +402,8 @@ def write_report(bundle: Bundle, scenario_id: str, spec: dict,
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("scenario", help="scenario id, e.g. LIVE-01")
+    parser.add_argument("scenario", nargs="?", help="scenario id, e.g. LIVE-01 or BUGFIX-01 (see --list)")
+    parser.add_argument("--list", action="store_true", help="print the registered scenarios and exit")
     parser.add_argument("--profile", default="fixture",
                         help="model profile from live_profiles (default: fixture)")
     parser.add_argument("--workspace", type=Path,
@@ -320,20 +414,52 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="wall-clock seconds for the whole trial")
     parser.add_argument("--i-authorize-live-model-spend", action="store_true",
                         help="required for any non-fixture profile")
+    parser.add_argument("--mode", choices=["run", "program"], default="run",
+                        help="run: one autocode run (default); program: `autocode program run` with the "
+                             "scenario's program_manifest, gates served per child run")
+    parser.add_argument("--score-only", type=Path, metavar="PROJECT",
+                        help="do not drive anything: score an already delivered workspace with the oracle")
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    if args.list:
+        for scenario_id, spec in sorted(scenarios.registry().items()):
+            print(f"{scenario_id:<12} {spec.get('task_type', 'live'):<13} {spec['title']}")
+        return 0
+    if not args.scenario:
+        print("a scenario id is required (see --list)", file=sys.stderr)
+        return 2
     spec = scenarios.scenario(args.scenario)
     profile = profiles.resolve(args.profile)
+
+    if args.score_only:
+        project = args.score_only.resolve()
+        bundle = Bundle(args.scenario)
+        bundle.log("score_only", project=str(project))
+        oracle = spec["oracle"](project)
+        run = {"state": {"status": "SCORE_ONLY"}, "steps": [], "run_dir": project,
+               "mode": "score-only", "product": project}
+        write_report(bundle, args.scenario, spec, "none", {"provider": "none"}, oracle, run)
+        try:
+            bundle.finish(oracle.status, oracle.summary)
+        except AssertionError:
+            pass
+        print(f"{args.scenario} [score-only] {oracle.status}: {oracle.summary}")
+        print(f"evidence: {bundle.dir}")
+        return 0 if oracle.status == scenarios.PASS else 2 if oracle.status == scenarios.DEFERRED else 1
+
+    if args.mode == "program" and not spec.get("program_manifest"):
+        print(f"{args.scenario} has no program_manifest; run it with --mode run", file=sys.stderr)
+        return 2
 
     if profile["provider"] != "fixture" and not args.i_authorize_live_model_spend:
         print(f"refusing live spend: rerun with --i-authorize-live-model-spend "
               f"(profile={args.profile}, model={profiles.describe(profile)})", file=sys.stderr)
         return 2
 
-    bundle = Bundle(f"LIVE-{args.scenario.split('-')[-1]}")
+    bundle = Bundle(args.scenario)
     bundle.log("trial_started", scenario=args.scenario, profile=args.profile,
                model=profiles.describe(profile), authorized=args.i_authorize_live_model_spend)
 
@@ -359,10 +485,16 @@ def main(argv: list[str] | None = None) -> int:
                  "-c", "user.email=live@example.test", "commit", "-qm", "seed scenario assets"],
                 check=True)
             bundle.log("seeded", files=sorted(seed))
-        bundle.log("workspace_ready", project=str(project))
-        run = drive(project, root, profile, spec["task"],
-                    args.budget_stages, args.timeout, bundle)
-        result = judge(run, spec, project, bundle)
+        bundle.log("workspace_ready", project=str(project), mode=args.mode)
+        if args.mode == "program":
+            run = drive_program(project, root, profile, spec["program_manifest"],
+                                args.budget_stages, args.timeout, bundle)
+        else:
+            run = drive(project, root, profile, spec["task"],
+                        args.budget_stages, args.timeout, bundle)
+        run["mode"] = args.mode
+        # A program's product is the merged integration branch, never the untouched project root.
+        result = judge(run, spec, run.get("product", project), bundle)
         write_report(bundle, args.scenario, spec, args.profile, profile, result, run)
         summary = (f"{args.scenario} [{args.profile}] {result.status}: {result.summary}")
         try:
