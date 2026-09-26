@@ -599,6 +599,69 @@ class RetrofitTest(unittest.TestCase):
         runner.repeated_failure_resume_guard(reloaded, self.root)
         self.assertFalse(runner.prepare_abandoned_completion_revalidation(reloaded, self.run, self.root))
 
+    def repeated_failure_state(self):
+        current = s.snapshot(self.root)
+        state = {'status': 'PAUSED_REPEATED_FAILURE', 'next_stage': 'terra', 'iteration': 5,
+                 'workspace': str(self.root), 'task': 'fixture', 'sessions': {}, 'stages': [],
+                 'history': [], 'settings': dict(self.settings), 'user_events': []}
+        error = ValueError('invalid build report')
+        first = None
+        # An unrelated earlier failure must survive any authorization untouched.
+        other = {'stage': 'sol', 'role': 'sol', 'iteration': 4,
+                 'output': str(self.run / 'sol-failed.json'),
+                 'source_revision': current['revision'], 'rejected': True}
+        runner.failures.record(state, other, ValueError('invalid validation'), s.now())
+        state['stages'].append(other)
+        for attempt in range(3):
+            record = {'stage': 'terra', 'role': 'terra', 'iteration': 5,
+                      'output': str(self.run / f'terra-failed-{attempt}.json'),
+                      'source_revision': current['revision'], 'rejected': True,
+                      'rejection_reason': str(error)}
+            runner.failures.record(state, record, error, s.now())
+            state['stages'].append(record)
+            first = first or record
+        return state, first, other
+
+    def test_plain_resume_cannot_erase_an_unchanged_repeated_failure(self):
+        state, record, other = self.repeated_failure_state()
+        before = copy.deepcopy(state)
+        with self.assertRaisesRegex(s.Paused, 'authorize one inspected retry'):
+            runner.repeated_failure_resume_guard(state, self.root)
+        self.assertEqual(before, state)
+        # Changing the source fixes the cause and unblocks a plain resume;
+        # failure history itself is preserved either way.
+        (self.root / 'untracked-change.py').write_text('fixed cause')
+        runner.repeated_failure_resume_guard(state, self.root)
+        self.assertEqual(before['failure_history'], state['failure_history'])
+
+    def test_failure_retry_authorization_is_explicit_and_scoped(self):
+        state, record, other = self.repeated_failure_state()
+        selected = record['failure_key']
+        other_key = other['failure_key']
+        s.atomic_json(self.run / 'state.json', state)
+        with self.assertRaisesRegex(ValueError, 'requires a run paused'):
+            runner.authorize_failure_retry({'status': 'RUNNING'}, self.run, self.root)
+        no_failure = copy.deepcopy(state)
+        no_failure['failure_history'] = {}
+        for row in no_failure['stages']:
+            row.pop('failure_key', None)
+        with self.assertRaisesRegex(ValueError, 'No unchanged repeated failure'):
+            runner.authorize_failure_retry(no_failure, self.run, self.root)
+        self.assertEqual(state, s.read(self.run / 'state.json'))
+        runner.authorize_failure_retry(state, self.run, self.root)
+        self.assertNotIn(selected, state['failure_history'])
+        self.assertIn(other_key, state['failure_history'])
+        self.assertEqual([other_key], [r['failure_key'] for r in state['stages'] if r.get('failure_key')])
+        self.assertTrue(all('failure_key' not in r for r in state['stages'] if r['stage'] == 'terra'))
+        self.assertEqual(1, len(state['failure_retry_authorizations']))
+        self.assertEqual(selected, state['failure_retry_authorizations'][0]['failure_key'])
+        self.assertEqual(3, state['failure_retry_authorizations'][0]['count'])
+        self.assertEqual('failure_retry_authorized', state['user_events'][-1]['kind'])
+        runner.repeated_failure_resume_guard(state, self.root)
+        persisted = s.read(self.run / 'state.json')
+        self.assertNotIn(selected, persisted['failure_history'])
+        self.assertIn(other_key, persisted['failure_history'])
+
     def test_missing_evidence_and_outside_project_rejected(self):
         for refs in ([],["nope"],["/etc/hosts"]):
             with self.assertRaises(ValueError): s.evidence_hashes(refs,self.root,self.run)

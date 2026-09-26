@@ -16,8 +16,8 @@ import tempfile
 import subprocess
 import unittest
 
-from . import autocode as runner, autocode_goals as goals, autocode_support as support
-from .units import autoplanner
+import autocode as runner, autocode_goals as goals, autocode_support as support
+from units import autoplanner
 
 
 class CoverageTests(unittest.TestCase):

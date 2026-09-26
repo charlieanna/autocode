@@ -1233,13 +1233,44 @@ def prepare_abandoned_completion_revalidation(state, run_dir, workspace):
     return True
 
 
+def authorize_failure_retry(state, run_dir, workspace):
+    """Authorize one fresh attempt for an inspected, unchanged repeated failure.
+
+    Explicit operator action only: it never runs from a plain resume. It clears
+    exactly the recorded failure identity, keeps every other failure and its
+    history, and records the authorization durably for audit.
+    """
+    if state.get('status') != 'PAUSED_REPEATED_FAILURE':
+        raise ValueError('--retry-failed-stage requires a run paused for repeated failure')
+    pending = state.get('pending_report_repair') or {}
+    record = pending.get('original') or next(
+        (row for row in reversed(state.get('stages', [])) if row.get('failure_key')), None)
+    repeated = failures.repeated(state, record) if record else None
+    if not repeated:
+        raise ValueError('No unchanged repeated failure to authorize; fix the cause, then resume')
+    selected = record.get('failure_key')
+    state.setdefault('failure_retry_authorizations', []).append({
+        'at': now(), 'failure_key': selected, 'identity': repeated['identity'],
+        'count': repeated['count'], 'source_revision': support.snapshot(workspace)['revision']})
+    state.setdefault('user_events', []).append({
+        'kind': 'failure_retry_authorized', 'at': now(), 'failure_key': selected,
+        'stage': repeated['identity'].get('stage'), 'count': repeated['count']})
+    state.setdefault('failure_history', {}).pop(selected, None)
+    for row in state.get('stages', []):
+        if row.get('failure_key') == selected:
+            row.pop('failure_key', None)
+    write_json(run_dir / 'state.json', state)
+
+
 def repeated_failure_resume_guard(state, workspace):
-    """A restart or explicit resume cannot erase an unchanged repeated failure."""
+    """A restart or plain resume cannot erase an unchanged repeated failure.
+
+    A recognized recovery path that reroutes the run changes the saved status
+    before this guard runs. An operator who has inspected the failure can
+    authorize one fresh attempt with --retry-failed-stage.
+    """
     if state.get('status') != 'PAUSED_REPEATED_FAILURE':
         return
-    # Explicit resume with --resume-paused clears failure history: the operator
-    # has inspected the failure and wants to retry.
-    state.setdefault('failure_history', {})
     pending = state.get('pending_report_repair') or {}
     record = pending.get('original') or next(
         (row for row in reversed(state.get('stages', [])) if row.get('failure_key')), None)
@@ -1247,10 +1278,11 @@ def repeated_failure_resume_guard(state, workspace):
         return
     repeated = failures.repeated(state, record)
     if repeated and support.snapshot(workspace)['revision'] == record.get('source_revision'):
-        # Clear the failure key so the resume can proceed
-        for row in state.get('stages', []):
-            row.pop('failure_key', None)
-        state['failure_history'] = {}
+        raise support.Paused('PAUSED_REPEATED_FAILURE',
+            f"Unchanged {record.get('original_stage') or record['stage']} artifact failed "
+            f"{repeated['count']} times with {repeated['identity']['error_class']}; "
+            "inspect failure_history and fix the cause before resuming, or authorize "
+            "one inspected retry with --retry-failed-stage.")
 
 
 def reconcile_active(state, run_dir, workspace):
@@ -2152,6 +2184,8 @@ def main(unit=None) -> int:
     parser.add_argument("--max-findings-per-task", type=int,
                         help="Reject a REWORK task that bundles more than this many open findings (default: unlimited; 0 disables)")
     parser.add_argument("--resume-paused", action="store_true", help="Acknowledge a saved pause; uncertain stages still require reconciliation")
+    parser.add_argument("--retry-failed-stage", action="store_true",
+                        help="Authorize one fresh attempt for the recorded unchanged repeated failure after inspecting it; requires --resume-paused")
     parser.add_argument("--planning-review-call-limit", type=int, metavar="N",
                         help="At a planning-budget pause, save a finite total review-call allowance for this cycle only; no agent launched")
     parser.add_argument("--retry-report", metavar="ATTEMPT_ID",
@@ -2184,6 +2218,8 @@ def main(unit=None) -> int:
         parser.error("--accept-transport-change requires --run-dir and --resume-paused")
     if args.retry_report and (not args.run_dir or not args.resume_paused):
         parser.error("--retry-report requires --run-dir and --resume-paused")
+    if args.retry_failed_stage and (not args.run_dir or not args.resume_paused):
+        parser.error("--retry-failed-stage requires --run-dir and --resume-paused")
     if args.planning_review_call_limit is not None and args.planning_review_call_limit < 2:
         parser.error("--planning-review-call-limit must be at least 2; unlimited is not supported")
     if unit and args.unit != unit:
@@ -2429,6 +2465,14 @@ def main(unit=None) -> int:
                             print(f"Input rejected: {error}", file=sys.stderr)
                             return 2
                     else:
+                        if args.retry_failed_stage:
+                            try:
+                                authorize_failure_retry(state, run_dir, workspace)
+                                print("Failure retry authorized for the recorded repeated failure; "
+                                      "one fresh attempt proceeds under existing limits.", flush=True)
+                            except ValueError as error:
+                                print(f"Input rejected: {error}", file=sys.stderr)
+                                return 2
                         prepare_abandoned_completion_revalidation(state, run_dir, workspace)
                         repeated_failure_resume_guard(state, workspace)
                         prepare_planning_retry(state, run_dir)
