@@ -53,13 +53,25 @@ def make_workspace(root: Path) -> Path:
 
 
 def install_fixture_provider(root: Path) -> dict:
-    """Expose the scripted provider as the ``codex`` binary on PATH."""
+    """Expose the scripted provider as the ``codex`` binary on PATH.
+
+    Also isolates XDG_CONFIG_HOME/CODEX_HOME to fixture-local empty
+    directories: without this, check_subscription() reads the contributor's
+    real ~/.codex/config.toml (e.g. a customized model_provider) and can pause
+    with PAUSED_BILLING_ROUTE even though the fixture correctly reports a
+    ChatGPT login itself, breaking this profile's offline claim.
+    """
     bindir = root / "bin"
     bindir.mkdir(parents=True, exist_ok=True)
     target = bindir / "codex"
     shutil.copy2(PROVIDER_BIN, target)
     target.chmod(0o755)
-    return {"PATH": str(bindir) + os.pathsep + os.environ.get("PATH", "")}
+    config_home = root / "xdg-config"
+    config_home.mkdir(parents=True, exist_ok=True)
+    codex_home = root / "codex-home"
+    codex_home.mkdir(parents=True, exist_ok=True)
+    return {"PATH": str(bindir) + os.pathsep + os.environ.get("PATH", ""),
+            "XDG_CONFIG_HOME": str(config_home), "CODEX_HOME": str(codex_home)}
 
 
 # --- runner driving ------------------------------------------------------
@@ -111,6 +123,7 @@ def drive(project: Path, root: Path, profile: dict, task: str,
                PYTHONDONTWRITEBYTECODE="1")
     if profile["provider"] == "fixture":
         env.update(install_fixture_provider(root))
+        env.pop("AUTOCODE_PROVIDER", None)
 
     steps: list[dict] = []
     started = time.monotonic()

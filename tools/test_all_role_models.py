@@ -1,7 +1,9 @@
 """All-role model choices use existing engine, approval and session machinery."""
 import copy
+import os
 import sys
 from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -18,6 +20,15 @@ class AllRoleModelTests(unittest.TestCase):
         self.provider_patch = patch.object(runner, "opencode", oc)
         self.provider_patch.start()
         self.addCleanup(self.provider_patch.stop)
+        # Hermetic default-provider resolution; see test_planning.PlanningTests.setUp.
+        config_home = tempfile.TemporaryDirectory()
+        self.addCleanup(config_home.cleanup)
+        self._env_patch = patch.dict(os.environ, {"XDG_CONFIG_HOME": config_home.name})
+        self._env_patch.start()
+        self.addCleanup(self._env_patch.stop)
+        previous_provider = os.environ.pop("AUTOCODE_PROVIDER", None)
+        if previous_provider is not None:
+            self.addCleanup(os.environ.__setitem__, "AUTOCODE_PROVIDER", previous_provider)
 
     configure_args = test_planning.PlanningTests.configure_args
 

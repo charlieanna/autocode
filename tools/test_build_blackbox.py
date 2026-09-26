@@ -84,9 +84,17 @@ class BuildBlackbox(unittest.TestCase):
         bindir.mkdir()
         shutil.copy2(self.source / 'blackbox_build_provider.py', bindir / 'codex')
         (bindir / 'codex').chmod(0o755)
+        # Hermetic provider/model resolution: the child autocode.py process
+        # must never read a contributor's own ~/.config/autocode or ~/.codex.
+        config_home = self.root / 'xdg-config'
+        config_home.mkdir()
+        codex_home = self.root / 'codex-home'
+        codex_home.mkdir()
         self.env = dict(os.environ, PATH=str(bindir) + os.pathsep + os.environ['PATH'],
             AUTOCODE_HOME=str(self.root / 'registry'), PYTHONDONTWRITEBYTECODE='1',
-            BUILD_AUDIT_SPEC=str(self.root / 'plan.json'), BUILD_AUDIT_LOG=str(self.root / 'events.jsonl'))
+            BUILD_AUDIT_SPEC=str(self.root / 'plan.json'), BUILD_AUDIT_LOG=str(self.root / 'events.jsonl'),
+            XDG_CONFIG_HOME=str(config_home), CODEX_HOME=str(codex_home))
+        self.env.pop('AUTOCODE_PROVIDER', None)
         self.counter = 0
 
     def command(self, unit, args):

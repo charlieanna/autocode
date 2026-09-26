@@ -1,6 +1,7 @@
 """OpenCode defaults and safe migration of existing mixed-CLI checkpoints."""
 import copy
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -19,6 +20,15 @@ class OpenCodeRoutingTests(unittest.TestCase):
         self.transport_patch = patch.object(runner, "opencode", oc)
         self.transport_patch.start()
         self.addCleanup(self.transport_patch.stop)
+        # Hermetic default-provider resolution; see test_planning.PlanningTests.setUp.
+        config_home = tempfile.TemporaryDirectory()
+        self.addCleanup(config_home.cleanup)
+        self._env_patch = patch.dict(os.environ, {"XDG_CONFIG_HOME": config_home.name})
+        self._env_patch.start()
+        self.addCleanup(self._env_patch.stop)
+        previous_provider = os.environ.pop("AUTOCODE_PROVIDER", None)
+        if previous_provider is not None:
+            self.addCleanup(os.environ.__setitem__, "AUTOCODE_PROVIDER", previous_provider)
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.run = Path(temp.name)

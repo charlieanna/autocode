@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -20,6 +21,19 @@ import test_subprocess
 
 
 class PlanningTests(unittest.TestCase):
+    def setUp(self):
+        # Hermetic default-provider resolution: a contributor's own
+        # ~/.config/autocode/config.toml or AUTOCODE_PROVIDER must never
+        # change what these in-process configure() calls resolve to.
+        config_home = tempfile.TemporaryDirectory()
+        self.addCleanup(config_home.cleanup)
+        self._env_patch = patch.dict(os.environ, {"XDG_CONFIG_HOME": config_home.name})
+        self._env_patch.start()
+        self.addCleanup(self._env_patch.stop)
+        previous_provider = os.environ.pop("AUTOCODE_PROVIDER", None)
+        if previous_provider is not None:
+            self.addCleanup(os.environ.__setitem__, "AUTOCODE_PROVIDER", previous_provider)
+
     def test_planner_dependencies_are_validated_and_rendered(self):
         draft = body()
         draft["milestones"] = [

@@ -48,8 +48,22 @@ NOTE_CRITERIA=['notes.py add FILE TEXT adds a note',
     'Empty/whitespace note input exits nonzero without modifying existing notes']
 
 
+@unittest.skipUnless(os.environ.get('REVIEW_AUDIT_LIVE_CODEX'),
+    'Requires an explicit REVIEW_AUDIT_LIVE_CODEX; unlike test_build_remaining_products.py, '
+    'prepare() below defaults it to a real codex path, so without this guard the module '
+    'silently makes real, non-deterministic, non-free model calls in the default suite')
 class ReviewProducts(unittest.TestCase):
-    setUp=bb.BuildBlackbox.setUp
+    def setUp(self):
+        bb.BuildBlackbox.setUp(self)
+        # Unlike plain BuildBlackbox/PolicyBlackbox fixtures, prepare() below
+        # points REVIEW_AUDIT_LIVE_CODEX at a real codex binary and the fake
+        # provider delegates the sol/astra_review stage to it (see
+        # blackbox_build_provider.py). That live call needs this machine's
+        # actual Codex login, so undo BuildBlackbox.setUp's offline isolation
+        # here; the fake provider itself never reads either variable.
+        self.env.pop('XDG_CONFIG_HOME', None)
+        self.env.pop('CODEX_HOME', None)
+
     seed=bb.BuildBlackbox.seed
     state=bb.BuildBlackbox.state
     events=bb.BuildBlackbox.events
@@ -58,8 +72,12 @@ class ReviewProducts(unittest.TestCase):
 
     def command(self,unit,args):
         if unit=='autoplanner' and '--run-dir' not in args:
+            # Validator (sol) must differ from the Builder (terra, seeded as
+            # 'gpt-6-luna'): enforce_cross_model_verification pauses the run
+            # otherwise. Match seed()'s own sol-model so this stays a no-op
+            # override rather than a second, colliding one.
             args=[*args,'--astra-model','gpt-6-luna','--astra-reasoning-effort','medium',
-                '--sol-model','gpt-6-luna','--sol-reasoning-effort','medium',
+                '--sol-model','gpt-5.6-sol','--sol-reasoning-effort','medium',
                 '--completion-model','gpt-5.6-sol','--completion-reasoning-effort','medium']
         return bb.BuildBlackbox.command(self,unit,args)
 
