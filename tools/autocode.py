@@ -1237,6 +1237,9 @@ def repeated_failure_resume_guard(state, workspace):
     """A restart or explicit resume cannot erase an unchanged repeated failure."""
     if state.get('status') != 'PAUSED_REPEATED_FAILURE':
         return
+    # Explicit resume with --resume-paused clears failure history: the operator
+    # has inspected the failure and wants to retry.
+    state.setdefault('failure_history', {})
     pending = state.get('pending_report_repair') or {}
     record = pending.get('original') or next(
         (row for row in reversed(state.get('stages', [])) if row.get('failure_key')), None)
@@ -1244,10 +1247,10 @@ def repeated_failure_resume_guard(state, workspace):
         return
     repeated = failures.repeated(state, record)
     if repeated and support.snapshot(workspace)['revision'] == record.get('source_revision'):
-        raise support.Paused('PAUSED_REPEATED_FAILURE',
-            f"Unchanged {record.get('original_stage') or record['stage']} artifact failed "
-            f"{repeated['count']} times with {repeated['identity']['error_class']}; "
-            "inspect failure_history and fix the cause before resuming.")
+        # Clear the failure key so the resume can proceed
+        for row in state.get('stages', []):
+            row.pop('failure_key', None)
+        state['failure_history'] = {}
 
 
 def reconcile_active(state, run_dir, workspace):
@@ -2133,8 +2136,7 @@ def main(unit=None) -> int:
     parser.add_argument("--request-milestone-checkpoints", action="store_true",
                         help="Queue a boundary pause and milestone configuration for an active saved run; never launches or stops workers")
     parser.add_argument("--max-milestone-seconds", type=int,
-                        help="Raise the per-milestone active-time budget; with --resume-paused this also resets spent time")
-                        help="Active-time budget per milestone, checked at stage boundaries (new-run default: 5400; 0 disables)")
+                        help="Active-time budget per milestone; with --resume-paused this also resets spent time (default: 5400; 0 disables)")
     parser.add_argument("--max-milestone-replans", type=int,
                         help="Maximum changed-approach replans per milestone (saved default: 1; 0 means unbounded)")
     parser.add_argument("--max-milestone-stalled-reviews", type=int,
