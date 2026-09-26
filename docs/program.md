@@ -61,8 +61,18 @@ workstream (objective plus its acceptance criteria as the brief, `affected_paths
 ownership, `depends_on` as dependencies) and appends one `integration` workstream that
 depends on every sink milestone and validates the approved end-to-end flow. Shared
 constraints, permission boundaries, technical approach and deliverables are copied
-into `shared` so every child inherits them. The approved contract's revision and hash
-are recorded for provenance.
+into `shared` so every child inherits them. The entire approved contract body is also
+embedded alongside its revision and hash: required behaviors, failure cases, exclusions,
+assumptions and human-review obligations are not discarded. Every child receives that
+body as context, and the integration child receives full criterion definitions and
+verification methods. If a milestone is already named `integration`, the generated
+integration workstream receives a noncolliding ID.
+
+Derivation does not approve a child plan. Each child still plans and asks for its own
+exact approval; a seven-workstream program can require seven additional plan approvals
+and additional clarification. The benefit is isolation and parallelism, not fewer
+human decisions. The parent contract is supplied as child planning context, not a
+replacement for reviewing the child plan or satisfying its human-review criteria.
 
 You can also write a manifest by hand. `tools/task_scenarios.py` carries a complete
 example (`PROGRAM_MANIFEST`) for a four-service order system.
@@ -72,14 +82,19 @@ example (`PROGRAM_MANIFEST`) for a four-service order system.
 | Field | Rule |
 | --- | --- |
 | `workstreams[].id` | Letters, digits, `.`, `_`, `-`; unique |
-| `kind` | `code`, `ui`, `integration`, `deployment` |
-| `owns` | Literal repository-relative paths (no `..`, no `.git`, no `.autocode`). `code`/`ui` must declare at least one. Two workstreams that could run at the same time may not own the same or nested paths; workstreams ordered by a dependency may |
+| `kind` | `code`, `integration`, `deployment`. Program-level `ui` is explicitly deferred until UI checkpoint recovery is supported; use `autocode ui` separately |
+| `owns` | Literal repository-relative paths (no globs, `..`, `.git`, or `.autocode`). Non-integration workstreams must declare at least one. Two workstreams that could run at the same time may not own the same or nested paths; workstreams ordered by a dependency may |
 | `depends_on` | Known ids, no self, acyclic |
 | integration | At most one; it must (transitively) depend on every non-deployment workstream |
 | deployment | Must (transitively) depend on the integration workstream when one exists; nothing except another deployment may depend on it |
 | `shared` | Optional lists (`constraints`, `permission_boundaries`, `end_to_end_flow`, `technical_approach`, `deliverables`) and `interfaces` (`id`, `summary`, `paths`) passed into every child brief |
 
 `autocode program run program.json --dry-run` validates and previews without touching Git.
+
+Writing deployment descriptors is ordinary `code`, not `deployment`. Put that work
+before integration so it is included in final verification. Reserve `deployment` for
+actual deployment work, which requires `--authorize-deployment` on every invocation
+that starts or resumes it, as well as permission in its own approved child plan.
 
 ## Run it
 
@@ -92,8 +107,10 @@ Each invocation does one pass:
 1. Creates the integration branch and worktree on first use (from the project's
    committed `HEAD`, under `.autocode/worktrees/program-<name>-integration`).
 2. Refreshes every launched workstream from its child run's saved `state.json`.
-3. Commits and merges (`--no-ff`) every workstream whose run reached `TASK_COMPLETE`.
-   Runner metadata under `.autocode/` is never committed.
+3. Checks each completed non-integration workstream's delivered changes against `owns`,
+   including committed changes, deletions, rename source/destination paths and new files.
+   Only then commits and merges (`--no-ff`). Out-of-scope changes pause without merging.
+   Runner metadata under `.autocode/` is excluded; pre-staged metadata must be unstaged.
 4. Starts every workstream whose dependencies are all merged, up to `--max-parallel`
    at once, each in a fresh worktree branched from the current integration head.
    Child runs are ordinary `autocode <brief> --in-place --no-chat` runs; `--engine`
@@ -105,13 +122,28 @@ directory; answer or approve there with the normal CLI, then rerun `program run`
 run you have acted on (its saved status is back to `RUNNING`) is resumed by the
 program; a run still at a gate or at any `PAUSED_*` status is left alone.
 
+An operational failure requires an explicit retry after inspecting its logs:
+
+```sh
+autocode program run program.json --workspace /path/to/project --retry-workstream catalog
+```
+
+The retry reuses the worktree and existing child checkpoint, if one was created. It
+does not approve a plan or resume a child-level pause. The controller persists the
+worktree and pre-launch run-directory list before invoking a child, allowing a later
+invocation to discover that child's saved checkpoint after a controller interruption.
+An interruption without a child checkpoint is marked failed and requires the same
+explicit retry. Missing or ambiguous checkpoints are refused rather than replaced.
+
 | Program status | Meaning | Your next action |
 | --- | --- | --- |
 | `WAITING` | A child run needs a question answered, a plan approved, or an explicit resume | Act in the listed run directory, rerun |
 | `PAUSED_MERGE_CONFLICT` | A completed workstream conflicts with the integration branch; the merge was aborted, both branches are intact | Merge it by hand in the integration worktree, commit, rerun (the program adopts the manual merge) |
 | `PAUSED_INTEGRATION_DIRTY` | Tracked files in the integration worktree were changed outside a workstream | Commit or restore them, rerun |
-| `AUTHORIZATION_REQUIRED` | Everything else is merged; only deployment workstreams remain | Rerun with `--authorize-deployment` after deciding deployment is wanted |
-| `BLOCKED` | A child process failed without a saved run | Read `.autocode/programs/<name>/<workstream>/stderr.log`, rerun |
+| `PAUSED_OWNERSHIP` | A completed workstream changed files outside `owns`, or switched branches | Correct the workstream delivery or restore its recorded branch, then rerun |
+| `PAUSED_METADATA` | Runner metadata was staged for commit | Unstage `.autocode` without deleting it, then rerun |
+| `AUTHORIZATION_REQUIRED` | Everything else is merged; deployment workstreams need authorization to start or resume | Rerun with `--authorize-deployment` after deciding deployment is wanted |
+| `BLOCKED` | A child invocation failed, with or without a saved checkpoint | Inspect its logs, then use `--retry-workstream ID`; missing checkpoints must be restored |
 | `COMPLETE` | Every workstream merged on the integration branch | Review the branch and merge it into your default branch yourself |
 
 `autocode program status program.json --workspace ...` prints the same summary without
@@ -124,9 +156,16 @@ The composed brief (saved under `.autocode/programs/<name>/<workstream>/brief.md
 contains the program outcome, shared constraints, permission boundaries, technical
 approach and end-to-end flow, the shared interfaces, the prerequisite workstreams
 already merged on its branch, the workstream's own objective and acceptance criteria,
-the exact paths it owns, the paths owned by others, and an instruction not to deploy,
-reach external systems or merge. Ownership is advice to the child run's planner; the
-child run's own Builder ownership checks and the merge step are the enforcement.
+the exact paths it owns and the paths owned by others. Derived manifests also include
+the complete parent contract. Non-deployment children are instructed not to deploy
+or reach external systems; no child may merge branches.
+
+Ownership is checked against the actual diff before a non-integration branch is
+committed/merged or an existing conflict resolution is adopted. This is an integration
+gate, not a filesystem sandbox: it cannot prevent a child from writing an unowned path
+during execution. The integration workstream has an explicit cross-component repair
+exception and may commit its own tracked-file repairs; it is not rejected merely
+because those repairs make its worktree dirty. Its approved scope still applies.
 
 ## Boundaries
 
@@ -140,10 +179,15 @@ child run's own Builder ownership checks and the merge step are the enforcement.
 - Evidence stays per run: each child run's validation and completion records remain
   in its own run directory; the integration workstream is where the whole flow is
   independently validated on the merged code.
+- `--max-parallel` limits concurrent workstreams, not total model spend. Scheduling
+  re-evaluates readiness after each batch finishes. There is no program-wide budget,
+  cancellation/eviction API or automatic worktree cleanup in this version.
 
 Testing: `python3 -m unittest tools.test_program` covers manifest rules, derivation
 from an approved contract, wave order, worktree bases, merges, conflict pause and
-manual resolution, the deployment gate, failure blocking, and a real CLI first wave
+manual resolution, ownership enforcement, tracked integration repairs, contract
+propagation, explicit retries, interrupted checkpoint recovery, deployment gates on
+start/resume, and a real CLI first wave
 with the fake Codex provider. The `PROGRAM-01` scenario in [scenarios](scenarios.md)
 provides the end-to-end oracle for a live trial (`--mode program`).
 

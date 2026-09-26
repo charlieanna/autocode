@@ -204,11 +204,12 @@ class LiveTrialSmokeTest(unittest.TestCase):
         self.assertEqual(0, code)
 
     def test_live_profile_requires_authorization(self):
-        with tempfile.TemporaryDirectory(prefix="live-trial-auth-") as temp:
-            code = live_trial.main([
-                "LIVE-01", "--profile", "glm53", "--workspace", temp,
-            ])
-        self.assertEqual(2, code)
+        for flags in ([], ["--authorize-deployment"]):
+            with self.subTest(flags=flags), tempfile.TemporaryDirectory(prefix="live-trial-auth-") as temp:
+                code = live_trial.main([
+                    "LIVE-01", "--profile", "glm53", "--workspace", temp, *flags,
+                ])
+            self.assertEqual(2, code)
 
     def test_bundle_records_profile_and_oracle_checks(self):
         with tempfile.TemporaryDirectory(prefix="live-trial-bundle-") as temp:
@@ -226,10 +227,6 @@ class LiveTrialSmokeTest(unittest.TestCase):
         self.assertEqual("TASK_COMPLETE", payload["runner_status"])
         self.assertTrue(payload["checks"])
         self.assertTrue(all(check["ok"] for check in payload["checks"]))
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class ProgramModeTest(unittest.TestCase):
@@ -268,13 +265,41 @@ class ProgramModeTest(unittest.TestCase):
             return subprocess.CompletedProcess(cmd, 0, "", "")
         raise AssertionError(f"unexpected command {cmd}")
 
-    def test_program_command_passes_profile_flags_to_child_runs_and_authorizes_deployment(self):
+    def test_program_command_passes_profile_flags_without_authorizing_deployment(self):
         cmd = live_trial.program_command(self.project, profiles.resolve("fixture"), self.root / "program.json")
         self.assertEqual(["program", "run"], cmd[2:4])
-        self.assertIn("--authorize-deployment", cmd)
+        self.assertNotIn("--authorize-deployment", cmd)
         self.assertIn("--joint-planning", cmd)
         self.assertNotIn("--in-place", cmd)
         self.assertNotIn("--no-chat", cmd)
+
+    def test_program_command_authorizes_deployment_only_when_explicit(self):
+        cmd = live_trial.program_command(self.project, profiles.resolve("fixture"), self.root / "program.json",
+                                         authorize_deployment=True)
+        self.assertEqual(1, cmd.count("--authorize-deployment"))
+
+    def test_cli_deployment_opt_in_is_independent_of_live_spend(self):
+        spec = {"title": "Fixture", "program_manifest": {"version": 1, "name": "x"},
+                "oracle_name": "T", "oracle": lambda project: scenarios.OracleResult(scenarios.PASS, "ok", [])}
+        for profile in ("fixture", "glm53"):
+            for authorize in (False, True):
+                with self.subTest(profile=profile, authorize=authorize):
+                    self.calls.clear()
+                    self.program_status = ["WAITING", "COMPLETE"]
+                    flags = ["--i-authorize-live-model-spend"] if profile != "fixture" else []
+                    if authorize:
+                        flags.append("--authorize-deployment")
+                    with (mock.patch.object(live_trial, "make_workspace", return_value=self.project),
+                          mock.patch.object(scenarios, "scenario", return_value=spec),
+                          mock.patch.object(live_trial, "invoke", side_effect=self.fake_invoke)):
+                        code = live_trial.main(["PROGRAM-01", "--mode", "program", "--profile", profile,
+                                                "--workspace", str(self.root), *flags])
+                    self.assertEqual(0, code)
+                    self.assertEqual(3, len(self.calls))
+                    for cmd in self.calls:
+                        is_program = cmd[2:4] == ["program", "run"]
+                        self.assertEqual(authorize and is_program, "--authorize-deployment" in cmd)
+                        self.assertNotIn("--i-authorize-live-model-spend", cmd)
 
     def test_gates_are_served_per_child_and_the_product_is_the_integration_worktree(self):
         bundle = Bundle("PROGRAM-TEST")
@@ -285,6 +310,7 @@ class ProgramModeTest(unittest.TestCase):
         self.assertEqual(self.integration, run["product"])
         kinds = [c[2:4] == ["program", "run"] for c in self.calls]
         self.assertEqual([True, False, True], kinds)
+        self.assertTrue(all("--authorize-deployment" not in cmd for cmd in self.calls))
         approve = self.calls[1]
         self.assertIn("--approve-goal", approve)
         self.assertEqual(str(self.root / "wt"), approve[approve.index("--workspace") + 1])
@@ -324,3 +350,7 @@ class ProgramModeTest(unittest.TestCase):
         self.assertEqual([], self.calls)
         report = json.loads(next((self.root / "artifacts").glob("BUGFIX-01/*/live-trial.json")).read_text())
         self.assertEqual(("PASS", "score-only", "bugfix"), (report["verdict"], report["mode"], report["task_type"]))
+
+
+if __name__ == "__main__":
+    unittest.main()

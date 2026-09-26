@@ -1,6 +1,6 @@
 """Reference deliveries for the task-type scenarios.
 
-These are the handwritten "known good" answers used to prove each oracle
+These are the handwritten positive controls used to test each oracle
 (``tools/test_scenario_oracles.py``) and, later, to script a fixture provider.
 They are not model output and never count as live delivery evidence.
 """
@@ -212,16 +212,15 @@ ARCH_REFERENCE = {
         '''),
     "architecture/check.py": textwrap.dedent('''\
         """Verify the declared architecture against the repository. Exit 1 on violation."""
+        import ast
         import importlib
+        import importlib.util
         import json
-        import re
         import sys
         from pathlib import Path
 
         ROOT = Path(__file__).resolve().parent.parent
         sys.path.insert(0, str(ROOT))
-        IMPORT = re.compile(r"^\\s*(?:from\\s+services\\.(\\w+)|import\\s+services\\.(\\w+)|from\\s+services\\s+import\\s+(\\w+))",
-                            re.MULTILINE)
 
 
         def fail(message):
@@ -266,10 +265,21 @@ ARCH_REFERENCE = {
                     if not callable(getattr(module, operation["name"], None)):
                         ok = fail(f"{cid}.api lacks {operation['name']}")
                 for path in (ROOT / "services" / cid).rglob("*.py"):
-                    for match in IMPORT.finditer(path.read_text()):
-                        other = next(g for g in match.groups() if g)
-                        if other != cid and other not in edges[cid]:
-                            ok = fail(f"{cid} imports services.{other} without declaring it")
+                    package_name = ".".join(path.relative_to(ROOT).parts[:-1])
+                    for node in ast.walk(ast.parse(path.read_text(), filename=str(path))):
+                        imports = []
+                        if isinstance(node, ast.Import):
+                            imports = [alias.name for alias in node.names]
+                        elif isinstance(node, ast.ImportFrom):
+                            module_name = importlib.util.resolve_name(
+                                "." * node.level + (node.module or ""), package_name)
+                            imports = [module_name + "." + alias.name for alias in node.names]
+                        for imported in imports:
+                            parts = imported.split(".")
+                            if len(parts) > 1 and parts[0] == "services":
+                                other = parts[1]
+                                if other != cid and other not in edges[cid]:
+                                    ok = fail(f"{cid} imports services.{other} without declaring it")
             print("architecture ok" if ok else "architecture violated")
             return 0 if ok else 1
 
@@ -322,8 +332,9 @@ def call(method, url, payload=None):
             raw = response.read()
             return response.status, (json.loads(raw) if raw else None)
     except urllib.error.HTTPError as error:
-        raw = error.read()
-        return error.code, (json.loads(raw) if raw else None)
+        with error:
+            raw = error.read()
+            return error.code, (json.loads(raw) if raw else None)
 
 
 def serve(handler, port):
@@ -538,6 +549,13 @@ def main():
         for child in children:
             if child.poll() is None:
                 child.terminate()
+        deadline = time.monotonic() + 3
+        for child in children:
+            try:
+                child.wait(timeout=max(0.01, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait(timeout=1)
         raise SystemExit(0)
 
     signal.signal(signal.SIGTERM, stop)
@@ -580,8 +598,9 @@ def call(method, url, payload=None):
             raw = response.read()
             return response.status, (json.loads(raw) if raw else None)
     except urllib.error.HTTPError as error:
-        raw = error.read()
-        return error.code, (json.loads(raw) if raw else None)
+        with error:
+            raw = error.read()
+            return error.code, (json.loads(raw) if raw else None)
 
 
 class EndToEnd(unittest.TestCase):

@@ -87,11 +87,15 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | Flag | Meaning |
 | --- | --- |
 | `program run MANIFEST --max-parallel N` | Concurrent workstreams (default 2). |
-| `program run MANIFEST --authorize-deployment` | Allow `deployment` workstreams to start; their runs still need plan approval. |
+| `program run MANIFEST --authorize-deployment` | Allow `deployment` workstreams to start or resume; their runs still need plan approval. Descriptor generation is ordinary `code`. |
+| `program run MANIFEST --retry-workstream ID` | Explicitly retry a failed workstream in its existing worktree/checkpoint, without bypassing child gates. Repeat for multiple failed workstreams. |
 | `program run MANIFEST --dry-run` | Validate and preview without creating branches or worktrees. |
 | `program derive --run-dir RUN --output program.json` | Write the manifest from an approved plan; refuses unapproved plans. |
 
 Unrecognized `program run` flags (for example `--engine`, model overrides) are passed through to every child code run.
+
+Program manifests support `code`, `integration`, and `deployment`. UI workstreams are
+deferred until the UI runner supports checkpoint recovery; use `autocode ui` separately.
 
 ### Figma / UI
 

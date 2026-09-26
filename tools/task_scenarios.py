@@ -9,15 +9,17 @@ runner's own reports, and never trust a candidate's green tests.
 Scenario ids are typed on purpose (``BUGFIX-01``, ``FEATURE-01``, ``ARCH-01``,
 ``PROGRAM-01``, ``UI-01``) so a result row says what kind of work was tried.
 ``tools/live_trial.py`` drives any of them; ``tools/test_scenario_oracles.py``
-proves each oracle against a reference delivery and broken variants before it
+checks each oracle against a reference delivery and broken variants before it
 is allowed to score a live run.
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -68,11 +70,31 @@ class Checks:
 
 
 def _run(cmd: list[str], cwd: Path, timeout: int = 60, stdin: str | None = None) -> tuple[int, str, str]:
+    proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
+                            text=True, errors="replace", start_new_session=True)
     try:
-        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, input=stdin)
+        out, err = proc.communicate(input=stdin, timeout=timeout)
+        return proc.returncode, out, err
     except subprocess.TimeoutExpired:
         return -1, "", "TIMEOUT"
-    return proc.returncode, proc.stdout, proc.stderr
+    finally:
+        # A delivered test or launcher may leave children after exiting or timing out.
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        try:
+            proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            # Detached descendants can retain the pipes after the group is killed.
+            for stream in (proc.stdin, proc.stdout, proc.stderr):
+                if stream is not None:
+                    stream.close()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass  # Cleanup must not replace the structured timeout result.
 
 
 def workspace_files(project: Path) -> set[str]:
@@ -101,23 +123,15 @@ def _http(method: str, url: str, body: dict | None = None, timeout: float = 10) 
             raw = response.read().decode(errors="replace")
             status = response.status
     except urllib.error.HTTPError as error:
-        raw = error.read().decode(errors="replace")
-        status = error.code
+        with error:
+            raw = error.read().decode(errors="replace")
+            status = error.code
     except (urllib.error.URLError, OSError, TimeoutError) as error:
         return -1, f"unreachable: {error}"
     try:
         return status, json.loads(raw) if raw.strip() else None
     except ValueError:
         return status, raw
-
-
-def _wait_http(url: str, deadline: float) -> bool:
-    while time.monotonic() < deadline:
-        status, _ = _http("GET", url, timeout=2)
-        if status == 200:
-            return True
-        time.sleep(0.2)
-    return False
 
 
 # --- BUGFIX-01: blank-name validation bug in a committed CLI ----------------
@@ -344,10 +358,12 @@ def _render_note(note: dict) -> str:
 def feature01_oracle(project: Path) -> OracleResult:
     """Filter must be case-insensitive, honest on no match, strict on empty tag.
 
-    Every case runs against a scratch copy seeded with the original store so
-    the check never depends on what the Builder left in notes.json.
+    Check the delivered store before running isolated cases against the seed.
     """
     checks = Checks("FEATURE-01")
+    delivered_store = project / "notes.json"
+    checks.record("store.delivered_unchanged", True,
+                  delivered_store.is_file() and delivered_store.read_bytes() == FEATURE_SEED["notes.json"].encode())
     cli = project / "notes.py"
     if not cli.is_file():
         checks.record("notes.py.present", True, False)
@@ -398,17 +414,41 @@ ARCH_REQUIRED_EDGES = {("checkout", "catalog"), ("checkout", "cart"), ("notifica
 ARCH_ROOTS = ("catalog", "cart")
 ARCH_ADR = "docs/adr/0001-service-decomposition.md"
 ARCH_ADR_SECTIONS = ("## Context", "## Options considered", "## Decision", "## Consequences")
-_IMPORT_RE = re.compile(r"^\s*(?:from\s+services\.([A-Za-z_][\w]*)|import\s+services\.([A-Za-z_][\w]*)|"
-                        r"from\s+services\s+import\s+([A-Za-z_][\w]*))", re.MULTILINE)
 
 
 def component_imports(package: Path) -> set[str]:
-    """Names under ``services.`` imported anywhere inside one component package."""
+    """Resolve static imports, including relative imports inside nested packages."""
     found = set()
     for path in package.rglob("*.py"):
-        for match in _IMPORT_RE.finditer(path.read_text(encoding="utf-8", errors="replace")):
-            found.add(next(group for group in match.groups() if group))
+        parent = ["services", package.name, *path.relative_to(package).parts[:-1]]
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
+            modules = []
+            if isinstance(node, ast.Import):
+                modules = [alias.name.split(".") for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                prefix = parent[:len(parent) - node.level + 1] if node.level else []
+                module = prefix + (node.module.split(".") if node.module else [])
+                modules = [module + alias.name.split(".") for alias in node.names]
+            for parts in modules:
+                if len(parts) > 1 and parts[0] == "services":
+                    found.add(parts[1])
     return found
+
+
+def _insert_python(source: str, statement: str) -> str:
+    """Insert after the module docstring and future imports, retaining their semantics."""
+    tree = ast.parse(source)
+    line = 0
+    for index, node in enumerate(tree.body):
+        if (index == 0 and isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)) or (
+                isinstance(node, ast.ImportFrom) and node.module == "__future__"):
+            line = node.end_lineno
+        else:
+            break
+    lines = source.splitlines(keepends=True)
+    before = "".join(lines[:line])
+    return before + ("\n" if before and not before.endswith("\n") else "") + statement + "\n" + "".join(lines[line:])
 
 
 def _acyclic(edges: dict[str, list[str]]) -> bool:
@@ -481,35 +521,62 @@ def arch01_oracle(project: Path) -> OracleResult:
             names = []
         contracts[cid] = names
         checks.record(f"contract[{cid}].has_operations", True, bool(names))
-        probe = ("import importlib, json, sys; m = importlib.import_module('services.%s.api'); "
-                 "print(json.dumps([n for n in %s if callable(getattr(m, n, None))]))" % (cid, json.dumps(names)))
+        probe = ("import contextlib, importlib, json, sys\n"
+                 "with contextlib.redirect_stdout(sys.stderr):\n"
+                 f"    m = importlib.import_module({'services.' + cid + '.api'!r})\n"
+                 f"print(json.dumps([n for n in {names!r} if callable(getattr(m, n, None))]))")
         code, out, err = _run([sys.executable, "-c", probe], cwd=project, timeout=30)
-        implemented = json.loads(out) if code == 0 and out.strip() else f"import failed: {err.strip()[-120:]}"
+        try:
+            implemented = json.loads(out) if code == 0 else f"import failed: {err.strip()[-120:]}"
+        except ValueError:
+            implemented = f"invalid probe output: {out[-120:]!r}"
         checks.record(f"api[{cid}].implements_contract", names, implemented)
         allowed = set(edges.get(cid, []))
-        stray = sorted(component_imports(project / "services" / cid) - allowed - {cid})
+        try:
+            stray = sorted(component_imports(project / "services" / cid) - allowed - {cid})
+        except (OSError, SyntaxError, UnicodeError) as error:
+            stray = [f"invalid Python: {error}"]
         checks.record(f"boundary[{cid}].imports_only_declared_deps", [], stray)
     check_script = project / "architecture" / "check.py"
     checks.record("check.py.present", True, check_script.is_file())
     if check_script.is_file():
         code, _, err = _run([sys.executable, "architecture/check.py"], cwd=project, timeout=60)
+        candidate_ok = code == 0
         checks.record("check.py.passes_on_candidate", 0, code if code == 0 else f"{code}: {err.strip()[-160:]}")
         with tempfile.TemporaryDirectory(prefix="arch01-") as tmp:
             scratch = Path(tmp) / "copy"
             shutil.copytree(project, scratch, ignore=shutil.ignore_patterns(*IGNORED_DIRS))
             api = scratch / "services" / "catalog" / "api.py"
+            rejected = False
             if api.is_file():
-                api.write_text("import services.notifications.api\n" + api.read_text())
-            code, _, _ = _run([sys.executable, "architecture/check.py"], cwd=scratch, timeout=60)
-            checks.record("check.py.rejects_injected_violation", True, code != 0)
+                source = api.read_text()
+                try:
+                    # Dead-code imports exercise static boundaries without circular-import failures.
+                    api.write_text(_insert_python(source, "if False:\n    import services.catalog.api"))
+                    control, _, _ = _run([sys.executable, "architecture/check.py"], cwd=scratch, timeout=60)
+                    api.write_text(_insert_python(source, "if False:\n    import services.notifications.api"))
+                    code, out, err = _run([sys.executable, "architecture/check.py"], cwd=scratch, timeout=60)
+                    rejected = (candidate_ok and control == 0 and code > 0
+                                and "Traceback (most recent call last)" not in out + err
+                                and "SyntaxError" not in out + err)
+                except SyntaxError:
+                    pass
+            checks.record("check.py.rejects_injected_violation", True, rejected)
     return checks.result()
 
 
 # --- PROGRAM-01: four-service order system behind a gateway ---------------
 
 PROGRAM_SERVICES = ("catalog", "cart", "checkout", "gateway")
+PROGRAM_SHAPES = {
+    "Item": {"sku", "name", "price_cents"},
+    "CartItem": {"sku", "quantity", "price_cents"},
+    "Cart": {"cartId", "items"},
+    "Order": {"orderId", "cartId", "total_cents"},
+}
 PROGRAM_STATIC_FILES = ("contracts/README.md", "deploy/docker-compose.yml", "deploy/README.md",
-                        "scripts/run_local.py", "tests/test_e2e.py")
+                        "scripts/run_local.py", "tests/test_e2e.py",
+                        *(f"contracts/{shape}.json" for shape in PROGRAM_SHAPES))
 
 
 def compose_services(text: str) -> list[str]:
@@ -535,51 +602,75 @@ def compose_services(text: str) -> list[str]:
 
 
 class _Services:
-    """Own the four service processes for one oracle run."""
+    """Exercise the delivered launcher; always clean up its process group."""
 
     def __init__(self, project: Path):
         self.project = project
         self.ports = {name: _free_port() for name in PROGRAM_SERVICES}
-        self.procs: dict[str, subprocess.Popen] = {}
-        self.logs: dict[str, Path] = {}
+        self.proc: subprocess.Popen | None = None
 
     def url(self, name: str) -> str:
         return f"http://127.0.0.1:{self.ports[name]}"
 
+    def listening(self) -> bool:
+        for port in self.ports.values():
+            with socket.socket() as sock:
+                sock.settimeout(0.1)
+                if sock.connect_ex(("127.0.0.1", port)) == 0:
+                    return True
+        return False
+
     def start(self, tmp: Path) -> dict[str, bool]:
-        commands = {
-            "catalog": [sys.executable, "services/catalog/server.py", "--port", str(self.ports["catalog"])],
-            "cart": [sys.executable, "services/cart/server.py", "--port", str(self.ports["cart"])],
-            "checkout": [sys.executable, "services/checkout/server.py", "--port", str(self.ports["checkout"]),
-                         "--catalog-url", self.url("catalog"), "--cart-url", self.url("cart")],
-            "gateway": [sys.executable, "gateway/server.py", "--port", str(self.ports["gateway"]),
-                        "--catalog-url", self.url("catalog"), "--cart-url", self.url("cart"),
-                        "--checkout-url", self.url("checkout")],
-        }
-        healthy = {}
-        for name, command in commands.items():
-            if not (self.project / command[1]).is_file():
-                healthy[name] = False
-                continue
-            log = tmp / f"{name}.log"
-            self.logs[name] = log
-            with log.open("w") as handle:
-                self.procs[name] = subprocess.Popen(command, cwd=self.project, stdout=handle,
-                                                    stderr=subprocess.STDOUT, start_new_session=True)
-            healthy[name] = _wait_http(self.url(name) + "/health", time.monotonic() + 20)
+        command = [sys.executable, "scripts/run_local.py"]
+        for name, port in self.ports.items():
+            command.extend([f"--{name}-port", str(port)])
+        with (tmp / "launcher.log").open("w") as handle:
+            self.proc = subprocess.Popen(command, cwd=self.project, stdout=handle,
+                                         stderr=subprocess.STDOUT, start_new_session=True)
+        healthy = dict.fromkeys(PROGRAM_SERVICES, False)
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline and self.proc.poll() is None:
+            for name in PROGRAM_SERVICES:
+                if not healthy[name]:
+                    healthy[name] = _http("GET", self.url(name) + "/health", timeout=0.3) == (200, {"status": "ok"})
+            if all(healthy.values()):
+                break
+            time.sleep(0.1)
         return healthy
 
-    def stop(self):
-        for proc in self.procs.values():
-            if proc.poll() is None:
-                proc.terminate()
-        deadline = time.monotonic() + 5
-        for proc in self.procs.values():
-            while proc.poll() is None and time.monotonic() < deadline:
+    def stop(self) -> bool:
+        if self.proc is None:
+            return False
+        try:
+            if self.proc.poll() is None:
+                self.proc.terminate()  # Signal only the launcher, not its children.
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if self.proc.poll() is not None and not self.listening():
+                    return True
                 time.sleep(0.05)
-            if proc.poll() is None:
-                proc.kill()
-                proc.wait(timeout=5)
+            return False
+        finally:
+            try:
+                os.killpg(self.proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            self.proc.wait(timeout=5)
+            # The launcher may already be reaped while killed children still own sockets.
+            deadline = time.monotonic() + 2
+            while self.listening() and time.monotonic() < deadline:
+                time.sleep(0.05)
+
+
+def _program_e2e(project: Path, checks: Checks) -> None:
+    """Require successful, nonempty delivered unittest discovery, not assertion quality."""
+    with tempfile.TemporaryDirectory(prefix="program01-e2e-") as tmp:
+        scratch = Path(tmp) / "copy"
+        shutil.copytree(project, scratch, ignore=shutil.ignore_patterns(*IGNORED_DIRS))
+        command = [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_e2e.py"]
+        code, out, err = _run(command, cwd=scratch, timeout=60)
+        ran = re.search(r"Ran ([1-9][0-9]*) tests?\b", out + err)
+        checks.record("e2e.passes_with_tests", True, code == 0 and ran is not None)
 
 
 def program01_oracle(project: Path) -> OracleResult:
@@ -591,53 +682,68 @@ def program01_oracle(project: Path) -> OracleResult:
     checks = Checks("PROGRAM-01")
     for rel in PROGRAM_STATIC_FILES:
         checks.record(f"file[{rel}]", True, (project / rel).is_file())
+    for shape, fields in PROGRAM_SHAPES.items():
+        try:
+            contract = json.loads((project / f"contracts/{shape}.json").read_text())
+            required = contract.get("required") if isinstance(contract, dict) else None
+            valid = (isinstance(contract, dict) and contract.get("type") == "object"
+                     and isinstance(required, list) and all(isinstance(field, str) for field in required)
+                     and fields <= set(required))
+        except (OSError, ValueError):
+            valid = False
+        checks.record(f"contract[{shape}].shape", True, valid)
     compose = project / "deploy" / "docker-compose.yml"
     listed = compose_services(compose.read_text(encoding="utf-8", errors="replace")) if compose.is_file() else []
     checks.record("compose.services", sorted(PROGRAM_SERVICES), sorted(set(listed) & set(PROGRAM_SERVICES)))
+    _program_e2e(project, checks)
     services = _Services(project)
+
+    def journey():
+        gateway = services.url("gateway")
+        status, items = _http("GET", gateway + "/catalog")
+        ok_items = (status == 200 and isinstance(items, list) and len(items) >= 3
+                    and all(isinstance(i, dict) and {"sku", "name", "price_cents"} <= set(i)
+                            and isinstance(i["price_cents"], int) for i in items))
+        checks.record("catalog.list", True, ok_items)
+        if not ok_items:
+            return
+        first, second = items[0], items[1]
+        status, cart = _http("POST", f"{gateway}/cart/c1/items",
+                             {"sku": first["sku"], "quantity": 2, "price_cents": first["price_cents"]})
+        checks.record("cart.add_first", 200, status)
+        status, cart = _http("POST", f"{gateway}/cart/c1/items",
+                             {"sku": second["sku"], "quantity": 1, "price_cents": second["price_cents"]})
+        checks.record("cart.add_second", 200, status)
+        status, cart = _http("GET", f"{gateway}/cart/c1")
+        lines = cart.get("items", []) if isinstance(cart, dict) else []
+        checks.record("cart.get", {"status": 200, "items": 2}, {"status": status, "items": len(lines)})
+        status, order = _http("POST", f"{gateway}/checkout", {"cartId": "c1"})
+        expected_total = 2 * first["price_cents"] + second["price_cents"]
+        checks.record("checkout.created", 201, status)
+        order_id = order.get("orderId") if isinstance(order, dict) else None
+        checks.record("checkout.order_id", True, bool(order_id))
+        checks.record("checkout.total", expected_total, order.get("total_cents") if isinstance(order, dict) else order)
+        status, cart = _http("GET", f"{gateway}/cart/c1")
+        checks.record("cart.cleared_after_checkout", {"status": 200, "items": 0},
+                      {"status": status, "items": len(cart.get("items", [])) if isinstance(cart, dict) else cart})
+        status, body = _http("POST", f"{gateway}/checkout", {"cartId": "c1"})
+        checks.record("checkout.empty_cart_rejected", 409, status)
+        status, fetched = _http("GET", f"{gateway}/orders/{order_id}")
+        checks.record("orders.get", {"status": 200, "total_cents": expected_total},
+                      {"status": status, "total_cents": fetched.get("total_cents") if isinstance(fetched, dict) else fetched})
+        status, _ = _http("GET", f"{gateway}/orders/does-not-exist")
+        checks.record("orders.unknown", 404, status)
+
     with tempfile.TemporaryDirectory(prefix="program01-") as tmp:
         try:
             healthy = services.start(Path(tmp))
             for name in PROGRAM_SERVICES:
                 checks.record(f"health[{name}]", True, healthy.get(name, False))
-            if not all(healthy.values()):
-                return checks.result(note="deployment descriptors checked statically, never executed")
-            gateway = services.url("gateway")
-            status, items = _http("GET", gateway + "/catalog")
-            ok_items = (status == 200 and isinstance(items, list) and len(items) >= 3
-                        and all(isinstance(i, dict) and {"sku", "name", "price_cents"} <= set(i)
-                                and isinstance(i["price_cents"], int) for i in items))
-            checks.record("catalog.list", True, ok_items)
-            if not ok_items:
-                return checks.result(note="deployment descriptors checked statically, never executed")
-            first, second = items[0], items[1]
-            status, cart = _http("POST", f"{gateway}/cart/c1/items",
-                                 {"sku": first["sku"], "quantity": 2, "price_cents": first["price_cents"]})
-            checks.record("cart.add_first", 200, status)
-            status, cart = _http("POST", f"{gateway}/cart/c1/items",
-                                 {"sku": second["sku"], "quantity": 1, "price_cents": second["price_cents"]})
-            checks.record("cart.add_second", 200, status)
-            status, cart = _http("GET", f"{gateway}/cart/c1")
-            lines = cart.get("items", []) if isinstance(cart, dict) else []
-            checks.record("cart.get", {"status": 200, "items": 2}, {"status": status, "items": len(lines)})
-            status, order = _http("POST", f"{gateway}/checkout", {"cartId": "c1"})
-            expected_total = 2 * first["price_cents"] + 1 * second["price_cents"]
-            checks.record("checkout.created", 201, status)
-            order_id = order.get("orderId") if isinstance(order, dict) else None
-            checks.record("checkout.order_id", True, bool(order_id))
-            checks.record("checkout.total", expected_total, order.get("total_cents") if isinstance(order, dict) else order)
-            status, cart = _http("GET", f"{gateway}/cart/c1")
-            checks.record("cart.cleared_after_checkout", {"status": 200, "items": 0},
-                          {"status": status, "items": len(cart.get("items", [])) if isinstance(cart, dict) else cart})
-            status, body = _http("POST", f"{gateway}/checkout", {"cartId": "c1"})
-            checks.record("checkout.empty_cart_rejected", 409, status)
-            status, fetched = _http("GET", f"{gateway}/orders/{order_id}")
-            checks.record("orders.get", {"status": 200, "total_cents": expected_total},
-                          {"status": status, "total_cents": fetched.get("total_cents") if isinstance(fetched, dict) else fetched})
-            status, _ = _http("GET", f"{gateway}/orders/does-not-exist")
-            checks.record("orders.unknown", 404, status)
+            checks.record("launcher.running", True, services.proc is not None and services.proc.poll() is None)
+            if all(healthy.values()):
+                journey()
         finally:
-            services.stop()
+            checks.record("launcher.stops_services", True, services.stop())
     return checks.result(note="deployment descriptors checked statically, never executed")
 
 
@@ -739,12 +845,11 @@ class _Html(HTMLParser):
 
 def _chromium(playwright):
     """Launch Chromium from an explicit path when the runtime's own download is absent."""
-    candidates = [os.environ.get("AUTOCODE_CHROMIUM"), os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE"),
-                  "/opt/pw-browsers/chromium", None]
+    candidates = [path for path in (os.environ.get("AUTOCODE_CHROMIUM"),
+                  os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE"), "/opt/pw-browsers/chromium")
+                  if path and Path(path).is_file()] + [None]
     errors = []
     for path in candidates:
-        if path and not Path(path).exists():
-            continue
         try:
             return playwright.chromium.launch(executable_path=path) if path else playwright.chromium.launch()
         except Exception as error:  # noqa: BLE001 - report every launch failure
@@ -909,7 +1014,8 @@ PROGRAM_TASK = (
     "separate process started as `python3 <path> --port N` and answers GET /health with 200 "
     "{\"status\": \"ok\"}. Shared contracts: contracts/README.md describing the JSON shapes Item "
     "{sku, name, price_cents}, CartItem {sku, quantity, price_cents}, Cart {cartId, items}, Order "
-    "{orderId, cartId, total_cents}, plus one contracts/<shape>.json per shape. Services: "
+    "{orderId, cartId, total_cents}, plus one contracts/<shape>.json per shape declaring "
+    "{\"type\": \"object\", \"required\": [all field names above]}. Services: "
     "services/catalog/server.py: GET /items -> 200 JSON list of at least three items; GET "
     "/items/{sku} -> 200 item or 404. services/cart/server.py: POST /carts/{cartId}/items with a "
     "CartItem body -> 200 Cart; GET /carts/{cartId} -> 200 Cart (empty items for an unknown id); "
@@ -924,7 +1030,8 @@ PROGRAM_TASK = (
     "checkout and gateway (never executed in this task) and deploy/README.md stating that no "
     "deployment was performed. scripts/run_local.py --catalog-port --cart-port --checkout-port "
     "--gateway-port starts all four processes wired together and stops them on SIGTERM/Ctrl-C. "
-    "tests/test_e2e.py starts the services on free ports and checks: catalog lists items, adding "
+    "tests/test_e2e.py is a discoverable unittest suite that starts the services on free ports and checks: "
+    "catalog lists items, adding "
     "two items to a cart, checkout total, the cart is empty after checkout, and an empty-cart "
     "checkout returns 409. Plan this as independent milestones with disjoint ownership: contracts "
     "first; catalog and cart in parallel; then checkout; then gateway; then tests and deploy."
@@ -959,7 +1066,8 @@ PROGRAM_MANIFEST = {
         {"id": "contracts", "kind": "code", "owns": ["contracts/"], "depends_on": [],
          "brief": "Write contracts/README.md and one contracts/<shape>.json per shape: Item {sku, name, "
                   "price_cents}, CartItem {sku, quantity, price_cents}, Cart {cartId, items}, Order {orderId, "
-                  "cartId, total_cents}. Documentation only; no code."},
+                  "cartId, total_cents}. Each JSON file declares type object and a required list of those fields. "
+                  "Documentation only; no code."},
         {"id": "catalog", "kind": "code", "owns": ["services/catalog/"], "depends_on": ["contracts"],
          "brief": "services/catalog/server.py --port N: GET /health -> 200 {status: ok}; GET /items -> 200 list of "
                   "at least three Item objects; GET /items/{sku} -> 200 Item or 404. Include unit tests in the package."},
@@ -976,16 +1084,17 @@ PROGRAM_MANIFEST = {
          "brief": "gateway/server.py --port N --catalog-url --cart-url --checkout-url: GET /health; proxy GET "
                   "/catalog, POST /cart/{cartId}/items, GET /cart/{cartId}, POST /checkout, GET /orders/{orderId} "
                   "to the owning service, preserving status codes and JSON bodies."},
-        {"id": "integration", "kind": "integration", "owns": ["tests/", "scripts/"], "depends_on": ["gateway"],
-         "brief": "scripts/run_local.py --catalog-port --cart-port --checkout-port --gateway-port starts all four "
-                  "services wired together and stops them on SIGTERM. tests/test_e2e.py starts the services on "
-                  "free ports and verifies the full journey through the gateway: catalog listing, two cart "
-                  "additions, checkout total, cart empty afterwards, empty-cart checkout 409. Fix integration "
-                  "defects in any service only when the journey fails."},
-        {"id": "deploy", "kind": "deployment", "owns": ["deploy/"], "depends_on": ["integration"],
+        {"id": "deploy", "kind": "code", "owns": ["deploy/"], "depends_on": ["gateway"],
          "brief": "deploy/docker-compose.yml defining services catalog, cart, checkout and gateway, and "
                   "deploy/README.md stating that no deployment was performed. Do not run docker or reach any "
                   "external system."},
+        {"id": "integration", "kind": "integration", "owns": ["tests/", "scripts/"], "depends_on": ["gateway", "deploy"],
+         "brief": "scripts/run_local.py --catalog-port --cart-port --checkout-port --gateway-port starts all four "
+                  "services wired together and stops them on SIGTERM. tests/test_e2e.py is a discoverable unittest "
+                  "suite that starts the services on "
+                  "free ports and verifies the full journey through the gateway: catalog listing, two cart "
+                  "additions, checkout total, cart empty afterwards, empty-cart checkout 409. Fix integration "
+                  "defects in any service only when the journey fails."},
     ],
 }
 
@@ -999,7 +1108,7 @@ SCENARIOS = {
         "oracle_name": "BUGFIX-01",
         "expected_class": "pass_or_honest",
         "deliverables": list(BUGFIX_DELIVERABLES),
-        "baseline": {"status": "NOT_RUN", "note": "oracle proven against reference and broken variants only"},
+        "baseline": {"status": "NOT_RUN", "note": "oracle checked against reference and targeted broken variants only"},
     },
     "FEATURE-01": {
         "title": "Feature: case-insensitive tag filter in a seeded notes CLI",
@@ -1010,7 +1119,7 @@ SCENARIOS = {
         "oracle_name": "FEATURE-01",
         "expected_class": "pass_or_honest",
         "deliverables": list(FEATURE_DELIVERABLES),
-        "baseline": {"status": "NOT_RUN", "note": "oracle proven against reference and broken variants only"},
+        "baseline": {"status": "NOT_RUN", "note": "oracle checked against reference and targeted broken variants only"},
     },
     "ARCH-01": {
         "title": "Architecture: service decomposition with enforced boundaries",
@@ -1023,7 +1132,7 @@ SCENARIOS = {
         "deliverables": [ARCH_ADR, "architecture/components.json", "architecture/check.py",
                          "docs/architecture.md"] + [f"contracts/{c}.json" for c in ARCH_COMPONENTS]
                         + [f"services/{c}/api.py" for c in ARCH_COMPONENTS],
-        "baseline": {"status": "NOT_RUN", "note": "oracle proven against reference and broken variants only"},
+        "baseline": {"status": "NOT_RUN", "note": "oracle checked against reference and targeted broken variants only"},
     },
     "PROGRAM-01": {
         "title": "Program: four-service order system behind a gateway",
@@ -1038,7 +1147,7 @@ SCENARIOS = {
         # The same brief can run as one run with parallel milestone Builders or
         # as `autocode program run` with this manifest; the oracle is identical.
         "program_manifest": PROGRAM_MANIFEST,
-        "baseline": {"status": "NOT_RUN", "note": "oracle proven against reference and broken variants only"},
+        "baseline": {"status": "NOT_RUN", "note": "oracle checked against reference and targeted broken variants only"},
     },
     "UI-01": {
         "title": "UI: implement a frozen design reference (Figma stand-in)",
@@ -1049,7 +1158,7 @@ SCENARIOS = {
         "oracle_name": "UI-01",
         "expected_class": "pass_or_honest",
         "deliverables": list(UI_DELIVERABLES),
-        "baseline": {"status": "NOT_RUN", "note": "oracle proven against reference and broken variants only; "
+        "baseline": {"status": "NOT_RUN", "note": "oracle checked against reference and targeted broken variants only; "
                                                   "the live Figma route (autocode ui --build) has no offline oracle"},
     },
 }

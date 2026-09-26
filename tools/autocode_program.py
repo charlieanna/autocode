@@ -18,6 +18,7 @@ child run's saved ``state.json`` is the only source of a workstream's status.
 from __future__ import annotations
 
 import argparse
+import copy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
@@ -38,11 +39,10 @@ except ImportError:
     import autocode_planning_graph as graph
 
 
-KINDS = ("code", "ui", "integration", "deployment")
+KINDS = ("code", "integration", "deployment")
 ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 TERMINAL_CODE = {"TASK_COMPLETE"}
 STATE_LOCK = threading.Lock()  # worker threads update records; the main thread serializes state
-TERMINAL_UI = {"COMPLETE"}
 WAITING_CODE = {"WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"}
 GIT_IDENTITY = ("-c", "user.name=Autocode", "-c", "user.email=autocode@localhost")
 SHARED_LISTS = ("constraints", "permission_boundaries", "end_to_end_flow", "technical_approach", "deliverables")
@@ -73,7 +73,8 @@ def _owned_path(value, where):
         raise ValueError(f"{where}: ownership paths must be nonblank repository-relative paths")
     path = Path(value)
     parts = path.parts
-    if path.is_absolute() or ".." in parts or not parts or parts[0] in (".git", ".autocode"):
+    if (path.is_absolute() or ".." in parts or not parts or parts[0] in (".git", ".autocode")
+            or any(c in value for c in "*?[]\\")):
         raise ValueError(f"{where}: {value!r} is not an allowed repository-relative path")
     return path.as_posix().rstrip("/")
 
@@ -112,9 +113,12 @@ def validate_manifest(value):
     rows = value.get("workstreams")
     if not isinstance(rows, list) or not rows:
         raise ValueError("Program manifest needs at least one workstream")
-    allowed = {"id", "kind", "brief", "owns", "depends_on", "acceptance_criteria", "engine", "figma_file"}
+    allowed = {"id", "kind", "brief", "owns", "depends_on", "acceptance_criteria", "engine"}
     ids = []
     for row in rows:
+        if isinstance(row, dict) and row.get("kind") == "ui":
+            raise ValueError("Program UI workstreams are not supported until UI checkpoint recovery is available; "
+                             "use autocode ui separately")
         if not isinstance(row, dict) or set(row) - allowed:
             raise ValueError(f"Workstream fields must be within {sorted(allowed)}")
         if not isinstance(row.get("id"), str) or not ID_RE.fullmatch(row["id"]):
@@ -125,13 +129,9 @@ def validate_manifest(value):
             raise ValueError(f"Workstream {row['id']}: brief must be a nonempty string")
         if row.get("engine") not in (None, "codex", "opencode"):
             raise ValueError(f"Workstream {row['id']}: engine must be codex or opencode")
-        if row.get("engine") and row["kind"] == "ui":
-            raise ValueError(f"Workstream {row['id']}: engine applies only to code runs")
-        if row.get("figma_file") and row["kind"] != "ui":
-            raise ValueError(f"Workstream {row['id']}: figma_file applies only to ui workstreams")
         row["owns"] = [_owned_path(p, f"workstream {row['id']}") for p in _string_list(row.get("owns", []), f"workstream {row['id']}.owns")]
-        if not row["owns"] and row["kind"] in ("code", "ui"):
-            raise ValueError(f"Workstream {row['id']}: code and ui workstreams must declare the paths they own")
+        if not row["owns"] and row["kind"] != "integration":
+            raise ValueError(f"Workstream {row['id']}: non-integration workstreams must declare the paths they own")
         row["depends_on"] = _string_list(row.get("depends_on", []), f"workstream {row['id']}.depends_on")
         if "acceptance_criteria" in row:
             _string_list(row["acceptance_criteria"], f"workstream {row['id']}.acceptance_criteria")
@@ -230,8 +230,11 @@ def derive_manifest(state, *, name=None, source_run=None):
     depended = {dep for milestone in milestones for dep in milestone.get("depends_on", [])}
     sinks = [milestone["id"] for milestone in milestones if milestone["id"] not in depended]
     flow = body.get("end_to_end_flow", [])
+    integration_id = "integration"
+    while integration_id in {row["id"] for row in workstreams}:
+        integration_id += "-final"
     workstreams.append({
-        "id": "integration", "kind": "integration", "owns": [], "depends_on": sinks,
+        "id": integration_id, "kind": "integration", "owns": [], "depends_on": sinks,
         "brief": ("Validate the complete approved flow on the merged result of every workstream:\n- "
                   + "\n- ".join(flow) + "\nRepair only integration defects between merged workstreams; "
                   "do not reimplement a workstream or widen scope. Every acceptance criterion of the "
@@ -242,7 +245,8 @@ def derive_manifest(state, *, name=None, source_run=None):
         "version": 1,
         "name": name or body.get("intended_outcome", "program")[:60],
         "brief": body.get("intended_outcome", ""),
-        "contract": {"task_id": contract.get("task_id"), "revision": contract["revision"], "hash": contract["hash"]},
+        "contract": {"task_id": contract.get("task_id"), "revision": contract["revision"], "hash": contract["hash"],
+                     "body": copy.deepcopy(body)},
         "shared": {key: list(body.get(key, [])) for key in SHARED_LISTS if body.get(key)},
         "workstreams": workstreams,
     }
@@ -306,9 +310,16 @@ def compose_brief(manifest, workstream, state):
     lines = [f"PROGRAM WORKSTREAM {workstream['id']} ({workstream['kind']}) of program \"{manifest['name']}\".",
              "", "Program outcome: " + manifest["brief"].strip(), ""]
     for key, label in (("constraints", "Shared constraints"), ("permission_boundaries", "Permission boundaries"),
-                       ("technical_approach", "Shared technical approach"), ("end_to_end_flow", "Program end-to-end flow")):
+                       ("technical_approach", "Shared technical approach"), ("end_to_end_flow", "Program end-to-end flow"),
+                       ("deliverables", "Program deliverables")):
         if shared.get(key):
             lines += [label + ":"] + [f"- {item}" for item in shared[key]] + [""]
+    body = manifest.get("contract", {}).get("body")
+    if body:
+        lines += ["Approved parent contract (complete context, not authorization to expand this workstream):",
+                  json.dumps(body, indent=2),
+                  "Preserve its requirements, exclusions, permission boundaries and human_review obligations "
+                  "in your child plan. Parent approval does not approve this child plan or satisfy human review.", ""]
     if shared.get("interfaces"):
         lines.append("Shared interfaces (read-only unless this workstream owns their paths):")
         lines += [f"- {row['id']}: {row['summary']} [{', '.join(row.get('paths', [])) or 'no paths'}]" for row in shared["interfaces"]]
@@ -319,16 +330,28 @@ def compose_brief(manifest, workstream, state):
         lines.append("")
     lines += ["This workstream's objective:", workstream["brief"].strip(), ""]
     if workstream.get("acceptance_criteria"):
-        lines += ["Acceptance criteria for this workstream:"] + [f"- {item}" for item in workstream["acceptance_criteria"]] + [""]
-    if workstream["owns"]:
+        criteria = {row["id"]: row for row in (body or {}).get("acceptance_criteria", [])}
+        lines.append("Acceptance criteria for this workstream:")
+        for item in workstream["acceptance_criteria"]:
+            criterion = criteria.get(item)
+            lines.append(f"- {item}: {json.dumps(criterion)}" if criterion else f"- {item}")
+        lines.append("")
+    if workstream["kind"] == "integration":
+        lines += ["Ownership exception: you may repair integration defects across merged workstreams, "
+                  "including tracked files outside your declared paths; do not expand the approved scope."]
+    elif workstream["owns"]:
         lines += ["Ownership: create or modify files only under: " + ", ".join(workstream["owns"]) + "."]
-    else:
-        lines += ["Ownership: unbounded within this workspace; change other workstreams' files only to fix integration defects."]
-    foreign = sorted({p for row in others.values() for p in row["owns"]})
-    if foreign and workstream["owns"]:
+    foreign = sorted({p for row in others.values() for p in row["owns"]
+                      if not any(p == own or p.startswith(own + "/") or own.startswith(p + "/")
+                                 for own in workstream["owns"])})
+    if foreign and workstream["kind"] != "integration":
         lines += ["Paths owned by other workstreams (do not modify): " + ", ".join(foreign) + "."]
-    lines += ["Do not deploy, do not access external systems, and do not merge branches; the program "
-              "controller integrates completed workstreams."]
+    if workstream["kind"] == "deployment":
+        lines += ["Deployment scheduling was explicitly authorized, but external actions still require "
+                  "permission in your own approved plan and must obey the parent permission boundaries."]
+    else:
+        lines += ["Do not deploy or access external systems."]
+    lines += ["The program controller integrates completed workstreams; do not merge branches."]
     return "\n".join(lines)
 
 
@@ -336,20 +359,38 @@ def compose_brief(manifest, workstream, state):
 
 def refresh(record):
     run = record.get("run_dir")
+    if not run and record.get("workspace") and "runs_before" in record:
+        created = set(Path(record["workspace"]).glob(".autocode/runs/*")) - {Path(p) for p in record["runs_before"]}
+        candidates = [p for p in created if (p / "state.json").is_file()]
+        if len(candidates) == 1:
+            run = record["run_dir"] = str(candidates[0].resolve())
+        elif len(candidates) > 1:
+            record.update(status="FAILED", error="Multiple child checkpoints found; select the correct run before retrying")
+            return
     if not run:
         return
     path = Path(run) / "state.json"
     if not path.is_file():
+        record.update(status="FAILED", run_status=None, error=f"Saved child checkpoint is missing: {path}")
         return
-    saved = json.loads(path.read_text())
+    try:
+        saved = json.loads(path.read_text())
+    except (OSError, ValueError) as error:
+        record.update(status="FAILED", run_status=None, error=f"Cannot read child checkpoint: {error}")
+        return
+    if not isinstance(saved, dict) or not isinstance(saved.get("status"), str):
+        record.update(status="FAILED", run_status=None, error=f"Invalid child checkpoint: {path}")
+        return
     status = saved.get("status")
     record["run_status"] = status
-    terminal = TERMINAL_UI if record["kind"] == "ui" else TERMINAL_CODE
     if record["status"] == "MERGED":
         return
-    if status in terminal:
-        if record["status"] != "COMPLETE":
+    if status in TERMINAL_CODE:
+        if record["status"] not in ("COMPLETE", "CONFLICT"):
             record.update(status="COMPLETE", finished_at=support.now())
+    elif status == "RUNNING" and record["status"] in ("COMPLETE", "CONFLICT"):
+        record["status"] = "WAITING"
+        record.pop("finished_at", None)
     elif status in WAITING_CODE:
         record["status"] = "WAITING"
     elif status not in ("RUNNING", None):
@@ -361,13 +402,16 @@ def launch(project, program_dir, manifest, workstream, record, state, options):
     runner = Path(__file__).with_name("autocode.py")
     if workstream["kind"] == "integration":
         workspace = Path(state["integration"]["workspace"])
-        record.update(workspace=str(workspace), branch=state["integration"]["branch"])
+        with STATE_LOCK:
+            record.update(workspace=str(workspace), branch=state["integration"]["branch"])
+            record.setdefault("base_commit", integration_head(state))
     elif not record.get("workspace"):
         base = integration_head(state)
         suffix = uuid.uuid4().hex[:8]
         data = _worktree(project, f"program-{state['key']}-{workstream['id']}-{suffix}",
                          f"autocode/program-{state['key']}/{workstream['id']}-{suffix}", base)
-        record.update(workspace=data["workspace"], branch=data["branch"], base_commit=base)
+        with STATE_LOCK:
+            record.update(workspace=data["workspace"], branch=data["branch"], base_commit=base)
         workspace = Path(data["workspace"])
     else:
         workspace = Path(record["workspace"])
@@ -377,11 +421,6 @@ def launch(project, program_dir, manifest, workstream, record, state, options):
     (artifact / "brief.md").write_text(brief + "\n")
     if record.get("run_dir"):
         command = [sys.executable, str(runner), "--workspace", str(workspace), "--run-dir", record["run_dir"], "--no-chat"]
-    elif workstream["kind"] == "ui":
-        run = artifact / "ui"
-        command = [sys.executable, str(runner), "ui", brief, "--workspace", str(workspace), "--run-dir", str(run)]
-        if workstream.get("figma_file"):
-            command += ["--figma-file", workstream["figma_file"]]
     else:
         command = [sys.executable, str(runner), brief, "--workspace", str(workspace), "--in-place", "--no-chat"]
         engine = workstream.get("engine") or options.get("engine")
@@ -389,18 +428,17 @@ def launch(project, program_dir, manifest, workstream, record, state, options):
             command += ["--engine", engine]
         command += list(options.get("passthrough", []))
     with STATE_LOCK:
+        if not record.get("run_dir"):
+            record.setdefault("runs_before", [str(p) for p in workspace.glob(".autocode/runs/*")])
         record.update(status="RUNNING", started_at=support.now(), command=command)
-    before = set(workspace.glob(".autocode/runs/*"))
+        record.pop("error", None)
+        # Save the worktree and discovery boundary before launch, so an interrupted
+        # controller can recover its child checkpoint instead of duplicating it.
+        support.atomic_json(program_dir / "state.json", state)
     result = subprocess.run(command, cwd=workspace, capture_output=True, text=True)
     (artifact / "stdout.log").write_text(result.stdout)
     (artifact / "stderr.log").write_text(result.stderr)
     with STATE_LOCK:
-        if workstream["kind"] == "ui":
-            record["run_dir"] = str(artifact / "ui")
-        elif not record.get("run_dir"):
-            created = set(workspace.glob(".autocode/runs/*")) - before
-            if len(created) == 1:
-                record["run_dir"] = str(created.pop().resolve())
         record.update(exit_code=result.returncode, last_invocation_at=support.now())
         refresh(record)
         if record["status"] == "RUNNING":
@@ -410,8 +448,32 @@ def launch(project, program_dir, manifest, workstream, record, state, options):
 
 # --- integration ------------------------------------------------------------
 
+def check_ownership(workstream, record):
+    """Check the delivered diff, including prior commits, deletions and new files."""
+    workspace = Path(record["workspace"])
+    if workspaces.git(workspace, "rev-parse", "--abbrev-ref", "HEAD") != record["branch"]:
+        raise support.Paused("PAUSED_OWNERSHIP", f"Workstream {workstream['id']} is not on its recorded branch; "
+                             "restore the worktree to its recorded branch before integrating")
+    paths = set()
+    for args in (("diff", "--name-only", "--no-renames", "-z", record["base_commit"], "HEAD", "--"),
+                 ("diff", "--name-only", "--no-renames", "-z", record["base_commit"], "--"),
+                 ("ls-files", "--others", "--exclude-standard", "-z")):
+        result = subprocess.run(["git", "-C", str(workspace), *args], capture_output=True, text=True, check=True)
+        found = {p for p in result.stdout.split("\0") if p}
+        if args[0] == "ls-files":
+            found = {p for p in found if not p.startswith(".autocode/")}
+        paths.update(found)
+    outside = sorted(p for p in paths if not any(p == own or p.startswith(own + "/") for own in workstream["owns"]))
+    if outside:
+        raise support.Paused("PAUSED_OWNERSHIP", f"Workstream {workstream['id']} changed paths outside owns: "
+                             f"{', '.join(outside)}. Remove those changes from both its branch and worktree, "
+                             "then rerun; nothing was merged")
+
+
 def _commit_all(workspace, message):
     """Commit every change except runner metadata; return the new commit or None when clean."""
+    if workspaces.git(workspace, "diff", "--cached", "--name-only", "--", ".autocode"):
+        raise support.Paused("PAUSED_METADATA", "Runner metadata is staged; unstage .autocode before integrating")
     workspaces.git(workspace, "add", "-A", "--", ".", ":!.autocode")
     if not workspaces.git(workspace, "diff", "--cached", "--name-only"):
         return None
@@ -422,18 +484,25 @@ def _commit_all(workspace, message):
 def integrate(state, workstream, record):
     """Merge one completed workstream onto the integration branch; pause on conflict."""
     integration = Path(state["integration"]["workspace"])
-    if workspaces.git(integration, "status", "--porcelain", "--untracked-files=no"):
-        raise support.Paused("PAUSED_INTEGRATION_DIRTY",
-                             f"The integration worktree {integration} has uncommitted tracked changes; commit or restore them")
+    if workspaces.git(integration, "rev-parse", "--abbrev-ref", "HEAD") != state["integration"]["branch"]:
+        raise support.Paused("PAUSED_INTEGRATION_DIRTY", "Restore the integration worktree to its recorded branch before merging")
     title = workstream["brief"].strip().splitlines()[0][:72]
     if workstream["kind"] == "integration":
+        base = record.get("base_commit", state["integration"]["base_commit"])
+        if workspaces.git(integration, "diff", "--name-only", base, "HEAD", "--", ".autocode"):
+            raise support.Paused("PAUSED_METADATA", "Integration committed runner metadata; remove that metadata diff before resuming")
         commit = _commit_all(integration, f"Program {state['name']}: {workstream['id']} - {title}")
         record.update(status="MERGED", merged_commit=commit or integration_head(state), merged_at=support.now(),
                       merge_note="committed on the integration branch" if commit else "no source changes")
         note(state, "workstream_merged", workstream=workstream["id"], commit=record["merged_commit"])
         return
+    if workspaces.git(integration, "status", "--porcelain", "--untracked-files=no"):
+        raise support.Paused("PAUSED_INTEGRATION_DIRTY",
+                             f"The integration worktree {integration} has uncommitted tracked changes; commit or restore them")
+    check_ownership(workstream, record)
     workspace = Path(record["workspace"])
     commit = _commit_all(workspace, f"Program {state['name']}: {workstream['id']} - {title}")
+    check_ownership(workstream, record)
     if commit is None and workspaces.git(workspace, "rev-parse", "--verify", "HEAD") == record.get("base_commit"):
         record.update(status="MERGED", merged_commit=integration_head(state), merged_at=support.now(),
                       merge_note="no source changes")
@@ -457,6 +526,10 @@ def integrate(state, workstream, record):
 def adopt_manual_merge(state, workstream, record):
     """A human resolved a conflict and committed: accept the branch as merged when its tip is an ancestor."""
     integration = Path(state["integration"]["workspace"])
+    if (workspaces.git(integration, "rev-parse", "--abbrev-ref", "HEAD") != state["integration"]["branch"]
+            or workspaces.git(integration, "status", "--porcelain", "--untracked-files=no")):
+        raise support.Paused("PAUSED_INTEGRATION_DIRTY", "Finish the resolution on the recorded integration branch before resuming")
+    check_ownership(workstream, record)
     result = subprocess.run(["git", "-C", str(integration), "merge-base", "--is-ancestor", record["branch"], "HEAD"],
                             capture_output=True, text=True)
     if result.returncode == 0:
@@ -474,17 +547,14 @@ def resumable(record):
     """A child run a human has already acted on (approved, answered, resumed) and that now
     waits only for an ordinary invocation. Runs still at a human gate or a PAUSED_* status
     are never touched: their next action belongs to a person."""
-    return record["status"] in ("WAITING", "PAUSED") and record.get("run_status") == "RUNNING"
+    return record["status"] in ("RUNNING", "WAITING", "PAUSED") and record.get("run_status") == "RUNNING"
 
 
 def ready(manifest, state, *, authorize_deployment):
     rows, blocked = [], []
     for workstream in manifest["workstreams"]:
         record = state["workstreams"][workstream["id"]]
-        if resumable(record):
-            rows.append((workstream, record))
-            continue
-        if record["status"] != "PENDING":
+        if record["status"] != "PENDING" and not resumable(record):
             continue
         if not all(state["workstreams"][dep]["status"] == "MERGED" for dep in workstream["depends_on"]):
             continue
@@ -505,7 +575,8 @@ def summarize(manifest, state, state_path):
                      **{k: v for k, v in record.items() if k != "command"}})
     statuses = [row["status"] for row in rows]
     pending_deploy_only = all(
-        row["status"] == "MERGED" or (row["kind"] == "deployment" and row["status"] == "PENDING") for row in rows)
+        row["status"] == "MERGED" or (row["kind"] == "deployment" and
+            (row["status"] == "PENDING" or row.get("blocked_reason"))) for row in rows)
     if all(value == "MERGED" for value in statuses):
         status = "COMPLETE"
     elif any(value == "CONFLICT" for value in statuses):
@@ -518,15 +589,17 @@ def summarize(manifest, state, state_path):
         status = "WAITING"
     else:
         status = "RUNNING"
+    if state.get("pause"):
+        status = state["pause"]["status"]
     state["status"] = status
     integration = state.get("integration") or {}
     return {"program": state["name"], "status": status, "state_file": str(state_path),
             "integration_branch": integration.get("branch"), "integration_workspace": integration.get("workspace"),
             "workstreams": rows,
-            "next": {
+            "next": state["pause"]["reason"] if state.get("pause") else {
                 "COMPLETE": f"Review {integration.get('branch')} and merge it into your default branch yourself.",
                 "PAUSED_MERGE_CONFLICT": "Resolve the recorded conflict in the integration worktree, commit, then rerun.",
-                "BLOCKED": "Inspect the failed workstream's stdout/stderr logs and run directory, then rerun.",
+                "BLOCKED": "Inspect the failed workstream's logs, then rerun with --retry-workstream ID. Child gates remain enforced.",
                 "AUTHORIZATION_REQUIRED": "Rerun with --authorize-deployment to start the deployment workstream(s).",
                 "WAITING": "Answer questions or approve plans in the listed run directories, then rerun.",
                 "RUNNING": "Rerun to continue.",
@@ -539,16 +612,33 @@ def execute(options, source, manifest, project, program_dir, state_path):
     if state["manifest_sha256"] != support.file_hash(source) or state["project_workspace"] != str(project):
         raise ValueError(f"Program manifest or project differs from its saved checkpoint {state_path}; "
                          "a saved program's manifest is frozen. Use a new program name to start over")
+    by_id = {row["id"]: row for row in manifest["workstreams"]}
+    for wid in options.get("retry_workstreams", []):
+        if wid not in by_id or state["workstreams"][wid]["status"] != "FAILED":
+            raise ValueError(f"--retry-workstream requires a failed workstream: {wid}")
+        record = state["workstreams"][wid]
+        refresh(record)
+        if record["status"] == "FAILED":
+            if record.get("run_dir") and not (Path(record["run_dir"]) / "state.json").is_file():
+                raise ValueError(f"Saved child checkpoint is missing for {wid}; restore it before retrying")
+            if record.get("run_dir") and record.get("run_status") is None:
+                raise ValueError(f"Saved child checkpoint is invalid for {wid}; restore it before retrying")
+            if record.get("error", "").startswith("Multiple child checkpoints"):
+                raise ValueError(record["error"])
+            record["status"] = "WAITING" if record.get("run_dir") else "PENDING"
+        note(state, "workstream_retry_requested", workstream=wid)
+    state.pop("pause", None)
     ensure_integration(project, state)
     save = lambda: _save(state_path, state)
     save()
-    by_id = {row["id"]: row for row in manifest["workstreams"]}
     launched: set[str] = set()  # each workstream is invoked at most once per pass
     try:
         while True:
             for wid, record in state["workstreams"].items():
-                if record["status"] in ("RUNNING", "WAITING", "PAUSED", "COMPLETE"):
+                if record["status"] in ("RUNNING", "WAITING", "PAUSED", "COMPLETE", "CONFLICT", "FAILED"):
                     refresh(record)
+                if record["status"] == "RUNNING" and not record.get("run_dir"):
+                    record.update(status="FAILED", error="Controller interrupted before a child checkpoint was saved; retry explicitly")
                 if record["status"] == "CONFLICT":
                     adopt_manual_merge(state, by_id[wid], record)
             save()
@@ -562,6 +652,10 @@ def execute(options, source, manifest, project, program_dir, state_path):
             if not rows:
                 break
             batch = rows[:options["max_parallel"]]
+            for workstream, record in batch:
+                if (workstream["kind"] == "integration" and record["status"] == "PENDING"
+                        and workspaces.git(state["integration"]["workspace"], "status", "--porcelain", "--untracked-files=no")):
+                    raise support.Paused("PAUSED_INTEGRATION_DIRTY", "Commit existing integration changes before starting its run")
             launched.update(workstream["id"] for workstream, _ in batch)
             with ThreadPoolExecutor(max_workers=options["max_parallel"]) as pool:
                 futures = {pool.submit(launch, project, program_dir, manifest, workstream, record, state, options): workstream
@@ -577,6 +671,7 @@ def execute(options, source, manifest, project, program_dir, state_path):
                     save()
     except support.Paused as pause:
         note(state, "paused", status=pause.status, reason=str(pause))
+        state["pause"] = {"status": pause.status, "reason": str(pause)}
         result = summarize(manifest, state, state_path)
         result["status"] = state["status"] = pause.status
         result["next"] = str(pause)
@@ -659,6 +754,8 @@ def cli_run(argv, *, status_only=False):
     parser.add_argument("--authorize-deployment", action="store_true",
                         help="allow deployment workstreams to start (their runs still need plan approval)")
     parser.add_argument("--engine", choices=["codex", "opencode"], help="engine for child code runs")
+    parser.add_argument("--retry-workstream", action="append", default=[], metavar="ID",
+                        help="retry a failed workstream in its existing worktree without bypassing child gates")
     parser.add_argument("--dry-run", action="store_true", help="validate and preview without creating worktrees")
     args, passthrough = parser.parse_known_args(argv)
     if args.max_parallel < 1:
@@ -685,7 +782,7 @@ def cli_run(argv, *, status_only=False):
         return 0
     program_dir.mkdir(parents=True, exist_ok=True)
     options = {"max_parallel": args.max_parallel, "authorize_deployment": args.authorize_deployment,
-               "engine": args.engine, "passthrough": passthrough}
+               "engine": args.engine, "passthrough": passthrough, "retry_workstreams": args.retry_workstream}
     try:
         with support.workspace_lock(program_dir):
             return execute(options, source, manifest, project, program_dir, state_path)

@@ -11,6 +11,8 @@ Usage:
 
 ``--profile fixture`` is offline and proves the harness before any spend.
 Live profiles require the explicit authorization flag and a real provider.
+Deployment authorization in program mode requires the separate
+``--authorize-deployment`` opt-in; live model spend never grants it.
 """
 from __future__ import annotations
 
@@ -256,18 +258,23 @@ PROGRAM_TERMINAL = ("COMPLETE",)
 PROGRAM_PAUSES = ("WAITING", "PAUSED_", "AUTHORIZATION_REQUIRED")
 
 
-def program_command(project: Path, profile: dict, manifest_path: Path) -> list[str]:
+def program_command(project: Path, profile: dict, manifest_path: Path, *,
+                    authorize_deployment: bool = False) -> list[str]:
     """`autocode program run` with the profile's role flags passed through to child runs."""
     child = autocode_command(project, profile, None, None, [])
     # Everything after the workspace/in-place/no-chat trio is child-run configuration.
     passthrough = child[child.index("--no-chat") + 1:]
     passthrough = [flag for flag in passthrough if flag != "--in-place"]
-    return [sys.executable, str(AUTOCODE), "program", "run", str(manifest_path), "--workspace", str(project),
-            "--max-parallel", "2", "--authorize-deployment", *passthrough]
+    cmd = [sys.executable, str(AUTOCODE), "program", "run", str(manifest_path), "--workspace", str(project),
+           "--max-parallel", "2"]
+    if authorize_deployment:
+        cmd.append("--authorize-deployment")
+    return cmd + passthrough
 
 
 def drive_program(project: Path, root: Path, profile: dict, manifest: dict,
-                  budget_stages: int, timeout: int, bundle: Bundle) -> dict:
+                  budget_stages: int, timeout: int, bundle: Bundle, *,
+                  authorize_deployment: bool = False) -> dict:
     """Run a scenario as a program: every workstream is a child run whose gates are served here.
 
     The program controller never approves anything; this driver serves the
@@ -299,7 +306,8 @@ def drive_program(project: Path, root: Path, profile: dict, manifest: dict,
 
     summary: dict = {}
     for _ in range(budget_stages):
-        proc = step("program", program_command(project, profile, manifest_path))
+        proc = step("program", program_command(
+            project, profile, manifest_path, authorize_deployment=authorize_deployment))
         try:
             summary = json.loads(proc.stdout)
         except ValueError:
@@ -414,6 +422,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="wall-clock seconds for the whole trial")
     parser.add_argument("--i-authorize-live-model-spend", action="store_true",
                         help="required for any non-fixture profile")
+    parser.add_argument("--authorize-deployment", action="store_true",
+                        help="explicitly authorize deployment workstreams in --mode program; "
+                             "independent of live model spend authorization")
     parser.add_argument("--mode", choices=["run", "program"], default="run",
                         help="run: one autocode run (default); program: `autocode program run` with the "
                              "scenario's program_manifest, gates served per child run")
@@ -461,7 +472,8 @@ def main(argv: list[str] | None = None) -> int:
 
     bundle = Bundle(args.scenario)
     bundle.log("trial_started", scenario=args.scenario, profile=args.profile,
-               model=profiles.describe(profile), authorized=args.i_authorize_live_model_spend)
+               model=profiles.describe(profile), authorized=args.i_authorize_live_model_spend,
+               deployment_authorized=args.authorize_deployment)
 
     temp: tempfile.TemporaryDirectory | None = None
     if args.workspace:
@@ -488,7 +500,8 @@ def main(argv: list[str] | None = None) -> int:
         bundle.log("workspace_ready", project=str(project), mode=args.mode)
         if args.mode == "program":
             run = drive_program(project, root, profile, spec["program_manifest"],
-                                args.budget_stages, args.timeout, bundle)
+                                args.budget_stages, args.timeout, bundle,
+                                authorize_deployment=args.authorize_deployment)
         else:
             run = drive(project, root, profile, spec["task"],
                         args.budget_stages, args.timeout, bundle)

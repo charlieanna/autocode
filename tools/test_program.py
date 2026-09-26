@@ -79,10 +79,15 @@ class ManifestTests(unittest.TestCase):
         value = manifest(); value["workstreams"][1]["owns"] = []
         with self.assertRaisesRegex(ValueError, "must declare"):
             program.validate_manifest(value)
-        for bad in ("../outside", "/abs", ".git/hooks", ".autocode/runs"):
+        for bad in ("../outside", "/abs", ".git/hooks", ".autocode/runs", "src/*", "src/[ab].py"):
             value = manifest(); value["workstreams"][1]["owns"] = [bad]
             with self.assertRaisesRegex(ValueError, "not an allowed"):
                 program.validate_manifest(value)
+
+    def test_ui_workstreams_are_explicitly_deferred(self):
+        value = manifest(); value["workstreams"][1]["kind"] = "ui"
+        with self.assertRaisesRegex(ValueError, "UI checkpoint recovery"):
+            program.validate_manifest(value)
 
     def test_integration_must_cover_every_workstream_and_be_unique(self):
         value = manifest(); value["workstreams"][-1]["depends_on"] = ["a"]
@@ -117,6 +122,20 @@ class ManifestTests(unittest.TestCase):
         self.assertIn("only under: a.", text)
         self.assertIn("do not modify): b, contracts, tests.", text)
         self.assertIn("do not merge branches", text)
+
+    def test_integration_brief_allows_cross_component_repairs(self):
+        value = program.validate_manifest(manifest())
+        text = program.compose_brief(value, value["workstreams"][-1], {"workstreams": {}})
+        self.assertIn("Ownership exception", text)
+        self.assertNotIn("Paths owned by other workstreams (do not modify)", text)
+
+    def test_dependent_ownership_does_not_forbid_its_own_paths(self):
+        value = manifest()
+        value["workstreams"][2].update(owns=["a/handlers"], depends_on=["a"])
+        program.validate_manifest(value)
+        text = program.compose_brief(value, value["workstreams"][2], {"workstreams": {}})
+        self.assertIn("only under: a/handlers", text)
+        self.assertNotIn("do not modify): a,", text)
 
 
 class DeriveTests(unittest.TestCase):
@@ -165,6 +184,33 @@ class DeriveTests(unittest.TestCase):
         self.assertEqual(self.state["goal_contract"]["hash"], value["contract"]["hash"])
         self.assertEqual(["Python standard library only"], value["shared"]["constraints"])
         self.assertEqual(str(self.root / "run"), value["source_run"])
+
+    def test_every_child_receives_the_complete_approved_contract(self):
+        body = goal_fixtures.body(human=True)
+        goals.install_draft(self.state, body, origin="test")
+        goals.present(self.state)
+        goals.approve(self.state, goals.token(self.state["goal_contract"]))
+        value = program.derive_manifest(self.state)
+        self.assertEqual(body, value["contract"]["body"])
+        for row in value["workstreams"]:
+            text = program.compose_brief(value, row, {"workstreams": {}})
+            self.assertIn(json.dumps(body, indent=2), text)
+            self.assertIn('"human_review": true', text)
+            self.assertIn("CLI regression tests", text)
+            self.assertIn("Parent approval does not approve this child plan", text)
+            self.assertIn("Execute greeting and invalid-input regression checks", text)
+        value["contract"]["body"]["scope_exclusions"].append("Other")
+        self.assertEqual(body, self.state["goal_contract"]["body"])
+
+    def test_generated_integration_id_does_not_collide_with_an_approved_milestone(self):
+        body = goal_fixtures.body()
+        body["milestones"][0]["id"] = "integration"
+        goals.install_draft(self.state, body, origin="test")
+        goals.present(self.state)
+        goals.approve(self.state, goals.token(self.state["goal_contract"]))
+        value = program.derive_manifest(self.state)
+        self.assertEqual(["integration", "integration-final"], [r["id"] for r in value["workstreams"]])
+        self.assertEqual(["integration"], value["workstreams"][-1]["depends_on"])
 
 
 class ExecutionTests(unittest.TestCase):
@@ -279,8 +325,18 @@ class ExecutionTests(unittest.TestCase):
 
     def test_merge_conflict_pauses_without_losing_either_branch_and_manual_resolution_resumes(self):
         path = self.write_manifest(manifest())
-        self.child_extra_files["a"] = {"README.md": "# demo\nfrom a\n"}
-        self.child_extra_files["b"] = {"README.md": "# demo\nfrom b\n"}
+        # An external commit changes a's owned path after its worktree was branched.
+        self.child_outcome["a"] = "AWAITING_GOAL_APPROVAL"
+        _, waiting = self.run_program(path)
+        a = next(row for row in waiting["workstreams"] if row["id"] == "a")
+        integration = Path(waiting["integration_workspace"])
+        (integration / "a").mkdir()
+        (integration / "a/service.py").write_text("external repair\n")
+        git(integration, "add", "a/service.py")
+        git(integration, *program.GIT_IDENTITY, "commit", "-qm", "External repair")
+        run_state = Path(a["run_dir"]) / "state.json"
+        run_state.write_text(json.dumps({**json.loads(run_state.read_text()), "status": "RUNNING"}))
+        self.child_outcome["a"] = "TASK_COMPLETE"
         code, result = self.run_program(path)
         self.assertEqual(2, code)
         self.assertEqual("PAUSED_MERGE_CONFLICT", result["status"])
@@ -304,6 +360,104 @@ class ExecutionTests(unittest.TestCase):
         rows = {row["id"]: row for row in result["workstreams"]}
         self.assertEqual("conflict resolved manually", rows[conflicted]["merge_note"])
         self.assertIn("tests/test_flow.py", self.integration_files(result))
+
+    def test_integration_commits_its_own_tracked_repairs(self):
+        path = self.write_manifest(manifest())
+        self.child_extra_files["integration"] = {"README.md": "# Repaired integration documentation\n"}
+        code, result = self.run_program(path)
+        self.assertEqual((0, "COMPLETE"), (code, result["status"]))
+        self.assertEqual("# Repaired integration documentation", git(self.project, "show", result["integration_branch"] + ":README.md"))
+
+    def test_unowned_edits_pause_before_commit_or_merge(self):
+        path = self.write_manifest(manifest())
+        self.child_extra_files["contracts"] = {"README.md": "out of scope\n", "unexpected.txt": "extra\n"}
+        code, result = self.run_program(path)
+        self.assertEqual((2, "PAUSED_OWNERSHIP"), (code, result["status"]))
+        self.assertIn("README.md", result["next"])
+        self.assertIn("unexpected.txt", result["next"])
+        self.assertEqual({"README.md"}, self.integration_files(result))
+        record = result["workstreams"][0]
+        self.assertEqual(self.head, git(Path(record["workspace"]), "rev-parse", "HEAD"))
+        # Correct the delivery without discarding the valid owned changes.
+        workspace = Path(record["workspace"])
+        (workspace / "README.md").write_text("# demo\n")
+        (workspace / "unexpected.txt").unlink()
+        code, result = self.run_program(path)
+        self.assertEqual((0, "COMPLETE"), (code, result["status"]))
+
+    def test_ownership_checks_committed_changes_and_rename_source(self):
+        path = self.write_manifest(manifest())
+        self.child_outcome["contracts"] = "AWAITING_GOAL_APPROVAL"
+        _, result = self.run_program(path)
+        record = result["workstreams"][0]
+        workspace = Path(record["workspace"])
+        (workspace / "contracts").mkdir()
+        git(workspace, "mv", "README.md", "contracts/README.md")
+        git(workspace, *program.GIT_IDENTITY, "commit", "-qm", "Rename foreign file")
+        run_state = Path(record["run_dir"]) / "state.json"
+        run_state.write_text(json.dumps({"status": "TASK_COMPLETE"}))
+        code, result = self.run_program(path)
+        self.assertEqual((2, "PAUSED_OWNERSHIP"), (code, result["status"]))
+        self.assertIn("README.md", result["next"])
+        self.assertEqual({"README.md"}, self.integration_files(result))
+
+    def test_staged_runner_metadata_is_not_committed(self):
+        (self.project / ".autocode").mkdir()
+        (self.project / ".autocode/state.json").write_text("{}")
+        git(self.project, "add", ".autocode/state.json")
+        with self.assertRaisesRegex(program.support.Paused, "metadata is staged"):
+            program._commit_all(self.project, "Do not commit metadata")
+        self.assertEqual(self.head, git(self.project, "rev-parse", "HEAD"))
+
+    def test_committed_metadata_cannot_hide_behind_unstaged_deletion(self):
+        path = self.write_manifest(manifest())
+        self.child_outcome["contracts"] = "AWAITING_GOAL_APPROVAL"
+        _, result = self.run_program(path)
+        record = result["workstreams"][0]
+        workspace = Path(record["workspace"])
+        metadata = workspace / ".autocode/note.txt"
+        metadata.write_text("must not merge\n")
+        git(workspace, "add", "-f", ".autocode/note.txt")
+        git(workspace, *program.GIT_IDENTITY, "commit", "-qm", "Accidental metadata")
+        metadata.unlink()
+        (Path(record["run_dir"]) / "state.json").write_text(json.dumps({"status": "TASK_COMPLETE"}))
+        code, result = self.run_program(path)
+        self.assertEqual((2, "PAUSED_OWNERSHIP"), (code, result["status"]))
+        self.assertNotIn(".autocode/note.txt", self.integration_files(result))
+
+    def test_integration_cannot_complete_with_committed_runner_metadata(self):
+        path = self.write_manifest(manifest())
+
+        def commits_metadata(command, **kwargs):
+            result = self.fake_run(command, **kwargs)
+            if command[0] != "git" and "PROGRAM WORKSTREAM integration " in command[2]:
+                workspace = Path(command[command.index("--workspace") + 1])
+                git(workspace, "add", "-f", ".autocode/task-workspace.json")
+                git(workspace, *program.GIT_IDENTITY, "commit", "-qm", "Accidental metadata")
+            return result
+
+        output = io.StringIO()
+        with patch.object(program.subprocess, "run", side_effect=commits_metadata), contextlib.redirect_stdout(output):
+            code = program.cli(["run", str(path), "--workspace", str(self.project)])
+        result = json.loads(output.getvalue())
+        self.assertEqual((2, "PAUSED_METADATA"), (code, result["status"]))
+        self.assertEqual("COMPLETE", result["workstreams"][-1]["status"])
+
+    def test_reopened_child_loses_cached_completion_before_merging(self):
+        path = self.write_manifest(manifest())
+        pause = program.support.Paused("PAUSED_METADATA", "Inspect staged files")
+        with patch.object(program, "_commit_all", side_effect=pause):
+            _, result = self.run_program(path)
+        record = result["workstreams"][0]
+        self.assertEqual("COMPLETE", record["status"])
+        run_state = Path(record["run_dir"]) / "state.json"
+        run_state.write_text(json.dumps({**json.loads(run_state.read_text()), "status": "RUNNING"}))
+        self.child_outcome["contracts"] = "RUNNING"
+        code, result = self.run_program(path)
+        self.assertEqual((2, "WAITING"), (code, result["status"]))
+        self.assertEqual(2, len(self.launches))
+        self.assertTrue(self.launches[-1]["resume"])
+        self.assertEqual({"README.md"}, self.integration_files(result))
 
     def test_deployment_waits_for_explicit_authorization(self):
         path = self.write_manifest(manifest(deploy=True))
@@ -343,6 +497,96 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual((2, "BLOCKED"), (code, result["status"]))
         self.assertEqual("FAILED", result["workstreams"][0]["status"])
         self.assertTrue((self.project / ".autocode/programs").exists())
+        failed_workspace = result["workstreams"][0]["workspace"]
+        code, again = self.run_program(path)
+        self.assertEqual((2, "BLOCKED", []), (code, again["status"], self.launches))
+        code, retried = self.run_program(path, "--retry-workstream", "contracts")
+        self.assertEqual((0, "COMPLETE"), (code, retried["status"]))
+        self.assertEqual(failed_workspace, self.launches[0]["workspace"])
+        self.assertEqual(5, len(git(self.project, "worktree", "list").splitlines()))
+
+    def test_failed_invocation_with_checkpoint_retries_the_same_run(self):
+        path = self.write_manifest(manifest())
+        self.child_outcome["contracts"] = "RUNNING"
+
+        def fail_after_checkpoint(command, **kw):
+            result = self.fake_run(command, **kw)
+            if command[0] != "git":
+                result.returncode = 1
+            return result
+
+        output = io.StringIO()
+        with patch.object(program.subprocess, "run", side_effect=fail_after_checkpoint), contextlib.redirect_stdout(output):
+            code = program.cli(["run", str(path), "--workspace", str(self.project)])
+        self.assertEqual("BLOCKED", json.loads(output.getvalue())["status"])
+        self.child_outcome["contracts"] = "TASK_COMPLETE"
+        code, result = self.run_program(path, "--retry-workstream", "contracts")
+        self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
+        self.assertTrue(self.launches[1]["resume"])
+        self.assertEqual(self.launches[0]["workspace"], self.launches[1]["workspace"])
+
+    def test_retry_never_bypasses_a_child_gate(self):
+        path = self.write_manifest(manifest())
+        self.child_outcome["contracts"] = "AWAITING_GOAL_APPROVAL"
+        _, result = self.run_program(path)
+        state_path = Path(result["state_file"])
+        state = json.loads(state_path.read_text())
+        state["workstreams"]["contracts"]["status"] = "FAILED"
+        state_path.write_text(json.dumps(state))
+        code, result = self.run_program(path, "--retry-workstream", "contracts")
+        self.assertEqual((2, "WAITING", 1), (code, result["status"], len(self.launches)))
+
+    def test_missing_child_checkpoint_is_not_silently_replaced(self):
+        path = self.write_manifest(manifest())
+        self.child_outcome["contracts"] = "RUNNING"
+        _, result = self.run_program(path)
+        run = Path(result["workstreams"][0]["run_dir"])
+        (run / "state.json").unlink()
+        code, result = self.run_program(path)
+        self.assertEqual((2, "BLOCKED", 1), (code, result["status"], len(self.launches)))
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            self.run_program(path, "--retry-workstream", "contracts")
+        self.assertEqual(1, len(self.launches))
+
+    def test_interrupted_controller_discovers_and_resumes_existing_child(self):
+        path = self.write_manifest(manifest())
+        self.child_outcome["contracts"] = "RUNNING"
+        checkpoint = {}
+
+        def interrupted(command, **kw):
+            if command[0] != "git":
+                state_file = next((self.project / ".autocode/programs").glob("*/state.json"))
+                checkpoint.update(json.loads(state_file.read_text()))
+                record = checkpoint["workstreams"]["contracts"]
+                self.assertEqual("RUNNING", record["status"])
+                self.assertIn("workspace", record)
+                self.assertIn("runs_before", record)
+                self.assertNotIn("run_dir", record)
+            return self.fake_run(command, **kw)
+
+        output = io.StringIO()
+        with patch.object(program.subprocess, "run", side_effect=interrupted), contextlib.redirect_stdout(output):
+            program.cli(["run", str(path), "--workspace", str(self.project)])
+        result = json.loads(output.getvalue())
+        # Restore the durable checkpoint as if the controller died while its child ran.
+        Path(result["state_file"]).write_text(json.dumps(checkpoint))
+        self.child_outcome["contracts"] = "TASK_COMPLETE"
+        code, result = self.run_program(path)
+        self.assertEqual((0, "COMPLETE"), (code, result["status"]))
+        self.assertTrue(self.launches[1]["resume"])
+        self.assertEqual(self.launches[0]["workspace"], self.launches[1]["workspace"])
+
+    def test_resuming_deployment_still_requires_authorization(self):
+        path = self.write_manifest(manifest(deploy=True))
+        self.child_outcome["deploy"] = "RUNNING"
+        self.run_program(path, "--authorize-deployment")
+        before = len(self.launches)
+        code, result = self.run_program(path)
+        self.assertEqual(before, len(self.launches))
+        self.assertEqual((2, "AUTHORIZATION_REQUIRED"), (code, result["status"]))
+        self.child_outcome["deploy"] = "TASK_COMPLETE"
+        code, result = self.run_program(path, "--authorize-deployment")
+        self.assertEqual((0, "COMPLETE"), (code, result["status"]))
 
     def test_dry_run_and_status_never_create_worktrees(self):
         path = self.write_manifest(manifest())
