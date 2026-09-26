@@ -10,6 +10,7 @@ environment or product does not supply them.
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -50,6 +51,10 @@ def run_browser_suite(name, timeout=420):
 
 class DashboardCase(kit.CatalogueCase):
     def browser(self, name):
+        if shutil.which("agent-browser") is None:
+            raise unittest.SkipTest(
+                "agent-browser bridge is not on PATH; install it to run the "
+                f"real-browser {name!r} suite (see tools/dashboard/tests/)")
         ok = run_browser_suite(name)
         self.check(f"[{name}] browser_suite_passes", True, ok)
         return ok
