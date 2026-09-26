@@ -158,7 +158,7 @@ class CommandProvider:
 
     def final_report(self, path, *, recover_wrapped=False):
         if self.OUTPUT == "opencode_events":
-            return _opencode_events.final_report(path)
+            return _opencode_events.final_report(path, recover_wrapped=recover_wrapped)
         report_path = Path(path).with_suffix(".json")
         try:
             value = json.loads(report_path.read_text())

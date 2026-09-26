@@ -1,7 +1,7 @@
 # Bug 004: Abandoning an uncertain completion attempt leaves no route back to validation
 
 **Severity:** High
-**Status:** Fixed in working tree; offline regression verified (2026-09-26). Live rerun pending.
+**Status:** Fixed and verified (2026-09-26): 427 offline tests pass; the original stuck live run recovered to `TASK_COMPLETE` through fresh validation on unchanged source.
 **Found:** 2026-09-26 live trial LIVE-01 (GLM-5.3 / MiMo 2.6 Pro), correctness campaign
 **Run:** `autocode-live-greeting-3` → `20260926-002059-build-a-deterministic-greeting-cli-named-greet-p-a3632142`
 
@@ -125,7 +125,17 @@ and fail-closed recovery conditions.
 `test_report_repair`, `test_workflow`, `test_final_workflow`, `test_goals`,
 `test_resolver_runtime`, `test_milestone_checkpoints`, and `test_activity_runtime`.
 No live provider was launched and the original failed live run was not modified
-during this fix. This result does not qualify the remaining live-testing ladder.
+during this fix.
+
+**Live verification (after the fix):** the original stuck run
+(`PAUSED_REPEATED_FAILURE`, five failed completion attempts) was resumed with the
+fixed runner and no manual state edits. Explicit resume recognized the abandoned
+completion boundary, routed to a fresh `sol` validation of the unchanged source
+(`f30708c5…`), which passed all nine acceptance criteria with executed evidence,
+and the Completion Owner then committed with recorded agreed limitations. Final
+state: `TASK_COMPLETE`, `completion_current: true`, no stale checkpoint. The
+independent FX01 oracle re-run on the delivered artifact: **PASS 12/12**.
+The full offline gate passed afterwards: **427 tests OK**.
 
 ## Related
 
