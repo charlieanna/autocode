@@ -79,6 +79,31 @@ def live_processes(saved, table=None):
             if matches(p, table.get(p["pid"])) and not table[p["pid"]]["state"].startswith("Z")]
 
 
+def recorded_worker_state(record):
+    """Report whether a saved attempt's recorded workers still exist.
+
+    Read-only and never signals anything. Used by status so a checkpoint left
+    behind by a dead runner or provider is not presented as current work.
+    """
+    saved = record.get("processes")
+    try:
+        if saved:
+            live = live_processes(saved)
+            return {"checked": True, "alive": bool(live),
+                    "live_pids": [row["pid"] for row in live]}
+        pid = record.get("pid")
+        if pid and record.get("exit_code") is None:
+            os.kill(pid, 0)
+            return {"checked": True, "alive": True, "live_pids": [pid]}
+    except ProcessLookupError:
+        return {"checked": True, "alive": False, "live_pids": []}
+    except PermissionError:
+        return {"checked": False, "alive": None, "live_pids": []}
+    except (ProcessError, psutil.Error, OSError, SystemError):
+        return {"checked": False, "alive": None, "live_pids": []}
+    return {"checked": True, "alive": False, "live_pids": []}
+
+
 class ProcessTree:
     def __init__(self, pid, checkpoint):
         self.pid = pid

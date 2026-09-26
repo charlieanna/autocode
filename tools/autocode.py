@@ -185,6 +185,8 @@ def stage_supports_sessions(state, record):
 
 def stage_completed(state, record):
     if stage_supports_sessions(state, record):
+        if not record.get("events"):
+            return False
         return any(event.get("type") == "turn.completed" for event in support.events(record["events"]))
     return record.get("exit_code") == 0 and bool(record.get("output")) and Path(record["output"]).is_file()
 
@@ -2149,9 +2151,25 @@ def main(unit=None) -> int:
         return 0
     if args.status or args.dry_run:
         active = state.get("active_stage")
+        worker_state = processes.recorded_worker_state(active) if active else None
+        active_finished = stage_completed(state, active) if active else None
+        stale = bool(active and state.get("status") == "RUNNING"
+                     and worker_state and worker_state.get("checked")
+                     and not worker_state.get("alive") and not active_finished)
         completion_current = (support.completion_ready(state, state.get("final_decision", {}), support.snapshot(workspace))
                               if state["status"] == "TASK_COMPLETE" else None)
+        if stale:
+            print(f"STALE CHECKPOINT: saved status is RUNNING but the recorded "
+                  f"{active.get('stage')} workers are gone and no terminal report was saved. "
+                  f"Next: inspect the attempt, then resume with --resume-paused or "
+                  f"set it aside with --abandon-stage {attempt_id(active)}.", file=sys.stderr)
         print(json.dumps({"run_dir":str(run_dir), "workspace":str(workspace), "project_workspace":state.get("project_workspace", str(workspace)), "task_branch":state.get("task_branch"), "status":state["status"], "iteration":state["iteration"],
+                          "stale":stale,
+                          "next_action": (f"Inspect the abandoned attempt {attempt_id(active)}, then "
+                                          f"--resume-paused to reconcile or --abandon-stage {attempt_id(active)}"
+                                          if stale else None),
+                          "active_stage_workers":worker_state,
+                          "active_stage_finished":active_finished,
                           "engine":state.get("settings", {}).get("engine", "codex" if args.run_dir else args.engine or DEFAULT_ENGINE),
                           "next_stage":state.get("next_stage", "legacy; inspect saved finals"), "sessions":state["sessions"],
                           "phase":state.get("phase", "DISCOVERING" if not args.run_dir else "migration_required"),

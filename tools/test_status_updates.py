@@ -1,8 +1,13 @@
 import copy
+import json
+import os
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 import unittest
 from . import autocode_status as status, autocode_support as s, autocode_context as context
+from . import autocode_process as processes
 
 
 class StatusTests(unittest.TestCase):
@@ -92,3 +97,71 @@ class ContextTests(unittest.TestCase):
     def test_small_handoff_does_not_create_artifact(self):
         data = {'saved_answers': {'answer': 'no'}, 'evidence_locations': ['a']}
         self.assertEqual((data, []), context.compact(data, '/nonexistent/state.json'))
+
+
+class StaleCheckpointTests(unittest.TestCase):
+    """A checkpoint left by a dead runner must not read as current work."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.workspace = Path(self.temp.name).resolve()
+        subprocess.run(['git', 'init', '-q', str(self.workspace)], check=True)
+        self.run = self.workspace / '.autocode' / 'runs' / 'fixture'
+        self.run.mkdir(parents=True)
+        self.state_path = self.run / 'state.json'
+
+    def write_state(self, worker):
+        self.state_path.write_text(json.dumps({
+            'version': 3, 'task': 'fixture', 'workspace': str(self.workspace),
+            'status': 'RUNNING', 'iteration': 1, 'sessions': {}, 'stages': [],
+            'next_stage': 'astra_challenge',
+            'active_stage': {'stage': 'astra_challenge', 'iteration': 1, 'role': 'astra',
+                             'started_at': 'now', 'pid': worker.get('pid'),
+                             'processes': [worker] if worker.get('pid') else [],
+                             'output': str(self.run / 'iterations' / '001' / 'astra_challenge-02.json'),
+                             'events': str(self.run / 'iterations' / '001' / 'astra_challenge-02.jsonl')}}, indent=2))
+
+    def run_status(self):
+        return subprocess.run(
+            [sys.executable, str(Path(__file__).with_name('autocode.py')),
+             '--workspace', str(self.workspace), '--run-dir', str(self.run), '--status'],
+            capture_output=True, text=True, check=False)
+
+    def test_recorded_worker_state_distinguishes_live_dead_and_unknown(self):
+        live = processes.identity(processes.process_table({os.getpid()})[os.getpid()])
+        self.assertEqual({'checked': True, 'alive': True, 'live_pids': [os.getpid()]},
+                         processes.recorded_worker_state({'processes': [live]}))
+        dead = dict(live, pid=2 ** 22 - 1)
+        self.assertEqual({'checked': True, 'alive': False, 'live_pids': []},
+                         processes.recorded_worker_state({'processes': [dead]}))
+        self.assertEqual({'checked': True, 'alive': False, 'live_pids': []},
+                         processes.recorded_worker_state({'pid': 2 ** 22 - 1, 'exit_code': None}))
+        self.assertEqual({'checked': True, 'alive': False, 'live_pids': []},
+                         processes.recorded_worker_state({'pid': os.getpid(), 'exit_code': 0}))
+
+    def test_status_labels_a_dead_provider_attempt_as_stale(self):
+        self.write_state({'pid': 2 ** 22 - 1, 'started': 'now', 'group': 2 ** 22 - 1,
+                          'birth_time': 0.0})
+        before = self.state_path.read_bytes()
+        result = self.run_status()
+        self.assertEqual(0, result.returncode, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual('RUNNING', payload['status'])
+        self.assertTrue(payload['stale'])
+        self.assertFalse(payload['active_stage_finished'])
+        self.assertFalse(payload['active_stage_workers']['alive'])
+        self.assertIn('--abandon-stage', payload['next_action'])
+        self.assertIn('STALE CHECKPOINT', result.stderr)
+        self.assertEqual(before, self.state_path.read_bytes())
+
+    def test_status_reports_a_live_worker_as_current(self):
+        live = processes.identity(processes.process_table({os.getpid()})[os.getpid()])
+        self.write_state(live)
+        result = self.run_status()
+        self.assertEqual(0, result.returncode, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload['stale'])
+        self.assertIsNone(payload['next_action'])
+        self.assertTrue(payload['active_stage_workers']['alive'])
+        self.assertNotIn('STALE CHECKPOINT', result.stderr)
