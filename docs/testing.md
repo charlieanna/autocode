@@ -56,6 +56,24 @@ Codex launch compatibility was checked against installed exec/resume help and
 
 See [Dashboard](dashboard.md#dashboard-verification) for the dashboard test commands.
 
+### Live-trial results
+
+`tools/live_trial.py` uses the same verdict in `live-trial.json` and the bundle's
+`result.json`. Its exit codes describe delivery, not merely whether the harness ran:
+
+- `0`: `PASS`, runner completion with passing independent oracle checks.
+- `2`: `HONEST_BLOCKER`, a recorded pause rather than delivered work. Missing live
+  spending authorization also exits `2` without starting a trial.
+- `1`: unsuccessful or unverified delivery, including `FALSE_COMPLETE` when the
+  runner claims completion but an independent check fails, and `ERROR` for an
+  unexpected stopped state or an oracle-reported infrastructure error.
+
+An oracle-reported error or deferred check is not proof of a product defect and
+cannot establish successful delivery. The fixture-profile tests in
+`tools/test_live_trial.py` exercise these verdicts without hosted-model requests.
+These scoring checks do not remove the other live-driver limitations listed in
+the progressive testing plan.
+
 ## Legacy migration — opt-in only
 
 Existing v3 approved contracts retain their exact content, hash and approval. New

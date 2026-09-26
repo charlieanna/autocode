@@ -261,16 +261,24 @@ def judge(run: dict, spec: dict, project: Path, bundle: Bundle) -> scenarios.Ora
     # so a blocked run with correct work is reported as such, not as a failure
     # of the product.
     oracle = spec["oracle"](project)
+    if oracle.status in (scenarios.ERROR, scenarios.DEFERRED):
+        return oracle
 
     if kind == "complete":
-        if oracle.status == scenarios.PASS:
+        if oracle.status == scenarios.PASS and not oracle.failed:
             return oracle
         return scenarios.OracleResult(
-            scenarios.HONEST_BLOCKER,
-            f"runner claimed TASK_COMPLETE but {spec['oracle_name']} scored {oracle.summary}",
+            scenarios.FALSE_COMPLETE,
+            f"runner claimed {status} but {spec['oracle_name']} scored {oracle.summary}",
             oracle.checks)
 
-    # Honest pause: keep the oracle score visible, but the verdict is the pause.
+    if kind != "paused":
+        return scenarios.OracleResult(
+            scenarios.ERROR,
+            f"runner stopped at unexpected status {status!r}; {spec['oracle_name']} {oracle.summary}",
+            oracle.checks)
+
+    # A genuine pause remains distinct from successful delivery.
     bundle.log("runner_paused", status=status)
     return scenarios.OracleResult(
         scenarios.HONEST_BLOCKER,
@@ -357,16 +365,17 @@ def main(argv: list[str] | None = None) -> int:
         result = judge(run, spec, project, bundle)
         write_report(bundle, args.scenario, spec, args.profile, profile, result, run)
         summary = (f"{args.scenario} [{args.profile}] {result.status}: {result.summary}")
-        status = result.status if result.status != scenarios.HONEST_BLOCKER else scenarios.PASS
-        # HONEST_BLOCKER is a successful harness outcome: the trial was attempted
-        # and honestly recorded. Only FAIL/ERROR fail the process.
-        if result.status in (scenarios.FAIL, scenarios.ERROR):
-            status = scenarios.FAIL
-            summary = f"{args.scenario} [{args.profile}] FAIL: {result.summary}"
-        bundle.finish(status, summary)
+        try:
+            bundle.finish(result.status, summary)
+        except AssertionError:
+            # Bundle persists FAIL before raising for unittest callers.
+            if result.status != scenarios.FAIL:
+                raise
         print(summary)
         print(f"evidence: {bundle.dir}")
-        return 0 if result.status in (scenarios.PASS, scenarios.HONEST_BLOCKER) else 1
+        if result.status == scenarios.HONEST_BLOCKER:
+            return 2
+        return 0 if result.status == scenarios.PASS else 1
     except TrialError as error:
         bundle.finish(scenarios.ERROR, str(error))
         print(f"{args.scenario} ERROR: {error}", file=sys.stderr)

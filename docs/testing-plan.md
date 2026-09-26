@@ -65,7 +65,7 @@ These are test-infrastructure findings to resolve or isolate, not completed fixe
 | The blackbox fixture can use either `BUILD_AUDIT_LIVE_CODEX` or `REVIEW_AUDIT_LIVE_CODEX`. | Unset both for offline runs and verify fake launch identities. The build-audit entry point's single-variable guard is not sufficient on its own. |
 | `test-scenarios/run-all.sh` includes crash and mutation scenarios, writes a shared `/tmp/autocode-results.tsv`, and scenario 03 uses a broad `pkill` pattern. | Quarantine blanket execution until process cleanup and result paths are case-local. Do not run it alongside active user tasks. |
 | The shell harness treats any nonempty `AUTOCODE_LIVE`, including `0`, as live and can prefer an installed CLI over source. | Unset the variable for offline use; explicitly verify executable provenance before admitting this harness. |
-| `tools/live_trial.py` can classify runner completion with failed oracle checks as `HONEST_BLOCKER`, then return success. | Add a scorer regression: COMPLETE plus any required oracle failure is `FALSE_COMPLETE`, never PASS or an honest blocker. Inspect raw state/checks rather than trusting the exit code or bundle summary. |
+| Live-trial scoring previously classified completion with failed oracle checks as `HONEST_BLOCKER`, then returned success. | Corrected with scorer/report/exit-code regressions in `test_live_trial.py`: completion plus a failed check is `FALSE_COMPLETE` (exit 1); a genuine blocker stays `HONEST_BLOCKER` (exit 2), never PASS. Inspect raw state/checks as well. |
 | The live driver uses `--accept-review`, while the current CLI supports `--approve-review ID --review-token TOKEN`. | Repair and test the human-review path before qualifying those cases. No automatic human-review approval. |
 | Some live profiles select identical/disallowed model pairings under current cross-model verification. | Validate the saved role map against the current routing policy before launch. Do not disable independence guards to make a profile run. |
 
@@ -351,7 +351,7 @@ fixture_python tools/live_trial.py LIVE-01 --profile fixture \
   --workspace "$TEST_ROOT/greeting" --budget-stages 40 --timeout 120
 ```
 
-Use this only to diagnose/qualify that harness until its scorer is corrected.
+Use this only to diagnose/qualify the harness, not to establish live-model quality.
 Check `live-trial.json` checks and the raw run state even when the process exits
 zero. `--budget-stages` counts CLI invocations, not model requests; `--timeout` is
 not a strict whole-trial wall-clock cap. Preserve an explicit workspace, since the

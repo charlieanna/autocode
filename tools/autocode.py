@@ -2444,12 +2444,7 @@ def main(unit=None) -> int:
                     raise support.Paused("PAUSED_ITERATION_LIMIT", "Saved iteration ceiling reached")
                 if limits["max_seconds"] and current.get("active_seconds",0) >= limits["max_seconds"]:
                     raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
-                if limits["max_reported_tokens"]:
-                    measured = [r.get("metrics",{}).get("provider_tokens",{}) for r in current.get("stages",[])]
-                    if any(m.get("input_tokens") is None or m.get("output_tokens") is None for m in measured):
-                        raise support.Paused("PAUSED_USAGE_UNKNOWN", "Cannot enforce requested token limit with unknown usage")
-                    if sum(m["input_tokens"]+m["output_tokens"] for m in measured) >= limits["max_reported_tokens"]:
-                        raise support.Paused("PAUSED_BUDGET", "Saved reported-token limit reached")
+                support.enforce_reported_token_limit(current)
                 if (not repairing_before_upgrade and (not milestones.enabled(current) or current.get('next_stage') in ('terra', 'orchestrator')) and limits["no_progress_batches"]
                         and current.get("no_progress_batches",0) >= limits["no_progress_batches"]):
                     raise support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review")

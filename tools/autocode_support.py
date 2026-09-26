@@ -243,6 +243,32 @@ def event_metrics(path):
             "completed_turns": len(completed), "headroom_transformed": None}
 
 
+def enforce_reported_token_limit(state):
+    """Fail closed at stage boundaries, including archived attempts with unknown usage."""
+    limit = state["settings"]["limits"]["max_reported_tokens"]
+    if not limit:
+        return
+    unknown, total = [], 0
+    for index, record in enumerate(state.get("stages", [])):
+        tokens = record.get("metrics", {}).get("provider_tokens", {})
+        if tokens.get("input_tokens") is None or tokens.get("output_tokens") is None:
+            attempt = record.get("attempt_id")
+            if not attempt and isinstance(record.get("iteration"), int) and record.get("output"):
+                attempt = f"{record['iteration']:03d}/{Path(record['output']).stem}"
+            unknown.append(f"{attempt or f'stages[{index}]'} (events: {record.get('events') or 'not recorded'})")
+        else:
+            total += tokens["input_tokens"] + tokens["output_tokens"]
+    if unknown:
+        raise Paused("PAUSED_USAGE_UNKNOWN",
+            "Cannot enforce requested reported-token limit with unknown usage. Affected attempts: "
+            + "; ".join(unknown) + ". Inspect these event logs; missing consumption is not zero. "
+            "--abandon-stage, --resume-paused, and a larger positive --max-reported-tokens do not resolve "
+            "unknown consumption. An unchanged-cap run remains paused. The existing explicit "
+            "--max-reported-tokens 0 disables the guard; this is a policy change, not usage recovery.")
+    if total >= limit:
+        raise Paused("PAUSED_BUDGET", "Saved reported-token limit reached")
+
+
 def terminal_failure_reason(path):
     """Expose recognized transport failures without interpreting model prose."""
     for row in events(path):

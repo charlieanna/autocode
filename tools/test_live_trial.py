@@ -7,10 +7,12 @@ evaluate model quality.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -137,6 +139,59 @@ class Fx01OracleTest(unittest.TestCase):
         self.assertIn("stdlib_only", {row["name"] for row in result.failed})
 
 
+class TrialVerdictTest(unittest.TestCase):
+    def test_verdict_matrix(self):
+        cases = [
+            ("TASK_COMPLETE", scenarios.PASS, scenarios.PASS),
+            ("COMPLETE", scenarios.FAIL, scenarios.FALSE_COMPLETE),
+            ("TASK_COMPLETE", scenarios.FAIL, scenarios.FALSE_COMPLETE),
+            ("PAUSED_USAGE_UNKNOWN", scenarios.FAIL, scenarios.HONEST_BLOCKER),
+            ("AWAITING_GOAL_APPROVAL", scenarios.PASS, scenarios.HONEST_BLOCKER),
+            ("RUNNING", scenarios.PASS, scenarios.ERROR),
+            ("", scenarios.FAIL, scenarios.ERROR),
+            ("TASK_COMPLETE", scenarios.ERROR, scenarios.ERROR),
+            ("PAUSED_REQUESTED", scenarios.ERROR, scenarios.ERROR),
+            ("TASK_COMPLETE", scenarios.DEFERRED, scenarios.DEFERRED),
+        ]
+        for status, oracle_status, expected in cases:
+            with self.subTest(status=status, oracle=oracle_status):
+                checks = [{"name": "acceptance", "ok": oracle_status == scenarios.PASS}]
+                oracle = scenarios.OracleResult(oracle_status, "independent check", checks)
+                spec = {"oracle": mock.Mock(return_value=oracle), "oracle_name": "FX01"}
+                result = live_trial.judge({"state": {"status": status}}, spec, HERE, mock.Mock())
+                self.assertEqual(expected, result.status)
+                self.assertEqual(checks, result.checks)
+
+    def test_failed_check_cannot_be_hidden_by_oracle_pass_label(self):
+        oracle = scenarios.OracleResult(scenarios.PASS, "incorrect label", [{"ok": False}])
+        spec = {"oracle": mock.Mock(return_value=oracle), "oracle_name": "FX01"}
+        result = live_trial.judge({"state": {"status": "TASK_COMPLETE"}}, spec, HERE, mock.Mock())
+        self.assertEqual(scenarios.FALSE_COMPLETE, result.status)
+
+    def test_exit_code_and_both_reports_preserve_verdict(self):
+        for status, oracle_status, expected, exit_code in [
+            ("TASK_COMPLETE", scenarios.PASS, scenarios.PASS, 0),
+            ("TASK_COMPLETE", scenarios.FAIL, scenarios.FALSE_COMPLETE, 1),
+            ("PAUSED_USAGE_UNKNOWN", scenarios.FAIL, scenarios.HONEST_BLOCKER, 2),
+            ("RUNNING", scenarios.PASS, scenarios.ERROR, 1),
+        ]:
+            with self.subTest(status=status, oracle=oracle_status), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                oracle = scenarios.OracleResult(oracle_status, "oracle result", [
+                    {"name": "acceptance", "ok": oracle_status == scenarios.PASS}])
+                spec = {"title": "Fixture", "task": "fixture", "oracle_name": "FX01",
+                        "oracle": mock.Mock(return_value=oracle)}
+                with (mock.patch.dict(os.environ, {"AUTOCODE_TEST_ARTIFACTS": str(root / "evidence")}),
+                      mock.patch.object(live_trial, "make_workspace", return_value=root),
+                      mock.patch.object(scenarios, "scenario", return_value=spec),
+                      mock.patch.object(live_trial, "drive", return_value={"state": {"status": status}})):
+                    code = live_trial.main(["LIVE-01", "--workspace", str(root)])
+                self.assertEqual(exit_code, code)
+                evidence = root / "evidence" / "LIVE-01" / "01"
+                self.assertEqual(expected, json.loads((evidence / "result.json").read_text())["status"])
+                self.assertEqual(expected, json.loads((evidence / "live-trial.json").read_text())["verdict"])
+
+
 class LiveTrialSmokeTest(unittest.TestCase):
     """End-to-end offline smoke: the known-PASS scenario under the fixture profile."""
 
@@ -167,8 +222,10 @@ class LiveTrialSmokeTest(unittest.TestCase):
         self.assertEqual("LIVE-01", payload["scenario"])
         self.assertEqual("fixture", payload["profile"])
         self.assertEqual("FX01", payload["oracle"])
-        self.assertIn(payload["verdict"], (scenarios.PASS, scenarios.HONEST_BLOCKER))
+        self.assertEqual(scenarios.PASS, payload["verdict"])
+        self.assertEqual("TASK_COMPLETE", payload["runner_status"])
         self.assertTrue(payload["checks"])
+        self.assertTrue(all(check["ok"] for check in payload["checks"]))
 
 
 if __name__ == "__main__":

@@ -93,8 +93,9 @@ class GoalTests(unittest.TestCase):
         with patch.object(sys, "argv", argv), patch.object(s, "assert_no_legacy_process"), \
              patch.object(s, "local_settings", return_value=self.local), \
              patch.object(runner, "run_role", side_effect=role or AssertionError("No agent may launch")), \
-             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+             contextlib.redirect_stdout(io.StringIO()) as stdout, contextlib.redirect_stderr(io.StringIO()) as stderr:
             code = runner.main()
+        self.stdout, self.stderr = stdout.getvalue(), stderr.getvalue()
         self.state = s.read(self.run / "state.json")
         return code
 
@@ -623,6 +624,104 @@ class GoalTests(unittest.TestCase):
                 self.assertEqual(expected, self.state["status"])
                 self.assertEqual("PAUSED_OR_BLOCKED", self.state["phase"])
                 self.state = saved
+
+    def test_interrupted_abandoned_unknown_usage_stays_paused_on_resume_and_larger_cap(self):
+        self.approve()
+        self.state["settings"]["limits"]["max_reported_tokens"] = 100
+        base = self.run / "iterations/001/terra-01"
+        base.parent.mkdir(parents=True)
+        s.atomic_json(base.with_suffix(".before.json"), s.snapshot(self.root))
+        raw_events = '{"type":"thread.started","thread_id":"interrupted-session"}\n'
+        base.with_suffix(".jsonl").write_text(raw_events)
+        (self.root / "partial.py").write_text("# retained partial work\n")
+        self.state.update(status="PAUSED_INTERRUPTED", phase="PAUSED_OR_BLOCKED", next_stage="terra",
+            active_stage={"role": "terra", "stage": "terra", "iteration": 1, "duration_seconds": 8,
+                          "output": str(base.with_suffix(".json")), "events": str(base.with_suffix(".jsonl")),
+                          "before_ref": str(base.with_suffix(".before.json")), "exit_code": -15})
+        self.state["sessions"]["terra"] = "interrupted-session"
+        self.assertEqual(2, self.invoke("--resume-paused"))
+        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", self.state["status"])
+        self.assertIn("--abandon-stage 001/terra-01", self.stderr)
+        self.assertEqual(0, self.invoke("--abandon-stage", "001/terra-01"))
+        self.assertEqual("PAUSED_STAGE_ABANDONED", self.state["status"])
+        self.assertNotIn("active_stage", self.state)
+        self.assertNotIn("terra", self.state["sessions"])
+        archived = copy.deepcopy(self.state["stages"])
+        self.assertTrue(archived[0]["abandoned"])
+        self.assertIsNone(archived[0]["metrics"]["provider_tokens"]["input_tokens"])
+        self.assertIsNone(archived[0]["metrics"]["provider_tokens"]["output_tokens"])
+        events = archived[0]["events"]
+        self.assertNotEqual(str(base.with_suffix(".jsonl")), events)
+        for args, cap in [(('--resume-paused',), 100), ((), 100), (('--resume-paused',), 100),
+                          (('--resume-paused', '--max-reported-tokens', '1000'), 1000),
+                          (('--resume-paused',), 1000)]:
+            with self.subTest(args=args, cap=cap):
+                self.assertEqual(2, self.invoke(*args))
+                self.assertEqual("PAUSED_USAGE_UNKNOWN", self.state["status"])
+                self.assertEqual("PAUSED_OR_BLOCKED", self.state["phase"])
+                self.assertEqual(cap, self.state["settings"]["limits"]["max_reported_tokens"])
+                reason = self.state["stop_reason"]
+                for detail in ("001/terra-01", events, "--abandon-stage", "--resume-paused",
+                               "larger positive --max-reported-tokens do not resolve unknown consumption",
+                               "unchanged-cap run remains paused", "--max-reported-tokens 0",
+                               "policy change, not usage recovery"):
+                    self.assertIn(detail, reason)
+                self.assertIn(reason, self.stdout + self.stderr)
+                self.assertEqual(archived, self.state["stages"])
+                self.assertEqual(raw_events, Path(events).read_text())
+                self.assertEqual("# retained partial work\n", (self.root / "partial.py").read_text())
+                self.assertEqual(8, self.state["active_seconds"])
+
+    def test_unknown_usage_lists_all_affected_attempts_and_legacy_record_locations(self):
+        self.approve()
+        self.state["settings"]["limits"]["max_reported_tokens"] = 100
+        self.state["stages"] = [
+            {"iteration": 1, "output": str(self.run / "terra-01.json"), "events": str(self.run / "terra-01.jsonl"),
+             "metrics": {"provider_tokens": {"input_tokens": None, "output_tokens": 1}}},
+            {"iteration": 1, "output": str(self.run / "sol-01.json"), "events": str(self.run / "sol-01.jsonl"),
+             "metrics": {"provider_tokens": {"input_tokens": 1}}},
+            {},
+            {"iteration": 1, "output": str(self.run / "known.json"), "events": str(self.run / "known.jsonl"),
+             "metrics": {"provider_tokens": {"input_tokens": 100, "output_tokens": 1}}}]
+        records = copy.deepcopy(self.state["stages"])
+        self.assertEqual(2, self.invoke())
+        self.assertEqual("PAUSED_USAGE_UNKNOWN", self.state["status"])
+        for name in ("terra-01", "sol-01"):
+            self.assertIn(f"001/{name}", self.stderr)
+            self.assertIn(str(self.run / f"{name}.jsonl"), self.stderr)
+        self.assertIn("stages[2] (events: not recorded)", self.stderr)
+        self.assertNotIn("known.jsonl", self.stderr)
+        self.assertEqual(records, self.state["stages"])
+
+    def test_reported_token_known_threshold_still_controls_stage_admission(self):
+        self.approve()
+        self.state["stages"] = [{"metrics": {"provider_tokens": {"input_tokens": 1, "output_tokens": 1}}}]
+        self.assertEqual(2, self.invoke("--max-reported-tokens", "2"))
+        self.assertEqual("PAUSED_BUDGET", self.state["status"])
+        calls = []
+        def attempted(**kwargs):
+            calls.append(kwargs)
+            raise s.Paused("PAUSED_TEST_LAUNCH", "Mock stage admitted; no provider called")
+        self.assertEqual(2, self.invoke("--resume-paused", "--max-reported-tokens", "3", role=attempted))
+        self.assertEqual("PAUSED_TEST_LAUNCH", self.state["status"])
+        self.assertEqual(1, len(calls))
+
+    def test_autopilot_runtime_uses_same_reported_token_guard(self):
+        self.approve()
+        self.state["settings"]["limits"]["max_reported_tokens"] = 2
+        args = runner.argparse.Namespace(unit=None, resume_paused=True)
+        for tokens, status in [({}, "PAUSED_USAGE_UNKNOWN"),
+                               ({"input_tokens": 1, "output_tokens": 1}, "PAUSED_BUDGET")]:
+            with self.subTest(status=status):
+                self.state["stages"] = [{"metrics": {"provider_tokens": tokens}}]
+                with patch.object(runner.autopilot, "dispatch_unit") as dispatch:
+                    with self.assertRaises(s.Paused) as caught:
+                        runner.autopilot.run(runner, self.state, self.root, self.run, args)
+                    dispatch.assert_not_called()
+                self.assertEqual(status, caught.exception.status)
+                with self.assertRaises(s.Paused) as shared:
+                    s.enforce_reported_token_limit(self.state)
+                self.assertEqual(str(shared.exception), str(caught.exception))
 
     def test_cli_approve_saves_ready_without_launching(self):
         self.draft()

@@ -314,6 +314,31 @@ split. The default is unlimited, and `0` disables the check on a saved run.
 
 ## Pause, recovery, and abandonment
 
+### Reported-token guard
+
+`--max-reported-tokens N` with a positive `N` is a stage-boundary guard, not a
+strict billing cap. It checks saved provider-reported input plus output tokens
+before admitting the next stage; an in-flight stage can exceed the limit, and
+reported tokens are not a complete billing ledger. Known usage at or above the
+limit pauses with `PAUSED_BUDGET`.
+
+If any recorded attempt lacks input or output token counts, the guard fails closed
+with `PAUSED_USAGE_UNKNOWN`, including for interrupted attempts that have been
+abandoned. The diagnostic identifies affected attempts and their event-log paths
+(or the saved stage index and missing path for incomplete legacy records). Inspect
+those logs and retained work; missing usage is never treated as zero or estimated.
+Abandoning a stage only resolves its uncertain response, not its unknown consumption.
+Neither `--resume-paused` nor a larger positive token cap restores missing usage;
+an unchanged-cap run remains paused as well. There is no manual usage-receipt
+override or automatic recovery that reconstructs missing consumption.
+
+The existing explicit `--max-reported-tokens 0` disables this guard. That is a
+deliberate spending-policy change, **not** usage recovery or a safe way to continue
+under the original cap. The runner never removes the cap automatically. If usage
+remains unknown and the guard must remain enabled, leave the run paused.
+
+### Stage recovery
+
 `--pause-after-stage` and a run-local `pause-requested` file stop at a saved boundary.
 For a timed-out provider stage with no terminal response, Autocode confirms its
 tracked workers are gone, archives the incomplete request and preserves its partial
@@ -364,7 +389,8 @@ autocode --workspace /path/to/project --run-dir /path/to/run --resume-paused
 
 Abandoning a stage preserves its logs, source snapshots and partial edits, clears that
 role's uncertain session and invalidates previous validation. It launches no agent.
-On explicit resume, the Plan Reviewer inspects the retained work and chooses the next step, except
+On explicit resume, if the saved guards permit another stage, the Plan Reviewer
+inspects the retained work and chooses the next step, except
 in final-audit-only routing where the Planner/Builder receives the recovery context directly.
 It does not approve an unapproved brief or stop an already-running worker.
 
