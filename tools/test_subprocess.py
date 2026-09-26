@@ -236,6 +236,65 @@ class SubprocessFlow(unittest.TestCase):
         self.assertEqual(1, len(state["human_reviews"]))
         self.assertIn("Approve artifact criterion C1", result.stdout)
 
+    def test_abandoned_completion_revalidates_before_completing(self):
+        self.check_abandoned_completion_recovery()
+
+    def test_legacy_completion_failure_loop_recovers_on_explicit_resume(self):
+        self.check_abandoned_completion_recovery(legacy=True)
+
+    def check_abandoned_completion_recovery(self, *, legacy=False):
+        self.env['AUTOCODE_FIXTURE_MODE'] = 'no-human'
+        self.env['AUTOCODE_FIXTURE_QUOTA_STAGE'] = 'astra_review'
+        self.launch(['Build a greeting tool', '--chat'], 2, answers='CLI\nyes\n')
+        run, interrupted = self.saved()
+        self.assertEqual('PASS', interrupted['validation']['verdict'])
+        self.assertEqual('astra_review', interrupted['active_stage']['stage'])
+        source = (self.project / 'greet.py').read_bytes()
+        contract = interrupted['goal_contract']
+        args = ['--run-dir', str(run), '--no-chat']
+        status = json.loads(self.launch([*args, '--status'], 0).stdout)
+        del self.env['AUTOCODE_FIXTURE_QUOTA_STAGE']
+
+        self.launch([*args, '--abandon-stage', status['attempt_id']], 0)
+        _, abandoned = self.saved()
+        self.assertEqual('PAUSED_STAGE_ABANDONED', abandoned['status'])
+        self.assertEqual('sol', abandoned['next_stage'])
+        self.assertNotIn('validation', abandoned)
+        self.assertEqual(interrupted['validation'], abandoned['validation_archive'][-1]['validation'])
+        self.assertTrue(abandoned['stages'][-1]['abandoned'])
+        self.assertTrue(Path(abandoned['stages'][-1]['events']).is_file())
+        self.assertEqual(source, (self.project / 'greet.py').read_bytes())
+        if legacy:
+            from .test_autocode import runner, s
+            # Recreate the durable state written by the old completion router.
+            abandoned.update(status='PAUSED_REPEATED_FAILURE', next_stage='astra_review')
+            error = s.Paused('PAUSED_COMPLETION_GATE',
+                'Completion rejected: missing, stale, failed or unverified independent evidence')
+            for attempt in range(3):
+                record = {'stage': 'astra_review', 'role': 'astra', 'iteration': 1,
+                          'output': str(run / f'failed-completion-{attempt}.json'),
+                          'source_revision': abandoned['recovery_context']['source_revision'],
+                          'rejected': True, 'rejection_reason': str(error)}
+                runner.failures.record(abandoned, record, error, s.now())
+                abandoned['stages'].append(record)
+            (run / 'state.json').write_text(json.dumps(abandoned))
+        count = len(abandoned['stages'])
+        # Merely inspecting or launching a paused run must not authorize recovery.
+        self.launch(args, 2)
+        self.assertEqual(count, len(self.saved()[1]['stages']))
+
+        self.launch([*args, '--resume-paused', '--unit', 'autoreview'], 0)
+        _, final = self.saved()
+        self.assertEqual('TASK_COMPLETE', final['status'])
+        self.assertEqual(['sol', 'astra_review'], [r['stage'] for r in final['stages'][count:]])
+        self.assertEqual('PASS', final['validation']['verdict'])
+        self.assertEqual(1, sum(r['stage'] == 'terra' for r in final['stages']))
+        self.assertEqual(contract, final['goal_contract'])
+        self.assertEqual(source, (self.project / 'greet.py').read_bytes())
+        if legacy:
+            self.assertEqual(abandoned['failure_history'], final['failure_history'])
+        self.assertTrue(json.loads(self.launch([*args, '--status'], 0).stdout)['completion_current'])
+
     def test_unexpected_session_pauses_and_can_be_explicitly_abandoned(self):
         self.launch(["Build a greeting tool"], 2)
         run, initial = self.saved()

@@ -777,10 +777,13 @@ def abandon_stage(state, run_dir, workspace, selected):
     # Report repair is an internal transport stage. A fresh attempt must route
     # to the owning workflow stage, never to the unowned *_report_repair name.
     retry_stage = record.get("original_stage") or record["stage"].removesuffix("_report_repair")
-    next_stage = (retry_stage if record["role"] == "astra" or record.get("planning") else
+    # Abandonment invalidated validation; a completion retry must obtain it again.
+    next_stage = (workflow.review_stage(state) if retry_stage == "astra_review" else
+                  retry_stage if record["role"] == "astra" or record.get("planning") else
                   "terra" if workflow.final_only(state) and record["role"] in ("terra", "sol") else
                   "astra_review")
     recovery_role = ("Requirements Planner" if planning.is_planning(state, next_stage) else
+                     "Validator" if next_stage == "sol" else
                      "Builder" if next_stage == "terra" else "Plan Reviewer")
     state.update(status="PAUSED_STAGE_ABANDONED", phase="PAUSED_OR_BLOCKED", next_stage=next_stage,
                  stop_reason=f"Partial work retained. Resume explicitly for {recovery_role} to inspect it and choose the next step.")
@@ -1157,6 +1160,66 @@ def retry_format_failed_report(state, run_dir, workspace, selected):
         'kind': 'report_retry_after_format_fix', 'actor': 'user_cli', 'at': now(),
         'attempt_id': selected, 'source_revision': original['source_revision']})
     write_json(run_dir / 'state.json', state)
+
+
+def prepare_abandoned_completion_revalidation(state, run_dir, workspace):
+    """Repair old completion-abandonment routing on explicit resume only."""
+    if (state.get('status') not in ('PAUSED_STAGE_ABANDONED', 'PAUSED_INVALID_OUTPUT', 'PAUSED_REPEATED_FAILURE')
+            or state.get('next_stage') != 'astra_review' or state.get('validation')
+            or any(state.get(key) for key in ('active_stage', 'pending_report_repair', 'uncertain_artifacts'))):
+        return False
+    recovery = state.get('recovery_context') or {}
+    selected = recovery.get('attempt_id')
+    stages = state.get('stages', [])
+    index = next((i for i in range(len(stages) - 1, -1, -1)
+                  if stages[i].get('abandoned') and attempt_id(stages[i]) == selected), None)
+    if index is None:
+        return False
+    abandoned = stages[index]
+    owner = abandoned.get('original_stage') or abandoned['stage'].removesuffix('_report_repair')
+    if (owner != 'astra_review'
+            or abandoned.get('contract_hash') != (state.get('goal_contract') or {}).get('hash')
+            or abandoned.get('task_id') != (state.get('current_task') or {}).get('id')
+            or not any(e.get('kind') == 'stage_abandoned' and e.get('attempt_id') == selected
+                       for e in state.get('user_events', []))
+            or not any(v.get('reason') == 'Uncertain stage abandoned' for v in state.get('validation_archive', []))):
+        return False
+    revision = support.snapshot(workspace)['revision']
+    if abandoned.get('source_revision') != revision or recovery.get('source_revision') != revision:
+        return False
+    # Only failed completion requests (and their runner-owned repair routing)
+    # may follow this boundary. Never reinterpret later accepted work.
+    retries = [r for r in stages[index + 1:]
+               if not (r.get('runner_owned') and r.get('stage') == 'resolver'
+                       and (r.get('decision') or {}).get('action') == 'retry')]
+    if any(not r.get('rejected') or r.get('abandoned') or r.get('source_revision') != revision
+           or (r.get('original_stage') or r.get('stage')) != 'astra_review' for r in retries):
+        return False
+    missing = 'Completion rejected: missing, stale, failed or unverified independent evidence'
+    if retries:
+        last = retries[-1]
+        failure = (state.get('failure_history') or {}).get(last.get('failure_key'), {})
+        if (failure.get('identity') != {'stage': 'astra_review', 'artifact_hash': revision,
+                                       'error_class': 'PAUSED_COMPLETION_GATE'}
+                or last.get('rejection_reason') != missing
+                or any(r.get('rejection_reason') not in (missing,
+                       'OpenCode final message is not a JSON report; inspect the saved raw events') for r in retries)):
+            return False
+        attempts = {r.get('failure_attempt') for r in retries if r.get('rejection_reason') == missing}
+        if not failure.get('attempts') or not set(failure['attempts']) <= attempts:
+            return False
+    elif state['status'] != 'PAUSED_STAGE_ABANDONED':
+        return False
+    stage = workflow.review_stage(state)
+    if failures.repeated(state, {'stage': stage, 'source_revision': revision}):
+        return False
+    state.setdefault('reconciliation_notes', []).append({
+        'at': now(), 'attempt_id': selected, 'previous_status': state['status'], 'stage': stage,
+        'reason': 'Explicit resume requires fresh validation after abandoned completion'})
+    state.update(status='PAUSED_STAGE_ABANDONED', phase='PAUSED_OR_BLOCKED', next_stage=stage,
+                 stop_reason='Completion abandonment invalidated validation. Resume explicitly for fresh review.')
+    write_json(run_dir / 'state.json', state)
+    return True
 
 
 def repeated_failure_resume_guard(state, workspace):
@@ -2276,6 +2339,7 @@ def main(unit=None) -> int:
                             print(f"Input rejected: {error}", file=sys.stderr)
                             return 2
                     else:
+                        prepare_abandoned_completion_revalidation(state, run_dir, workspace)
                         repeated_failure_resume_guard(state, workspace)
                         prepare_planning_retry(state, run_dir)
                         prepare_exhausted_execution_report_retry(state, run_dir, workspace)
