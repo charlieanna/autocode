@@ -6,25 +6,25 @@ import datetime as dt
 
 LADDERS = {
     "astra": (
-        ("openai/gpt-5.6-sol", "high", "Sol High"),
-        ("openai/gpt-5.6-sol", "xhigh", "Sol XHigh"),
-        ("openai/gpt-6-astra", "high", "Astra High"),
+        ("xiaomi-token-plan-sgp/mimo-v2.6-pro", "high", "Mimo Pro High"),
+        ("xiaomi-token-plan-sgp/mimo-v2.6-pro", "xhigh", "Mimo Pro XHigh"),
+        ("xiaomi-token-plan-sgp/mimo-v2.6-pro", "max", "Mimo Pro Max"),
     ),
     "terra": (
-        ("openai/gpt-5.6-terra", "medium", "Terra Medium"),
-        ("openai/gpt-5.6-terra", "high", "Terra High"),
-        ("openai/gpt-5.6-terra", "xhigh", "Terra XHigh"),
-        ("openai/gpt-5.6-terra", "max", "Terra Max"),
+        ("xiaomi-token-plan-sgp/mimo-v2.6-pro", "medium", "Mimo Pro Medium"),
+        ("xiaomi-token-plan-sgp/mimo-v2.6-pro", "high", "Mimo Pro High"),
+        ("xiaomi-token-plan-sgp/mimo-v2.6-pro", "xhigh", "Mimo Pro XHigh"),
+        ("xiaomi-token-plan-sgp/mimo-v2.6-pro", "max", "Mimo Pro Max"),
     ),
     "sol": (
-        ("openai/gpt-5.6-sol", "high", "Sol High"),
-        ("openai/gpt-5.6-sol", "xhigh", "Sol XHigh"),
-        ("openai/gpt-6-astra", "high", "Astra High"),
+        ("xiaomi-token-plan-sgp/mimo-v2.6-pro", "high", "Mimo Pro High"),
+        ("xiaomi-token-plan-sgp/mimo-v2.6-pro", "xhigh", "Mimo Pro XHigh"),
+        ("xiaomi-token-plan-sgp/mimo-v2.6-pro", "max", "Mimo Pro Max"),
     ),
     "completion": (
-        ("openai/gpt-5.6-sol", "medium", "Sol Medium"),
-        ("openai/gpt-5.6-sol", "high", "Sol High"),
-        ("openai/gpt-6-astra", "high", "Astra High"),
+        ("xiaomi-token-plan-sgp/mimo-v2.6-pro", "medium", "Mimo Pro Medium"),
+        ("xiaomi-token-plan-sgp/mimo-v2.6-pro", "high", "Mimo Pro High"),
+        ("xiaomi-token-plan-sgp/mimo-v2.6-pro", "max", "Mimo Pro Max"),
     ),
 }
 

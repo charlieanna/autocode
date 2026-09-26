@@ -19,7 +19,7 @@ class PolicyTests(unittest.TestCase):
         state = json.loads(json.dumps(state))
         self.assertEqual('retry', policy.failure(state, 'e1', 'failure'))
         self.assertEqual('escalate', policy.failure(state, 'e2', 'failure'))
-        self.assertEqual('gpt-6-sol', state['settings']['roles']['terra']['model'])
+        self.assertEqual(policy.DEFAULTS['strong_model'], state['settings']['roles']['terra']['model'])
         self.assertEqual('pause', policy.failure(state, 'e3', 'failure'))
         with self.assertRaises(policy.s.Paused): policy.guard(state)
         self.assertEqual(3, len(state['builder_retry_decisions']))
@@ -63,7 +63,8 @@ class PolicyBlackbox(unittest.TestCase):
 
     def test_strong_retry_uses_sol_high_and_integration_still_requires_review(self):
         self.seed(); self.env['BUILD_AUDIT_FAULT']='escalate_success'; self.build(); self.candidate()
-        self.assertEqual(['gpt-6-luna','gpt-6-luna','gpt-6-sol'],[r['model'] for r in self.events() if r['milestone']=='M1'])
+        strong = policy.DEFAULTS['strong_model']
+        self.assertEqual(['gpt-6-luna','gpt-6-luna',strong],[r['model'] for r in self.events() if r['milestone']=='M1'])
         self.assertNotEqual('TASK_COMPLETE',self.state()['status'])
 
     def test_exhaustion_resume_cannot_reset_budget_or_claim_built(self):
@@ -89,7 +90,7 @@ class PolicyBlackbox(unittest.TestCase):
             self.invoke('autoreview',['--run-dir',str(self.run),'--no-chat'])
             self.assertEqual('FAIL',self.state()['validation']['verdict'])
             self.invoke('autoresolver',['--run-dir',str(self.run),'--no-chat'],2 if attempt==2 else 0)
-        self.assertEqual(['gpt-6-luna','gpt-6-luna','gpt-6-sol'],[r['model'] for r in self.events()])
+        self.assertEqual(['gpt-6-luna','gpt-6-luna',policy.DEFAULTS['strong_model']],[r['model'] for r in self.events()])
         self.assertEqual('PAUSED_BUILDER_RETRY_LIMIT',self.state()['status'])
         self.assertEqual(['retry','escalate','pause'],[r['action'] for r in self.state()['builder_retry_decisions']])
 
@@ -99,6 +100,6 @@ class PolicyBlackbox(unittest.TestCase):
         self.env['BUILD_AUDIT_FAULT']='retry_exhausted'
         self.build(2)
         self.assertEqual('PAUSED_BUILDER_RETRY_LIMIT',self.state()['status'])
-        self.assertEqual(['gpt-6-luna','gpt-6-luna','gpt-6-sol'],[r['model'] for r in self.events()])
+        self.assertEqual(['gpt-6-luna','gpt-6-luna',policy.DEFAULTS['strong_model']],[r['model'] for r in self.events()])
         self.assertNotIn('implementation',self.state())
         self.assertNotIn('autocode',self.state().get('unit_handoffs',{}))

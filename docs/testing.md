@@ -2,6 +2,14 @@
 
 [← Back to README](../README.md)
 
+## Progressive testing plan
+
+See the [progressive testing plan](testing-plan.md) for the simple-to-complex
+task ladder, independent pass criteria, failure-injection matrix, evidence format,
+and promotion gates. It separates offline runner checks from authorized live-model
+delivery trials and identifies current harness hazards. In particular, unrestricted
+source test discovery is not currently an offline-only command.
+
 ## Tests and evidence
 
 AutoReview generation pins contract/task identity and reviewer-owned finding IDs

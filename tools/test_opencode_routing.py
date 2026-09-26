@@ -49,13 +49,17 @@ class OpenCodeRoutingTests(unittest.TestCase):
         self.addCleanup(p.stop)
 
     def test_new_defaults_and_bare_aliases_never_read_codex_login(self):
-        for overrides in ({}, {"astra_model": "gpt-6-astra", "sol_model": "gpt-5.6-sol"}):
+        for overrides, expected_sol in (
+            ({}, "zai-coding-plan/glm-5.3"),
+            ({"astra_model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+              "sol_model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"},
+             "xiaomi-token-plan-sgp/mimo-v2.6-pro"),
+        ):
             args = test_planning.PlanningTests.configure_args(self, **overrides)
             with patch.object(support, "local_settings", side_effect=AssertionError("Codex must not be used")):
                 settings = runner.configure(args, {"workspace": str(self.run), "iteration": 0})
             self.assertEqual({"opencode"}, {c["engine"] for c in settings["roles"].values()})
-            self.assertEqual("openai/gpt-6-astra" if overrides else "openai/gpt-5.6-sol", settings["roles"]["astra"]["model"])
-            expected_sol = "openai/gpt-5.6-sol"
+            self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", settings["roles"]["astra"]["model"])
             self.assertEqual(expected_sol, settings["roles"]["sol"]["model"])
             self.assertEqual({"opencode"}, set(settings["transport_identities"]))
 
@@ -107,7 +111,7 @@ class OpenCodeRoutingTests(unittest.TestCase):
         self.assertEqual(before, self.state)
 
     def test_explicit_transport_acceptance_uses_validated_current_identity_only_at_clean_pause(self):
-        current = {**self.identity, "version": "1.18.32", "config_hashes": {"cursor-acp": "current"}}
+        current = {**self.identity, "version": "1.18.32", "config_hashes": {"mimo-token-plan": "current"}}
         self.state["status"] = "PAUSED_TRANSPORT_CHANGED"
         self.state["workspace"] = str(self.run)
         args = test_planning.PlanningTests.configure_args(
@@ -136,7 +140,7 @@ class OpenCodeMigrationFlow(unittest.TestCase):
         state = self.saved()[1]
         for role in ("astra", "sol"):
             cfg = state["settings"]["roles"][role]
-            cfg.update(engine="codex", provider="openai", model=cfg["model"].removeprefix("openai/"))
+            cfg.update(engine="codex", provider="openai", model="gpt-5.6-sol")
             state["sessions"][role] = "legacy-codex-" + role
         state["settings"]["transport_identities"]["codex"] = {"auth_mode": "ChatGPT"}
         (run / "state.json").write_text(json.dumps(state))

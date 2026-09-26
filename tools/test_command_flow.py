@@ -37,16 +37,16 @@ class ConfigToolFlow(unittest.TestCase):
             name = "fixturetool"
             command = ["fixture-tool", "--report", "{report}", "--sandbox", "{sandbox}", "--model", "{model}", "--role", "{role}"]
             prompt = "stdin"
-            models = ["fixture-model"]
+            models = ["fixture-reviewer", "fixture-builder", "fixture-validator", "fixture-completion", "fixture-planner", "fixture-plan-reviewer"]
             version_command = ["fixture-tool", "--version"]
 
             [roles]
-            astra = { model = "fixture-model", effort = "high" }
-            terra = { model = "fixture-model", effort = "medium" }
-            sol = { model = "fixture-model", effort = "high" }
-            completion = { model = "fixture-model", effort = "medium" }
-            glm = { model = "fixture-model", effort = "medium" }
-            plan_reviewer = { model = "fixture-model", effort = "high" }
+            astra = { model = "fixture-reviewer", effort = "high" }
+            terra = { model = "fixture-builder", effort = "medium" }
+            sol = { model = "fixture-validator", effort = "high" }
+            completion = { model = "fixture-completion", effort = "medium" }
+            glm = { model = "fixture-planner", effort = "medium" }
+            plan_reviewer = { model = "fixture-plan-reviewer", effort = "high" }
         """))
         self.env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
                     "PYTHONDONTWRITEBYTECODE": "1", "XDG_CONFIG_HOME": str(config_home),
@@ -70,16 +70,16 @@ class ConfigToolFlow(unittest.TestCase):
             name = "fixturetool"
             command = {json.dumps(command)}
             prompt = "{prompt}"
-            {output.replace(chr(10), chr(10) + "            ")}models = ["fixture-model"]
+            {output.replace(chr(10), chr(10) + "            ")}models = ["fixture-reviewer", "fixture-builder", "fixture-validator", "fixture-completion", "fixture-planner", "fixture-plan-reviewer"]
             version_command = ["fixture-tool", "--version"]
 
             [roles]
-            astra = {{ model = "fixture-model", effort = "high" }}
-            terra = {{ model = "fixture-model", effort = "medium" }}
-            sol = {{ model = "fixture-model", effort = "high" }}
-            completion = {{ model = "fixture-model", effort = "medium" }}
-            glm = {{ model = "fixture-model", effort = "medium" }}
-            plan_reviewer = {{ model = "fixture-model", effort = "high" }}
+            astra = {{ model = "fixture-reviewer", effort = "high" }}
+            terra = {{ model = "fixture-builder", effort = "medium" }}
+            sol = {{ model = "fixture-validator", effort = "high" }}
+            completion = {{ model = "fixture-completion", effort = "medium" }}
+            glm = {{ model = "fixture-planner", effort = "medium" }}
+            plan_reviewer = {{ model = "fixture-plan-reviewer", effort = "high" }}
         '''))
 
     def launch(self, *args, answers="CLI\nyes\n"):

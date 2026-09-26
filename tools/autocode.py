@@ -288,6 +288,10 @@ def run_role(
     dry_run: bool, report_only: bool = False,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     timeout_recovery_guard(state)
+    # Unskippable chokepoint: every Builder/Validator/Completion launch goes
+    # through run_role. Before_code_stage and dispatch are belt-and-suspenders.
+    if role in ("terra", "sol", "completion", "astra", "plan_reviewer", "glm"):
+        dispatch.enforce_cross_model_verification(state)
     iteration = state["iteration"]
     original_stage = state['next_stage']
     stage = original_stage
@@ -1438,7 +1442,10 @@ def configure(args, state):
         for index, item in enumerate(command[:-1]):
             if item == "-c" and command[index+1].startswith('model_provider="'):
                 providers[record["role"]] = command[index+1][len('model_provider="'):-1]
-    defaults = opencode.DEFAULT_MODELS if engine == "opencode" else DEFAULT_ROLE_MODELS
+    # Custom providers ship their own DEFAULT_MODELS (TOML [roles]); never
+    # force the builtin OpenCode catalogue onto fixturetool/kilocode/etc.
+    provider_mod = autocode_providers.resolve(provider_name) if provider_name else opencode
+    defaults = provider_mod.DEFAULT_MODELS if engine == "opencode" else DEFAULT_ROLE_MODELS
     roles = {r: {"model": getattr(args, f"{r}_model", None) or models.get(r) or defaults[r],
                  "reasoning_effort": getattr(args, f"{r}_reasoning_effort", None) or args.reasoning_effort or local.get("model_reasoning_effort") or opencode.DEFAULT_REASONING_EFFORTS[r],
                  "provider": getattr(args, f"{r}_provider", None) or providers.get(r) or local.get("model_provider")}
@@ -1494,12 +1501,13 @@ def iteration_limit_reached(iteration, ceiling):
     return iteration > ceiling
 
 
-def _provider_model(role, requested):
-    model = requested or opencode.DEFAULT_MODELS[role]
+def _provider_model(role, requested, mod=None):
+    mod = mod or opencode
+    model = requested or mod.DEFAULT_MODELS[role]
     # Bare OpenAI names from older dashboard conversations are aliases,
     # never a reason to use a separate Codex login. Config tools name models
     # themselves, so they keep the configured string.
-    if not getattr(opencode, "CONFIGURED", False) and "/" not in model:
+    if not getattr(mod, "CONFIGURED", False) and "/" not in model:
         model = f"openai/{model}"
     return model
 
@@ -1508,32 +1516,35 @@ def configure_joint(settings, args, *, fresh):
     if settings.get("engine") == "codex":
         configure_codex_joint(settings, args)
         return
+    mod = autocode_providers.resolve(settings.get("provider") or "opencode")
     if fresh:
         settings["joint_planning"] = True
         settings["roles"]["requirements"] = {"engine": "opencode", "provider": None,
-            "model": getattr(args, "requirements_model", None) or opencode.DEFAULT_MODELS.get("requirements", opencode.DEFAULT_MODELS["glm"]),
+            "model": getattr(args, "requirements_model", None) or mod.DEFAULT_MODELS.get("requirements", mod.DEFAULT_MODELS["glm"]),
             "reasoning_effort": getattr(args, "requirements_reasoning_effort", None)}
         if "completion" not in settings["roles"]:
             settings["roles"]["completion"] = {
                 **settings["roles"]["astra"],
-                "model": opencode.DEFAULT_MODELS["completion"],
-                "reasoning_effort": opencode.DEFAULT_REASONING_EFFORTS["completion"],
+                "model": mod.DEFAULT_MODELS["completion"],
+                "reasoning_effort": mod.DEFAULT_REASONING_EFFORTS["completion"],
             }
         for role in ("astra", "sol", "completion"):
             settings["roles"][role].update(engine="opencode", provider=None,
-                model=_provider_model(role, getattr(args, f"{role}_model", None)))
-        terra_model = getattr(args, "terra_model", None) or opencode.DEFAULT_MODELS["terra"]
+                model=_provider_model(role, getattr(args, f"{role}_model", None), mod))
+        terra_model = getattr(args, "terra_model", None) or mod.DEFAULT_MODELS["terra"]
         settings["roles"]["terra"].update(engine="opencode", provider=None, model=terra_model)
-        for role, effort in opencode.DEFAULT_REASONING_EFFORTS.items():
+        for role, effort in mod.DEFAULT_REASONING_EFFORTS.items():
             if role in settings["roles"] and not settings["roles"][role].get("reasoning_effort"):
                 settings["roles"][role]["reasoning_effort"] = effort
-        glm_model = getattr(args, "glm_model", None) or opencode.DEFAULT_MODELS["glm"]
+        glm_model = getattr(args, "glm_model", None) or mod.DEFAULT_MODELS["glm"]
         settings["roles"]["glm"] = {"engine": "opencode", "provider": None,
-            "model": glm_model, "reasoning_effort": opencode.DEFAULT_REASONING_EFFORTS.get("glm")}
+            "model": glm_model, "reasoning_effort": mod.DEFAULT_REASONING_EFFORTS.get("glm")}
         settings["roles"]["plan_reviewer"] = {"engine": "opencode", "provider": None,
-            "model": getattr(args, "plan_reviewer_model", None) or opencode.DEFAULT_MODELS["plan_reviewer"],
+            "model": (getattr(args, "plan_reviewer_model", None)
+                      or mod.DEFAULT_MODELS.get("plan_reviewer")
+                      or planning.PINNED_REVIEWER_MODEL),
             "reasoning_effort": (getattr(args, "plan_reviewer_reasoning_effort", None)
-                                 or opencode.DEFAULT_REASONING_EFFORTS.get("plan_reviewer")),
+                                 or mod.DEFAULT_REASONING_EFFORTS.get("plan_reviewer")),
             "model_pinned": True}
         settings["transport_identities"] = {"opencode": settings["transport_identity"]}
     elif getattr(args, "glm_model", None):
@@ -1675,7 +1686,12 @@ def accept_completion(state: dict[str, Any], workspace: Path) -> None:
         raise ValueError("Completion acceptance requires an approved goal")
     current = support.snapshot(workspace)
     contract = state["goal_contract"]
-    probe = {"status": "TASK_COMPLETE", "contract_revision": contract["revision"], "contract_hash": contract["hash"],
+    # The probe must carry the current task identity: execution_guard rejects a
+    # result whose task_id is absent while a task is assigned, so omitting it
+    # made --accept-completion unreachable on every real run.
+    probe = {"status": "TASK_COMPLETE",
+             "contract_revision": contract["revision"], "contract_hash": contract["hash"],
+             "task_id": (state.get("current_task") or {}).get("id", ""),
              "acceptance_criteria": [{**c, "status": "verified", "evidence": "Current Validator criterion evidence"}
                                      for c in state["acceptance_criteria"]]}
     if not support.completion_ready(state, probe, current):
@@ -1929,7 +1945,7 @@ def main(unit=None) -> int:
     parser.add_argument("--in-place", action="store_true", help="Use this checkout directly; otherwise new tasks get independent worktrees from HEAD")
     parser.add_argument("--max-parallel-builders", type=int,
                         help="Orchestrator concurrency for independent milestones (new joint runs: 2; 1 dispatches serially)")
-    parser.add_argument('--builder-strong-model', help='New-run Builder escalation model after one ordinary retry (default gpt-6-sol, high); pinned routes never escalate')
+    parser.add_argument('--builder-strong-model', help='New-run Builder escalation model after one ordinary retry (default xiaomi-token-plan-sgp/mimo-v2.6-pro, high); pinned routes never escalate')
     parser.add_argument("--retry-builder", action="append", default=[], metavar="MILESTONE_ID",
                         help="Explicitly retry a stopped Builder after inspecting its retained work; requires --resume-paused")
     parser.add_argument("--figma-file", help="Figma Design URL to implement using the connected Codex plugin")
@@ -2398,6 +2414,8 @@ def main(unit=None) -> int:
                 if milestones.apply_queued_activation(current, run_dir):
                     print("Milestone checkpoints enabled at a safe boundary; continuing with independent validation.", flush=True)
                 workflow.guard(current)
+                if current.get("next_stage") in ("terra", "sol", "orchestrator", "completion"):
+                    dispatch.enforce_cross_model_verification(current)
                 repairing_before_upgrade = (args.resume_paused and current.get('pending_report_repair')
                                             and milestones.owns_pause(run_dir))
                 if (run_dir / "pause-requested").exists() and not repairing_before_upgrade:

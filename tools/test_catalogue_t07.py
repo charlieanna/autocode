@@ -149,7 +149,7 @@ class RepairScenarios(RepairCase):
         """FIX-05. Existing: test_escalation + builder-ladder tests in test_autocode."""
         contract_before = copy.deepcopy(self.state["goal_contract"])
         self.state["settings"]["roles"]["terra"].update(
-            model="openai/gpt-5.6-terra", reasoning_effort="medium")
+            model="xiaomi-token-plan-sgp/mimo-v2.6-pro", reasoning_effort="medium")
         role_settings = self.state["settings"]["roles"]["terra"]
         first = copy.deepcopy(role_settings)
         trigger = {"trigger": "rejected_output", "detail": ValueError("same failure")}

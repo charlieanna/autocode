@@ -468,6 +468,19 @@ class GoalTests(unittest.TestCase):
             g.approve_review(self.state, "C1", g.review_token(self.state), s.snapshot(self.root))
         self.assertFalse(s.completion_ready(self.state, self.decision("TASK_COMPLETE"), s.snapshot(self.root)))
 
+    def test_accept_completion_probe_carries_the_current_task_identity(self):
+        """F7: --accept-completion was unreachable whenever a task was assigned."""
+        self.approve()
+        g.assign_task(self.state, self.decision(), s.snapshot(self.root))
+        self.validation()
+        self.assertEqual([], g.missing_human_reviews(self.state))
+        task_id = (self.state.get("current_task") or {}).get("id", "")
+        self.assertTrue(task_id)
+        runner.accept_completion(self.state, self.root)
+        self.assertEqual("TASK_COMPLETE", self.state["status"])
+        self.assertEqual("user_cli", self.state.get("completion_actor"))
+        self.assertEqual(task_id, self.state["final_decision"].get("task_id"))
+
     def test_medium_blocking_finding_blocks_even_with_tests_passing(self):
         self.approve(); current = self.validation()
         self.state["validation"]["findings"] = [{"severity": "medium", "blocking": True, "finding": "Required behavior missing"}]

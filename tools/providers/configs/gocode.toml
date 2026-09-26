@@ -6,9 +6,9 @@ models_command = ["gocode", "models"]
 version_command = ["gocode", "--version"]
 
 [roles]
-astra = { model = "gpt-5.6-sol", effort = "high" }
-terra = { model = "gpt-5.6-terra", effort = "medium" }
-sol = { model = "gpt-5.6-sol", effort = "high" }
-completion = { model = "gpt-5.6-sol", effort = "medium" }
-glm = { model = "gpt-5.6-sol", effort = "medium" }
-plan_reviewer = { model = "gpt-5.6-sol", effort = "high" }
+astra = { model = "xiaomi-token-plan-sgp/mimo-v2.6-pro", effort = "high" }
+terra = { model = "xiaomi-token-plan-sgp/mimo-v2.6-pro", effort = "medium" }
+sol = { model = "zai-coding-plan/glm-5.3", effort = "high" }
+completion = { model = "zai-coding-plan/glm-5.3", effort = "medium" }
+glm = { model = "zai-coding-plan/glm-5.3", effort = "medium" }
+plan_reviewer = { model = "xiaomi-token-plan-sgp/mimo-v2.6-pro", effort = "high" }

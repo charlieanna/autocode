@@ -28,6 +28,59 @@ except ImportError:
 
 DEFAULTS = {"enabled": True, "max_parallel": 2}
 
+# Cross-model verification (user 2026-09-26): a verifier must never be the
+# producer's model. Family is the independence unit — MiMo checks GLM work and
+# GLM checks MiMo work. Same exact model is always illegal.
+_VERIFIER_PAIRS = (
+    ("terra", "sol", "Builder/Validator"),
+    ("terra", "completion", "Builder/Completion Owner"),
+)
+
+
+def _model_family(model):
+    """GLM/MiMo family for cross-verification; GPT tiers keep their own id.
+
+    openai/gpt-5.6-terra and openai/gpt-6-astra are different tiers and are
+    independent. zai-coding-plan/* is one family; xiaomi-token-plan-sgp/* is
+    another — those must swap for verifier≠producer.
+    """
+    if not isinstance(model, str) or not model:
+        return ""
+    if model.startswith("zai-coding-plan/"):
+        return "glm"
+    if model.startswith("xiaomi-token-plan-sgp/") or model.startswith("mimo-"):
+        return "mimo"
+    return model
+
+
+def enforce_cross_model_verification(state):
+    """Pause before build/validate dispatch when verifier model == producer model."""
+    roles = (state.get("settings") or {}).get("roles") or {}
+    problems = []
+
+    def check(producer, verifier, label):
+        p_model = (roles.get(producer) or {}).get("model")
+        v_model = (roles.get(verifier) or {}).get("model")
+        if not p_model or not v_model:
+            return
+        if p_model == v_model:
+            problems.append(f"{label}: identical model {p_model}")
+            return
+        p_fam, v_fam = _model_family(p_model), _model_family(v_model)
+        # GLM/MiMo must swap families so neither grades its own work.
+        if p_fam in ("glm", "mimo") and p_fam == v_fam:
+            problems.append(f"{label}: same family {p_fam} ({p_model} / {v_model})")
+
+    for producer, verifier, label in _VERIFIER_PAIRS:
+        check(producer, verifier, label)
+    check("glm", "plan_reviewer", "Planner/Plan Reviewer")
+    if problems:
+        raise s.Paused(
+            "PAUSED_CROSS_MODEL",
+            "Cross-model verification violated; change the verifier route so it does not "
+            "grade its own work: " + "; ".join(problems),
+        )
+
 
 try:
     from . import autocode_status
@@ -392,6 +445,7 @@ def integrate(state, workspace, run_dir, batch):
     for field in ("requirements", "acceptance_criteria", "validation_plan", "affected_paths"):
         combined[field] = list(dict.fromkeys(v for task in tasks for v in task[field]))
     state.setdefault("task_archive", []).append(state["current_task"])
+    enforce_cross_model_verification(state)
     state.update(current_task=combined, affected_paths=combined["affected_paths"], next_action=combined["objective"],
                  changed_files=batch["changed_files"], diff_ref=batch["patch"], next_stage="sol", phase="EXECUTING")
     snapshot_path = Path(batch["directory"]) / "integrated.json"
@@ -414,6 +468,7 @@ def integrate(state, workspace, run_dir, batch):
 
 def dispatch(state, workspace, run_dir):
     goals.execution_guard(state)
+    enforce_cross_model_verification(state)
     if not enabled(state):
         raise ValueError("Orchestration is not enabled for this run")
     batch = state.get("orchestration_batch")

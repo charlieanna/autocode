@@ -103,6 +103,10 @@ def engine_for(settings, role):
     return settings.get("roles", {}).get(role, {}).get("engine", settings.get("engine", "codex"))
 
 
+# Independent Plan Reviewer route (user 2026-09-26): never the Planner's model.
+PINNED_REVIEWER_MODEL = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
+
+
 def start(state):
     try:
         from .. import autopilot

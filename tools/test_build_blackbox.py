@@ -113,6 +113,8 @@ class BuildBlackbox(unittest.TestCase):
         (self.root/'plan.json').write_text(json.dumps(self.spec, indent=2))
         self.invoke('autoplanner', [self.spec['contract']['intended_outcome'], '--engine','codex','--in-place',
             '--terra-model','gpt-6-luna','--terra-reasoning-effort','medium',
+            '--sol-model','gpt-5.6-sol','--sol-reasoning-effort','high',
+            '--completion-model','gpt-5.6-sol','--completion-reasoning-effort','medium',
             '--max-parallel-builders','3','--no-chat'], 2)
         self.run = next((self.project/'.autocode/runs').iterdir())
         token = self.state()['displayed_goal']

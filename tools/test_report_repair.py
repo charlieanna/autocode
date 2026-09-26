@@ -332,7 +332,7 @@ class RepairTests(unittest.TestCase):
         pending['attempts'] = 2
         self.state['settings'].update(engine='opencode')
         self.state['settings']['roles']['terra'].update(
-            engine='opencode', provider=None, model='openai/gpt-5.6-terra', reasoning_effort='medium')
+            engine='opencode', provider=None, model='xiaomi-token-plan-sgp/mimo-v2.6-pro', reasoning_effort='medium')
         repair = copy.deepcopy(pending['original'])
         repair.update(stage='terra_report_repair', report_only=True)
         self.state['active_stage'] = repair
@@ -346,7 +346,7 @@ class RepairTests(unittest.TestCase):
         self.assertEqual('invalid repaired report', saved['pending_report_repair']['error'])
         self.assertTrue(saved['stages'][-1]['rejected'])
         self.assertEqual('PAUSED_INVALID_OUTPUT', saved['status'])
-        self.assertEqual('Terra High', saved['reasoning_escalations'][-1]['selected']['profile'])
+        self.assertEqual('Mimo Pro High', saved['reasoning_escalations'][-1]['selected']['profile'])
         self.assertNotIn('terra', saved['sessions'])
 
     def test_rejected_active_is_not_reconciled_again(self):

@@ -8,6 +8,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode as runner
 import autocode_opencode as oc
+import autocode_planning as planning
 import autocode_support as support
 import test_planning
 
@@ -60,10 +61,11 @@ class AllRoleModelTests(unittest.TestCase):
             args = self.configure_args(sol_model='zai-coding-plan/glm-5.3')
             settings = runner.configure(args, {'workspace':'/fixture','iteration':0})
         self.assertEqual('opencode', settings['roles']['astra']['engine'])
-        self.assertEqual('openai/gpt-5.6-sol', settings['roles']['astra']['model'])
+        self.assertEqual('xiaomi-token-plan-sgp/mimo-v2.6-pro', settings['roles']['astra']['model'])
         self.assertEqual('opencode', settings['roles']['sol']['engine'])
+        self.assertEqual('zai-coding-plan/glm-5.3', settings['roles']['sol']['model'])
         self.assertEqual('zai-coding-plan/glm-5.3', settings['roles']['glm']['model'])
-        self.assertEqual('openai/gpt-5.6-terra', settings['roles']['terra']['model'])
+        self.assertEqual('xiaomi-token-plan-sgp/mimo-v2.6-pro', settings['roles']['terra']['model'])
         state = {'settings':settings,'sessions':{'astra':'opencode-astra','sol':'opencode-sol'}}
         before = copy.deepcopy(state)
         for override in ({'astra_model':'gpt-6-astra'}, {'sol_model':'gpt-5.6-sol'}):
@@ -85,7 +87,7 @@ class AllRoleSubprocessTests(unittest.TestCase):
                   'terra':'openai/gpt-5.6-terra','sol':'openai/gpt-6-astra',
                   'completion':'openai/gpt-5.6-sol'}
         expected_models={**models,'requirements':'zai-coding-plan/glm-5.3',
-                         'resolver':models['astra'],'plan_reviewer':'cursor-acp/claude-opus-5-5-high'}
+                         'resolver':models['astra'],'plan_reviewer':planning.PINNED_REVIEWER_MODEL}
         flags = [arg for role, model in models.items() for arg in ('--'+role+'-model',model)]
         self.launch(['Build a greeting tool','--no-chat',*flags], 2)
         run, state = self.saved()

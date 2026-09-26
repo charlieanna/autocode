@@ -649,6 +649,12 @@ def run(runtime, state, workspace, run_dir, args):
         if milestones.apply_queued_activation(current, run_dir):
             print("Milestone checkpoints enabled at a safe boundary; continuing with independent validation.", flush=True)
         workflow.guard(current)
+        if current.get("next_stage") in ("terra", "sol", "orchestrator", "completion"):
+            try:
+                from . import autocode_dispatch as dispatch
+            except ImportError:
+                import autocode_dispatch as dispatch
+            dispatch.enforce_cross_model_verification(current)
         repairing_before_upgrade = (args.resume_paused and current.get('pending_report_repair')
                                     and milestones.owns_pause(run_dir))
         if (run_dir / "pause-requested").exists() and not repairing_before_upgrade:

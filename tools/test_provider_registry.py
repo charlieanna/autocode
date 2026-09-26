@@ -20,7 +20,7 @@ class ProviderRegistryTests(unittest.TestCase):
     def test_named_provider_loads_its_config(self):
         provider = autocode_providers.resolve("gocode")
         self.assertIsInstance(provider, command.CommandProvider)
-        self.assertEqual("gpt-5.6-sol", provider.DEFAULT_MODELS["plan_reviewer"])
+        self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", provider.DEFAULT_MODELS["plan_reviewer"])
         self.assertFalse(provider.SUPPORTS_SESSIONS)
 
     def test_unknown_provider_fails_without_silent_opencode_fallback(self):
@@ -80,6 +80,7 @@ class ProviderRegistryTests(unittest.TestCase):
             autocode.opencode = previous
         self.assertEqual("kilo/~openai/gpt-astra-latest", settings["roles"]["astra"]["model"])
         self.assertEqual("gpt-5.6-sol", settings["roles"]["sol"]["model"])
+        # Custom providers keep their own role names (including plan_reviewer).
         self.assertEqual("openai/gpt-5.6-sol", settings["roles"]["plan_reviewer"]["model"])
         self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["glm"]["model"])
 
@@ -97,10 +98,10 @@ class ProviderRegistryTests(unittest.TestCase):
         finally:
             autocode.opencode = previous
         self.assertEqual({
-            "engine": "opencode", "provider": None, "model": "gpt-5.6-sol",
+            "engine": "opencode", "provider": None, "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
             "reasoning_effort": "high", "model_pinned": True,
         }, settings["roles"]["plan_reviewer"])
-        self.assertEqual("gpt-5.6-terra", settings["roles"]["terra"]["model"])
+        self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", settings["roles"]["terra"]["model"])
         self.assertEqual("medium", settings["roles"]["glm"]["reasoning_effort"])
 
 

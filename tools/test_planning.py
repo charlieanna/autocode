@@ -57,7 +57,7 @@ class PlanningTests(unittest.TestCase):
                     "transport_identity": {"engine": "opencode"}}
         runner.configure_joint(settings, args, fresh=True)
         state = {"settings": settings}
-        self.assertEqual("cursor-acp/claude-opus-5-5-high", settings["roles"]["plan_reviewer"]["model"])
+        self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", settings["roles"]["plan_reviewer"]["model"])
         self.assertEqual("opencode", settings["roles"]["plan_reviewer"]["engine"])
         for stage in ("astra_challenge", "astra_finalize"):
             self.assertEqual("plan_reviewer", planning.route_for(state, stage))
@@ -69,7 +69,7 @@ class PlanningTests(unittest.TestCase):
         command, environment, _ = oc.launch("plan_reviewer", Path("/tmp/fixture"), Path("/tmp/run"),
                                             None, settings["roles"]["plan_reviewer"]["model"],
                                             None, False, planning=True)
-        self.assertEqual("cursor-acp/claude-opus-5-5-high", command[command.index("--model") + 1])
+        self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", command[command.index("--model") + 1])
         agent = command[command.index("--agent") + 1]
         permissions = json.loads(environment["OPENCODE_CONFIG_CONTENT"])["agent"][agent]["permission"]
         self.assertEqual("deny", permissions["edit"])
@@ -222,7 +222,7 @@ class PlanningTests(unittest.TestCase):
                     "transport_identity": {"engine": "opencode"}}
         with patch.object(support, "local_settings", side_effect=AssertionError("No Codex login required")):
             runner.configure_joint(settings, args, fresh=True)
-        self.assertEqual({"engine": "opencode", "provider": None, "model": "openai/gpt-5.6-sol",
+        self.assertEqual({"engine": "opencode", "provider": None, "model": "zai-coding-plan/glm-5.3",
                           "reasoning_effort": "high"}, settings["roles"]["sol"])
         settings["roles"]["sol"] = {"engine": "opencode", "provider": None, "model": "zai-coding-plan/glm-5.3"}
         saved = copy.deepcopy(settings)
@@ -255,10 +255,10 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual("opencode", settings["engine"])
         self.assertEqual("glm", planning.role_for({"settings": settings}, "astra_discovery"))
         self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["glm"]["model"])
-        self.assertEqual("openai/gpt-5.6-terra", settings["roles"]["terra"]["model"])
-        self.assertEqual({"engine": "opencode", "provider": None, "model": "openai/gpt-5.6-sol"},
+        self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", settings["roles"]["terra"]["model"])
+        self.assertEqual({"engine": "opencode", "provider": None, "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"},
                          {key: settings["roles"]["astra"][key] for key in ("engine", "provider", "model")})
-        self.assertEqual({"engine": "opencode", "provider": None, "model": "openai/gpt-5.6-sol"},
+        self.assertEqual({"engine": "opencode", "provider": None, "model": "zai-coding-plan/glm-5.3"},
                          {key: settings["roles"]["sol"][key] for key in ("engine", "provider", "model")})
         self.assertEqual({'astra': 'high', 'terra': 'medium', 'sol': 'high', 'completion': 'medium'},
                          {role: settings['roles'][role]['reasoning_effort']
@@ -270,29 +270,33 @@ class PlanningTests(unittest.TestCase):
 
     def test_codex_engine_stays_single_cli_and_saved_non_joint_runs_do_not_switch(self):
         state = {"workspace": "/tmp/fixture", "iteration": 0}
+        codex_args = {"astra_model": "gpt-5.6-sol", "terra_model": "gpt-5.6-terra", "sol_model": "gpt-5.6-sol",
+                       "completion_model": "gpt-5.6-sol"}
         with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT", "model": "local"}):
-            settings = runner.configure(self.configure_args(engine="codex"), state)
+            settings = runner.configure(self.configure_args(engine="codex", **codex_args), state)
         self.assertFalse(settings.get("joint_planning"))
         self.assertEqual("codex", settings["engine"])
         self.assertNotIn("glm", settings["roles"])
         self.assertEqual("astra", planning.role_for({"settings": settings}, "astra_discovery"))
         with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}):
-            joint = runner.configure(self.configure_args(engine="codex", joint_planning=True), state)
+            joint = runner.configure(self.configure_args(engine="codex", joint_planning=True, **codex_args), state)
         self.assertTrue(joint['joint_planning'])
         self.assertEqual({'codex'}, {planning.engine_for(joint, role) for role in joint['roles']})
         self.assertEqual('requirements', planning.role_for({'settings': joint}, 'requirements_gather'))
         saved = {"settings": {"engine": "opencode", "joint_planning": False, "roles": {
-            "astra": {"model": "openai/gpt-6-astra"}, "terra": {"model": "openai/gpt-5.6-terra"},
+            "astra": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"}, "terra": {"model": "xiaomi-token-plan-sgp/mimo-v2.6-pro"},
             "sol": {"model": "zai-coding-plan/glm-5.3"}}}, "sessions": {"astra": "saved"}}
         kept = runner.configure(self.configure_args(), saved)
         self.assertFalse(kept.get("joint_planning"))
-        self.assertEqual("openai/gpt-5.6-terra", kept["roles"]["terra"]["model"])
+        self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", kept["roles"]["terra"]["model"])
         with self.assertRaisesRegex(ValueError, "Start a new run"):
             runner.configure(self.configure_args(joint_planning=True), saved)
 
     def test_native_joint_routes_preserve_saved_models_and_check_only_codex_transport(self):
         with patch.object(support, 'local_settings', return_value={'auth_mode': 'ChatGPT'}):
             settings = runner.configure(self.configure_args(engine='codex', joint_planning=True,
+                astra_model='gpt-5.6-sol', terra_model='gpt-5.6-terra', sol_model='gpt-5.6-sol',
+                completion_model='gpt-5.6-sol',
                 requirements_model='gpt-5.6-sol', glm_model='gpt-5.6-sol',
                 plan_reviewer_model='gpt-6-astra', plan_reviewer_reasoning_effort='high'),
                 {'workspace': '/tmp/fixture', 'iteration': 0})
@@ -305,14 +309,16 @@ class PlanningTests(unittest.TestCase):
              patch.object(oc, 'local_settings', side_effect=AssertionError('No OpenCode transport')), \
              patch.object(oc, 'check_subscription_routes', side_effect=AssertionError('No OpenCode auth')):
             runner.check_joint_transports({'settings': settings}, Path('/tmp/fixture'))
-        for override in ({'plan_reviewer_model': 'openai/gpt-6-astra'}, {'requirements_model': 'external-model'}):
+        for override in ({'plan_reviewer_model': 'xiaomi-token-plan-sgp/mimo-v2.6-pro'}, {'requirements_model': 'external-model'}):
             with self.assertRaisesRegex(ValueError, 'bare GPT'):
                 runner.configure_joint(copy.deepcopy(settings), self.configure_args(**override), fresh=False)
 
     def test_enable_native_joint_requires_a_clean_boundary_and_preserves_limits(self):
         with patch.object(support, 'local_settings', return_value={'auth_mode': 'ChatGPT'}):
             settings = runner.configure(self.configure_args(engine='codex', unlimited_iterations=True,
-                max_seconds=0, max_reported_tokens=0), {'workspace': '/tmp/fixture', 'iteration': 1})
+                max_seconds=0, max_reported_tokens=0,
+                astra_model='gpt-5.6-sol', terra_model='gpt-5.6-terra', sol_model='gpt-5.6-sol',
+                completion_model='gpt-5.6-sol'), {'workspace': '/tmp/fixture', 'iteration': 1})
         state = {'version': 3, 'workspace': '/tmp/fixture', 'settings': settings,
                  'status': 'PAUSED_INTERVENTION', 'next_stage': 'astra_discovery', 'sessions': {'terra': 'retained'}}
         before = copy.deepcopy(state)
@@ -328,9 +334,9 @@ class PlanningTests(unittest.TestCase):
         for effort in (None, "high"):
             with patch.object(support, "local_settings", return_value={"auth_mode": "ChatGPT"}), \
                  patch.object(oc, "local_settings", return_value={"engine": "opencode"}):
-                settings = runner.configure(self.configure_args(terra_model="openai/gpt-5.6-terra",
+                settings = runner.configure(self.configure_args(terra_model="xiaomi-token-plan-sgp/mimo-v2.6-pro",
                     terra_reasoning_effort=effort), {"workspace": "/tmp/fixture", "iteration": 0})
-            self.assertEqual({"engine": "opencode", "provider": None, "model": "openai/gpt-5.6-terra",
+            self.assertEqual({"engine": "opencode", "provider": None, "model": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
                               "reasoning_effort": effort or 'medium'}, settings["roles"]["terra"])
             self.assertEqual("glm", planning.role_for({"settings": settings}, "astra_discovery"))
             self.assertEqual("opencode", planning.engine_for(settings, "glm"))
@@ -420,14 +426,14 @@ class JointFlow(unittest.TestCase):
         self.assertEqual(["orchestrator", "terra", "sol", "astra_review"], [r["stage"] for r in final["stages"][6:]])
         self.assertEqual(["runner", "opencode", "opencode", "opencode"], [r["engine"] for r in final["stages"][6:]])
         sol = final["stages"][8]
-        self.assertEqual("openai/gpt-5.6-sol", sol["command"][sol["command"].index("--model") + 1])
+        self.assertEqual("zai-coding-plan/glm-5.3", sol["command"][sol["command"].index("--model") + 1])
         self.assertEqual("high", sol["command"][sol["command"].index("--variant") + 1])
         config = json.loads(Path(sol["output"]).with_suffix(".opencode.json").read_text())
         self.assertEqual("deny", config["agent"]["autocode_sol"]["permission"]["edit"])
         completion = final["stages"][9]
         self.assertEqual("astra", completion["role"])
         self.assertEqual("completion", completion["route_role"])
-        self.assertEqual("openai/gpt-5.6-sol", completion["command"][completion["command"].index("--model") + 1])
+        self.assertEqual("zai-coding-plan/glm-5.3", completion["command"][completion["command"].index("--model") + 1])
         self.assertEqual("medium", completion["command"][completion["command"].index("--variant") + 1])
         self.assertIn("autocode_completion", completion["command"])
         self.assertEqual(3, len({final["sessions"][role] for role in ("plan_reviewer", "sol", "completion")}))
@@ -457,7 +463,7 @@ class JointFlow(unittest.TestCase):
 
     def test_openai_terra_executes_and_resumes_through_opencode_after_joint_planning(self):
         self.prepare("rework")
-        self.launch(["Build a greeting tool", "--no-chat", "--terra-model", "openai/gpt-5.6-terra",
+        self.launch(["Build a greeting tool", "--no-chat", "--terra-model", "xiaomi-token-plan-sgp/mimo-v2.6-pro",
                      "--terra-reasoning-effort", "high"], 2)
         run, state = self.saved()
         args = ["--run-dir", str(run)]
@@ -475,7 +481,7 @@ class JointFlow(unittest.TestCase):
         for stage in stages:
             self.assertEqual("opencode", stage["engine"])
             self.assertEqual("opencode", stage["command"][0])
-            self.assertEqual("openai/gpt-5.6-terra", stage["command"][stage["command"].index("--model") + 1])
+            self.assertEqual("xiaomi-token-plan-sgp/mimo-v2.6-pro", stage["command"][stage["command"].index("--model") + 1])
             self.assertEqual("autocode_terra", stage["command"][stage["command"].index("--agent") + 1])
         # The requested effort applies to every build. Builder retry policy owns
         # the rework route: the ordinary retry keeps the configured effort and
@@ -592,6 +598,8 @@ class NativeJointFlow(unittest.TestCase):
     launch = test_subprocess.SubprocessFlow.launch
     saved = test_subprocess.SubprocessFlow.saved
     new_run_engine_args = ('--engine', 'codex', '--joint-planning',
+                          '--astra-model', 'gpt-5.6-sol', '--terra-model', 'gpt-5.6-terra',
+                          '--sol-model', 'gpt-5.6-sol', '--completion-model', 'gpt-5.6-sol',
                           '--plan-reviewer-model', 'gpt-6-astra', '--plan-reviewer-reasoning-effort', 'high')
     draft = JointFlow.draft
 

@@ -13,23 +13,30 @@ import uuid
 
 
 DEFAULT_MODELS = {
+    # Planning path (Z.ai): Requirements medium → Planner high.
     "requirements": "zai-coding-plan/glm-5.3",
     "glm": "zai-coding-plan/glm-5.3",
-    # Role keys are stable workflow identifiers, not fixed model names.  The
-    # normal lead/reviewer starts on the Sol tier and escalates to the Astra tier only when the
-    # task warrants it.
-    "astra": "openai/gpt-5.6-sol",
-    "terra": "openai/gpt-5.6-terra",
-    "sol": "openai/gpt-5.6-sol",
-    "completion": "openai/gpt-5.6-sol",
-    "plan_reviewer": "cursor-acp/claude-opus-5-5-high",
+    # Independent Plan Reviewer must not be the Planner's model.
+    "plan_reviewer": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+    # Execution path: Builder on MiMo; Validator and Completion Owner verify on
+    # GLM so the verifier never grades its own work (docs/models.md independence).
+    "terra": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+    "sol": "zai-coding-plan/glm-5.3",
+    "completion": "zai-coding-plan/glm-5.3",
+    # Resolver/Astra is the strongest escalation rung and diagnosis session.
+    "astra": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
 }
 
+# Ladder entry points (docs/models.md) — start medium where the ladder says so,
+# escalate to higher reasoning inside the stage when evidence shows struggle.
 DEFAULT_REASONING_EFFORTS = {
-    "astra": "high",
+    "requirements": "medium",
+    "glm": "high",
+    "plan_reviewer": "high",
     "terra": "medium",
     "sol": "high",
     "completion": "medium",
+    "astra": "high",
 }
 
 
