@@ -47,6 +47,12 @@ Parallel lanes intentionally remain separate branches. Autocode does not guess h
 to merge parallel source changes. Put dependent tasks in one lane, or explicitly
 merge completed branches before starting a task that combines them.
 
+When the work is one requirement that must be split, built in parallel and
+combined, use a [program](program.md) instead of lanes: workstreams declare
+dependencies and ownership, dependents branch from the merged results of their
+prerequisites, and completed workstreams are merged onto one integration branch
+with conflicts paused for you.
+
 ## Multiple tasks in one project
 
 New implementation tasks automatically get separate Git worktrees and branches,
