@@ -1,21 +1,18 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
 *.egg-info/
-build/
-dist/
 .venv/
-.autocode/
 .pytest_cache/
-.kilo/
-.zcode/
-.zcodeignore
 
-# Nested target workspaces used for local Autocode runs
-.tmp-*/
-
+# Local run state (large, live)
+.autocode/
 .autocode-ui/
 .DS_Store
 
 # Local Codex config and hooks
 .codex/config.toml
 .codex/hooks.json
+
+# October desktop — local canvas state
+.october/

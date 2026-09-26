@@ -785,9 +785,12 @@ def abandon_stage(state, run_dir, workspace, selected):
     # to the owning workflow stage, never to the unowned *_report_repair name.
     retry_stage = record.get("original_stage") or record["stage"].removesuffix("_report_repair")
     # Abandonment invalidated validation; a completion retry must obtain it again.
+    # Builder and Validator abandonment re-dispatches the same role to inspect
+    # partial work and retry. Only completion (astra_review) routes to a fresh
+    # review stage.
     next_stage = (workflow.review_stage(state) if retry_stage == "astra_review" else
                   retry_stage if record["role"] == "astra" or record.get("planning") else
-                  "terra" if workflow.final_only(state) and record["role"] in ("terra", "sol") else
+                  retry_stage if record["role"] in ("terra", "sol") else
                   "astra_review")
     recovery_role = ("Requirements Planner" if planning.is_planning(state, next_stage) else
                      "Validator" if next_stage == "sol" else
@@ -2145,6 +2148,8 @@ def main(unit=None) -> int:
     parser.add_argument("--max-findings-per-task", type=int,
                         help="Reject a REWORK task that bundles more than this many open findings (default: unlimited; 0 disables)")
     parser.add_argument("--resume-paused", action="store_true", help="Acknowledge a saved pause; uncertain stages still require reconciliation")
+    parser.add_argument("--planning-review-call-limit", type=int, metavar="N",
+                        help="At a planning-budget pause, save a finite total review-call allowance for this cycle only; no agent launched")
     parser.add_argument("--retry-report", metavar="ATTEMPT_ID",
                         help="With --resume-paused, retry an exact exhausted format-failed report as fresh independent validation")
     parser.add_argument("--accept-transport-change", action="store_true",
@@ -2175,6 +2180,8 @@ def main(unit=None) -> int:
         parser.error("--accept-transport-change requires --run-dir and --resume-paused")
     if args.retry_report and (not args.run_dir or not args.resume_paused):
         parser.error("--retry-report requires --run-dir and --resume-paused")
+    if args.planning_review_call_limit is not None and args.planning_review_call_limit < 2:
+        parser.error("--planning-review-call-limit must be at least 2; unlimited is not supported")
     if unit and args.unit != unit:
         parser.error(f"This entry point runs only {unit}")
     if args.unit in ("autocode", "autoreview", "autoresolver") and not args.run_dir:
@@ -2187,7 +2194,8 @@ def main(unit=None) -> int:
     actions = [args.status, args.dry_run, args.migrate_only, args.show_goal,
                bool(args.answer or args.delegate), bool(args.approve_goal), bool(args.edit_goal),
                bool(args.approve_review), bool(args.reconcile_review),
-               args.feedback is not None, args.accept_completion, args.abandon_stage is not None, args.request_milestone_checkpoints]
+               args.feedback is not None, args.accept_completion, args.abandon_stage is not None,
+               args.request_milestone_checkpoints, args.planning_review_call_limit is not None]
     if sum(bool(a) for a in actions) > 1:
         parser.error("Choose one action per invocation; answering and approving are separate events")
     if args.retry_builder and any(actions):
@@ -2437,8 +2445,9 @@ def main(unit=None) -> int:
                 print("Migrated to an unapproved draft; saved work retained; no agent launched")
                 return 0
             user_action = any((args.show_goal, args.answer, args.delegate, args.approve_goal, args.edit_goal,
-                               args.approve_review, args.reconcile_review,
-                               args.feedback is not None, args.accept_completion))
+                                args.approve_review, args.reconcile_review,
+                                args.feedback is not None, args.accept_completion,
+                                args.planning_review_call_limit is not None))
             if user_action:
                 metadata = intervention_metadata(workspace, run_dir, state)
                 if metadata["pending_count"] or metadata["inbox_error"]:
@@ -2446,6 +2455,8 @@ def main(unit=None) -> int:
                                          "Queued intervention must be applied before approval, review, or completion")
                 candidate = copy.deepcopy(state)
                 try:
+                    if args.planning_review_call_limit is not None:
+                        planning.set_review_call_limit(candidate, args.planning_review_call_limit)
                     for item in args.answer:
                         question, sep, response = item.partition("=")
                         if not sep:
