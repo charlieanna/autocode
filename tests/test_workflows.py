@@ -109,7 +109,9 @@ class JobRouteTests(unittest.TestCase):
     def test_the_stuck_investigator_launches_on_its_prepared_route(self):
         import tempfile
         from pathlib import Path
+        from unittest.mock import patch
         import autocode_stuck_job as stuck
+        from providers import opencode as opencode_provider
         from units import autoresolver
         with tempfile.TemporaryDirectory() as workspace:
             state = {"version": 3, "task": "t", "workspace": workspace, "status": "RUNNING", "next_stage": "terra",
@@ -119,8 +121,12 @@ class JobRouteTests(unittest.TestCase):
                                   "roles": {"astra": {"model": "gpt-6-astra", "engine": "codex"},
                                             "terra": {"model": "gpt-6-sol"}}}}
             stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "x")
-            request = autoresolver.prepare(state, stuck.STAGE, Path(workspace) / "state.json", None)
+            # Recording OpenCode's identity asks the installed opencode binary, which CI does not have.
+            identity = {"engine": "opencode", "version": "1.0.0"}
+            with patch.object(opencode_provider, "local_settings", return_value=identity) as local_settings:
+                request = autoresolver.prepare(state, stuck.STAGE, Path(workspace) / "state.json", None)
+            local_settings.assert_called_once_with(Path(workspace))
         self.assertEqual(request.route_role, autoplanner.route_for(state, stuck.STAGE, request.role))
         self.assertEqual("opencode", autoplanner.engine_for(state["settings"], request.route_role))
         # A Codex run's first OpenCode stage records that transport, so the drift and billing checks cover it.
-        self.assertIn("opencode", state["settings"]["transport_identities"])
+        self.assertEqual(identity, state["settings"]["transport_identities"]["opencode"])

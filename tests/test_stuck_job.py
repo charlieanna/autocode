@@ -3,10 +3,12 @@ import copy
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_jobs as jobs
 import autocode_stuck_job as stuck
 import autopilot
+from providers import opencode as opencode_provider
 from units import autoresolver, common
 
 
@@ -246,7 +248,10 @@ class RouteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as workspace:
             state = state_for(workspace, next_stage="astra_challenge", sessions={stuck.ROUTE: "old"})
             stuck.intercept(state, "PAUSED_PLANNING_BUDGET", "2/2 plan-review calls used")
-            request = autoresolver.prepare(state, stuck.STAGE, Path(workspace) / "state.json", None)
+            # The Investigator's OpenCode route records OpenCode's identity on first use; that asks the
+            # installed opencode binary, which CI does not have.
+            with patch.object(opencode_provider, "local_settings", return_value={"engine": "opencode"}):
+                request = autoresolver.prepare(state, stuck.STAGE, Path(workspace) / "state.json", None)
         self.assertEqual(("astra", stuck.ROUTE, False, stuck.SCHEMA),
                          (request.role, request.route_role, request.allow_write, request.schema))
         self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"][stuck.ROUTE]["model"])
