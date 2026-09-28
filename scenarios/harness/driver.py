@@ -158,18 +158,29 @@ def default_autocode() -> list[str]:
 
 
 def metrics(state: dict) -> dict:
-    """Stage count, model time and tokens, from the run's own stage records."""
+    """Stage counts, model time and tokens, from the run's own stage records.
+
+    ``by_stage`` breaks count and seconds down per stage name, so a slow run shows
+    where its time went; ``report_repairs`` counts the rounds spent only fixing the
+    format of another stage's report (issue #15 names them as trimming candidates).
+    """
     stages = state.get("stages") or []
     tokens = {"input": 0, "output": 0, "unknown_stages": 0}
+    by_stage: dict[str, dict] = {}
     for stage in stages:
         usage = (stage.get("metrics") or {}).get("provider_tokens") or {}
         if usage.get("input_tokens") is None and stage.get("stage") != "orchestrator":
             tokens["unknown_stages"] += 1
         tokens["input"] += usage.get("input_tokens") or 0
         tokens["output"] += usage.get("output_tokens") or 0
+        row = by_stage.setdefault(stage.get("stage") or "?", {"count": 0, "seconds": 0.0})
+        row["count"] += 1
+        row["seconds"] = round(row["seconds"] + (stage.get("duration_seconds") or 0), 1)
+    # Stages the runner does itself (orchestration, regression proof, resolver receipts) call no model.
+    model_stage_names = [stage.get("stage") for stage in stages
+                         if not stage.get("runner_owned") and stage.get("stage") != "orchestrator"]
     return {"stages": len(stages), "stage_names": [stage.get("stage") for stage in stages],
-            # Stages the runner does itself (orchestration, regression proof, resolver receipts) call no model.
-            "model_stage_names": [stage.get("stage") for stage in stages
-                                  if not stage.get("runner_owned") and stage.get("stage") != "orchestrator"],
+            "model_stages": len(model_stage_names), "model_stage_names": model_stage_names,
             "model_seconds": round(sum(stage.get("duration_seconds") or 0 for stage in stages), 1),
-            "tokens": tokens}
+            "report_repairs": sum(1 for name in model_stage_names if str(name).endswith("_report_repair")),
+            "by_stage": by_stage, "tokens": tokens}
