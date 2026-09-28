@@ -53,6 +53,50 @@ OpenCode metadata and a loopback provider fixture, without hosted model requests
 Codex launch compatibility was checked against installed exec/resume help and
 [official non-interactive documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
 
+### Opt-in product audits
+
+`tests.test_autoreview_products` is skipped unless `REVIEW_AUDIT_LIVE_CODEX` is
+explicitly set. These tests make real model calls using the selected Codex
+executable and its credentials; they are not part of offline model verification.
+Run individual cases rather than wrapping the entire live module in one long
+tool call, and retain the case directories:
+
+```sh
+REVIEW_AUDIT_LIVE_CODEX="$(command -v codex)" \
+BUILD_AUDIT_ARTIFACTS=/absolute/path/to/audit-artifacts \
+python3 -m unittest tests.test_autoreview_products.ReviewProducts.test_06_go_tld_override_parity_exception -v
+```
+
+The Go case checks a local toolchain before dispatch and uses a canonical probe
+that disables toolchain/dependency downloads. The browser case, `test_04_mobile_initial_visibility_requires_rendered_evidence`,
+requires Python Playwright and its Chromium installation in the **same Python
+environment running the test**. Provision these deliberately in an isolated
+environment, not automatically inside a test:
+
+```sh
+PYTHON=/absolute/path/to/browser-env/bin/python
+export PLAYWRIGHT_BROWSERS_PATH=/absolute/path/to/browser-cache
+"$PYTHON" -m pip install playwright
+"$PYTHON" -m playwright install chromium
+REVIEW_AUDIT_LIVE_CODEX="$(command -v codex)" \
+BUILD_AUDIT_ARTIFACTS=/absolute/path/to/audit-artifacts \
+"$PYTHON" -m unittest tests.test_autoreview_products.ReviewProducts.test_04_mobile_initial_visibility_requires_rendered_evidence -v
+```
+
+Preflight results are **host-only**, not proof that the reviewer sandbox can run
+the same tools. A missing prerequisite skips with `NOT_VERIFIED`; that skip does
+not satisfy a live acceptance requirement. Neither test disables sandboxing.
+The reviewer must execute the exact candidate-bound probe and independently
+identify the seeded defect. A passing audit means the defect was correctly
+detected, not that the intentionally defective application is correct.
+
+Case directories retain write-once invocation receipts, including nonzero exits,
+timeouts and interruptions. Earlier completed receipts survive a later failure;
+an incomplete receipt or a green subset must never stand in for the full suite.
+The canonical browser evidence requires rendered geometry and a screenshot, not
+DOM presence or a browser keyword in a report. The Go evidence requires raw
+program output, not an echoed shell summary.
+
 ### Dashboard tests
 
 See [Dashboard](dashboard.md#dashboard-verification) for the dashboard test commands.
