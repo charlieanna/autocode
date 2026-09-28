@@ -22,6 +22,8 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `autocode-dashboard` | Local browser dashboard. |
 | `autocode --unit autoplanner\|autocode\|autoreview\|autoresolver` | Select one unit; omitting `--unit` runs all. |
 | `autocode compare-baseline` | Compare Vitest failure evidence (see [Execution](execution.md#baseline-comparison)). |
+| `autocode --version` | Print the installed version and, when run from a checkout, its commit. |
+| `autocode doctor [--workspace PATH] [--engine opencode\|codex\|gocode] [--json]` | Check Python, psutil, Git, each engine (OpenCode must be 1.x; Codex must be logged in) and that the workspace is a Git repository with a commit. Prints the fix for anything missing; exits 1 when not ready. Passes when any engine is ready, unless `--engine` names one. Never reads credentials. |
 | `autocode registry location\|list\|import` | Registry API (see [Registry API](registry-api.md)). |
 | `autocode intervention submit\|inspect` | Queued interventions (see [Interventions](interventions.md)). |
 

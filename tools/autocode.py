@@ -2795,36 +2795,13 @@ def main(unit=None) -> int:
 
 def _main_body(unit=None) -> int:
     global opencode
-    if sys.argv[1:2] == ["tasks"]:
-        try:
-            from . import autocode_tasks
-        except ImportError:
-            import autocode_tasks
-        return autocode_tasks.cli(sys.argv[2:])
-    if sys.argv[1:2] == ["components"]:
-        try:
-            from . import autocode_components
-        except ImportError:
-            import autocode_components
-        return autocode_components.cli(sys.argv[2:])
-    if sys.argv[1:2] == ["ui"]:
-        try:
-            from . import autocode_ui
-        except ImportError:
-            import autocode_ui
-        return autocode_ui.cli(sys.argv[2:])
-    if sys.argv[1:2] == ["program"]:
-        try:
-            from . import autocode_program
-        except ImportError:
-            import autocode_program
-        return autocode_program.cli(sys.argv[2:])
-    if sys.argv[1:2] == ["compare-baseline"]:
-        try:
-            from . import autocode_baseline
-        except ImportError:
-            import autocode_baseline
-        return autocode_baseline.cli(sys.argv[2:])
+    try:
+        from . import autocode_subcommands as subcommands
+    except ImportError:
+        import autocode_subcommands as subcommands
+    handled = subcommands.dispatch(sys.argv[1:])
+    if handled is not None:
+        return handled
     if sys.argv[1:2] == ["capture"]:
         return capture_command(sys.argv[2:])
     if sys.argv[1:2] == ["registry"]:
