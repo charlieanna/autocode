@@ -50,6 +50,7 @@ harness must report `FALSE_COMPLETE`. That is how the harness itself is tested.
 | `HONEST_BLOCKER` | AutoCode stopped (paused, waiting for a person) without claiming completion, where completion was expected. The oracle summary shows how far the work got. |
 | `ERROR` | The harness could not finish (budget used up, no progress, a CLI crash) or the oracle crashed. |
 | `SKIPPED` | A required tool is missing, or the scenario does not support the requested mode. |
+| `NOT_EXERCISED` | The run ended well but never reached a stage the scenario exists to test (`[run] requires_stages`), so it says nothing about that stage. Not counted as a failure; `run.py stats` shows how often a scenario is exercised. A false completion or error keeps its own verdict. |
 
 The driver answers AutoCode's clarifying questions with AutoCode's own proposed
 default and records each answer in `result.json`. It approves the plan it is
@@ -99,8 +100,8 @@ should be recognized as; `run.py route` starts each one, lets AutoCode run a
 single stage, and reads `workflow` from the status view.
 
 Oracles receive an optional third argument, `run`, with the final status view,
-the saved stage names, the questions the driver answered and the CLI calls it
-made. It is `None` in `check` mode, so run-level checks contribute nothing
+the saved stage names, the questions the driver answered, the CLI calls it
+made, and AutoResolver's accepted diagnoses (`resolutions`). It is `None` in `check` mode, so run-level checks contribute nothing
 there and the reference/broken variants are told apart by files alone.
 
 ### Conversations: follow-up turns in the same run
@@ -135,6 +136,7 @@ when they finished.
 | `bugfix-cent-drift` | bugfix | Invoice, charge and refunds each round money their own way and drift by a cent. The fix touches every billing module, needs one half-up money rule, and leaves an accounting choice open (tax per line or per invoice), so it must take the planned path: diagnosis, Planner, Plan Reviewer, the user's approval, no requirements gathering. Deriving only the charge from the invoice, or rounding everything with float `round()`, both fail hidden tests. |
 | `bugfix-trivial` | bugfix | An off-by-one. Correctness is easy; the check is proportionality: no requirements gathering, no plan-review rounds, no questions, at most five model stages. |
 | `bugfix-not-reproducible` | bugfix | The reported bug does not exist in this code. Passes by saying so or asking; a "defensive" change to working code fails. |
+| `feature-refund-window` | feature | Built to reach AutoResolver (#59): the seed's `store_date()` helper ignores the store's UTC-8 offset, and the cap is on the running total of partial refunds. A plausible first attempt passes its own tests and fails hidden boundary tests; the oracle checks that AutoResolver's diagnosis names a planted defect. Runs that never reach `astra_resolve` are `NOT_EXERCISED` (always, with the scripted model). |
 | `feature-timesheet-by-project` | feature | Adding an option to an existing CLI without changing existing output. |
 | `implement-locked-design` | feature | An approved design is a constraint: specified modules and signatures (checked by AST), clock injected, no questions about settled decisions. A single-class "simplification" fails. |
 | `implement-design-conflict` | feature | The approved design contradicts a frozen API. The right ending is a stop with the conflict written down and no code changed (`expected = "stop"`). |
@@ -160,7 +162,8 @@ with `docker compose` and checked end to end.
 ```
 catalog/<id>/
   scenario.toml     title, category, optional requires = ["go"], [fake] check = "...",
-                    [run] max_steps, timeout_minutes, expected = "complete"|"stop"|"any", known_failure = "why"
+                    [run] max_steps, timeout_minutes, expected = "complete"|"stop"|"any", known_failure = "why",
+                          requires_stages = ["astra_resolve"] (a model stage the run must reach to count)
                     [[turn]] after = "complete"|"stop"|"needs:<kind>", say = "follow-up message" (optional, repeatable)
   brief.md          the request, exactly as a user would type it (plain text, no headings)
   seed/             the starting project, committed before the run (omit for an empty repo)

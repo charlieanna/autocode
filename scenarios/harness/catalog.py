@@ -27,7 +27,7 @@ CATEGORIES = ("bugfix", "feature", "greenfield", "port", "parallel", "architectu
 # the user must answer), or either.
 EXPECTED = ("complete", "stop", "any")
 KEYS = {"title", "category", "requires", "fake", "run", "turn"}
-RUN_KEYS = {"max_steps", "timeout_minutes", "expected", "known_failure"}
+RUN_KEYS = {"max_steps", "timeout_minutes", "expected", "known_failure", "requires_stages"}
 # A follow-up turn is said to the same run once it reaches the state ``after``
 # names: it completed, it stopped, or it is waiting on a particular need
 # (``needs:answer``), in which case the message is said instead of the driver
@@ -58,6 +58,9 @@ class Scenario:
     known_failure: str = ""
     # Follow-up messages, in order, each said to the same run (issue #51).
     turns: tuple[Turn, ...] = ()
+    # Model stages the scenario exists to exercise. A run that never reaches one is
+    # NOT_EXERCISED rather than passed: it says nothing about that stage.
+    requires_stages: tuple[str, ...] = ()
 
     @property
     def seed(self) -> Path:
@@ -112,7 +115,8 @@ def load(scenario_id: str) -> Scenario:
         brief=(root / "brief.md").read_text().strip(), requires=tuple(meta.get("requires", ())),
         fake_check=meta.get("fake", {}).get("check"), max_steps=run.get("max_steps", 40),
         timeout_minutes=run.get("timeout_minutes", 60), expected=run.get("expected", "complete"),
-        known_failure=run.get("known_failure", ""), turns=tuple(turns))
+        known_failure=run.get("known_failure", ""), turns=tuple(turns),
+        requires_stages=tuple(run.get("requires_stages", ())))
 
 
 def load_all() -> list[Scenario]:

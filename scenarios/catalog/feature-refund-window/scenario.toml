@@ -1,0 +1,16 @@
+title = "Refunds with a store-time window and a running cap: a first attempt that looks right"
+category = "feature"
+# Built to reach AutoResolver (issue #59). shop/clock.py's store_date() is named
+# for exactly what the refund window needs but ignores the store's UTC-8
+# offset, and the cap is on the running total of partial refunds, not on each
+# one. A Builder that reuses the helper, or checks each refund against the
+# amount paid, passes the obvious cases; the Validator should catch it at the
+# window boundary or on the second partial refund, and the correction goes
+# through AutoResolver. Runs that complete without reaching astra_resolve are
+# NOT_EXERCISED: they say nothing about AutoResolver's judgment.
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+
+[run]
+requires_stages = ["astra_resolve"]

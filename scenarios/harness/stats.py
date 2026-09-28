@@ -12,7 +12,7 @@ import json
 import statistics
 from pathlib import Path
 
-from .verdict import PASS
+from .verdict import NOT_EXERCISED, PASS
 
 
 def load_results(root: Path) -> list[dict]:
@@ -46,6 +46,8 @@ def summarize(results: list[dict], *, ids: set[str] = frozenset(), mode: str | N
         rows.append({
             "scenario": scenario, "mode": run_mode, "runs": len(measured),
             "passes": sum(result["verdict"] == PASS for result in measured), "streak": streak,
+            # Runs that never reached the stage the scenario exists to test (issue #59).
+            "not_exercised": sum(result["verdict"] == NOT_EXERCISED for result in measured),
             "last": runs[-1]["verdict"],
             "median_wall_minutes": _median([result.get("wall_seconds") for result in measured], scale=60),
             "median_model_stages": _median([_model_stages(result) for result in measured]),
@@ -56,9 +58,10 @@ def summarize(results: list[dict], *, ids: set[str] = frozenset(), mode: str | N
 
 
 def format_table(rows: list[dict]) -> str:
-    header = ("scenario", "mode", "runs", "passes", "streak", "last", "wall min", "model stages", "model min")
+    header = ("scenario", "mode", "runs", "passes", "streak", "not exercised", "last", "wall min", "model stages",
+              "model min")
     lines = [header] + [(row["scenario"], row["mode"], str(row["runs"]), str(row["passes"]), str(row["streak"]),
-                         row["last"], _show(row["median_wall_minutes"]), _show(row["median_model_stages"]),
+                         str(row["not_exercised"]), row["last"], _show(row["median_wall_minutes"]), _show(row["median_model_stages"]),
                          _show(row["median_model_minutes"])) for row in rows]
     widths = [max(len(line[column]) for line in lines) for column in range(len(header))]
     text = ["  ".join(cell.ljust(width) for cell, width in zip(line, widths)).rstrip() for line in lines]

@@ -126,6 +126,34 @@ class RunChecksTests(unittest.TestCase):
         self.assertFalse(check.ok)
 
 
+class ExercisedTests(unittest.TestCase):
+    """`[run] requires_stages` (issue #59): a run that never reached the stage under test proves nothing about it."""
+
+    def test_a_good_ending_without_the_stage_is_not_exercised(self):
+        outcome, summary = verdict.exercised(verdict.PASS, "fine", ("astra_resolve",), ["terra", "sol"])
+        self.assertEqual(verdict.NOT_EXERCISED, outcome)
+        self.assertIn("astra_resolve", summary)
+        self.assertEqual(verdict.PASS, verdict.exercised(verdict.PASS, "fine", ("astra_resolve",),
+                                                         ["terra", "sol", "astra_resolve", "terra"])[0])
+
+    def test_a_false_completion_is_never_hidden_behind_not_exercised(self):
+        self.assertEqual(verdict.FALSE_COMPLETE, verdict.exercised(verdict.FALSE_COMPLETE, "bad", ("astra_resolve",), [])[0])
+
+    def test_the_refund_oracle_scores_what_autoresolver_said(self):
+        scenario = catalog.load("feature-refund-window")
+        self.assertEqual(("astra_resolve",), scenario.requires_stages)
+        check = scenario.oracle()
+        with tempfile.TemporaryDirectory() as root:
+            from harness.project import materialize
+            project = materialize(scenario.seed, Path(root) / "p", scenario.reference)
+            vague = {"resolutions": [{"diagnosis": "The implementation has a bug; fix it.", "evidence": []}]}
+            named = {"resolutions": [{"diagnosis": "store_date ignores the UTC-8 store offset, so the window "
+                                                   "counts UTC days", "evidence": []}]}
+            for run_record, ok in ((vague, False), (named, True), ({"resolutions": []}, None)):
+                scored = [c for c in check(project, scenario, run_record) if c.name == "resolver_named_a_planted_defect"]
+                self.assertEqual([] if ok is None else [ok], [c.ok for c in scored])
+
+
 class TurnTests(unittest.TestCase):
     """Follow-up turns (issue #51): parsed from scenario.toml, matched to run states, and split afterwards."""
 
@@ -186,8 +214,10 @@ class StatsTests(unittest.TestCase):
     def test_streak_counts_consecutive_passes_from_the_latest_run(self):
         results = [self.result("s", "fake", verdict.PASS, "1"), self.result("s", "fake", verdict.FALSE_COMPLETE, "2"),
                    self.result("s", "fake", verdict.PASS, "3"), self.result("s", "fake", verdict.PASS, "4")]
+        results.append(self.result("s", "fake", verdict.NOT_EXERCISED, "0"))
         row, = stats.summarize(results)
-        self.assertEqual((4, 3, 2, verdict.PASS), (row["runs"], row["passes"], row["streak"], row["last"]))
+        self.assertEqual((5, 3, 2, 1, verdict.PASS),
+                         (row["runs"], row["passes"], row["streak"], row["not_exercised"], row["last"]))
 
     def test_fake_and_live_runs_are_summarized_separately(self):
         results = [self.result("s", "fake", verdict.PASS, "1", stages=9),

@@ -91,7 +91,7 @@ def cmd_run(args) -> int:
         result = run_one(scenario, args)
         outcome = result["verdict"]
         note = ""
-        if outcome not in (verdict.PASS, verdict.SKIPPED):
+        if outcome not in (verdict.PASS, verdict.SKIPPED, verdict.NOT_EXERCISED):
             if scenario.known_failure:
                 note = f"\n  known failure (not counted): {scenario.known_failure}"
             else:
@@ -136,10 +136,12 @@ def run_one(scenario, args) -> dict:
     record = run_record(driver, state)
     oracle = verdict.evaluate(scenario, project, record)
     outcome, summary = verdict.judge(state.get("status", ""), oracle, scenario.expected)
+    outcome, summary = verdict.exercised(outcome, summary, scenario.requires_stages, record["model_stages"])
     if drive_error:
         outcome, summary = verdict.ERROR, f"harness stopped: {drive_error}; oracle {oracle.summary}"
     result.update(runner_status=state.get("status"), run_dir=str(driver.run_dir or ""),
                   cli_calls=len(driver.steps), answers=driver.answers, metrics=metrics(state),
+                  resolutions=record["resolutions"],
                   wall_seconds=wall_seconds, cli_seconds=round(sum(step["seconds"] for step in driver.steps), 1),
                   workflow=record["view"].get("workflow"), expected=scenario.expected,
                   turns=[{"say": turn["say"], "workflow": turn["view"].get("workflow"),
@@ -164,7 +166,10 @@ def run_record(driver: Driver, state: dict) -> dict:
             view = {}
     record = {"status": state.get("status", ""), "view": view, "stages": metrics(state)["stage_names"],
               "model_stages": metrics(state)["model_stage_names"],
-              "answers": driver.answers, "cli_calls": [step["kind"] for step in driver.steps]}
+              "answers": driver.answers, "cli_calls": [step["kind"] for step in driver.steps],
+              # AutoResolver's accepted diagnoses, oldest first, for oracles that score them (issue #59).
+              "resolutions": [{"diagnosis": row.get("diagnosis"), "evidence": row.get("evidence")}
+                              for row in state.get("resolution_history") or [] if isinstance(row, dict)]}
     if driver.turn_marks:
         stage_turns = split_by_turn(state, driver.turn_marks)
         steps = [0, *(mark["steps"] for mark in driver.turn_marks), len(driver.steps)]
