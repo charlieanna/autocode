@@ -17,13 +17,14 @@ import uuid
 try:
     from . import autocode_support as s, autocode_goals as goals
     from . import autocode_milestones as milestones, autocode_process as processes
-    from . import autocode_interventions as interventions
+    from . import autocode_interventions as interventions, autocode_worktrees as worktrees
 except ImportError:
     import autocode_support as s
     import autocode_goals as goals
     import autocode_milestones as milestones
     import autocode_process as processes
     import autocode_interventions as interventions
+    import autocode_worktrees as worktrees
 
 
 DEFAULTS = {"enabled": True, "max_parallel": 2}
@@ -441,6 +442,8 @@ def integrate(state, workspace, run_dir, batch):
     current = s.snapshot(workspace)
     if current != batch["expected"]:
         raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Integration does not match saved Builder output; inspect retained patch")
+    # Integrated and verified: the workers' patch is saved in the batch, so their worktrees go.
+    worktrees.retire_builders(batch, workspace)
     tasks = [row["task"] for row in batch["workers"]]
     combined = copy.deepcopy(tasks[0])
     combined.update(id="task-" + batch["id"], milestone_ids=[t["milestone_id"] for t in tasks],

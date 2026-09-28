@@ -274,7 +274,13 @@ class DispatchTests(unittest.TestCase):
         self.build()
         self.assertEqual(batch["id"], self.state["orchestration_history"][0]["id"])
         self.assertEqual(first_workspace, self.state["orchestration_history"][0]["workers"][0]["workspace"])
-        self.assertEqual(3, d.git(self.root, "worktree", "list", "--porcelain").count(b"worktree "))
+        # Integrated: both Builder checkouts and branches are gone; their run records stay.
+        self.assertEqual(1, d.git(self.root, "worktree", "list", "--porcelain").count(b"worktree "))
+        self.assertEqual(b"", d.git(self.root, "branch", "--list", "autocode/builder-*").strip())
+        for row in self.state["orchestration_history"][0]["workers"]:
+            self.assertTrue(row["worktree_removed"])
+            self.assertFalse((Path(row["workspace"]) / ".git").exists())
+            self.assertTrue((Path(row["run_dir"]) / "state.json").is_file())
 
     def test_unrelated_builder_does_not_block_but_same_builder_does(self):
         self.prepare()

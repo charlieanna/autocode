@@ -72,7 +72,9 @@ def create(project, task):
     workspace = parent / name
     branch = 'autocode/' + name
     git(project, 'worktree', 'add', '-b', branch, str(workspace), base)
-    data = {'version': 1, 'project_workspace': str(project), 'workspace': str(workspace),
+    # kind 'task': this worktree and its branch belong to one task (autocode_worktrees
+    # delivers to and cleans up only these; programs write this file without a kind).
+    data = {'version': 1, 'kind': 'task', 'project_workspace': str(project), 'workspace': str(workspace),
             'branch': branch, 'base_commit': base}
     artifact = keep_out_of_git(workspace) / 'task-workspace.json'
     artifact.write_text(json.dumps(data, indent=2) + '\n')

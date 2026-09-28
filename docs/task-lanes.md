@@ -111,8 +111,33 @@ AutoCode's own directories (`.autocode/`, `.autocode-components/`, `.autocode-ui
 each hold a `.gitignore` containing `*`, so run state, logs and nested task worktrees
 never appear in `git status` or get staged by `git add -A` in your checkout or in a
 task worktree. Your own `.gitignore` is not touched, and a `.gitignore` you already
-put in one of these directories is left as it is. Worktrees are not removed when a
-task finishes: merge the task branch, then `git worktree remove <path>`.
+put in one of these directories is left as it is.
+
+### When a task finishes
+
+When a run in a task worktree completes, AutoCode commits the delivered source to the
+task's branch (`autocode/<task>-<id>`, author `AutoCode <autocode@localhost>`) and
+prints the branch and commit. Only the branch moves: the worktree is detached at the
+commit it started from, with the delivered changes still in its files, so the
+completion evidence (pinned to the worktree's HEAD) stays current and you can still
+inspect or run the result there. Later work in the same worktree, such as a rework
+after feedback, is committed on top at its next completion. Runs started with
+`--in-place`, program workstreams and components are never committed this way.
+
+Review and merge the branch like any other, for example `git merge autocode/<task>-<id>`
+from your checkout. Then remove finished worktrees:
+
+```sh
+autocode clean-worktrees --workspace /path/to/project         # list what would be removed
+autocode clean-worktrees --workspace /path/to/project --yes   # remove it
+```
+
+A worktree is removed only when every run in it is `TASK_COMPLETE`, its source is
+exactly what its branch holds, and no runner holds its lock. Its `.autocode/`
+records (run state, logs, evidence) are copied to `.autocode/archive/<worktree>/`
+first; the branch is kept. Anything else is listed with the reason it is kept.
+Worktrees recorded by an `autocode program` are left to that command. The
+dashboard and registry show a removed worktree's runs as `workspace_missing`.
 
 Resume with the printed run path and either the original project or task workspace:
 

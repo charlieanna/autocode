@@ -15,7 +15,7 @@ from pathlib import Path
 
 SUBCOMMANDS = {"tasks": "autocode_tasks", "components": "autocode_components", "ui": "autocode_ui",
                "program": "autocode_program", "compare-baseline": "autocode_baseline",
-               "doctor": "autocode_doctor"}
+               "doctor": "autocode_doctor", "clean-worktrees": "autocode_worktrees"}
 DISTRIBUTION = "autocode-supervisor"
 HERE = Path(__file__).resolve().parent
 

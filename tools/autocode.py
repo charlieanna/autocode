@@ -25,10 +25,10 @@ import uuid
 try:
     from . import autocode_support as support, autocode_goals as goals, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
     from . import autocode_gocode as gocode, autocode_regression as regression
-    from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env
+    from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees
 except ImportError:
     import autocode_regression as regression
-    import autocode_support as support, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env
+    import autocode_support as support, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees
     import autocode_goals as goals
     import autocode_interventions as interventions
     import autocode_providers
@@ -3549,7 +3549,7 @@ def _main_body(unit=None) -> int:
                 if state["status"] != "TASK_COMPLETE":
                     write_json(state_path, state)
             if state["status"] == "TASK_COMPLETE":
-                print(jobs.render(state, goals.render_completion))
+                print(jobs.render(state, goals.render_completion) + worktrees.deliver(state, workspace))
                 return 0
             if state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
                 if args.chat:
@@ -3752,7 +3752,7 @@ def _main_body(unit=None) -> int:
             print(f"{state['status']}: {error}", file=sys.stderr)
             return 2
         if state["status"] == "TASK_COMPLETE":
-            print(jobs.render(state, goals.render_completion))
+            print(jobs.render(state, goals.render_completion) + worktrees.deliver(state, workspace))
         else:
             if args.chat and state["status"] in ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"):
                 if not chat_checkpoint(state, run_dir):
@@ -3760,7 +3760,7 @@ def _main_body(unit=None) -> int:
                     return 2
                 write_json(state_path, state)
                 if state["status"] == "TASK_COMPLETE":
-                    print(jobs.render(state, goals.render_completion))
+                    print(jobs.render(state, goals.render_completion) + worktrees.deliver(state, workspace))
                     return 0
             rendered = goals.present(state)
             write_json(state_path, state)

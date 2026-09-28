@@ -28,7 +28,9 @@ The runner combines their patches into the parent workspace only if it still mat
 the captured baseline. The Validator checks the combined result before the Completion Owner
 and required human acceptance gates can authorize completion. Builder success or
 patch integration alone does not satisfy those gates. There is no automatic merge
-into `master`.
+into `master`. Once a batch is integrated, each Builder's checkout and
+`autocode/builder-*` branch are removed; its run records stay at the same path
+(`.autocode/builders/<batch>/<n>/.autocode/`) for inspection.
 
 Failed workers, stale baselines, or overlapping worker changes pause the run and
 retain worktrees and logs for inspection. After inspecting a failed Builder, explicitly
