@@ -182,8 +182,8 @@ class BuildAndIntegrateTests(unittest.TestCase):
         self.write_manifest(beta={"description": "the beta component", "file": "shared/leak.txt",
                                   "content": "leaked\n", "check": "test -f shared/leak.txt"})
         results = self.build()
-        self.assertTrue(results["alpha"].ready_to_integrate)
-        self.assertTrue(results["beta"].ready_to_integrate)  # the run itself succeeds; only integration refuses it
+        self.assertTrue(results["alpha"].ready_to_integrate, results["alpha"].error)
+        self.assertTrue(results["beta"].ready_to_integrate, results["beta"].error)  # the run itself succeeds; only integration refuses it
 
         build = mc.MultiComponentBuild(self.repo, self.arch, options=FIXTURE_OPTIONS, env=self.env)
         build.results = results

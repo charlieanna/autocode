@@ -48,6 +48,7 @@ try:
 except ImportError:
     from autocode_taskrun import TaskRun, TaskRunError
 
+_WORKTREE_LOCK = threading.Lock()
 GIT_IDENTITY = ("-c", "user.name=AutoCode", "-c", "user.email=autocode@localhost")
 EXCLUDE = (":(exclude).autocode", ":(exclude).autocode-ui", ":(exclude,glob)**/__pycache__/**",
           ":(exclude,glob)**/*.pyc")
@@ -308,8 +309,12 @@ class MultiComponentBuild:
     def _new_worktree(self, result: ComponentResult) -> None:
         result.workspace.parent.mkdir(parents=True, exist_ok=True)
         result.branch = f"components/{result.component.id}-{uuid.uuid4().hex[:8]}"
-        result.base_commit = _git(self.repo, "rev-parse", "HEAD")
-        _git(self.repo, "worktree", "add", "-b", result.branch, str(result.workspace), result.base_commit)
+        # Components in one batch start in parallel threads, but `git worktree add` on one
+        # repository is not safe to run concurrently (ref and worktree-metadata locks), so
+        # only the git setup is serialized; the component runs themselves stay parallel.
+        with _WORKTREE_LOCK:
+            result.base_commit = _git(self.repo, "rev-parse", "HEAD")
+            _git(self.repo, "worktree", "add", "-b", result.branch, str(result.workspace), result.base_commit)
 
     def _record(self, result: ComponentResult) -> None:
         """Save progress as soon as a component gains a worktree or a run, not only when

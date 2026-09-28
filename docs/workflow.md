@@ -145,12 +145,13 @@ read-only `investigate_stuck` stage (`tools/autocode_stuck_job.py`) instead of s
 | `PAUSED_COMPLETION_REVIEW` | retry asks the Completion Owner once more |
 | `PAUSED_REPORT_REPAIR_LIMIT`, `PAUSED_BUILDER_RETRY_LIMIT`, `PAUSED_MILESTONE_STALLED`, `PAUSED_MILESTONE_REPLAN` | diagnosis only; these keep their operator resume flags |
 
-The Investigator runs on a strong OpenAI model different from the stuck stage's (GPT-6
-Astra, or GPT-6 Sol when the stuck stage runs on Astra) at xhigh effort, on a fresh route
-and session. It reads the task, the saved state and the stuck stage's attempts and returns
+The Investigator runs at high effort on a model different from the stuck stage's: Claude Opus
+5.5 (`kilo/anthropic/claude-opus-5.5`) in `kilocode` runs; otherwise GPT-6 Sol, or GLM 5.3 when
+the stuck stage runs on Sol (GPT-6 Luna in native Codex runs, which have GPT models only). Never
+Astra by default. It runs on a fresh route and session. It reads the task, the saved state and the stuck stage's attempts and returns
 a diagnosis, then either guidance for one more attempt or the question only you can answer.
 `--investigator-model MODEL` (and `--investigator-reasoning-effort`) pins the Investigator's model for
-a run instead; a `provider/model` id such as `openai/gpt-6-astra` runs it through OpenCode even in a
+a run instead; a `provider/model` id such as `openai/gpt-6-sol` runs it through OpenCode even in a
 Codex run. Guidance goes into the retried stage's prompt: for planning, every planning stage until the
 plan is presented; otherwise that stage until it completes.
 

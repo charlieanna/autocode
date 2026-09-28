@@ -122,3 +122,5 @@ class JobRouteTests(unittest.TestCase):
             request = autoresolver.prepare(state, stuck.STAGE, Path(workspace) / "state.json", None)
         self.assertEqual(request.route_role, autoplanner.route_for(state, stuck.STAGE, request.role))
         self.assertEqual("opencode", autoplanner.engine_for(state["settings"], request.route_role))
+        # A Codex run's first OpenCode stage records that transport, so the drift and billing checks cover it.
+        self.assertIn("opencode", state["settings"]["transport_identities"])

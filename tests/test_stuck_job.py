@@ -120,7 +120,7 @@ class ApplyTests(unittest.TestCase):
         self.assertIs(settings, stuck.configure(settings, SimpleNamespace()))
         self.assertNotIn("stuck_investigation", settings)
         stuck.configure(settings, SimpleNamespace(investigator_model="openai/gpt-6-sol", investigator_reasoning_effort=None))
-        self.assertEqual({"model": "openai/gpt-6-sol", "reasoning_effort": "xhigh", "provider": None, "engine": "opencode"},
+        self.assertEqual({"model": "openai/gpt-6-sol", "reasoning_effort": "high", "provider": None, "engine": "opencode"},
                          settings["stuck_investigation"]["route"])
         stuck.configure(settings, SimpleNamespace(investigator_model=None, investigator_reasoning_effort="max"))
         self.assertEqual(("openai/gpt-6-sol", "max"), (stuck.pinned_route(settings)["model"],
@@ -221,15 +221,25 @@ class GuidanceTests(unittest.TestCase):
 
 
 class RouteTests(unittest.TestCase):
-    def test_a_strong_openai_model_different_from_the_stuck_stage(self):
+    def test_default_models_never_astra_and_never_the_stuck_stages_model(self):
         roles = state_for()["settings"]["roles"]
-        self.assertEqual(("openai/gpt-6-astra", "xhigh", "opencode"),
-                         tuple(stuck.route(roles, "zai-coding-plan/glm-5.3")[k] for k in ("model", "reasoning_effort", "engine")))
-        self.assertEqual("openai/gpt-6-sol", stuck.route(roles, "openai/gpt-6-astra")["model"])
+        pick = lambda roles, stuck_model, provider=None: tuple(
+            stuck.route(roles, stuck_model, provider)[k] for k in ("model", "reasoning_effort"))
+        # kilocode runs reach Claude through the Kilo Gateway.
+        self.assertEqual((stuck.CLAUDE, "high"), pick(roles, "zai-coding-plan/glm-5.3", "kilocode"))
+        self.assertEqual(("openai/gpt-6-sol", "high"), pick(roles, stuck.CLAUDE, "kilocode"))
+        # OpenCode runs: Sol, or GLM when the stuck stage runs on Sol.
+        self.assertEqual(("openai/gpt-6-sol", "high"), pick(roles, "zai-coding-plan/glm-5.3"))
+        self.assertEqual(("zai-coding-plan/glm-5.3", "high"), pick(roles, "openai/gpt-6-sol"))
+        self.assertEqual("opencode", stuck.route(roles, "x")["engine"])
+        # Native Codex runs have GPT models only: Sol, or Luna when the stuck stage runs on Sol.
         codex = {"plan_reviewer": {"model": "gpt-6-astra", "engine": "codex"}}
-        self.assertEqual("gpt-6-sol", stuck.route(codex, "gpt-6-astra")["model"])
-        other = {"astra": {"model": "zai-coding-plan/glm-5.3"}}
-        self.assertEqual(("zai-coding-plan/glm-5.3", "xhigh"), tuple(stuck.route(other, "x")[k] for k in ("model", "reasoning_effort")))
+        self.assertEqual(("gpt-6-sol", "high"), pick(codex, "gpt-6-astra"))
+        self.assertEqual(("gpt-6-luna", "high"), pick(codex, "gpt-6-sol"))
+        # A custom provider keeps its reviewer model.
+        self.assertEqual(("custom/model", "high"), pick({"astra": {"model": "custom/model"}}, "x", "mytool"))
+        for provider in (None, "opencode", "kilocode"):
+            self.assertNotIn("astra", pick(roles, "openai/gpt-6-sol", provider)[0])
         self.assertEqual("high", roles["plan_reviewer"]["reasoning_effort"], "the Plan Reviewer's own route is untouched")
 
     def test_the_autoresolver_prepares_a_fresh_investigator(self):
@@ -239,7 +249,7 @@ class RouteTests(unittest.TestCase):
             request = autoresolver.prepare(state, stuck.STAGE, Path(workspace) / "state.json", None)
         self.assertEqual(("astra", stuck.ROUTE, False, stuck.SCHEMA),
                          (request.role, request.route_role, request.allow_write, request.schema))
-        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"][stuck.ROUTE]["model"], "the stuck reviewer runs on Astra")
+        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"][stuck.ROUTE]["model"])
         self.assertNotIn(stuck.ROUTE, state["sessions"])
         self.assertIn('"status": "PAUSED_PLANNING_BUDGET"', request.prompt)
         self.assertIn(str(Path(workspace) / "state.json"), request.prompt)

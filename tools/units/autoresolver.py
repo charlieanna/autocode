@@ -12,12 +12,14 @@ from pathlib import Path
 try:
     from .. import autocode_support as support, autocode_goals as goals, autocode_bug_job as bug_job
     from .. import autocode_discuss_job as discuss_job, autocode_stuck_job as stuck_job, autocode_failures as failures
+    from .. import autocode_providers
 except ImportError:
     import autocode_support as support
     import autocode_goals as goals
     import autocode_bug_job as bug_job
     import autocode_discuss_job as discuss_job
     import autocode_stuck_job as stuck_job
+    import autocode_providers
     import autocode_failures as failures
 from . import autoplanner
 from .common import ModelRequest, capped_route, execution_request
@@ -104,13 +106,20 @@ def guard(state, workspace):
 
 
 def prepare_stuck(state, state_path):
-    """A fresh route and session every time: a strong OpenAI model different from the stuck
-    stage's, at xhigh, so the Investigator does not inherit the stuck stage's reasoning."""
+    """A fresh route and session every time, on a model different from the stuck stage's
+    (stuck_job.route, or the pinned --investigator-model), so it does not inherit its reasoning."""
     roles = state["settings"]["roles"]
     stuck_route = autoplanner.route_for(state, state["stuck_investigation"]["stage"])
     roles[stuck_job.ROUTE] = (stuck_job.pinned_route(state["settings"])
-                              or stuck_job.route(roles, (roles.get(stuck_route) or {}).get("model", "")))
+                              or stuck_job.route(roles, (roles.get(stuck_route) or {}).get("model", ""),
+                                                 state["settings"].get("provider")))
     state.setdefault("sessions", {}).pop(stuck_job.ROUTE, None)
+    identities = state["settings"].setdefault("transport_identities", {})
+    if roles[stuck_job.ROUTE].get("engine") == "opencode" and "opencode" not in identities:
+        # A Codex run's first OpenCode stage (a pinned --investigator-model): record the transport
+        # the way run creation does, so the per-stage billing and drift checks cover it.
+        tool = autocode_providers.resolve(state["settings"].get("provider") or "opencode")
+        identities["opencode"] = tool.local_settings(Path(state["workspace"]))
     prompt, metrics = stuck_job.prompt(
         state, state_path, autoplanner.workspace_inventory(state["workspace"], state["task"]),
         state["settings"].get("context_soft_tokens", 10000), autoplanner.engine_for(state["settings"], stuck_job.ROUTE))

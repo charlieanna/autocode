@@ -10,7 +10,7 @@ category = "bugfix"
 
 [fake]
 check = "python3 -m unittest discover -s tests -t ."
-flags = ["--investigator-model", "openai/gpt-6-astra"]
+flags = ["--investigator-model", "openai/gpt-6-sol", "--investigator-reasoning-effort", "high"]
 fault = "planner_citation"
 live_investigator = true
 

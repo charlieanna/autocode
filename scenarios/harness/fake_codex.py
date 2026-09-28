@@ -23,6 +23,7 @@ from pathlib import Path
 
 CONFIG = json.loads(Path(os.environ["SCENARIO_FAKE_CONFIG"]).read_text())
 PROMPT = ""
+DATA: dict = {}
 CHECK = CONFIG["check"]
 PATHS = CONFIG["paths"]
 
@@ -45,13 +46,26 @@ def trace() -> list[dict]:
             for row in requirements()]
 
 
+def outcome() -> str:
+    """What the request asks for, in its own words (its first sentence)."""
+    first = re.split(r"(?<=[.!?])\s+", CONFIG["brief"].strip(), maxsplit=1)[0]
+    return first[:240]
+
+
+def approach() -> list[str]:
+    """The fix the saved diagnosis proposes when there is one; otherwise the request itself."""
+    notes = sorted((Path(CONFIG["reference"]) / "docs" / "bugs").glob("*.json"))
+    fix = json.loads(notes[0].read_text()).get("fix", "") if notes else ""
+    return [fix or f"Implement the requested change: {outcome()}"]
+
+
 def contract(final: bool = False) -> dict:
     body = {
-        "intended_outcome": CONFIG["title"],
-        "intended_user": "The scenario requester",
-        "end_to_end_flow": ["Apply the change", f"Run {CHECK}"],
-        "technical_approach": ["Scripted fake provider applies the scenario reference solution"],
-        "milestones": [{"id": "M1", "objective": CONFIG["title"], "acceptance_criteria": ["C1"],
+        "intended_outcome": outcome(),
+        "intended_user": "The person who made the request",
+        "end_to_end_flow": ["Make the change", f"Run {CHECK}"],
+        "technical_approach": approach(),
+        "milestones": [{"id": "M1", "objective": outcome(), "acceptance_criteria": ["C1"],
                         "depends_on": [], "affected_paths": PATHS}],
         "deliverables": PATHS,
         "required_behaviors": [row["text"] for row in requirements()],
@@ -59,15 +73,17 @@ def contract(final: bool = False) -> dict:
         "scope_exclusions": ["Anything outside the scenario brief"],
         "constraints": ["Change only the paths the reference solution touches"],
         "permission_boundaries": ["Read and edit only this scenario workspace"],
-        "accepted_assumptions": [{"text": "The reference solution is correct",
+        "accepted_assumptions": [{"text": "The request describes the intended behavior completely",
                                   "basis": "agent_proposed", "answer_id": ""}],
         "delegated_decisions": [],
-        "acceptance_criteria": [{"id": "C1", "criterion": "The scenario check command passes",
+        "acceptance_criteria": [{"id": "C1", "criterion": "The project's checks pass with the change in place",
                                  "verification_method": CHECK, "human_review": False}],
         "open_blocking_questions": [],
     }
+    if (DATA.get("bug_diagnosis") or {}).get("root_cause"):
+        body["task_kind"] = "bugfix"  # planned from a bug diagnosis
     if final:
-        body["initial_task"] = {"kind": "implement", "milestone_id": "M1", "objective": CONFIG["title"],
+        body["initial_task"] = {"kind": "implement", "milestone_id": "M1", "objective": outcome(),
                                 "affected_paths": PATHS, "requirements": [requirements()[0]["text"]],
                                 "acceptance_criteria": ["C1"], "validation_plan": [CHECK]}
     return body
@@ -249,7 +265,7 @@ def report_for(stage: str, data: dict) -> dict:
     planning = {"code_refs": [ref for ref in source_refs() if ref != "task"], "contract_changes": [], "conflict_resolutions": [], "requirement_trace": trace()}
     if stage == "requirements_gather":
         return {"summary": "Scripted requirements: one per brief sentence",
-                "intended_outcome": CONFIG["title"], "required_behaviors": [r["text"] for r in requirements()],
+                "intended_outcome": outcome(), "required_behaviors": [r["text"] for r in requirements()],
                 "constraints": [], "acceptance_tests": [CHECK], "source_refs": source_refs(),
                 "proposed_assumptions": [], "open_questions": [], "requirements": requirements(),
                 "ignored_statements": [], "conflicts": [], "proposed_reframes": []}
@@ -356,7 +372,8 @@ def main() -> int:
     if "CURRENT HANDOFF DATA\n" not in prompt:
         emit({"error": "no handoff data"})
         return 0
-    data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+    global DATA
+    data = DATA = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
     original = data.get("original") or {}
     stage = data.get("stage") or original.get("stage") or ""
     if data.get("report_repair"):
@@ -366,7 +383,9 @@ def main() -> int:
     if "--output-schema" in sys.argv:
         complete(report, json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text()))
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(report))
-    emit({"type": "turn.completed", "usage": {"input_tokens": 0, "output_tokens": 0}})
+    # Plausible usage, so a reader of the events is not misled by an all-zero turn.
+    emit({"type": "turn.completed", "usage": {"input_tokens": max(1, len(prompt) // 4),
+                                              "output_tokens": max(1, len(json.dumps(report)) // 4)}})
     return 0
 
 

@@ -8,8 +8,9 @@ the saved exchange: a rule the stage misunderstands, two roles talking past each
 a missing fact the runner already has.
 
 So before the runner pauses with one of ``STATUSES``, ``drive`` sends the run to
-``STAGE``: a read-only Investigator on a strong OpenAI model (GPT-6 Astra, or GPT-6 Sol
-when the stuck stage itself runs on Astra) reads the task, the run's saved state and the
+``STAGE``: a read-only Investigator on a different model from the stuck stage's (``route``:
+Claude Opus 5.5 in kilocode runs, otherwise GPT-6 Sol, or GLM 5.3 / Luna when the stuck stage runs
+on Sol) reads the task, the run's saved state and the
 stuck stage's attempts, and returns a diagnosis plus either guidance for one more
 attempt or the question only the user can answer. Then:
 
@@ -168,15 +169,27 @@ def annotate(state: dict, status: str, reason: str) -> str:
     return f"{reason}\nInvestigator ({entry['outcome']}): {entry['diagnosis']}{ask}"
 
 
-def route(roles: dict, stuck_model: str) -> dict:
-    """The Investigator's route: the Plan Reviewer's engine and provider on a strong OpenAI model
-    different from the stuck stage's, at xhigh effort. A non-OpenAI setup keeps its reviewer model."""
+CLAUDE = "kilo/anthropic/claude-opus-5.5"
+
+
+def route(roles: dict, stuck_model: str, provider: str | None = None) -> dict:
+    """The Investigator's default route (user 2026-09-28: no Astra; Claude where the run can reach it).
+
+    kilocode runs: Claude Opus 5.5 via the Kilo Gateway. OpenCode runs: GPT-6 Sol, or GLM 5.3 when
+    the stuck stage runs on Sol. Native Codex runs (GPT only): GPT-6 Sol, or Luna when the stuck
+    stage runs on Sol. A custom provider keeps its reviewer model. Always high effort, on the Plan
+    Reviewer's engine and provider; --investigator-model overrides all of this (pinned_route)."""
     base = dict(roles.get("plan_reviewer") or roles.get("astra") or {})
-    model = str(base.get("model") or "")
-    if model.startswith("openai/") or model.startswith("gpt-"):
-        family = "gpt-6-sol" if "gpt-6-astra" in (stuck_model or "") else "gpt-6-astra"
-        base["model"] = f"openai/{family}" if model.startswith("openai/") else family
-    base["reasoning_effort"] = "xhigh"
+    model, stuck_model = str(base.get("model") or ""), str(stuck_model or "")
+    if provider == "kilocode" and CLAUDE not in stuck_model:
+        choice = CLAUDE
+    elif provider == "kilocode" or model.startswith(("openai/", "zai-coding-plan/", "kilo/")):
+        choice = "zai-coding-plan/glm-5.3" if "gpt-6-sol" in stuck_model else "openai/gpt-6-sol"
+    elif model.startswith("gpt-"):
+        choice = "gpt-6-luna" if "gpt-6-sol" in stuck_model else "gpt-6-sol"
+    else:
+        choice = model
+    base.update(model=choice, reasoning_effort="high")
     return base
 
 
@@ -187,10 +200,10 @@ def add_arguments(parser) -> None:
     """The Investigator's CLI flags (autocode.py): pin its model instead of the automatic choice."""
     parser.add_argument("--investigator-model",
                         help="Pin the stuck-stage Investigator's model for this run; a provider/model id "
-                             "(e.g. openai/gpt-6-astra) runs it through OpenCode. Default: GPT-6 Astra, or "
-                             "Sol when the stuck stage runs on Astra")
+                             "(e.g. openai/gpt-6-sol) runs it through OpenCode. Default: Claude Opus 5.5 in "
+                             "kilocode runs, otherwise GPT-6 Sol (GLM 5.3 when the stuck stage runs on Sol)")
     parser.add_argument("--investigator-reasoning-effort", choices=EFFORTS,
-                        help="Reasoning effort for the pinned Investigator model (default: xhigh)")
+                        help="Reasoning effort for the pinned Investigator model (default: high)")
 
 
 def configure(settings: dict, args) -> dict:
@@ -205,7 +218,7 @@ def configure(settings: dict, args) -> dict:
     if not model:
         raise ValueError("--investigator-reasoning-effort needs --investigator-model (or a saved pinned model)")
     settings.setdefault("stuck_investigation", {})["route"] = {
-        "model": model, "reasoning_effort": effort or saved.get("reasoning_effort") or "xhigh", "provider": None,
+        "model": model, "reasoning_effort": effort or saved.get("reasoning_effort") or "high", "provider": None,
         # provider/model ids are OpenCode routes (the repository's convention); bare names use the run's engine.
         "engine": "opencode" if "/" in model else settings.get("engine", "codex")}
     return settings
