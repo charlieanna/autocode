@@ -16,6 +16,13 @@ cause, and returns a diagnosis. The runner then:
   diagnosis as its brief (``large_correction``), skipping requirements gathering
   but keeping plan review and the user's approval.
 
+A reproduced bug comes with ``test_cases``: the regression tests in plain English
+(Given / When / Then with exact values), one per behavior the fix must restore. A
+person reads these instead of test code. The Builder writes one test per case,
+named ``test_<id>_...``, and the runner's regression proof (autocode_regression)
+checks, with no model, that every case has a test that fails on the original
+code and passes after the fix (autocode_test_cases.match_cases).
+
 Pure module: prompt, schema, transition, rendering. Imports nothing from the
 runner. State key written: ``investigation`` (the report, its note path and output).
 """
@@ -23,23 +30,29 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 from pathlib import Path
 
 try:
     from . import autocode_workflows as workflows
+    from .autocode_test_cases import case_text, case_test_name, match_cases  # noqa: F401 (used by callers)
 except ImportError:
     import autocode_workflows as workflows
+    from autocode_test_cases import case_text, case_test_name, match_cases  # noqa: F401
 
 STAGE = workflows.INVESTIGATE_STAGE
 NOTES_PREFIX = "docs/bugs/"
 OUTCOMES = ("reproduced", "not_reproduced")
 TEXT = {"type": "string"}
 TEXTS = {"type": "array", "items": TEXT}
+CASE = {"type": "object", "additionalProperties": False, "required": ["id", "given", "when", "then"],
+        "properties": {"id": TEXT, "given": TEXT, "when": TEXT, "then": TEXT}}
+CASE_ID = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
 SCHEMA = {
     "type": "object", "additionalProperties": False,
     "required": ["outcome", "note_path", "observed", "reproduction", "root_cause", "affected_paths",
-                 "test_paths", "invariant", "conclusion", "fix_size", "fix_plan", "questions", "tests_run",
-                 "plan_approval_requested"],
+                 "test_paths", "invariant", "test_cases", "conclusion", "fix_size", "fix_plan", "questions",
+                 "tests_run", "plan_approval_requested"],
     "properties": {
         "outcome": {"type": "string", "enum": list(OUTCOMES)},
         "note_path": TEXT,
@@ -49,6 +62,7 @@ SCHEMA = {
         "affected_paths": TEXTS,
         "test_paths": TEXTS,
         "invariant": TEXT,
+        "test_cases": {"type": "array", "items": CASE},
         "conclusion": TEXT,
         "fix_size": {"type": "string", "enum": ["small", "large", "none"]},
         "fix_plan": TEXTS,
@@ -74,6 +88,13 @@ What to do:
    - test_paths: where the regression test belongs: an existing test file, or the test directory.
    - invariant: the rule a correct fix must uphold (for example "one logical renew produces at most one
      mutation"), stated so a test can check it.
+   - test_cases: the regression tests the fix must pass, in plain English, so a person can check them
+     without reading code. One case per behavior the fix must restore, starting with the case you
+     reproduced. Each has an id (T1, T2, ...), given (the exact starting data or state), when (the exact
+     call or command) and then (the exact expected result, with literal values: "returns 1", "prints
+     'Hello, Ada'", "exits 2"). No vague words such as "correctly" or "gracefully". The Builder writes one
+     test per case named test_<id>_<what it checks> (for example test_t1_new_year_week_is_one_row), and
+     the runner checks that each case's test fails on the original code and passes after the fix.
    - fix_size: small when the cause is obvious and the fix is one bounded change in one or two files;
      large otherwise. A small fix goes straight to a Builder and an independent Validator without a
      planning round, so say large whenever the fix needs design choices or touches several modules.
@@ -83,8 +104,8 @@ What to do:
 4. If it does NOT reproduce (outcome not_reproduced): say so plainly. Do not invent a cause and do not
    propose a "defensive" change to code that works. reproduction says what you tried; conclusion says
    what the code actually does and why the report may differ (old version, different input, upstream data);
-   questions lists what you need from the reporter. fix_size is none; fix_plan, affected_paths and
-   test_paths are empty.
+   questions lists what you need from the reporter. fix_size is none; fix_plan, affected_paths,
+   test_paths and test_cases are empty.
 5. conclusion: two or three sentences a person can act on.
 6. note_path: where the runner saves your diagnosis. Use the path the request names if it names one under
    docs/bugs/, otherwise docs/bugs/<short-kebab-name>.json.
@@ -125,8 +146,27 @@ def check(value: dict, changed_files) -> None:
         unsafe = [path for path in value["affected_paths"] + value["test_paths"] if not safe_path(path)]
         if unsafe:
             raise ValueError(f"Paths must be relative paths inside the repository: {unsafe}")
-    elif value["affected_paths"] or value["test_paths"] or value["fix_plan"] or value["fix_size"] != "none":
+        check_cases(value.get("test_cases") or [])
+    elif (value["affected_paths"] or value["test_paths"] or value["fix_plan"] or value.get("test_cases")
+          or value["fix_size"] != "none"):
         raise ValueError("A report that did not reproduce must not propose a fix")
+
+
+def check_cases(cases: list) -> None:
+    """A reproduced bug needs at least one English test case, each complete and uniquely named."""
+    if not cases:
+        raise ValueError("A reproduced bug needs test_cases: the regression tests in plain English "
+                         "(id, given, when, then), starting with the case you reproduced")
+    ids = [case["id"] for case in cases]
+    bad = [case_id for case_id in ids if not CASE_ID.fullmatch(case_id)]
+    if bad:
+        raise ValueError(f"A test case id is a short name such as T1 (letters, digits, underscores): {bad}")
+    duplicates = sorted({key for key in (i.lower() for i in ids) if [j.lower() for j in ids].count(key) > 1})
+    if duplicates:
+        raise ValueError(f"Test case ids must be unique: {duplicates}")
+    empty = [case["id"] for case in cases if not all(case[key].strip() for key in ("given", "when", "then"))]
+    if empty:
+        raise ValueError(f"Every test case needs given, when and then: {empty}")
 
 
 def safe_path(path: str) -> bool:
@@ -139,7 +179,7 @@ def note(value: dict) -> dict:
     return {"reproduced": value["outcome"] == "reproduced", "observed": value["observed"],
             "reproduction": value["reproduction"], "root_cause": value["root_cause"],
             "affected_paths": value["affected_paths"], "test_paths": value["test_paths"], "invariant": value["invariant"],
-            "conclusion": value["conclusion"], "fix_size": value["fix_size"], "fix_plan": value["fix_plan"],
+            "test_cases": list(value.get("test_cases") or []), "conclusion": value["conclusion"], "fix_size": value["fix_size"], "fix_plan": value["fix_plan"],
             "questions": value["questions"], "tests_run": value["tests_run"], "changed": []}
 
 
@@ -163,8 +203,15 @@ def large_correction(state: dict) -> dict | None:
     found = state.get("investigation") or {}
     if found.get("outcome") != "reproduced" or small_correction(state):
         return None
-    return {"note_path": found["note_path"], **{key: found[key] for key in (
-        "observed", "reproduction", "root_cause", "affected_paths", "test_paths", "invariant", "fix_plan")}}
+    return {"note_path": found["note_path"], "test_cases": list(found.get("test_cases") or []),
+            **{key: found[key] for key in (
+                "observed", "reproduction", "root_cause", "affected_paths", "test_paths", "invariant", "fix_plan")}}
+
+
+def test_cases(state: dict) -> list[dict]:
+    """The reproduced bug's English test cases, or [] (bugs planned without an investigation, older runs)."""
+    found = state.get("investigation") or {}
+    return list(found.get("test_cases") or []) if found.get("outcome") == "reproduced" else []
 
 
 # A small, reproduced bug skips requirements gathering and plan review: the runner turns
@@ -190,6 +237,18 @@ def correction_contract(state: dict) -> dict:
     objective = "Fix the root cause: " + found["root_cause"]
     validation = ["Run the new regression test against the original code: it must fail",
                   "Run it after the fix: it must pass", "Run the project's existing test suite: it must pass"]
+    criteria = [{"id": "C1", "criterion": found["invariant"],
+                 "verification_method": "A regression test that fails on the original code and "
+                                        "passes after the fix, plus the existing test suite",
+                 "human_review": False}]
+    naming = []
+    for number, case in enumerate(test_cases(state), start=2):
+        criteria.append({"id": f"C{number}", "criterion": case_text(case),
+                         "verification_method": f"The runner checks that a test named {case_test_name(case['id'])} "
+                                                "fails on the original code and passes after the fix",
+                         "human_review": False})
+        naming.append(f"Write test case {case_text(case)} as a test named {case_test_name(case['id'])}")
+    ids = [row["id"] for row in criteria]
     return {
         "intended_outcome": "The reported misbehavior no longer happens: " + found["observed"],
         "intended_user": "The person who reported the bug",
@@ -205,19 +264,16 @@ def correction_contract(state: dict) -> dict:
         "accepted_assumptions": [{"text": f"The diagnosis in {found['note_path']} is correct: {found['root_cause']}",
                                   "basis": "agent_proposed", "answer_id": ""}],
         "delegated_decisions": [],
-        "acceptance_criteria": [{"id": "C1", "criterion": found["invariant"],
-                                 "verification_method": "A regression test that fails on the original code and "
-                                                        "passes after the fix, plus the existing test suite",
-                                 "human_review": False}],
+        "acceptance_criteria": criteria,
         "open_blocking_questions": [],
         "end_to_end_flow": ["Reproduce: " + found["reproduction"], objective, *validation],
         "technical_approach": list(found["fix_plan"]) or [objective],
-        "milestones": [{"id": "M1", "objective": objective, "acceptance_criteria": ["C1"],
+        "milestones": [{"id": "M1", "objective": objective, "acceptance_criteria": ids,
                         "depends_on": [], "affected_paths": owned}],
         "initial_task": {"objective": objective, "affected_paths": owned, "kind": "implement", "milestone_id": "M1",
                          "requirements": [found["invariant"], "Add a regression test in " + ", ".join(found["test_paths"])
-                                          + " that fails on the original code and passes after the fix"],
-                         "acceptance_criteria": ["C1"], "validation_plan": validation},
+                                          + " that fails on the original code and passes after the fix", *naming],
+                         "acceptance_criteria": ids, "validation_plan": validation},
     }
 
 

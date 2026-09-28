@@ -578,8 +578,14 @@ def suite_health(receipt) -> str:
 
 def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regression_command=None,
            reported=None, base_suite=None, timeout=DEFAULT_TIMEOUT, dependencies_from=None,
-           allow_no_test=False) -> dict:
-    """Verify the candidate in ``workspace`` against ``base``; see module docstring."""
+           allow_no_test=False, new_behavior=False) -> dict:
+    """Verify the candidate in ``workspace`` against ``base``; see module docstring.
+
+    ``new_behavior`` is for a feature rather than a bug fix: a new test proves the change
+    when it passes on the candidate and did not pass on base, which includes failing to
+    import there because the code it tests does not exist yet. A bug fix's test must run
+    and fail on base (an import error is not a reproduction).
+    """
     workspace, run_dir = Path(workspace), Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     before = support.snapshot(workspace)["revision"]
@@ -633,7 +639,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                     "regression-on-base", timeout=timeout)
                 checks["regression_on_base"] = on_base
             _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons,
-                              known_failures=lambda: _pre_existing(
+                              new_behavior=new_behavior, known_failures=lambda: _pre_existing(
                                   framework, commands, changes, runnable_tests, workspace, base, run_dir, checks,
                                   timeout=timeout, dependencies_from=dependencies_from))
         elif "base_with_tests" in trees and commands["suite"]:
@@ -684,7 +690,8 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
             "fail_to_pass": proof.get("fail_to_pass"), "checks": checks}
 
 
-def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons, *, known_failures):
+def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons, *, known_failures,
+                      new_behavior=False):
     """Judge the targeted runs of the changed test files.
 
     With per-test results, the proof is a named test that ran and failed on base
@@ -735,9 +742,14 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
             unverified.append("The regression run on the base code reported no test results")
             return
         ran_and_failed = set(base["failed"]) - set(base["collection_errors"])
-        flipped = sorted(ran_and_failed & passed)
+        # New behavior: a test that did not pass on base (failed, or could not even import
+        # the code it tests) and passes now. A bug fix needs a test that ran and failed.
+        flipped = sorted(passed - set(base["passed"])) if new_behavior else sorted(ran_and_failed & passed)
         proof["fail_to_pass"] = flipped
-        if not flipped:
+        if not flipped and new_behavior:
+            fail.append("No new or changed test passes with the change and did not pass without it, "
+                        "so the tests do not show the new behavior")
+        elif not flipped:
             if base["collection_errors"]:
                 fail.append("On the unfixed code the new tests only fail to import or collect ("
                             + ", ".join(base["collection_errors"][:5]) + "), so no test shows the bug. "

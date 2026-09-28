@@ -310,6 +310,67 @@ approval, orchestrator, Builder, Validator and Completion Owner.
   REWORK, which sends the proof's reasons back to the Builder.
 - **The completion gate requires it.** A bug fix cannot reach `TASK_COMPLETE`
   unless the proof passed for the current source. A refusal names the reason.
+- **Regression tests in plain English.** When the Investigator reproduces a
+  bug, it also writes the regression tests the fix must pass as `test_cases`
+  in its diagnosis. Each case has an `id` (`T1`, `T2`, …) and `given`, `when`
+  and `then` fields with exact values, for example:
+
+  > T1: Given the timesheet entries for 2024-12-30 and 2025-01-02; when the
+  > weekly report runs; then both appear in one row for week 2025-W01.
+
+  You can check these without reading test code. They are saved in the
+  diagnosis note under `docs/bugs/`.
+  - **Contract criteria.** Each case becomes an acceptance criterion of the
+    small-fix contract. For a large fix, it becomes one the Planner must carry
+    into the plan you approve.
+  - **Named tests.** The Builder writes one test per case, named after the case
+    id: `test_t1_<what it checks>`.
+  - **The runner's check.** The regression proof also requires every case to
+    have a test with its id in the name, among the tests that fail on the
+    original code and pass after the fix. A case without one fails the proof,
+    which names the case. The link is by name, so no model is involved. Names
+    match as whole words, so `T1` matches `test_t1_…` and `TestT1…` but not
+    `test_t12_…`.
+  - **Without per-test results** (exit codes only), the cases cannot be matched
+    and the proof is `UNVERIFIED`.
+  - **The Validator's check.** The Validator reads each case's test
+    (`case_tests` in the proof) and reports FAIL if the test does not assert
+    what the English case says.
+  - **Where the cases appear.** The status view's `evidence` carries the cases
+    and the tests that prove them, and the pull-request body written by
+    `autocode-issue` lists them.
+  - **Compatibility.** Runs whose diagnosis has no cases, including bug fixes
+    planned without an Investigator and older saved runs, behave as before.
+
+### Small features: tests in plain English
+
+A small feature gets the same kind of proof from its plan. Here "small" means
+a plan with one milestone. The Planner writes every acceptance criterion a test
+can check as one concrete example, and sets its `verification_method` to name
+the test:
+
+> C2: Given calc.py with add(); when sub(5, 3) runs; then it returns 2
+> Verify: test: test_c2_subtracts
+
+- **You approve the examples with the plan.** The plan display says which
+  criteria the runner will prove.
+- **Criteria a test cannot check keep an ordinary verification.** Examples are
+  documentation, visual design and performance under real load; the Validator
+  judges those as before.
+- **Naming.** The Builder writes one test per marked criterion, named with its
+  id (`test_c2_…`).
+- **The runner's check.** Before the Validator runs, the runner checks each
+  named test by the same regression proof as a bug fix, with one difference.
+  The test must pass with the change and must not have passed without it. For a
+  feature, "not passed" includes failing to import the new code on the original
+  revision, because the code didn't exist yet. A bug fix still needs a test that
+  runs and fails. As for bug fixes, no test that passed before may fail now.
+- **Completion.** It is refused until every marked criterion has its test.
+- **Several milestones keep ordinary criteria.** A later milestone's tests
+  cannot pass at an earlier milestone's checkpoint, so plans with more than one
+  milestone are not proven this way.
+
+The matching and the rules are in `tools/autocode_test_cases.py`.
 
 Test commands are detected (pytest, unittest, Go, Jest/Vitest/Mocha, RSpec,
 Cargo, `make test`); `--test-command` and `--regression-command` set them for a

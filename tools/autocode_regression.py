@@ -7,6 +7,16 @@ source, and no test that passed on base may fail now (``autocode_verify``). The
 proof is bound to the exact source revision. The Validator and the Completion
 Owner receive it as evidence, and the completion gate refuses a bug fix whose
 current source has no passing proof. Every workflow stage still runs.
+
+When the Investigator wrote the regression tests in plain English (its
+``test_cases``), the proof also requires each case to have its own test, named
+after the case id, among the tests that fail on base and pass now
+(``case_tests``, from autocode_test_cases.match_cases).
+
+A small feature gets the same proof when its approved one-milestone plan marks
+acceptance criteria as tests (``verification_method: "test: test_c2_..."``,
+autocode_test_cases.contract_cases): each such test must pass with the change
+and must not have passed without it (verify's ``new_behavior``).
 """
 from __future__ import annotations
 
@@ -17,7 +27,10 @@ from pathlib import Path
 try:
     from . import autocode_support as support, autocode_goals as goals, autocode_verify as verify
     from . import autocode_workspaces as workspaces
+    from . import autocode_bug_job as bug_job, autocode_test_cases as test_cases
 except ImportError:
+    import autocode_bug_job as bug_job
+    import autocode_test_cases as test_cases
     import autocode_support as support
     import autocode_goals as goals
     import autocode_verify as verify
@@ -25,11 +38,16 @@ except ImportError:
 
 STAGE = "regression_proof"
 SUMMARY_KEYS = ("verdict", "failures", "unverified", "notes", "review_reasons", "fail_to_pass", "commands",
-                "base", "source_revision", "test_files", "source_files")
+                "base", "source_revision", "test_files", "source_files", "case_tests")
 
 
 def required(state):
-    return goals.task_kind(state) == "bugfix"
+    return goals.task_kind(state) == "bugfix" or bool(test_cases.contract_cases(state))
+
+
+def cases(state):
+    """The English cases this proof must cover: the bug's diagnosis, else the plan's test criteria."""
+    return bug_job.test_cases(state) or test_cases.contract_cases(state)
 
 
 def base_commit(state, workspace):
@@ -93,10 +111,12 @@ def prove(state, workspace, run_dir):
         result = verify.verify(workspace, base, out, framework=framework, suite_command=options.get("test_command"),
                                regression_command=options.get("regression_command"),
                                reported=None, base_suite=base_suite, dependencies_from=dependencies,
-                               timeout=options.get("test_timeout", verify.DEFAULT_TIMEOUT))
+                               timeout=options.get("test_timeout", verify.DEFAULT_TIMEOUT),
+                               new_behavior=goals.task_kind(state) != "bugfix")
         path = out / "verification.json"
         support.atomic_json(path, result)
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
+        check_cases(proof, cases(state))
         proof["checks"] = {label: {"command": receipt["command"], "exit_code": receipt["exit_code"],
                                    "timed_out": receipt["timed_out"], "output": receipt["output"]}
                            for label, receipt in result["checks"].items()}
@@ -116,6 +136,28 @@ def prove(state, workspace, run_dir):
     print(f"{STAGE}: {proof['verdict']}" + "".join(f"\n  - {r}" for r in proof["failures"] + proof["unverified"]),
           flush=True)
     return proof
+
+
+def check_cases(proof, cases):
+    """Each English test case needs a test named after it that fails on base and passes now."""
+    if not cases:
+        return
+    if proof.get("fail_to_pass") is None:
+        # No fail-to-pass list: either the proof already failed for another reason, or the
+        # runner reports exit codes only, which cannot tell which test proves which case.
+        proof["case_tests"] = {case["id"]: [] for case in cases}
+        if proof["verdict"] == verify.PASS:
+            proof["unverified"] = list(proof.get("unverified") or []) + [
+                "The English test cases could not be matched to tests: the test run reported no per-test results"]
+            proof["verdict"] = verify.UNVERIFIED
+        return
+    proof["case_tests"] = test_cases.match_cases(cases, proof["fail_to_pass"])
+    missing = [case for case in cases if not proof["case_tests"][case["id"]]]
+    if missing:
+        proof["failures"] = list(proof.get("failures") or []) + [
+            f"Test case {test_cases.case_text(case)} has no test named {test_cases.case_test_name(case['id'])} "
+            "that passes with the change and did not pass without it" for case in missing]
+        proof["verdict"] = verify.FAIL
 
 
 def before_review(state, stage, workspace, run_dir):

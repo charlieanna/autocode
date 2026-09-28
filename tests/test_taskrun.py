@@ -23,7 +23,45 @@ FIXTURE_OPTIONS = ("--engine", "codex", "--joint-planning", "--astra-model", "gp
 class RunViewTests(unittest.TestCase):
     def test_contract_fields(self):
         self.assertEqual({"schema", "status", "done", "needs", "phase", "next_stage", "iteration", "stop_reason",
-                          "current_task", "workflow"}, set(run_view.view({"status": "RUNNING"})))
+                          "current_task", "workflow", "evidence"}, set(run_view.view({"status": "RUNNING"})))
+
+    def test_evidence_is_empty_before_planning(self):
+        self.assertEqual({"outcome": None, "base_commit": None, "acceptance": [], "findings": [],
+                          "regression_proof": None, "test_cases": []}, run_view.evidence({"status": "RUNNING"}))
+
+    def test_evidence_carries_the_english_test_cases_and_what_proves_them(self):
+        case = {"id": "T1", "given": "a timeout", "when": "renew()", "then": "one mutation"}
+        state = {"status": "TASK_COMPLETE", "investigation": {"outcome": "reproduced", "test_cases": [case]},
+                 "regression_proof": {"verdict": "PASS", "case_tests": {"T1": ["test_t1_one_mutation"]}}}
+        evidence = run_view.evidence(state)
+        self.assertEqual([case], evidence["test_cases"])
+        self.assertEqual({"T1": ["test_t1_one_mutation"]}, evidence["regression_proof"]["case_tests"])
+        state["investigation"]["outcome"] = "not_reproduced"
+        self.assertEqual([], run_view.evidence(state)["test_cases"])
+
+    def test_evidence_pairs_criteria_with_their_latest_outcome(self):
+        state = {"status": "TASK_COMPLETE", "base_commit": "abc",
+                 "goal_contract": {"body": {"intended_outcome": "Fix it", "acceptance_criteria": [
+                     {"id": "AC1", "criterion": "Parses dates"}, {"id": "AC2", "criterion": "Documents it"}]}},
+                 "last_decision": {"report": {"acceptance_criteria": [
+                     {"id": "AC1", "status": "passed", "evidence": "pytest -k dates: 3 passed"}]}},
+                 "human_reviews": {"AC2": {"token": "r1"}},
+                 "findings_ledger": [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo",
+                                      "times_reported": 2}],
+                 "regression_proof": {"verdict": "PASS", "fail_to_pass": ["test_dates"], "failures": [],
+                                      "unverified": [], "commands": {"suite": "pytest"}, "source_revision": "r9",
+                                      "checks": {"large": "output"}}}
+        evidence = run_view.evidence(state)
+        self.assertEqual(("Fix it", "abc"), (evidence["outcome"], evidence["base_commit"]))
+        self.assertEqual([{"id": "AC1", "criterion": "Parses dates", "status": "passed",
+                           "evidence": "pytest -k dates: 3 passed", "human_reviewed": False},
+                          {"id": "AC2", "criterion": "Documents it", "status": None, "evidence": None,
+                           "human_reviewed": True}], evidence["acceptance"])
+        self.assertEqual([{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo"}],
+                         evidence["findings"])
+        self.assertEqual({"verdict": "PASS", "fail_to_pass": ["test_dates"], "failures": [], "unverified": [],
+                          "commands": {"suite": "pytest"}, "source_revision": "r9", "case_tests": None},
+                         evidence["regression_proof"])
 
     def test_workflow_is_none_until_recognized(self):
         self.assertIsNone(run_view.view({"status": "RUNNING"})["workflow"])

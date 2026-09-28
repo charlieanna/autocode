@@ -80,9 +80,27 @@ meaning must change.
   "iteration": 1,
   "stop_reason": null,
   "current_task": {"id": "task-1", "objective": "...", "milestone_id": "M1"},
-  "workflow": "build"
+  "workflow": "build",
+  "evidence": {
+    "outcome": "...",
+    "base_commit": "...",
+    "acceptance": [{"id": "AC1", "criterion": "...", "status": "passed", "evidence": "...", "human_reviewed": false}],
+    "findings": [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "..."}],
+    "regression_proof": null
+  }
 }
 ```
+
+`evidence` is what the run agreed to deliver and what supports it, for reports
+made outside the runner (such as a pull request body, docs/issues.md):
+the approved contract's intended outcome, the base commit, one row per
+acceptance criterion with its latest recorded outcome and evidence, the
+findings ledger, and, for bug fixes, the runner's own fail-before/pass-after
+regression proof (`verdict`, `fail_to_pass`, `failures`, `unverified`,
+`commands`, `source_revision`, and `case_tests`: each English test case's
+proving tests; `null` otherwise). `test_cases` lists a reproduced bug's
+regression tests in plain English (`id`, `given`, `when`, `then`; empty
+otherwise; see [Bug fixes](workflow.md#bug-fixes)).
 
 `workflow` is the kind of job AutoCode recognized from the request, decided by
 the first stage of every new run (`recognize_workflow`): one of `build`,

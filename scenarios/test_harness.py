@@ -6,6 +6,7 @@ PASS and a plausible wrong one is judged FALSE_COMPLETE.
 """
 import argparse
 import ast
+import json
 import sys
 import tempfile
 import unittest
@@ -14,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import run  # noqa: E402
-from harness import catalog, oracle, routing, stats, verdict  # noqa: E402
+from harness import baseline, catalog, compare, oracle, routing, stats, verdict  # noqa: E402
 from harness.driver import metrics, split_by_turn, turn_state  # noqa: E402
 
 
@@ -307,6 +308,84 @@ class FakeRunTests(unittest.TestCase):
     def test_an_invented_blocker_in_a_review_is_judged_false_complete(self):
         result = self.run_fake("broken/invented-blocker", "review-clean-pr")
         self.assertEqual(verdict.FALSE_COMPLETE, result["verdict"], result["summary"])
+
+
+class BaselineTests(unittest.TestCase):
+    """The plain agent AutoCode is compared against: how it is launched and what its exit means."""
+
+    def test_presets_and_templates(self):
+        self.assertEqual(["opencode", "run", "--dir", "/p", "--model", "openai/gpt-6-sol"],
+                         baseline.command("opencode", None, Path("/p"), "openai/gpt-6-sol"))
+        self.assertEqual(["codex", "exec", "-C", "/p", "--sandbox", "workspace-write", "-"],
+                         baseline.command("codex", None, Path("/p"), None))
+        self.assertEqual(["agent", "--cwd", "/p", "--model", "m"],
+                         baseline.command("codex", "agent --cwd {project} --model {model}", Path("/p"), "m"))
+        with self.assertRaisesRegex(ValueError, "unknown baseline"):
+            baseline.command("nope", None, Path("/p"), None)
+
+    def test_only_exit_zero_claims_completion(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            ran = baseline.run([sys.executable, "-c", "import sys; sys.exit(sys.stdin.read() != 'brief')"], root,
+                               "brief", root / "ok.log", env={}, timeout_seconds=60)
+            self.assertEqual((0, baseline.CLAIMED), (ran["exit"], ran["status"]))
+            failed = baseline.run([sys.executable, "-c", "raise SystemExit(3)"], root, "", root / "x.log",
+                                  env={}, timeout_seconds=60)
+            self.assertEqual((3, baseline.STOPPED), (failed["exit"], failed["status"]))
+            missing = baseline.run(["no-such-agent-binary"], root, "", root / "m.log", env={}, timeout_seconds=60)
+            self.assertEqual((127, baseline.STOPPED), (missing["exit"], missing["status"]))
+            self.assertIn("no-such-agent-binary", (root / "m.log").read_text())
+
+
+class CompareSummaryTests(unittest.TestCase):
+    @staticmethod
+    def row(name, auto, base, auto_ok, base_ok, auto_s=10.0, base_s=1.0):
+        return {"scenario": name, "autocode": {"verdict": auto, "deliverable_passed": auto_ok, "seconds": auto_s,
+                                               "model_stages": 5},
+                "baseline": {"verdict": base, "deliverable_passed": base_ok, "seconds": base_s}}
+
+    def test_summary_counts_each_side(self):
+        rows = [self.row("a", verdict.PASS, verdict.FALSE_COMPLETE, True, False, 30.0, 2.0),
+                self.row("b", verdict.PASS, verdict.PASS, True, True, 10.0, 4.0),
+                self.row("c", verdict.HONEST_BLOCKER, verdict.PASS, False, True, 20.0, 6.0),
+                {"scenario": "d", "skipped": "requires go"}]
+        summary = compare.summarize(rows)
+        self.assertEqual((4, 3, 1), (summary["scenarios"], summary["compared"], summary["skipped"]))
+        self.assertEqual({"autocode only": 1, "both": 1, "baseline only": 1}, summary["outcomes"])
+        self.assertEqual({"deliverable_passed": 2, "verdicts": {"PASS": 2, "HONEST_BLOCKER": 1},
+                          "false_completions": 0, "total_seconds": 60.0, "median_seconds": 20.0},
+                         summary["autocode"])
+        self.assertEqual((2, 1, 4.0), (summary["baseline"]["deliverable_passed"],
+                                       summary["baseline"]["false_completions"], summary["baseline"]["median_seconds"]))
+        text = compare.markdown({"baseline": "opencode (one call)", "mode": "fake", "started_at": "t", "out": "/o",
+                                 "autocode": {"commit": "0123456789abcdef", "dirty": False}}, rows, summary)
+        self.assertIn("| Deliverable accepted by the oracle | 2/3 | 2/3 |", text)
+        self.assertIn("| a | PASS | FALSE_COMPLETE | 30.0 | 2.0 | 5 | autocode only |", text)
+        self.assertIn("| d | skipped: requires go |", text)
+
+
+class CompareRunTests(unittest.TestCase):
+    """AutoCode and the scripted agent on one scenario, through run.py compare (a few seconds each)."""
+
+    def compare(self, *extra):
+        with tempfile.TemporaryDirectory(prefix="compare-test-") as out:
+            self.assertEqual(0, run.main(["compare", "bugfix-iso-weeks", "--fake", "--out", out, *extra]))
+            [report] = Path(out).glob("*-compare-fake/comparison.json")
+            self.assertTrue((report.parent / "comparison.md").is_file())
+            return json.loads(report.read_text())
+
+    def test_both_sides_deliver_the_reference(self):
+        [row] = self.compare()["rows"]
+        self.assertEqual((verdict.PASS, verdict.PASS), (row["autocode"]["verdict"], row["baseline"]["verdict"]))
+        self.assertEqual("both", compare.outcome(row))
+
+    def test_a_wrong_baseline_is_a_false_completion_on_the_same_oracle(self):
+        report = self.compare("--fake-baseline-solution", "broken/special-case")
+        [row] = report["rows"]
+        self.assertEqual(verdict.PASS, row["autocode"]["verdict"])
+        self.assertEqual(verdict.FALSE_COMPLETE, row["baseline"]["verdict"], row["baseline"]["summary"])
+        self.assertEqual(1, report["summary"]["baseline"]["false_completions"])
+        self.assertEqual("autocode only", compare.outcome(row))
 
 
 if __name__ == "__main__":

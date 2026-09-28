@@ -195,11 +195,28 @@ def investigate() -> dict:
                               if reproduced else [],
             "test_paths": ([p for p in PATHS if "test" in p] or ["tests/"]) if reproduced else [],
             "invariant": text("invariant") or ("Scripted invariant" if reproduced else ""),
+            "test_cases": (saved.get("test_cases") or scripted_cases()) if reproduced else [],
             "conclusion": text("conclusion", "finding", "fix") or "Scripted conclusion",
             "fix_size": (saved.get("fix_size") or "small") if reproduced else "none",
             "fix_plan": [text("fix")] if reproduced and saved.get("fix") else [],
             "questions": [str(q) for q in saved.get("questions", [])], "tests_run": ["scripted"],
             "plan_approval_requested": bool(saved.get("plan_approval_requested"))}
+
+
+def scripted_cases() -> list[dict]:
+    """English test cases for a scripted diagnosis: one per test function the solution adds, with the
+    test's own name as the case id, so the runner can match each case to its test. A solution with no
+    new test (a fix without a test) still gets one case, which then has nothing to prove it."""
+    root, names = Path(CONFIG["reference"]), []
+    for relative in PATHS:
+        if "test" not in Path(relative).name or not relative.endswith(".py"):
+            continue
+        before = Path.cwd() / relative
+        existing = set(re.findall(r"def (test_\w+)", before.read_text())) if before.is_file() else set()
+        names += [name for name in re.findall(r"def (test_\w+)", (root / relative).read_text()) if name not in existing]
+    return [{"id": name.removeprefix("test_"), "given": "the scripted seed", "when": f"{name} runs",
+             "then": "it passes only with the fix"} for name in names] or \
+        [{"id": "T1", "given": "the scripted seed", "when": "the reported case runs", "then": "it is fixed"}]
 
 
 def design() -> dict:
@@ -295,7 +312,10 @@ def report_for(stage: str, data: dict) -> dict:
         return {**common, "verdict": status, "checks_run": [CHECK], "findings": [],
                 "finding_dispositions": [], "unverified_criteria": [],
                 "checks": [{"command": CHECK, "exit_code": code, "evidence_ref": "event:check"}],
-                "criterion_results": [{"id": "C1", "status": status, "evidence_refs": ["event:check"]}],
+                # Every criterion of the approved contract (a bug fix's English test cases add some).
+                "criterion_results": [{"id": row["id"], "status": status, "evidence_refs": ["event:check"]}
+                                      for row in ((data.get("goal_contract") or {}).get("body") or {})
+                                      .get("acceptance_criteria") or [{"id": "C1"}]],
                 "end_to_end_result": {"status": status, "summary": f"{CHECK} exited {code}",
                                       "evidence_refs": ["event:check"]}}
     if stage in ("astra_review", "astra_plan", "astra_resolve"):

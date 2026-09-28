@@ -22,17 +22,23 @@ def state_for(workspace="/nowhere", task="Occasionally we renew the same domain 
                 "astra": {"model": "a", "engine": "codex"}, "terra": {"model": "t"}, "sol": {"model": "s"}}}}
 
 
+CASE = {"id": "T1", "given": "the registry times out once after applying a renew",
+        "when": "renew('example.com') runs", "then": "the registry records exactly 1 renew mutation"}
+
+
 def diagnosis(outcome="reproduced", **overrides):
     value = {"outcome": outcome, "note_path": "docs/bugs/duplicate-renew.json",
              "observed": "Renewed twice after a timeout", "reproduction": "fail_next('timeout-after'); renew() -> 2 mutations",
              "root_cause": "retries after an uncertain timeout with a fresh cl_trid",
              "affected_paths": ["epp/client.py"], "test_paths": ["tests/test_client.py"],
              "invariant": "one logical renew, at most one mutation",
+             "test_cases": [CASE],
              "conclusion": "Reconcile before resending.", "fix_size": "small",
              "fix_plan": ["keep one cl_trid", "poll before resending"], "questions": [], "tests_run": ["python3 -m unittest"],
              "plan_approval_requested": False}
     if outcome == "not_reproduced":
         value.update(root_cause="", affected_paths=[], test_paths=[], invariant="", fix_size="none", fix_plan=[],
+                     test_cases=[],
                      note_path="docs/bugs/none-cells.json", conclusion="export() already writes None as empty.",
                      questions=["Which version is the reporter running?"])
     value.update(overrides)
@@ -115,6 +121,24 @@ class ApplyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "what it ran"):
             self.apply(diagnosis(reproduction="  "))
 
+    def test_a_reproduced_bug_needs_its_regression_tests_in_plain_english(self):
+        with self.assertRaisesRegex(ValueError, "needs test_cases"):
+            self.apply(diagnosis(test_cases=[]))
+        with self.assertRaisesRegex(ValueError, "needs given, when and then"):
+            self.apply(diagnosis(test_cases=[{**CASE, "then": " "}]))
+        with self.assertRaisesRegex(ValueError, "unique"):
+            self.apply(diagnosis(test_cases=[CASE, {**CASE, "id": "t1"}]))
+        with self.assertRaisesRegex(ValueError, "short name"):
+            self.apply(diagnosis(test_cases=[{**CASE, "id": "T 1"}]))
+        with self.assertRaisesRegex(ValueError, "must not propose a fix"):
+            self.apply(diagnosis("not_reproduced", test_cases=[CASE]))
+
+    def test_the_note_and_the_planner_get_the_english_tests(self):
+        state, workspace = self.apply(diagnosis(fix_size="large"))
+        self.assertEqual([CASE], json.loads((workspace / "docs/bugs/duplicate-renew.json").read_text())["test_cases"])
+        self.assertEqual([CASE], bug_job.large_correction(state)["test_cases"])
+        self.assertEqual([CASE], bug_job.test_cases(state))
+
     def test_paths_must_stay_inside_the_repository(self):
         for path in ("/etc/passwd", "../outside.py", ".git/config"):
             with self.subTest(path=path), self.assertRaisesRegex(ValueError, "inside the repository"):
@@ -145,14 +169,26 @@ class SmallCorrectionTests(unittest.TestCase):
         self.assertTrue(goals.approved(state))
         self.assertEqual(("workflow_policy", bug_job.SMALL_FIX_POLICY),
                          (contract["approval_event"]["actor"], contract["approval_event"]["policy"]))
-        [criterion] = contract["body"]["acceptance_criteria"]
+        criterion, case = contract["body"]["acceptance_criteria"]
         self.assertEqual("one logical renew, at most one mutation", criterion["criterion"])
+        self.assertEqual(bug_job.case_text(CASE), case["criterion"])
         task = state["current_task"]
         self.assertEqual(["epp/client.py", "tests/test_client.py", "docs/bugs/duplicate-renew.json"],
                          task["affected_paths"])
         self.assertIn("fails on the original code", " ".join(task["requirements"]))
         self.assertIn(state["next_stage"], ("terra", "orchestrator"))
         self.assertEqual("RUNNING", state["status"])
+
+    def test_each_english_test_becomes_a_criterion_and_a_named_test(self):
+        second = {"id": "T2", "given": "no timeout", "when": "renew('example.com') runs", "then": "1 mutation"}
+        state = self.start(test_cases=[CASE, second])
+        criteria = state["goal_contract"]["body"]["acceptance_criteria"]
+        self.assertEqual(["C1", "C2", "C3"], [row["id"] for row in criteria])
+        self.assertEqual(bug_job.case_text(CASE), criteria[1]["criterion"])
+        self.assertIn("test_t1_", criteria[1]["verification_method"])
+        task = state["current_task"]
+        self.assertEqual(["C1", "C2", "C3"], task["acceptance_criteria"])
+        self.assertIn("as a test named test_t2_", " ".join(task["requirements"]))
 
     def test_a_large_fix_is_not_auto_approved(self):
         state = self.start(fix_size="large")
@@ -208,3 +244,54 @@ class SmallCorrectionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CaseMatchTests(unittest.TestCase):
+    """The runner links an English case to its test by name, with no model: T1 -> test_t1_..."""
+
+    def test_ids_match_whole_words_in_any_runners_test_id(self):
+        cases = [{"id": "T1"}, {"id": "T2"}, {"id": "reported_row"}]
+        tests = ["tests.test_client.RenewTests.test_t1_one_mutation", "tests/test_x.py::test_t12_other",
+                 "TestT2RenewsOnce", "tests/test_x.py::test_reported_row[a-b]"]
+        self.assertEqual({"T1": ["tests.test_client.RenewTests.test_t1_one_mutation"], "T2": ["TestT2RenewsOnce"],
+                          "reported_row": ["tests/test_x.py::test_reported_row[a-b]"]},
+                         bug_job.match_cases(cases, tests))
+
+    def test_the_proof_fails_a_case_with_no_test_of_its_own(self):
+        import autocode_regression as regression
+        proof = {"verdict": "PASS", "failures": [], "unverified": [],
+                 "fail_to_pass": ["tests.test_client.RenewTests.test_t1_one_mutation"]}
+        second = {"id": "T2", "given": "no timeout", "when": "renew() runs", "then": "1 mutation"}
+        regression.check_cases(proof, [CASE, second])
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertEqual({"T1": ["tests.test_client.RenewTests.test_t1_one_mutation"], "T2": []}, proof["case_tests"])
+        [failure] = proof["failures"]
+        self.assertIn("T2: Given no timeout", failure)
+        self.assertIn("test_t2_", failure)
+
+    def test_the_proof_passes_when_every_case_has_its_test(self):
+        import autocode_regression as regression
+        proof = {"verdict": "PASS", "failures": [], "unverified": [],
+                 "fail_to_pass": ["tests.test_client.RenewTests.test_t1_one_mutation"]}
+        regression.check_cases(proof, [CASE])
+        self.assertEqual(("PASS", []), (proof["verdict"], proof["failures"]))
+
+    def test_without_per_test_results_the_cases_are_unverified_not_passed(self):
+        import autocode_regression as regression
+        proof = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": None}
+        regression.check_cases(proof, [CASE])
+        self.assertEqual(("UNVERIFIED", {"T1": []}), (proof["verdict"], proof["case_tests"]))
+
+    def test_a_proof_that_already_failed_gets_no_misleading_note(self):
+        import autocode_regression as regression
+        proof = {"verdict": "FAIL", "failures": ["The regression tests fail on the candidate: x"], "unverified": [],
+                 "fail_to_pass": None}
+        regression.check_cases(proof, [CASE])
+        self.assertEqual(("FAIL", [], {"T1": []}), (proof["verdict"], proof["unverified"], proof["case_tests"]))
+
+    def test_runs_without_english_tests_are_unchanged(self):
+        import autocode_regression as regression
+        proof = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": ["x.test_a"]}
+        regression.check_cases(proof, [])
+        self.assertEqual({"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": ["x.test_a"]}, proof)
+        self.assertEqual([], bug_job.test_cases({"investigation": {"outcome": "reproduced"}}))

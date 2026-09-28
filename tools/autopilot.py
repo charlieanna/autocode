@@ -1007,7 +1007,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
                     proof = state.get("regression_proof") or {}
                     reasons = "; ".join((proof.get("failures") or []) + (proof.get("unverified") or [])) or \
                         "no proof exists for the current source"
-                    raise support.Paused("PAUSED_COMPLETION_GATE", "Completion rejected: this bug fix has no passing "
+                    raise support.Paused("PAUSED_COMPLETION_GATE", "Completion rejected: this change has no passing "
                                          f"regression proof for the current source ({reasons})")
                 raise support.Paused("PAUSED_COMPLETION_GATE", "Completion rejected: missing, stale, failed or unverified independent evidence")
             state.update(status="TASK_COMPLETE", completed_at=now(), final_decision=value, next_stage=None)

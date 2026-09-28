@@ -389,7 +389,7 @@ This is not the entire suite. See [testing](docs/testing.md), [dashboard tests](
 python3 -m unittest tests.test_scenario_oracles tests.test_program tests.test_live_trial
 ```
 
-End-to-end behavior is judged by [scenarios](scenarios/README.md): realistic tasks (a bug fix, a feature in an existing project, small applications, a port, a parallel milestone graph), each with an independent oracle, a reference solution and plausible-but-wrong variants. `.venv/bin/python scenarios/run.py run --fake` runs every scenario through AutoCode with a scripted model; `--profile` runs them with real models.
+End-to-end behavior is judged by [scenarios](scenarios/README.md): realistic tasks (a bug fix, a feature in an existing project, small applications, a port, a parallel milestone graph), each with an independent oracle, a reference solution and plausible-but-wrong variants. `.venv/bin/python scenarios/run.py run --fake` runs every scenario through AutoCode with a scripted model; `--profile` runs them with real models. `scenarios/run.py compare` runs the same scenarios through a plain coding agent as well and judges both with the same oracles, to measure whether AutoCode's extra stages buy correctness ([comparing with a plain agent](scenarios/README.md#comparing-with-a-plain-agent)).
 
 **Fixture tests establish behavior under the exercised conditions, not model quality or universal correctness.** Test counts and historical results must be tied to their recorded source/environment. Do not present them as a fresh run of current master. The reliability plan also calls for bounded real-model delivery trials: a small application, a feature in an existing project, and a bug fix.
 
@@ -410,6 +410,7 @@ tools/autocode_*.py     contracts, findings, evidence, execution, and recovery
 tools/autocode_program.py  program workstreams: manifest, derive, waves, integration branch
 tools/autocode_verify.py   model-free fail-to-pass / pass-to-pass test runs in scratch worktrees
 tools/autocode_regression.py  runner-owned regression proof and completion requirement for bug fixes
+tools/autocode_issue.py    GitHub issue → task run → pull request, over the task-run interface
 tools/task_scenarios.py    task-type scenarios and their independent oracles
 tools/live_trial.py     scenario driver: seed, run, serve gates, score
 tools/providers/        runtime adapters and bundled command-tool configs
@@ -431,7 +432,7 @@ VALIDATION.md           recorded results and limitations
 | Build, recovery, and completion | [Execution](docs/execution.md) · [Interventions](docs/interventions.md) · [Task-run interface](docs/task-run.md) |
 | Conversation and monitoring | [Dashboard](docs/dashboard.md) · [Registry API](docs/registry-api.md) · [macOS app](docs/macos-app.md) |
 | Visual work and multi-task runs | [Figma](docs/figma.md) · [Task lanes](docs/task-lanes.md) · [Programs](docs/program.md) |
-| Bug reports and issues | [Fix](docs/fix.md) |
+| Bug reports and issues | [Bug fixes](docs/workflow.md#bug-fixes) · [GitHub issues to pull requests](docs/issues.md) |
 | Verification and project priorities | [Scenarios](scenarios/README.md) · [Task-type scenarios](docs/scenarios.md) · [Testing](docs/testing.md) · [Validation](VALIDATION.md) · [Reliability](RELIABILITY.md) |
 
 ## Keep this README honest

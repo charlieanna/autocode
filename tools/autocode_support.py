@@ -841,7 +841,7 @@ def review_generation_schema(schema, state, stage):
 REGRESSION_PROOF_NOTES = {
     "passed": {
         "validator": "\nREGRESSION PROOF: regression_proof records that the runner already ran the new or changed "
-                     "tests (failing on the original code, passing now) and the project suite. Do not re-run the "
+                     "tests (failing on the original code, passing now) and the project suite; case_tests names the test for each English test case (the diagnosis's, or the plan's criteria marked test:): read each one and report FAIL if it does not assert exactly the case's given, when and then. Do not re-run the "
                      "whole suite. Run the regression command once as your own executed check, then spend your "
                      "effort on what those tests do not cover in the acceptance criteria.\n",
         "owner": "\nREGRESSION PROOF: regression_proof and the Validator's report are executed evidence for this "

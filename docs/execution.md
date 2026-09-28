@@ -5,6 +5,25 @@
 This page covers independent milestone Builders, milestone checkpoints and acceptance,
 open findings, timeouts and recovery, and the completion gate.
 
+## The project's own tests as examples
+
+Every Builder prompt, including each parallel milestone Builder's, carries the opening lines of
+the project's own tests, so new tests follow the house style. That style covers the framework,
+imports, fixtures, helpers, naming and assertions.
+
+- **Which tests.** `tools/autocode_test_examples.py` picks at most two tracked test files, trying
+  each of these in turn:
+  1. test files the task itself edits
+  2. tests named after a source file it edits (`weeks.py` → `test_weeks.py`)
+  3. tests in the same directories
+
+  A test in the task's own language wins a tie. If none of these exist, it takes the shallowest
+  test in the repository.
+- **How much.** Each excerpt is the first 60 lines, capped at 3,000 characters.
+- **Status.** The excerpts are examples to follow, not files to edit.
+  `current_task.affected_paths` still decides what the Builder may change.
+- **Without tests.** A project with no tracked tests adds nothing to the prompt.
+
 ## Independent milestone Builders
 
 New joint runs save `orchestration={enabled:true,max_parallel:2}`. Existing saved

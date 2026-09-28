@@ -11,6 +11,7 @@ $PY scenarios/run.py check                        # prove every oracle (seconds;
 $PY scenarios/run.py run --fake                   # every scenario through AutoCode with a scripted model (under a minute, no spend)
 $PY scenarios/run.py run bugfix-iso-weeks --profile glm53-openai --i-authorize-live-model-spend
 $PY scenarios/run.py route --fake                 # which workflow AutoCode recognizes for each prompt in routing.toml
+$PY scenarios/run.py compare --fake               # AutoCode vs a plain agent on the same oracles (scripted; no spend)
 $PY scenarios/run.py stats                        # per scenario and mode: runs, passes, pass streak, time, model stages
 $PY -m unittest scenarios/test_harness.py         # the harness's own tests (under a minute)
 ```
@@ -125,6 +126,61 @@ oracle's `run` gets `turns`: one record per turn, with the same keys as `run`
 itself (the view that turn ended with, its stages, answers and CLI calls), so
 `run_checks` can judge each turn on its own. Stages are assigned to a turn by
 when they finished.
+
+## Comparing with a plain agent
+
+AutoCode adds stages so that its results can be trusted. `compare` measures
+whether that pays off. It runs each scenario twice: once through AutoCode, as
+`run` does, and once through a plain coding agent in a single call with the
+same seed and brief. There is no planning, review or completion gate on the
+agent's side. The same oracle then judges both deliveries.
+
+```sh
+$PY scenarios/run.py compare --fake                                        # plumbing only: both apply the reference
+$PY scenarios/run.py compare bugfix-iso-weeks --fake --fake-baseline-solution broken/special-case
+$PY scenarios/run.py compare bugfix-iso-weeks feature-timesheet-by-project \
+    --profile openai-only --baseline opencode --i-authorize-live-model-spend
+```
+
+- **The agent:** `--baseline` picks `opencode` (the default, and AutoCode's
+  default engine) or `codex`. Each is launched with the same command line
+  AutoCode uses for that engine.
+  - The opencode agent defaults to the profile's builder model;
+    `--baseline-model` overrides it.
+  - `--baseline-command 'CMD {project} {model}'` runs any other agent, with
+    the brief on stdin.
+- **Fairness:**
+  - Give both sides the same model where you can.
+  - Both sides share one time budget per scenario.
+  - The agent is a single call. The comparison asks whether AutoCode's
+    extra stages beat one good attempt, not whether AutoCode beats a person
+    iterating with the agent.
+
+**Scoring.** Each side gets a *deliverable* result and a verdict.
+
+- **Deliverable:** the oracle with no run record, as in `check`. AutoCode-only
+  process checks, such as workflow recognition, therefore don't count against
+  the agent.
+- **Verdict:** as in the table above.
+  - The agent claims completion by exiting 0. A wrong delivery with exit 0 is
+    therefore `FALSE_COMPLETE`, and a nonzero exit or a timeout is
+    `HONEST_BLOCKER`.
+  - A plain agent has no machine-readable way to stop. On scenarios whose
+    correct ending is a stop (`expected = "stop"`), exiting 0 is a false
+    completion.
+
+**Output.** Results land in `.scenario-runs/<time>-compare-<mode>/`. The
+directory holds:
+
+- `comparison.md`: accepted deliveries, false completions and time for each
+  side, plus one row per scenario
+- `comparison.json`: the same data
+- each side's own evidence: AutoCode's run directory as `run` writes it, and
+  `<id>-baseline/` with the agent's log, the delivered project and
+  `result.json`
+
+A fake comparison proves only the plumbing and the scoring. What matters is a
+live comparison with matched models and a recorded profile.
 
 ## Catalog
 

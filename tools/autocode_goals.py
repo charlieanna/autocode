@@ -898,7 +898,7 @@ def render(state):
                   "test fails on the original code and passes with the fix, and that no test that",
                   "passed before now fails."]
     elif "task_kind" in body:
-        lines += ["", "Job type: build (not a bug fix; no runner regression proof is required)."]
+        lines += ["", "Job type: build (not a bug fix). In a one-milestone plan, criteria verified by \"test: ...\" are proven by the runner: each named test must pass with the change and not without it."]
     display_order = ("intended_user", "intended_outcome", "end_to_end_flow", "deliverables", "scope_exclusions",
                      "constraints", "permission_boundaries", "accepted_assumptions", "delegated_decisions",
                      "required_behaviors", "important_failure_cases", "acceptance_criteria", "technical_approach",

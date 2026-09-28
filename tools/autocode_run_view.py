@@ -33,6 +33,49 @@ def view(state: dict) -> dict:
         # The kind of job recognized from the request (autocode_workflows.WORKFLOWS);
         # None until the first stage has run, and for runs that predate recognition.
         "workflow": (state.get("workflow") or {}).get("kind"),
+        "evidence": evidence(state),
+    }
+
+
+def evidence(state: dict) -> dict:
+    """What the run agreed to deliver and what supports it, for reports outside the runner.
+
+    outcome           the approved contract's intended outcome, or None
+    base_commit       the revision the run started from
+    acceptance        one row per criterion: its latest recorded outcome and evidence
+    findings          the findings ledger: id, status, severity, finding
+    regression_proof  for bug fixes, the runner's own fail-before/pass-after proof, else None;
+                      case_tests maps each English test case to the tests that prove it
+    test_cases        a reproduced bug's regression tests in plain English (id, given, when, then), else []
+    """
+    contract = (state.get("goal_contract") or {}).get("body") or {}
+    criteria = contract.get("acceptance_criteria") or state.get("acceptance_criteria") or []
+    decision = state.get("last_decision") if isinstance(state.get("last_decision"), dict) else {}
+    report = decision.get("report") if isinstance(decision.get("report"), dict) else decision
+    outcomes = {row.get("id"): row for row in report.get("acceptance_criteria") or [] if isinstance(row, dict)}
+    reviewed = state.get("human_reviews") if isinstance(state.get("human_reviews"), dict) else {}
+    acceptance = []
+    for item in criteria:
+        item = item if isinstance(item, dict) else {"criterion": str(item)}
+        outcome = outcomes.get(item.get("id")) or {}
+        acceptance.append({"id": item.get("id"), "criterion": item.get("criterion") or item.get("text"),
+                           "status": outcome.get("status"), "evidence": outcome.get("evidence"),
+                           "human_reviewed": item.get("id") in reviewed})
+    proof = state.get("regression_proof")
+    investigation = state.get("investigation") if isinstance(state.get("investigation"), dict) else {}
+    return {
+        "outcome": contract.get("intended_outcome"),
+        "base_commit": state.get("base_commit"),
+        "acceptance": acceptance,
+        "findings": [{key: row.get(key) for key in ("id", "status", "severity", "finding")}
+                     for row in state.get("findings_ledger") or [] if isinstance(row, dict)],
+        "regression_proof": {key: proof.get(key) for key in
+                             ("verdict", "fail_to_pass", "failures", "unverified", "commands", "source_revision",
+                              "case_tests")}
+                            if isinstance(proof, dict) else None,
+        "test_cases": [{key: case.get(key) for key in ("id", "given", "when", "then")}
+                       for case in investigation.get("test_cases") or [] if isinstance(case, dict)]
+                      if investigation.get("outcome") == "reproduced" else [],
     }
 
 

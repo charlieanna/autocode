@@ -32,6 +32,7 @@ autocode-tasks = "autocode_cli.autocode_tasks:cli"
 autocode-components = "autocode_cli.autocode_components:cli"
 autocode-unattended = "autocode_cli.autocode_unattended:cli"
 autocode-program = "autocode_cli.autocode_program:cli"
+autocode-issue = "autocode_cli.autocode_issue:cli"
 
 [tool.setuptools]
 packages = ["autocode_cli", "autocode_cli.dashboard", "autocode_cli.providers", "autocode_cli.units"]

@@ -3,7 +3,10 @@ import copy
 from dataclasses import dataclass
 try:
     from .. import autocode_goals as goals, autocode_support as support, autocode_workflow as workflow
+    from .. import autocode_test_examples as test_examples, autocode_test_cases as test_cases
 except ImportError:
+    import autocode_test_examples as test_examples
+    import autocode_test_cases as test_cases
     import autocode_goals as goals
     import autocode_support as support
     import autocode_workflow as workflow
@@ -41,6 +44,10 @@ def execution_request(state, stage, state_path, schema_dir):
     state["phase"] = "EXECUTING"
     role = autoplanner.role_for(state, stage)
     prompt, metrics = support.context_packet(state, stage, state_path)
+    if stage == "terra":
+        prompt = test_examples.add_to_prompt(prompt, state["workspace"], state.get("current_task"))
+        prompt = prompt.replace("\nCURRENT HANDOFF DATA\n", test_cases.builder_note(state) + "\nCURRENT HANDOFF DATA\n", 1)
+        metrics = {**metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4}
     schema = goals.role_schema(support.read(
         schema_dir / "v2" / f"{role}-{'decision' if role == 'astra' else 'report'}.schema.json"), role)
     if stage == "astra_checkpoint":
