@@ -1,5 +1,6 @@
 """Workflow recognition: the first stage of a new run and the `workflow` view field."""
 import unittest
+from unittest import mock
 
 import autocode_run_view as run_view
 import autocode_workflows as workflows
@@ -109,9 +110,7 @@ class JobRouteTests(unittest.TestCase):
     def test_the_stuck_investigator_launches_on_its_prepared_route(self):
         import tempfile
         from pathlib import Path
-        from unittest.mock import patch
         import autocode_stuck_job as stuck
-        from providers import opencode as opencode_provider
         from units import autoresolver
         with tempfile.TemporaryDirectory() as workspace:
             state = {"version": 3, "task": "t", "workspace": workspace, "status": "RUNNING", "next_stage": "terra",
@@ -121,12 +120,11 @@ class JobRouteTests(unittest.TestCase):
                                   "roles": {"astra": {"model": "gpt-6-astra", "engine": "codex"},
                                             "terra": {"model": "gpt-6-sol"}}}}
             stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "x")
-            # Recording OpenCode's identity asks the installed opencode binary, which CI does not have.
-            identity = {"engine": "opencode", "version": "1.0.0"}
-            with patch.object(opencode_provider, "local_settings", return_value=identity) as local_settings:
+            # Hermetic: no OpenCode install needed; its local settings are what gets recorded.
+            tool = type("Tool", (), {"local_settings": staticmethod(lambda workspace: {"fixture": "opencode"})})
+            with mock.patch("autocode_providers.resolve", return_value=tool):
                 request = autoresolver.prepare(state, stuck.STAGE, Path(workspace) / "state.json", None)
-            local_settings.assert_called_once_with(Path(workspace))
         self.assertEqual(request.route_role, autoplanner.route_for(state, stuck.STAGE, request.role))
         self.assertEqual("opencode", autoplanner.engine_for(state["settings"], request.route_role))
         # A Codex run's first OpenCode stage records that transport, so the drift and billing checks cover it.
-        self.assertEqual(identity, state["settings"]["transport_identities"]["opencode"])
+        self.assertEqual({"fixture": "opencode"}, state["settings"]["transport_identities"]["opencode"])
