@@ -31,10 +31,13 @@ runner's internals or reads state.json.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 import subprocess
 import tempfile
+import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -89,16 +92,25 @@ class ComponentResult:
     run: TaskRun | None = None
     view: dict | None = None
     error: str | None = None
+    branch: str | None = None
+    resumed: bool = False  # picked up from an earlier invocation's manifest, not started by this one
 
     @property
     def ready_to_integrate(self) -> bool:
         return self.view is not None and self.view.get("done", False) and not self.error
+
+    @property
+    def status(self) -> str:
+        if self.ready_to_integrate:
+            return "done"
+        return "error" if self.view is None else "needs_input"
 
 
 @dataclass
 class Architecture:
     components: dict[str, Component] = field(default_factory=dict)
     contracts_dir: Path | None = None
+    directory: Path | None = None
 
     @classmethod
     def load(cls, directory: Path) -> "Architecture":
@@ -121,7 +133,20 @@ class Architecture:
             unknown = [dep for dep in component.depends_on if dep not in components]
             if unknown:
                 raise ArchitectureError(f"{component.id} depends_on unknown component(s) {unknown}")
-        return cls(components=components, contracts_dir=directory / "contracts")
+        return cls(components=components, contracts_dir=directory / "contracts", directory=directory)
+
+    def fingerprint(self) -> str | None:
+        """A hash of the files every component is built against: components.json and
+        the contract schemas. A saved build is only resumable against the same ones."""
+        if self.directory is None:
+            return None
+        digest = hashlib.sha256()
+        files = [self.directory / "components.json"]
+        if self.contracts_dir and self.contracts_dir.is_dir():
+            files += sorted(self.contracts_dir.glob("*.schema.json"))
+        for path in files:
+            digest.update(path.relative_to(self.directory).as_posix().encode() + b"\0" + path.read_bytes() + b"\0")
+        return digest.hexdigest()
 
     def batches(self) -> list[list[Component]]:
         """Components grouped so a batch's members share no dependency between them,
@@ -172,7 +197,13 @@ class MultiComponentBuild:
     architecture files should already be committed there (as, for example,
     the output of an architecture-only task run). Each component gets its own
     worktree under ``repo/.autocode-components/<id>``, created fresh from HEAD.
+
+    Progress is saved to ``repo/.autocode-components/manifest.json`` as each
+    component starts and stops, so a later invocation (a new process) picks up
+    where this one left off instead of recreating worktrees; see ``build``.
     """
+
+    MANIFEST_VERSION = 1
 
     def __init__(self, repo: Path, architecture: Architecture, *, options: tuple[str, ...] = (),
                  env: dict | None = None, timeout: float | None = None, max_advances: int = 20):
@@ -180,60 +211,123 @@ class MultiComponentBuild:
         self.architecture = architecture
         self.options, self.env, self.timeout, self.max_advances = options, env, timeout, max_advances
         self.results: dict[str, ComponentResult] = {}
+        self._manifest_lock = threading.Lock()
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.repo / ".autocode-components" / "manifest.json"
+
+    def saved_components(self) -> dict[str, dict]:
+        """The manifest's per-component entries from an earlier invocation, or {} if
+        there is none. Refuses a manifest recorded against a different architecture:
+        its components were built against contracts that no longer hold."""
+        if not self.manifest_path.is_file():
+            return {}
+        saved = _read_json(self.manifest_path)
+        if not isinstance(saved, dict) or saved.get("version") != self.MANIFEST_VERSION:
+            raise ArchitectureError(f"{self.manifest_path} is not a version {self.MANIFEST_VERSION} build manifest")
+        if saved.get("architecture_fingerprint") != self.architecture.fingerprint():
+            raise ArchitectureError(f"the architecture changed since the build saved in {self.manifest_path}; "
+                                    f"its components were built against the old contracts. Remove "
+                                    f".autocode-components/ to rebuild from scratch.")
+        return {cid: entry for cid, entry in saved.get("components", {}).items()
+                if cid in self.architecture.components}
 
     def build(self, *, auto_approve: bool = False) -> dict[str, ComponentResult]:
-        """Run every not-yet-attempted component, in dependency batches, in parallel
-        within a batch. A component already in ``self.results`` (from a previous
-        call) is left untouched; clear its entry to retry it.
+        """Run every component that is not already done, in dependency batches, in
+        parallel within a batch.
+
+        A component this object, or an earlier invocation's saved manifest, already
+        started is continued rather than recreated: its existing run is advanced
+        from wherever it stopped. A component that is done is left untouched; to
+        rebuild one, remove its worktree and manifest entry.
 
         With ``auto_approve``, plan approval, review acceptance and clarifying
         questions are answered automatically with AutoCode's own proposed
         defaults — appropriate only when a person has delegated that decision
         to this build, as scenario runs do. Without it, a component that needs
         a decision stops with its ``view`` reporting what it needs; the caller
-        resolves it through the returned ``ComponentResult.run`` and calls
-        ``build`` again to continue the rest.
+        resolves it through the returned ``ComponentResult.run`` (or the printed
+        run directory) and calls ``build`` again, in this process or a new one,
+        to continue.
         """
         # A worktree directory removed without `git worktree remove`/`prune` (by hand,
         # or by a crashed earlier attempt) leaves its registration behind; the next
-        # `git worktree add` for that path then fails outright. Since callers are
-        # expected to have already checked no `.autocode-components/<id>` directory
-        # exists (autocode_components.cli does), any registration still around at this
-        # point is exactly that stale case, safe to clear before building anything.
+        # `git worktree add` for that path then fails outright. Any registration whose
+        # directory is gone is exactly that stale case, safe to clear first.
         _git(self.repo, "worktree", "prune")
+        for cid, entry in self.saved_components().items():
+            if cid not in self.results and Path(entry["workspace"]).is_dir():
+                self.results[cid] = ComponentResult(
+                    self.architecture.components[cid], Path(entry["workspace"]), entry.get("base_commit"),
+                    branch=entry.get("branch"), error=entry.get("error"), resumed=True)
         for batch in self.architecture.batches():
-            pending = [c for c in batch if c.id not in self.results]
+            pending = [c for c in batch if not (c.id in self.results and self.results[c.id].ready_to_integrate)]
             if not pending:
                 continue
             with ThreadPoolExecutor(max_workers=len(pending)) as pool:
                 for result in pool.map(lambda c: self._build_one(c, auto_approve), pending):
-                    self.results[result.component.id] = result
+                    self._record(result)
         return self.results
 
     def _build_one(self, component: Component, auto_approve: bool) -> ComponentResult:
-        workspace = self.repo / ".autocode-components" / component.id
+        previous = self.results.get(component.id)
+        result = previous or ComponentResult(component, self.repo / ".autocode-components" / component.id)
         try:
-            base_commit, run = self._new_worktree_run(component, workspace)
-            view = run.status()
-            while auto_approve and not view["done"] and view["needs"]["kind"] != "resume":
-                kind = view["needs"]["kind"]
-                view = run.advance_until_input(self.max_advances) if kind == "continue" else _serve(run, view["needs"])
-            error = None if view["done"] else f"stopped needing {view['needs']}"
-            return ComponentResult(component, workspace, base_commit, run=run, view=view, error=error)
+            if not result.workspace.is_dir():
+                self._new_worktree(result)
+                self._record(result)
+            if result.run is None:
+                result.run = TaskRun.attach(result.workspace, options=self.options, env=self.env,
+                                            timeout=self.timeout)
+            if result.run is None:
+                result.run = TaskRun.start(result.workspace, component_brief(component, self.architecture),
+                                           options=self.options, env=self.env, timeout=self.timeout)
+                self._record(result)
+            result.view = self._drive(result.run, auto_approve)
+            result.error = None if result.view["done"] else f"stopped needing {result.view['needs']}"
         except TaskRunError as error:
-            return ComponentResult(component, workspace, None, error=str(error))
+            result.view, result.error = None, str(error)
         except subprocess.CalledProcessError as error:
             detail = (error.stderr or error.stdout or str(error)).strip()
-            return ComponentResult(component, workspace, None, error=f"could not prepare a worktree: {detail}")
+            result.view, result.error = None, f"could not prepare a worktree: {detail}"
+        return result
 
-    def _new_worktree_run(self, component: Component, workspace: Path) -> tuple[str, TaskRun]:
-        workspace.parent.mkdir(parents=True, exist_ok=True)
-        branch = f"components/{component.id}-{uuid.uuid4().hex[:8]}"
-        base_commit = _git(self.repo, "rev-parse", "HEAD")
-        _git(self.repo, "worktree", "add", "-b", branch, str(workspace), base_commit)
-        run = TaskRun.start(workspace, component_brief(component, self.architecture),
-                            options=self.options, env=self.env, timeout=self.timeout)
-        return base_commit, run
+    def _drive(self, run: TaskRun, auto_approve: bool) -> dict:
+        view = run.status()
+        while not view["done"]:
+            kind = view["needs"]["kind"]
+            if kind == "continue":
+                view = run.advance_until_input(self.max_advances)
+            elif auto_approve and kind != "resume":
+                view = _serve(run, view["needs"])
+            else:
+                break
+        return view
+
+    def _new_worktree(self, result: ComponentResult) -> None:
+        result.workspace.parent.mkdir(parents=True, exist_ok=True)
+        result.branch = f"components/{result.component.id}-{uuid.uuid4().hex[:8]}"
+        result.base_commit = _git(self.repo, "rev-parse", "HEAD")
+        _git(self.repo, "worktree", "add", "-b", result.branch, str(result.workspace), result.base_commit)
+
+    def _record(self, result: ComponentResult) -> None:
+        """Save progress as soon as a component gains a worktree or a run, not only when
+        it stops: a crash in between must not leave a worktree nobody can resume.
+        Called from the batch's worker threads, so the results table changes only
+        under the same lock that writes it out."""
+        with self._manifest_lock:
+            self.results[result.component.id] = result
+            entries = {cid: {"workspace": str(r.workspace), "branch": r.branch, "base_commit": r.base_commit,
+                             "run_dir": str(r.run.run_dir) if r.run else None, "status": r.status,
+                             "error": r.error}
+                       for cid, r in sorted(self.results.items())}
+            document = {"version": self.MANIFEST_VERSION, "architecture": str(self.architecture.directory),
+                        "architecture_fingerprint": self.architecture.fingerprint(), "components": entries}
+            self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            scratch = self.manifest_path.with_name(f".manifest-{uuid.uuid4().hex}.json")
+            scratch.write_text(json.dumps(document, indent=2) + "\n")
+            os.replace(scratch, self.manifest_path)
 
     def integrate(self, target: Path) -> dict:
         """Apply every finished component's changes into ``target``, an existing
@@ -306,7 +400,6 @@ def _snapshot_commit(workspace: Path) -> str:
 
 
 def _git(cwd: Path, *args: str, env: dict | None = None) -> str:
-    import os
     full_env = {**os.environ, **env} if env else {**os.environ}
     return subprocess.run(["git", *GIT_IDENTITY, *args], cwd=cwd, check=True, env=full_env,
                           capture_output=True, text=True).stdout.strip()

@@ -53,6 +53,19 @@ class TaskRun:
         run.run_dir = created.pop()
         return run
 
+    @classmethod
+    def attach(cls, workspace, *, options=(), command=AUTOCODE, env=None, timeout=None) -> "TaskRun | None":
+        """Reattach to the one run in ``workspace``, or None if it has none yet.
+
+        For a caller that lost its record of ``run_dir``, for example because it
+        crashed while ``start`` was still advancing the new run.
+        """
+        workspace = Path(workspace).resolve()
+        runs = _runs(workspace)
+        if len(runs) > 1:
+            raise TaskRunError(f"expected at most one run in {workspace}, found {sorted(map(str, runs))}")
+        return cls(workspace, runs[0], tuple(command), tuple(options), env, timeout) if runs else None
+
     def status(self) -> dict:
         proc = self._invoke("status", "--status")
         try:
