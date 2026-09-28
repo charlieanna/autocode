@@ -37,6 +37,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--workspace /path` | Committed Git workspace to work in. Defaults to the current directory. |
 | `--run-dir /path` | Resume a specific saved run. Always pair with the same `--workspace`. |
 | `--in-place` | Start a new task in the selected checkout instead of a fresh worktree. Only one run's agents work in a checkout at a time; a second run exits with status 2 and changes nothing (see [Task lanes](task-lanes.md#multiple-tasks-in-one-project)). |
+| `--workflow build\|bugfix\|review\|design\|discuss` | Name the kind of job instead of having the recognizer read it from the request. Also accepted by a saved run whose recognizer has not run yet. A run whose job is already decided keeps it: start a new run to change it (see [Workflow](workflow.md)). |
 | `--status` | Read-only status, including `milestone_checkpoint`, `interventions`, `active_stage.activity`. |
 | `--dry-run` | Read-only preview; never emits an accepted handoff. |
 

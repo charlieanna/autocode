@@ -16,7 +16,8 @@ in the same conversation. Implementation starts only after you explicitly approv
 After approval, Autocode handles the handoffs:
 
 ```text
-You → Autopilot: recognize the kind of job (build, bugfix, review, design, discuss); saved as `workflow`
+You → Autopilot: recognize the kind of job (build, bugfix, review, design, discuss); saved as `workflow`,
+   printed with its reason and signals; `--workflow KIND` names it instead of recognizing it
    review → Reviewer only: findings written to review/findings.json, repository untouched, run complete
    bugfix → Investigator first: diagnosis written to docs/bugs/<name>.json, repository untouched;
             not reproduced → run complete;

@@ -81,7 +81,8 @@ cover five kinds of job and check three things beyond the deliverable:
 
 1. **Which workflow ran.** The status view (`autocode --status`,
    docs/task-run.md) carries a `workflow` field naming one of the five,
-   decided by the first stage of every run (`recognize_workflow`). Oracles
+   decided by the first stage of every run (`recognize_workflow`) unless the
+   user named it with `--workflow`. Oracles
    check it through `run_checks`, together with which saved stages ran: a
    review must not dispatch a Builder or ask for plan approval; a bug fix must
    not start with requirements gathering; a three-line fix must not get

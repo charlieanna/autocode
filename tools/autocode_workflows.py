@@ -3,9 +3,14 @@
 AutoPilot runs ``STAGE`` first on every new run, before any requirements or
 planning stage, and saves the answer under ``state["workflow"]``; the status
 view reports it as ``workflow`` (docs/task-run.md). There are five kinds,
-described in scenarios/README.md ("Workflows"). The user never picks one; the
-request itself is read. This module is pure: it builds the prompt and schema
-and interprets the report. It imports nothing from the runner.
+described in scenarios/README.md ("Workflows"). Normally the request itself is
+read; ``--workflow KIND`` names the kind instead (``pin``), before the recognizer
+runs. A recognized run keeps its kind: the stages already run belong to it, so a
+wrong recognition is corrected by a new run with ``--workflow``. The console line
+after recognition (``describe``) says which kind was chosen, why, and how to
+override it, so a misroute is visible before more is spent. This module is pure:
+it builds the prompt and schema and interprets the report. It imports nothing
+from the runner.
 
 State key written here (and read by autocode_run_view, autopilot):
     workflow: {"kind": one of WORKFLOWS or None, "reason": str, "signals": [str],
@@ -140,6 +145,33 @@ def apply(state: dict, value: dict, record: dict) -> None:
         state["workflow"]["design_document"] = design
     state.update(status="RUNNING",
                  next_stage=DESIGN_CHECK_STAGE if design else FIRST_STAGE.get(value["workflow"]) or then)
+
+
+def pin(state: dict, kind: str) -> None:
+    """The user named the kind of job (``--workflow``): skip recognition and start it."""
+    if kind not in WORKFLOWS:
+        raise ValueError(f"Unknown workflow {kind!r}; expected one of {WORKFLOWS}")
+    current = state.get("workflow") or {}
+    if state.get("next_stage") != STAGE or current.get("kind"):
+        why = (f"This run already runs as {current['kind']!r}" if current.get("kind")
+               else "This run predates workflow recognition")
+        raise ValueError(f"{why}; --workflow applies before the recognizer runs. "
+                         f"Start a new run with --workflow {kind} instead")
+    then = current.get("then") or "requirements_gather"
+    state["workflow"] = {"kind": kind, "reason": "Named by the user with --workflow", "signals": [],
+                         "source": "user", "output": None, "then": then}
+    state.update(status="RUNNING", next_stage=FIRST_STAGE.get(kind) or then)
+
+
+def describe(state: dict, stage: str) -> str:
+    """The console line after recognition: the kind, why, and how to override it ('' for other stages)."""
+    if stage != STAGE:
+        return ""
+    found = state.get("workflow") or {}
+    signals = ", ".join(found.get("signals") or [])
+    return (f"\nWorkflow: {found.get('kind')}. {(found.get('reason') or '').rstrip('.')}."
+            + (f" Signals: {signals}." if signals else "")
+            + f"\nNot what you meant? Start again with --workflow {'|'.join(WORKFLOWS)}.")
 
 
 def approved_design(state: dict, value: dict) -> str:

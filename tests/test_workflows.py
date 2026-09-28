@@ -43,6 +43,36 @@ class ModuleTests(unittest.TestCase):
             self.assertEqual(stage, state["next_stage"], kind)
             self.assertEqual("requirements_gather", state["workflow"]["then"], kind)
 
+    def test_pin_names_the_kind_before_recognition_and_refuses_after(self):
+        state = fresh()
+        workflows.begin(state, "requirements_gather")
+        workflows.pin(state, "review")
+        self.assertEqual(("review", "user", workflows.REVIEW_STAGE),
+                         (workflows.kind(state), state["workflow"]["source"], state["next_stage"]))
+        self.assertEqual("requirements_gather", state["workflow"]["then"])
+        view = run_view.view(state)
+        self.assertEqual(("review", "user"), (view["workflow"], view["workflow_source"]))
+        with self.assertRaisesRegex(ValueError, "already runs as 'review'.*--workflow bugfix"):
+            workflows.pin(state, "bugfix")
+        with self.assertRaisesRegex(ValueError, "Unknown workflow"):
+            workflows.pin(fresh(), "refactor")
+        # A run from before recognition existed has no recognizer stage to skip.
+        with self.assertRaisesRegex(ValueError, "predates"):
+            workflows.pin({**fresh(), "next_stage": "astra_discovery"}, "build")
+
+    def test_describe_reports_the_recognition_and_how_to_override_it(self):
+        state = fresh()
+        workflows.begin(state, "requirements_gather")
+        self.assertEqual("", workflows.describe(state, "astra_discovery"))
+        workflows.apply(state, {"workflow": "design", "reason": "asks for a design, nothing built.",
+                                "signals": ["design how", "don't implement"]}, {})
+        line = workflows.describe(state, workflows.STAGE)
+        self.assertIn("Workflow: design. asks for a design, nothing built.", line)
+        self.assertIn("Signals: design how, don't implement.", line)
+        self.assertIn("--workflow build|bugfix|review|design|discuss", line)
+        self.assertEqual(("model", "asks for a design, nothing built."),
+                         (run_view.view(state)["workflow_source"], run_view.view(state)["workflow_reason"]))
+
     def test_apply_rejects_an_unknown_kind(self):
         state = fresh()
         workflows.begin(state, "astra_discovery")

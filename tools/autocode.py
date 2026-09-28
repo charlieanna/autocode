@@ -27,22 +27,14 @@ try:
     from . import autocode_gocode as gocode, autocode_regression as regression, autocode_checkout_lock as checkout_lock
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees
 except ImportError:
-    import autocode_regression as regression
-    import autocode_support as support, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees
+    import autocode_regression as regression, autocode_support as support, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees
     import autocode_goals as goals, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
-    import autocode_providers
-    import autocode_opencode as opencode
-    import autocode_gocode as gocode
-    import autocode_run_view as run_view
-    import autocode_process as processes
-    import autocode_registry as registry
-    import autocode_planning as planning
-    import autocode_escalation as escalation
-    import autocode_failures as failures
+    import autocode_providers, autocode_opencode as opencode, autocode_gocode as gocode, autocode_run_view as run_view
+    import autocode_process as processes, autocode_registry as registry, autocode_planning as planning
+    import autocode_escalation as escalation, autocode_failures as failures
 
 try:
-    from . import autocode_workspaces as task_workspaces
-    from . import autocode_figma as figma
+    from . import autocode_workspaces as task_workspaces, autocode_figma as figma
     from . import autopilot
     from . import autocode_workflow as workflow
     from . import autocode_milestones as milestones
@@ -2813,6 +2805,7 @@ def _main_body(unit=None) -> int:
                         help="Run only this unit, stopping before the next unit; default runs Autopilot")
     parser.add_argument("--run-dir", type=Path, help="Existing run directory to resume")
     parser.add_argument("--in-place", action="store_true", help="Use this checkout directly; otherwise new tasks get independent worktrees from HEAD")
+    parser.add_argument("--workflow", choices=workflows.WORKFLOWS, help="Name the kind of job instead of having the recognizer read it from the request (a new run, or a saved run whose recognizer has not run yet)")
     parser.add_argument("--max-parallel-builders", type=int,
                         help="Orchestrator concurrency for independent milestones (new joint runs: 2; 1 dispatches serially)")
     parser.add_argument('--builder-strong-model', help='New-run Builder escalation model after one ordinary retry (default openai/gpt-6-sol, xhigh); pinned routes never escalate')
@@ -3440,6 +3433,12 @@ def _main_body(unit=None) -> int:
                     write_json(backup, state)
                 goals.migrate(state, fresh=not args.run_dir)
                 write_json(state_path, state)
+            if args.workflow:  # after migration: a new run's recognizer is begun there
+                try:
+                    workflows.pin(state, args.workflow)
+                except ValueError as error:
+                    parser.error(str(error))
+                write_json(state_path, state)
             if args.milestone_checkpoints:
                 milestones.activate(state)
                 if args.max_milestone_seconds is not None:
@@ -3718,7 +3717,8 @@ def _main_body(unit=None) -> int:
                 return record
 
             def after_code_stage(current, stage, _record):
-                print(f"{stage}: saved; next={current['next_stage']}; status={current['status']}", flush=True)
+                print(f"{stage}: saved; next={current['next_stage']}; status={current['status']}"
+                      + workflows.describe(current, stage), flush=True)
                 autopilot.publish_handoffs(current, run_dir)
                 if milestones.enabled(current):
                     print(milestones.status_line(current), flush=True)

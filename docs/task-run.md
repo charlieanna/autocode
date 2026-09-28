@@ -106,8 +106,9 @@ otherwise; see [Bug fixes](workflow.md#bug-fixes)).
 the first stage of every new run (`recognize_workflow`): one of `build`,
 `bugfix`, `review`, `design` or `discuss` (see `scenarios/README.md`,
 "Workflows"). It is `null` until that stage has run, and for runs that predate
-it. Today it is recorded and reported; the stages that follow are still the
-build pipeline for every kind.
+it. `workflow_source` is `"model"` when the recognizer decided it and `"user"`
+when `--workflow` named it; `workflow_reason` is the recognizer's one-sentence
+reason. Both are `null` whenever `workflow` is.
 
 `needs` is `null` when the run is complete. Otherwise its `kind` says what the
 run is waiting for:

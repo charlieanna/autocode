@@ -33,6 +33,9 @@ def view(state: dict) -> dict:
         # The kind of job recognized from the request (autocode_workflows.WORKFLOWS);
         # None until the first stage has run, and for runs that predate recognition.
         "workflow": (state.get("workflow") or {}).get("kind"),
+        # "model" when the recognizer decided it, "user" when --workflow named it; the reason it gave.
+        "workflow_source": (state.get("workflow") or {}).get("source"),
+        "workflow_reason": (state.get("workflow") or {}).get("reason"),
         "evidence": evidence(state),
     }
 
