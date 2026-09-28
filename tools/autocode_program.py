@@ -43,6 +43,10 @@ KINDS = ("code", "integration", "deployment")
 ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 TERMINAL_CODE = {"TASK_COMPLETE"}
 STATE_LOCK = threading.Lock()  # worker threads update records; the main thread serializes state
+# Workstreams in one batch launch in parallel threads, but `git worktree add` on one repository
+# is not safe to run concurrently (ref and worktree-metadata locks): a collision fails one
+# workstream and blocks the program. Only the git setup is serialized; the runs stay parallel.
+WORKTREE_LOCK = threading.Lock()
 WAITING_CODE = {"WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"}
 GIT_IDENTITY = ("-c", "user.name=Autocode", "-c", "user.email=autocode@localhost")
 SHARED_LISTS = ("constraints", "permission_boundaries", "end_to_end_flow", "technical_approach", "deliverables")
@@ -277,7 +281,8 @@ def _worktree(project, name, branch, base):
     parent = project / ".autocode/worktrees"
     parent.mkdir(parents=True, exist_ok=True)
     workspace = parent / name
-    workspaces.git(project, "worktree", "add", "-b", branch, str(workspace), base)
+    with WORKTREE_LOCK:
+        workspaces.git(project, "worktree", "add", "-b", branch, str(workspace), base)
     data = {"version": 1, "project_workspace": str(project), "workspace": str(workspace),
             "branch": branch, "base_commit": base}
     artifact = workspace / ".autocode/task-workspace.json"

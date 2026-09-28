@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -476,6 +477,32 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual("COMPLETE", result["status"])
         self.assertIn("deploy/compose.yml", self.integration_files(result))
         self.assertEqual("deploy", self.launches[-1]["id"])
+
+    def test_parallel_workstreams_never_add_worktrees_concurrently(self):
+        # a and b launch in parallel threads; concurrent `git worktree add` on one repository
+        # collided on macOS CI and blocked the program. Slow each add down so an overlap
+        # would be seen, and require that none happens.
+        active, overlaps, real_git = [0], [], program.workspaces.git
+
+        def slow_git(cwd, *args, **kwargs):
+            if args[:2] != ("worktree", "add"):
+                return real_git(cwd, *args, **kwargs)
+            with program.STATE_LOCK:
+                active[0] += 1
+                overlaps.append(active[0])
+            try:
+                time.sleep(0.2)
+                return real_git(cwd, *args, **kwargs)
+            finally:
+                with program.STATE_LOCK:
+                    active[0] -= 1
+
+        path = self.write_manifest(manifest(integration=False))
+        with patch.object(program.workspaces, "git", side_effect=slow_git):
+            code, result = self.run_program(path)
+        self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
+        self.assertEqual({"a", "b"}, {row["id"] for row in self.launches} - {"contracts"})
+        self.assertEqual(1, max(overlaps), f"concurrent worktree adds: {overlaps}")
 
     def test_a_child_that_returns_without_progress_is_invoked_once_per_pass(self):
         path = self.write_manifest(manifest())
