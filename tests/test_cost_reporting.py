@@ -7,8 +7,8 @@ import sys
 import tempfile
 import unittest
 
-from tools import live_token_sampler as sampler
-from tools import score_autocode_run as scorer
+import live_token_sampler as sampler
+import score_autocode_run as scorer
 from tools.providers.opencode import normalized_events
 
 

@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 import zlib
 
-from . import autoreview_product_probe as probe
+import autoreview_product_probe as probe
 from . import test_autoreview_products as audit
 
 

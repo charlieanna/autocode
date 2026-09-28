@@ -3,7 +3,8 @@ import json
 from pathlib import Path
 import unittest
 
-from . import autocode as runner, autocode_resolver_human as human, test_subprocess
+import autocode as runner, autocode_resolver_human as human
+from . import test_subprocess
 
 
 class BudgetIntegrationTests(unittest.TestCase):

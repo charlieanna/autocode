@@ -11,8 +11,9 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-from tools import autocode_ui as ui, autocode_figma as figma, autocode as runner, autocode_support as support
+import autocode_ui as ui, autocode_figma as figma, autocode as runner, autocode_support as support
 from . import test_planning, test_subprocess
+import autocode_resolver_human as human
 
 URL = 'https://www.figma.com/design/Example123/Task?node-id=1-2'
 
@@ -40,6 +41,7 @@ class FigmaWorkflow(unittest.TestCase):
         run = self.root / ('run-' + str(len(list(self.root.iterdir()))))
         args = ['Design a dashboard', '--workspace', str(self.root), '--run-dir', str(run)]
         plan_outcomes = options.pop('plan_outcomes', ('ACCEPT',))
+        role_statuses = options.pop('role_statuses', {})
         if options.pop('build', False):
             ui.workspaces.git(self.root, 'init', '-q')
             ui.workspaces.git(self.root, '-c', 'user.name=Test', '-c', 'user.email=t@example.test',
@@ -60,6 +62,7 @@ class FigmaWorkflow(unittest.TestCase):
                       plan_outcomes[min(round_number, len(plan_outcomes)-1)] if name.startswith('plan-finalization') else
                       'COMPLETE' if name.startswith('builder') else
                       outcomes[min(round_number, len(outcomes)-1)] if name.startswith('validator') else 'ACCEPT')
+            status = role_statuses.get(name, status)
             report = {'status': status, 'summary': 'Inspected requirements and canvas',
                       'evidence': ['Brief sections and Node 1:2 screenshot audit'],
                       'required_changes': ['Repair missing mobile layout'] if status == 'FAIL' else []}
@@ -96,6 +99,28 @@ class FigmaWorkflow(unittest.TestCase):
 
     def test_ui_and_code_use_the_same_orchestration_driver(self):
         self.assertIs(runner.orchestrator.drive, ui.orchestrator.drive)
+
+    def test_roles_report_internal_blockers_without_human_request_authority(self):
+        for role in ('requirements_planner', 'plan_reviewer', 'requirements_revision',
+                     'plan_finalizer', 'builder', 'validator', 'decision_owner'):
+            with self.subTest(role=role):
+                text = ui.prompt(role, 'Design dashboard', self.root, URL, {})
+                self.assertIn('Report blockers as internal diagnostics', text)
+                self.assertIn('Only AutoResolver may issue a human request', text)
+        for name in ('plan-review', 'plan-finalization-00', 'builder-00', 'validator-00', 'decision-00'):
+            with self.subTest(stage=name):
+                code, root, build = self.run_ui(role_statuses={name: 'BLOCKED'})
+                saved = json.loads((root / 'state.json').read_text())
+                self.assertEqual((2, 'BLOCKED'), (code, saved['status']))
+                self.assertTrue(saved['error'])
+                self.assertEqual(name, saved['stages'][-1]['name'])
+                self.assertEqual('BLOCKED', saved['reports'][saved['stages'][-1]['stage']]['status'])
+                self.assertTrue(Path(saved['stages'][-1]['output']).is_file())
+                self.assertFalse(human.projection(saved)['human_request_authorized'])
+                for key in ('pending_questions', 'user_request', human.PUBLIC, 'goal_contract', 'displayed_goal'):
+                    self.assertNotIn(key, saved)
+                self.assertFalse((root / 'handoff.json').exists())
+                build.assert_not_called()
 
     def test_plan_stage_accepts_report_without_figma_file(self):
         schema = ui.plan_schema(['PASS'])
@@ -213,12 +238,20 @@ class FigmaWorkflow(unittest.TestCase):
                 code, root, _ = self.run_ui(('FAIL',), max_reworks=limit)
                 state = json.loads((root / 'state.json').read_text())
                 self.assertEqual((3, 'REWORK_REQUIRED', limit), (code, state['status'], state['iteration']))
+                self.assertFalse(human.projection(state)['human_request_authorized'])
+                self.assertNotIn('user_request', state)
+                self.assertNotIn('pending_questions', state)
+                self.assertNotIn('goal_contract', state)
                 self.assertFalse((root / 'handoff.json').exists())
                 code, root, _ = self.run_ui(plan_outcomes=('REWORK',), max_plan_reworks=limit)
                 state = json.loads((root / 'state.json').read_text())
                 self.assertEqual((3, 'PLAN_REWORK_REQUIRED', limit),
                                  (code, state['status'], state['planning_iteration']))
                 self.assertNotIn('builder', state['outputs'])
+                self.assertFalse(human.projection(state)['human_request_authorized'])
+                self.assertNotIn('user_request', state)
+                self.assertNotIn('pending_questions', state)
+                self.assertNotIn('goal_contract', state)
                 self.assertFalse((root / 'handoff.json').exists())
 
     def test_invalid_rework_limits_are_rejected_before_creating_a_run(self):

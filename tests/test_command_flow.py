@@ -11,7 +11,7 @@ import textwrap
 import unittest
 from unittest import mock
 
-from tools import autocode as runner, autocode_providers, autocode_workspaces
+import autocode as runner, autocode_providers, autocode_workspaces
 
 
 class ConfigToolFlow(unittest.TestCase):

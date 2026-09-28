@@ -414,6 +414,36 @@ def link_dependencies(source_root, tree):
             target.symlink_to(source.resolve(), target_is_directory=True)
 
 
+GENERATED_SOURCE_LIMIT = 1_000_000
+
+
+def copy_generated_sources(source_root, tree):
+    """Copy build-generated source files (git-ignored code next to tracked code,
+    such as a setuptools-scm or hatch-vcs ``_version.py``) into a scratch tree.
+    A fresh worktree lacks them, so the package would not import there. Base and
+    candidate trees receive the same files, so the comparison stays fair."""
+    if not source_root:
+        return []
+    source_root, tree = Path(source_root), Path(tree)
+    ignored = _git(source_root, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory",
+                   check=False).split("\0")
+    tracked_dirs = {str(PurePosixPath(p).parent) for p in _git(source_root, "ls-files", "-z", check=False).split("\0")
+                    if p}
+    copied = []
+    for relative in ignored:
+        path = PurePosixPath(relative)
+        if (not relative or relative.endswith("/") or path.suffix not in CODE_SUFFIXES
+                or str(path.parent) not in tracked_dirs or any(part in DEPENDENCY_DIRS for part in path.parts)):
+            continue
+        source, target = source_root / relative, tree / relative
+        if (source.is_file() and not source.is_symlink() and not target.exists()
+                and source.stat().st_size <= GENERATED_SOURCE_LIMIT):
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
+            copied.append(relative)
+    return copied
+
+
 def _clear(path):
     if path.is_symlink() or path.is_file():
         path.unlink()
@@ -447,6 +477,7 @@ def make_tree(repo, base, destination, overlay_root, changes, *, dependencies_fr
             elif source.is_file():
                 shutil.copy2(source, target)
         link_dependencies(dependencies_from, destination)
+        copy_generated_sources(dependencies_from, destination)
     except BaseException:
         remove_tree(repo, destination)
         raise

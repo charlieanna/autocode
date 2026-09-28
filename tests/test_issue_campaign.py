@@ -10,10 +10,10 @@ import tempfile
 import unittest
 from unittest import mock
 
-from tools import score_issue_campaign as campaign
-from tools import live_trial
-from tools import live_scenarios
-from tools import score_autocode_run as costs
+import score_issue_campaign as campaign
+import live_trial
+import live_scenarios
+import score_autocode_run as costs
 
 
 def sha(text):

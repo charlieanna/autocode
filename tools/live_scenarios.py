@@ -859,6 +859,7 @@ SCENARIOS = {
     "BUGFIX-01": {
         "title": "T02: blank-name fix in a seeded greeting CLI",
         "plan_id": "T02",
+        "task_type": "bugfix",
         "task": (
             "Fix only the blank-name validation bug in the existing greet.py. "
             "For exactly one argument whose str.strip() is empty (including Unicode "
@@ -887,11 +888,13 @@ SCENARIOS = {
             "AC3": "Original tests unchanged and passing; new regressions fail on seed and pass on fix.",
             "AC4": "Only allowed paths changed; all protected bytes and modes preserved.",
         },
-        "baseline": {"status": "NOT_RUN", "note": "Synthetic buggy seed; offline controls are not live delivery."},
+        "baseline": {"status": "ERROR", "profile": "glm53-mimo", "record": "VALIDATION.md",
+                     "note": "2026-09-26: report-repair fix rerun reached Builder but exhausted 1200-second deadline; unchanged seed still fails oracle; no completed delivery"},
     },
     "FEATURE-01": {
         "title": "T03: tag filtering in a seeded persistent notes CLI",
         "plan_id": "T03",
+        "task_type": "feature",
         "task": (
             "Add `notes.py list --tag TAG` to the existing notes CLI. Match the whole "
             "stored tag using Unicode str.casefold() equality, without trimming. "
@@ -926,7 +929,8 @@ SCENARIOS = {
             "AC4": "Read-only and malformed-store paths preserve bytes; saved fixture unchanged.",
             "AC5": "Frozen original tests pass; new regressions fail on seed/pass on feature; only allowed paths change.",
         },
-        "baseline": {"status": "NOT_RUN", "note": "Synthetic existing project; offline controls are not live delivery."},
+        "baseline": {"status": "ERROR", "profile": "glm53-mimo", "record": "VALIDATION.md",
+                     "note": "2026-09-26: externally interrupted during report repair; unchanged seed fails oracle; no completed delivery"},
     },
     "LIVE-01": {
         "title": "Greeting CLI",
@@ -1080,14 +1084,29 @@ SCENARIOS = {
 }
 
 
+def _dual_layout_oracle(spec_id, rich_spec, thin_spec):
+    """Score seeded campaign projects with the campaign oracle and delivered
+    reference packages (score-only mode) with the task-type oracle."""
+    rich_oracle, thin_oracle = rich_spec["oracle"], thin_spec["oracle"]
+    seed_names = set(rich_spec["seed"])
+
+    def oracle(project):
+        names = {row.name for row in Path(project).iterdir()} if Path(project).is_dir() else set()
+        return rich_oracle(project) if seed_names <= names else thin_oracle(project)
+    return {**rich_spec, "oracle": oracle}
+
+
 def registry() -> dict:
-    """Every registered scenario: the LIVE-* set here plus the task-type catalogue."""
-    merged = dict(SCENARIOS)
+    """Every registered scenario: the task-type catalogue plus this module's
+    richer campaign definitions, which win for ids both define."""
     try:
         from . import task_scenarios
     except ImportError:
         import task_scenarios
-    merged.update(task_scenarios.SCENARIOS)
+    merged = dict(task_scenarios.SCENARIOS)
+    for scenario_id, spec in SCENARIOS.items():
+        merged[scenario_id] = (_dual_layout_oracle(scenario_id, spec, merged[scenario_id])
+                               if scenario_id in merged else spec)
     return merged
 
 

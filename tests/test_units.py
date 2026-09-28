@@ -19,7 +19,7 @@ class UnitFlow(unittest.TestCase):
     new_run_engine_args = ('--engine', 'codex')
 
     def select(self, name):
-        self.entry = [sys.executable, str((Path(__file__).resolve().parents[1] / "tools" / (name + '.py')))]
+        self.entry = [sys.executable, str(Path(__file__).resolve().parents[1] / 'tools' / (name + '.py'))]
 
     def test_separate_units_plan_parallel_build_review_dependency_and_complete(self):
         self.fixture()

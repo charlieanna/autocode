@@ -101,6 +101,14 @@ class BuildBlackbox(unittest.TestCase):
         return [sys.executable, str(self.source / (unit + '.py')), '--workspace', str(self.project), *args]
 
     def invoke(self, unit, args, code=0):
+        if '--run-dir' in args and any(flag in args for flag in ('--answer', '--delegate')) and '--resolver-token' not in args:
+            try:
+                import autocode_resolver_human as human
+            except ImportError:
+                import autocode_resolver_human as human
+            current = human.current(json.loads((Path(args[args.index('--run-dir') + 1]) / 'state.json').read_text()))
+            if current:
+                args = [*args, '--resolver-token', current['request_token']]
         result = subprocess.run(self.command(unit, args), cwd=self.root, env=self.env, capture_output=True, text=True,
                                 timeout=600 if self.env.get('BUILD_AUDIT_LIVE_CODEX') else 90)
         self.counter += 1

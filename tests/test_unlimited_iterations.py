@@ -37,6 +37,17 @@ class UnlimitedTests(unittest.TestCase):
         self.state['settings']['limits']={'iteration_ceiling':None}
         self.assertIsNone(runner.configure(self.args(),self.state)['limits']['iteration_ceiling'])
 
+    def test_new_run_defaults_to_unlimited_iterations(self):
+        state={key:value for key,value in self.state.items() if key!='settings'}
+        args=SimpleNamespace(engine='codex', provider=None, astra_model=None,terra_model=None,sol_model=None,
+            reasoning_effort=None,headroom=None,context_soft_tokens=None,rotate_after_input_tokens=None,
+            legacy_iteration_ceiling=None,max_iterations=None,max_seconds=None,max_reported_tokens=None,
+            no_progress_limit=None)
+        with patch.object(s,'local_settings',return_value={}):
+            settings=runner.configure(args,state)
+        self.assertIsNone(settings['limits']['iteration_ceiling'])
+        self.assertEqual('runner_default',settings['budget_origins']['iteration_ceiling'])
+
     def test_explicit_ceiling_restores_cap(self):
         self.state['settings']['limits']={'iteration_ceiling':None}
         self.assertEqual(30,runner.configure(self.args(max_iterations=30),self.state)['limits']['iteration_ceiling'])
@@ -82,6 +93,13 @@ class UnlimitedSubprocessTests(unittest.TestCase):
     launch=test_subprocess.SubprocessFlow.launch
     saved=test_subprocess.SubprocessFlow.saved
     new_run_engine_args=('--engine','codex')
+
+    def test_cli_new_run_defaults_to_unlimited(self):
+        self.env['AUTOCODE_FIXTURE_MODE']='no-human'
+        self.launch(['Build greeting','--chat'],0,answers='CLI\nyes\n')
+        _,state=self.saved()
+        self.assertIsNone(state['settings']['limits']['iteration_ceiling'])
+        self.assertEqual('runner_default',state['settings']['budget_origins']['iteration_ceiling'])
 
     def test_cli_unlimited_is_saved_and_goal_completion_still_works(self):
         self.env['AUTOCODE_FIXTURE_MODE']='no-human'

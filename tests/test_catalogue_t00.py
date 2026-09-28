@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autopilot_testkit as kit
 import autocode_findings as findings
 import autocode_support as support

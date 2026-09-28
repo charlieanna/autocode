@@ -8,7 +8,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode as runner
 import autocode_goals as goals
 import autocode_interventions as inbox
@@ -191,6 +191,7 @@ class InterventionOrderingTests(unittest.TestCase):
 
     def test_interactive_approval_does_not_hold_lock_over_input_and_rechecks_after_reply(self):
         self.fixture.draft()
+        goals.human.evaluate(self.state)
         self.persist()
         def reply(_):
             self.submit()

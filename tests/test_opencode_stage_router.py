@@ -12,7 +12,7 @@ import textwrap
 import unittest
 
 
-TOOLS = Path(__file__).resolve().parent
+TOOLS = Path(__file__).resolve().parents[1] / "tools"
 ROUTER = TOOLS / "opencode_stage_router.py"
 GLM = "zai-coding-plan/glm-5.3"
 MIMO = "xiaomi-token-plan-sgp/mimo-v2.6-pro"

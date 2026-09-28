@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode_interventions as interventions
 import autocode_support as support
 
@@ -35,7 +35,7 @@ class InterventionTests(unittest.TestCase):
         self.state_path = self.run / "state.json"
         self.state_path.write_text(json.dumps({"version": 3, "workspace": str(self.workspace), "task": "fixture",
             "status": "RUNNING", "goal_contract": {"revision": 2, "hash": "goal-hash"}}))
-        self.entry = [sys.executable, str((Path(__file__).resolve().parents[1] / "tools" / ("autocode.py")))]
+        self.entry = [sys.executable, str(Path(__file__).resolve().parents[1] / "tools" / "autocode.py")]
 
     def cli(self, *args):
         return subprocess.run([*self.entry, "intervention", *args], cwd=self.root, env=os.environ.copy(),

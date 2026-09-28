@@ -1,9 +1,10 @@
 """T12 — Dashboard truth and action lifecycles catalogue scenarios (UI-01..UI-14).
 
-Execution model: the python-side monitor assertions run inline; the browser-
-level suites are executed as subprocesses (real local browser via the repo's
-agent-browser bridge, disposable fixtures, no network) and their results are
-recorded in each bundle.  UI-02's failure-detector, UI-03's 21-screen matrix
+Execution model: the python-side monitor assertions run inline; JavaScript
+suites run as subprocesses. Only lifecycle and a11y use a real local browser
+via agent-browser with disposable fixtures; the others use Node VM stubs.
+Results and subprocess diagnostics are recorded in each bundle.
+UI-02's failure-detector, UI-03's 21-screen matrix
 and UI-13's forced-colors verification are reported honestly where the
 environment or product does not supply them.
 """
@@ -38,24 +39,38 @@ BROWSER_SUITES = {
 
 
 _SUITE_CACHE = {}
+REAL_BROWSER_SUITES = {"lifecycle", "a11y"}
 
 
 def run_browser_suite(name, timeout=420):
     if name in _SUITE_CACHE:
         return _SUITE_CACHE[name]
-    completed = subprocess.run(["node", str(DASH / BROWSER_SUITES[name])],
-                               cwd=REPO_ROOT, capture_output=True, text=True, timeout=timeout)
-    _SUITE_CACHE[name] = completed.returncode == 0
+    environment = os.environ.copy()
+    # The JS fixtures spawn python3; use the interpreter environment running this test.
+    environment["PATH"] = str(Path(sys.executable).parent) + os.pathsep + environment.get("PATH", "")
+    # macOS AF_UNIX paths must fit 103 bytes, including the bridge's session suffix.
+    with tempfile.TemporaryDirectory(prefix="ab-", dir="/tmp") as sockets:
+        environment["AGENT_BROWSER_SOCKET_DIR"] = sockets
+        completed = subprocess.run(["node", str(DASH / BROWSER_SUITES[name])],
+                                   cwd=REPO_ROOT, env=environment, capture_output=True,
+                                   text=True, timeout=timeout)
+    _SUITE_CACHE[name] = completed
     return _SUITE_CACHE[name]
 
 
 class DashboardCase(kit.CatalogueCase):
     def browser(self, name):
-        if shutil.which("agent-browser") is None:
-            raise unittest.SkipTest(
+        if shutil.which("node") is None:
+            self.skipTest("node is not on PATH; dashboard JavaScript suites cannot run")
+        if name in REAL_BROWSER_SUITES and shutil.which("agent-browser") is None:
+            self.skipTest(
                 "agent-browser bridge is not on PATH; install it to run the "
                 f"real-browser {name!r} suite (see tools/dashboard/tests/)")
-        ok = run_browser_suite(name)
+        completed = run_browser_suite(name)
+        self.bundle.log("dashboard_suite", suite=name,
+                        kind="browser" if name in REAL_BROWSER_SUITES else "node_vm",
+                        returncode=completed.returncode, stdout=completed.stdout, stderr=completed.stderr)
+        ok = completed.returncode == 0
         self.check(f"[{name}] browser_suite_passes", True, ok)
         return ok
 

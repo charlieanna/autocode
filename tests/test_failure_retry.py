@@ -3,7 +3,8 @@ import copy
 import unittest
 from unittest.mock import patch
 
-from . import autocode as runner, autocode_support as support, test_autocode, test_subprocess
+import autocode as runner, autocode_support as support
+from . import test_autocode, test_subprocess
 
 
 class FailureRetryTests(unittest.TestCase):
@@ -117,7 +118,7 @@ class FailureRetryCLITests(unittest.TestCase):
                             '    Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))\n')
         self.launch([*args, '--retry-failed-stage'], 2)
         _, retried = self.saved()
-        from . import autocode_resolver_human as human
+        import autocode_resolver_human as human
         public = human.current(retried)
         self.assertEqual('WAITING_FOR_USER', retried['status'])
         self.assertEqual('PAUSED_REPEATED_FAILURE', retried['resolver']['human_escalations'][public['request_id']]['identity']['proposal']['origin']['pause_status'])

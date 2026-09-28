@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from . import autocode_resolver_human as human, autocode_support as support
+import autocode_resolver_human as human, autocode_support as support
 
 
 class ResolverHumanTests(unittest.TestCase):

@@ -641,6 +641,59 @@ def assert_within_assignment(state, record):
                              + ", ".join(outside))
 
 
+def retained_validated_candidate(state, value, record, workspace):
+    """Recognize preserved work only to route it through fresh validation."""
+    if record.get('changed_files') or not isinstance(value.get('changed_files'), list):
+        return None
+    declared = set(value['changed_files'])
+    affected = set((state.get('current_task') or {}).get('affected_paths') or [])
+    if (not declared or not affected or not declared <= affected
+            or not value.get('commands_run') or not value.get('evidence_refs')
+            or any(not (Path(workspace) / path).is_file() for path in declared)):
+        return None
+    revision = support.snapshot(workspace)['revision']
+    criteria = {row['id'] for row in (state.get('goal_contract') or {}).get('body', {}).get('acceptance_criteria', [])}
+    if not criteria or (state.get('current_task') or {}).get('source_revision') != revision:
+        return None
+    for archived in reversed(state.get('validation_archive', [])):
+        validation = archived.get('validation') or {}
+        results = {row.get('id'): row.get('status') for row in validation.get('criterion_results', [])}
+        if (validation.get('verdict') == 'PASS' and validation.get('source_revision') == revision
+                and criteria <= {cid for cid, status in results.items() if status == 'PASS'}):
+            return {'source_revision': revision, 'validation_output': validation.get('output'),
+                    'criteria': sorted(criteria), 'declared_paths': sorted(declared)}
+    return None
+
+
+def recover_retained_candidate(state, workspace):
+    """Reconsider an already-saved no-progress report without another provider call."""
+    reports = state.get('no_progress_reports') or []
+    if (state.get('active_stage') or state.get('uncertain_artifacts') or not reports
+            or (state.get('current_task') or {}).get('kind') != 'implement'):
+        return False
+    record = next((row for row in reversed(state.get('stages', []))
+                   if (row.get('original_stage') or row.get('stage')) == 'terra'
+                   and not row.get('runner_owned') and not row.get('changed_files')
+                   and row.get('source_revision') == support.snapshot(workspace)['revision']), None)
+    if not record:
+        return False
+    value = reports[-1]
+    evidence = retained_validated_candidate(state, value, record, workspace)
+    if not evidence:
+        return False
+    state['implementation'] = {**copy.deepcopy(value), 'source_revision': evidence['source_revision'],
+                               'workspace': str(workspace)}
+    state['changed_files'] = []
+    state['source_snapshot'] = record.get('after_ref')
+    state['diff_ref'] = record.get('diff_ref')
+    state['next_stage'] = workflow.review_stage(state)
+    state['no_progress_batches'] = 0
+    state.setdefault('retained_candidate_handoffs', []).append({
+        'at': support.now(), 'task_id': state['current_task']['id'],
+        'builder_output': record['output'], 'reconsidered': True, **evidence})
+    return True
+
+
 def apply_build_result(runtime, state, value, record, workspace, run_dir):
     assert_within_assignment(state, record)
     support.evidence_hashes(support.implementation_evidence_paths(value["evidence_refs"], record["events"]), workspace, run_dir)
@@ -649,6 +702,14 @@ def apply_build_result(runtime, state, value, record, workspace, run_dir):
                  changed_files=record["changed_files"], source_snapshot=record["after_ref"],
                  next_stage=workflow.review_stage(state), diff_ref=record.get("diff_ref"))
     if not record["changed_files"]:
+        retained = retained_validated_candidate(state, value, record, workspace)
+        if retained:
+            state['no_progress_batches'] = 0
+            state.setdefault('retained_candidate_handoffs', []).append({
+                'at': support.now(), 'task_id': (state.get('current_task') or {}).get('id'),
+                'builder_output': record['output'], **retained})
+            state['next_stage'] = workflow.review_stage(state)
+            return
         state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
         if state.get('current_task', {}).get('kind') == 'implement':
             state.setdefault('no_progress_reports', []).append(state.pop('implementation'))

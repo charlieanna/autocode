@@ -134,6 +134,37 @@ class ProvenanceDefaults(unittest.TestCase):
         self.assertTrue(resolver._validate_body(body(task_kind="bugfix")))
         self.assertFalse(resolver._validate_body(body(task_kind="rewrite")))
 
+    def test_the_proof_uses_the_project_virtualenv_when_the_task_worktree_has_none(self):
+        import autocode_regression as regression
+        import autocode_verify as verify
+        from unittest import mock
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        project, task = Path(temp.name) / "project", Path(temp.name) / "task"
+        (project / ".venv" / "bin").mkdir(parents=True)
+        (project / ".venv" / "bin" / "python").symlink_to(sys.executable)
+        task.mkdir()
+        subprocess.run(["git", "init", "-q", str(task)], check=True)
+        subprocess.run(["git", "-C", str(task), "-c", "user.name=t", "-c", "user.email=t@example.test",
+                        "commit", "--allow-empty", "-qm", "base"], check=True)
+        state = {"goal_contract": {"body": {"task_kind": "bugfix"}}, "project_workspace": str(project),
+                 "base_commit": "abc", "settings": {}}
+        seen = []
+        result = {"verdict": "PASS", "failures": [], "unverified": [], "checks": {}}
+        with mock.patch.object(verify, "detect_framework", side_effect=lambda root, python: seen.append(python)), \
+                mock.patch.object(verify, "verify", return_value=result):
+            regression.prove(state, task, Path(temp.name) / "run")
+        self.assertEqual([str(project / ".venv" / "bin" / "python")], seen)
+        # An explicit interpreter setting still wins.
+        state = {**state, "settings": {"regression": {"python": "/opt/python"}}}
+        state.pop("regression_proof", None)
+        seen.clear()
+        with mock.patch.object(verify, "detect_framework", side_effect=lambda root, python: seen.append(python)), \
+                mock.patch.object(verify, "verify", return_value=result), \
+                mock.patch.object(regression.support, "snapshot", return_value={"revision": "other"}):
+            regression.prove(state, task, Path(temp.name) / "run")
+        self.assertEqual(["/opt/python"], seen)
+
     def test_decision_lists_and_review_stages_are_never_defaulted(self):
         record = self.record("astra_challenge", {"concerns": {"type": "array"}})
         self.assertEqual({}, autocode.default_missing_provenance({}, record))

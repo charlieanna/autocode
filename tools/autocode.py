@@ -2253,7 +2253,8 @@ def configure(args, state):
             "context_soft_tokens": args.context_soft_tokens if args.context_soft_tokens is not None else 10000,
             "rotation_after_input_tokens": args.rotate_after_input_tokens if args.rotate_after_input_tokens is not None else 1000000,
             "limits": {"iteration_ceiling": args.legacy_iteration_ceiling if args.legacy_iteration_ceiling is not None
-                       else state.get("iteration", 0) + (args.max_iterations if args.max_iterations is not None else 15),
+                       else (state.get("iteration", 0) + args.max_iterations
+                             if args.max_iterations is not None else None),
                        "max_seconds": args.max_seconds,
                        "stage_timeout_seconds": (getattr(args, "max_stage_seconds", None)
                                                  if getattr(args, "max_stage_seconds", None) is not None else 0),
@@ -2850,7 +2851,7 @@ def _main_body(unit=None) -> int:
                         "runner's regression proof on bug-fix tasks (default: detected)")
     parser.add_argument("--regression-command", help="New runs: shell command that runs only the new or changed "
                         "tests of a bug fix (default: derived from the detected test framework)")
-    parser.add_argument("--max-iterations", type=int, help="Total iteration ceiling (new-run default: 15; resumes keep saved limits)")
+    parser.add_argument("--max-iterations", type=int, help="Total iteration ceiling (new-run default: unlimited; resumes keep saved limits)")
     parser.add_argument('--unlimited-iterations',action='store_true',help='Remove only the iteration ceiling; other safety and usage limits remain')
     for role, model in DEFAULT_ROLE_MODELS.items():
         label = {"astra": "plan reviewer", "terra": "builder", "sol": "validator",
@@ -3081,8 +3082,8 @@ def _main_body(unit=None) -> int:
         state["base_commit"] = (isolated or {}).get("base_commit") or regression.head(workspace)
         if args.ui_run:
             state["ui_run"] = str(args.ui_run.resolve())
-        if args.legacy_iteration_ceiling is None:
-            args.legacy_iteration_ceiling = args.max_iterations if args.max_iterations is not None else 15
+        if args.legacy_iteration_ceiling is None and args.max_iterations is not None:
+            args.legacy_iteration_ceiling = args.max_iterations
 
     if state["workspace"] != str(workspace):
         parser.error("workspace differs from checkpoint; use the original --workspace")

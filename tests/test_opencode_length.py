@@ -1,13 +1,16 @@
 """Output-limit regressions using native transport fixtures, never live providers."""
 import copy
+import contextlib
+import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode as runner
 import autocode_goals as goals
 import autocode_opencode as opencode
@@ -146,9 +149,11 @@ class OutputLimitTests(unittest.TestCase):
     def test_runner_pauses_then_explicit_recovery_retains_usage_and_approval(self):
         state = {"version": 2, "workspace": str(self.root), "task": "Fixture",
                  "status": "RUNNING", "iteration": 1, "sessions": {}, "stages": [], "history": [],
-                 "settings": {"engine": "opencode", "roles": {"terra": {"model": "fixture/model"}}}}
+                 "settings": {"engine": "opencode", "roles": {
+                     role: {"model": "fixture/" + role} for role in ("astra", "terra", "sol", "completion")}}}
         approve_fixture(state, goals)
         approved = copy.deepcopy(state["goal_contract"])
+        partial = self.root / "greet.py"
         emitted = [event("step_start"), length_event()]
         launches = []
 
@@ -156,6 +161,7 @@ class OutputLimitTests(unittest.TestCase):
             pid = 987654321
             def __init__(child, command, **kwargs):
                 launches.append(command)
+                partial.write_text("# retained unfinished implementation\n")
                 kwargs["stdout"].write("\n".join(json.dumps(row) for row in emitted))
 
         snapshot = {"head": "h", "files": {}, "revision": "r"}
@@ -167,7 +173,7 @@ class OutputLimitTests(unittest.TestCase):
             with self.assertRaises(support.Paused) as caught:
                 runner.run_role(role="terra", prompt="Fixture", sandbox="workspace-write", workspace=self.root,
                     run_dir=self.run, state=state, schema=runner.SCHEMA_DIR / "v2/terra-report.schema.json",
-                    model="fixture/model", allow_write=True, dry_run=False)
+                    model="fixture/terra", allow_write=True, dry_run=False)
         self.assertEqual(1, len(launches))
         self.assertEqual("PAUSED_UNCERTAIN_STAGE", caught.exception.status)
         self.assertIn("output token limit", str(caught.exception))
@@ -194,19 +200,54 @@ class OutputLimitTests(unittest.TestCase):
                 runner.abandon_stage(state, self.run, self.root, runner.attempt_id(record))
             popen.assert_not_called()
         self.assertEqual("PAUSED_STAGE_ABANDONED", state["status"])
-        # Abandoning a terra (Builder) attempt re-dispatches terra to inspect
-        # the partial work, not astra_review; see commit 46a8187.
         self.assertEqual("terra", state["next_stage"])
         self.assertEqual(approved, state["goal_contract"])
         self.assertNotIn("active_stage", state)
         self.assertNotIn("terra", state["sessions"])
         archived = state["stages"][-1]
         self.assertTrue(archived["abandoned"])
+        self.assertTrue(archived["rejected"])
         self.assertTrue(Path(archived["events"]).is_file())
         self.assertEqual(32000, archived["metrics"]["provider_tokens"]["output_tokens"])
         self.assertEqual(0, archived["metrics"]["completed_turns"])
+        self.assertEqual(persisted["metrics"]["provider_tokens"], archived["metrics"]["provider_tokens"])
         runner.account_stage(state, archived)
         self.assertEqual(seconds, state["active_seconds"])
+        self.assertEqual([], state["history"])
+        self.assertNotIn("implementation", state)
+        self.assertNotIn("validation", state)
+        self.assertEqual("# retained unfinished implementation\n", partial.read_text())
+
+        # Exercise the saved-run CLI gate, stopping at dispatch so this test can
+        # never contact a provider, including after explicit acknowledgement.
+        (self.root / ".git").mkdir()
+        argv = ["autocode", "--workspace", str(self.root), "--run-dir", str(self.run)]
+        with patch.dict(os.environ, {"AUTOCODE_HOME": str(self.root / "registry-home")}), \
+             patch.object(support, "assert_no_legacy_process"), \
+             patch.object(runner.autocode_providers, "resolve", return_value=runner.opencode), \
+             patch.object(runner.opencode, "check_models"), \
+             patch.object(runner.orchestrator, "drive") as drive, \
+             patch.object(runner, "run_role") as launch, \
+             contextlib.redirect_stdout(io.StringIO()):
+            with patch.object(sys, "argv", argv):
+                self.assertEqual(2, runner.main())
+            drive.assert_not_called()
+            saved = support.read(self.run / "state.json")
+            self.assertEqual("PAUSED_STAGE_ABANDONED", saved["status"])
+            with patch.object(sys, "argv", argv + ["--resume-paused"]):
+                self.assertEqual(2, runner.main())
+            drive.assert_called_once()
+            launch.assert_not_called()
+        resumed = support.read(self.run / "state.json")
+        self.assertEqual("RUNNING", resumed["status"])
+        self.assertEqual("terra", resumed["next_stage"])
+        self.assertEqual(approved, resumed["goal_contract"])
+        self.assertEqual([archived], resumed["stages"])
+        self.assertEqual(seconds, resumed["active_seconds"])
+        self.assertEqual([], resumed["history"])
+        self.assertNotIn("terra", resumed["sessions"])
+        self.assertNotIn("validation", resumed)
+        self.assertEqual("# retained unfinished implementation\n", partial.read_text())
 
 
 if __name__ == "__main__":

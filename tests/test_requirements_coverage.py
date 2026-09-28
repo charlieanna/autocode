@@ -42,6 +42,14 @@ class CoverageTests(unittest.TestCase):
         report['requirements'].pop()
         goals.check_requirement_handoff(state, report)
 
+    def test_feedback_archives_stale_report_repair_before_new_handoff(self):
+        state = {'status': 'WAITING_FOR_USER', 'settings': {'roles': {'requirements': {}}},
+                 'pending_report_repair': {'attempts': 2, 'error': 'stale citation'}}
+        goals.feedback(state, 'Declare the consumer test in M2.')
+        self.assertEqual('requirements_gather', state['next_stage'])
+        self.assertNotIn('pending_report_repair', state)
+        self.assertEqual('stale citation', state['report_repair_archive'][-1]['repair']['error'])
+
     def test_all_missing_sentences_are_reported_without_truncation(self):
         sentences = ['You must preserve the reference.', 'You must inspect ' + 'every image pair ' * 12 + '.']
         with self.assertRaises(ValueError) as caught:

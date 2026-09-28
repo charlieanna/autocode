@@ -8,11 +8,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode as runner
 import autocode_opencode as oc
 import autocode_support as support
-from . import test_planning
+from . import test_planning as test_planning
 
 
 class OpenCodeRoutingTests(unittest.TestCase):

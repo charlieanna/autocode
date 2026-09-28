@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from tools import live_scenarios as scenarios
+import live_scenarios as scenarios
 
 
 BUGFIX_REFERENCE = scenarios.BUGFIX_SOURCE.replace(

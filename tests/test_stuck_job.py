@@ -1,4 +1,5 @@
 """A stage that stops converging goes to an Investigator before the run pauses for the user."""
+import copy
 import tempfile
 import unittest
 from pathlib import Path
@@ -65,6 +66,13 @@ class InterceptTests(unittest.TestCase):
                 self.assertFalse(stuck.intercept(state, status, "why"))
                 self.assertEqual(before, state)
 
+    def test_an_operator_authorized_retry_goes_back_to_the_operator(self):
+        state = state_for(stages=[{"stage": "terra", "failure_key": "k1"}],
+                          failure_retry_authorizations=[{"failure_key": "k1", "consumed": True}])
+        before = copy.deepcopy(state)
+        self.assertFalse(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "failed again after --retry-failed-stage"))
+        self.assertEqual(before, state, "declining never touches the state")
+
     def test_one_investigation_per_problem_and_a_run_budget(self):
         state = state_for()
         self.assertTrue(stuck.intercept(state, "PAUSED_REPEATED_FAILURE", "x"))
@@ -83,14 +91,15 @@ class ApplyTests(unittest.TestCase):
         self.assertTrue(stuck.intercept(state, status, "the original reason"))
         return state
 
-    def test_retry_after_repeated_failure_clears_only_that_stages_failure_record(self):
+    def test_retry_after_repeated_failure_keeps_the_failure_history(self):
+        history = {"k1": {"identity": {"stage": "terra"}, "count": 3}, "k2": {"identity": {"stage": "sol"}, "count": 1}}
         state = self.investigated("PAUSED_REPEATED_FAILURE", pending_report_repair={"attempts": 2},
-                                  failure_history={"k1": {"identity": {"stage": "terra"}, "count": 3},
-                                                   "k2": {"identity": {"stage": "sol"}, "count": 1}},
+                                  failure_history=copy.deepcopy(history),
                                   stages=[{"stage": "terra", "failure_key": "k1"}, {"stage": "sol", "failure_key": "k2"}])
         stuck.apply(state, report(), {"output": "o"}, "/ws")
-        self.assertEqual(["k2"], list(state["failure_history"]))
-        self.assertEqual([None, "k2"], [row.get("failure_key") for row in state["stages"]])
+        # One more attempt, not a fresh failure budget: another failure counts on top of these.
+        self.assertEqual(history, state["failure_history"])
+        self.assertEqual(["k1", "k2"], [row.get("failure_key") for row in state["stages"]])
         self.assertEqual({"attempts": 2}, state["report_repair_archive"][-1]["repair"])
         self.assertEqual(("RUNNING", "EXECUTING", "terra"), (state["status"], state["phase"], state["next_stage"]))
         self.assertTrue(state["stuck_investigation"]["in_force"])

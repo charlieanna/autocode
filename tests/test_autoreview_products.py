@@ -30,12 +30,28 @@ def probe_argv(command):
     return argv
 
 
+def probe_command_matches(command, expected):
+    argv = probe_argv(command)
+    if argv == expected:
+        return True
+    # A reviewer may provision a run-owned TMPDIR/GOCACHE in a shell before
+    # invoking the exact canonical probe. Preserve the wrapper as evidence but
+    # match the inner argv without accepting an unrelated command.
+    if ('TMPDIR=' not in command or 'GOCACHE=' not in command) and len(argv) != len(expected):
+        return False
+    if len(argv) >= len(expected):
+        for start in range(len(argv) - len(expected) + 1):
+            if argv[start:start + len(expected)] == expected:
+                return True
+    return False
+
+
 def go_evidence(executed, command, project, identity):
     """Keep expected answers in the harness, not the reviewer-invoked probe."""
     for event in executed:
         try:
             argv = probe_argv(event.get('command', ''))
-            if argv != command or event.get('exit_code') != 0:
+            if not probe_command_matches(event.get('command', ''), command) or event.get('exit_code') != 0:
                 continue
             rows = [json.loads(line) for line in event.get('aggregated_output', '').splitlines()]
             if len(rows) != 3:

@@ -90,10 +90,10 @@ class JointPlanningContractTests(unittest.TestCase):
         self.assertFalse((self.workspace / '.autocode').exists())
         return settings
 
-    # Defaults match tools/providers/opencode.py DEFAULT_MODELS (MiMo/GLM since f133e26).
+    # Defaults match tools/providers/opencode.py DEFAULT_MODELS (GLM plus OpenAI GPT-6; no MiMo since 2026-09-27).
     def assert_joint_routes(
-            self, settings, *, glm='zai-coding-plan/glm-5.3', astra='xiaomi-token-plan-sgp/mimo-v2.6-pro',
-            terra='xiaomi-token-plan-sgp/mimo-v2.6-pro', sol='zai-coding-plan/glm-5.3'):
+            self, settings, *, glm='zai-coding-plan/glm-5.3', astra='openai/gpt-6-astra',
+            terra='openai/gpt-6-sol', sol='zai-coding-plan/glm-5.3'):
         self.assertTrue(settings['joint_planning'])
         self.assertEqual('opencode', settings['engine'])
         self.assertEqual({'opencode'}, set(settings['transport_identities']))

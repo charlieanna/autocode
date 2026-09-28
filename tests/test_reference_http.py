@@ -9,8 +9,8 @@ import unittest
 from unittest.mock import patch
 import urllib.request
 
-from tools import scenario_references as references
-from tools import task_scenarios as scenarios
+import scenario_references as references
+import task_scenarios as scenarios
 
 
 class ReferenceHttpTests(unittest.TestCase):

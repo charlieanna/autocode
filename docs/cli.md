@@ -75,7 +75,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--max-findings-per-task N` | Cap open findings bundled into one REWORK task. |
 | `--max-idle-seconds` / `--max-tool-seconds` / `--max-stage-seconds` | Watchdog limits (defaults `300` / `1800` / `0`). |
 | `--no-progress-limit N` | Unchanged-batch limit (`0` disables; never disables the 3-recovery ceiling). |
-| `--max-iterations N` | Total iteration ceiling. |
+| `--max-iterations N` | Optional total iteration ceiling; new runs default to unlimited, and resumes retain their saved limit. |
 | `--test-command CMD` | New runs: the project's test suite command for a bug fix's runner-owned regression proof (default: detected; see [Bug fixes](workflow.md#bug-fixes)). |
 | `--regression-command CMD` | New runs: a command that runs only the fix's new or changed tests (default: derived from the detected framework). |
 

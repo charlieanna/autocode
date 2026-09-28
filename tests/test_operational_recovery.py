@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from . import test_autocode as base
-from .goal_fixtures import approve_fixture
+from goal_fixtures import approve_fixture
 
 runner, s = base.runner, base.s
 resolver, planning = runner.resolver_runtime, runner.planning

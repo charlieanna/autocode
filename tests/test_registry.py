@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode_registry as registry
 
 
@@ -214,7 +214,7 @@ registry.support.atomic_json = interrupted
 state = json.loads((Path(sys.argv[3]) / 'state.json').read_text())
 registry.register_run(Path(sys.argv[2]), Path(sys.argv[3]), state)
 """
-        result = subprocess.run([sys.executable, "-c", script, str(Path(__file__).resolve().parents[1] / "tools"), str(second_workspace), str(second_run)],
+        result = subprocess.run([sys.executable, "-c", script, str(Path(__file__).resolve().parents[1] / 'tools'), str(second_workspace), str(second_run)],
                                 env={**os.environ, "AUTOCODE_HOME": str(self.home)}, capture_output=True, text=True)
         self.assertEqual(75, result.returncode, result.stdout + result.stderr)
         restarted = registry.listing()

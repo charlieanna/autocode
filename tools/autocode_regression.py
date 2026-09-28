@@ -83,7 +83,9 @@ def prove(state, workspace, run_dir):
         path = None
     else:
         dependencies = state.get("project_workspace") or str(workspace)
-        framework = verify.detect_framework(workspace, python=options.get("python"))
+        # A task worktree has no virtualenv of its own; use the project's.
+        framework = verify.detect_framework(workspace, python=options.get("python")
+                                            or verify.python_for(dependencies))
         suite = options.get("test_command") or (framework.suite if framework else None)
         base_suite = _baseline(state, workspace, run_dir, base, framework, suite, dependencies) if suite else None
         number = len(state.get("regression_proofs", [])) + 1

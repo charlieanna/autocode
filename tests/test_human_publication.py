@@ -10,7 +10,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-from . import autocode as runner, autocode_resolver_human as human, autocode_support as support
+import autocode as runner, autocode_resolver_human as human, autocode_support as support
 from . import test_resolver_human, test_subprocess
 
 

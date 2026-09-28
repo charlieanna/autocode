@@ -14,7 +14,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from . import autoreview_product_probe as probe
+import autoreview_product_probe as probe
 from . import test_autoreview_products as audit
 
 
@@ -171,7 +171,7 @@ class ProductProbeTests(unittest.TestCase):
         self.assertFalse(probe.successful(row))
 
     def test_live_invoke_retains_earlier_success_and_failed_receipts(self):
-        module = importlib.import_module('tools.test_autoreview_products')
+        module = importlib.import_module('tests.test_autoreview_products')
         case = module.ReviewProducts('test_06_go_tld_override_parity_exception')
         case.root, case.env, case.counter = self.root, None, 0
         case.command = lambda unit, args: [sys.executable, '-c', unit]
@@ -188,7 +188,7 @@ class ProductProbeTests(unittest.TestCase):
         self.assertEqual(first, (self.root / 'cli-1.json').read_bytes())
 
     def test_live_case_directory_survives_cleanup(self):
-        module = importlib.import_module('tools.test_autoreview_products')
+        module = importlib.import_module('tests.test_autoreview_products')
         case = module.ReviewProducts('test_06_go_tld_override_parity_exception')
         before = dict(os.environ)
         with patch.dict(os.environ, BUILD_AUDIT_ARTIFACTS=str(self.root / 'retained')):
@@ -228,8 +228,8 @@ time.sleep(30)
 '''
                 supervisor_script = f'''import sys,time
 from pathlib import Path
-sys.path.insert(0, {str(Path(probe.__file__).resolve().parents[1])!r})
-from tools import autoreview_product_probe as probe
+sys.path.insert(0, {str(Path(probe.__file__).resolve().parent)!r})
+import autoreview_product_probe as probe
 if {gap!r}:
     original = probe.subprocess.Popen
     def handoff(*args, **kwargs):
@@ -461,26 +461,42 @@ Path('continued').write_text('must not continue after cancellation')
                     probe.browser_probe(self.root, timeout=limit)
                 capture.assert_not_called()
 
-    def test_both_live_trees_skip_before_dispatch_and_unavailable_preflight_skips(self):
-        # Import modules, not their TestCase classes, to avoid duplicate discovery.
-        for name in ('tools.test_autoreview_products', 'tests.test_autoreview_products'):
-            with self.subTest(module=name):
-                module = importlib.import_module(name)
-                self.assertTrue(module.ReviewProducts.__unittest_skip__)
-                case = module.ReviewProducts('test_04_mobile_initial_visibility_requires_rendered_evidence')
+    def test_live_suite_skips_before_dispatch_and_unavailable_preflight_skips(self):
+        self.assertTrue(audit.ReviewProducts.__unittest_skip__)
+        suite = unittest.defaultTestLoader.loadTestsFromModule(audit)
+        result = unittest.TestResult()
+        with patch.object(audit.ReviewProducts, 'setUp') as setup, \
+                patch.object(audit.ReviewProducts, 'prepare') as prepare:
+            suite.run(result)
+        self.assertEqual(11, result.testsRun)
+        self.assertEqual(11, len(result.skipped))
+        setup.assert_not_called()
+        prepare.assert_not_called()
+        for method, kind in (
+                ('test_04_mobile_initial_visibility_requires_rendered_evidence', 'browser'),
+                ('test_06_go_tld_override_parity_exception', 'go')):
+            with self.subTest(kind=kind):
+                case = audit.ReviewProducts(method)
                 case.root, case.env = self.root, {}
-                row = dict(returncode=1, timed_out=False, error=None, stderr='browser launch denied')
-                with patch.object(module.probe, 'preflight', return_value=row), patch.object(case, 'prepare') as prepare:
+                row = dict(returncode=1, timed_out=False, error=None, stderr='launch denied')
+                with patch.object(probe, 'preflight', return_value=row), patch.object(case, 'prepare') as prepare:
                     with self.assertRaisesRegex(unittest.SkipTest, 'NOT_VERIFIED.*host-only'):
-                        case.test_04_mobile_initial_visibility_requires_rendered_evidence()
+                        getattr(case, method)()
                     prepare.assert_not_called()
 
-    def test_duplicate_tree_methods_stay_in_sync_without_class_reexports(self):
-        import inspect
-        active = importlib.import_module('tools.test_autoreview_products')
-        pending = importlib.import_module('tests.test_autoreview_products')
-        self.assertIsNot(active.ReviewProducts, pending.ReviewProducts)
-        self.assertEqual(inspect.getsource(active.ReviewProducts), inspect.getsource(pending.ReviewProducts))
+    def test_canonical_test_owner_has_no_duplicate_discovery(self):
+        root = Path(__file__).resolve().parents[1]
+        self.assertEqual(root / 'tests' / 'test_autoreview_products.py', Path(audit.__file__).resolve())
+        for name in ('test_autoreview_products.py', 'test_autoreview_product_probe.py',
+                     'test_autoreview_browser_evidence.py'):
+            self.assertFalse((root / 'tools' / name).exists())
+        ids = []
+        for module in (audit, sys.modules[__name__],
+                       importlib.import_module('tests.test_autoreview_browser_evidence')):
+            for cases in unittest.defaultTestLoader.loadTestsFromModule(module):
+                ids.extend(case.id() for case in cases)
+        self.assertEqual(len(ids), len(set(ids)), 'TestCase reexports duplicate discovery')
+        self.assertEqual(11, sum(name.startswith('tests.test_autoreview_products.') for name in ids))
 
 
 if __name__ == '__main__':

@@ -139,7 +139,7 @@ read-only `investigate_stuck` stage (`tools/autocode_stuck_job.py`) instead of s
 
 | Pause | After the Investigator |
 | --- | --- |
-| `PAUSED_REPEATED_FAILURE`, `PAUSED_INVALID_OUTPUT` | retry clears that stage's failure record (a spent report repair is archived) |
+| `PAUSED_REPEATED_FAILURE`, `PAUSED_INVALID_OUTPUT` | retry runs the stage once more; its failure history stays, so another failure counts on top (a spent report repair is archived) |
 | `PAUSED_PLANNING_BUDGET` | retry grants one more review round (two calls from the challenge, one from the final review) |
 | `PAUSED_NO_PROGRESS` | retry allows one more implementation batch |
 | `PAUSED_COMPLETION_REVIEW` | retry asks the Completion Owner once more |
@@ -158,7 +158,8 @@ same problem, a `pause` recommendation or a failed investigation restores the or
 pause, with the diagnosis in its reason. It never approves anything, changes requirements or
 criteria, weakens tests, grants permissions or extends budgets beyond that one attempt.
 Permission, scope, goal, criteria and spend pauses go straight to you, and so does a pause a
-guard re-raises on resume before any stage runs. Only full Autopilot runs investigate; a
+guard re-raises on resume before any stage runs, or the outcome of a retry you authorized
+with `--retry-failed-stage`. Only full Autopilot runs investigate; a
 single-unit invocation (`--unit`) stops at its own boundary. `--diagnose-failed-stage`
 below remains the operator's explicit, policy-ledgered alternative for a Builder.
 
@@ -314,6 +315,14 @@ that ran and failed on base and passed on the fix; a test that only fails to
 import on base is not a reproduction. Without per-test results exit codes decide.
 When nothing can be proven (for example no test command is found), the proof is
 `UNVERIFIED` and the bug fix cannot complete until a command is supplied.
+
+The scratch worktrees use the project's own environment: its `.venv`, `venv` or
+`node_modules` is linked in, and the Python tests run with the project's
+virtualenv interpreter even though the task worktree has none. Build-generated
+source files that git ignores but that sit next to tracked code (such as a
+setuptools-scm or hatch-vcs `_version.py`) are copied from the project into every
+scratch tree, base and fix alike, so the package imports there. Ignored build
+output directories are not copied.
 
 Planning reports that omit only a provenance list (such as `code_refs` or
 `source_refs`) now get an empty list instead of a report-repair model call; the

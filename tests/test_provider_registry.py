@@ -8,8 +8,8 @@ from types import SimpleNamespace
 import unittest
 from unittest import mock
 
-from tools import autocode, autocode_providers
-from tools.providers import command
+import autocode, autocode_providers
+from providers import command
 
 
 class ProviderRegistryTests(unittest.TestCase):
@@ -28,7 +28,7 @@ class ProviderRegistryTests(unittest.TestCase):
 
     def test_opencode_is_the_builtin_default(self):
         provider = autocode_providers.resolve("opencode")
-        self.assertEqual("tools.providers.opencode", provider.__name__)
+        self.assertEqual("providers.opencode", provider.__name__)
 
     def test_named_provider_loads_its_config(self):
         provider = autocode_providers.resolve("gocode")

@@ -129,10 +129,12 @@ def intercept(state: dict, status: str, reason: str) -> bool:
     if (not enabled(state) or status not in STATUSES or state.get("active_stage")
             or not isinstance(stuck, str) or not stuck or stuck in NEVER):
         return False
-    history = state.setdefault("stuck_investigations", [])
+    history = state.get("stuck_investigations") or []
     key = identity(stuck, status)
-    if any(entry.get("identity") == key for entry in history) or len(history) >= max_calls(state):
+    if (any(entry.get("identity") == key for entry in history) or len(history) >= max_calls(state)
+            or operator_retried(state, stuck)):
         return False
+    history = state.setdefault("stuck_investigations", [])
     request = {"identity": key, "stage": stuck, "status": status, "reason": reason, "phase": state.get("phase"),
                "requested_at": now()}
     if state.get("pending_report_repair"):
@@ -145,6 +147,14 @@ def intercept(state: dict, status: str, reason: str) -> bool:
         state.pop(field, None)
     state.update(status="RUNNING", phase="INVESTIGATING", next_stage=STAGE)
     return True
+
+
+def operator_retried(state: dict, stage: str) -> bool:
+    """An operator authorized a retry of this stage's failure (--retry-failed-stage): its
+    outcome goes back to the operator, who is already handling that exact failure."""
+    keys = {row.get("failure_key") for row in state.get("stages") or []
+            if row.get("stage") == stage and row.get("failure_key")}
+    return any(grant.get("failure_key") in keys for grant in state.get("failure_retry_authorizations") or [])
 
 
 def annotate(state: dict, status: str, reason: str) -> str:
@@ -241,15 +251,9 @@ def restore(state: dict, request: dict, reason: str) -> None:
 def grant_one_attempt(state: dict, request: dict) -> None:
     """Reset exactly one attempt's worth of whatever stopped the stage; nothing else changes."""
     status, stage = request["status"], request["stage"]
-    if status == "PAUSED_REPEATED_FAILURE":
-        ledger = state.get("failure_history") or {}
-        cleared = [key for key, entry in ledger.items() if (entry.get("identity") or {}).get("stage") == stage]
-        for key in cleared:
-            ledger.pop(key)
-        for row in state.get("stages", []):
-            if row.get("failure_key") in cleared:
-                row.pop("failure_key")
-    elif status == "PAUSED_PLANNING_BUDGET":
+    # PAUSED_REPEATED_FAILURE / PAUSED_INVALID_OUTPUT: nothing to reset. The stage simply runs
+    # again; the failure history stays intact, so another failure counts on top of it.
+    if status == "PAUSED_PLANNING_BUDGET":
         planning = state.setdefault("planning", {})
         used = max(int(planning.get("review_call_limit", 2)), int(planning.get("astra_calls", 0)))
         # One review round: a challenge still owes its finalize.

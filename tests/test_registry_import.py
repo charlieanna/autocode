@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode_registry as registry
 
 
@@ -178,7 +178,7 @@ class RegistryImportTests(unittest.TestCase):
 
     def test_cli_reports_invalid_bound_as_json_error(self):
         selected, _ = self.fixture("selected")
-        result = subprocess.run([sys.executable, str((Path(__file__).resolve().parents[1] / "tools" / ("autocode.py"))), "registry", "import",
+        result = subprocess.run([sys.executable, str(Path(__file__).resolve().parents[1] / "tools" / "autocode.py"), "registry", "import",
                                  str(selected), "--max-depth", "-1", "--json"], capture_output=True, text=True, check=False)
         self.assertEqual(2, result.returncode)
         self.assertEqual("invalid_depth", json.loads(result.stdout)["error"]["code"])

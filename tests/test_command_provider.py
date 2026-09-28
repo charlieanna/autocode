@@ -11,7 +11,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from tools import autocode_providers
+import autocode_providers
 from tools.providers import command
 
 
@@ -297,7 +297,7 @@ class CommandProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "no provider config for 'missing'"):
             autocode_providers.resolve("missing")
         builtin = autocode_providers.resolve("opencode")
-        self.assertEqual("tools.providers.opencode", builtin.__name__)
+        self.assertEqual("providers.opencode", builtin.__name__)
 
     def test_event_final_report_forwards_wrapped_recovery(self):
         write_config(self.home, "events2", 'name = "events2"\ncommand = ["kilo", "run"]\n'

@@ -6,11 +6,11 @@ import sys
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autocode as runner
 import autocode_goals as goals
 import autocode_opencode as oc
-from . import test_planning
+from . import test_planning as test_planning
 from goal_fixtures import approve_fixture
 
 

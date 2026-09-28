@@ -156,7 +156,8 @@ class ReconsiderationCLITests(unittest.TestCase):
         self.state.pop(human.PUBLIC, None)
         self.state.pop('user_request', None)
         self.state.update(status='PAUSED_PLANNING_BUDGET', next_stage='astra_challenge', pending_questions=[])
-        discovery = self.state['stages'][0]
+        # The job recognizer runs first; take the Planner's discovery stage by name.
+        discovery = next(row for row in self.state['stages'] if row['stage'] == 'astra_discovery')
         discovery.update(stage='astra_discovery_report_repair', original_stage='astra_discovery', report_only=True)
         runner.configure_codex_joint(self.state['settings'], SimpleNamespace())
         self.state['planning'] = {'astra_calls': 2, 'reports': {'astra_discovery': {

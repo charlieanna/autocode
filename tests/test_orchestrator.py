@@ -1,7 +1,7 @@
 """The common driver owns stage selection, persistence and skip semantics."""
 import unittest
 
-from tools import autocode_orchestrator as orchestrator
+import autocode_orchestrator as orchestrator
 
 
 class SharedOrchestrator(unittest.TestCase):

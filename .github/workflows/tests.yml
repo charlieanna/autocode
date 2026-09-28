@@ -39,6 +39,13 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
 
+      - name: Run the scenario harness
+        # scenarios/ is outside tests/: its catalog checks and scripted end-to-end runs
+        # (scenarios/README.md) would otherwise never run in CI.
+        run: python3 -m unittest scenarios/test_harness.py -v
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+
       - name: Run the dashboard suite
         # tools/dashboard/tests is outside tests/, so run_suite.py never
         # discovers it; run it here so it can't drift unnoticed again (#94).

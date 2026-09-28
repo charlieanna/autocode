@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 import unittest
 
-from . import autocode as runner, autocode_support as support, test_autocode
+import autocode as runner, autocode_support as support
+from . import test_autocode
 
 
 class RateLimitReconciliationTests(unittest.TestCase):

@@ -3,20 +3,22 @@
 Offline only: provider behaviour uses recorded fixtures and status mapping;
 the installed-CLI cases execute the real installed entry point with no
 network and a temporary workspace.
+Set AUTOCODE_TEST_WHEEL to a wheel with dependency wheels alongside it to test
+a clean temporary installation instead of the user's installed entry point.
 """
 import json
 import os
-import platform
 from pathlib import Path
+import platform
 import subprocess
 import sys
-import sysconfig
 import tempfile
 import time
 import unittest
+import venv
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import autopilot_testkit as kit
 import autocode as runner
 import autocode_goals as goals
@@ -24,8 +26,8 @@ import autocode_support as support
 from . import test_catalogue_t01 as t01
 from goal_fixtures import approve_fixture, body
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-INSTALLED = Path(sysconfig.get_path("scripts")) / "autocode"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+INSTALLED = Path.home() / ".local" / "bin" / "autocode"
 
 
 def rerun(test_name, timeout=180):
@@ -37,7 +39,37 @@ def rerun(test_name, timeout=180):
 
 
 class CompatCase(t01.ApprovalCase):
-    pass
+    def installed_cli(self):
+        self.cli_environment = {k: v for k, v in os.environ.items()
+                                if k not in ("AUTOCODE_TEST_CLI", "PYTHONPATH", "PYTHONHOME")}
+        wheel = os.environ.get("AUTOCODE_TEST_WHEEL")
+        if not wheel:
+            if not INSTALLED.is_file():
+                self.finish(status=kit.BLOCKED_ENV,
+                            summary="installed CLI absent; set AUTOCODE_TEST_WHEEL to test an isolated wheel")
+            return INSTALLED
+        wheel = Path(wheel).resolve()
+        self.assertTrue(wheel.is_file(), f"AUTOCODE_TEST_WHEEL does not exist: {wheel}")
+        temporary = tempfile.TemporaryDirectory(prefix="catalogue-cli-")
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name).resolve()
+        # Dependencies must be supplied beside the wheel; tests never fetch packages.
+        venv.EnvBuilder(with_pip=True).create(root)
+        python = root / "bin" / "python"
+        installed = subprocess.run(
+            [str(python), "-m", "pip", "--isolated", "install", "--no-index",
+             "--find-links", str(wheel.parent), str(wheel)],
+            env=self.cli_environment, capture_output=True, text=True, timeout=120)
+        self.bundle.log("wheel_install", wheel=str(wheel), returncode=installed.returncode,
+                        stdout=installed.stdout, stderr=installed.stderr)
+        self.assertEqual(installed.returncode, 0, installed.stdout + installed.stderr)
+        provenance = subprocess.run(
+            [str(python), "-I", "-c", "import autocode_cli; print(autocode_cli.__file__)"],
+            cwd=root, env=self.cli_environment, capture_output=True, text=True, timeout=60)
+        self.assertEqual(provenance.returncode, 0, provenance.stderr)
+        self.assertTrue(Path(provenance.stdout.strip()).is_relative_to(root), provenance.stdout)
+        self.bundle.log("installed_package", location=provenance.stdout.strip())
+        return root / "bin" / "autocode"
 
 
 class CompatScenarios(CompatCase):
@@ -152,19 +184,19 @@ class CompatScenarios(CompatCase):
 
     def test_cfg09_installed_cli_runs_outside_the_repository(self):
         """CFG-09. New: the real installed entry point, offline, outside the repo."""
-        self.assertTrue(INSTALLED.is_file(),
-                        f"Install the package with {sys.executable} -m pip install -e .; missing {INSTALLED}")
+        installed = self.installed_cli()
         with tempfile.TemporaryDirectory() as outside:
-            helped = subprocess.run([str(INSTALLED), "--help"], cwd=outside,
-                                    capture_output=True, text=True, timeout=60)
+            helped = subprocess.run([str(installed), "--help"], cwd=outside,
+                                    env=self.cli_environment, capture_output=True, text=True, timeout=60)
             self.check("installed_help_outside_repo", 0, helped.returncode)
             subprocess.run(["git", "init", "-q", outside], check=True)
             subprocess.run(["git", "-C", outside, "-c", "user.name=F", "-c", "user.email=f@t",
                             "commit", "--allow-empty", "-qm", "fixture"], check=True)
-            environment = {k: v for k, v in os.environ.items() if k != "AUTOCODE_TEST_CLI"}
-            dry = subprocess.run([str(INSTALLED), "idea", "--workspace", outside, "--dry-run"],
+            dry = subprocess.run([str(installed), "idea", "--workspace", outside, "--dry-run"],
                                  cwd=outside, capture_output=True, text=True, timeout=120,
-                                 env=environment)
+                                 env=self.cli_environment)
+            self.bundle.log("installed_cli_output", help_stdout=helped.stdout, help_stderr=helped.stderr,
+                            dry_stdout=dry.stdout, dry_stderr=dry.stderr)
             self.check("installed_dry_run_outside_repo", 0, dry.returncode)
             self.check("dry_run_writes_no_run_state", [],
                        sorted(p.name for p in Path(outside).glob(".autocode/runs/*")))
@@ -174,10 +206,11 @@ class CompatScenarios(CompatCase):
 
     def test_cfg10_entry_point_aliases_consistent(self):
         """CFG-10. Documented aliases: autocode units + installed scripts."""
-        self.assertTrue(INSTALLED.is_file(),
-                        f"Install the package with {sys.executable} -m pip install -e .; missing {INSTALLED}")
-        helped = subprocess.run([str(INSTALLED), "--help"], capture_output=True, text=True, timeout=60)
-        self.check("installed_help_exit", 0, helped.returncode)
+        installed = self.installed_cli()
+        with tempfile.TemporaryDirectory() as outside:
+            helped = subprocess.run([str(installed), "--help"], cwd=outside,
+                                    env=self.cli_environment, capture_output=True, text=True, timeout=60)
+        self.check("installed_alias_help_exit", 0, helped.returncode)
         units = helped.stdout
         self.check("unit_aliases_documented", True,
                    all(u in units for u in ("autoplanner", "autocode", "autoreview", "autoresolver")))
@@ -235,6 +268,45 @@ class CompatScenarios(CompatCase):
         self.check("controller_flow_works_offline", True, flowed)
         self.check("zero_network_attempts", [], attempts)
         self.finish(summary="OFFLINE_TESTS_ONLY: model/task network spending stays disabled")
+
+
+class HarnessReportingTests(unittest.TestCase):
+    def test_blocked_case_is_a_skip_with_blocked_bundle(self):
+        class BlockedCase(kit.CatalogueCase):
+            scenario_id = "blocked-regression"
+
+            def runTest(self):
+                self.finish(status=kit.BLOCKED_ENV, summary="missing prerequisite")
+
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {"AUTOCODE_TEST_ARTIFACTS": root}):
+            case, result = BlockedCase(), unittest.TestResult()
+            case.run(result)
+            self.assertEqual((len(result.skipped), len(result.errors), len(result.failures)), (1, 0, 0))
+            recorded = json.loads((case.bundle.dir / "result.json").read_text())
+            self.assertEqual(recorded["status"], kit.BLOCKED_ENV)
+
+    def test_failed_check_cannot_be_hidden_by_skip(self):
+        class FailedCase(kit.CatalogueCase):
+            scenario_id = "failed-regression"
+
+            def runTest(self):
+                self.check("real_failure", True, False)
+                self.skipTest("later prerequisite absent")
+
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {"AUTOCODE_TEST_ARTIFACTS": root}):
+            case, result = FailedCase(), unittest.TestResult()
+            case.run(result)
+            self.assertEqual((len(result.skipped), len(result.errors), len(result.failures)), (0, 0, 1))
+            recorded = json.loads((case.bundle.dir / "result.json").read_text())
+            self.assertEqual((recorded["status"], recorded["failed"]), (kit.FAIL, 1))
+            self.assertIn("real_failure", result.failures[0][1])
+
+    def test_partial_summary_alone_does_not_fail_a_bundle(self):
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {"AUTOCODE_TEST_ARTIFACTS": root}):
+            bundle = kit.Bundle("partial-regression")
+            bundle.check("scoped_check", True, True)
+            bundle.finish(summary="PARTIAL: another capability remains unverified")
+            self.assertEqual(json.loads((bundle.dir / "result.json").read_text())["status"], kit.PASS)
 
 
 if __name__ == "__main__":

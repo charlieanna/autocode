@@ -14,7 +14,7 @@ class ConflictTests(unittest.TestCase):
             'The earlier description is historical. Current runs have an independent reviewer.'}
         self.state = {
             'task_id': 'task', 'task': 'Show the recorded workflow.',
-            'workspace': str(Path(__file__).resolve().parents[1]),
+            'workspace': str(Path(__file__).resolve().parent.parent),
             'settings': {'joint_planning': True}, 'answers': {},
             'brief_feedback': [self.event], 'user_events': [copy.deepcopy(self.event)],
             'requirements_handoff': {'report': {

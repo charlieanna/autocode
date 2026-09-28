@@ -12,7 +12,7 @@ import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_suite
 
 
@@ -42,8 +42,8 @@ class LoadExclusionsTests(unittest.TestCase):
     def test_reads_module_to_reason_mapping(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "exclusions.json"
-            path.write_text(json.dumps({"tests.test_x": "reason x"}))
-            self.assertEqual({"tests.test_x": "reason x"}, run_suite.load_exclusions(path))
+            path.write_text(json.dumps({"tools.test_x": "reason x"}))
+            self.assertEqual({"tools.test_x": "reason x"}, run_suite.load_exclusions(path))
 
     def test_missing_file_means_no_exclusions(self):
         self.assertEqual({}, run_suite.load_exclusions(Path("/nonexistent/exclusions.json")))
@@ -51,57 +51,57 @@ class LoadExclusionsTests(unittest.TestCase):
     def test_rejects_a_non_string_reason(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "exclusions.json"
-            path.write_text(json.dumps({"tests.test_x": 1}))
+            path.write_text(json.dumps({"tools.test_x": 1}))
             with self.assertRaises(ValueError):
                 run_suite.load_exclusions(path)
 
     def test_rejects_a_non_object_document(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "exclusions.json"
-            path.write_text(json.dumps(["tests.test_x"]))
+            path.write_text(json.dumps(["tools.test_x"]))
             with self.assertRaises(ValueError):
                 run_suite.load_exclusions(path)
 
 
 class FilterExcludedTests(unittest.TestCase):
     def test_drops_every_test_whose_module_is_excluded(self):
-        suite = _suite("tests.test_a.CaseA.test_one", "tests.test_a.CaseA.test_two",
-                        "tests.test_b.CaseB.test_three")
-        kept, matched, unmatched = run_suite.filter_excluded(suite, {"tests.test_a": "reason"})
-        self.assertEqual(["tests.test_b.CaseB.test_three"],
+        suite = _suite("tools.test_a.CaseA.test_one", "tools.test_a.CaseA.test_two",
+                        "tools.test_b.CaseB.test_three")
+        kept, matched, unmatched = run_suite.filter_excluded(suite, {"tools.test_a": "reason"})
+        self.assertEqual(["tools.test_b.CaseB.test_three"],
                           [test.id() for test in run_suite.iter_tests(kept)])
-        self.assertEqual({"tests.test_a"}, matched)
+        self.assertEqual({"tools.test_a"}, matched)
         self.assertEqual(set(), unmatched)
 
     def test_reports_an_exclusion_entry_that_matched_nothing_as_unmatched(self):
-        suite = _suite("tests.test_a.CaseA.test_one")
-        kept, matched, unmatched = run_suite.filter_excluded(suite, {"tests.test_missing": "stale"})
+        suite = _suite("tools.test_a.CaseA.test_one")
+        kept, matched, unmatched = run_suite.filter_excluded(suite, {"tools.test_missing": "stale"})
         self.assertEqual(1, run_suite.count_tests(kept))
         self.assertEqual(set(), matched)
-        self.assertEqual({"tests.test_missing"}, unmatched)
+        self.assertEqual({"tools.test_missing"}, unmatched)
 
     def test_keeps_everything_when_no_exclusions_are_given(self):
-        suite = _suite("tests.test_a.CaseA.test_one", "tests.test_b.CaseB.test_two")
+        suite = _suite("tools.test_a.CaseA.test_one", "tools.test_b.CaseB.test_two")
         kept, matched, unmatched = run_suite.filter_excluded(suite, {})
         self.assertEqual(2, run_suite.count_tests(kept))
         self.assertEqual(set(), matched)
         self.assertEqual(set(), unmatched)
 
     def test_matches_only_the_exact_module_not_a_prefix_collision(self):
-        # tests.test_a_extra must not be swept up by an exclusion for tests.test_a.
-        suite = _suite("tests.test_a.CaseA.test_one", "tests.test_a_extra.CaseB.test_two")
-        kept, matched, unmatched = run_suite.filter_excluded(suite, {"tests.test_a": "reason"})
-        self.assertEqual(["tests.test_a_extra.CaseB.test_two"],
+        # tools.test_a_extra must not be swept up by an exclusion for tools.test_a.
+        suite = _suite("tools.test_a.CaseA.test_one", "tools.test_a_extra.CaseB.test_two")
+        kept, matched, unmatched = run_suite.filter_excluded(suite, {"tools.test_a": "reason"})
+        self.assertEqual(["tools.test_a_extra.CaseB.test_two"],
                           [test.id() for test in run_suite.iter_tests(kept)])
-        self.assertEqual({"tests.test_a"}, matched)
+        self.assertEqual({"tools.test_a"}, matched)
 
 
 class CountAndIterTests(unittest.TestCase):
     def test_count_and_iter_agree_on_a_nested_suite(self):
-        inner = _suite("tests.test_a.CaseA.test_one")
-        outer = unittest.TestSuite([inner, _suite("tests.test_b.CaseB.test_two")])
+        inner = _suite("tools.test_a.CaseA.test_one")
+        outer = unittest.TestSuite([inner, _suite("tools.test_b.CaseB.test_two")])
         self.assertEqual(2, run_suite.count_tests(outer))
-        self.assertEqual(["tests.test_a.CaseA.test_one", "tests.test_b.CaseB.test_two"],
+        self.assertEqual(["tools.test_a.CaseA.test_one", "tools.test_b.CaseB.test_two"],
                           [test.id() for test in run_suite.iter_tests(outer)])
 
 

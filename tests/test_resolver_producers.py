@@ -5,11 +5,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from . import autocode as runner, autopilot, autocode_goals as goals
-from . import autocode_milestones as milestones, autocode_resolver_human as human
-from . import autocode_support as support, autocode_workflow as workflow
-from .goal_fixtures import body, envelope
-from .units import autoresolver
+import autocode as runner, autopilot, autocode_goals as goals
+import autocode_milestones as milestones, autocode_resolver_human as human
+import autocode_support as support, autocode_workflow as workflow
+from goal_fixtures import body, envelope
+from units import autoresolver
 
 
 class ResolverProducerTests(unittest.TestCase):

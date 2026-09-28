@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -308,10 +309,36 @@ class DrivingBoundsTest(unittest.TestCase):
                 live_trial.invoke([sys.executable, "-c", script], dict(os.environ), root, 1)
             self.assertIsNotNone(getattr(stopped.exception, "processes", None))
             pid = int(marker.read_text())
-            try:  # killed; a zombie awaiting a reaper (containers whose PID 1 never reaps) is stopped too
-                running = psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+            try:
+                started = psutil.Process(pid).create_time()
             except psutil.NoSuchProcess:
-                running = False
+                started = None
+            def cleanup_child():
+                if started is None:
+                    return
+                try:
+                    child = psutil.Process(pid)
+                    if child.create_time() != started or child.status() == psutil.STATUS_ZOMBIE:
+                        return
+                    child.terminate()
+                    try:
+                        child.wait(timeout=1)
+                    except psutil.TimeoutExpired:
+                        if child.create_time() == started:
+                            child.kill()
+                            child.wait(timeout=1)
+                except (psutil.NoSuchProcess, psutil.ZombieProcess):
+                    pass
+            self.addCleanup(cleanup_child)
+            deadline = time.monotonic() + 2
+            while True:
+                try:  # a zombie awaiting a reaper (containers whose PID 1 never reaps) is stopped too
+                    running = psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+                except psutil.NoSuchProcess:
+                    running = False
+                if not running or time.monotonic() >= deadline:
+                    break
+                time.sleep(.01)
             self.assertFalse(running)
 
 

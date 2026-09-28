@@ -44,7 +44,7 @@ class AssignmentScenarios(unittest.TestCase):
     def install_builder(self, scenario):
         fixture_bin = self.root / ".autocode/fixture-bin"
         fixture_bin.mkdir(parents=True, exist_ok=True)
-        shutil.copy2((Path(__file__).resolve().parents[1] / "tools" / ("scenario_builder.py")), fixture_bin / "codex")
+        shutil.copy2(Path(__file__).resolve().parents[1] / "tools" / "scenario_builder.py", fixture_bin / "codex")
         (fixture_bin / "codex").chmod(0o755)
         self.environment = patch.dict(os.environ, {
             "PATH": str(fixture_bin) + os.pathsep + os.environ["PATH"],

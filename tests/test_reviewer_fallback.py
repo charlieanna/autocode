@@ -8,8 +8,8 @@ import subprocess
 import tempfile
 import unittest
 
-from . import autocode_reviewer_fallback as fallback
-from . import autocode_support as support
+import autocode_reviewer_fallback as fallback
+import autocode_support as support
 
 
 GLM = "zai-coding-plan/glm-5.3"

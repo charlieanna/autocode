@@ -2,6 +2,7 @@
 import copy
 import json
 import shutil
+import sys
 from pathlib import Path
 from unittest.mock import patch
 import unittest
@@ -15,6 +16,69 @@ runner, support = base.runner, base.s
 
 class RepairTests(unittest.TestCase):
     setUp = base.RetrofitTest.setUp
+
+    def timed_out_repair(self):
+        pending = self.queue()
+        pending['attempts'] = 1
+        self.state['next_stage'] = 'terra'
+        original = pending['original']
+        path = self.run / 'iterations/005/terra_report_repair-01'
+        record = {key: original[key] for key in ('role', 'iteration', 'schema')}
+        record.update(stage='terra_report_repair', original_stage='terra', report_only=True,
+                      timed_out=True, exit_code=-15, finished_at=runner.now(),
+                      processes=[{'pid': 99999999, 'birth_time': 1}], duration_seconds=1)
+        for key, suffix, value in [('events', '.jsonl', '{}'), ('output', '.json', '{}'),
+                                  ('before_ref', '.before.json', json.dumps(support.snapshot(self.root)))]:
+            target = Path(str(path) + suffix)
+            target.write_text(value)
+            record[key] = str(target)
+        self.state['active_stage'] = record
+        return pending, record
+
+    def test_timeout_recovery_retains_pending_original_and_bindings(self):
+        pending, record = self.timed_out_repair()
+        expected = copy.deepcopy(pending)
+        sessions = copy.deepcopy(self.state['sessions'])
+        with patch.object(runner.processes, 'live_processes', return_value=[]):
+            runner.reconcile_active(self.state, self.run, self.root)
+        self.assertEqual(expected, self.state['pending_report_repair'])
+        self.assertEqual(sessions, self.state['sessions'])
+        self.assertEqual('terra', self.state['next_stage'])
+        self.assertNotIn('active_stage', self.state)
+        self.assertEqual('retry', self.state['stages'][-1]['decision']['action'])
+        self.assertEqual(1, self.state['stages'][-1]['receipt']['evidence']['repair_attempts_used'])
+
+    def test_timeout_recovery_fails_closed_without_changing_pending(self):
+        pending, record = self.timed_out_repair()
+        initial = copy.deepcopy(self.state)
+        for case in ('live', 'unknown', 'terminal', 'source', 'pins', 'exhausted', 'route', 'pause', 'intervention'):
+            self.state = copy.deepcopy(initial)
+            record = self.state['active_stage']
+            with self.subTest(case=case):
+                if case == 'unknown':
+                    record.pop('processes')
+                if case == 'terminal':
+                    Path(record['events']).write_text(json.dumps({'type': 'turn.completed'}))
+                if case == 'source':
+                    (self.root / 'changed.txt').write_text('changed')
+                if case == 'pins':
+                    self.state['pending_report_repair']['pins'] = {}
+                if case == 'exhausted':
+                    self.state['pending_report_repair']['attempts'] = 2
+                if case == 'route':
+                    self.state['next_stage'] = 'sol'
+                if case == 'pause':
+                    (self.run / 'pause-requested').touch()
+                expected = copy.deepcopy(self.state['pending_report_repair'])
+                with patch.object(runner.processes, 'live_processes', return_value=[record] if case == 'live' else []), \
+                        patch.object(runner.interventions, 'pending', return_value=[{}] if case == 'intervention' else []), \
+                        self.assertRaises(support.Paused):
+                    runner.reconcile_active(self.state, self.run, self.root)
+                self.assertEqual(expected, self.state['pending_report_repair'])
+                self.assertIn('active_stage', self.state)
+                Path(record['events']).write_text('{}')
+                (self.root / 'changed.txt').unlink(missing_ok=True)
+                (self.run / 'pause-requested').unlink(missing_ok=True)
 
     def test_plan_review_missing_blocking_is_preserved_as_blocking(self):
         schema = self.run / 'plan-review.schema.json'
@@ -725,10 +789,19 @@ class RepairTests(unittest.TestCase):
         launch.assert_not_called()
 
     def test_invalid_or_unbounded_repair_configuration_is_rejected(self):
-        for value in (-1, 7, True, '2'):
+        for value in (-1,3,6,7,True,False,'2',2.0,None):
                 self.state['settings']['report_repair']={'max_attempts':value}
                 with self.subTest(value=value),self.assertRaises(ValueError):
                     runner.repair_limit(self.state)
+
+    def test_missing_repair_settings_do_not_enable_automatic_spend(self):
+        self.state['settings'].pop('report_repair', None)
+        self.assertEqual(0, runner.repair_limit(self.state))
+        self.state['settings']['report_repair'] = {}
+        self.assertEqual(0, runner.repair_limit(self.state))
+        for limit in (0, 1, 2):
+            self.state['settings']['report_repair'] = {'max_attempts': limit}
+            self.assertEqual(limit, runner.repair_limit(self.state))
 
     def test_legacy_missing_event_citation_is_requeued_only_with_exact_pins(self):
         pending = self.queue()
@@ -808,6 +881,20 @@ class RepairTests(unittest.TestCase):
                            'evidence_ref': 'event:item_7'}], data['original_executed_checks'])
         self.assertIn('contract_hash', data['report_identity'])
 
+    # Superseded: the rejected_report repair flow replaced the original_report
+    # extraction path; the no-replay and tampering invariants live in
+    # test_terminal_error_is_durably_queued_without_replaying_implementation and the
+    # tampering tests.
+
+    def test_repair_does_not_replace_unparseable_events_with_saved_report(self):
+        pending = self.queue()
+        original = pending['original']
+        original['engine'] = 'opencode'
+        Path(original['output']).write_text(json.dumps({'verdict': 'PASS'}))
+        extracted = runner.original_report_for_repair(original)
+        self.assertIsNone(extracted['report'])
+        self.assertTrue(extracted['extraction_error'])
+
     def test_accept_uses_original_evidence_and_does_not_double_count_original(self):
         pending = self.queue()
         pending['attempts'] = 1
@@ -870,6 +957,55 @@ class RepairSubprocessTests(unittest.TestCase):
     launch = test_subprocess.SubprocessFlow.launch
     saved = test_subprocess.SubprocessFlow.saved
     new_run_engine_args = ('--engine', 'codex')
+
+    def timeout_provider(self, mode='first', stage='astra_discovery'):
+        provider = self.root / 'fixture-bin/codex'
+        real = provider.with_name('real_codex.py')
+        provider.rename(real)
+        provider.write_text(f'''#!{sys.executable}
+import json, os, subprocess, sys, time
+from pathlib import Path
+if sys.argv[1:] == ['login', 'status']:
+    raise SystemExit(subprocess.call([sys.executable, {str(real)!r}, *sys.argv[1:]]))
+prompt = sys.stdin.read()
+data = json.loads(prompt.split('CURRENT HANDOFF DATA\\n', 1)[1])
+output = Path(sys.argv[sys.argv.index('-o') + 1])
+if data.get('report_repair') and ({mode!r} == 'all' or output.stem.endswith('-01')):
+    if {mode!r} == 'pause':
+        Path(data['state_file']).with_name('pause-requested').touch()
+    if {mode!r} == 'changed':
+        Path('unexpected.txt').write_text('changed source')
+    print(json.dumps({{'type': 'thread.started', 'thread_id': 'timeout-fixture'}}), flush=True)
+    time.sleep(30)
+raise SystemExit(subprocess.run([sys.executable, {str(real)!r}, *sys.argv[1:]], input=prompt, text=True).returncode)
+''')
+        provider.chmod(0o755)
+        self.env.update(AUTOCODE_FIXTURE_MODE='no-human', AUTOCODE_FIXTURE_REPORT_REPAIR_STAGE=stage)
+
+    # Superseded: the rejected_report repair flow replaced the original_report
+    # extraction path; the no-replay and tampering invariants live in
+    # test_terminal_error_is_durably_queued_without_replaying_implementation and the
+    # tampering tests.
+
+    # Superseded: the rejected_report repair flow replaced the original_report
+    # extraction path; the no-replay and tampering invariants live in
+    # test_terminal_error_is_durably_queued_without_replaying_implementation and the
+    # tampering tests.
+
+    def test_cli_changed_source_escalates_without_replaying_repair(self):
+        self.timeout_provider('changed')
+        self.launch(['Build greeting', '--no-chat', '--max-stage-seconds', '2'], 2)
+        _, state = self.saved()
+        self.assertEqual('WAITING_FOR_USER', state['status'])
+        self.assertEqual('operational_exhaustion', runner.resolver_human.current(state)['scope'])
+        self.assertEqual(1, state['pending_report_repair']['attempts'])
+        self.assertTrue(state['active_stage']['timed_out'])
+        self.assertEqual('changed source', (self.project / 'unexpected.txt').read_text())
+
+    # Superseded: the rejected_report repair flow replaced the original_report
+    # extraction path; the no-replay and tampering invariants live in
+    # test_terminal_error_is_durably_queued_without_replaying_implementation and the
+    # tampering tests.
 
     def test_explicit_retry_replaces_legacy_rejected_planning_attempt(self):
         self.launch(['Build greeting','--no-chat'],2)

@@ -29,6 +29,10 @@ def git(cwd, *args):
     return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
 
 
+def project_file(project, path):
+    return (project.root / path).read_text()
+
+
 class Project:
     """A committed BUGFIX-01 seed; tests overlay candidate files on the working tree."""
 
@@ -209,6 +213,41 @@ class VerifyCase(unittest.TestCase):
             env = verify.test_environment(tree, {"PYTHONPATH": "/elsewhere"})
             self.assertEqual([str(tree / "src"), str(tree), "/elsewhere"], env["PYTHONPATH"].split(os.pathsep))
             self.assertEqual("1", env["CI"])
+
+    def test_generated_version_file_reaches_the_scratch_trees(self):
+        """A setuptools-scm/hatch-vcs package imports a git-ignored _version.py that
+        exists only where the project was installed. The fix is made in a separate task
+        worktree, as in a real run; the proof must still import the package."""
+        project = self.project({
+            ".gitignore": "src/pkg/_version.py\nbuild/\n",
+            "src/pkg/__init__.py": "from ._version import VERSION\n",
+            "src/pkg/calc.py": "def mean(values):\n    return sum(values) / len(values)\n",
+            "tests/test_calc.py": "import unittest\n\nfrom pkg.calc import mean\n\n\n"
+                                  "class Mean(unittest.TestCase):\n    def test_mean(self):\n"
+                                  "        self.assertEqual(2, mean([2]))\n"})
+        project.write({"src/pkg/_version.py": "VERSION = '1.0'\n",
+                       "build/lib/pkg/calc.py": "raise SystemExit('stale build output')\n"})
+        task = Path(project.temp.name) / "task"
+        git(project.root, "worktree", "add", "-q", "--detach", str(task), project.base)
+        self.addCleanup(git, project.root, "worktree", "remove", "--force", str(task))
+        references.write({"src/pkg/calc.py": "def mean(values):\n"
+                                             "    return sum(values) / len(values) if values else 0\n",
+                          "tests/test_calc.py": project_file(project, "tests/test_calc.py")
+                          + "\n    def test_empty(self):\n        self.assertEqual(0, mean([]))\n"}, task)
+        framework = verify.detect_framework(task)
+        base_suite = verify.baseline(task, project.base, project.evidence, framework=framework,
+                                     suite_command=framework.suite, timeout=120, dependencies_from=project.root)
+        result = verify.verify(task, project.base, project.evidence, framework=framework, base_suite=base_suite,
+                               timeout=120, dependencies_from=project.root)
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertEqual(["tests.test_calc.Mean.test_empty"], result["fail_to_pass"])
+        # The generated file is shared context, not part of the fix; build output is not copied.
+        self.assertEqual({"src/pkg/calc.py": "modified", "tests/test_calc.py": "modified"}, result["changes"])
+        tree = Path(project.temp.name) / "tree"
+        git(project.root, "worktree", "add", "-q", "--detach", str(tree), project.base)
+        self.addCleanup(git, project.root, "worktree", "remove", "--force", str(tree))
+        self.assertEqual(["src/pkg/_version.py"], verify.copy_generated_sources(project.root, tree))
+        self.assertFalse((tree / "build").exists())
 
     def test_a_suite_that_cannot_start_is_broken_not_failing(self):
         """Review finding 15: command-not-found and no-results runs stop before any model call."""

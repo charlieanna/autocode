@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-from tools import autocode_workspaces as w, autocode_support as support
+import autocode_workspaces as w, autocode_support as support
 from . import test_subprocess
 
 

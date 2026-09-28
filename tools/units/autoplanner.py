@@ -261,7 +261,9 @@ def set_review_call_limit(state, limit):
                             and state.get('status') in ('PAUSED_STAGE_ABANDONED', 'PAUSED_REQUESTED'))
     if (not enabled(state) or not state.get("planning")
             or (not unlimited_checkpoint and (
-                (state.get("status") != "PAUSED_PLANNING_BUDGET" and issued_pause != 'PAUSED_PLANNING_BUDGET')
+                (limit == 0 and state.get("status") != "PAUSED_PLANNING_BUDGET")
+                or (limit != 0 and (state.get("status") != "PAUSED_PLANNING_BUDGET"
+                                    and issued_pause != "PAUSED_PLANNING_BUDGET"))
                 or state.get("next_stage") not in ("astra_challenge", "astra_finalize")))
             or any(state.get(key) for key in ("active_stage", "pending_report_repair", "uncertain_artifacts"))):
         raise ValueError("Planning allowance requires a reconciled PAUSED_PLANNING_BUDGET checkpoint")
