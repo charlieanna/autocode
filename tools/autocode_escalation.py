@@ -6,6 +6,9 @@ import datetime as dt
 
 LADDERS = {
     # No MiMo anywhere (user 2026-09-27): OpenAI GPT-6 via the ChatGPT login.
+    # Only the Resolver (astra) climbs GPT-6 Astra: it is too expensive for any other role
+    # (user 2026-09-28). A role whose model is on no ladder (the default GLM Validator and
+    # Completion Owner, the Plan Reviewer) keeps its route and never escalates.
     "astra": (
         ("openai/gpt-6-astra", "high", "GPT-6 Astra High"),
         ("openai/gpt-6-astra", "xhigh", "GPT-6 Astra XHigh"),
@@ -18,14 +21,14 @@ LADDERS = {
         ("openai/gpt-6-sol", "max", "GPT-6 Sol Max"),
     ),
     "sol": (
-        ("openai/gpt-6-astra", "high", "GPT-6 Astra High"),
-        ("openai/gpt-6-astra", "xhigh", "GPT-6 Astra XHigh"),
-        ("openai/gpt-6-astra", "max", "GPT-6 Astra Max"),
+        ("openai/gpt-6-sol", "high", "GPT-6 Sol High"),
+        ("openai/gpt-6-sol", "xhigh", "GPT-6 Sol XHigh"),
+        ("openai/gpt-6-sol", "max", "GPT-6 Sol Max"),
     ),
     "completion": (
-        ("openai/gpt-6-astra", "medium", "GPT-6 Astra Medium"),
-        ("openai/gpt-6-astra", "high", "GPT-6 Astra High"),
-        ("openai/gpt-6-astra", "max", "GPT-6 Astra Max"),
+        ("openai/gpt-6-sol", "medium", "GPT-6 Sol Medium"),
+        ("openai/gpt-6-sol", "high", "GPT-6 Sol High"),
+        ("openai/gpt-6-sol", "max", "GPT-6 Sol Max"),
     ),
 }
 

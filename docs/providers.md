@@ -129,13 +129,17 @@ models_command = ["gocode", "models"] # optional; or a static list: models = [..
 version_command = ["gocode", "--version"]
 
 [roles]
-astra = { model = "gpt-5.6-sol", effort = "high" }
-terra = { model = "gpt-5.6-terra", effort = "medium" }
-sol = { model = "gpt-5.6-sol", effort = "high" }
-completion = { model = "gpt-5.6-sol", effort = "medium" }
-glm = { model = "gpt-5.6-sol", effort = "medium" }
-plan_reviewer = { model = "gpt-5.6-sol", effort = "high" }
+astra = { model = "openai/gpt-6-astra", effort = "high" }
+terra = { model = "openai/gpt-6-sol", effort = "medium" }
+sol = { model = "zai-coding-plan/glm-5.3", effort = "high" }
+completion = { model = "zai-coding-plan/glm-5.3", effort = "medium" }
+glm = { model = "zai-coding-plan/glm-5.3", effort = "medium" }
+plan_reviewer = { model = "openai/gpt-6-sol", effort = "high" }
 ```
+
+`[roles]` must keep each verifier on a different model family from what it checks
+(Planner/Plan Reviewer, Builder/Validator, Builder/Completion Owner); a run whose
+roles break that pauses with `PAUSED_CROSS_MODEL` before any agent is launched.
 
 Placeholders are `{model}`, `{effort}`, `{workspace}`, `{report}`, `{schema}`,
 `{prompt_file}`, `{run_dir}`, `{role}`, and `{sandbox}`. `{sandbox}` is

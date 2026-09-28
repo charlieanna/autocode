@@ -236,8 +236,9 @@ def engine_for(settings, role):
 
 
 # Independent Plan Reviewer route (user 2026-09-26): never the Planner's model.
-# No MiMo anywhere (user 2026-09-27): OpenAI GPT-6 Astra via the ChatGPT login.
-PINNED_REVIEWER_MODEL = "openai/gpt-6-astra"
+# No MiMo anywhere (user 2026-09-27): OpenAI GPT-6 Sol via the ChatGPT login.
+# Astra is too expensive and only for the Resolver (user 2026-09-28).
+PINNED_REVIEWER_MODEL = "openai/gpt-6-sol"
 
 
 def start(state):

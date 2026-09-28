@@ -55,7 +55,7 @@ class PolicyTests(unittest.TestCase):
         state['settings']['builder_retry']['strong_model']='gpt-6-sol'
         policy.failure(state,'e1','f'); policy.failure(state,'e2','f')
         self.assertEqual('openai/gpt-6-sol',state['settings']['roles']['terra']['model'])
-        self.assertEqual('high',state['settings']['roles']['terra']['reasoning_effort'])
+        self.assertEqual('xhigh',state['settings']['roles']['terra']['reasoning_effort'])
 
 
 class PolicyBlackbox(unittest.TestCase):

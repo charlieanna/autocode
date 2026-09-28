@@ -18,13 +18,14 @@ DEFAULT_MODELS = {
     "glm": "zai-coding-plan/glm-5.3",
     # Independent Plan Reviewer must not be the Planner's model (or family).
     # No MiMo anywhere (user 2026-09-27): OpenAI GPT via the ChatGPT login instead.
-    "plan_reviewer": "openai/gpt-6-astra",
+    # GPT-6 Sol, not Astra: Astra is too expensive and only for the Resolver (user 2026-09-28).
+    "plan_reviewer": "openai/gpt-6-sol",
     # Execution path: Builder on OpenAI GPT-6 Sol; Validator and Completion Owner verify
     # on GLM so the verifier never grades its own work (docs/models.md independence).
     "terra": "openai/gpt-6-sol",
     "sol": "zai-coding-plan/glm-5.3",
     "completion": "zai-coding-plan/glm-5.3",
-    # Resolver/Astra is the strongest escalation rung and diagnosis session.
+    # The Resolver (astra role) is the only default use of GPT-6 Astra.
     "astra": "openai/gpt-6-astra",
 }
 

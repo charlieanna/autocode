@@ -18,8 +18,8 @@ class EscalationTests(unittest.TestCase):
         expected = {
             "astra": ["GPT-6 Astra High", "GPT-6 Astra XHigh", "GPT-6 Astra Max"],
             "terra": ["GPT-6 Sol Medium", "GPT-6 Sol High", "GPT-6 Sol XHigh", "GPT-6 Sol Max"],
-            "sol": ["GPT-6 Astra High", "GPT-6 Astra XHigh", "GPT-6 Astra Max"],
-            "completion": ["GPT-6 Astra Medium", "GPT-6 Astra High", "GPT-6 Astra Max"],
+            "sol": ["GPT-6 Sol High", "GPT-6 Sol XHigh", "GPT-6 Sol Max"],
+            "completion": ["GPT-6 Sol Medium", "GPT-6 Sol High", "GPT-6 Sol Max"],
         }
         self.assertEqual(expected, {role: [row[2] for row in ladder]
                                     for role, ladder in escalation.LADDERS.items()})
@@ -33,12 +33,25 @@ class EscalationTests(unittest.TestCase):
         self.assertEqual("old-session", state["session_rotations"][0]["old_session"])
         self.assertEqual([event], state["reasoning_escalations"])
 
-    def test_second_sol_failure_switches_to_astra_high(self):
-        state = self.state("sol", "openai/gpt-6-astra", "xhigh")
+    def test_second_sol_failure_climbs_to_sol_max(self):
+        state = self.state("sol", "openai/gpt-6-sol", "xhigh")
         event = escalation.advance(state, "sol", trigger="validation_rework")
-        self.assertEqual("openai/gpt-6-astra", state["settings"]["roles"]["sol"]["model"])
+        self.assertEqual("openai/gpt-6-sol", state["settings"]["roles"]["sol"]["model"])
         self.assertEqual("max", state["settings"]["roles"]["sol"]["reasoning_effort"])
-        self.assertEqual("GPT-6 Astra Max", event["selected"]["profile"])
+        self.assertEqual("GPT-6 Sol Max", event["selected"]["profile"])
+
+    def test_only_the_resolver_climbs_astra_and_default_verifiers_never_escalate(self):
+        """Astra is only for the Resolver (user 2026-09-28); GLM verifiers are on no ladder."""
+        cases = [("sol", "openai/gpt-6-astra", "high"), ("completion", "openai/gpt-6-astra", "medium"),
+                 ("sol", "zai-coding-plan/glm-5.3", "high"), ("completion", "zai-coding-plan/glm-5.3", "medium"),
+                 ("plan_reviewer", "openai/gpt-6-sol", "high")]
+        for role, model, effort in cases:
+            with self.subTest(role=role, model=model):
+                state = self.state(role, model, effort)
+                self.assertIsNone(escalation.advance(state, role, trigger="validation_rework"))
+                self.assertEqual(model, state["settings"]["roles"][role]["model"])
+        self.assertEqual({"astra"}, {role for role, ladder in escalation.LADDERS.items()
+                                     if any("astra" in row[0] for row in ladder)})
 
     def test_same_failed_iteration_advances_only_one_rung(self):
         state = self.state("terra", "openai/gpt-6-sol", "medium")
@@ -49,9 +62,9 @@ class EscalationTests(unittest.TestCase):
         self.assertEqual(1, len(state["reasoning_escalations"]))
 
     def test_codex_routes_keep_bare_model_names(self):
-        state = self.state("completion", "gpt-6-astra", "high", engine="codex")
+        state = self.state("completion", "gpt-6-sol", "high", engine="codex")
         escalation.advance(state, "completion", trigger="rejected_output")
-        self.assertEqual("gpt-6-astra", state["settings"]["roles"]["completion"]["model"])
+        self.assertEqual("gpt-6-sol", state["settings"]["roles"]["completion"]["model"])
         self.assertEqual("max", state["settings"]["roles"]["completion"]["reasoning_effort"])
 
     def test_custom_provider_custom_profile_and_final_rung_are_stable(self):

@@ -68,6 +68,24 @@ class CrossModelTest(unittest.TestCase):
                       plan_reviewer="xiaomi-token-plan-sgp/mimo-v2.6-pro")
         dispatch.enforce_cross_model_verification(state)  # must not raise
 
+    def test_bare_glm_and_mimo_names_are_their_family(self):
+        """The dashboard's Codex console routes GLM as bare glm-5.3 / glm-5.3-flash."""
+        state = roles(terra="glm-5.3-flash", sol="glm-5.3", completion="gpt-5.6-sol",
+                      glm="zai-coding-plan/glm-5.3", plan_reviewer="openai/gpt-6-sol")
+        with self.assertRaises(support.Paused) as ctx:
+            dispatch.enforce_cross_model_verification(state)
+        self.assertIn("Builder/Validator: same family glm", str(ctx.exception))
+        state = roles(terra="gpt-5.6-terra", sol="glm-5.3", completion="glm-5.3",
+                      glm="mimo-v2.6-pro", plan_reviewer="xiaomi-token-plan-sgp/mimo-v2.5-pro")
+        with self.assertRaises(support.Paused) as ctx:
+            dispatch.enforce_cross_model_verification(state)
+        self.assertIn("Planner/Plan Reviewer: same family mimo", str(ctx.exception))
+
+    def test_default_routes_are_independent(self):
+        import autocode_opencode as opencode
+        dispatch.enforce_cross_model_verification({"settings": {"roles": {
+            role: {"model": model} for role, model in opencode.DEFAULT_MODELS.items()}}})
+
     def test_missing_roles_are_skipped(self):
         dispatch.enforce_cross_model_verification({"settings": {"roles": {}}})
 

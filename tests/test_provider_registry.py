@@ -33,7 +33,7 @@ class ProviderRegistryTests(unittest.TestCase):
     def test_named_provider_loads_its_config(self):
         provider = autocode_providers.resolve("gocode")
         self.assertIsInstance(provider, command.CommandProvider)
-        self.assertEqual("openai/gpt-6-astra", provider.DEFAULT_MODELS["plan_reviewer"])
+        self.assertEqual("openai/gpt-6-sol", provider.DEFAULT_MODELS["plan_reviewer"])
         self.assertFalse(provider.SUPPORTS_SESSIONS)
 
     def test_unknown_provider_fails_without_silent_opencode_fallback(self):
@@ -111,7 +111,7 @@ class ProviderRegistryTests(unittest.TestCase):
         finally:
             autocode.opencode = previous
         self.assertEqual({
-            "engine": "opencode", "provider": None, "model": "openai/gpt-6-astra",
+            "engine": "opencode", "provider": None, "model": "openai/gpt-6-sol",
             "reasoning_effort": "high", "model_pinned": True,
         }, settings["roles"]["plan_reviewer"])
         self.assertEqual("openai/gpt-6-sol", settings["roles"]["terra"]["model"])

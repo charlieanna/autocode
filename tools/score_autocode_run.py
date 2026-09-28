@@ -47,7 +47,7 @@ FORBIDDEN_MODEL_MARKERS = ("-free", "flash", "mimo-token-plan/", "xiaomi-token-p
 LADDER = {
     "requirements": {"model": "zai-coding-plan/glm-5.3", "effort": "medium"},
     "glm": {"model": "zai-coding-plan/glm-5.3", "effort": "high"},
-    "plan_reviewer": {"model": "openai/gpt-6-astra", "effort": "high"},
+    "plan_reviewer": {"model": "openai/gpt-6-sol", "effort": "high"},
     "terra": {"model": "openai/gpt-6-sol", "effort": "medium"},
     "sol": {"model": "zai-coding-plan/glm-5.3", "effort": "high"},
     "completion": {"model": "zai-coding-plan/glm-5.3", "effort": "medium"},

@@ -332,7 +332,7 @@ class OpenCodeFlow(unittest.TestCase):
                     "astra": "openai/gpt-6-astra",
                     "terra": "openai/gpt-6-sol", "sol": "zai-coding-plan/glm-5.3",
                     "completion": "zai-coding-plan/glm-5.3",
-                    "plan_reviewer": "openai/gpt-6-astra"}
+                    "plan_reviewer": "openai/gpt-6-sol"}
         self.assertEqual(expected, {role: settings["model"] for role, settings in state["settings"]["roles"].items()})
         self.assertEqual("COMPLETE", state["phase"])
         self.assertNotEqual(state["sessions"]["terra"], state["sessions"]["sol"])

@@ -5,8 +5,10 @@ try:
 except ImportError:
     import autocode_support as s
 
-DEFAULTS = {'enabled': True, 'ordinary_retries': 1, 'strong_model': 'openai/gpt-6-astra',
-            'strong_reasoning_effort': 'high'}
+# The stronger attempt is the Builder's own GPT-6 Sol at xhigh: Astra is too expensive and
+# only for the Resolver (user 2026-09-28).
+DEFAULTS = {'enabled': True, 'ordinary_retries': 1, 'strong_model': 'openai/gpt-6-sol',
+            'strong_reasoning_effort': 'xhigh'}
 
 
 def enabled(state):

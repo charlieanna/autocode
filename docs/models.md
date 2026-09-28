@@ -22,23 +22,39 @@ Model overrides use the role names: `--requirements-model`, `--glm-model`,
 `--completion-model`, and the matching `--<role>-reasoning-effort` flags.
 See [CLI](cli.md).
 
-## Escalation ladders
+## Default models
 
-| Role | CLI and billing route | Automatic escalation ladder |
-| --- | --- | --- |
-| Requirements Gatherer | OpenCode / Z.ai Coding Plan | Provider default |
-| Planner | OpenCode / Z.ai Coding Plan | Provider default |
-| Plan Reviewer | OpenCode / ChatGPT login | Sol High → Sol XHigh → Astra High |
-| Builder | OpenCode / ChatGPT login | Terra Medium → Terra High → Terra XHigh → Terra Max |
-| Validator | OpenCode / ChatGPT login | Sol High → Sol XHigh → Astra High |
-| Completion Owner | OpenCode / ChatGPT login | Sol Medium → Sol High → Astra High |
+New OpenCode runs (the default engine) use these routes. Every OpenAI model goes
+through the ChatGPT login; GLM goes through the Z.ai Coding Plan. A verifier never
+shares its producer's model family: GPT builds and GLM validates, GLM plans and GPT
+reviews the plan. GPT-6 Astra is reserved for the Resolver.
 
-> **Note on ladder names.** The ladders still use the older model-tier names —
-> **Terra** (implementation), **Sol** (review/validation), **Astra** (strongest) —
-> because those names appear in the underlying CLI flags (`--terra-model`,
-> `--sol-model`, `--astra-model`) and in saved run state. They are not separate
-> roles. A flag like `--terra-model openai/gpt-5.6-terra` simply pins the model
-> used for the Builder role.
+| Role | Default model | Reasoning | Escalation ladder |
+| --- | --- | --- | --- |
+| Requirements Gatherer | `zai-coding-plan/glm-5.3` | medium | None |
+| Planner | `zai-coding-plan/glm-5.3` | high | None |
+| Plan Reviewer | `openai/gpt-6-sol` | high | None |
+| Builder | `openai/gpt-6-sol` | medium | Sol Medium → High → XHigh → Max |
+| Validator | `zai-coding-plan/glm-5.3` | high | None by default (see below) |
+| Completion Owner | `zai-coding-plan/glm-5.3` | medium | None by default (see below) |
+| Resolver (`--astra-model`) | `openai/gpt-6-astra` | high | Astra High → XHigh → Max |
+
+A role escalates only while its exact model and reasoning level are on its ladder.
+The default GLM Validator and Completion Owner, and the Plan Reviewer, are on no
+ladder: they keep their configured route, and a verifier that keeps struggling
+pauses the run instead. If you configure the Validator or Completion Owner on
+`openai/gpt-6-sol` (with a non-Sol Builder), they climb Sol High → XHigh → Max and
+Sol Medium → High → Max respectively. No role other than the Resolver escalates onto
+GPT-6 Astra.
+
+Other engines keep their own defaults, set where each engine is configured:
+
+| Engine or provider | Defaults |
+| --- | --- |
+| `--engine codex` | `gpt-5.6-terra` for the Builder; `gpt-5.6-sol` for the Resolver, Validator and Completion Owner (`DEFAULT_ROLE_MODELS` in `tools/autocode.py`) |
+| `--provider kilocode` | `openai/gpt-5.6-terra` for the Builder, `zai-coding-plan/glm-5.3` for the Planner, `openai/gpt-5.6-sol` for every other role (`tools/providers/configs/kilocode.toml`) |
+| `--provider gocode` | as OpenCode above (`tools/providers/configs/gocode.toml`) |
+| Dashboard Codex console | `gpt-5.6-*`, or `glm-5.3` / `glm-5.3-flash` per role through Z.ai |
 
 Autocode advances exactly one rung after durable evidence that the current role
 struggled: an invalid completed response after report repair is exhausted, an
@@ -48,12 +64,17 @@ uses the stronger rung and a fresh role session. Autocode does not silently repl
 the failed request, advances at most once for the same failed iteration, and never
 overwrites an explicit custom model/provider route.
 
+> **Note on role names.** The CLI flags keep the older tier names — `--astra-model`
+> (Resolver), `--terra-model` (Builder), `--sol-model` (Validator) — because those
+> names are in saved run state. They are not model choices: `--terra-model
+> openai/gpt-6-sol` pins the model used for the Builder role.
+
 ## Builder retry policy
 
 New standard-workflow runs use a persisted Builder retry policy per approved milestone:
-the configured Builder gets one ordinary retry, then one stronger-model attempt
-(default `gpt-6-sol` with `high` reasoning), then a safety pause. Set
-`--builder-strong-model MODEL` when creating a run to select the stronger model.
+the configured Builder gets one ordinary retry, then one stronger attempt
+(default `openai/gpt-6-sol` at `xhigh` reasoning, not Astra), then a safety pause. Set
+`--builder-strong-model MODEL` when creating a run to select a different model.
 Explicit model pins and custom providers are never overridden. Existing saved runs
 without this policy retain their previous routing. Restarting/resuming cannot reset
 an exhausted budget. Scope violations, approval requests and transport safety pauses

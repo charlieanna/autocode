@@ -41,14 +41,17 @@ def _model_family(model):
     """GLM/MiMo family for cross-verification; GPT tiers keep their own id.
 
     openai/gpt-5.6-terra and openai/gpt-6-astra are different tiers and are
-    independent. zai-coding-plan/* is one family; xiaomi-token-plan-sgp/* is
-    another — those must swap for verifier≠producer.
+    independent. zai-coding-plan/* and any glm-* name (the dashboard's Codex
+    console uses bare glm-5.3 / glm-5.3-flash) are one family;
+    xiaomi-token-plan-sgp/* and mimo-* are another — those must swap for
+    verifier≠producer.
     """
     if not isinstance(model, str) or not model:
         return ""
-    if model.startswith("zai-coding-plan/"):
+    name = model.rsplit("/", 1)[-1].lower()
+    if model.startswith("zai-coding-plan/") or name.startswith("glm-"):
         return "glm"
-    if model.startswith("xiaomi-token-plan-sgp/") or model.startswith("mimo-"):
+    if model.startswith("xiaomi-token-plan-sgp/") or name.startswith("mimo-"):
         return "mimo"
     return model
 

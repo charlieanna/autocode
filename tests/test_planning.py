@@ -74,7 +74,7 @@ class PlanningTests(unittest.TestCase):
                     "transport_identity": {"engine": "opencode"}}
         runner.configure_joint(settings, args, fresh=True)
         state = {"settings": settings}
-        self.assertEqual("openai/gpt-6-astra", settings["roles"]["plan_reviewer"]["model"])
+        self.assertEqual("openai/gpt-6-sol", settings["roles"]["plan_reviewer"]["model"])
         self.assertEqual("opencode", settings["roles"]["plan_reviewer"]["engine"])
         for stage in ("astra_challenge", "astra_finalize"):
             self.assertEqual("plan_reviewer", planning.route_for(state, stage))
@@ -86,7 +86,7 @@ class PlanningTests(unittest.TestCase):
         command, environment, _ = oc.launch("plan_reviewer", Path("/tmp/fixture"), Path("/tmp/run"),
                                             None, settings["roles"]["plan_reviewer"]["model"],
                                             None, False, planning=True)
-        self.assertEqual("openai/gpt-6-astra", command[command.index("--model") + 1])
+        self.assertEqual("openai/gpt-6-sol", command[command.index("--model") + 1])
         agent = command[command.index("--agent") + 1]
         permissions = json.loads(environment["OPENCODE_CONFIG_CONTENT"])["agent"][agent]["permission"]
         self.assertEqual("deny", permissions["edit"])
