@@ -14,7 +14,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import run  # noqa: E402
-from harness import catalog, oracle, routing, verdict  # noqa: E402
+from harness import catalog, oracle, routing, stats, verdict  # noqa: E402
+from harness.driver import metrics, split_by_turn, turn_state  # noqa: E402
 
 
 class CatalogTests(unittest.TestCase):
@@ -125,6 +126,117 @@ class RunChecksTests(unittest.TestCase):
         self.assertFalse(check.ok)
 
 
+class ExercisedTests(unittest.TestCase):
+    """`[run] requires_stages` (issue #59): a run that never reached the stage under test proves nothing about it."""
+
+    def test_a_good_ending_without_the_stage_is_not_exercised(self):
+        outcome, summary = verdict.exercised(verdict.PASS, "fine", ("astra_resolve",), ["terra", "sol"])
+        self.assertEqual(verdict.NOT_EXERCISED, outcome)
+        self.assertIn("astra_resolve", summary)
+        self.assertEqual(verdict.PASS, verdict.exercised(verdict.PASS, "fine", ("astra_resolve",),
+                                                         ["terra", "sol", "astra_resolve", "terra"])[0])
+
+    def test_a_false_completion_is_never_hidden_behind_not_exercised(self):
+        self.assertEqual(verdict.FALSE_COMPLETE, verdict.exercised(verdict.FALSE_COMPLETE, "bad", ("astra_resolve",), [])[0])
+
+    def test_the_refund_oracle_scores_what_autoresolver_said(self):
+        scenario = catalog.load("feature-refund-window")
+        self.assertEqual(("astra_resolve",), scenario.requires_stages)
+        check = scenario.oracle()
+        with tempfile.TemporaryDirectory() as root:
+            from harness.project import materialize
+            project = materialize(scenario.seed, Path(root) / "p", scenario.reference)
+            vague = {"resolutions": [{"diagnosis": "The implementation has a bug; fix it.", "evidence": []}]}
+            named = {"resolutions": [{"diagnosis": "store_date ignores the UTC-8 store offset, so the window "
+                                                   "counts UTC days", "evidence": []}]}
+            for run_record, ok in ((vague, False), (named, True), ({"resolutions": []}, None)):
+                scored = [c for c in check(project, scenario, run_record) if c.name == "resolver_named_a_planted_defect"]
+                self.assertEqual([] if ok is None else [ok], [c.ok for c in scored])
+
+
+class TurnTests(unittest.TestCase):
+    """Follow-up turns (issue #51): parsed from scenario.toml, matched to run states, and split afterwards."""
+
+    def test_turns_load_in_order(self):
+        scenario = catalog.load("review-then-fix")
+        self.assertEqual(["complete"], [turn.after for turn in scenario.turns])
+        self.assertTrue(scenario.turns[0].say.startswith("Fix them."))
+        self.assertEqual((), catalog.load("review-planted-defects").turns)
+
+    def test_a_turn_must_say_something_after_a_known_state(self):
+        with tempfile.TemporaryDirectory() as root:
+            original = catalog.CATALOG
+            catalog.CATALOG = Path(root)
+            self.addCleanup(setattr, catalog, "CATALOG", original)
+            for turn, message in (('after = "later"\nsay = "x"', "after must be"), ('after = "complete"', "exactly")):
+                scenario = Path(root) / "bad"
+                scenario.mkdir(exist_ok=True)
+                (scenario / "brief.md").write_text("Do it.")
+                (scenario / "scenario.toml").write_text(f'title = "t"\ncategory = "conversation"\n[[turn]]\n{turn}\n')
+                with self.assertRaisesRegex(ValueError, message):
+                    catalog.load("bad")
+
+    def test_turn_state_names_what_a_turn_may_follow(self):
+        self.assertEqual(["complete"], turn_state({"done": True, "needs": {"kind": "none"}}))
+        self.assertEqual(["stop", "needs:answer"], turn_state({"done": False, "needs": {"kind": "answer"}}))
+
+    def test_stages_are_split_at_the_moment_each_follow_up_was_said(self):
+        state = {"stages": [{"stage": "review_change", "finished_at": "2026-09-28T10:00:01+00:00"},
+                            {"stage": "orchestrator", "started_at": None, "finished_at": "2026-09-28T10:05:00+00:00"},
+                            {"stage": "terra", "started_at": "2026-09-28T10:05:01+00:00",
+                             "finished_at": "2026-09-28T10:06:00+00:00"}]}
+        first, second = split_by_turn(state, [{"said_at": "2026-09-28T10:04:00+00:00"}])
+        self.assertEqual(["review_change"], [stage["stage"] for stage in first])
+        self.assertEqual(["orchestrator", "terra"], [stage["stage"] for stage in second])
+
+
+class MetricsTests(unittest.TestCase):
+    def test_stages_are_broken_down_by_name_and_report_repairs_are_counted(self):
+        state = {"stages": [
+            {"stage": "terra", "duration_seconds": 30}, {"stage": "orchestrator", "duration_seconds": 1},
+            {"stage": "sol", "duration_seconds": 10}, {"stage": "sol_report_repair", "duration_seconds": 4},
+            {"stage": "regression_proof", "runner_owned": True, "duration_seconds": 2},
+            {"stage": "sol", "duration_seconds": 12}]}
+        result = metrics(state)
+        self.assertEqual(4, result["model_stages"])
+        self.assertEqual(1, result["report_repairs"])
+        self.assertEqual({"count": 2, "seconds": 22}, result["by_stage"]["sol"])
+        self.assertEqual(59, result["model_seconds"])
+
+
+class StatsTests(unittest.TestCase):
+    """`run.py stats`: how often each scenario ran and passed, never mixing fake and live."""
+
+    def result(self, scenario, mode, outcome, started, stages=5, wall=60):
+        return {"scenario": scenario, "mode": mode, "verdict": outcome, "started_at": started, "wall_seconds": wall,
+                "metrics": {"model_stages": stages, "model_seconds": wall / 2}}
+
+    def test_streak_counts_consecutive_passes_from_the_latest_run(self):
+        results = [self.result("s", "fake", verdict.PASS, "1"), self.result("s", "fake", verdict.FALSE_COMPLETE, "2"),
+                   self.result("s", "fake", verdict.PASS, "3"), self.result("s", "fake", verdict.PASS, "4")]
+        results.append(self.result("s", "fake", verdict.NOT_EXERCISED, "0"))
+        row, = stats.summarize(results)
+        self.assertEqual((5, 3, 2, 1, verdict.PASS),
+                         (row["runs"], row["passes"], row["streak"], row["not_exercised"], row["last"]))
+
+    def test_fake_and_live_runs_are_summarized_separately(self):
+        results = [self.result("s", "fake", verdict.PASS, "1", stages=9),
+                   self.result("s", "glm53-openai", verdict.FALSE_COMPLETE, "2", stages=14, wall=900)]
+        rows = {row["mode"]: row for row in stats.summarize(results)}
+        self.assertEqual((1, 9), (rows["fake"]["passes"], rows["fake"]["median_model_stages"]))
+        self.assertEqual((0, 14, 15), (rows["glm53-openai"]["passes"], rows["glm53-openai"]["median_model_stages"],
+                                       rows["glm53-openai"]["median_wall_minutes"]))
+        self.assertEqual(["fake"], [row["mode"] for row in stats.summarize(results, mode="fake")])
+
+    def test_skipped_runs_do_not_count_and_older_results_still_read(self):
+        old = {"scenario": "s", "mode": "fake", "verdict": verdict.PASS, "started_at": "1",
+               "metrics": {"model_stage_names": ["terra", "sol", "astra_review"]}}
+        skipped = {"scenario": "s", "mode": "fake", "verdict": verdict.SKIPPED, "started_at": "2"}
+        row, = stats.summarize([old, skipped])
+        self.assertEqual((1, 3, None), (row["runs"], row["median_model_stages"], row["median_wall_minutes"]))
+        self.assertIn("s", stats.format_table([row]))
+
+
 class FakeSchemaTests(unittest.TestCase):
     """The scripted model answers "none" for any required field its script does not know yet."""
 
@@ -172,6 +284,25 @@ class FakeRunTests(unittest.TestCase):
         self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
         self.assertEqual("review", result["workflow"])
         self.assertEqual(["recognize_workflow", "review_change"], result["metrics"]["stage_names"])
+
+    def test_tiny_jobs_do_not_quietly_take_more_steps(self):
+        # Issue #15: small jobs already take many model calls. These are today's counts
+        # with the scripted model; lower them when a step is trimmed, never raise them
+        # without deciding that the extra step is worth its time.
+        for scenario, ceiling in (("greenfield-greeting-cli", 9), ("bugfix-trivial", 5)):
+            with self.subTest(scenario=scenario):
+                result = self.run_fake("reference", scenario)
+                self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+                self.assertLessEqual(result["metrics"]["model_stages"], ceiling,
+                                     result["metrics"]["model_stage_names"])
+                self.assertGreater(result["wall_seconds"], 0)
+
+    def test_a_conversation_reviews_first_then_says_its_follow_up_in_the_same_run(self):
+        result = self.run_fake("reference", "review-then-fix")
+        self.assertEqual(2, len(result["turns"]), result["summary"])
+        self.assertEqual(["recognize_workflow", "review_change"], result["turns"][0]["model_stage_names"])
+        self.assertEqual("review", result["turns"][0]["workflow"])
+        self.assertTrue(result["turns"][1]["say"].startswith("Fix them."))
 
     def test_an_invented_blocker_in_a_review_is_judged_false_complete(self):
         result = self.run_fake("broken/invented-blocker", "review-clean-pr")

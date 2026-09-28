@@ -6,6 +6,7 @@
   python3 scenarios/run.py run ID ... --fake  # full AutoCode run with a scripted model (no spend)
   python3 scenarios/run.py run ID ... --profile glm53-openai --i-authorize-live-model-spend
   python3 scenarios/run.py route --fake      # which workflow AutoCode recognizes for each prompt in routing.toml
+  python3 scenarios/run.py stats [ID ...]    # runs, passes, pass streak, time and model stages per scenario and mode
 
 Results go to .scenario-runs/<time>-<id>-<mode>/ (result.json, steps.jsonl,
 state.json, and the delivered project). See scenarios/README.md.
@@ -19,13 +20,15 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import catalog, routing, verdict  # noqa: E402
-from harness.driver import REPO, DriveError, Driver, default_autocode, fake_setup, live_setup, metrics  # noqa: E402
+from harness import catalog, routing, stats, verdict  # noqa: E402
+from harness.driver import (REPO, DriveError, Driver, default_autocode, fake_setup, live_setup, metrics,  # noqa: E402
+                            split_by_turn)
 from harness.project import materialize  # noqa: E402
 
 
@@ -88,7 +91,7 @@ def cmd_run(args) -> int:
         result = run_one(scenario, args)
         outcome = result["verdict"]
         note = ""
-        if outcome not in (verdict.PASS, verdict.SKIPPED):
+        if outcome not in (verdict.PASS, verdict.SKIPPED, verdict.NOT_EXERCISED):
             if scenario.known_failure:
                 note = f"\n  known failure (not counted): {scenario.known_failure}"
             else:
@@ -134,36 +137,66 @@ def run_one(scenario, args) -> dict:
                     max_steps=args.max_steps or scenario.max_steps,
                     timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes))
     drive_error = ""
+    started = time.monotonic()
     try:
-        driver.drive(scenario.brief)
+        driver.drive(scenario.brief, scenario.turns)
     except DriveError as error:
         drive_error = str(error)
+    wall_seconds = round(time.monotonic() - started, 1)
     state = driver.state()
     if state:
         (out / "state.json").write_text(json.dumps(state, indent=2))
     record = run_record(driver, state)
     oracle = verdict.evaluate(scenario, project, record)
     outcome, summary = verdict.judge(state.get("status", ""), oracle, scenario.expected)
+    outcome, summary = verdict.exercised(outcome, summary, scenario.requires_stages, record["model_stages"])
     if drive_error:
         outcome, summary = verdict.ERROR, f"harness stopped: {drive_error}; oracle {oracle.summary}"
     result.update(runner_status=state.get("status"), run_dir=str(driver.run_dir or ""),
                   cli_calls=len(driver.steps), answers=driver.answers, metrics=metrics(state),
+                  resolutions=record["resolutions"],
+                  wall_seconds=wall_seconds, cli_seconds=round(sum(step["seconds"] for step in driver.steps), 1),
                   workflow=record["view"].get("workflow"), expected=scenario.expected,
+                  turns=[{"say": turn["say"], "workflow": turn["view"].get("workflow"),
+                          "model_stage_names": turn["model_stages"]} for turn in record.get("turns", [])],
                   checks=[dataclasses.asdict(check) for check in oracle.checks], oracle_error=oracle.error)
     return finish(out, result, outcome, summary)
 
 
 def run_record(driver: Driver, state: dict) -> dict:
-    """What an oracle may know about how the run went (harness.oracle.run_checks)."""
+    """What an oracle may know about how the run went (harness.oracle.run_checks).
+
+    A scenario with follow-up turns also gets ``turns``: one record of the same
+    shape per turn, the first for the brief, each later one from the moment its
+    message was said. Only the last turn's record carries the final view; earlier
+    ones carry the view the driver saw when that turn ended.
+    """
     view = {}
     if driver.run_dir:
         try:
             view = driver.view()
         except DriveError:
             view = {}
-    return {"status": state.get("status", ""), "view": view, "stages": metrics(state)["stage_names"],
-            "model_stages": metrics(state)["model_stage_names"],
-            "answers": driver.answers, "cli_calls": [step["kind"] for step in driver.steps]}
+    record = {"status": state.get("status", ""), "view": view, "stages": metrics(state)["stage_names"],
+              "model_stages": metrics(state)["model_stage_names"],
+              "answers": driver.answers, "cli_calls": [step["kind"] for step in driver.steps],
+              # AutoResolver's accepted diagnoses, oldest first, for oracles that score them (issue #59).
+              "resolutions": [{"diagnosis": row.get("diagnosis"), "evidence": row.get("evidence")}
+                              for row in state.get("resolution_history") or [] if isinstance(row, dict)]}
+    if driver.turn_marks:
+        stage_turns = split_by_turn(state, driver.turn_marks)
+        steps = [0, *(mark["steps"] for mark in driver.turn_marks), len(driver.steps)]
+        answers = [0, *(mark["answers"] for mark in driver.turn_marks), len(driver.answers)]
+        record["turns"] = []
+        for index, stages in enumerate(stage_turns):
+            turn_metrics = metrics({"stages": stages})
+            record["turns"].append({
+                "say": driver.turn_marks[index - 1]["say"] if index else None,
+                "stages": turn_metrics["stage_names"], "model_stages": turn_metrics["model_stage_names"],
+                "answers": driver.answers[answers[index]:answers[index + 1]],
+                "cli_calls": [step["kind"] for step in driver.steps[steps[index]:steps[index + 1]]],
+                "view": (driver.turn_marks[index].get("view") if index < len(driver.turn_marks) else view) or {}})
+    return record
 
 
 def cmd_route(args) -> int:
@@ -213,6 +246,16 @@ def cmd_route(args) -> int:
         print(f"  known failure (not counted): {table['known_failure']}")
         return 0
     return 1
+
+
+def cmd_stats(args) -> int:
+    """Summarize every saved result under --out: how often each scenario ran and passed, and how long it took."""
+    rows = stats.summarize(stats.load_results(args.out), ids=set(args.ids), mode=args.mode)
+    if not rows:
+        print(f"no scenario results under {args.out}")
+        return 0
+    print(stats.format_table(rows))
+    return 0
 
 
 def finish(out: Path, result: dict, outcome: str, summary: str) -> dict:
@@ -265,6 +308,11 @@ def main(argv=None) -> int:
     route.add_argument("--autocode", nargs="+", help="AutoCode command to test (default: this checkout)")
     route.add_argument("--timeout-minutes", type=int, help="time budget per prompt (default 10)")
     route.set_defaults(func=cmd_route)
+    summary = commands.add_parser("stats", help="runs, passes, pass streak, time and model stages from saved results")
+    summary.add_argument("ids", nargs="*")
+    summary.add_argument("--mode", help="only this mode: fake, or a live profile name")
+    summary.add_argument("--out", type=Path, default=REPO / ".scenario-runs")
+    summary.set_defaults(func=cmd_stats)
     args = parser.parse_args(argv)
     return args.func(args)
 

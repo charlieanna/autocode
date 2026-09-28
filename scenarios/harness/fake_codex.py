@@ -156,8 +156,11 @@ def stray_edits(allowed: str) -> None:
 
 def review() -> dict:
     """The fake's review: the findings from the solution it was told to apply (reference or broken).
-    The runner writes review/findings.json from this report."""
-    stray_edits("review/")
+    The runner writes review/findings.json from this report. In a scenario with
+    follow-up turns the solution is the end state of the whole conversation, whose
+    code changes belong to a later turn, so the review does not play them as stray edits."""
+    if not CONFIG.get("turns"):
+        stray_edits("review/")
     path = Path(CONFIG["reference"]) / "review" / "findings.json"
     saved = json.loads(path.read_text()) if path.is_file() else {}
     # Targeted tests in the solution are delivered into the workspace under review/tests/,

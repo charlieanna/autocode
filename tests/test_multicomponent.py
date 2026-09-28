@@ -237,6 +237,63 @@ class CliTests(BuildAndIntegrateTests):
         self.assertIn("cycle", proc.stderr)
         self.assertFalse((self.repo / ".autocode-components").exists())
 
+    def stop_both_for_plan_approval(self):
+        """A first invocation without --auto-approve: both components stop for a person."""
+        self.write_manifest()
+        proc = self.run_cli("architecture", "--workspace", str(self.repo), "--options", " ".join(FIXTURE_OPTIONS))
+        self.assertEqual(2, proc.returncode, proc.stderr[-1500:])
+        summary = json.loads(proc.stdout)
+        self.assertEqual({"alpha": "needs_input", "beta": "needs_input"},
+                         {cid: info["status"] for cid, info in summary["components"].items()})
+        return summary
+
+    def component_branches(self):
+        out = subprocess.run(["git", "branch", "--list", "components/*"], cwd=self.repo, capture_output=True,
+                             text=True, check=True).stdout
+        return sorted(line.strip(" *+") for line in out.splitlines())
+
+    def test_a_second_invocation_resumes_stopped_components(self):
+        first = self.stop_both_for_plan_approval()
+        branches = self.component_branches()
+        self.assertEqual(2, len(branches))
+
+        proc = self.run_cli("architecture", "--workspace", str(self.repo), "--auto-approve",
+                            "--integrate", "integration", "--options", " ".join(FIXTURE_OPTIONS))
+        self.assertEqual(0, proc.returncode, proc.stderr[-1500:])
+        second = json.loads(proc.stdout)
+        for cid in ("alpha", "beta"):
+            self.assertEqual("done", second["components"][cid]["status"])
+            self.assertTrue(second["components"][cid]["resumed"])
+            # The same run was continued, not a new one started beside it.
+            self.assertEqual(first["components"][cid]["run_dir"], second["components"][cid]["run_dir"])
+        self.assertEqual(branches, self.component_branches())
+        self.assertEqual(["alpha", "beta"], second["integration"]["integrated"])
+
+    def test_a_run_started_before_a_crash_is_reattached(self):
+        # A crash while TaskRun.start was still advancing leaves a worktree and a run
+        # but no run_dir in the manifest; the next invocation finds the run itself.
+        first = self.stop_both_for_plan_approval()
+        manifest_path = self.repo / ".autocode-components" / "manifest.json"
+        saved = json.loads(manifest_path.read_text())
+        saved["components"]["alpha"]["run_dir"] = None
+        manifest_path.write_text(json.dumps(saved))
+
+        proc = self.run_cli("architecture", "--workspace", str(self.repo), "--auto-approve",
+                            "--options", " ".join(FIXTURE_OPTIONS))
+        self.assertEqual(0, proc.returncode, proc.stderr[-1500:])
+        second = json.loads(proc.stdout)
+        self.assertEqual(first["components"]["alpha"]["run_dir"], second["components"]["alpha"]["run_dir"])
+        self.assertEqual("done", second["components"]["alpha"]["status"])
+
+    def test_a_changed_architecture_is_not_resumed(self):
+        self.stop_both_for_plan_approval()
+        (self.repo / "architecture" / "components.json").write_text(json.dumps(
+            [{**component("alpha"), "description": "a different alpha"}, component("beta")]))
+        proc = self.run_cli("architecture", "--workspace", str(self.repo), "--auto-approve",
+                            "--options", " ".join(FIXTURE_OPTIONS))
+        self.assertNotEqual(0, proc.returncode)
+        self.assertIn("architecture changed", proc.stderr)
+
     def test_cli_refuses_to_touch_an_existing_worktree(self):
         (self.repo / ".autocode-components" / "alpha").mkdir(parents=True)
         proc = self.run_cli("architecture", "--workspace", str(self.repo))

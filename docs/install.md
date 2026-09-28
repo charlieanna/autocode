@@ -38,12 +38,15 @@ python3 -m venv .venv
 
 ### Sanity check
 
-Confirm the install resolved the CLI entry points:
+Confirm the install, then check the machine and your project before the first task:
 
 ```sh
-autocode --help
-autopilot --help
+autocode --version
+autocode doctor --workspace /path/to/project
 ```
+
+`doctor` names anything missing (Python, Git, an engine, a committed Git
+project) with the fix next to it, and exits 1 until the machine is ready.
 
 ## The normal invocation
 
