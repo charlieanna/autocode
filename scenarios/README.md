@@ -11,13 +11,23 @@ $PY scenarios/run.py check                        # prove every oracle (seconds;
 $PY scenarios/run.py run --fake                   # every scenario through AutoCode with a scripted model (under a minute, no spend)
 $PY scenarios/run.py run bugfix-iso-weeks --profile glm53-openai --i-authorize-live-model-spend
 $PY scenarios/run.py route --fake                 # which workflow AutoCode recognizes for each prompt in routing.toml
+$PY scenarios/run.py stats                        # per scenario and mode: runs, passes, pass streak, time, model stages
 $PY -m unittest scenarios/test_harness.py         # the harness's own tests (under a minute)
 ```
 
 Results land in `.scenario-runs/<time>-<id>-<mode>/`: `result.json` (verdict,
-every oracle check, CLI calls, answers given on the user's behalf, stages,
-model time and tokens), `steps.jsonl`, the final `state.json`, and the
-delivered `project/`, kept for inspection.
+every oracle check, CLI calls, answers given on the user's behalf, wall time,
+stages with a per-stage count and time breakdown, report-repair rounds, model
+time and tokens), `steps.jsonl`, the final `state.json`, and the delivered
+`project/`, kept for inspection.
+
+`run.py stats` reads those results back. One pass can be luck, so it reports
+how many times each scenario ran in each mode, how many runs passed, and the
+current streak of consecutive passes, with median wall time and model stages.
+Fake and live modes are never combined. `test_harness.py` also fails if the
+tiny scenarios (`greenfield-greeting-cli`, `bugfix-trivial`) take more model
+stages with the scripted model than they do today, so extra steps can't creep in
+unnoticed (issue #15).
 
 ## Three levels
 
