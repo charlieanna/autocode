@@ -41,7 +41,8 @@ def needs(state: dict) -> dict | None:
 
     kind          what it asks for                  answered with
     review        human acceptance of criteria      --approve-review CRITERION --review-token TOKEN
-    answer        answers to pending questions      --answer QUESTION_ID=TEXT
+    answer        answers to pending questions      --answer QUESTION_ID=TEXT (plus --resolver-token
+                                                     when the view carries one)
     approve_plan  approval of the displayed plan    --approve-goal TOKEN
     planning_budget  more planning review calls     --feedback TEXT or --planning-review-call-limit N
     resume        a person to inspect a pause       --resume-paused, after resolving stop_reason
@@ -64,8 +65,19 @@ def needs(state: dict) -> dict | None:
         return {"kind": "review", "criteria": list(request.get("criteria") or []),
                 "token": state.get("displayed_review"), "question": request.get("decision_needed")}
     if questions:
-        return {"kind": "answer", "request_kind": request.get("kind"),
-                "questions": [{field: question.get(field) for field in QUESTION_FIELDS} for question in questions]}
+        answer = {"kind": "answer", "request_kind": request.get("kind"),
+                  "questions": [{field: question.get(field) for field in QUESTION_FIELDS} for question in questions]}
+        # Answers to a published AutoResolver request must carry its token
+        # (autocode.py: require --resolver-token). Surface the current one so
+        # drivers can serve this gate from the view alone; a stale or consumed
+        # request carries no token and the CLI re-verifies freshness anyway.
+        published = state.get("resolver_human_request")
+        entry = ((state.get("resolver") or {}).get("human_escalations") or {}).get(
+            (published or {}).get("request_id"))
+        if isinstance(published, dict) and isinstance(entry, dict) and entry.get("status") == "pending":
+            answer["resolver_request_id"] = published.get("request_id")
+            answer["resolver_token"] = published.get("request_token")
+        return answer
     if status == "AWAITING_GOAL_APPROVAL":
         # The approval token is saved when the CLI displays the plan; until then, relaunch to display it.
         return {"kind": "approve_plan", "token": state["displayed_goal"]} if state.get("displayed_goal") else {"kind": "continue"}

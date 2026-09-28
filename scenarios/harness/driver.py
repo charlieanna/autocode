@@ -135,12 +135,20 @@ class Driver:
         if kind == "approve_plan":
             self.call("approve-plan", "--approve-goal", need["token"], action=True)
         elif kind == "answer":
+            # One CLI call with every answer: a published AutoResolver request
+            # is consumed by the first answered invocation, so per-question
+            # calls would answer once and then fail the token check.
+            pairs = []
             for question in need["questions"]:
                 options = question.get("options") or []
                 answer = question.get("proposed_default") or (options[0] if options else "yes")
                 self.answers.append({"id": question["id"], "question": question.get("question"),
                                      "why": question.get("why"), "answer": answer})
-                self.call("answer", "--answer", f"{question['id']}={answer}", action=True)
+                pairs.append(f"{question['id']}={answer}")
+            args = [item for pair in pairs for item in ("--answer", pair)]
+            if need.get("resolver_token"):
+                args += ["--resolver-token", need["resolver_token"]]
+            self.call("answer", *args, action=True)
         elif kind == "review":
             for criterion in need["criteria"]:
                 self.answers.append({"id": criterion, "question": need.get("question"), "answer": "approved"})
