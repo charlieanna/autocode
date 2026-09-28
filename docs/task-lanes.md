@@ -147,8 +147,12 @@ autocode --workspace /path/to/project \
 ```
 
 Existing runs retain their original checkout. `--in-place` explicitly starts a new
-task in the selected checkout and retains its single-writer lock. Worktrees and
-branches remain available after a task ends; inspect and commit their changes, then
-merge the branch when ready. Autocode does not automatically merge or delete them.
+task in the selected checkout. Only one run's agents work in a checkout at a time:
+a second run started there (or resumed there) while another run's agents are working
+prints which run holds the checkout and exits with status 2, changing nothing. Run
+the same command again once the other run stops, or start the task without
+`--in-place` so it gets its own worktree. Answering, approving or giving feedback to
+a waiting run launches no agent and is not blocked. AutoCode never merges branches;
+see [When a task finishes](#when-a-task-finishes) for committing and removing worktrees.
 
 See also: [Figma design](figma.md) · [Workflow](workflow.md)

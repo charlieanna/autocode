@@ -36,7 +36,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | --- | --- |
 | `--workspace /path` | Committed Git workspace to work in. Defaults to the current directory. |
 | `--run-dir /path` | Resume a specific saved run. Always pair with the same `--workspace`. |
-| `--in-place` | Start a new task in the selected checkout instead of a fresh worktree. |
+| `--in-place` | Start a new task in the selected checkout instead of a fresh worktree. Only one run's agents work in a checkout at a time; a second run exits with status 2 and changes nothing (see [Task lanes](task-lanes.md#multiple-tasks-in-one-project)). |
 | `--status` | Read-only status, including `milestone_checkpoint`, `interventions`, `active_stage.activity`. |
 | `--dry-run` | Read-only preview; never emits an accepted handoff. |
 

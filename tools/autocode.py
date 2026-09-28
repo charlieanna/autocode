@@ -24,13 +24,12 @@ import copy
 import uuid
 try:
     from . import autocode_support as support, autocode_goals as goals, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
-    from . import autocode_gocode as gocode, autocode_regression as regression
+    from . import autocode_gocode as gocode, autocode_regression as regression, autocode_checkout_lock as checkout_lock
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees
 except ImportError:
     import autocode_regression as regression
     import autocode_support as support, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees
-    import autocode_goals as goals
-    import autocode_interventions as interventions
+    import autocode_goals as goals, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
     import autocode_providers
     import autocode_opencode as opencode
     import autocode_gocode as gocode
@@ -3737,10 +3736,11 @@ def _main_body(unit=None) -> int:
                     write_json(state_path, current)
                 if args.pause_after_stage and current["status"] == "RUNNING":
                     raise support.Paused("PAUSED_REQUESTED", "--pause-after-stage checkpoint reached")
-            try:
-                orchestrator.drive(state, dispatch_code_stage, before=before_code_stage,
-                                   persist=lambda current: (autopilot.publish_handoffs(current, run_dir), write_json(state_path, current)),
-                                   after=after_code_stage, investigate=not args.unit)
+            try:  # One run's agents at a time in a checkout (autocode_checkout_lock).
+                with checkout_lock.exclusive(workspace, run_dir, busy=orchestrator.LoopExit(2)):
+                    orchestrator.drive(state, dispatch_code_stage, before=before_code_stage,
+                                       persist=lambda current: (autopilot.publish_handoffs(current, run_dir), write_json(state_path, current)),
+                                       after=after_code_stage, investigate=not args.unit)
             except orchestrator.LoopExit as stopped:
                 return stopped.code
         except (support.Paused, ValueError, RuntimeError, OSError) as error:
