@@ -1,0 +1,30 @@
+{
+  "verdict": "request_changes",
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "blocking",
+      "file": "regclient/client.py",
+      "lines": [26, 28],
+      "summary": "On Timeout the new loop resends immediately; it no longer asks the registry for the transaction's status, so a command whose reply was lost after execution is executed twice.",
+      "evidence": "README 'Retries' requires status() before resending. Scripted run: ScriptedTransport(['timeout-after', 'ok']) -> transport.executed == ['txn-1', 'txn-1'] with the patch, ['txn-1'] before it."
+    },
+    {
+      "id": "F2",
+      "severity": "blocking",
+      "file": "regclient/policies.py",
+      "lines": [33, 39],
+      "summary": "REGISTRIES replaces POLICIES but has no .de entry, so .de now falls back to DEFAULT and is retried up to three times; DENIC rejects repeated transaction ids and may suspend the account.",
+      "evidence": "policy_for('de') returns DEFAULT (max_attempts=3) with the patch; before it returned max_attempts=1 with no retryable errors. The PR's tests never send to .de."
+    },
+    {
+      "id": "S1",
+      "severity": "advisory",
+      "file": "regclient/policies.py",
+      "lines": [18, 25],
+      "summary": "_errors reimplements tuple(sorted(set(...))) with a nested loop.",
+      "evidence": "Behavior is the same; this is a simplification only."
+    }
+  ],
+  "tests_run": ["python3 -m unittest discover -s tests -t . (with pr-184.patch applied, in a scratch copy)"]
+}
