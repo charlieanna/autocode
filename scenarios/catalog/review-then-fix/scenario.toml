@@ -1,0 +1,18 @@
+title = "Review a PR, then \"Fix them.\": one conversation that moves from review to build"
+category = "conversation"
+# Turn 1 is review-planted-defects: pr-184.patch has two blocking regressions
+# (timeout resends without asking the registry; .de loses its never-retry
+# policy) and one advisory nit. Turn 2 says only "Fix them." in the same run:
+# AutoCode must build from the review's findings, with no new project and no
+# requirements questions, land the PR with both regressions fixed and a test
+# for each, and leave the advisory finding alone (issue #51).
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+
+[[turn]]
+after = "complete"
+say = "Fix them. Land the PR with both blocking findings fixed and a regression test for each; leave the advisory one alone."
+
+[run]
+known_failure = "AutoCode has no way to say a follow-up to a finished run yet (--follow-up, issue #51)"

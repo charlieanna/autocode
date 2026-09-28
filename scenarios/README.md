@@ -103,8 +103,27 @@ the saved stage names, the questions the driver answered and the CLI calls it
 made. It is `None` in `check` mode, so run-level checks contribute nothing
 there and the reference/broken variants are told apart by files alone.
 
-Not yet covered: a conversation that changes activity mid-run (review → "fix
-them" → build → bug found → fix), which needs a multi-turn driver.
+### Conversations: follow-up turns in the same run
+
+One conversation should move between workflows (issue #51): review a PR, then
+"Fix them." builds from the review's findings in the same run, with no new
+project and no requirements questions. A scenario says this with `[[turn]]`
+tables in `scenario.toml`, in order:
+
+```toml
+[[turn]]
+after = "complete"      # or "stop", or "needs:<kind>" to say it instead of serving that need
+say = "Fix them."
+```
+
+When the run reaches the state `after` names, the driver says the message with
+`autocode --follow-up TEXT` (an action on the existing run, like `--feedback`)
+and keeps driving. Nothing in AutoCode accepts `--follow-up` yet, so
+`review-then-fix` is a known failure until the product side of #51 exists. The
+oracle's `run` gets `turns`: one record per turn, with the same keys as `run`
+itself (the view that turn ended with, its stages, answers and CLI calls), so
+`run_checks` can judge each turn on its own. Stages are assigned to a turn by
+when they finished.
 
 ## Catalog
 
@@ -132,6 +151,7 @@ them" → build → bug found → fix), which needs a multi-turn driver.
 | `design-review-sound` | design | The same design with the gaps closed. No blocking concerns. |
 | `discuss-cache-choice` | discuss | In-process vs. shared cache, decided by facts planted in the repository (four shared-nothing workers against a 60/hour upstream limit). Cites sources, weighs both options, writes no code, asks at most three questions. |
 | `investigate-two-caches` | investigate | Explain two caches: scope, TTL and users must match the code; consequence of removing one named; nothing changed. |
+| `review-then-fix` | conversation | Review `pr-184.patch`, then "Fix them." in the same run: the PR lands with both regressions fixed and a test that catches each (the oracle swaps back one unfixed file at a time), the advisory finding is left alone, and the fix turn asks no requirements questions. Known failure until AutoCode accepts `--follow-up` (#51). |
 
 Planned next: Figma design → implementation, and multi-service systems started
 with `docker compose` and checked end to end.
@@ -145,6 +165,7 @@ catalog/<id>/
                     mistake in harness/fake_codex.py), live_investigator = true (the scripted run
                     still makes one real model call; needs --i-authorize-live-model-spend),
                     [run] max_steps, timeout_minutes, expected = "complete"|"stop"|"any", known_failure = "why"
+                    [[turn]] after = "complete"|"stop"|"needs:<kind>", say = "follow-up message" (optional, repeatable)
   brief.md          the request, exactly as a user would type it (plain text, no headings)
   seed/             the starting project, committed before the run (omit for an empty repo)
   oracle.py         def check(project, scenario, run=None) -> list[Check]

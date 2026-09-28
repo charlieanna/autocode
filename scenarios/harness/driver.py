@@ -6,6 +6,11 @@ afterwards, for evidence and metrics. It never writes state. Gates served:
 clarifying questions (answered with AutoCode's proposed default, and recorded),
 plan approval, human-review acceptance, and planning-budget feedback. A pause
 that needs a person is left for the verdict to judge.
+
+A scenario with follow-up turns (issue #51) continues the same run: once it
+reaches the state a turn names, the driver says that turn's message with
+``--follow-up`` and drives on. ``turn_marks`` records where each turn began, so
+the run record can be split per turn afterwards.
 """
 from __future__ import annotations
 
@@ -15,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import profiles
@@ -43,7 +49,8 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
     config = root / "fake-config.json"
     config.write_text(json.dumps({"title": scenario.title, "brief": scenario.brief,
                                   "reference": str(solution), "check": scenario.fake_check,
-                                  "paths": overlay_paths(solution), "fault": scenario.fake_fault}))
+                                  "paths": overlay_paths(solution), "fault": scenario.fake_fault,
+                                  "turns": [turn.say for turn in scenario.turns]}))
     return [*FAKE_FLAGS, *scenario.fake_flags], {"PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
                         "SCENARIO_FAKE_CONFIG": str(config)}
 
@@ -62,6 +69,9 @@ class Driver:
         self.answers: list[dict] = []
         self.run_dir: Path | None = None
         self.log = root / "steps.jsonl"
+        # One mark per turn after the first: when it was said, how many CLI calls
+        # and answers came before it, and the view the previous turn ended with.
+        self.turn_marks: list[dict] = []
 
     def state(self) -> dict:
         """The saved state, read only for evidence and metrics after the run."""
@@ -106,7 +116,7 @@ class Driver:
             raise DriveError(f"{kind} exited {proc.returncode}: {(proc.stderr or proc.stdout).strip()[-500:]}")
         return proc
 
-    def drive(self, brief: str) -> dict:
+    def drive(self, brief: str, turns=()) -> dict:
         self.call("start", task=brief)
         runs = self.project / ".autocode" / "runs"
         candidates = sorted(runs.glob("*/state.json"), key=lambda path: path.stat().st_mtime) if runs.is_dir() else []
@@ -115,10 +125,26 @@ class Driver:
             raise DriveError("the first CLI call did not create a run: "
                              + (last["stderr_tail"] or last["stdout_tail"]).strip()[-500:])
         self.run_dir = candidates[-1].parent
+        view = self.until_stopped(turns[0].after if turns else None)
+        for number, turn in enumerate(turns, start=1):
+            reached = turn_state(view)
+            if turn.after not in reached:
+                raise DriveError(f"turn {number + 1} is said after {turn.after!r}, but the run ended "
+                                 f"{' / '.join(reached)} (status {view['status']!r})")
+            self.turn_marks.append({"said_at": datetime.now(timezone.utc).isoformat(), "say": turn.say,
+                                    "steps": len(self.steps), "answers": len(self.answers), "view": view})
+            self.call("follow-up", "--follow-up", turn.say, action=True)
+            view = self.until_stopped(turns[number].after if number < len(turns) else None)
+        return view
+
+    def until_stopped(self, say_at: str | None = None) -> dict:
+        """Drive until the run is done or needs something the driver does not serve.
+        ``say_at`` (``needs:<kind>``) stops at that need instead of serving it, so a
+        follow-up turn can answer it in its own words."""
         while True:
             view = self.view()
             need = view["needs"]
-            if view["done"] or need["kind"] == "resume":
+            if view["done"] or need["kind"] == "resume" or say_at == f"needs:{need['kind']}":
                 return view
             if need["kind"] == "continue":
                 self.call("resume")
@@ -151,6 +177,32 @@ class Driver:
                       "Produce a complete final plan now and finalize it.", action=True)
         else:
             raise DriveError(f"no way to serve a {kind!r} gate")
+
+
+def turn_state(view: dict) -> list[str]:
+    """Every ``after`` value a turn could name that this view satisfies."""
+    need = (view.get("needs") or {}).get("kind")
+    return ["complete"] if view.get("done") else ["stop", *([f"needs:{need}"] if need else [])]
+
+
+def split_by_turn(state: dict, marks: list[dict]) -> list[list[dict]]:
+    """The run's stage records, one list per turn, split at the moment each
+    follow-up was said. A stage belongs to the turn in which it finished."""
+    said = [_moment(mark["said_at"]) for mark in marks]
+    turns: list[list[dict]] = [[] for _ in range(len(marks) + 1)]
+    for stage in state.get("stages") or []:
+        moment = _moment(stage.get("finished_at") or stage.get("started_at"))
+        index = sum(1 for when in said if moment and when and moment >= when)
+        turns[index].append(stage)
+    return turns
+
+
+def _moment(text) -> datetime | None:
+    try:
+        moment = datetime.fromisoformat(text)
+    except (TypeError, ValueError):
+        return None
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
 
 
 def default_autocode() -> list[str]:

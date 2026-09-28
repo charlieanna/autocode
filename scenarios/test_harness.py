@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import run  # noqa: E402
 from harness import catalog, oracle, routing, stats, verdict  # noqa: E402
-from harness.driver import metrics  # noqa: E402
+from harness.driver import metrics, split_by_turn, turn_state  # noqa: E402
 
 
 class CatalogTests(unittest.TestCase):
@@ -126,6 +126,42 @@ class RunChecksTests(unittest.TestCase):
         self.assertFalse(check.ok)
 
 
+class TurnTests(unittest.TestCase):
+    """Follow-up turns (issue #51): parsed from scenario.toml, matched to run states, and split afterwards."""
+
+    def test_turns_load_in_order(self):
+        scenario = catalog.load("review-then-fix")
+        self.assertEqual(["complete"], [turn.after for turn in scenario.turns])
+        self.assertTrue(scenario.turns[0].say.startswith("Fix them."))
+        self.assertEqual((), catalog.load("review-planted-defects").turns)
+
+    def test_a_turn_must_say_something_after_a_known_state(self):
+        with tempfile.TemporaryDirectory() as root:
+            original = catalog.CATALOG
+            catalog.CATALOG = Path(root)
+            self.addCleanup(setattr, catalog, "CATALOG", original)
+            for turn, message in (('after = "later"\nsay = "x"', "after must be"), ('after = "complete"', "exactly")):
+                scenario = Path(root) / "bad"
+                scenario.mkdir(exist_ok=True)
+                (scenario / "brief.md").write_text("Do it.")
+                (scenario / "scenario.toml").write_text(f'title = "t"\ncategory = "conversation"\n[[turn]]\n{turn}\n')
+                with self.assertRaisesRegex(ValueError, message):
+                    catalog.load("bad")
+
+    def test_turn_state_names_what_a_turn_may_follow(self):
+        self.assertEqual(["complete"], turn_state({"done": True, "needs": {"kind": "none"}}))
+        self.assertEqual(["stop", "needs:answer"], turn_state({"done": False, "needs": {"kind": "answer"}}))
+
+    def test_stages_are_split_at_the_moment_each_follow_up_was_said(self):
+        state = {"stages": [{"stage": "review_change", "finished_at": "2026-09-28T10:00:01+00:00"},
+                            {"stage": "orchestrator", "started_at": None, "finished_at": "2026-09-28T10:05:00+00:00"},
+                            {"stage": "terra", "started_at": "2026-09-28T10:05:01+00:00",
+                             "finished_at": "2026-09-28T10:06:00+00:00"}]}
+        first, second = split_by_turn(state, [{"said_at": "2026-09-28T10:04:00+00:00"}])
+        self.assertEqual(["review_change"], [stage["stage"] for stage in first])
+        self.assertEqual(["orchestrator", "terra"], [stage["stage"] for stage in second])
+
+
 class MetricsTests(unittest.TestCase):
     def test_stages_are_broken_down_by_name_and_report_repairs_are_counted(self):
         state = {"stages": [
@@ -230,6 +266,13 @@ class FakeRunTests(unittest.TestCase):
                 self.assertLessEqual(result["metrics"]["model_stages"], ceiling,
                                      result["metrics"]["model_stage_names"])
                 self.assertGreater(result["wall_seconds"], 0)
+
+    def test_a_conversation_reviews_first_then_says_its_follow_up_in_the_same_run(self):
+        result = self.run_fake("reference", "review-then-fix")
+        self.assertEqual(2, len(result["turns"]), result["summary"])
+        self.assertEqual(["recognize_workflow", "review_change"], result["turns"][0]["model_stage_names"])
+        self.assertEqual("review", result["turns"][0]["workflow"])
+        self.assertTrue(result["turns"][1]["say"].startswith("Fix them."))
 
     def test_an_invented_blocker_in_a_review_is_judged_false_complete(self):
         result = self.run_fake("broken/invented-blocker", "review-clean-pr")

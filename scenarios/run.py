@@ -27,7 +27,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from harness import catalog, routing, stats, verdict  # noqa: E402
-from harness.driver import REPO, DriveError, Driver, default_autocode, fake_setup, live_setup, metrics  # noqa: E402
+from harness.driver import (REPO, DriveError, Driver, default_autocode, fake_setup, live_setup, metrics,  # noqa: E402
+                            split_by_turn)
 from harness.project import materialize  # noqa: E402
 
 
@@ -127,7 +128,7 @@ def run_one(scenario, args) -> dict:
     drive_error = ""
     started = time.monotonic()
     try:
-        driver.drive(scenario.brief)
+        driver.drive(scenario.brief, scenario.turns)
     except DriveError as error:
         drive_error = str(error)
     wall_seconds = round(time.monotonic() - started, 1)
@@ -143,21 +144,43 @@ def run_one(scenario, args) -> dict:
                   cli_calls=len(driver.steps), answers=driver.answers, metrics=metrics(state),
                   wall_seconds=wall_seconds, cli_seconds=round(sum(step["seconds"] for step in driver.steps), 1),
                   workflow=record["view"].get("workflow"), expected=scenario.expected,
+                  turns=[{"say": turn["say"], "workflow": turn["view"].get("workflow"),
+                          "model_stage_names": turn["model_stages"]} for turn in record.get("turns", [])],
                   checks=[dataclasses.asdict(check) for check in oracle.checks], oracle_error=oracle.error)
     return finish(out, result, outcome, summary)
 
 
 def run_record(driver: Driver, state: dict) -> dict:
-    """What an oracle may know about how the run went (harness.oracle.run_checks)."""
+    """What an oracle may know about how the run went (harness.oracle.run_checks).
+
+    A scenario with follow-up turns also gets ``turns``: one record of the same
+    shape per turn, the first for the brief, each later one from the moment its
+    message was said. Only the last turn's record carries the final view; earlier
+    ones carry the view the driver saw when that turn ended.
+    """
     view = {}
     if driver.run_dir:
         try:
             view = driver.view()
         except DriveError:
             view = {}
-    return {"status": state.get("status", ""), "view": view, "stages": metrics(state)["stage_names"],
-            "model_stages": metrics(state)["model_stage_names"],
-            "answers": driver.answers, "cli_calls": [step["kind"] for step in driver.steps]}
+    record = {"status": state.get("status", ""), "view": view, "stages": metrics(state)["stage_names"],
+              "model_stages": metrics(state)["model_stage_names"],
+              "answers": driver.answers, "cli_calls": [step["kind"] for step in driver.steps]}
+    if driver.turn_marks:
+        stage_turns = split_by_turn(state, driver.turn_marks)
+        steps = [0, *(mark["steps"] for mark in driver.turn_marks), len(driver.steps)]
+        answers = [0, *(mark["answers"] for mark in driver.turn_marks), len(driver.answers)]
+        record["turns"] = []
+        for index, stages in enumerate(stage_turns):
+            turn_metrics = metrics({"stages": stages})
+            record["turns"].append({
+                "say": driver.turn_marks[index - 1]["say"] if index else None,
+                "stages": turn_metrics["stage_names"], "model_stages": turn_metrics["model_stage_names"],
+                "answers": driver.answers[answers[index]:answers[index + 1]],
+                "cli_calls": [step["kind"] for step in driver.steps[steps[index]:steps[index + 1]]],
+                "view": (driver.turn_marks[index].get("view") if index < len(driver.turn_marks) else view) or {}})
+    return record
 
 
 def cmd_route(args) -> int:
