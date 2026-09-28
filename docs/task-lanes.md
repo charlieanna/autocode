@@ -73,10 +73,16 @@ uncommitted for review, the same way a single AutoCode task leaves its own
 work. Extra flags for the underlying task runs (models, reasoning effort,
 provider) go after `--options`, shell-quoted.
 
-This command does not yet resume a build across separate invocations: if a
-component stopped needing input, rerunning `autocode components` refuses
-rather than reusing its worktree. Resolve that component's own run directly,
-or remove `.autocode-components/<id>` to rebuild it from scratch.
+Progress is saved in `.autocode-components/manifest.json` as each component
+starts and stops. Running the same command again continues the build:
+finished components are left alone, and a component that stopped for input
+picks up from where it stopped, in the same worktree and run. You can answer or
+approve that component's own run directly first, or pass `--auto-approve` the
+second time. If `components.json` or a contract changed since the saved build,
+the command refuses to resume, because the saved components were built against
+the old contracts; remove `.autocode-components/` to rebuild from scratch. A
+worktree the manifest does not record is refused too, rather than guessed at.
+
 When the work is one requirement that must be split, built in parallel and
 combined, use a [program](program.md) instead of lanes: workstreams declare
 dependencies and ownership, dependents branch from the merged results of their

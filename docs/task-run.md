@@ -10,7 +10,9 @@ internals such as `autocode.py` or read `state.json` directly; that file has
 about 140 keys and changes without notice.
 
 Every step is one CLI invocation, and the run's state lives on disk. A caller
-that crashes can reattach to the same run directory.
+that crashes can reattach to the same run directory with
+`TaskRun(workspace, run_dir)`, or with `TaskRun.attach(workspace)` if it never
+learned the run directory (it returns the workspace's only run, or `None`).
 
 ## Python client
 

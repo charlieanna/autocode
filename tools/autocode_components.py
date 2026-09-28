@@ -10,14 +10,15 @@ scenarios/catalog/architecture-two-services. ``--workspace`` is an existing Git
 repository with that architecture already committed. See docs/task-run.md and
 ``autocode_multicomponent.py`` for what this drives.
 
-Known limitation: a component already stopped for input, or already built,
-lives in ``<workspace>/.autocode-components/<id>``; this command does not yet
-resume a partial build across separate invocations (there is no saved manifest
-of the last attempt). A stopped component's own run is still an ordinary
-AutoCode run — inspect and resume it directly with
-``autocode --workspace WORKSPACE --run-dir RUN_DIR --status`` using the
-``run_dir`` this command prints, then rerun with the worktree removed to
-rebuild it, or leave it and integrate the rest.
+Each component builds in ``<workspace>/.autocode-components/<id>``, and
+progress is saved in ``.autocode-components/manifest.json``. Running the command
+again continues a partial build: components already done are left alone, and a
+component that stopped for input resumes from where it stopped. A stopped
+component's own run is an ordinary AutoCode run, so you can also answer or
+approve it directly with ``autocode --workspace WORKSPACE --run-dir RUN_DIR``
+(the ``run_dir`` this command prints) before running this command again. If the
+architecture changed since the saved build, the command refuses to resume;
+remove ``.autocode-components/`` to rebuild from scratch.
 """
 from __future__ import annotations
 
@@ -36,14 +37,6 @@ except ImportError:
 
 def _resolve(path: Path, workspace: Path) -> Path:
     return path if path.is_absolute() else (workspace / path)
-
-
-def _status(result: "mc.ComponentResult") -> str:
-    if result.ready_to_integrate:
-        return "done"
-    if result.view is None:
-        return "error"
-    return "needs_input"
 
 
 def _ensure_worktree(repo: Path, target: Path) -> None:
@@ -92,13 +85,6 @@ def cli(argv: list[str] | None = None) -> int:
     except mc.ArchitectureError as error:
         parser.error(str(error))
 
-    existing = sorted(cid for cid in architecture.components if (workspace / ".autocode-components" / cid).exists())
-    if existing:
-        parser.error(f"a worktree already exists for {', '.join(existing)}; this command does not yet resume a "
-                     f"partial build (see this module's docstring). Inspect it directly with `autocode --workspace "
-                     f"{workspace} --run-dir <its run dir> --status`, or remove .autocode-components/<id> to "
-                     f"rebuild it from scratch.")
-
     options: list[str] = []
     for flag, value in (("--engine", args.engine), ("--provider", args.provider),
                         ("--reasoning-effort", args.reasoning_effort)):
@@ -110,9 +96,21 @@ def cli(argv: list[str] | None = None) -> int:
 
     build = mc.MultiComponentBuild(workspace, architecture, options=tuple(options), timeout=args.timeout,
                                    max_advances=args.max_advances)
+    try:
+        saved = build.saved_components()
+    except mc.ArchitectureError as error:
+        parser.error(str(error))
+    unknown = sorted(cid for cid in architecture.components
+                     if cid not in saved and (workspace / ".autocode-components" / cid).exists())
+    if unknown:
+        parser.error(f"a worktree already exists for {', '.join(unknown)} but the saved build manifest does not "
+                     f"record it, so this command cannot tell what is in it. Inspect it directly, then remove "
+                     f".autocode-components/<id> to rebuild it from scratch.")
+
     results = build.build(auto_approve=args.auto_approve)
 
-    summary = {"components": {cid: {"status": _status(result), "workspace": str(result.workspace),
+    summary = {"components": {cid: {"status": result.status, "resumed": result.resumed,
+                                    "workspace": str(result.workspace),
                                     "run_dir": str(result.run.run_dir) if result.run else None,
                                     "view": result.view, "error": result.error}
                               for cid, result in results.items()}}
