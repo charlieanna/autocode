@@ -724,7 +724,8 @@ with tempfile.TemporaryDirectory() as temp:'''))
             self.launch([*args, "--resume-paused", "--pause-after-stage"], 2)
         paused = self.saved()[1]
         self.assertEqual("PAUSED_REQUESTED", paused["status"])
-        self.assertEqual(2, paused["planning"]["astra_calls"])
+        # Only the challenge that returned a report counts: the timed-out attempt was given back.
+        self.assertEqual(1, paused["planning"]["astra_calls"])
         self.assertEqual("stage", paused["automatic_timeout_recoveries"][-1]["timeout_kind"])
         self.assertIn("glm_revise", paused["planning"]["reports"])
         self.assertFalse(paused["planning"].get("recovery_review_grants"))
@@ -733,14 +734,15 @@ with tempfile.TemporaryDirectory() as temp:'''))
         self.launch([*args, "--resume-paused", "--unit", "autoplanner"], 2)
         final = self.saved()[1]
         self.assertEqual("AWAITING_GOAL_APPROVAL", final["status"])
-        self.assertEqual(3, final["planning"]["astra_calls"])
-        # Exactly one extra provider call: the final review, funded by one
-        # runner-owned recovery grant; no replanning or extra debate round.
+        self.assertEqual(2, final["planning"]["astra_calls"])
+        # Exactly one extra provider call: the final review. It is an ordinary second call, inside
+        # the allowance, so no recovery grant and no runner-owned resolver stage; no replanning
+        # or extra debate round.
         added = final["stages"][len(paused["stages"]):]
         self.assertEqual(["astra_finalize"], [r["stage"] for r in added if not r.get("runner_owned")])
-        self.assertEqual(["resolver"], [r["stage"] for r in added if r.get("runner_owned")])
-        self.assertEqual(1, final["planning"]["recovery_review_calls_used"])
-        self.assertEqual([True], [g["consumed"] for g in final["planning"]["recovery_review_grants"]])
+        self.assertEqual([], [r["stage"] for r in added if r.get("runner_owned")])
+        self.assertFalse(final["planning"].get("recovery_review_calls_used"))
+        self.assertFalse(final["planning"].get("recovery_review_grants"))
         self.assertEqual(1, sum(r["stage"] == "glm_revise" for r in final["stages"]))
         self.assertEqual(paused["goal_contract"]["body"]["open_blocking_questions"],
                          final["goal_contract"]["body"]["open_blocking_questions"])
@@ -749,17 +751,18 @@ with tempfile.TemporaryDirectory() as temp:'''))
         self.assertFalse((self.project / "greet.py").exists())
         self.launch([*args, "--approve-goal", pre_final], 2)
         self.assertFalse(goals.approved(self.saved()[1]))
-        # A lost final transition is reconciled, not charged as a fourth call.
+        # A lost final transition is reconciled, not charged as another call.
         lost = copy.deepcopy(paused)
         lost["stages"] = final["stages"][:-1]
         lost["active_stage"] = final["stages"][-1]
-        for key in ("astra_calls", "recovery_review_grants", "recovery_review_calls_used"):
-            lost["planning"][key] = final["planning"][key]
+        for key in ("astra_calls", "review_charges", "recovery_review_grants", "recovery_review_calls_used"):
+            if key in final["planning"]:
+                lost["planning"][key] = final["planning"][key]
         (run / "state.json").write_text(json.dumps(lost))
         self.launch([*args, "--resume-paused"], 2)
         recovered = self.saved()[1]
         self.assertEqual("AWAITING_GOAL_APPROVAL", recovered["status"])
-        self.assertEqual(3, recovered["planning"]["astra_calls"])
+        self.assertEqual(2, recovered["planning"]["astra_calls"])
         self.assertEqual(len(final["stages"]), len(recovered["stages"]))
         self.assertIn("recovered_at", recovered["stages"][-1])
 

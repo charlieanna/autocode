@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import uuid
 
 try:
     from .. import autocode_goals as goals, autocode_planning_artifacts as artifacts, autocode_support as s
@@ -310,10 +311,29 @@ def set_review_call_limit(state, limit):
         "stage": state["next_stage"], "contract_token": goals.token(state["goal_contract"])})
 
 
+def refund_unreported(state, planning):
+    """Only a review that returned a report counts against the allowance (user decision, 2026-09-29).
+
+    A call is charged at admission, before anyone knows how it ends. An attempt that timed out or whose
+    provider failed returned no review, so its call is given back here, before the next admission. The
+    repeated-failure limit, not this allowance, stops a review that keeps failing. planning["review_charges"]
+    holds the charge IDs of this planning cycle's ordinarily admitted calls (a recovery grant is never
+    refunded), so a restarted cycle never refunds an earlier cycle's attempts.
+    """
+    charges = planning.get("review_charges") or []
+    for row in state.get("stages", []):
+        if (row.get("planning_review_charge") in charges
+                and (row.get("timed_out") or (type(row.get("exit_code")) is int and row["exit_code"] != 0))):
+            charges.remove(row["planning_review_charge"])
+            planning["astra_calls"] -= 1
+            row["planning_review_refunded"] = True
+
+
 def charge(state, stage, record=None, workspace=None):
     if stage not in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize"):
         return
     planning = state["planning"]
+    refund_unreported(state, planning)
     limit = review_call_limit(state)
     if limit and planning["astra_calls"] >= limit:
         if planning.get('recovery_review_grants'):
@@ -338,6 +358,9 @@ def charge(state, stage, record=None, workspace=None):
                        "Retained requirements and review evidence are unchanged; no approval is implied. "
                        "User feedback is needed only if the plan or requirements must change.")
     planning["astra_calls"] += 1
+    if record is not None:
+        record["planning_review_charge"] = uuid.uuid4().hex
+        planning.setdefault("review_charges", []).append(record["planning_review_charge"])
 
 
 def _coverage(rows, concerns):
