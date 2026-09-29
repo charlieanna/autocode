@@ -287,3 +287,19 @@ class DesignOnlyTests(unittest.TestCase):
             with self.subTest(kind=kind):
                 self.assertIn(present, prompt)
                 self.assertNotIn(absent, prompt)
+
+
+class FileListingRuleTests(unittest.TestCase):
+    """A live Go port's plan made "deliver these four files" a test that listed the repository root;
+    it failed on correct code once the scenario's checker built a binary there (2026-09-29)."""
+
+    def test_build_plans_are_told_to_test_behavior_not_the_file_listing(self):
+        from units import autoplanner
+        from tests.test_bug_job import state_for
+        state = {**state_for(), "workflow": {"kind": "build"}, "answers": {}, "user_events": []}
+        state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
+        prompt, _ = autoplanner.context(state, "astra_discovery", Path("/tmp/state.json"))
+        rule = "A test checks what the program does, never which files the repository contains."
+        self.assertIn(rule, autoplanner.EXAMPLE_CRITERIA_RULE)
+        self.assertIn(rule, prompt)
+        self.assertIn('checked by the Validator reading the\nrepository', prompt)

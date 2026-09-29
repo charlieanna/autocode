@@ -45,6 +45,8 @@ Cite the diagnosis in code_refs as exactly its note_path; explanations go in sum
 """
 # Features get the bug-fix proof too: the plan states testable criteria as concrete
 # examples marked "test:", and the runner proves each one at its milestone (autocode_test_cases).
+# Tests must check behavior, not the repository's file listing: a live port-policy-go plan turned
+# "deliver these four files" into a test that failed once its checker built policy.bin (2026-09-29).
 EXAMPLE_CRITERIA_RULE = """
 TESTS IN PLAIN ENGLISH: write every acceptance criterion a test can check as one concrete example a person can
 check without reading code: "Given <the exact starting data or state>, when <the exact action or command>,
@@ -56,6 +58,11 @@ criterion under the milestone that delivers it: the runner checks a milestone's 
 already accepted, at that milestone's checkpoint, so a test must not depend on a later milestone. Keep criteria
 a test cannot check (documentation, visual design, performance under real load) with an ordinary
 verification_method.
+A test checks what the program does, never which files the repository contains. Do not write a test that lists
+the repository or working directory and asserts which files exist, or that no other file exists: whoever runs the
+tests (a build, the runner's own checks, CI, a reviewer) adds files there, so such a test fails on correct code.
+Which files are delivered, and that no build output is left behind, is checked by the Validator reading the
+repository: give that criterion an ordinary verification_method, not "test:".
 For independent parallel milestones, use distinct milestone-specific criterion IDs as well as disjoint
 affected_paths: the scheduler serializes milestones that share criterion IDs. Scope each criterion to its
 own milestone; put cross-component integration checks in a dependent milestone. Do not weaken coverage or
