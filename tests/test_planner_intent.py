@@ -158,6 +158,34 @@ class PlannerIntentTests(unittest.TestCase):
                 with self.subTest(ref=ref), self.assertRaises(ValueError):
                     autopilot._check_code_refs(current, [ref])
 
+    def test_an_explanation_after_an_existing_path_is_not_a_rejection(self):
+        # A live glm_revise was rejected, costing a report repair, for a path followed by prose.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "runner.py").write_text("def complete():\n    return True\n")
+            current = state()
+            current["workspace"] = temp
+            for ref in ("runner.py — the completion gate", "runner.py (completion gate)",
+                        "runner.py: the completion gate", "runner.py - see complete():2"):
+                with self.subTest(ref=ref):
+                    autopilot._check_code_refs(current, [ref])
+            for ref in ("missing.py — the completion gate", "missing.py: why", "runner.py:9 — past the end"):
+                with self.subTest(ref=ref), self.assertRaises(ValueError):
+                    autopilot._check_code_refs(current, [ref])
+
+
+class ConcernCoverageTests(unittest.TestCase):
+    CONCERNS = [{"id": "C1"}, {"id": "C2"}]
+
+    def test_every_concern_needs_exactly_one_row(self):
+        for rows in ([{"concern_id": "C1"}], [{"concern_id": "C1"}, {"concern_id": "C1"}, {"concern_id": "C2"}]):
+            with self.subTest(rows=rows), self.assertRaisesRegex(ValueError, "exactly one"):
+                planner._coverage(rows, self.CONCERNS)
+
+    def test_a_row_for_something_that_is_not_a_concern_is_not_a_rejection(self):
+        # A live astra_finalize was rejected for listing a question ID among its concern decisions.
+        planner._coverage([{"concern_id": "C1"}, {"concern_id": "Q1"}, {"concern_id": "C2"}], self.CONCERNS)
+
 
 if __name__ == "__main__":
     unittest.main()

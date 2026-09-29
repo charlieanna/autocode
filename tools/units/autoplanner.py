@@ -341,8 +341,11 @@ def charge(state, stage, record=None, workspace=None):
 
 
 def _coverage(rows, concerns):
-    ids = [row["concern_id"] for row in rows]
-    if len(ids) != len(set(ids)) or set(ids) != {c["id"] for c in concerns}:
+    # A row for something that is not a concern (a question ID, say) answers nothing and is not an
+    # error; every concern still needs exactly one row.
+    concern_ids = {c["id"] for c in concerns}
+    ids = [row["concern_id"] for row in rows if row["concern_id"] in concern_ids]
+    if len(ids) != len(set(ids)) or set(ids) != concern_ids:
         raise ValueError("Every plan-review concern needs exactly one response/decision using its ID")
     for row in rows:
         if any(isinstance(value, str) and not value.strip() for value in row.values()):
@@ -544,6 +547,19 @@ blocking concern citing the obligation id. At final review, any obligation still
 asked as a decision question under its id, and initial_task.kind must be "none". Otherwise use
 [] for remediation_records and obligation_decisions.
 """
+
+
+def split_code_ref(root, ref):
+    """(path, line citation) of a cited source entry. A line citation follows a colon ("path:12",
+    "path:12-20 why"). Prose after an existing path ("path — why", "path: why") is the model's explanation,
+    not a malformed citation: the runner checks the file, so the entry is not rejected for it."""
+    token = ref.split(maxsplit=1)[0] if ref.strip() else ref
+    if token != ref and ":" not in token and (Path(root) / token).is_file():
+        return token, ""
+    head, _, rest = ref.partition(":")
+    if rest[:1].isspace() and (Path(root) / head).is_file():
+        return head, ""
+    return head, rest
 
 
 def workspace_inventory(workspace, task, limit=40, scan_limit=5000):

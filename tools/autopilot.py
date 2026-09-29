@@ -191,7 +191,7 @@ def _check_code_refs(state, refs, field="code_refs"):
     if not refs:
         raise ValueError(f"Report must cite existing source in {field}")
     for ref in refs:
-        raw, _, line_text = str(ref).partition(":")
+        raw, line_text = planning_unit.split_code_ref(root, str(ref))
         target = (root / raw).resolve()
         if not target.is_relative_to(root.resolve()) or not target.is_file():
             raise ValueError(f"{field} entry {ref} is not a file in the workspace")
