@@ -9,15 +9,11 @@ import re
 import uuid
 
 try:
-    from . import autocode_support as s, autocode_workflows as workflows
-    from . import autocode_milestones as checkpoints
-    from . import autocode_findings as findings
-    from . import autocode_resolver_human as human
+    from . import autocode_support as s, autocode_workflows as workflows, autocode_milestones as checkpoints
+    from . import autocode_findings as findings, autocode_resolver_human as human, autocode_protected_text as protected
 except ImportError:
-    import autocode_support as s, autocode_workflows as workflows
-    import autocode_milestones as checkpoints
-    import autocode_findings as findings
-    import autocode_resolver_human as human
+    import autocode_support as s, autocode_workflows as workflows, autocode_milestones as checkpoints
+    import autocode_findings as findings, autocode_resolver_human as human, autocode_protected_text as protected
 
 
 def obj(properties):
@@ -374,6 +370,7 @@ def revision_guard(state, body, changes, origin):
         return
     if not isinstance(changes, list):
         raise ValueError("Planner revision needs contract_changes")
+    protected.restore_spelling(previous, body, {raw.get("item") for raw in changes if isinstance(raw, dict)}, _PROTECTED_LISTS)
     for raw in changes:
         if not isinstance(raw, dict) or raw.get("change") not in ("removed", "reworded", "permission_changed"):
             raise ValueError("contract_changes entries need item, change, basis and answer_id")

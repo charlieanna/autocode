@@ -174,6 +174,24 @@ class PlannerIntentTests(unittest.TestCase):
                     autopilot._check_code_refs(current, [ref])
 
 
+    def test_files_the_runner_or_a_tool_owns_cannot_be_cited(self):
+        # A live bugfix plan cited .autocode/active-processes.json, which is gone when the run ends.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "runner.py").write_text("x = 1\n")
+            for owned in (".autocode/runs/r1/active-processes.json", "__pycache__/runner.cpython-311.pyc",
+                          "pkg/__pycache__/m.py", ".git/config", ".pytest_cache/README.md"):
+                (root / owned).parent.mkdir(parents=True, exist_ok=True)
+                (root / owned).write_text("{}\n")
+            current = state()
+            current["workspace"] = temp
+            autopilot._check_code_refs(current, ["runner.py:1"])
+            for owned in (".autocode/runs/r1/active-processes.json", "__pycache__/runner.cpython-311.pyc",
+                          "pkg/__pycache__/m.py", ".git/config", ".pytest_cache/README.md"):
+                with self.subTest(owned=owned), self.assertRaisesRegex(ValueError, "owns"):
+                    autopilot._check_code_refs(current, [owned, "runner.py:1"])
+
+
 class ConcernCoverageTests(unittest.TestCase):
     CONCERNS = [{"id": "C1"}, {"id": "C2"}]
 

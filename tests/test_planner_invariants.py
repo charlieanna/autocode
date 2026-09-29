@@ -35,6 +35,46 @@ class RevisionGuardTests(unittest.TestCase):
             goals.install_draft(current, wider, origin="glm_revise")
         self.assertEqual(["Print Hello, NAME for a nonempty name"], current["goal_contract"]["body"]["required_behaviors"])
 
+    def install_with_tab_text(self):
+        first = body()
+        first["required_behaviors"] = ["Print the fields separated by a literal \\t"]
+        first["acceptance_criteria"][0].update(criterion="Output is NAME\\tCOUNT",
+                                               verification_method="Run it and compare with a real\\ttab")
+        current = state()
+        goals.install_draft(current, first, origin="glm_draft")
+        return current
+
+    def test_writing_an_escape_as_its_character_is_not_a_change_of_protected_text(self):
+        # A live revision was refused for turning a literal backslash-t into a tab (VALIDATION.md, 2026-09-26).
+        current = self.install_with_tab_text()
+        revised = body()
+        revised["required_behaviors"] = ["Print the fields separated by a literal \t"]
+        revised["acceptance_criteria"][0].update(criterion="Output is NAME\tCOUNT",
+                                                 verification_method="Run it and compare with a real\ttab")
+        goals.install_draft(current, revised, origin="glm_revise")
+        saved = current["goal_contract"]["body"]
+        # The contract keeps the text the user approved, not the respelling.
+        self.assertEqual(["Print the fields separated by a literal \\t"], saved["required_behaviors"])
+        self.assertEqual("Output is NAME\\tCOUNT", saved["acceptance_criteria"][0]["criterion"])
+        self.assertEqual("Run it and compare with a real\\ttab", saved["acceptance_criteria"][0]["verification_method"])
+
+    def test_a_respelling_that_also_changes_the_meaning_is_still_refused(self):
+        current = self.install_with_tab_text()
+        for field, value in (("required_behaviors", ["Print the fields separated by a comma"]),
+                             ("required_behaviors", ["Print the fields separated by a literal \t and a space"])):
+            revised = body()
+            revised[field] = list(value)
+            revised["acceptance_criteria"][0].update(criterion="Output is NAME\\tCOUNT",
+                                                     verification_method="Run it and compare with a real\\ttab")
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "without a user-backed"):
+                goals.install_draft(current, revised, origin="glm_revise")
+        changed = body()
+        changed["required_behaviors"] = ["Print the fields separated by a literal \\t"]
+        changed["acceptance_criteria"][0].update(criterion="Output is NAME\tCOUNT and a header",
+                                                 verification_method="Run it and compare with a real\\ttab")
+        with self.assertRaisesRegex(ValueError, "without a user-backed"):
+            goals.install_draft(current, changed, origin="glm_revise")
+
     def test_user_edit_and_backed_reword_are_allowed(self):
         current = state()
         goals.install_draft(current, body(), origin="glm_draft")

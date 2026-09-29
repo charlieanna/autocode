@@ -192,9 +192,7 @@ def _check_code_refs(state, refs, field="code_refs"):
         raise ValueError(f"Report must cite existing source in {field}")
     for ref in refs:
         raw, line_text = planning_unit.split_code_ref(root, str(ref))
-        target = (root / raw).resolve()
-        if not target.is_relative_to(root.resolve()) or not target.is_file():
-            raise ValueError(f"{field} entry {ref} is not a file in the workspace")
+        target = planning_unit.cited_file(root, raw, field, ref)
         if line_text:
             citation = re.fullmatch(r"(\d+)(?:-(\d+))?(?:\s+.*)?", line_text)
             if not citation:

@@ -66,7 +66,9 @@ full output as evidence in the run's own directory under .autocode/, which the r
 never a deliverable, never an affected path and needs no permission. A fail-first criterion is met in the
 workspace itself: add the regression test, capture it failing against the unmodified code, make the fix,
 capture it passing. Do not plan scratch copies outside the workspace, and do not treat capture as a
-missing prerequisite or ask the user to authorize it.
+missing prerequisite or ask the user to authorize it. Running the project's tests also creates files
+(__pycache__/, *.pyc, caches) and the runner keeps its own files under .autocode/: never cite these as
+evidence, and any check of which files changed must ignore them.
 """
 # The first stage of every new run: which kind of job this is (autocode_workflows).
 # It runs read-only with the requirements route when there is one, else the Plan Reviewer's.
@@ -583,6 +585,25 @@ def split_code_ref(root, ref):
     if rest[:1].isspace() and (Path(root) / head).is_file():
         return head, ""
     return head, rest
+
+
+# Paths the runner or the tools own: a plan may not cite them as evidence. They are transient (a run's
+# active-processes.json is gone when the run ends), so a plan built on one breaks when the citation is
+# re-read (VALIDATION.md, 2026-09-26: a bugfix plan cited .autocode/active-processes.json).
+RUNNER_OWNED_PARTS = (".autocode", ".git", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache")
+
+
+def cited_file(root, path, field, ref):
+    """The workspace file a citation names, or ValueError: it must exist inside the workspace and must not
+    be one the runner or a tool owns or generates."""
+    root = Path(root).resolve()
+    target = (root / path).resolve()
+    if not target.is_relative_to(root) or not target.is_file():
+        raise ValueError(f"{field} entry {ref} is not a file in the workspace")
+    if target.suffix == ".pyc" or any(part in RUNNER_OWNED_PARTS for part in target.relative_to(root).parts):
+        raise ValueError(f"{field} entry {ref} is a file the runner or a tool owns (.autocode/, .git/, "
+                         "__pycache__/ and caches): cite source files, which outlive the run")
+    return target
 
 
 def workspace_inventory(workspace, task, limit=40, scan_limit=5000):
