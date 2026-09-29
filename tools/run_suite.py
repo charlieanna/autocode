@@ -16,7 +16,22 @@ tests/suite_exclusions.json.
 
 Usage:
     python3 tools/run_suite.py                  # discover tests/test_*.py, apply exclusions, run
+    python3 tools/run_suite.py --jobs 1          # the same, in one process (the old serial run)
+    python3 tools/run_suite.py --changed         # only the tests for what changed since origin/master
     python3 tools/run_suite.py --list-excluded   # print excluded modules and reasons, run nothing
+
+By default each test module runs in its own interpreter, one per CPU at a time.
+Most of the suite's time is spent waiting on subprocesses and timeouts, so
+running modules side by side cuts the wall time several times over.
+
+--changed runs the tests for the files changed since a base (committed,
+staged, unstaged and untracked): a changed test module, the tests named after a
+changed tools/ module (autocode_review_job.py -> test_review_job*), the tests
+that import it directly, the tests that mention a changed non-Python tools/
+file by name, and always test_architecture. A change to the suite machinery
+itself runs everything. It does not follow imports transitively: most of
+tools/ is one import cycle, so that would select almost every test. A break
+that crosses modules is caught by the full run on master.
 
 Exit code is 0 only when every non-excluded test passes (or is itself
 skipped by its own test-level skip guard) and every exclusion entry matched
@@ -25,9 +40,15 @@ at least one discovered test.
 from __future__ import annotations
 
 import argparse
+import ast
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+import os
 from pathlib import Path
+import re
+import subprocess
 import sys
+import time
 import unittest
 
 HERE = Path(__file__).resolve().parent
@@ -101,6 +122,110 @@ def discover(start_dir: Path = TESTS_DIR, top_level_dir: Path = REPO_ROOT) -> un
                                                top_level_dir=str(top_level_dir))
 
 
+ALWAYS = ("tests.test_architecture",)
+# A change here can change which tests run or how, so it runs the whole suite.
+FULL_SUITE_TRIGGERS = ("tools/run_suite.py", "tests/__init__.py", "tests/suite_exclusions.json",
+                       "pyproject.toml", ".github/workflows/")
+
+
+def imported_names(source: str) -> set[str]:
+    """The dotted names a test module imports, as tools/ modules: `from units import autoreview`
+    gives units and units.autoreview."""
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            names.add(node.module)
+            names.update(f"{node.module}.{alias.name}" for alias in node.names)
+    return {name.removeprefix("autocode_cli.").removeprefix("tools.") for name in names}
+
+
+def tools_module(path: str) -> str | None:
+    """tools/units/autoreview.py -> units.autoreview; None for anything else."""
+    if not path.startswith("tools/") or not path.endswith(".py") or path.startswith("tools/dashboard/"):
+        return None
+    module = path[len("tools/"):-len(".py")].replace("/", ".")
+    return module.removesuffix(".__init__")
+
+
+def select_tests(changed: list[str], sources: dict[str, str]) -> dict[str, str] | None:
+    """{test module: why it runs} for the changed paths, or None when everything must run.
+
+    ``sources`` maps each test module (tests.test_x) to its source text."""
+    if any(path.startswith(FULL_SUITE_TRIGGERS) for path in changed):
+        return None
+    imports = {test: imported_names(source) for test, source in sources.items()}
+    selected = {test: "always" for test in ALWAYS if test in sources}
+    for path in changed:
+        module = tools_module(path)
+        if path.startswith("tests/test_") and path.endswith(".py"):
+            test = "tests." + Path(path).stem
+            if test in sources:
+                selected[test] = "changed"
+        elif module:
+            stem = module.split(".")[-1].removeprefix("autocode_")
+            for test in sources:
+                name = test.removeprefix("tests.")
+                if name == f"test_{stem}" or name.startswith(f"test_{stem}_") or module in imports[test]:
+                    selected.setdefault(test, f"tests {path}")
+        elif path.startswith("tools/") and not path.startswith("tools/dashboard/"):
+            for test, source in sources.items():
+                if Path(path).name in source:
+                    selected.setdefault(test, f"mentions {path}")
+    return selected
+
+
+def changed_paths(base: str) -> list[str]:
+    """Files changed since the merge base with ``base``, including uncommitted and untracked ones."""
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, text=True,
+                              check=True).stdout.split()
+    merge_base = git("merge-base", base, "HEAD")[0]
+    return sorted(set(git("diff", "--name-only", merge_base)) | set(git("ls-files", "--others", "--exclude-standard")))
+
+
+def test_modules(exclusions: dict[str, str]) -> list[str]:
+    """Every tests/test_*.py module not excluded, largest file first, so the slow ones start early.
+
+    Taken from the files, not from the discovered tests, so a module that fails to import still runs
+    (and fails) in its own process instead of disappearing from the list."""
+    paths = sorted(TESTS_DIR.glob("test_*.py"), key=lambda path: (-path.stat().st_size, path.name))
+    return [module for module in (f"tests.{path.stem}" for path in paths) if module not in exclusions]
+
+
+def run_module(module: str, verbosity: int) -> dict:
+    """Run one test module in its own interpreter from the repository root."""
+    started = time.monotonic()
+    command = [sys.executable, "-m", "unittest"] + (["-v"] if verbosity > 1 else []) + [module]
+    completed = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True)
+    ran = re.search(r"^Ran (\d+) tests?", completed.stderr, re.MULTILINE)
+    return {"module": module, "ok": completed.returncode == 0, "seconds": time.monotonic() - started,
+            "tests": int(ran.group(1)) if ran else 0, "output": completed.stdout + completed.stderr}
+
+
+def run_parallel(modules: list[str], jobs: int, verbosity: int) -> bool:
+    """Run each module in its own process, ``jobs`` at a time; print a failing module's whole output."""
+    started = time.monotonic()
+    failed = []
+    tests = 0
+    with ThreadPoolExecutor(jobs) as pool:
+        for future in as_completed([pool.submit(run_module, module, verbosity) for module in modules]):
+            row = future.result()
+            tests += row["tests"]
+            print(f"{'ok  ' if row['ok'] else 'FAIL'} {row['seconds']:6.1f}s  {row['module']} ({row['tests']} tests)",
+                  flush=True)
+            if verbosity > 1 and row["ok"]:
+                print(row["output"], flush=True)
+            if not row["ok"]:
+                failed.append(row)
+    for row in failed:
+        print(f"\n{'=' * 70}\nFAIL: {row['module']}\n{'=' * 70}\n{row['output']}")
+    print(f"\nRan {tests} tests in {len(modules)} modules, {jobs} at a time, in {time.monotonic() - started:.0f}s: "
+          + (f"{len(failed)} module(s) FAILED: " + ", ".join(row["module"] for row in failed) if failed else "OK"))
+    return not failed
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                       formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -110,7 +235,12 @@ def main(argv: list[str] | None = None) -> int:
                          help="print excluded modules and reasons, then exit without running anything")
     parser.add_argument("--verbosity", type=int, default=1)
     parser.add_argument("--durations", type=int, metavar="N",
-                        help="report the N slowest tests (Python 3.12+)")
+                        help="report the N slowest tests (Python 3.12+; runs in one process)")
+    parser.add_argument("--changed", nargs="?", const="origin/master", metavar="BASE",
+                        help="run only the tests for files changed since BASE (default origin/master)")
+    parser.add_argument("--jobs", type=int, default=os.cpu_count() or 1, metavar="N",
+                        help="test modules to run at once, each in its own interpreter "
+                             "(default: one per CPU; 1 runs everything in this process)")
     args = parser.parse_args(argv)
 
     exclusions = load_exclusions(args.exclusions)
@@ -139,6 +269,27 @@ def main(argv: list[str] | None = None) -> int:
         for module in sorted(matched):
             print(f"  - {module}: {exclusions[module]}")
         print()
+
+    modules = test_modules(exclusions)
+    if args.changed:
+        changed = changed_paths(args.changed)
+        sources = {module: REPO_ROOT.joinpath(*module.split(".")).with_suffix(".py").read_text()
+                   for module in modules}
+        selected = select_tests(changed, sources)
+        if selected is None:
+            print(f"{len(changed)} file(s) changed since {args.changed}, including the suite machinery: "
+                  "running every test module.\n")
+        else:
+            print(f"{len(changed)} file(s) changed since {args.changed}; running {len(selected)} of "
+                  f"{len(modules)} test modules:")
+            for module, why in sorted(selected.items()):
+                print(f"  - {module}: {why}")
+            print()
+            modules = [module for module in modules if module in selected]
+            kept = unittest.TestSuite(test for test in iter_tests(kept) if _module_of(test.id()) in selected)
+
+    if args.jobs > 1 and not args.durations:
+        return 0 if run_parallel(modules, args.jobs, args.verbosity) else 1
 
     options = {"durations": args.durations} if args.durations else {}
     runner = unittest.TextTestRunner(verbosity=args.verbosity, **options)

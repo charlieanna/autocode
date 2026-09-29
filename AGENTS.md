@@ -92,20 +92,27 @@ Run everything from the repository root, with the venv interpreter.
 ```sh
 PY=.venv/bin/python   # has psutil; the system python3 does not
 $PY -m unittest tests.test_architecture                        # seconds
-$PY -m unittest tests.test_goals tests.test_autocode           # the modules you touched
+$PY tools/run_suite.py --changed                               # the tests for what you changed, in parallel
 $PY scenarios/run.py run --fake                                # every scenario end to end, under a minute
 $PY -m unittest scenarios/test_harness.py                      # harness and catalog, under a minute
-$PY tools/run_suite.py                                         # the suite gate CI runs; about 40 minutes
+$PY tools/run_suite.py                                         # every test, in parallel; what master's CI runs
 ```
 
 `tools/run_suite.py` discovers `tests/test_*.py` minus the modules listed, with
 reasons, in `tests/suite_exclusions.json`. Most of
 the full suite's time is spent waiting on subprocesses and timeouts, not
-computing. Before committing a change to `tools/`, run the tests for the modules
-you touched, `test_architecture`, and the fake scenario runs.
+computing, so it runs one test module per CPU at a time (`--jobs 1` for one
+process). `--changed` picks the tests for the files changed since
+`origin/master`: a changed test, the tests named after a changed `tools/`
+module, and the tests that import it directly (the script's docstring has the
+rules). Before committing a change to `tools/`, run `--changed` and the fake
+scenario runs.
 
-Run the full suite once before merging, not after every change; CI runs it on
-every pull request.
+A pull request's CI runs `--changed`; a push to master runs every test. A break
+that crosses modules can therefore first show up on master: fix it forward
+straight away. Run the full suite yourself only when you change something many
+modules share. Every module taken out of the import cycle makes `--changed`
+more precise.
 
 Where a new test belongs:
 

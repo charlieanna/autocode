@@ -6,7 +6,7 @@
 
 ## How I tested it
 
-<!-- The exact commands. The suite gate is `python3 tools/run_suite.py`. -->
+<!-- The exact commands. The suite gate is `python3 tools/run_suite.py --changed`. -->
 
 ```sh
 ```
@@ -14,7 +14,7 @@
 ## Checklist
 
 - [ ] A test fails before this change and passes after it (for bug fixes)
-- [ ] `python3 tools/run_suite.py` passes locally, or I've said which tests can't run in my environment and why
+- [ ] `python3 tools/run_suite.py --changed` passes locally, or I've said which tests can't run in my environment and why
 - [ ] Docs updated where behaviour, flags or defaults changed (`README.md`, `docs/`)
 - [ ] No test was skipped, disabled or weakened; no approval or evidence check was relaxed
 - [ ] Saved-run compatibility: this does not change `state.json`, stage IDs, tokens or evidence records — or the change is described below

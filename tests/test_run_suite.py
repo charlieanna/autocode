@@ -105,5 +105,49 @@ class CountAndIterTests(unittest.TestCase):
                           [test.id() for test in run_suite.iter_tests(outer)])
 
 
+class SelectTestsTests(unittest.TestCase):
+    SOURCES = {
+        "tests.test_architecture": "import ast\n",
+        "tests.test_review_job": "from units import autoreview\nimport autocode_review_job\n",
+        "tests.test_review_job_proof": "import json\n",
+        "tests.test_units": "from units import autoreview\n",
+        "tests.test_opencode": "from providers import opencode\n",
+        "tests.test_prompts": "PROMPT = 'tools/prompts/builder.md'\n",
+        "tests.test_other": "import autopilot\n",
+    }
+
+    def select(self, *changed):
+        return run_suite.select_tests(list(changed), self.SOURCES)
+
+    def test_a_changed_module_runs_its_named_tests_and_direct_importers(self):
+        self.assertEqual({"tests.test_architecture", "tests.test_review_job", "tests.test_review_job_proof"},
+                         set(self.select("tools/autocode_review_job.py")))
+        self.assertEqual({"tests.test_architecture", "tests.test_review_job", "tests.test_units"},
+                         set(self.select("tools/units/autoreview.py")))
+        self.assertEqual({"tests.test_architecture", "tests.test_opencode"},
+                         set(self.select("tools/providers/opencode.py")))
+
+    def test_a_changed_test_runs_itself(self):
+        self.assertEqual("changed", self.select("tests/test_other.py")["tests.test_other"])
+
+    def test_a_changed_data_file_runs_the_tests_that_mention_it(self):
+        self.assertIn("tests.test_prompts", self.select("tools/prompts/builder.md"))
+
+    def test_docs_and_the_dashboard_run_only_the_architecture_test(self):
+        self.assertEqual({"tests.test_architecture": "always"},
+                         self.select("docs/workflow.md", "tools/dashboard/app.js", "scenarios/run.py"))
+
+    def test_a_change_to_the_suite_machinery_runs_everything(self):
+        for path in ("tools/run_suite.py", "tests/__init__.py", "tests/suite_exclusions.json",
+                     ".github/workflows/tests.yml", "pyproject.toml"):
+            self.assertIsNone(self.select("docs/x.md", path), path)
+
+    def test_package_modules_map_to_dotted_names(self):
+        self.assertEqual("units.autoreview", run_suite.tools_module("tools/units/autoreview.py"))
+        self.assertEqual("providers", run_suite.tools_module("tools/providers/__init__.py"))
+        self.assertIsNone(run_suite.tools_module("tools/dashboard/server.py"))
+        self.assertIsNone(run_suite.tools_module("docs/cli.md"))
+
+
 if __name__ == "__main__":
     unittest.main()
