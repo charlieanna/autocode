@@ -10,11 +10,10 @@ cause, and returns a diagnosis. The runner then:
   validated report, before any fix exists,
 - ends the run when the report did not reproduce (the note says so and lists
   what the reporter must supply), or hands a reproduced bug to the build
-  pipeline: a small fix becomes one Builder task at once (``small_correction``,
-  started by the AutoResolver unit) unless the request asked to approve the plan;
-  a large one, or one the user asked to approve, goes to the Planner with the
-  diagnosis as its brief (``large_correction``), skipping requirements gathering
-  but keeping plan review and the user's approval.
+  pipeline: it goes to the Planner with the diagnosis as its brief
+  (``large_correction``), skipping requirements gathering but keeping plan review
+  and the user's approval. A short path that turns a small fix into one Builder
+  task at once (``small_correction``) exists but is off (``SMALL_CORRECTION_ENABLED``).
 
 A reproduced bug comes with ``test_cases``: the regression tests in plain English
 (Given / When / Then with exact values), one per behavior the fix must restore. A
@@ -108,8 +107,7 @@ What to do:
      test per case named test_<id>_<what it checks> (for example test_t1_new_year_week_is_one_row), and
      the runner checks that each case's test fails on the original code and passes after the fix.
    - fix_size: small when the cause is obvious and the fix is one bounded change in one or two files;
-     large otherwise. A small fix goes straight to a Builder and an independent Validator without a
-     planning round, so say large whenever the fix needs design choices or touches several modules.
+     large otherwise. Say large whenever the fix needs design choices or touches several modules.
    - fix_plan: the steps of the fix, and the regression test that fails before it and passes after it.
    - probe: a shell command, run from the repository root, that exits 0 exactly when the bug is present:
      it asserts today's WRONG result (for example: python3 -c "from pager import page_count; assert
@@ -247,6 +245,11 @@ def test_cases(state: dict) -> list[dict]:
 # the diagnosis into a one-task contract and approves it under this policy, which the
 # user agreed to on 2026-09-27. An independent Validator and the Completion Owner still
 # judge the fix, and the regression test must fail on the original code.
+#
+# Off since 2026-09-29, by the user's decision: every job takes the full path (plan
+# review and the user's approval) until that one path is dependable; the short path
+# comes back after that. While off, a small fix is planned like a large one.
+SMALL_CORRECTION_ENABLED = False
 ORIGIN = "bugfix_small_correction"
 SMALL_FIX_POLICY = ("A reproduced bug the Investigator sized small becomes one Builder task built from the "
                     "diagnosis and runs without plan approval; an independent Validator and the Completion "
@@ -255,7 +258,7 @@ SMALL_FIX_POLICY = ("A reproduced bug the Investigator sized small becomes one B
 
 def small_correction(state: dict) -> bool:
     found = state.get("investigation") or {}
-    return (found.get("outcome") == "reproduced" and found.get("fix_size") == "small"
+    return (SMALL_CORRECTION_ENABLED and found.get("outcome") == "reproduced" and found.get("fix_size") == "small"
             and not found.get("plan_approval_requested"))
 
 

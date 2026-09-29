@@ -75,9 +75,9 @@ class SectionTests(unittest.TestCase):
 
 class BuilderRequestTests(unittest.TestCase):
     def test_the_builders_request_carries_the_examples_and_the_validators_does_not(self):
-        from tests.test_bug_job import SmallCorrectionTests
+        from tests.test_bug_job import approved_small_fix
         from units import common
-        state = SmallCorrectionTests.start(SmallCorrectionTests())
+        state = approved_small_fix()
         root = Path(state["workspace"])
         (root / "tests").mkdir(exist_ok=True)
         (root / "tests" / "test_client.py").write_text("import unittest  # the house style\n")

@@ -290,10 +290,16 @@ class FakeRunTests(unittest.TestCase):
         # Issue #15: small jobs already take many model calls. These are today's counts
         # with the scripted model; lower them when a step is trimmed, never raise them
         # without deciding that the extra step is worth its time.
-        for scenario, ceiling in (("greenfield-greeting-cli", 9), ("bugfix-trivial", 5)):
+        # bugfix-trivial was 5 with the short path for small fixes; it is 9 while that path
+        # is off (2026-09-29), and fails only its proportionality checks (scenario.toml).
+        for scenario, ceiling in (("greenfield-greeting-cli", 9), ("bugfix-trivial", 9)):
             with self.subTest(scenario=scenario):
                 result = self.run_fake("reference", scenario)
-                self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+                if catalog.load(scenario).known_failure:
+                    failing = {check["name"] for check in result["checks"] if not check["ok"]}
+                    self.assertEqual({"no_plan_review_rounds", "stage_budget"}, failing, result["summary"])
+                else:
+                    self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
                 self.assertLessEqual(result["metrics"]["model_stages"], ceiling,
                                      result["metrics"]["model_stage_names"])
                 self.assertGreater(result["wall_seconds"], 0)

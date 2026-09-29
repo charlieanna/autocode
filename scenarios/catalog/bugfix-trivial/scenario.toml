@@ -9,3 +9,7 @@ category = "bugfix"
 check = "python3 -m unittest discover -s tests -t ."
 # Exits 0 while the seed's bug is present; the runner checks the scripted reproduction.
 probe = 'python3 -c "from pager import page_count; assert page_count(5, 2) == 2"'
+
+[run]
+# The fix itself passes; only no_plan_review_rounds and stage_budget fail.
+known_failure = "The short path for small bug fixes is off since 2026-09-29: every job takes plan review and the user's approval until that path is dependable"

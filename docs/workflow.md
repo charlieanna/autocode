@@ -21,11 +21,9 @@ You → Autopilot: recognize the kind of job (build, bugfix, review, design, dis
    review → Reviewer only: findings written to review/findings.json, repository untouched, run complete
    bugfix → Investigator first: diagnosis written to docs/bugs/<name>.json, repository untouched;
             not reproduced → run complete;
-            reproduced, small (and you did not ask to approve the plan) → one Builder task built from the diagnosis (invariant = the acceptance
-              criterion, a regression test that fails before the fix), approved under a recorded policy
-              instead of by you (approval actor "workflow_policy"), then Validator and Completion Owner;
-            reproduced, large or you asked to approve the plan → the build pipeline below from the Planner on, planned from the
+            reproduced → the build pipeline below from the Planner on, planned from the
               diagnosis: no requirements gathering, but plan review and your approval
+              (small or large; the short path for small fixes is off until the full path is dependable)
    design → Architect first: a design review is written to review/design-review.json (goals met,
             blocking/advisory concerns, questions for you), repository untouched, run complete;
             a request for a NEW design → the build pipeline below

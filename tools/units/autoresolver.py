@@ -55,8 +55,9 @@ def prepare_investigation(state):
 
 def apply_job(stage, state, value, record, workspace):
     """Autopilot hands a job stage's validated report here. The Analyst's answer completes
-    the run. For the Investigator, a small reproduced bug becomes one Builder task at once;
-    anything else continues where bug_job.apply sent it."""
+    the run. For the Investigator, a small reproduced bug becomes one Builder task at once
+    while that short path is enabled (bug_job.SMALL_CORRECTION_ENABLED); anything else
+    continues where bug_job.apply sent it."""
     if stage == discuss_job.STAGE:
         # The runner, not the Analyst, runs each claim's probe, in a scratch copy of the code.
         return discuss_job.apply(state, value, record, workspace, run_probe=lambda command: verify.scratch_run(

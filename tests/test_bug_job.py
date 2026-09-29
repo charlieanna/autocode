@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import autocode_bug_job as bug_job
 import autocode_jobs as jobs
@@ -146,7 +147,13 @@ class ApplyTests(unittest.TestCase):
 
 
 class SmallCorrectionTests(unittest.TestCase):
-    """A small reproduced bug becomes one Builder task, approved by the recorded policy, not the user."""
+    """A small reproduced bug becomes one Builder task, approved by the recorded policy, not the user.
+    The short path is off by default (FullPathTests); these tests keep it working for when it returns."""
+
+    def setUp(self):
+        patcher = mock.patch.object(bug_job, "SMALL_CORRECTION_ENABLED", True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def start(self, **overrides):
         workspace = Path(tempfile.mkdtemp())
@@ -240,6 +247,24 @@ class SmallCorrectionTests(unittest.TestCase):
         self.assertFalse(goals.approved(state))
         self.assertTrue(workflows.approval_actor_ok("anything", {"actor": "user_cli"}))
         self.assertFalse(workflows.approval_actor_ok("glm_draft", {"actor": "workflow_policy"}))
+
+
+def approved_small_fix(**overrides):
+    """A state whose one-task contract is approved and assigned: the short path is the quickest way there."""
+    with mock.patch.object(bug_job, "SMALL_CORRECTION_ENABLED", True):
+        return SmallCorrectionTests.start(SmallCorrectionTests(), **overrides)
+
+
+class FullPathTests(unittest.TestCase):
+    """With the short path off, a small reproduced bug is planned and put to the user like any other."""
+
+    def test_a_small_fix_is_planned_and_put_to_the_user(self):
+        self.assertFalse(bug_job.SMALL_CORRECTION_ENABLED)
+        state = SmallCorrectionTests.start(SmallCorrectionTests(), fix_size="small")
+        self.assertNotEqual(bug_job.ORIGIN, (state.get("goal_contract") or {}).get("origin"))
+        self.assertEqual("astra_discovery", state["next_stage"])
+        self.assertFalse(bug_job.small_correction(state))
+        self.assertEqual("docs/bugs/duplicate-renew.json", bug_job.large_correction(state)["note_path"])
 
 
 if __name__ == "__main__":

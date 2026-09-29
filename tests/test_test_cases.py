@@ -204,9 +204,9 @@ class PromptTests(unittest.TestCase):
                          autoplanner.context(state, "requirements_gather", state_path)[0])
 
     def test_the_builder_is_told_to_write_the_named_tests(self):
-        from tests.test_bug_job import SmallCorrectionTests
+        from tests.test_bug_job import approved_small_fix
         from units import common
-        state = SmallCorrectionTests.start(SmallCorrectionTests())
+        state = approved_small_fix()
         schemas = Path(test_cases.__file__).with_name("autocode-schemas")
         state_path = Path(state["workspace"]) / "state.json"
         self.assertNotIn("TESTS NAMED IN THE PLAN", common.execution_request(state, "terra", state_path, schemas).prompt)
