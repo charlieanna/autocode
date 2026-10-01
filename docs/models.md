@@ -59,7 +59,7 @@ Other engines keep their own defaults, set where each engine is configured:
 | --- | --- |
 | `--engine codex` | `gpt-5.6-terra` for the Builder; `gpt-5.6-sol` for the Resolver, Validator and Completion Owner (`DEFAULT_ROLE_MODELS` in `tools/autocode.py`) |
 | `--provider kilocode` | `openai/gpt-5.6-terra` for the Builder, `zai-coding-plan/glm-5.3` for the Planner, `openai/gpt-5.6-sol` for every other role (`tools/providers/configs/kilocode.toml`) |
-| `--provider gocode` | as OpenCode above (`tools/providers/configs/gocode.toml`) |
+| a user-level provider | whatever its `~/.config/autocode/providers/<name>.toml` `[roles]` specify |
 | Dashboard Codex console | `gpt-5.6-*`, or `glm-5.3` / `glm-5.3-flash` per role through Z.ai |
 
 Autocode advances exactly one rung after durable evidence that the current role

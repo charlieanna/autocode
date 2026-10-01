@@ -24,14 +24,14 @@ import copy
 import uuid
 try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
-    from . import autocode_gocode as gocode, autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, model_catalogue
+    from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, model_catalogue
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log
 except ImportError:
     import autocode_dependency as dependency, autocode_status_command as status_command
     import autocode_regression as regression, autocode_format_correction as format_correction, autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_event_log as event_log
     import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
-    import autocode_providers, autocode_opencode as opencode, autocode_gocode as gocode, autocode_run_view as run_view
+    import autocode_providers, autocode_opencode as opencode, autocode_run_view as run_view
     import autocode_process as processes, autocode_registry as registry, autocode_planning as planning
     import autocode_escalation as escalation, autocode_failures as failures, model_catalogue
 
@@ -366,10 +366,7 @@ def run_role(
         prompt = opencode.prompt_for_schema(prompt, read_json(schema), events)
         if not configured_tool:
             write_json(base.with_suffix(".opencode.json"), overrides)
-    elif engine == "gocode":
-        command = gocode.launch(role=role, workspace=workspace, session=session, model=model,
-                                effort=effort, sandbox=sandbox, schema=schema, output=output)
-    else:
+    elif engine == "codex":
         command = ["codex", "exec", "-C", str(workspace), "--sandbox", sandbox, *transport_args]
         if planning.enabled(state):
             command += ["-c", 'forced_login_method="chatgpt"']
@@ -383,6 +380,9 @@ def run_role(
         command += ["-", "--json", "--output-schema", str(schema), "-o", str(output)]
         if model:
             command.extend(["--model", model])
+    else:
+        raise RuntimeError(f"engine {engine!r} is not bundled in this checkout; providers live in "
+                           "~/.config/autocode/providers/ and run with --provider")
     if report_only and len(prompt.encode('utf-8')) > REPAIR_HANDOFF_BYTES:
         raise support.Paused('PAUSED_REPORT_REPAIR_INPUT',
                              f'Provider-decorated repair prompt exceeds {REPAIR_HANDOFF_BYTES} bytes; no request was launched')
@@ -1039,10 +1039,6 @@ def configure_codex_joint(settings, args):
     return autocode_configure.configure_codex_joint(settings, args, planning=planning)
 
 
-def configure_gocode_joint(settings, args, *, fresh):
-    return autocode_configure.configure_gocode_joint(settings, args, fresh=fresh, planning=planning)
-
-
 def migrate_opencode_roles(state, run_dir, workspace):
     return autocode_configure.migrate_opencode_roles(state, run_dir, workspace, planning=planning,
                                                      opencode=opencode, write_json=write_json, now=now)
@@ -1051,10 +1047,9 @@ def migrate_opencode_roles(state, run_dir, workspace):
 def check_joint_transports(state, workspace):
     identities = state["settings"]["transport_identities"]
     if "gocode" in identities:
-        current = gocode.local_settings(workspace)
-        if gocode.transport_drift(current, identities["gocode"]):
-            raise support.Paused("PAUSED_TRANSPORT_CHANGED", "GoCode managed identity changed")
-        return
+        raise support.Paused("PAUSED_TRANSPORT_CHANGED", "This saved run used the gocode engine, which this "
+                             "checkout no longer bundles; resume it from a checkout that has it, or start a "
+                             "new run with --provider gocode and a user-level provider config")
     roles = {role: config for role, config in state["settings"]["roles"].items()
              if planning.engine_for(state["settings"], role) == "codex"}
     codex_changed = False

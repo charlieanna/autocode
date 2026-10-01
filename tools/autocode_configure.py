@@ -18,13 +18,13 @@ from pathlib import Path
 
 try:
     from . import autocode_support as support, autocode_goals as goals, autocode_providers
-    from . import autocode_opencode, autocode_gocode as gocode, autocode_figma as figma
+    from . import autocode_opencode, autocode_figma as figma
     from . import autocode_budget_recovery as budget_recovery, autocode_verification_config as verification_config
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
 except ImportError:
     import autocode_support as support, autocode_goals as goals, autocode_providers
-    import autocode_opencode, autocode_gocode as gocode, autocode_figma as figma
+    import autocode_opencode, autocode_figma as figma
     import autocode_budget_recovery as budget_recovery, autocode_verification_config as verification_config
     import autocode_retired_token_budget as retired_token_budget
     import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
@@ -35,8 +35,7 @@ DEFAULT_ROLE_MODELS = {
     "sol": "gpt-5.6-sol",
     "completion": "gpt-5.6-sol",
 }
-# Keep the historical OpenCode default for existing saved/dashboard flows. New
-# GoCode-native runs select --engine gocode explicitly and never launch OpenCode.
+# Keep the historical OpenCode default for existing saved/dashboard flows.
 DEFAULT_ENGINE = "opencode"
 
 BUDGET_ARGUMENTS = {
@@ -84,6 +83,9 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         saved_provider["provider"] = "opencode"
     saved_engine = state.get("settings", {}).get("engine") or ("codex" if started else None)
     engine = getattr(args, "engine", None) or saved_engine or DEFAULT_ENGINE
+    if engine not in ("codex", "opencode"):
+        raise ValueError(f"Engine {engine!r} is not bundled in this checkout; providers live in "
+                         "~/.config/autocode/providers/ and run with --provider")
     provider_name = autocode_providers.select(getattr(args, "provider", None), saved_provider,
                                               default="opencode" if engine == "codex" else None)
     if engine == "codex" and provider_name != "opencode":
@@ -123,7 +125,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         joint = requested_joint
     else:
         joint = True
-    if joint and engine not in ("codex", "opencode", "gocode"):
+    if joint and engine not in ("codex", "opencode"):
         raise ValueError("--joint-planning requires a supported planning engine")
     if getattr(args, 'planning_v2', False) and not joint:
         raise ValueError('--planning-v2 requires --joint-planning or an engine where joint planning is default')
@@ -137,9 +139,8 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         raise ValueError("--glm-model requires --joint-planning")
     if started and engine != saved_engine:
         raise ValueError("Start a new run to change engines; Codex and OpenCode session IDs are not interchangeable")
-    if engine in ("opencode", "gocode") and any(getattr(args, f"{r}_provider", None) for r in DEFAULT_ROLE_MODELS):
-        route = "OpenCode" if engine == "opencode" else "GoCode"
-        raise ValueError(f"For {route} use --<role>-model instead of --<role>-provider")
+    if engine == "opencode" and any(getattr(args, f"{r}_provider", None) for r in DEFAULT_ROLE_MODELS):
+        raise ValueError("For OpenCode use --<role>-model instead of --<role>-provider")
     if state.get("settings"):
         settings = json.loads(json.dumps(state["settings"]))
         retired_token_budget.retire_settings(settings)
@@ -172,10 +173,6 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
                 settings["roles"][role]["reasoning_effort"] = role_effort or args.reasoning_effort
         for role in getattr(args, "pin_model_role", []):
             settings["roles"][role]["model_pinned"] = True
-        if engine == "gocode":
-            glm_effort = getattr(args, "glm_reasoning_effort", None)
-            if glm_effort or args.reasoning_effort:
-                settings["roles"]["glm"]["reasoning_effort"] = glm_effort or args.reasoning_effort
         if args.headroom is not None:
             settings["headroom"]["enabled"] = args.headroom == "on"
         if args.context_soft_tokens is not None:
@@ -203,10 +200,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
             opencode.check_models(settings["roles"], Path(state["workspace"]))
             opencode.check_subscription_routes(settings["roles"], Path(state["workspace"]))
         if joint:
-            if engine == "gocode":
-                configure_gocode_joint(settings, args, fresh=False, planning=planning)
-            else:
-                configure_joint(settings, args, fresh=False, planning=planning, opencode=opencode)
+            configure_joint(settings, args, fresh=False, planning=planning, opencode=opencode)
         if getattr(args, 'planning_v2', False):
             settings['planning_flow'] = 'v2'
         if getattr(args,'unlimited_iterations',False):
@@ -250,8 +244,6 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         return verification_config.configure_resume(state, settings, args)
     if engine == "opencode":
         local = opencode.local_settings(state["workspace"])
-    elif engine == "gocode":
-        local = gocode.local_settings(Path(state["workspace"]))
     else:
         local = support.local_settings()
     models = {}
@@ -267,9 +259,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
     # force the builtin OpenCode catalogue onto fixturetool/kilocode/etc.
     provider_mod = autocode_providers.resolve(provider_name) if provider_name else opencode
     defaults = DEFAULT_ROLE_MODELS.copy()
-    if engine == "gocode":
-        defaults.update(gocode.DEFAULT_MODELS)
-    elif engine == "opencode":
+    if engine == "opencode":
         defaults.update(provider_mod.DEFAULT_MODELS)
     roles = {r: {"model": getattr(args, f"{r}_model", None) or models.get(r) or defaults[r],
                  "reasoning_effort": getattr(args, f"{r}_reasoning_effort", None) or args.reasoning_effort or local.get("model_reasoning_effort") or opencode.DEFAULT_REASONING_EFFORTS[r],
@@ -313,10 +303,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
             config["provider"] = "openai"
         settings.update(figma_file=figma.design_url(figma_file), figma_review=getattr(args, "figma_review", None) or "automatic")
     if joint:
-        if engine == "gocode":
-            configure_gocode_joint(settings, args, fresh=True, planning=planning)
-        else:
-            configure_joint(settings, args, fresh=True, planning=planning, opencode=opencode)
+        configure_joint(settings, args, fresh=True, planning=planning, opencode=opencode)
     if getattr(args, 'conversation_handoff', None):
         planner_routes.configure_runner_profile(settings, args)
     if getattr(args, 'planning_v2', False):
@@ -440,27 +427,6 @@ def configure_codex_joint(settings, args, *, planning):
             raise ValueError("Native Codex joint planning uses the OpenAI ChatGPT route")
     settings["joint_planning"] = True
     settings.setdefault("transport_identities", {}).setdefault("codex", settings["transport_identity"])
-
-
-def configure_gocode_joint(settings, args, *, fresh, planning):
-    """Configure the four-role planning/implementation loop on direct GoCode routes."""
-    if fresh:
-        settings["joint_planning"] = True
-        for role in ("glm", "astra", "terra", "sol"):
-            model = getattr(args, f"{role}_model", None) or gocode.DEFAULT_MODELS[role]
-            effort = (getattr(args, "glm_reasoning_effort", None) if role == "glm"
-                      else getattr(args, f"{role}_reasoning_effort", None)) or args.reasoning_effort
-            settings["roles"].setdefault(role, {}).update(engine="gocode", provider=None, model=model,
-                                                           reasoning_effort=effort)
-        completion_model = getattr(args, "completion_model", None) or gocode.DEFAULT_MODELS["sol"]
-        completion_effort = getattr(args, "completion_reasoning_effort", None) or args.reasoning_effort
-        settings["roles"].setdefault("completion", {}).update(
-            engine="gocode", provider=None, model=completion_model, reasoning_effort=completion_effort)
-        settings["transport_identities"] = {"gocode": settings["transport_identity"]}
-    for role, config in settings["roles"].items():
-        if planning.engine_for(settings, role) != "gocode":
-            raise ValueError("GoCode joint-planning roles cannot switch engines on resume")
-        gocode.validate_model(config["model"])
 
 
 def migrate_opencode_roles(state, run_dir, workspace, *, planning, opencode=None, write_json, now):

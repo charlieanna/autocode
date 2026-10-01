@@ -13,7 +13,6 @@ try:
     from . import autopilot
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_dispatch as dispatch
-    from . import autocode_gocode as gocode
     from . import autocode_interventions as interventions
     from . import autocode_milestones as milestones
     from . import autocode_planning as planning
@@ -26,7 +25,6 @@ except ImportError:
     import autopilot
     import autocode_checkout_lock as checkout_lock
     import autocode_dispatch as dispatch
-    import autocode_gocode as gocode
     import autocode_interventions as interventions
     import autocode_milestones as milestones
     import autocode_planning as planning
@@ -74,15 +72,15 @@ def run(runner, args, state, state_path, run_dir, workspace):
         # Do not silently change auth/provider when local config changes.
         engine = current["settings"].get("engine")
         using_opencode = engine == "opencode"
-        using_gocode = engine == "gocode"
+        if engine not in (None, "codex", "opencode"):
+            raise support.Paused("PAUSED_TRANSPORT_CHANGED", f"Saved engine {engine!r} is not bundled in "
+                             "this checkout; resume it from a checkout that has it, or start a new run "
+                             "with --provider and a user-level provider config")
         if planning.enabled(current):
             runner.check_joint_transports(current, workspace)
         if using_opencode:
             current_settings = runner.opencode.local_settings(workspace)
             drifted = runner.opencode.transport_drift(current_settings, current["settings"]["transport_identity"])
-        elif using_gocode:
-            current_settings = gocode.local_settings(workspace)
-            drifted = gocode.transport_drift(current_settings, current["settings"]["transport_identity"])
         else:
             current_settings = support.local_settings()
             drifted = support.transport_drift(current_settings, current["settings"]["transport_identity"], current["settings"]["roles"])
