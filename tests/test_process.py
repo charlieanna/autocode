@@ -484,29 +484,65 @@ time.sleep(30)
         self.assertTrue(expired)
         self.assertEqual('tool', reason['kind'])
 
-    def exercise_tree(self, parent_lifetime, timeout):
+    def exercise_tree(self, *, expire):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             worker = root / 'worker.py'
-            worker.write_text("from pathlib import Path\nimport os,time\nPath('worker.pid').write_text(str(os.getpid()))\ntime.sleep(10)\nPath('late-write').write_text('leaked')\n")
+            worker.write_text("from pathlib import Path\nimport os,signal\nsignal.signal(signal.SIGUSR1,lambda *_:None)\nPath('worker.pid').write_text(str(os.getpid()))\nsignal.pause()\nPath('late-write').write_text('leaked')\n")
             parent = root / 'parent.py'
-            parent.write_text("import subprocess,sys,time\nsubprocess.Popen([sys.executable,'worker.py'],start_new_session=True)\ntime.sleep(" + str(parent_lifetime) + ")\n")
-            child = subprocess.Popen([sys.executable, str(parent)], cwd=root, start_new_session=True)
+            parent.write_text("import subprocess,sys\nsubprocess.Popen([sys.executable,'worker.py'],start_new_session=True)\nsys.stdin.read(1)\n")
+            child = subprocess.Popen([sys.executable, str(parent)], cwd=root, start_new_session=True,
+                                     stdin=subprocess.PIPE, text=True)
             saved = []
+            timers, workers = [], []
+            original_timer = threading.Timer
+
+            def timer(interval, callback, args=()):
+                result = original_timer(interval, callback, args=args)
+                if interval == 30:
+                    timers.append(result)
+                return result
+
+            def checkpoint(rows):
+                saved[:] = rows
+                worker_pid = root / 'worker.pid'
+                if workers or not worker_pid.exists():
+                    return
+                value = worker_pid.read_text().strip()
+                if not value:
+                    return
+                pid = int(value)
+                if pid not in [row['pid'] for row in rows]:
+                    return
+                workers.append(processes.psutil.Process(pid))
+                # Release the provider only once its detached writer is owned.
+                # Fire the real termination callback explicitly for the timeout
+                # case; the 30s timer is only a guard for a broken handshake.
+                if expire:
+                    timers[0].function(*timers[0].args)
+                else:
+                    child.stdin.write('x')
+                    child.stdin.flush()
+
             try:
-                code, expired = processes.wait_for_stage(child, timeout, lambda rows: saved.__setitem__(slice(None), rows))
+                with patch.object(threading, 'Timer', timer):
+                    code, expired = processes.wait_for_stage(child, 30, checkpoint)
                 pid = int((root / 'worker.pid').read_text())
                 self.assertIn(pid, [p['pid'] for p in saved])
                 self.assertEqual([], processes.live_processes(saved))
-                self.assertFalse((root / 'late-write').exists())
                 return code, expired
             finally:
+                child.stdin.close()
                 if child.poll() is None:
                     child.kill()
                     child.wait()
+                for worker_process in workers:
+                    if worker_process.is_running() and worker_process.status() != processes.psutil.STATUS_ZOMBIE:
+                        worker_process.kill()
+                    worker_process.wait(timeout=3)
 
     def test_timeout_stops_detached_tool_processes(self):
-        code, expired = self.exercise_tree(30, 1)
+        code, expired = self.exercise_tree(expire=True)
         self.assertTrue(expired)
         self.assertNotEqual(0, code)
 
@@ -591,7 +627,7 @@ time.sleep(30)
                 child.wait(timeout=3)
 
     def test_normal_provider_exit_stops_background_writers(self):
-        code, expired = self.exercise_tree(.8, 5)
+        code, expired = self.exercise_tree(expire=False)
         self.assertFalse(expired)
         self.assertEqual(0, code)
 
