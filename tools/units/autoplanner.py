@@ -873,6 +873,10 @@ criterion). method must contain an explicit supported command the runner can rep
 checkpoint, for example `python -m pytest tests/test_journey.py -q`; prose that merely describes
 verification is refused, and the command must use repository source or fixtures, never run/session
 state. The commands need not pass before the slice is built.
+initial_task is slices[0]'s first assignment. Its validation_plan must repeat explicit commands
+from slices[0].checks — the same command or a narrower selection of one, exactly as runnable from
+the repository root. A prose validation_plan, or any target the reviewed checks do not contain, is
+refused at approval and the plan will not start.
 The runner generates the plan-card disclosure from your proposal into constraints and
 technical_approach (the delegation, its limits and the slice sequence). Never write lines starting
 "Progressive delegation:", "Progressive slice:" or "Product criteria explicitly outstanding:";
