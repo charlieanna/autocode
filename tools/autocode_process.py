@@ -125,6 +125,23 @@ class ProcessTree:
         self.known = {}
         self.checkpoint = checkpoint
 
+    def capture_root(self):
+        """Record the root's birth identity before a concurrent poll can reap it.
+
+        A fast-exiting provider can be reaped by an observer's child.poll()
+        before sample() runs; an empty process receipt then blocks bounded
+        startup recovery. This is only the root lookup — full descendant
+        discovery still happens in sample() under live supervision.
+        """
+        if self.pid in self.known:
+            return self.known[self.pid]
+        table = process_table({self.pid})
+        if self.pid not in table:
+            return None
+        self.known[self.pid] = identity(table[self.pid])
+        self.checkpoint(list(self.known.values()))
+        return self.known[self.pid]
+
     def sample(self, *, initial=False, notify=True):
         table = process_table(set(self.known) | {self.pid})
         if self.pid in table and self.pid not in self.known:
@@ -372,16 +389,21 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
     # The hard limit never depends on event parsing, process sampling or writes.
     hard_timer = threading.Timer(timeout, stop_at_deadline, args=({
         "kind": "stage", "reason": f"Stage exceeded its {timeout:g}-second hard runtime limit"},)) if timeout else None
-    if hard_timer:
-        hard_timer.daemon = True
-        hard_timer.start()
     watchdog = threading.Thread(target=supervise, daemon=True) if activity is not None else None
     observer = threading.Thread(target=observe, daemon=True) if activity is not None else None
-    if observer:
-        observer.start()
-    if watchdog:
-        watchdog.start()
     try:
+        # Birth identity is recorded before any concurrent observer, watchdog or
+        # timer can child.poll() and reap a fast-exiting provider. Full sample
+        # still runs after the watchdog starts so a stalled ps cannot make a
+        # bounded stage unbounded.
+        tree.capture_root()
+        if hard_timer:
+            hard_timer.daemon = True
+            hard_timer.start()
+        if observer:
+            observer.start()
+        if watchdog:
+            watchdog.start()
         live = tree.sample(initial=True)
         publish_activity()
         while child.poll() is None:
@@ -397,9 +419,11 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
         stopped.set()
         if hard_timer:
             hard_timer.cancel()
-        if watchdog:
+        # capture_root() runs before the threads start; an early failure must
+        # still fail closed below instead of joining a never-started thread.
+        if watchdog and watchdog.is_alive():
             watchdog.join(timeout=1)
-        if observer:
+        if observer and observer.is_alive():
             observer.join(timeout=1)
         # This includes normal exits: a bounded stage must not leave background
         # writers running after its final source snapshot or workspace unlock.

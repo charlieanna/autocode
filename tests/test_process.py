@@ -143,6 +143,91 @@ class ProcessTests(unittest.TestCase):
                 child.kill()
             child.wait(timeout=5)
 
+    def test_fast_startup_exit_identity_is_recorded_before_observer_can_reap(self):
+        # A concurrent observer's child.poll() can reap a fast-exiting provider
+        # before ProcessTree.sample records its birth identity. That left
+        # active_stage.processes empty and blocked bounded startup recovery.
+        class QuietMonitor:
+            idle_limit = 0
+            tool_limit = 0
+
+            def poll(self, processes=None, root_pid=None):
+                return {'idle_seconds': 0, 'tool_elapsed_seconds': None,
+                        'idle_limit_seconds': 0, 'tool_limit_seconds': 0}
+
+        child = subprocess.Popen([sys.executable, '-c', 'raise SystemExit(7)'],
+                                 start_new_session=True)
+        owned = []
+        reaped_before_return = []
+        original_start = threading.Thread.start
+
+        def reaping_start(thread):
+            # Force the historical race: reap before the owner thread can sample.
+            if not reaped_before_return:
+                reaped_before_return.append(child.wait(timeout=1))
+            return original_start(thread)
+
+        try:
+            with patch.object(threading.Thread, 'start', reaping_start):
+                code, expired = processes.wait_for_stage(
+                    child, None, lambda rows: owned.__setitem__(slice(None), rows),
+                    activity=QuietMonitor())
+            self.assertEqual(7, code)
+            self.assertFalse(expired)
+            self.assertEqual([7], reaped_before_return)
+            self.assertIn(child.pid, [row['pid'] for row in owned])
+            self.assertTrue(owned[0].get('birth_identity') is not None)
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=5)
+
+    def test_unavailable_root_identity_is_still_a_hold_not_an_invented_receipt(self):
+        # A process that is already gone before supervision starts has no
+        # recoverable birth identity. Recovery must keep refusing an empty
+        # receipt rather than inventing one.
+        checkpointed = []
+        tree = processes.ProcessTree(2 ** 22 - 3, lambda rows: checkpointed.append(list(rows)))
+        with patch.object(processes, 'process_table', return_value={}):
+            self.assertIsNone(tree.capture_root())
+        self.assertEqual({}, tree.known)
+        self.assertEqual([], checkpointed)
+
+    def test_capture_root_failure_fails_closed_and_does_not_leak_the_child(self):
+        # capture_root() runs before the observer/watchdog threads start; when
+        # it fails, cleanup must not join a never-started thread (which would
+        # mask the ProcessError with RuntimeError and leak the provider child).
+        class QuietMonitor:
+            idle_limit = 0
+            tool_limit = 0
+
+            def poll(self, processes=None, root_pid=None):
+                return {'idle_seconds': 0, 'tool_elapsed_seconds': None,
+                        'idle_limit_seconds': 0, 'tool_limit_seconds': 0}
+
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'],
+                                 start_new_session=True)
+        original_table = processes.process_table
+
+        def denying_table(pids=None):
+            if pids == {child.pid}:
+                raise processes.ProcessError('fixture: root inspection denied')
+            return original_table(pids)
+
+        owned = []
+        try:
+            with patch.object(processes, 'process_table', denying_table):
+                with self.assertRaisesRegex(processes.ProcessError, 'fixture: root inspection denied'):
+                    processes.wait_for_stage(child, None,
+                                             lambda rows: owned.__setitem__(slice(None), rows),
+                                             activity=QuietMonitor())
+            self.assertIsNotNone(child.poll(), 'A failed capture must still stop its child')
+            self.assertEqual([], owned)
+        finally:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=5)
+
     def wait_ready(self, root, child):
         deadline = time.monotonic() + 15
         while not (root / 'ready').exists():

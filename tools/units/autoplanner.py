@@ -263,7 +263,10 @@ CONFLICT_RESOLUTION = obj({"requirement_ids": SS,
 CHANGE = obj({"item": S, "change": {"type": "string", "enum": ["removed", "reworded", "permission_changed"]},
               "basis": {"type": "string", "enum": ["user_answer", "user_feedback", "agent_proposed"]},
               "answer_id": S, "replacement": S})
-CHANGE["properties"]["example_correction"] = examples.RECEIPT_SCHEMA
+# Only a draft example correction carries a receipt. Generation schemas require every field, so a change
+# that is not one says null; as a plain object field GLM 5.3's null failed every report declaring a
+# contract change (2026-10-02). Readers treat anything but an object as no correction.
+CHANGE["properties"]["example_correction"] = {**examples.RECEIPT_SCHEMA, "type": ["object", "null"]}
 TRACE = obj({"requirement_id": S, "disposition": {"type": "string", "enum": ["covered", "excluded", "superseded"]},
              "evidence": S})
 # New reports use the structured form; this is also the generation schema, so
@@ -973,10 +976,14 @@ def context(state, stage, state_path):
     if stage in ("requirements_gather", "astra_discovery"):
         packet['workspace_inventory'] = workspace_inventory(state['workspace'], state['task'])
     try:
-        from .. import autocode_figma as figma
+        from .. import autocode_figma as figma, autocode_design_manifest as design_manifest
     except ImportError:
-        import autocode_figma as figma
+        import autocode_figma as figma, autocode_design_manifest as design_manifest
     figma_instruction = figma.instructions(state["settings"])
+    manifest_context = design_manifest.context(state["settings"])
+    if manifest_context:
+        packet["design_manifest"] = manifest_context
+        figma_instruction += design_manifest.INSTRUCTION
     planning_policy = "" if stage == "requirements_gather" else (
         goals.DECISION_PROVENANCE + goals.CONTRACT_REFERENCES + examples.RULE + s.MILESTONE_POLICY + EVIDENCE_FACTS
         + ("" if stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE))

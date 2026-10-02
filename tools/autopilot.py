@@ -14,7 +14,7 @@ try:
     from . import autocode_resolver_human as human, autocode_failures as failures, autocode_assignment as assignment, autocode_status
     from . import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery
     from . import autocode_planning_clarification as clarification
-    from . import autocode_progressive_state as progressive_state
+    from . import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage
     from .units import autoplanner as planning_unit
     from . import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay, autocode_check_refs as check_refs
 except ImportError:
@@ -31,7 +31,7 @@ except ImportError:
     import autocode_failures as failures, autocode_assignment as assignment, autocode_status
     import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery
     import autocode_planning_clarification as clarification
-    import autocode_progressive_state as progressive_state
+    import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage
     from units import autoplanner as planning_unit
 
 SKIP = object()
@@ -498,7 +498,7 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
             receipt_path = Path(check["evidence_ref"])
             receipt_path = receipt_path if receipt_path.is_absolute() else workspace / receipt_path
             refs.append(support.read(receipt_path)["full_output"])
-    refs += [p for row in value["criterion_results"] for p in row["evidence_refs"]]
+    refs += [p for row in value["criterion_results"] for p in row["evidence_refs"]] + design_coverage.report_refs(state, value, stage=stage)
     flow = value.get("end_to_end_result", {})
     refs += flow.get("evidence_refs", [])
     members = state.get("current_task", {}).get("milestone_ids", [])

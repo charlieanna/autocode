@@ -37,6 +37,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument('--builder-strong-model', help='New-run Builder escalation model after one ordinary retry (default openai/gpt-6-sol, xhigh); pinned routes never escalate')
     parser.add_argument("--retry-builder", action="append", default=[], metavar="MILESTONE_ID",
                         help="Explicitly retry a stopped Builder after inspecting its retained work; requires --resume-paused")
+    parser.add_argument("--figma-manifest", type=Path,
+                        help="New run: immutable multi-file/frame/state inventory with exported Figma references; any saved engine")
     parser.add_argument("--figma-file", help="Figma Design URL to implement using the connected Codex plugin")
     parser.add_argument("--ui-run", type=Path, help="Accepted autocode-ui run to implement")
     parser.add_argument("--figma-review", choices=["automatic", "human"], help="Visual review policy for new Figma runs (default: automatic)")

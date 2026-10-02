@@ -13,9 +13,11 @@ import shlex
 try:
     from . import autocode_support as support
     from .autocode_util import criteria_definition
+    from . import autocode_design_manifest as design_manifest
 except ImportError:
     import autocode_support as support
     from autocode_util import criteria_definition
+    import autocode_design_manifest as design_manifest
 
 
 def context_packet(state, stage, state_path):
@@ -57,6 +59,9 @@ def context_packet(state, stage, state_path):
                 'never runner state/config. Cite bare event: IDs or exact existing paths in evidence_refs; '
                 'put explanations in summary/results, not in paths. Create missing assigned outputs '
                 'rather than treating them as missing prerequisites.'}
+    manifest_context = design_manifest.context(state["settings"])
+    if manifest_context:
+        base["design_manifest"] = manifest_context
     figma_file = state["settings"].get("figma_file")
     if figma_file:
         base["figma_file"] = figma_file
@@ -112,6 +117,8 @@ def context_packet(state, stage, state_path):
     base["capture_command"] = shlex.join([sys.executable, str(Path(__file__).with_name("autocode.py")), "capture"])
     base["baseline_compare_command"] = shlex.join([sys.executable, str(Path(__file__).with_name("autocode.py")), "compare-baseline"])
     instruction = support.STABLE.get(stage, "") + proof_note
+    if manifest_context:
+        instruction += design_manifest.INSTRUCTION
     if stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
         try:
             from . import autocode_progressive_state as progressive_state
