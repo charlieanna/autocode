@@ -5,9 +5,9 @@ Pure functions over contract bodies and user events. No runner imports or writes
 from __future__ import annotations
 
 try:
-    from . import autocode_protected_text as protected, autocode_test_cases as test_cases
+    from . import autocode_protected_text as protected, autocode_test_cases as test_cases, autocode_draft_examples as examples
 except ImportError:
-    import autocode_protected_text as protected, autocode_test_cases as test_cases
+    import autocode_protected_text as protected, autocode_test_cases as test_cases, autocode_draft_examples as examples
 
 PLANNER_ORIGINS = {"glm_draft", "glm_revise", "astra_finalize", "astra_discovery"}
 PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
@@ -79,6 +79,7 @@ def revision_guard(state, body, changes, origin):
     proof_corrections = draft_proof_corrections(state, previous, body) - {
         raw.get("item") for raw in changes if isinstance(raw, dict)
         and saved_user_basis(state, raw.get("basis"), raw.get("answer_id"))}
+    example_corrections = examples.corrections(state, previous, body, changes, saved_user_basis)
     protected_changes = []
     for raw in changes:
         if not isinstance(raw, dict) or raw.get("change") not in ("removed", "reworded", "permission_changed"):
@@ -86,6 +87,8 @@ def revision_guard(state, body, changes, origin):
         if (raw.get("item") in proof_corrections and raw["change"] == "reworded"
                 and raw.get("basis") == "agent_proposed" and not raw.get("answer_id")):
             continue  # Older reports declared this engineering correction as a contract delta.
+        if raw.get("item") in example_corrections:
+            continue
         protected_changes.append(raw)
         basis = raw.get("basis")
         if not saved_user_basis(state, basis, raw.get("answer_id")):
@@ -117,6 +120,8 @@ def revision_guard(state, body, changes, origin):
     new_rows = {row["id"]: row for row in body.get("acceptance_criteria", [])}
     comparable = [dict(row, verification_method=new_rows[row["id"]]["verification_method"])
                   if row["id"] in proof_corrections else row for row in previous.get("acceptance_criteria", [])]
+    comparable = [dict(row, criterion=new_rows[row["id"]]["criterion"]) if row["id"] in example_corrections
+                  else row for row in comparable]
     if previous_contract.get("approval_status") == "draft" and not previous_contract.get("approval_event"):
         comparable = [dict(row, human_review=True) if (
             not row.get("human_review") and new_rows.get(row["id"], {}).get("human_review") is True

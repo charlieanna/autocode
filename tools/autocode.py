@@ -52,10 +52,14 @@ try:
         assert_stage_stopped, attempt_id, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json)
+    from .autocode_report_source import (REPAIR_REPORT_BYTES, original_report_for_repair,
+        repair_report_instruction, repair_report_source, valid_truncated_report_attempt)
+    from .autocode_report_findings import preserved_dispositions
     from .autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,
         authorize_failure_retry, automatically_recover_capacity_stage,
         automatically_recover_external_directory_denial, automatically_recover_report_repair_timeout,
-        automatically_recover_timed_out_stage, prepare_abandoned_completion_revalidation,
+        automatically_recover_timed_out_stage, automatically_recover_truncated_review,
+        prepare_abandoned_completion_revalidation,
         prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
         recover_legacy_report_repair, retry_format_failed_report)
     from .autocode_activity import ActivityMonitor
@@ -77,10 +81,14 @@ except ImportError:
         assert_stage_stopped, attempt_id, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json)
+    from autocode_report_source import (REPAIR_REPORT_BYTES, original_report_for_repair,
+        repair_report_instruction, repair_report_source, valid_truncated_report_attempt)
+    from autocode_report_findings import preserved_dispositions
     from autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,
         authorize_failure_retry, automatically_recover_capacity_stage,
         automatically_recover_external_directory_denial, automatically_recover_report_repair_timeout,
-        automatically_recover_timed_out_stage, prepare_abandoned_completion_revalidation,
+        automatically_recover_timed_out_stage, automatically_recover_truncated_review,
+        prepare_abandoned_completion_revalidation,
         prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
         recover_legacy_report_repair, retry_format_failed_report)
     from autocode_activity import ActivityMonitor
@@ -241,40 +249,7 @@ def reset_report_repair_for_resume(state):
         'cleared_attempts': prior, 'lifetime_attempts': state['report_repair_lifetime_attempts']})
 
 
-REPAIR_REPORT_BYTES = 128 * 1024
 REPAIR_HANDOFF_BYTES = 256 * 1024
-
-
-def repair_report_source(record):
-    """Return a complete, bounded report, never a slice of the transport log."""
-    output = Path(record['output'])
-    response = Path(record.get('response_text') or output.with_suffix('.response.txt'))
-    if not output.is_file() and record.get('engine') == 'opencode':
-        # Persisted pre-fix checkpoints may have no report file. Their pinned
-        # events can be extracted locally without asking a model to search JSONL.
-        try:
-            value = opencode.final_report(record['events'], recover_wrapped=bool(record.get('report_only')),
-                                          response_path=response)
-        except RuntimeError:
-            if not response.is_file():
-                raise support.Paused('PAUSED_REPORT_REPAIR_INPUT', 'No completed response is available for report repair')
-        else:
-            write_json(output, value)
-        record['response_text'] = str(response)
-    path = output if output.is_file() else response
-    if not path.is_file() or path.stat().st_size > REPAIR_REPORT_BYTES:
-        raise support.Paused('PAUSED_REPORT_REPAIR_INPUT',
-                             f'Repair report is missing or exceeds {REPAIR_REPORT_BYTES} bytes: {path}; '
-                             'inspect the saved artifact instead of truncating or reconstructing it')
-    text = path.read_text()
-    if not text.strip():
-        raise support.Paused('PAUSED_REPORT_REPAIR_INPUT', f'Repair report is empty: {path}')
-    try:
-        content, format_ = json.loads(text), 'json'
-    except ValueError:
-        content, format_ = text, 'text'
-    return {'path': str(path), 'sha256': support.file_hash(path), 'format': format_,
-            'bytes': len(text.encode('utf-8')), 'truncated': False, 'content': content}
 
 
 def reject_completed_stage(state, run_dir, record, error):
@@ -630,6 +605,9 @@ def accept_repaired_report(state, run_dir, workspace, value, repair_record):
     # Evidence checks use ORIGINAL tool events, not new commands from the repairer.
     try:
         assert_repair_preserves_builder_history(original, value)
+        # Only unchanged dispositions from the pinned fresh review may survive.
+        original['preserved_finding_dispositions'] = preserved_dispositions(original,
+            original_report_for_repair(original)['report'] if stage_completed(state, original) else None, value)
         original.update(output=repair_record['output'], repaired_by=repair_record['events'],
                         rejected=False, report_repaired=True)
         apply_result(state, original['stage'], value, original, workspace, run_dir)
@@ -651,23 +629,6 @@ def accept_repaired_report(state, run_dir, workspace, value, repair_record):
         state['phase'] = 'PLANNING' if planning.is_planning(state, state['next_stage']) else 'EXECUTING'
         state.pop('stop_reason', None)
     commit_boundary_candidate(owner, state, run_dir, workspace)
-
-
-def original_report_for_repair(original):
-    """Expose terminal output directly, including reports rejected before saving.
-
-    OpenCode's schema-invalid JSON may exist only in a long raw event line.
-    Read tools cannot reliably recover those lines. Extract the same terminal
-    report as admission does, without validating, accepting or altering it.
-    """
-    try:
-        if original.get('engine') == 'opencode':
-            value = opencode.final_report(original['events'])
-        else:
-            value = read_json(Path(original['output']))
-        return {'report': value, 'extraction_error': None}
-    except (OSError, ValueError, RuntimeError, KeyError) as error:
-        return {'report': None, 'extraction_error': str(error)}
 
 
 def execute_report_repair(state, run_dir, workspace):
@@ -692,7 +653,9 @@ def execute_report_repair(state, run_dir, workspace):
                     or latest.get('original_stage', latest['stage'].removesuffix('_report_repair')) != original['stage']
                     or latest.get('source_revision') != original.get('source_revision')
                     or latest.get('contract_hash') != original.get('contract_hash')
-                    or latest.get('rejection_reason') != pending.get('error') or not stage_completed(state, latest)):
+                    or latest.get('rejection_reason') != pending.get('error')
+                    or not (stage_completed(state, latest)
+                            or valid_truncated_report_attempt(latest, stage_completed(state, latest)))):
                 raise support.Paused('PAUSED_STALE_VALIDATION', 'Latest repair error cannot be paired with its rejected report')
             pending['latest_rejected'] = copy.deepcopy(latest)
             for key in ('output', 'response_text', 'events', 'schema'):
@@ -712,8 +675,8 @@ def execute_report_repair(state, run_dir, workspace):
         pending['pins'].setdefault(source['path'], source['sha256'])
     prompt = ('Return exactly one JSON object matching the saved stage schema, with no prose, '
               'fence, or duplicate report before or after it. Repair only the final structured '
-              'report from this completed stage. Do not redo '
-              'implementation, rerun tests, modify files, restart discovery or change the approved goal. '
+              + repair_report_instruction(pending)
+              + 'implementation, rerun tests, modify files, restart discovery or change the approved goal. '
               'The complete rejected_report and exact validation error are in CURRENT HANDOFF DATA. '
               'Repair that supplied draft directly; do not search raw JSONL or old prompts for its text. '
               'For a requirements_gather repair, the current Builder task and approved contract are '
@@ -752,7 +715,8 @@ def execute_report_repair(state, run_dir, workspace):
               'Finding identities belong to their source reviewer: the Validator may reuse only open sol IDs, '
               'and the Plan Reviewer only open astra IDs. If the original report copied the other reviewer\'s ID, '
               'leave id empty while preserving the defect, severity, blocking status and evidence. '
-              'A report-only repair cannot resolve or retract findings. '
+              'Never introduce or change finding resolutions or retractions. Copy only exact '
+              'finding_dispositions already present in the original completed, nonblocked review, not claims from a later repair. '
               'For a Plan Reviewer execution decision, return every acceptance_criteria definition '
               'in order with exact IDs and criterion text; omit text only when the schema requests IDs only. '
               'Restore omitted criteria as unverified; do not treat milestone scope as permission '
@@ -766,14 +730,14 @@ def execute_report_repair(state, run_dir, workspace):
                              'rejected_report': rejected_source,
                              'original_report': original_source if pending.get('latest_rejected') else None,
                              'original': {key: original[key] for key in ('role', 'stage', 'output', 'events', 'schema',
-                                          'source_revision', 'contract_hash', 'contract_revision', 'task_id')
+                                          'source_revision', 'contract_hash', 'contract_revision', 'task_id', 'truncated_output')
                                           if key in original},
                              'archived_paths': {**original.get('archived_paths', {}),
                                                 **pending.get('latest_rejected', {}).get('archived_paths', {})},
                             'open_findings': findings_ledger.handoff(state),
                             'acceptance_criteria': support.criteria_definition(state.get('acceptance_criteria', [])),
                             'source_texts': goals.source_texts(state) if original['stage'] == 'requirements_gather' else None,
-                            'requirement_coverage_checklist': [sentence for source in goals.source_texts(state)
+                            'requirement_coverage_checklist': [sentence for source in goals.scan_texts(state)
                                                                for sentence in goals.cue_sentences(source)]
                             if original['stage'] == 'requirements_gather' else None,
                             'previous_requirements': ((state.get('requirements_handoff') or {}).get('report') or {}).get('requirements', [])
@@ -814,6 +778,8 @@ def execute_report_repair(state, run_dir, workspace):
         if error.status in ("PAUSED_INTERVENTION_PENDING", "PAUSED_REPORT_REPAIR_INPUT") and not state.get("active_stage"):
             pending["attempts"] -= 1
             write_json(run_dir / 'state.json', state)
+        if automatically_recover_truncated_review(state, run_dir, workspace, error):
+            raise ReportRepairQueued() from error
         if automatically_recover_report_repair_timeout(state, run_dir, workspace, error):
             raise ReportRepairQueued() from error
         raise

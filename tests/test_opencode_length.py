@@ -63,7 +63,7 @@ class OutputLimitTests(unittest.TestCase):
     def test_a_stream_ending_on_tool_calls_is_a_failed_turn_with_known_usage(self):
         # A live Validator mistyped the workspace path; every tool call was
         # auto-rejected and `opencode run` exited after that step. Unknown usage
-        # made the reported-token cap unenforceable (issue #112, repair 3).
+        # lost usage accounting (issue #112, repair 3).
         tokens = {"input": 10, "output": 5, "reasoning": 7, "cache": {"read": 2, "write": 3}}
         rows = [event("step_start", id="prt_s1"),
                 event("tool_use", id="prt_tool", tool="read", state={"status": "error", "error": "external_directory"}),

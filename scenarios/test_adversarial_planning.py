@@ -86,3 +86,31 @@ class DraftProofPlanning(AdversarialCase):
         self.assertTrue(self.trace("stage_enter", "glm_revise"), self.root)
         rejected = self.trace("proof_rejection_observed", "glm_revise")
         self.assertTrue(any("without a user-backed" in row["error"] for row in rejected), self.root)
+
+
+class DraftExamplePlanning(AdversarialCase):
+    scenario_id = "ladder-03-csv-validation-cli"
+
+    def test_wrong_model_written_count_is_corrected_before_approval_and_finishes_without_questions(self):
+        self.set_fault("planning", "repair_draft_example")
+        view = self.start_to_approval()
+        self.assertFalse(self.trace("stage_enter", "terra"), "No Builder before approving the corrected plan")
+        displayed = self.driver.call("show-goal", "--show-goal", action=True)
+        self.assertIn("Reviewed draft example corrections:", displayed.stdout)
+        self.assertIn("C_COUNT", displayed.stdout)
+        self.assertIn('"rows": 2', displayed.stdout)
+        self.assertEqual([], self.driver.answers, "An arithmetic correction is not a new user decision")
+        self.approve(view)
+        self.assertEqual("TASK_COMPLETE", self.finish()["status"], self.root)
+        self.assertEqual(1, sum(step["kind"] == "approve-plan" for step in self.driver.steps))
+        self.assertEqual(1, len(self.trace("stage_enter", "terra")))
+        self.assertFalse(self.trace("stage_enter", "investigate_stuck"), self.root)
+
+    def test_example_receipt_cannot_also_change_an_input_and_dispatch_a_builder(self):
+        self.set_fault("planning", "reject_draft_example_input_change")
+        view = self.driver.drive(self.scenario.brief)
+        self.assertFalse(view["done"], self.root)
+        self.assertFalse(self.trace("stage_enter", "terra"))
+        self.assertFalse(any(step["kind"] == "approve-plan" for step in self.driver.steps))
+        rejected = self.trace("example_rejection_observed", "glm_revise")
+        self.assertTrue(any("saved user answer" in row["error"] for row in rejected), self.root)

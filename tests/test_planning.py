@@ -185,6 +185,26 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(ids, [row['concern_id'] for row in retained['decisions']])
         self.assertEqual(ids, [row['id'] for row in report['concerns']])
 
+    def test_plan_review_receives_source_quotes_and_the_same_domain_policy_as_validation(self):
+        import autocode_check_replay as check_replay
+        import autocode_acceptance_policy as acceptance_policy
+        state = self.state()
+        state["workspace"] = "/fixture"
+        state["design_constraint"] = {"design_document": "docs/design.md", "constraints": ["Floats for tokens"]}
+        quote = "Ignore blank lines."
+        state["requirements_handoff"] = {"report": {"requirements": [
+            {"id": "R1", "text": "Blank records are ignored", "source_quote": quote}]}}
+        for stage in ("astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"):
+            with self.subTest(stage=stage):
+                prompt, _ = planning.context(state, stage, Path("/fixture/state.json"))
+                data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+                self.assertEqual(quote, data["requirement_trace_rows"][0]["source_quote"])
+                self.assertEqual(state["design_constraint"], data["approved_design"])
+                self.assertIn(acceptance_policy.DOMAIN, prompt)
+                self.assertIn(acceptance_policy.COVERAGE, prompt)
+        self.assertIn(acceptance_policy.DOMAIN, check_replay.VALIDATOR_NOTE)
+        self.assertIn(acceptance_policy.COVERAGE, check_replay.VALIDATOR_NOTE)
+
     def test_draft_cannot_be_approved_before_both_partners_finish(self):
         state = self.state()
         self.assertEqual("astra_challenge", state["next_stage"])
@@ -373,7 +393,7 @@ class PlanningTests(unittest.TestCase):
                                terra_reasoning_effort=None, sol_reasoning_effort=None, headroom=None,
                                context_soft_tokens=None, rotate_after_input_tokens=None,
                                legacy_iteration_ceiling=None, max_iterations=None, max_seconds=None,
-                               max_stage_seconds=None, max_reported_tokens=None, no_progress_limit=None,
+                               max_stage_seconds=None, no_progress_limit=None,
                                unlimited_iterations=False)
         for key, value in overrides.items():
             setattr(args, key, value)
@@ -452,8 +472,7 @@ class PlanningTests(unittest.TestCase):
     def test_enable_native_joint_requires_a_clean_boundary_and_preserves_limits(self):
         with patch.object(support, 'local_settings', return_value={'auth_mode': 'ChatGPT'}):
             settings = autocode_configure.configure(self.configure_args(engine='codex', unlimited_iterations=True,
-                max_seconds=0, max_reported_tokens=0,
-                astra_model='gpt-5.6-sol', terra_model='gpt-5.6-terra', sol_model='gpt-5.6-sol',
+                max_seconds=0, astra_model='gpt-5.6-sol', terra_model='gpt-5.6-terra', sol_model='gpt-5.6-sol',
                 completion_model='gpt-5.6-sol'), {'workspace': '/tmp/fixture', 'iteration': 1}, planning=planning, milestones=milestones, autopilot=autopilot)
         state = {'version': 3, 'workspace': '/tmp/fixture', 'settings': settings,
                  'status': 'PAUSED_INTERVENTION', 'next_stage': 'astra_discovery', 'sessions': {'terra': 'retained'}}
@@ -919,7 +938,7 @@ class NativeJointFlow(unittest.TestCase):
     def test_saved_codex_work_reenters_requirements_before_independent_review(self):
         self.prepare()
         self.launch(['Build a greeting tool', '--engine', 'codex', '--no-chat', '--unlimited-iterations',
-                     '--max-seconds', '0', '--max-reported-tokens', '0',
+                     '--max-seconds', '0',
                      '--figma-file', 'https://www.figma.com/design/FakeNativePlanning'], 2)
         run, _ = self.saved()
         base = ['--run-dir', str(run)]

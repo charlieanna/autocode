@@ -268,8 +268,9 @@ class ResolverProducerTests(unittest.TestCase):
         self.ready(human_review=True)
         evidence = self.root / 'validation.json'
         support.atomic_json(evidence, {'verdict': 'PASS'})
-        self.state['validation'] = {'verdict': 'PASS', 'source_revision': 'source-one', 'evidence_hashes': {
-            str(evidence): support.file_hash(evidence)}}
+        self.state['validation'] = {'verdict': 'PASS', 'source_revision': 'source-one',
+            'check_replay': {'verdict': 'PASS', 'source_revision': 'source-one'},
+            'evidence_hashes': {str(evidence): support.file_hash(evidence)}}
         token = goals.review_token(self.state)
         with patch.object(completion_gate, 'completion_ready', return_value=True):
             value = self.decision('COMPLETE')

@@ -83,7 +83,7 @@ class CrashScenarios(CrashCase):
     def test_crh01_crash_before_launch_intent(self):
         """CRH-01. Existing: dispatch paths across suites; single-launch case new."""
         self.state["settings"]["limits"] = {"iteration_ceiling": 18, "max_seconds": None,
-                                            "max_reported_tokens": None, "no_progress_batches": 3,
+                                            "no_progress_batches": 3,
                                             "automatic_retries": 0}
         self.state["settings"]["transport_identity"] = {"auth_mode": "fixture"}
         launches = []
@@ -387,7 +387,7 @@ class CrashScenarios(CrashCase):
                                 {"output": str(self.run / "complete.json")}, self.root, self.run)
         acceptance = copy.deepcopy(self.state["final_decision"])
         self.state["settings"]["limits"] = {"iteration_ceiling": 5, "max_seconds": None,
-                                            "max_reported_tokens": None, "no_progress_batches": 3,
+                                            "no_progress_batches": 3,
                                             "automatic_retries": 0}
         self.state["settings"]["transport_identity"] = {"auth_mode": "fixture"}
         import os as _os
@@ -411,7 +411,7 @@ class CrashScenarios(CrashCase):
         (self.root / "greet.py").write_text("print('user edit after completion')\n")
         user_edit = (self.root / "greet.py").read_text()
         self.state["settings"]["limits"] = {"iteration_ceiling": 5, "max_seconds": None,
-                                            "max_reported_tokens": None, "no_progress_batches": 3,
+                                            "no_progress_batches": 3,
                                             "automatic_retries": 0}
         self.state["settings"]["transport_identity"] = {"auth_mode": "fixture"}
         import os as _os

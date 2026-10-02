@@ -10,10 +10,11 @@ import uuid
 
 try:
     from .. import autocode_goals as goals, autocode_planning_artifacts as artifacts, autocode_support as s
-    from .. import autocode_stage_context as stage_context
+    from .. import autocode_stage_context as stage_context, autocode_acceptance_policy as acceptance_policy
     from .. import autocode_bug_job as bug_job, autocode_workflows as workflows, autocode_test_cases as test_cases
-    from .. import autocode_follow_up as follow_up, autocode_adaptive_planning as adaptive
+    from .. import autocode_follow_up as follow_up, autocode_adaptive_planning as adaptive, autocode_draft_examples as examples
 except ImportError:
+    import autocode_acceptance_policy as acceptance_policy
     import autocode_test_cases as test_cases
     import autocode_goals as goals
     import autocode_planning_artifacts as artifacts
@@ -23,6 +24,7 @@ except ImportError:
     import autocode_follow_up as follow_up
     import autocode_workflows as workflows
     import autocode_adaptive_planning as adaptive
+    import autocode_draft_examples as examples
 
 STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
 # A build that implements an approved design (autocode_design_check_job) skips requirements
@@ -105,13 +107,6 @@ rename protected criteria in an existing contract without the required user-back
 TEST COMMAND PREREQUISITES: include every missing package marker required by your validation command in
 affected_paths before approval. `python3 -m unittest discover -s tests -t .` needs tests/__init__.py;
 assign that file explicitly (or tests/) when it does not exist. Never leave the Builder to expand scope.
-NUMERIC BOUNDARIES: when the public contract accepts Python integers without a documented bound, include
-examples at 2**63-1, 2**63, and 10**5000 wherever those inputs are valid, and large negative values for signed
-domains. Prove persistence, exact arithmetic, stale/unknown identifiers, and transaction rollback at those
-boundaries. SQLite INTEGER bindings stop at 64 bits and SQL arithmetic can promote overflow to REAL; use
-lossless storage and application integer arithmetic for unbounded values. Decimal int/str conversion can
-hit Python's digit limit too. Preserve the public contract; do not invent a bound to fit the implementation.
-Probe mixed-type numeric interactions as well as isolated bounds; valid operands can overflow in combination.
 ERROR PATHS: inject failures after staged or transactional work begins; verify the public error contract,
 unchanged persistent state and complete cleanup across the relevant underlying failure modes.
 """
@@ -123,6 +118,19 @@ CHECK EVERY WORKED EXAMPLE: recompute the literal result of each acceptance crit
 and the request: count the items in a range, do the arithmetic, apply the stated expiry, ordering or rounding rule
 to the example's inputs. An example whose stated result does not follow is a blocking concern naming the
 correct result: no implementation can satisfy both the rule and the example.
+"""
+# A live greenfield run (2026-10-01, docs/bugs/2026-10-01-reliability-live-cases.md) transcribed the brief's
+# literal "ID TEXT [open|done]" into examples without the brackets; the Builder, the tests, the Validator and
+# the completion gate then all honestly served the corrupted criteria and the run completed falsely. Every
+# other handoff has an independent check; the brief-to-criteria transcription had none.
+BRIEF_TRACE_RULE = """
+CHECK EVERY EXAMPLE AGAINST THE BRIEF: re-read the user's brief and re-derive each worked example's literal
+result from the brief's own words, not from the criterion next to it. Every literal the brief states — an
+exact output format, a field name, an exit code, a file name, an error name — must appear verbatim in at
+least one example. An example whose literal drops, normalizes or rewrites what the brief states is a
+blocking concern quoting the brief's sentence and the example's deviation: the plan review approves
+criteria against the brief, and whatever literal the criteria carry will be built, tested, validated and
+completed exactly as written. An example consistent with its own rule but not with the brief is still wrong.
 """
 # A live cent-drift plan (2026-09-30) required a 175,712-cart enumeration to "finish in under about 10 seconds". The
 # Builder asserted elapsed time, the test took 10.39 s on a loaded machine, and the run stopped after two retries
@@ -164,9 +172,9 @@ SOURCE CITATIONS: code_refs contains existing repository source paths, optionall
 state file, .autocode/ artifact, cache, or explanatory sentence. state_file is context to read, not source
 to cite. Read the workspace_inventory candidates; a citation repair changes citations, not requirements.
 SETTLED REQUIREMENTS: preserve literal inputs and outputs from the task, approved design and saved answers.
-Create examples that match those literals. During a revision, protected criterion changes require a saved
-user answer or feedback entry and contract_changes; do not claim an original-request exception to that guard.
-Verification changes follow the same narrow draft-proof policy. Gather remaining decisions before drafting;
+Create examples that match those literals. The DRAFT EXAMPLE CORRECTIONS rule is the sole exception for
+numeric stdout in model-written drafts; other protected criterion changes need a saved user basis and delta.
+Verification changes follow the narrow draft-proof policy. Gather remaining decisions before drafting;
 do not reopen answered questions or invent extra clarification cycles for report wording.
 Keep existing test names and assertions. A planned case needs a separate new test if matching its id
 would otherwise require renaming an existing test; a guard must keep the original coverage as well.
@@ -219,10 +227,11 @@ def traces_coverage(contract):
 
 def trace_rows(state, stage):
     """The requirements a stage's requirement_trace must cover, one row each; [] when there are none."""
-    if stage not in TRACE_STAGES:
+    if stage not in (*TRACE_STAGES, "astra_challenge"):
         return []
     handoff = (state.get("requirements_handoff") or {}).get("report") or {}
-    return [{"requirement_id": row["id"], "requirement": row.get("text", "")}
+    return [{"requirement_id": row["id"], "requirement": row.get("text", ""),
+             "source_quote": row.get("source_quote", "")}
             for row in handoff.get("requirements") or [] if isinstance(row, dict) and row.get("id")]
 
 
@@ -252,6 +261,7 @@ CONFLICT_RESOLUTION = obj({"requirement_ids": SS,
 CHANGE = obj({"item": S, "change": {"type": "string", "enum": ["removed", "reworded", "permission_changed"]},
               "basis": {"type": "string", "enum": ["user_answer", "user_feedback", "agent_proposed"]},
               "answer_id": S, "replacement": S})
+CHANGE["properties"]["example_correction"] = examples.RECEIPT_SCHEMA
 TRACE = obj({"requirement_id": S, "disposition": {"type": "string", "enum": ["covered", "excluded", "superseded"]},
              "evidence": S})
 # New reports use the structured form; this is also the generation schema, so
@@ -880,7 +890,7 @@ def context(state, stage, state_path):
         packet['workspace_inventory'] = workspace_inventory(state['workspace'], state['task'], limit=20)
     if stage == "requirements_gather":
         packet["requirement_coverage_checklist"] = [
-            sentence for source in goals.source_texts(state)
+            sentence for source in goals.scan_texts(state)
             for sentence in goals.cue_sentences(source)
         ]
     rows = trace_rows(state, stage)
@@ -907,7 +917,7 @@ def context(state, stage, state_path):
         import autocode_figma as figma
     figma_instruction = figma.instructions(state["settings"])
     planning_policy = "" if stage == "requirements_gather" else (
-        goals.DECISION_PROVENANCE + goals.CONTRACT_REFERENCES + s.MILESTONE_POLICY + EVIDENCE_FACTS
+        goals.DECISION_PROVENANCE + goals.CONTRACT_REFERENCES + examples.RULE + s.MILESTONE_POLICY + EVIDENCE_FACTS
         + ("" if stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE))
     if stage != "requirements_gather":
         packet["capture_command"] = capture_command()
@@ -928,8 +938,12 @@ def context(state, stage, state_path):
     if stage != "requirements_gather":
         design_rule += DESIGN_DELIVERABLES_RULE if test_cases.design_only(state) else EXAMPLE_CRITERIA_RULE
         design_rule += EXAMPLE_CHECK_RULE if stage in ("astra_challenge", "astra_finalize") else ""
+        design_rule += BRIEF_TRACE_RULE if stage in ("astra_challenge", "astra_finalize") else ""
         design_rule += NO_TIMING_RULE
-    if rows:
+    design_rule += acceptance_policy.COVERAGE
+    if stage != "requirements_gather" and not test_cases.design_only(state):
+        design_rule += acceptance_policy.DOMAIN
+    if rows and stage in TRACE_STAGES:
         design_rule += REQUIREMENT_TRACE_RULE
     design_rule += adaptive.prompt_rule(state, stage)
     prompt = (PROMPTS[stage] + JOB_TYPE_POLICY + design_rule + recovery_instruction + figma_instruction + planning_policy + clarification_policy + s.COMMON

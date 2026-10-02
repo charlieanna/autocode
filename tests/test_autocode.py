@@ -221,7 +221,7 @@ class RetrofitTest(unittest.TestCase):
         state["history"]=history
         args=SimpleNamespace(astra_model=None,terra_model="custom-terra",sol_model=None,terra_provider="ZAI",
             reasoning_effort=None,headroom=None,context_soft_tokens=None,rotate_after_input_tokens=None,
-            legacy_iteration_ceiling=None,max_iterations=15,max_seconds=None,max_reported_tokens=None,no_progress_limit=3)
+            legacy_iteration_ceiling=None,max_iterations=15,max_seconds=None,no_progress_limit=3)
         with patch.object(s,"local_settings",return_value=local):
             result=autocode_configure.configure(args,state, planning=planning, milestones=milestones, autopilot=autopilot)
         self.assertEqual("gpt-5.6-sol",result["roles"]["astra"]["model"])  # role default, not local-model
@@ -856,7 +856,7 @@ class RetrofitTest(unittest.TestCase):
         approve_fixture(self.state, goals)
         local={"auth_mode":"fixture"}
         self.settings.update(transport_identity=local,limits={"iteration_ceiling":18,"max_seconds":None,
-            "max_reported_tokens":None,"no_progress_batches":3,"automatic_retries":0})
+            "no_progress_batches":3,"automatic_retries":0})
         self.state["workspace"]=str(self.root.resolve())
         s.atomic_json(self.run/"state.json",self.state)
         called=[]
@@ -898,8 +898,7 @@ class RetrofitTest(unittest.TestCase):
         approve_fixture(self.state, goals)
         local = {"auth_mode": "fixture"}
         self.settings.update(transport_identity=local, builder_retry=dict(builder_policy.DEFAULTS),
-                             limits={"iteration_ceiling": 18, "max_seconds": None, "max_reported_tokens": None,
-                                     "no_progress_batches": 3, "automatic_retries": 0})
+                             limits={"iteration_ceiling": 18, "max_seconds": None, "no_progress_batches": 3, "automatic_retries": 0})
         self.state["workspace"] = str(self.root.resolve())
         lane = builder_policy.key(self.state)
         self.state["builder_retry_key"] = lane

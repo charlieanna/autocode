@@ -6,13 +6,6 @@
   ],
   "concerns": [
     {
-      "id": "F1",
-      "area": "ordering",
-      "severity": "blocking",
-      "summary": "Messages are keyed by event kind, so a domain's create, renew and delete land on different partitions and can be consumed out of sequence. events/processor.py raises DomainStateError when seq is not the next expected value per domain.",
-      "evidence": "Design, Producer paragraph: 'keyed by event kind'. Code: Processor.process checks event.seq == last_seq[domain] + 1."
-    },
-    {
       "id": "F2",
       "area": "duplicate processing",
       "severity": "blocking",
@@ -37,10 +30,10 @@
   "questions": [
     {
       "id": "Q1",
-      "question": "Must every consumer be idempotent or only billing?",
+      "question": "How should per-domain sequence be preserved?",
       "options": [
-        "billing only",
-        "all consumers"
+        "domain partition key",
+        "ordered dispatch"
       ]
     }
   ]

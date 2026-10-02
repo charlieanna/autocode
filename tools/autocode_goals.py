@@ -13,10 +13,12 @@ import uuid
 try:
     from .autocode_contract_revision import (PLANNER_ORIGINS, PROTECTED_LISTS as _PROTECTED_LISTS,
                                             revision_guard, saved_user_basis as _saved_user_basis)
+    from .autocode_requirement_cues import cue_sentences, scan_texts, source_texts
     from . import autocode_util as s, autocode_workflows as workflows
 except ImportError:
     from autocode_contract_revision import (PLANNER_ORIGINS, PROTECTED_LISTS as _PROTECTED_LISTS,
                                            revision_guard, saved_user_basis as _saved_user_basis)
+    from autocode_requirement_cues import cue_sentences, scan_texts, source_texts
     import autocode_util as s, autocode_workflows as workflows
 
 # The state keys under which a Resolver proposal waits for the user and the request shown to them.
@@ -236,9 +238,6 @@ def validate_requirements_body(state, body):
             raise ValueError(f"Requirements are missing {key}")
 
 
-_CUE = re.compile(r"\b(must not|must|never|do not|don't|required|exactly|only)\b", re.I)
-
-
 def protected_contract_snapshot(state):
     body = (state.get("goal_contract") or {}).get("body") or {}
     return {key: copy.deepcopy(body.get(key))
@@ -254,18 +253,6 @@ def _cites_saved_user_event(state, evidence):
     # A valid citation must not mask a fabricated feedback ID alongside it.
     event_tokens = re.findall(r"(?<![\w-])(?:feedback|intervention)-[\w-]+", evidence)
     return known and all(key in ids for key in event_tokens)
-
-
-def cue_sentences(text):
-    parts = re.split(r"(?<=[.!?])\s+", str(text or "").strip())
-    return [part.strip() for part in parts if part.strip() and _CUE.search(part)]
-
-
-def source_texts(state):
-    texts = [state.get("task") or ""]
-    texts += [event.get("text", "") for event in state.get("brief_feedback", [])]
-    texts += [event.get("text", "") for event in state.get("answers", {}).values() if isinstance(event, dict)]
-    return [text for text in texts if text]
 
 
 def requirement_coverage_text(text):
@@ -358,7 +345,7 @@ def check_requirement_handoff(state, report):
         raise ValueError("ignored_statements must be an array")
     coverage = [requirement_coverage_text(text) for text in [*quotes, *ignored]]
     missing = []
-    for sentence in (sentence for source in sources for sentence in cue_sentences(source)):
+    for sentence in (sentence for source in scan_texts(state) for sentence in cue_sentences(source)):
         normalized = requirement_coverage_text(sentence)
         if any(quote and (quote in normalized or normalized in quote) for quote in coverage):
             continue
@@ -1214,13 +1201,13 @@ Agent assumptions and unrelated user events cannot resolve a conflict. Carry gen
 unresolved conflicts into open_blocking_questions; do not ask again for a saved decision.
 When revising, copy required_behaviors, scope_exclusions, constraints, important_failure_cases, acceptance_criteria (including verification
 methods), and permission_boundaries verbatim from goal_contract.body. In a draft without an approval receipt,
-you may correct only a planner-generated verification_method that was never approved or user-set, retaining
+you may correct a planner-generated verification_method that was never approved or user-set, retaining
 exact behavior, ID and human_review. Test:/guard: proofs cannot become prose or suite commands without a saved user basis.
 An unapproved planner draft may add human review. Approved/user-set review changes and removals need a saved basis.
 Use contract_changes=[] only for allowed draft corrections. Add new
 items when review identifies a gap; revise technical_approach, milestones, paths,
 tests and dependencies as needed. Do not rewrite an existing protected item for
-style or detail. A changed or removed protected item requires a saved user answer
+style or detail. Except numeric draft stdout repairs with a reviewer receipt, changes need a saved user answer
 or feedback event and an exact contract_changes entry naming the previous item.
 Use contract_changes=[] when those protected fields are unchanged. Reviewer
 concerns and agent proposals are not saved user authorization.

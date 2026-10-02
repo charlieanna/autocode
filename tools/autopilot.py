@@ -12,7 +12,7 @@ try:
     from . import autocode_workflow as workflow, autocode_milestones as milestones, autocode_escalation as escalation
     from . import autocode_findings as findings_ledger, autocode_builder_policy as builder_policy
     from . import autocode_resolver_human as human, autocode_failures as failures, autocode_assignment as assignment
-    from . import autocode_retained_work as retained_work
+    from . import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery
     from .units import autoplanner as planning_unit
     from . import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay
 except ImportError:
@@ -27,7 +27,7 @@ except ImportError:
     import autocode_builder_policy as builder_policy
     import autocode_resolver_human as human
     import autocode_failures as failures, autocode_assignment as assignment
-    import autocode_retained_work as retained_work
+    import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery
     from units import autoplanner as planning_unit
 
 SKIP = object()
@@ -159,8 +159,7 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
     except runtime.ReportRepairQueued:
         return SKIP
     except runtime.support.Paused as error:
-        if (runtime.automatically_recover_timed_out_stage(state, run_dir, workspace, error)
-                or runtime.automatically_recover_external_directory_denial(state, run_dir, workspace, error)):
+        if provider_recovery.recover_dispatch(runtime, state, run_dir, workspace, error):
             print(f"{stage}: non-terminal attempt archived; continuing from recovery checkpoint", flush=True)
             return SKIP
         raise
@@ -746,10 +745,12 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     validation = {**value, "evidence_hashes": pins, "criteria_revision": state["criteria_revision"],
                   "source_revision": record["source_revision"], "output": record["output"],
                   "reviewer_role": record.get("role", stage)}
-    if value["verdict"] == "PASS" and (not value["checks"] or any(c["exit_code"] for c in value["checks"])):
-        raise ValueError("Validator PASS lacks successful executed checks: list each check you ran, with its exit code")
+    human_pending = modern and any(goals.human_only_pending_validation(state, value, c["id"])
+                                  for c in state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"])
+    if (value["verdict"] == "PASS" or human_pending) and (not value["checks"] or any(c["exit_code"] for c in value["checks"])):
+        raise ValueError("Technically passing validation lacks successful executed checks: list each check you ran, with its exit code")
     validation["check_replay"] = (check_replay.replay(value["checks"], workspace, run_dir, record, verify.scratch_run, approved_state=state)
-                                  if value["verdict"] == "PASS" else None)  # the runner re-runs every check
+                                  if value["verdict"] == "PASS" or human_pending else None)
     if state.get("validation"):
         state.setdefault("validation_archive", []).append({
             "reason": "Superseded by another independent validation", "validation": state["validation"]})
@@ -968,24 +969,22 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
             findings_ledger.record_decision(state, value, record)
         if modern and stage == "astra_review":  # only the Validator can close its own open blockers
             value = findings_ledger.recheck_by_validator(state, value, record.get("source_revision"))
+        current = support.snapshot(workspace)
+        request = (completion_gate.artifact_review_request(state, value, current)
+                   if modern and stage in ("astra_review", "astra_checkpoint") else None)
+        if request:
+            lifecycle.wait_for_user(state, request,
+                origin={'stage': stage, 'output': record['output'], 'source_revision': current['revision']},
+                next_stage='astra_review')
+            goals.record_decision(state, value)
+            save_record(state, record)
+            return
         if value["status"] in ("COMPLETE", "TASK_COMPLETE"):
-            current = support.snapshot(workspace)
             if modern and findings_ledger.blocking_entries(state):
                 raise support.Paused("PAUSED_COMPLETION_GATE", "Completion rejected: the findings ledger still lists "
                                      "open blocking findings; resolve or retract each one with evidence")
             if modern and goals.missing_human_reviews(state):
-                if not completion_gate.completion_ready(state, value, current, require_human_reviews=False):
-                    raise support.Paused("PAUSED_COMPLETION_GATE", "Artifact review requires current passing independent evidence first")
-                lifecycle.wait_for_user(state,
-                    {"kind": "human_review", "criteria": goals.missing_human_reviews(state),
-                     "decision_needed": "Review the current artifact and explicitly approve the listed criteria",
-                     "impact": "Completion requires the declared human acceptance of this validated artifact",
-                     "options": [], "discovered": "Independent evidence passed; human review remains", "proposed_delta": ""},
-                    origin={'stage': stage, 'output': record['output'], 'source_revision': current['revision']},
-                    next_stage='astra_review')
-                goals.record_decision(state, value)
-                save_record(state, record)
-                return
+                raise support.Paused("PAUSED_COMPLETION_GATE", "Artifact review requires current passing independent evidence first")
             if not completion_gate.completion_ready(state, value, current):
                 if not regression.complete(state, current["revision"]):
                     raise support.Paused("PAUSED_COMPLETION_GATE", regression.rejection(state))
@@ -1107,7 +1106,6 @@ def run(runtime, state, workspace, run_dir, args):
             raise support.Paused("PAUSED_ITERATION_LIMIT", "Saved iteration ceiling reached")
         if limits["max_seconds"] and current.get("active_seconds",0) >= limits["max_seconds"]:
             raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
-        support.enforce_reported_token_limit(current)
         if (not repairing_before_upgrade and (not milestones.enabled(current) or current.get('next_stage') in ('terra', 'orchestrator')) and limits["no_progress_batches"]
                 and current.get("no_progress_batches",0) >= limits["no_progress_batches"]):
             raise support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review")

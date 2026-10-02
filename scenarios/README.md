@@ -263,13 +263,12 @@ your working checkout):
 
 ```sh
 scenarios/run.py run <scenario> --profile glm53-openai --i-authorize-live-model-spend \
-    --max-seconds 2400 --max-stage-seconds 600 --max-reported-tokens 2000000 --max-iterations 6
+    --max-seconds 2400 --max-stage-seconds 600 --max-iterations 6
 ```
 
 Why each cap: `--max-seconds 2400` bounds the whole run (planning + build + validation fit
 comfortably; a greenfield run spends most of it planning); `--max-stage-seconds 600` makes a
-stuck stage surface as a pause instead of hanging the run; `--max-reported-tokens 2000000`
-because 400k proved too tight — a greenfield run reported roughly 670–865k input on its own;
+stuck stage surface as a pause instead of hanging the run;
 `--max-iterations 6` bounds rework loops.
 
 **Results.** Runs write under `.scenario-runs/` (git-ignored). Read a run's `report.json` there;
@@ -290,7 +289,7 @@ For an OpenAI-only campaign using the existing ChatGPT OAuth connection:
 
 ```sh
 $PY scenarios/run.py run <scenario> --profile codex-only --i-authorize-live-model-spend \
-    --max-seconds 1200 --max-stage-seconds 480 --max-reported-tokens 2000000 --max-iterations 6
+    --max-seconds 1200 --max-stage-seconds 480 --max-iterations 6
 ```
 
 This profile uses GPT-5.6 Terra for requirements, planning and building, and

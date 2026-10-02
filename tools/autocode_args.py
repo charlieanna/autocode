@@ -122,7 +122,6 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         help="Maximum provider inactivity outside a running tool (default: 300; 0 disables)")
     parser.add_argument("--max-tool-seconds", type=int,
                         help="Maximum time for a running tool or unreported descendant-tool interval (default: 1800; 0 disables)")
-    parser.add_argument("--max-reported-tokens", type=int)
     parser.add_argument('--autoresolver-managed-limits', action='store_true',
                         help='Delegate finite CLI safety limits to bounded AutoResolver recovery; never changes billing/model routes')
     parser.add_argument("--no-progress-limit", type=int, help="Pause after this many unchanged batches (new-run default: 3)")
@@ -227,7 +226,7 @@ def parse(unit, argv, default_models):
         parser.error("Build and review units require an existing --run-dir with an approved plan")
     if args.chat is None:
         args.chat = sys.stdin.isatty() and sys.stdout.isatty()
-    for flag in ("max_iterations", "legacy_iteration_ceiling", "max_seconds", "max_stage_seconds", "max_idle_seconds", "max_tool_seconds", "max_reported_tokens", "no_progress_limit", "max_milestone_seconds", "max_milestone_replans", "max_milestone_stalled_reviews", "max_findings_per_task"):
+    for flag in ("max_iterations", "legacy_iteration_ceiling", "max_seconds", "max_stage_seconds", "max_idle_seconds", "max_tool_seconds", "no_progress_limit", "max_milestone_seconds", "max_milestone_replans", "max_milestone_stalled_reviews", "max_findings_per_task"):
         if getattr(args, flag) is not None and getattr(args, flag) < 0:
             parser.error(f"--{flag.replace('_', '-')} must be nonnegative")
     actions = [args.status, args.dry_run, args.migrate_only, args.show_goal,

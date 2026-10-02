@@ -63,6 +63,10 @@ class PrepareTests(unittest.TestCase):
         self.assertIn("Review pr-184.patch", request.prompt)
         self.assertIn("review/findings.json", request.prompt)
         self.assertEqual("REVIEWING", state["phase"])
+        # Scratch under .autocode/, never outside the workspace: the provider sandbox denies
+        # external directories and the attempt is lost (live run, 2026-10-01).
+        self.assertIn(".autocode/scratch", request.prompt)
+        self.assertNotIn("OUTSIDE the workspace", request.prompt)
 
 
 SEED = {"calc.py": "def double(n):\n    return n * 2\n"}

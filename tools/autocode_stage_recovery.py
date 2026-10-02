@@ -301,6 +301,85 @@ def automatically_recover_capacity_stage(state, run_dir, workspace, error):
     return True
 
 
+def automatically_recover_truncated_review(state, run_dir, workspace, error):
+    """Queue a bounded report-only repair for a truncated read-only review.
+
+    Only Validator and Completion Owner reports qualify. Their original provider
+    events and usage remain archived; a repair may summarize completed evidence,
+    but it cannot run checks or alter the source. Every truncated repair attempt
+    consumes the existing report-repair allowance.
+    """
+    record = state.get('active_stage') or {}
+    original_stage = record.get('original_stage') or record.get('stage')
+    event_path = Path(record.get('events', ''))
+    reason = support.terminal_failure_reason(event_path) if event_path.is_file() else None
+    if (error.status not in ('PAUSED_PROVIDER_UNCERTAIN', 'PAUSED_UNCERTAIN_STAGE')
+            or original_stage not in ('sol', 'astra_review', 'astra_checkpoint')
+            or not reason or 'output token limit' not in reason.lower()
+            or record.get('timed_out') or record.get('interrupted') or record.get('cleanup_error')
+            or record.get('exit_code') != 0 or not record.get('before_ref')
+            or not Path(record['before_ref']).is_file() or not record.get('schema')
+            or not Path(record['schema']).is_file() or state.get('pause_intent')
+            or (Path(run_dir) / 'pause-requested').exists() or interventions.pending(run_dir)):
+        return False
+    if any(row.get('type') == 'turn.completed' for row in support.events(event_path)):
+        return False
+    try:
+        worker_check = record
+        if record.get('exit_code') is not None and record.get('pid'):
+            # wait_for_stage already reaped this exact parent. Its last process
+            # snapshot still contains that PID; check any recorded descendants.
+            worker_check = copy.deepcopy(record)
+            worker_check['processes'] = [row for row in record.get('processes', [])
+                                         if row.get('pid') != record.get('pid')]
+        records.assert_stage_stopped(worker_check)
+    except support.Paused:
+        return False
+    before = records.read_json(Path(record['before_ref']))
+    after = support.snapshot(workspace)
+    if before.get('revision') != after.get('revision'):
+        return False
+    pending = state.get('pending_report_repair')
+    if pending and (pending.get('original', {}).get('stage') != original_stage
+                    or pending.get('attempts', 0) >= records.repair_limit(state)):
+        if pending.get('original', {}).get('stage') == original_stage:
+            raise support.Paused('PAUSED_REPORT_REPAIR_LIMIT',
+                'Truncated report-only attempts exhausted the bounded repair allowance; original review evidence is preserved')
+        return False
+    if not pending and not records.repair_limit(state):
+        return False
+
+    record['metrics'] = support.event_metrics(event_path)
+    records.account_stage(state, record)
+    after_path = Path(record['output']).with_suffix('.after.json')
+    records.write_json(after_path, after)
+    record.update(after_ref=str(after_path), source_revision=after['revision'], changed_files=[],
+                  abandoned=True, automatic_recovery=True, truncated_output=True,
+                  rejection_reason=reason)
+    originals = records.archive_rejected_stage(state, run_dir, record, reason)
+    paths = {record[key]: support.file_hash(record[key]) for key in ('events', 'before_ref', 'after_ref', 'schema')
+             if record.get(key) and Path(record[key]).is_file()}
+    if pending:
+        pending['latest_rejected'] = copy.deepcopy(record)
+        pending['error'] = reason
+        pending.setdefault('pins', {}).update(paths)
+    else:
+        state['pending_report_repair'] = {
+            'original': copy.deepcopy(record), 'attempts': 0,
+            'contract_hash': (state.get('goal_contract') or {}).get('hash'),
+            'pins': paths, 'error': reason, 'truncated_output': True}
+    state.setdefault('user_events', []).append({
+        'kind': 'truncated_review_report_repair', 'actor': 'runner', 'at': records.now(),
+        'attempt_id': records.attempt_id(record), 'stage': original_stage,
+        'repair_attempts_used': (state.get('pending_report_repair') or {}).get('attempts', 0)})
+    state.update(status='RUNNING', phase='REPORT_REPAIR', next_stage=original_stage)
+    state.pop('stop_reason', None)
+    records.write_json(Path(run_dir) / 'state.json', state)
+    for artifact in originals:
+        artifact.unlink(missing_ok=True)
+    return True
+
+
 def reconcile_rate_limited_stage(state, run_dir, workspace):
     """AutoResolver retires a proven stopped rate-limit attempt without replay."""
     record = state.get('active_stage') or {}
@@ -467,7 +546,13 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
                 "stage": record["stage"], "source_revision": after["revision"],
                 "changed_files": record["changed_files"], "events": record["events"],
                 "source_snapshot": record["after_ref"], "next_stage": next_stage,
-                "instruction": "The prior request was stopped by OpenCode's external_directory permission. Use only workspace-contained evidence paths; do not use /tmp, default mktemp paths, nohup, or detached processes. Inspect retained work and start a fresh request."}
+                "instruction": f"The prior request was stopped by OpenCode's external_directory permission. "
+                    f"The exact workspace root is {workspace}. Use source-relative shell paths there; "
+                    "derive absolute file-tool paths from that exact root, never from a guessed run name. "
+                    "A mistyped project path is still outside the allowed workspace: inspect the requested "
+                    "path and correct it rather than repeating it or requesting broader permissions. "
+                    "Use only workspace-contained evidence paths; do not use /tmp, default mktemp paths, "
+                    "nohup, or detached processes. Inspect retained work and start a fresh request."}
     records.count_automatic_recovery(state)
     state.setdefault("automatic_permission_recoveries", []).append(recovery)
     state.setdefault("user_events", []).append({"kind": "automatic_permission_recovery", "actor": "runner",

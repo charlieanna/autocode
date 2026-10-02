@@ -345,7 +345,7 @@ class ReviewCase(t06.SolControllerCase):
         acceptance = copy.deepcopy(self.state["final_decision"])
         # Resume after completion launches nothing.
         self.state["settings"]["limits"] = {"iteration_ceiling": 5, "max_seconds": None,
-                                            "max_reported_tokens": None, "no_progress_batches": 3,
+                                            "no_progress_batches": 3,
                                             "automatic_retries": 0}
         self.state["settings"]["transport_identity"] = {"auth_mode": "fixture"}
         support.atomic_json(self.run / "state.json", self.state)

@@ -100,7 +100,7 @@ $PY scenarios/run.py run --fake
 $PY -m unittest scenarios.test_harness
 $PY scenarios/run.py run SCENARIO_ID --profile codex-only --i-authorize-live-model-spend \
   --max-seconds 1200 --max-stage-seconds 480 \
-  --max-reported-tokens 2000000 --max-iterations 6
+  --max-iterations 6
 $PY scenarios/run.py stats --mode codex-only
 ```
 

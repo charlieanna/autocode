@@ -201,6 +201,14 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             # with --grant-recovery N.
             if state.get("recovery_context") is None:
                 state["recovery_context"] = {}
+            # Validate the displayed grant before resume bookkeeping changes
+            # the user events bound into the resolver request's identity.
+            if args.grant_recovery is not None:
+                try:
+                    runner.grant_recovery_allowance(state, run_dir, args.grant_recovery)
+                except ValueError as error:
+                    print(f"Input rejected: {error}", file=sys.stderr)
+                    return 2
             # Reset milestone budget counters when raising the limit
             if args.max_milestone_seconds is not None:
                 for row in state.get("milestone_progress", {}).values():
@@ -232,12 +240,6 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                         resolver_runtime.admit_operational_diagnosis(runner, state, run_dir, workspace)
                         print("Diagnosis admitted for the recorded repeated Builder failure; "
                               "a bounded read-only model diagnosis runs before any retry.", flush=True)
-                    except ValueError as error:
-                        print(f"Input rejected: {error}", file=sys.stderr)
-                        return 2
-                elif args.grant_recovery is not None:
-                    try:
-                        runner.grant_recovery_allowance(state, run_dir, args.grant_recovery)
                     except ValueError as error:
                         print(f"Input rejected: {error}", file=sys.stderr)
                         return 2

@@ -20,11 +20,13 @@ try:
     from . import autocode_support as support, autocode_goals as goals, autocode_providers
     from . import autocode_opencode, autocode_gocode as gocode, autocode_figma as figma
     from . import autocode_budget_recovery as budget_recovery, autocode_verification_config as verification_config
+    from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
 except ImportError:
     import autocode_support as support, autocode_goals as goals, autocode_providers
     import autocode_opencode, autocode_gocode as gocode, autocode_figma as figma
     import autocode_budget_recovery as budget_recovery, autocode_verification_config as verification_config
+    import autocode_retired_token_budget as retired_token_budget
     import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
 
 DEFAULT_ROLE_MODELS = {
@@ -41,7 +43,7 @@ BUDGET_ARGUMENTS = {
     'iteration_ceiling': ('max_iterations', 'legacy_iteration_ceiling', 'unlimited_iterations'),
     'max_seconds': ('max_seconds',), 'stage_timeout_seconds': ('max_stage_seconds',),
     'idle_timeout_seconds': ('max_idle_seconds',), 'tool_timeout_seconds': ('max_tool_seconds',),
-    'max_reported_tokens': ('max_reported_tokens',), 'no_progress_batches': ('no_progress_limit',),
+    'no_progress_batches': ('no_progress_limit',),
     'milestone_max_seconds': ('max_milestone_seconds',),
 }
 
@@ -140,6 +142,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         raise ValueError(f"For {route} use --<role>-model instead of --<role>-provider")
     if state.get("settings"):
         settings = json.loads(json.dumps(state["settings"]))
+        retired_token_budget.retire_settings(settings)
         settings.setdefault("provider", provider_name)
         # v0.5.4 introduced bounded report-only repairs.  Existing runs retain
         # their model, auth and limit settings while gaining the safe default
@@ -182,7 +185,6 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         for flag, name in (("max_iterations", "iteration_ceiling"), ("legacy_iteration_ceiling", "iteration_ceiling"),
                            ("max_seconds", "max_seconds"), ("max_stage_seconds", "stage_timeout_seconds"),
                            ("max_idle_seconds", "idle_timeout_seconds"), ("max_tool_seconds", "tool_timeout_seconds"),
-                           ("max_reported_tokens", "max_reported_tokens"),
                            ("no_progress_limit", "no_progress_batches"),
                            ("max_findings_per_task", "max_findings_per_task")):
             selected = getattr(args, flag, None)
@@ -302,7 +304,6 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
                                                 if getattr(args, "max_idle_seconds", None) is not None else 300),
                        "tool_timeout_seconds": (getattr(args, "max_tool_seconds", None)
                                                 if getattr(args, "max_tool_seconds", None) is not None else 1800),
-                       "max_reported_tokens": args.max_reported_tokens,
                        "no_progress_batches": args.no_progress_limit if args.no_progress_limit is not None else 3,
                        "max_findings_per_task": getattr(args, "max_findings_per_task", None),
                         "automatic_retries": 0}}

@@ -41,7 +41,7 @@ FAKE_FLAGS = ["--engine", "codex", "--joint-planning", "--astra-model", "gpt-6-a
 
 
 # AutoResolver request scopes that ask a person to look at a stopped run (for
-# example, a reported-token cap was reached), not a question about requirements.
+# example, a time limit was reached), not a question about requirements.
 PERSON_ONLY_SCOPES = ("operational_exhaustion", "blocker")
 
 

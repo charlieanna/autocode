@@ -153,7 +153,7 @@ class CompatScenarios(CompatCase):
         """CFG-07. Existing: limit pause tests + CRH-12 restart stability."""
         self.approve_now()
         self.state["settings"]["limits"] = {"iteration_ceiling": 3, "max_seconds": None,
-                                            "max_reported_tokens": None, "no_progress_batches": 2,
+                                            "no_progress_batches": 2,
                                             "automatic_retries": 1}
         support.atomic_json(self.run / "state.json", self.state)
         reloaded = support.read(self.run / "state.json")

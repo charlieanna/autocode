@@ -23,6 +23,34 @@ class HumanPublicationTests(unittest.TestCase):
     request = test_resolver_human.ResolverHumanTests.request
     publish_operational = test_resolver_human.ResolverHumanTests.publish_operational
 
+    def test_recovery_grant_validates_published_request_before_resume_epoch_changes(self):
+        import autocode_args
+        self.state.update(status='PAUSED_TIMEOUT_RECOVERY', next_stage='investigate_bug',
+                          automatic_recoveries_since_resume=3, consecutive_timeout_recoveries=3)
+        self.state['resolver'] = {'attempts': {'external-directory': 3}}
+        run = Path(self.state['run_dir'])
+        runner.resolver_runtime.record_operational_exhaustion(
+            runner, self.state, run, support.Paused('PAUSED_TIMEOUT_RECOVERY', 'Recovery exhausted'))
+        runner.write_json(run / 'state.json', self.state)
+        published = human.current(self.state)
+        self.assertIsNotNone(published)
+        args = autocode_args.build_parser(None, runner.DEFAULT_ROLE_MODELS).parse_args(
+            ['--run-dir', str(run), '--resume-paused', '--grant-recovery', '1', '--no-chat'])
+        fake_runner = Mock(wraps=runner)
+        fake_runner.ReportRepairQueued = runner.ReportRepairQueued
+        class GrantApplied(Exception):
+            pass
+        fake_runner.prepare_abandoned_completion_revalidation.side_effect = GrantApplied
+        with self.assertRaises(GrantApplied):
+            run_actions.handle(fake_runner, args, None, self.state, run / 'state.json', run, self.root)
+        self.assertEqual(2, self.state['automatic_recoveries_since_resume'])
+        self.assertEqual(1, len(self.state['recovery_grants']))
+        self.assertEqual(published['request_id'], self.state['recovery_grants'][0]['request_id'])
+        self.assertEqual(3, self.state['resolver']['lifetime_attempts'])
+        self.assertEqual('superseded',
+                         self.state['resolver']['human_escalations'][published['request_id']]['status'])
+        fake_runner.run_role.assert_not_called()
+
     def test_generic_answer_cannot_reclassify_operational_question_as_new_requirements(self):
         self.contract()
         published = self.publish_operational()

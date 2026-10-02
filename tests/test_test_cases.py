@@ -326,6 +326,20 @@ class PromptTests(unittest.TestCase):
                 prompt = autoplanner.context(state, stage, state_path)[0]
                 self.assertEqual(wanted, "CHECK EVERY WORKED EXAMPLE" in prompt)
 
+    def test_the_plan_reviewer_checks_every_example_against_the_brief(self):
+        # A live greenfield run (2026-10-01) transcribed the brief's "ID TEXT [open|done]" into examples
+        # without the brackets and everything downstream honestly served the corrupted criteria.
+        from tests.test_bug_job import SmallCorrectionTests
+        from units import autoplanner
+        state = SmallCorrectionTests.start(SmallCorrectionTests(), fix_size="large")
+        state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
+        state_path = Path(state["workspace"]) / "state.json"
+        for stage, wanted in (("astra_challenge", True), ("astra_finalize", True), ("astra_discovery", False),
+                              ("glm_revise", False)):
+            with self.subTest(stage=stage):
+                prompt = autoplanner.context(state, stage, state_path)[0]
+                self.assertEqual(wanted, "CHECK EVERY EXAMPLE AGAINST THE BRIEF" in prompt)
+
     def test_every_planning_stage_forbids_timing_criteria_except_requirements(self):
         from tests.test_bug_job import SmallCorrectionTests
         from units import autoplanner

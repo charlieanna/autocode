@@ -69,7 +69,7 @@ MUTATIONS = [
      '    for event_body in _command_bodies(event_command):',
      ["tests.test_catalogue_t06"]),
     ("M09", "tools/autopilot.py",
-     'if value["verdict"] == "PASS" and (not value["checks"] or any(c["exit_code"] for c in value["checks"])):',
+     'if (value["verdict"] == "PASS" or human_pending) and (not value["checks"] or any(c["exit_code"] for c in value["checks"])):',
      'if False:',
      ["tests.test_catalogue_t06"]),
     ("M10", "tools/autocode.py",

@@ -16,7 +16,7 @@ def fixture(kind="iteration_ceiling"):
              "metrics": {"provider_tokens": {"input_tokens": 10, "output_tokens": 5}}}
     state = {"settings": {"budget_origins": {name: "runner_default" for name in HARD_CEILINGS},
                           "limits": {"iteration_ceiling": 15, "stage_timeout_seconds": 300,
-                                     "max_seconds": 600, "max_reported_tokens": 1000},
+                                     "max_seconds": 600},
                           "milestone_checkpoints": {"max_seconds": 5400}},
              "iteration": 16, "active_seconds": 600, "no_progress_batches": 0,
              "stages": [stage], "history": [copy.deepcopy(stage)],
@@ -83,12 +83,10 @@ class BudgetRecoveryTests(unittest.TestCase):
             del state["settings"]["budget_origins"]
             self.denied(state, kind)
 
-    def test_unset_token_cap_is_distinct_from_unknown_token_usage(self):
+    def test_unknown_token_usage_is_not_accounted_as_zero(self):
         state = fixture()
-        state['settings']['limits']['max_reported_tokens'] = None
         self.assertTrue(recover(state, kind='iteration_ceiling', now=NOW))
         state = fixture()
-        state['settings']['limits']['max_reported_tokens'] = None
         state['stages'][0]['metrics']['provider_tokens']['input_tokens'] = None
         self.denied(state)
 
@@ -144,7 +142,6 @@ class BudgetRecoveryTests(unittest.TestCase):
         state['validation'] = {'verdict': 'PASS', 'output': '/tmp/sol.json',
                                'source_revision': 'candidate-revision'}
         state['settings']['budget_origins']['max_seconds'] = 'resolver_delegated'
-        state['settings']['limits']['max_reported_tokens'] = None
         state['stages'][0]['metrics']['provider_tokens'].update(input_tokens=None, output_tokens=None)
         state['active_seconds'] = 700
         self.assertTrue(recover(state, kind='max_seconds', now=NOW))
@@ -162,7 +159,6 @@ class BudgetRecoveryTests(unittest.TestCase):
                                        'source_revision': 'candidate-revision'}
                 state['settings']['budget_origins']['max_seconds'] = (
                     'resolver_delegated' if delegated else 'user_explicit')
-                state['settings']['limits']['max_reported_tokens'] = None
                 state['stages'][0]['metrics']['provider_tokens'].update(input_tokens=None, output_tokens=None)
                 state['active_seconds'] = 700
                 self.denied(state, 'max_seconds')
@@ -249,11 +245,12 @@ class BudgetRecoveryTests(unittest.TestCase):
             state["stages"].insert(0, old)
             self.denied(state)
 
-    def test_explicit_reported_token_boundary_unchanged(self):
-        for cap in (15, 10, True, "100", -1):
-            state = fixture()
-            state["settings"]["limits"]["max_reported_tokens"] = cap
-            self.denied(state)
+    def test_retired_token_settings_do_not_restrict_recovery(self):
+        for cap in (1, 15, None, True, "100", -1):
+            with self.subTest(cap=cap):
+                state = fixture()
+                state["settings"]["limits"]["max_reported_tokens"] = cap
+                self.assertTrue(recover(state, kind="iteration_ceiling", now=NOW))
         self.denied(fixture(), "max_reported_tokens")
         self.denied(fixture(), "provider_quota")
 
@@ -484,9 +481,6 @@ class PlanningBudgetRecoveryTests(unittest.TestCase):
             self.denied(state)
         state = planning_fixture()
         state["stages"][0]["metrics"]["provider_tokens"]["input_tokens"] = None
-        self.denied(state)
-        state = planning_fixture()
-        state["settings"]["limits"]["max_reported_tokens"] = 45
         self.denied(state)
         state = planning_fixture()
         state["active_stage"] = copy.deepcopy(state["stages"][-1])

@@ -109,7 +109,7 @@ def cmd_run(args) -> int:
 def caps_flags(args) -> list[str]:
     """Run-budget caps forwarded to AutoCode on every launch, so no live run is unbounded."""
     caps = []
-    for name in ("max_seconds", "max_stage_seconds", "max_reported_tokens", "max_iterations"):
+    for name in ("max_seconds", "max_stage_seconds", "max_iterations"):
         value = getattr(args, name, None)
         if value is not None:
             caps += [f"--{name.replace('_', '-')}", str(value)]
@@ -405,7 +405,6 @@ def main(argv=None) -> int:
     run.add_argument("--timeout-minutes", type=int, help="override the scenario's time budget")
     run.add_argument("--max-seconds", type=int, help="forwarded to AutoCode: total active provider time")
     run.add_argument("--max-stage-seconds", type=int, help="forwarded to AutoCode: per-stage time cap")
-    run.add_argument("--max-reported-tokens", type=int, help="forwarded to AutoCode: total reported-token budget")
     run.add_argument("--max-iterations", type=int, help="forwarded to AutoCode: iteration ceiling")
     run.set_defaults(func=cmd_run)
     comparison = commands.add_parser("compare", help="run AutoCode and a plain agent on the same scenarios; "

@@ -35,8 +35,12 @@ validates the final report against the stage schema, and verifies command eviden
 against actual completed bash events; the runner then re-runs a passing Validator's
 checks itself in a clean copy ([Execution](execution.md#the-runner-re-runs-the-validators-checks)). Raw events, session IDs and stage-local
 permission overrides are saved alongside the checkpoint. Token limits include cache
-reads/writes and reasoning tokens. Malformed, truncated or uncertain results pause;
-the runner does not automatically replay the provider request.
+reads/writes and reasoning tokens. Malformed or uncertain results pause; the runner
+does not automatically replay the provider request. The one exception is a Validator or
+Completion Owner response cut off by the output-token limit: when the process exited
+cleanly with the source unchanged, the runner archives the attempt and queues a bounded
+report-only repair from the saved partial response and check evidence rather than
+replaying the provider request.
 
 OpenCode has a different isolation boundary: Requirements Planner sessions and other
 read-only OpenCode roles have edit tools denied and their workspace snapshots
@@ -161,8 +165,7 @@ Changing the config file or the tool version pauses a saved run.
 - `output = "report_file"` (the default): the tool writes exactly one JSON object
   to `{report}`, as `codex exec -o` does. Every stage starts fresh. Command
   evidence is a `capture_command` receipt file, not an `event:` id. These tools
-  report no token usage, so `--max-reported-tokens` pauses with
-  `PAUSED_USAGE_UNKNOWN`.
+  report no token usage, so those counts remain unknown in the usage ledger.
 - `output = "opencode_events"`: the tool prints OpenCode-format JSON events, as
   `opencode run --format json` and `kilo run --format json` do. Autocode reads
   the final report, token usage and command exit codes from those events, and

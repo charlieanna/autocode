@@ -8,6 +8,11 @@ from here, so a module that only reads a contract does not pull that machinery i
 from __future__ import annotations
 
 import copy
+
+try:
+    from . import autocode_draft_examples as examples
+except ImportError:
+    import autocode_draft_examples as examples
 import difflib
 import json
 from pathlib import Path
@@ -301,6 +306,7 @@ def render(state):
                         lines.append("    Owned paths: " + (", ".join(row["affected_paths"]) or "unspecified; serial dispatch"))
                 else:
                     lines.append(f"  - {row['text']} (basis: {row['basis']}; answer: {row['answer_id'] or 'none'})")
+    lines += examples.review_notes(state)
     declared = contract.get("declared_changes") or []
     if declared:
         lines += ["", "Declared contract changes:"]

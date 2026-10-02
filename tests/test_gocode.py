@@ -102,7 +102,7 @@ class GoCodeTransportTests(unittest.TestCase):
             context_soft_tokens=None, rotate_after_input_tokens=None,
             legacy_iteration_ceiling=None, max_iterations=None, max_seconds=None,
             max_stage_seconds=None, max_idle_seconds=None, max_tool_seconds=None,
-            max_reported_tokens=None, no_progress_limit=None, unlimited_iterations=False,
+            no_progress_limit=None, unlimited_iterations=False,
             glm_reasoning_effort="xhigh",
         )
         with patch.object(gocode, "local_settings", return_value={"engine": "gocode"}):

@@ -48,3 +48,40 @@ A case passes when its agreed criteria and complete user flow pass, required hum
 reviews are satisfied, and the dashboard reflects the saved result. Missing evidence
 stays unverified. Claims of dependable project completion require these live trials;
 passing fixture tests alone does not establish model effectiveness.
+
+Re-run of the two failed cases (2026-10-01, master fba6e738, same profile, 90/130-minute
+budgets; same note for details):
+
+- Bug fix (bugfix-iso-weeks): **passed** — TASK_COMPLETE, oracle 5/5, one pass through the
+  whole pipeline (investigate → plan → build → regression proof → validate → complete), no
+  repairs, no rework, no interventions. The first attempt had only lacked time.
+- Small new application (greenfield-todo-cli): **failed as a false completion** — the run
+  reported TASK_COMPLETE, oracle 7/10. A second attempt had stopped earlier at requirements
+  (OpenCode output-token truncation, nondeterministic). Root cause of the false completion:
+  the Requirements stage's worked examples transcribed the brief's literal `ID TEXT
+  [open|done]` output format without the brackets; the Builder, tests, Validator and
+  completion gate then all worked from the corrupted criteria, each honestly. The
+  brief-to-criteria transcription is the one handoff with no independent check.
+
+After the fixes (prompt rules for criteria-vs-brief tracing and in-workspace scratch, the
+bug-fix budget, all in commit f001e317), the greenfield case **passed** on the same profile:
+TASK_COMPLETE, oracle 10/10, no permission recoveries, criteria carrying the brief's
+literals. One passing sample does not prove the prompt rules caused it; the next sweep
+should watch the same boundaries. Standing tally after the fixes: all three cases pass end
+to end; the one observed false completion came through the requirements boundary, and its
+guard is now model-dependent — verified by live runs, not mechanically.
+
+First run of the three cases (2026-10-01, master 68e89aa4, profile glm53-openai:
+GLM-5.3 producers on the Z.AI plan, GPT-6 verifiers on OpenCode's ChatGPT login;
+details in docs/bugs/2026-10-01-reliability-live-cases.md):
+
+- Feature in an existing project (feature-timesheet-by-project): **passed** —
+  TASK_COMPLETE, oracle 6/6, two report repairs recovered automatically.
+- Small new application (greenfield-todo-cli): **not passed** — the deliverable was
+  correct (oracle 10/10) but the run never completed: OpenCode's external_directory
+  permission stopped the validator three times, the recovery budget ran out, and the
+  run paused for a person. Blocker recorded; validator evidence paths must stay
+  workspace-contained.
+- Bug fix (bugfix-iso-weeks): **not passed** — the fix was correct (oracle 5/5) but the
+  scenario's 60-minute budget expired while AutoResolver's rework loop was still
+  running. Budget, not correctness, ended it.

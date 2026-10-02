@@ -166,6 +166,13 @@ class TaskRunTests(unittest.TestCase):
         self.env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "AUTOCODE_HOME": str(root / "registry"),
                     "PYTHONDONTWRITEBYTECODE": "1"}
 
+    def test_retired_token_cap_option_is_rejected_before_a_run_starts(self):
+        for cap in ("0", "1", "2000000"):
+            with self.subTest(cap=cap), self.assertRaisesRegex(taskrun.TaskRunError, "unrecognized arguments"):
+                taskrun.TaskRun.start(self.workspace, BRIEF,
+                    options=[*FIXTURE_OPTIONS, "--max-reported-tokens", cap], env=self.env)
+        self.assertFalse((self.workspace / ".autocode").exists())
+
     def test_start_approve_and_complete(self):
         run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
         view = run.status()

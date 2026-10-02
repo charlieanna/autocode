@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from autocode_taskrun import TaskRun
+from autocode_taskrun import TaskRun, TaskRunError
 
 
 class RecoveryGrantTests(unittest.TestCase):
@@ -29,3 +29,16 @@ class RecoveryGrantTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'positive integer'):
                     run.grant_recovery(amount)
                 execute.assert_not_called()
+
+    def test_prefixed_cli_rejection_is_not_reported_as_an_accepted_pause(self):
+        run = TaskRun(Path('/repo'), Path('/repo/.autocode/runs/task'))
+        for output in ('stdout', 'stderr'):
+            with self.subTest(output=output):
+                streams = {'stdout': '', 'stderr': ''}
+                streams[output] = ('AutoResolver: internal checkpoint updated\n'
+                                   'Input rejected: current recovery request required\n')
+                result = subprocess.CompletedProcess([], 2, **streams)
+                with patch('autocode_taskrun.subprocess.run', return_value=result) as execute, \
+                        self.assertRaisesRegex(TaskRunError, 'current recovery request required'):
+                    run.grant_recovery(1)
+                self.assertEqual(1, execute.call_count)

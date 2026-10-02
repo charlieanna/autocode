@@ -430,28 +430,16 @@ no `activity.jsonl`; their log starts with the next save.
 
 ## Pause, recovery, and abandonment
 
-### Reported-token guard
+### Usage accounting
 
-`--max-reported-tokens N` with a positive `N` is a stage-boundary guard, not a
-strict billing cap. It checks saved provider-reported input plus output tokens
-before admitting the next stage; an in-flight stage can exceed the limit, and
-reported tokens are not a complete billing ledger. Known usage at or above the
-limit pauses with `PAUSED_BUDGET`.
+Token usage and provider-reported cost are recorded for accounting. Cumulative
+token counts do not stop execution. Missing counts remain unknown and are never
+treated as zero; interrupted attempts retain their logs and partial work.
 
-If any recorded attempt lacks input or output token counts, the guard fails closed
-with `PAUSED_USAGE_UNKNOWN`, including for interrupted attempts that have been
-abandoned. The diagnostic identifies affected attempts and their event-log paths
-(or the saved stage index and missing path for incomplete legacy records). Inspect
-those logs and retained work; missing usage is never treated as zero or estimated.
-Abandoning a stage only resolves its uncertain response, not its unknown consumption.
-Neither `--resume-paused` nor a larger positive token cap restores missing usage;
-an unchanged-cap run remains paused as well. There is no manual usage-receipt
-override or automatic recovery that reconstructs missing consumption.
-
-The existing explicit `--max-reported-tokens 0` disables this guard. That is a
-deliberate spending-policy change, **not** usage recovery or a safe way to continue
-under the original cap. The runner never removes the cap automatically. If usage
-remains unknown and the guard must remain enabled, leave the run paused.
+Existing runs discard retired token-budget settings at their next launch. An
+operational question issued by the old token guard is withdrawn; resume the saved
+run with `--resume-paused`. Plan, permission and artifact-review decisions retain
+their existing approval gates.
 
 ### Stage recovery
 

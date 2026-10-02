@@ -80,7 +80,7 @@ class ApprovalCase(kit.CatalogueCase):
                                    "transport_identity": self.local, "headroom": {"enabled": False},
                                    "context_soft_tokens": 10000,
                                    "limits": {"iteration_ceiling": 5, "max_seconds": None,
-                                              "max_reported_tokens": None, "no_progress_batches": 3}}}
+                                              "no_progress_batches": 3}}}
         lifecycle.migrate(self.state)
 
     def draft(self, **kwargs):

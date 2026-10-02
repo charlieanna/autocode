@@ -9,6 +9,8 @@ def install(fake, config, trace):
     def report(stage, data):
         if config["case"] == "remember_citation_after_clarification":
             return citation_after_clarification(fake, original, stage, data, trace)
+        if config["case"] in ("repair_draft_example", "reject_draft_example_input_change"):
+            return draft_example(fake, original, stage, data, trace, config)
         if config["case"] in ("repair_draft_suite_proof", "reject_draft_proof_downgrade"):
             return draft_suite_proof(fake, original, stage, data, trace, config)
         error = str(data.get("error") or "")
@@ -78,4 +80,40 @@ def draft_suite_proof(fake, original, stage, data, trace, config):
                                "acceptance_test": fake.CHECK, "resolved": True}]
     if stage in ("astra_discovery", "glm_revise", "astra_finalize"):
         trace("draft_proof", stage=stage, method=value["contract"]["acceptance_criteria"][0]["verification_method"])
+    return value
+
+
+
+def draft_example(fake, original, stage, data, trace, config):
+    """The reference is unchanged; only the Planner's initial row arithmetic is wrong."""
+    old = '{"rows": 1, "errors": []}\\n'
+    new = '{"rows": 2, "errors": []}\\n'
+    criterion = ('Given CSV `name,age,email\\nA,0,a@b\\nB,130,b@c\\n`, when '
+                 '`python3 -m csvcheck PATH` runs, then it exits 0, writes exactly '
+                 f'`{old}` to stdout, and writes empty stderr.')
+    value = original(stage, data)
+    if data.get("report_repair"):
+        trace("example_rejection_observed", stage=stage, error=data.get("error", ""))
+    if stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+        row = value["contract"]["acceptance_criteria"][0]
+        row["criterion"] = criterion if stage == "astra_discovery" else criterion.replace(old, new)
+        if stage == "glm_revise":
+            if config["case"] == "reject_draft_example_input_change":
+                row["criterion"] = row["criterion"].replace("B,130", "B,129")
+            value["contract_changes"] = [{"item": row["id"], "change": "reworded", "basis": "agent_proposed",
+                "answer_id": "", "replacement": row["criterion"],
+                "example_correction": {"concern_id": "C_COUNT", "before": old, "after": new}}]
+            value["responses"] = [{"concern_id": "C_COUNT", "response": "There are two logical data records.",
+                                   "evidence_refs": ["README.md"], "change": "Correct the draft stdout count only.",
+                                   "acceptance_test": fake.CHECK}]
+        elif stage == "astra_finalize":
+            value["decisions"] = [{"concern_id": "C_COUNT", "decision": "Confirm the recomputed count of two.",
+                                  "rationale": "The input has two data records and its binding behavior is unchanged.",
+                                  "acceptance_test": fake.CHECK, "resolved": True}]
+        trace("draft_example", stage=stage, criterion=row["criterion"])
+    elif stage == "astra_challenge":
+        value["concerns"] = [{"id": "C_COUNT", "blocking": True,
+            "concern": f'C1 has two data records but writes `{old}` instead of `{new}`.',
+            "evidence_refs": ["README.md"], "requested_change": "Correct only the numeric draft stdout result.",
+            "acceptance_test": fake.CHECK}]
     return value

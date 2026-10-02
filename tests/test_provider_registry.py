@@ -73,7 +73,7 @@ class ProviderRegistryTests(unittest.TestCase):
         args = SimpleNamespace(provider=None, engine="codex", figma_file=None, joint_planning=False, glm_model=None,
                                reasoning_effort=None, headroom=None, context_soft_tokens=None,
                                rotate_after_input_tokens=None, legacy_iteration_ceiling=15, max_iterations=None,
-                               max_seconds=None, max_reported_tokens=None, no_progress_limit=None, pin_model_role=[],
+                               max_seconds=None, no_progress_limit=None, pin_model_role=[],
                                **{f"{role}_{field}": None for role in ("astra", "terra", "sol", "completion")
                                   for field in ("model", "provider", "reasoning_effort")})
         with mock.patch.dict(os.environ, {"AUTOCODE_PROVIDER": "kilocode"}), \

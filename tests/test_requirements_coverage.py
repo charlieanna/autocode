@@ -73,6 +73,52 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(['- You must retain drafts.'], packet['requirement_coverage_checklist'])
         self.assertIsNone(packet['goal_contract'])
 
+
+class HeadingCueTests(unittest.TestCase):
+    """A Markdown heading label is formatting, not a user requirement (#216)."""
+
+    def report(self, *quotes):
+        return {'requirements': [{'id': 'R' + str(i), 'text': quote, 'source_quote': quote}
+                                 for i, quote in enumerate(quotes)], 'ignored_statements': []}
+
+    def test_label_heading_is_not_an_obligation(self):
+        # The live-run shape: the heading fused with an orphaned list marker into
+        # one un-quotable "requirement-like sentence".
+        task = ('Add refunds.\n\n## Required behavior\n\n'
+                '1. Refunds must credit the original payment method.')
+        self.assertEqual(['Refunds must credit the original payment method.'], goals.cue_sentences(task))
+        goals.check_requirement_handoff({'task': task},
+                                        self.report('Refunds must credit the original payment method.'))
+
+    def test_substantive_heading_stays_a_clean_obligation(self):
+        task = 'Harden storage.\n\n## Files must be encrypted\n'
+        self.assertEqual(['Files must be encrypted.'], goals.cue_sentences(task))
+        with self.assertRaisesRegex(ValueError, 'Files must be encrypted'):
+            goals.check_requirement_handoff({'task': task}, self.report())
+        goals.check_requirement_handoff({'task': task}, self.report('Files must be encrypted'))
+
+    def test_plain_requirement_sentences_are_still_enforced(self):
+        task = 'Add refunds. Refunds must credit the original payment method.'
+        self.assertEqual(['Refunds must credit the original payment method.'], goals.cue_sentences(task))
+        with self.assertRaisesRegex(ValueError, 'Refunds must credit'):
+            goals.check_requirement_handoff({'task': task}, self.report())
+
+    def test_delegated_answer_is_quotable_but_never_owed(self):
+        state = {'task': 'Add receipts.',
+                 'answers': {'q1': {'kind': 'delegated', 'text': 'Use plain-text receipts only.'}}}
+        self.assertIn('Use plain-text receipts only.', goals.source_texts(state))
+        self.assertNotIn('Use plain-text receipts only.', goals.scan_texts(state))
+        # Not covering the model's own default passes...
+        goals.check_requirement_handoff(state, self.report())
+        # ...and a report may still quote it as a source.
+        goals.check_requirement_handoff(state, self.report('Use plain-text receipts only.'))
+
+    def test_real_answer_still_must_be_covered(self):
+        state = {'task': 'Add receipts.',
+                 'answers': {'q1': {'kind': 'answer', 'text': 'Receipts must be plain text.'}}}
+        with self.assertRaisesRegex(ValueError, 'Receipts must be plain text'):
+            goals.check_requirement_handoff(state, self.report())
+
     def test_changed_cause_allows_fresh_planning_retry_without_erasing_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); run = root / '.autocode/run'; run.mkdir(parents=True)

@@ -21,7 +21,7 @@ class UnlimitedTests(unittest.TestCase):
             headroom=None,context_soft_tokens=None,rotate_after_input_tokens=None,**kwargs)
 
     def test_explicit_unlimited_preserves_all_other_settings(self):
-        self.state['settings']['limits']={'iteration_ceiling':23,'max_seconds':1800,'max_reported_tokens':100,
+        self.state['settings']['limits']={'iteration_ceiling':23,'max_seconds':1800,
                                          'no_progress_batches':3,'stage_timeout_seconds':900,
                                          'idle_timeout_seconds':75,'tool_timeout_seconds':1200}
         original=copy.deepcopy(self.state)
@@ -37,6 +37,18 @@ class UnlimitedTests(unittest.TestCase):
         self.assertEqual(expected,result)
         self.assertEqual(original,self.state)
 
+    def test_saved_token_setting_is_removed_without_mutating_saved_input(self):
+        self.state['settings']['limits'] = {'iteration_ceiling': 23, 'max_seconds': 1800,
+                                          'max_reported_tokens': 1}
+        self.state['settings']['budget_origins'] = {'max_reported_tokens': 'user_explicit'}
+        original = copy.deepcopy(self.state)
+        settings = autocode_configure.configure(self.args(), self.state,
+            planning=planning, milestones=milestones, autopilot=autopilot)
+        self.assertNotIn('max_reported_tokens', settings['limits'])
+        self.assertNotIn('max_reported_tokens', settings['budget_origins'])
+        self.assertEqual(1800, settings['limits']['max_seconds'])
+        self.assertEqual(original, self.state)
+
     def test_omitted_flag_preserves_unlimited_on_resume(self):
         self.state['settings']['limits']={'iteration_ceiling':None}
         self.assertIsNone(autocode_configure.configure(self.args(),self.state, planning=planning, milestones=milestones, autopilot=autopilot)['limits']['iteration_ceiling'])
@@ -45,8 +57,7 @@ class UnlimitedTests(unittest.TestCase):
         state={key:value for key,value in self.state.items() if key!='settings'}
         args=SimpleNamespace(engine='codex', provider=None, astra_model=None,terra_model=None,sol_model=None,
             reasoning_effort=None,headroom=None,context_soft_tokens=None,rotate_after_input_tokens=None,
-            legacy_iteration_ceiling=None,max_iterations=None,max_seconds=None,max_reported_tokens=None,
-            no_progress_limit=None)
+            legacy_iteration_ceiling=None,max_iterations=None,max_seconds=None,no_progress_limit=None)
         with patch.object(s,'local_settings',return_value={}):
             settings=autocode_configure.configure(args,state, planning=planning, milestones=milestones, autopilot=autopilot)
         self.assertIsNone(settings['limits']['iteration_ceiling'])

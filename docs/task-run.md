@@ -155,7 +155,7 @@ run is waiting for:
 
 A `resolver_scope` of `operational_exhaustion` or `blocker` means AutoResolver
 stopped the run because it could not continue safely (for example, the
-reported-token cap was reached). That question is for a person who has looked at
+run time limit was reached). That question is for a person who has looked at
 the run; a caller must not answer it with a proposed default.
 
 Approving a plan or a review is a real user decision. Automated callers should

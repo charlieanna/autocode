@@ -48,6 +48,9 @@ def context_packet(state, stage, state_path):
         base['builder_artifact_policy'] = {
             'evidence_directory': str(Path(state_path).parent / 'evidence'),
             'instruction': 'Source writes must stay within current_task.affected_paths. '
+                'Shell commands start in workspace; use relative source paths there. '
+                'When a file tool requires an absolute path, derive it from the exact workspace '
+                'value in this packet. Never reconstruct or shorten that root from a run name. '
                 'Do not create a top-level evidence/ directory or other unassigned source files. '
                 'Command events are already retained by the runner; extra evidence files are optional. '
                 'If needed, write only under evidence_directory above using a unique filename, '

@@ -7,7 +7,7 @@ Dimensions (each scored PASS / FAIL / HONEST_BLOCKER / PARTIAL / N/A):
   model_routing    — every stage launch uses the pinned subscription models
   pause_recovery   — pauses state a reason and a recovery command; no silent COMPLETE
   evidence         — COMPLETE/ACCEPT requires evidence, not just claims
-  token_discipline — per-stage tokens recorded; budget flags work
+  token_discipline — per-stage token usage recorded
 
 Cost note: USD values use historical comparison rates, not verified current
 prices or invoices. Inclusive input/output totals are priced once at those flat
@@ -360,9 +360,6 @@ def score_run(run_dir: Path) -> dict:
         token_notes.append(f"{len(rows)} stage metric rows")
         token_notes.append(f"historical-rate estimate: {money(total_usd)}; "
                            f"known subtotal {money(known_usd)}, {unknown_rows} unpriced stage(s)")
-    limits = state.get("limits") or {}
-    if limits.get("max_reported_tokens"):
-        token_notes.append(f"max_reported_tokens={limits['max_reported_tokens']} enforced")
 
     return {
         "run_dir": str(run_dir),

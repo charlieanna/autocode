@@ -23,11 +23,39 @@ def open_finding_id(source, text):
             return row["id"]
     return None
 
+def record_launch(stage):
+    probe = os.environ.get("AUTOCODE_REGISTRY_LAUNCH_PROBE")
+    if probe:
+        registry_path = Path(os.environ["AUTOCODE_HOME"]) / "registry.json"
+        try:
+            registry = json.loads(registry_path.read_text())
+            observed = sorted(item["run_dir"] for item in registry.get("runs", {}).values())
+        except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
+            observed = {"error": str(error)}
+        with Path(probe).open("a") as stream:
+            stream.write(json.dumps({"stage": stage, "runs": observed}) + "\n")
+
 if data.get('report_repair'):
+    record_launch(data['original']['stage'] + '_report_repair')
     # This branch only reformats a saved report; never executes the original task.
-    result = json.loads(Path(data['original']['output']).read_text())
+    if data['original'].get('truncated_output'):
+        result = json.loads(data['rejected_report']['content']['partial_text'] + '}')
+    else:
+        result = json.loads(Path(data['original']['output']).read_text())
     if 'summary' not in result and data['original'].get('stage', '').startswith(('terra', 'astra_discovery')):
         result['summary'] = 'Repaired fixture report'
+    if os.environ.get("AUTOCODE_FIXTURE_MODE") == "human-pending":
+        original_stage = data['original'].get('stage')
+        if original_stage == "astra_review":
+            for row in result["acceptance_criteria"]:
+                if not row["evidence"].strip():
+                    row["evidence"] = "Current Validator executed CLI checks; human acceptance is still pending"
+        elif original_stage == "sol" and not result["checks"]:
+            original_events = [json.loads(line) for line in Path(data['original']['events']).read_text().splitlines()]
+            result["checks"] = [{"command": event["item"]["command"], "exit_code": event["item"]["exit_code"],
+                                 "evidence_ref": "event:" + event["item"]["id"]}
+                                for event in original_events if event.get("type") == "item.completed"
+                                and event.get("item", {}).get("type") == "command_execution"]
     session = str(uuid.uuid4())
     print(json.dumps({'type': 'thread.started', 'thread_id': session}))
     Path(sys.argv[sys.argv.index('-o') + 1]).write_text(json.dumps(result))
@@ -40,16 +68,7 @@ task_kind = os.environ.get("AUTOCODE_FIXTURE_TASK_KIND", "build")
 builder_files = (json.loads(Path(os.environ["AUTOCODE_FIXTURE_FILES"]).read_text())
                  if os.environ.get("AUTOCODE_FIXTURE_FILES") else None)
 contract = data["goal_contract"] or {"revision": 0, "hash": ""}
-probe = os.environ.get("AUTOCODE_REGISTRY_LAUNCH_PROBE")
-if probe:
-    registry_path = Path(os.environ["AUTOCODE_HOME"]) / "registry.json"
-    try:
-        registry = json.loads(registry_path.read_text())
-        observed = sorted(item["run_dir"] for item in registry.get("runs", {}).values())
-    except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
-        observed = {"error": str(error)}
-    with Path(probe).open("a") as stream:
-        stream.write(json.dumps({"stage": stage, "runs": observed}) + "\n")
+record_launch(stage)
 common = {"contract_revision": contract["revision"], "contract_hash": contract["hash"],
           "task_id": (data.get("current_task") or {}).get("id", ""),
           "deferred_backlog": ["Optional web UI"], "user_request": {"kind": "none", "discovered": "", "impact": "",
@@ -81,7 +100,7 @@ elif stage == "requirements_gather":
         "task_kind": task_kind,
     }
 elif stage == "astra_discovery":
-    draft = body(questions=not data["saved_answers"], human=mode == "standard", task_kind=task_kind)
+    draft = body(questions=not data["saved_answers"], human=mode in ("standard", "human-pending"), task_kind=task_kind)
     if builder_files:
         draft["milestones"][0]["affected_paths"] = sorted(builder_files)
     if mode == "milestones":
@@ -166,6 +185,13 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
                                   acceptance_criteria=['C2'], validation_plan=['Execute both greeting and goodbye'])
     if mode == 'stalled' and ((data.get('milestone_checkpoint') or {}).get('current') or {}).get('needs_replan'):
         result['next_objective'] = 'Isolate empty input with a focused reproduction before repair'
+    if mode == "human-pending" and stage == "astra_review" and not data.get("human_reviews"):
+        result.update(status="CONTINUE", next_objective="Obtain human acceptance of the validated artifact")
+        result["acceptance_criteria"][0]["status"] = "unverified"
+        if os.environ.get("AUTOCODE_FIXTURE_EMPTY_HUMAN_EVIDENCE"):
+            result["acceptance_criteria"][0]["evidence"] = ""
+        result["next_task"].update(kind="validate", milestone_id="M1", requirements=["Obtain human acceptance"],
+            acceptance_criteria=["C1"], validation_plan=["Ask the user to accept the current artifact"])
     if stage == 'astra_resolve':
         result['diagnosis'] = 'Empty names are accepted by the CLI; add input validation and retest both cases.'
 elif stage == "terra":
@@ -213,9 +239,10 @@ else:
         # Passes only in the Validator's own session: it reads a file the Validator made outside the source.
         Path(".autocode/validator-only").write_text("set up by the Validator\n")
         command = "test -f .autocode/validator-only"
-    print(json.dumps({"type": "item.completed", "item": {"id": "check", "type": "command_execution",
-        "command": command, "exit_code": 0 if passed else 1,
-        "aggregated_output": json.dumps({"valid": [valid.returncode, valid.stdout], "invalid": invalid.returncode})}}))
+    if not os.environ.get("AUTOCODE_FIXTURE_NO_CHECK_EVENT"):
+        print(json.dumps({"type": "item.completed", "item": {"id": "check", "type": "command_execution",
+            "command": command, "exit_code": 0 if passed else 1,
+            "aggregated_output": json.dumps({"valid": [valid.returncode, valid.stdout], "invalid": invalid.returncode})}}))
     findings = [] if passed else [{"id": "", "severity": "high", "blocking": True, "finding": "Empty names are accepted",
         "evidence": "event:check", "reproduction_steps": ["Run greet.py with an empty argument"],
         "expected": "Exit 2", "actual": f"Exit {invalid.returncode}", "why_it_matters": "Required invalid-input behavior",
@@ -231,6 +258,15 @@ else:
     if mode == 'milestones':
         result['criterion_results'].append({'id': 'C2', 'status': 'PASS' if goodbye_passed else 'NOT_VERIFIED',
                                            'evidence_refs': ['event:check'] if goodbye_passed else []})
+    if mode == "human-pending" and passed:
+        result.update(verdict="BLOCKED", unverified_criteria=["C1 human acceptance pending"])
+        result["criterion_results"][0]["status"] = "NOT_VERIFIED"
+        if os.environ.get("AUTOCODE_FIXTURE_OMIT_CHECKS"):
+            result["checks"] = []
+        if os.environ.get("AUTOCODE_FIXTURE_NO_CHECK_EVENT"):
+            result.update(checks=[], checks_run=[])
+            result["criterion_results"][0]["evidence_refs"] = ["greet.py"]
+            result["end_to_end_result"]["evidence_refs"] = ["greet.py"]
     if stage == "astra_checkpoint":
         result = {"validation": result, "consult_sol": {"requested": False, "question": "", "reason": ""},
             "decision": {**common, "status": "COMPLETE" if passed else "REWORK",

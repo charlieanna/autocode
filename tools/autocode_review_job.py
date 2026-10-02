@@ -85,10 +85,12 @@ What to do:
 2. Read the change AND its context: the code around it, the README or docs that state how the code is
    supposed to behave, the existing tests. A change can pass its own tests and still break a rule the
    repository states elsewhere.
-3. Test where it helps. Make your own scratch copy OUTSIDE the workspace (for example under a temporary
-   directory), apply the change there and run the test suite there. Never apply the change to the
-   workspace itself; the runner compares the workspace before and after and rejects a review that
-   changed anything outside review/.
+3. Test where it helps. Make your own scratch copy under .autocode/ inside the workspace (for example
+   .autocode/scratch/review); the runner's before/after comparison ignores .autocode/. Never use /tmp,
+   mktemp or another path outside the workspace: the provider sandbox denies external directories and
+   the whole attempt is lost. Apply the change in your scratch copy and run the test suite there. Never
+   apply the change to the workspace itself; the runner compares the workspace before and after and
+   rejects a review that changed anything outside review/.
    When the change's own tests pass without exercising what it claims (they read a value the code sets
    directly instead of going through the real code path), write a targeted test that FAILS on the
    changed code and would PASS once the defect is fixed. Prove both in your scratch copy, then deliver

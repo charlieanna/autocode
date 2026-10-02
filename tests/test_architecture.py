@@ -24,9 +24,9 @@ TANGLED = frozenset({
 })
 
 # Line counts on 2026-09-28, after merging master at 24617cc and moving subcommand dispatch out of
-# autocode.py. Lower these when a module shrinks: on 2026-10-01 command-event matching moved to
-# autocode_event_matching and the report-retry action to autocode_stage_recovery.
-MAX_LINES = {"autocode.py": 1502, "autocode_goals.py": 1313, "autocode_support.py": 617, "autopilot.py": 1174}
+# autocode.py. Lower these when a module shrinks: master fixes and the TaskRun branch's
+# command-event/report-retry extraction both reduced these modules.
+MAX_LINES = {"autocode.py": 1468, "autocode_goals.py": 1300, "autocode_support.py": 593, "autopilot.py": 1172}
 
 
 def source_modules() -> dict[str, Path]:

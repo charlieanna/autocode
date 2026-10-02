@@ -64,6 +64,12 @@ with tempfile.TemporaryDirectory() as temp:
                           "state": {"status": "completed", "input": {"command": item["command"]},
                                     "metadata": {"exit": item["exit_code"]}, "output": item["aggregated_output"]}})
     final = report.read_text().replace('"event:check"', '"event:prt_check"')
+    if os.environ.get("AUTOCODE_FIXTURE_TRUNCATE_STAGE") == data.get("stage"):
+        emit("text", {"id": "prt_text", "type": "text", "text": final[:-1], "time": {"end": 1}})
+        emit("step_finish", {"id": "prt_finish", "type": "step-finish", "reason": "length", "cost": 0,
+                             "tokens": {"input": 100, "output": 50, "reasoning": 0,
+                                        "cache": {"read": 0, "write": 0}}})
+        raise SystemExit(0)
     emit("text", {"id": "prt_text", "type": "text", "text": final, "time": {"end": 1}})
     emit("step_finish", {"id": "prt_finish", "type": "step-finish", "reason": "stop", "cost": 0,
                          "tokens": {"input": 100, "output": 50, "reasoning": 0, "cache": {"read": 0, "write": 0}}})

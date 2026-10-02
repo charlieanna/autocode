@@ -122,3 +122,137 @@ class DraftVerificationRevisionTests(unittest.TestCase):
                 else:
                     with self.assertRaisesRegex(ValueError, "without a user-backed"):
                         revision_guard(state, after, [], "glm_revise")
+
+
+class DraftExampleRevisionTests(unittest.TestCase):
+    def inputs(self):
+        before = '{"rows": 1, "errors": []}\\n'
+        after = '{"rows": 2, "errors": []}\\n'
+        criterion = ('Given CSV `name,age,email\\nA,0,a@b\\nB,130,b@c\\n`, when '
+                     '`python3 -m csvcheck PATH` runs, then it exits 0, writes exactly '
+                     f'`{before}` to stdout, and writes empty stderr.')
+        body = {"acceptance_criteria": [{"id": "AC1", "criterion": criterion,
+                "verification_method": "test: test_ac1_rows", "human_review": False}],
+                "required_behaviors": ["Count all logical data records"], "scope_exclusions": [],
+                "constraints": [], "important_failure_cases": [], "permission_boundaries": ["No network"]}
+        concern = {"id": "C_COUNT", "blocking": True,
+                   "concern": f"AC1 counts two data records incorrectly: `{before}` must be `{after}`."}
+        state = {"task": "Count all logical data records in the CSV.",
+                 "goal_contract": {"body": body, "origin": "glm_draft", "approval_status": "draft",
+                                   "approval_event": None},
+                 "planning": {"reports": {"astra_challenge": {"report": {"concerns": [concern]}}}}}
+        revised = copy.deepcopy(body)
+        revised["acceptance_criteria"][0]["criterion"] = criterion.replace(before, after)
+        receipt = [{"item": "AC1", "change": "reworded", "basis": "agent_proposed", "answer_id": "",
+                    "replacement": revised["acceptance_criteria"][0]["criterion"],
+                    "example_correction": {"concern_id": "C_COUNT", "before": before, "after": after}}]
+        return state, revised, receipt
+
+    def test_reviewer_supported_numeric_draft_example_correction_preserves_original_state(self):
+        state, after, changes = self.inputs()
+        snapshot = copy.deepcopy(state)
+        revision_guard(state, after, changes, "glm_revise")
+        self.assertEqual(snapshot, state)
+
+    def test_approval_and_user_authorship_always_protect_the_example(self):
+        for kind in ("approved", "receipt", "history", "user_edit", "user_answer", "literal", "literal_formatting", "feedback"):
+            state, after, changes = self.inputs()
+            contract = state["goal_contract"]
+            if kind == "approved":
+                contract["approval_status"] = "approved"
+            elif kind == "receipt":
+                contract["approval_event"] = {"kind": "goal_approval"}
+            elif kind == "history":
+                prior = dict(copy.deepcopy(contract), approval_status="approved")
+                prior["body"]["acceptance_criteria"][0]["verification_method"] = "Run an old suite"
+                state["contract_history"] = [prior]
+            elif kind == "user_edit":
+                contract["origin"] = "user_cli_edit"
+            elif kind == "user_answer":
+                state["answers"] = {"Q1": {"text": "Keep my example"}}
+                contract["declared_changes"] = [{"item": "AC1", "basis": "user_answer", "answer_id": "Q1"}]
+            elif kind == "literal":
+                state["task"] += " Expected stdout: " + changes[0]["example_correction"]["before"]
+            elif kind == "literal_formatting":
+                state["task"] += ' Expected stdout: {"rows":1,"errors":[]}.'
+            else:
+                state["brief_feedback"] = [{"text": "Expected stdout: " + changes[0]["example_correction"]["before"]}]
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                revision_guard(state, after, changes, "glm_revise")
+
+    def test_a_receipt_cannot_authorize_an_input_behavior_proof_or_permission_change(self):
+        for kind in ("input", "command", "exit", "proof", "human", "permission", "behavior", "output_shape"):
+            state, after, changes = self.inputs()
+            row = after["acceptance_criteria"][0]
+            if kind == "input":
+                row["criterion"] = row["criterion"].replace("B,130", "B,129")
+            elif kind == "command":
+                row["criterion"] = row["criterion"].replace("csvcheck PATH", "csvcheck OTHER")
+            elif kind == "exit":
+                row["criterion"] = row["criterion"].replace("exits 0", "exits 1")
+            elif kind == "proof":
+                row["verification_method"] = "Run the suite"
+            elif kind == "human":
+                row["human_review"] = True
+            elif kind == "permission":
+                after["permission_boundaries"] = ["Network allowed"]
+            elif kind == "behavior":
+                after["required_behaviors"] = []
+            else:
+                row["criterion"] = row["criterion"].replace('"errors": []', '"errors": null')
+                changes[0]["example_correction"]["after"] = changes[0]["example_correction"]["after"].replace('"errors": []', '"errors": null')
+            changes[0]["replacement"] = row["criterion"]
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                revision_guard(state, after, changes, "glm_revise")
+
+    def test_missing_stale_or_invented_review_receipts_do_not_allow_rewording(self):
+        for kind in ("missing", "unknown_concern", "no_review", "advisory", "wrong_result", "duplicate", "no_origin"):
+            state, after, changes = self.inputs()
+            if kind == "missing":
+                changes[0].pop("example_correction")
+            elif kind == "unknown_concern":
+                changes[0]["example_correction"]["concern_id"] = "C_INVENTED"
+            elif kind == "no_review":
+                state["planning"]["reports"] = {}
+            elif kind == "advisory":
+                state["planning"]["reports"]["astra_challenge"]["report"]["concerns"][0]["blocking"] = False
+            elif kind == "wrong_result":
+                changes[0]["example_correction"]["after"] = '{"rows": 3, "errors": []}\\n'
+            elif kind == "duplicate":
+                changes *= 2
+            else:
+                state["goal_contract"].pop("origin")
+            with self.subTest(kind=kind), self.assertRaises(ValueError):
+                revision_guard(state, after, changes, "glm_revise")
+
+
+    def test_tab_separated_word_counts_can_be_recomputed_without_changing_words(self):
+        state, after, changes = self.inputs()
+        receipt = changes[0]["example_correction"]
+        old, new = 'red\\t1\\nblue\\t1\\n', 'red\\t2\\nblue\\t1\\n'
+        for row in state["goal_contract"]["body"]["acceptance_criteria"]:
+            row["criterion"] = row["criterion"].replace(receipt["before"], old)
+        after["acceptance_criteria"][0]["criterion"] = after["acceptance_criteria"][0]["criterion"].replace(receipt["after"], new)
+        receipt.update(before=old, after=new)
+        changes[0]["replacement"] = after["acceptance_criteria"][0]["criterion"]
+        state["planning"]["reports"]["astra_challenge"]["report"]["concerns"][0]["concern"] = f'AC1: `{old}` should be `{new}`.'
+        revision_guard(state, after, changes, "glm_revise")
+        after["acceptance_criteria"][0]["criterion"] = after["acceptance_criteria"][0]["criterion"].replace('red', 'green')
+        changes[0]["replacement"] = after["acceptance_criteria"][0]["criterion"]
+        with self.assertRaises(ValueError):
+            revision_guard(state, after, changes, "glm_revise")
+
+    def test_a_numeric_receipt_cannot_hide_duplicate_keys_or_change_non_numeric_output(self):
+        for old, new in (('{"rows": 1, "errors": []}', '{"rows": 2, "rows": 3, "errors": []}'),
+                         ('{"rows": 1, "ok": true}', '{"rows": 2, "ok": false}'),
+                         ('{"rows": 1, "name": "A"}', '{"rows": 2, "name": "B"}'),
+                         ('{"rows": 1, "errors": []}', '{"rows": 2, "errors": [], "extra": 1}')):
+            state, after, changes = self.inputs()
+            receipt = changes[0]["example_correction"]
+            state["goal_contract"]["body"]["acceptance_criteria"][0]["criterion"] = state["goal_contract"]["body"]["acceptance_criteria"][0]["criterion"].replace(receipt["before"], old)
+            after["acceptance_criteria"][0]["criterion"] = after["acceptance_criteria"][0]["criterion"].replace(receipt["after"], new)
+            changes[0]["replacement"] = after["acceptance_criteria"][0]["criterion"]
+            receipt.update(before=old, after=new)
+            state["planning"]["reports"]["astra_challenge"]["report"]["concerns"][0]["concern"] = f'AC1: `{old}` should be `{new}`.'
+            with self.subTest(new=new), self.assertRaises(ValueError):
+                revision_guard(state, after, changes, "glm_revise")

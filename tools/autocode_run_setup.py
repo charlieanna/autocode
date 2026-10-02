@@ -28,6 +28,7 @@ try:
     from . import autocode_registry as registry
     from . import autocode_regression as regression
     from . import autocode_resolver_human as resolver_human
+    from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_status_command as status_command
     from . import autocode_support as support
     from . import autocode_workspaces as task_workspaces
@@ -43,6 +44,7 @@ except ImportError:
     import autocode_registry as registry
     import autocode_regression as regression
     import autocode_resolver_human as resolver_human
+    import autocode_retired_token_budget as retired_token_budget
     import autocode_status_command as status_command
     import autocode_support as support
     import autocode_workspaces as task_workspaces
@@ -182,14 +184,14 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
     if state.get("settings") and settings != state["settings"]:
         published = state.get(resolver_human.PUBLIC) or {}
         entry = state.get('resolver', {}).get('human_escalations', {}).get(published.get('request_id'), {})
-        paused_for = entry.get('identity', {}).get('proposal', {}).get('origin', {}).get('pause_status')
+        origin = entry.get('identity', {}).get('proposal', {}).get('origin', {})
+        paused_for = origin.get('pause_status')
+        retiring_token_pause = retired_token_budget.retired_pause(origin)
+        if retiring_token_pause and resolver_human.supersede_operational(state, 'Cumulative token budgets were removed'):
+            state['_authorized_bound_change'] = {'pause_status': paused_for, 'at': runner.now()}
         relevant = {'PAUSED_ITERATION_LIMIT': ('max_iterations', 'legacy_iteration_ceiling', 'unlimited_iterations'),
                     'PAUSED_TIME_LIMIT': ('max_seconds',),
-                    'PAUSED_MILESTONE_TIME_LIMIT': ('max_milestone_seconds',),
-                    'PAUSED_USAGE_UNKNOWN': ('max_reported_tokens',)}
-        if (paused_for == 'PAUSED_BUDGET' and entry.get('identity', {}).get('proposal', {}).get('origin', {})
-                .get('budget', {}).get('kind') == 'max_reported_tokens'):
-            relevant[paused_for] = ('max_reported_tokens',)
+                    'PAUSED_MILESTONE_TIME_LIMIT': ('max_milestone_seconds',)}
         if any(flag in args._explicit_budget_flags for flag in relevant.get(paused_for, ())):
             if resolver_human.supersede_operational(state, 'Operator explicitly changed the exhausted bound'):
                 state['_authorized_bound_change'] = {'pause_status': paused_for, 'at': runner.now()}
@@ -207,7 +209,8 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
                 "goal_token": goals.token(state["goal_contract"]), "next_stage": state.get("next_stage"),
                 "reason": "Explicitly enabled independent planning; existing work and sessions retained"})
         state.setdefault("configuration_changes", []).append({"at":runner.now(),"previous":state["settings"],"selected":settings,
-            "reason":"Explicit launch arguments at a saved stage boundary"})
+            "reason":("Cumulative token budgets were removed" if retiring_token_pause else
+                      "Run settings updated at a saved stage boundary")})
         state["settings"] = settings
         if enabling_joint and settings.get("engine") == "codex":
             state["goal_contract"].update(approval_status="draft", approval_event=None)

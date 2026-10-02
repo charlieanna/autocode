@@ -1,5 +1,5 @@
 """The review must raise the three planted gaps, raise nothing else as blocking
-except a real consequence of them, put the ordering decision to the user, and
+except a real consequence of them, ground ordering in the existing code, and
 leave the repository untouched."""
 from harness.oracle import Check, load_json, mentions, only_changed_under, run_checks
 
@@ -14,10 +14,6 @@ PLANTED = {
 ALSO_REAL = {
     "dead_letter_ordering": (PLANTED["ordering"][0], ("dlq", "dead-letter", "dead letter")),
 }
-# processor.py already requires per-domain order, so the decision left to the user is
-# how to preserve it; a question about the partition key or sequence-safe failure
-# handling asks it. Options are part of that decision, even when the stem is terse.
-ORDERING_QUESTION = ("order", "sequence", "partition")
 
 
 def area_of(concern):
@@ -30,13 +26,12 @@ def area_of(concern):
     return next((area for area, groups in PLANTED.items() if mentions(body, *groups)), None)
 
 
-def asks_about_ordering(question):
-    stem = question.get("question")
-    if not isinstance(stem, str) or not stem.strip():
-        return False
-    options = question.get("options")
-    options = [option for option in options if isinstance(option, str)] if isinstance(options, list) else []
-    return mentions([stem, *options], ORDERING_QUESTION)
+def grounds_ordering(concern):
+    body = {key: concern.get(key, "") for key in ("summary", "evidence")}
+    return area_of(concern) == "ordering" and mentions(
+        body, ("processor.py", "processor.process", "last_seq", "domainstateerror"),
+        ("per-domain", "per domain", "domain's", "domain’s", "event.domain"),
+        ("sequence", "seq", "order"))
 
 
 def check(project, scenario, run=None):
@@ -52,9 +47,8 @@ def check(project, scenario, run=None):
                  and not any(mentions({k: c.get(k, "") for k in ("area", "summary", "evidence")}, *groups)
                              for groups in ALSO_REAL.values())]
         checks.append(Check("no_invented_blockers", not false, f"blocking but already answered by the design: {false}"))
-        questions = [q for q in report.get("questions") or [] if isinstance(q, dict)]
-        checks.append(Check("asks_about_ordering_requirement",
-                            any(asks_about_ordering(question) for question in questions)))
+        checks.append(Check("grounds_ordering_in_existing_contract",
+                            any(grounds_ordering(concern) for concern in blocking)))
     checks.append(only_changed_under(project, "review/"))
     checks += run_checks(run, workflow="design", no_build=True)
     return checks
