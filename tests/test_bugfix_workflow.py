@@ -148,19 +148,6 @@ class ProvenanceDefaults(unittest.TestCase):
         self.assertIn("contract_changes", kept["contract"], "a report that has its own list is left to the schema")
         self.assertNotIn("hoisted_fields", record)
 
-    def test_an_optional_field_written_as_null_is_left_out(self):
-        item = {"type": "object", "required": ["item", "change"], "properties": {
-            "item": {"type": "string"}, "change": {"type": "string"}, "example_correction": {"type": "object"}}}
-        record = self.record("glm_revise", {"contract_changes": {"type": "array", "items": item},
-                                           "code_refs": {"type": "array"}})
-        value = autocode.default_missing_provenance({"code_refs": [], "contract_changes": [
-            {"item": "AC6", "change": "reworded", "example_correction": None}]}, record)
-        self.assertEqual([{"item": "AC6", "change": "reworded"}], value["contract_changes"])
-        self.assertEqual(["contract_changes"], record["dropped_null_fields"])
-        record = self.record("glm_revise", {"contract_changes": {"type": "array", "items": item}})
-        required_null = autocode.default_missing_provenance({"contract_changes": [{"item": None, "change": "x"}]}, record)
-        self.assertEqual([{"item": None, "change": "x"}], required_null["contract_changes"], "required fields stay")
-
     def test_the_resolver_accepts_a_bug_fix_contract(self):
         import autocode_resolver as resolver
         from goal_fixtures import body

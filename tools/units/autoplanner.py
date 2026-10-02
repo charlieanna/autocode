@@ -321,7 +321,10 @@ CONFLICT_RESOLUTION = obj({"requirement_ids": SS,
 CHANGE = obj({"item": S, "change": {"type": "string", "enum": ["removed", "reworded", "permission_changed"]},
               "basis": {"type": "string", "enum": ["user_answer", "user_feedback", "agent_proposed"]},
               "answer_id": S, "replacement": S})
-CHANGE["properties"]["example_correction"] = examples.RECEIPT_SCHEMA
+# Only a draft example correction carries a receipt. Generation schemas require every field, so a change
+# that is not one says null; as a plain object field GLM 5.3's null failed every report declaring a
+# contract change (2026-10-02). Readers treat anything but an object as no correction.
+CHANGE["properties"]["example_correction"] = {**examples.RECEIPT_SCHEMA, "type": ["object", "null"]}
 TRACE = obj({"requirement_id": S, "disposition": {"type": "string", "enum": ["covered", "excluded", "superseded"]},
              "evidence": S})
 # New reports use the structured form; this is also the generation schema, so
