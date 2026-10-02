@@ -15,7 +15,7 @@ from pathlib import Path
 FAULTS = frozenset({
     "investigator_iteration", "investigator_run_root", "investigator_missing_citation",
     "investigator_uncited_input", "truncated_once", "truncated_repeated",
-    "completion_denial",
+    "completion_denial", "builder_permission_corrected", "builder_permission_repeated",
 })
 MISSING_REF = "README.md.adversarial-missing"
 
@@ -102,6 +102,26 @@ def install(fake, configuration: dict, trace) -> None:
         counts_file.write_text(json.dumps(counts))
         repair = bool(data.get("report_repair"))
         mark("provider_stage", stage=stage, invocation=counts[stage], repair=repair)
+        if attack.startswith("builder_permission_") and stage == "terra":
+            partial = Path("greet.py")
+            if counts[stage] == 1:
+                partial.write_text("# retained partial implementation\n")
+            mark("builder_permission_handoff", recovery=data.get("recovery_context"),
+                 partial=partial.read_text() if partial.exists() else None)
+            if counts[stage] == 1 or attack == "builder_permission_repeated":
+                mark("builder_permission_denied", invocation=counts[stage])
+                print("permission requested: external_directory (/tmp/diagnostic/*); auto-rejecting", flush=True)
+                raise SystemExit(0)
+            recovery = data.get("recovery_context") or {}
+            directory = Path(recovery.get("diagnostic_directory", "missing-recovery-directory"))
+            if not directory.is_dir() or not directory.resolve().is_relative_to(Path.cwd().resolve()):
+                raise RuntimeError("recovery did not provision a workspace-contained diagnostic directory")
+            if partial.read_text() != "# retained partial implementation\n":
+                raise RuntimeError("partial work was lost before the corrected diagnostic")
+            receipt = directory / "diagnostic.txt"
+            receipt.write_text("corrected diagnostic executed\n")
+            mark("builder_permission_corrected", directory=str(directory), receipt=str(receipt),
+                 denied_operation=recovery.get("denied_operation"))
         if attack.startswith("investigator_"):
             if stage == "investigate_stuck":
                 return investigator(data)
