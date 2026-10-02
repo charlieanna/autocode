@@ -155,16 +155,21 @@ class ProcessTests(unittest.TestCase):
                 return {'idle_seconds': 0, 'tool_elapsed_seconds': None,
                         'idle_limit_seconds': 0, 'tool_limit_seconds': 0}
 
-        child = subprocess.Popen([sys.executable, '-c', 'raise SystemExit(7)'],
-                                 start_new_session=True)
+        # Hold the fixture until supervision starts, so native inspection does
+        # not race an unrelated early exit under host load.
+        child = subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.read(1); raise SystemExit(7)'],
+                                 stdin=subprocess.PIPE, text=True, start_new_session=True)
         owned = []
         reaped_before_return = []
         original_start = threading.Thread.start
 
         def reaping_start(thread):
-            # Force the historical race: reap before the owner thread can sample.
-            if not reaped_before_return:
-                reaped_before_return.append(child.wait(timeout=1))
+            # Force observer polling before the owner can do its full sample.
+            # The deadline watchdog may start earlier without ordinary polling.
+            if thread._target.__name__ == 'observe' and not reaped_before_return:
+                child.stdin.write('x')
+                child.stdin.flush()
+                reaped_before_return.append(child.wait(timeout=5))
             return original_start(thread)
 
         try:
@@ -178,6 +183,7 @@ class ProcessTests(unittest.TestCase):
             self.assertIn(child.pid, [row['pid'] for row in owned])
             self.assertTrue(owned[0].get('birth_identity') is not None)
         finally:
+            child.stdin.close()
             if child.poll() is None:
                 child.kill()
             child.wait(timeout=5)
@@ -194,8 +200,8 @@ class ProcessTests(unittest.TestCase):
         self.assertEqual([], checkpointed)
 
     def test_capture_root_failure_fails_closed_and_does_not_leak_the_child(self):
-        # capture_root() runs before the observer/watchdog threads start; when
-        # it fails, cleanup must not join a never-started thread (which would
+        # capture_root() can fail before the observer starts; cleanup must not
+        # join a never-started thread (which would
         # mask the ProcessError with RuntimeError and leak the provider child).
         class QuietMonitor:
             idle_limit = 0

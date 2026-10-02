@@ -286,6 +286,7 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
     startup_deadline = time.monotonic() + max(0, float(startup_grace))
     stopped = threading.Event()
     watchdog_fired = threading.Event()
+    root_captured = threading.Event()
     firing = threading.Lock()
     # Only the owner thread samples processes and persists state. The independent
     # event reader consumes bounded chunks; deadline enforcement never waits on
@@ -353,7 +354,11 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
             stop_at_deadline({"kind": "monitor", "reason": "Activity supervision failed"})
 
     def supervise():
-        while not stopped.is_set() and not watchdog_fired.is_set() and child.poll() is None:
+        while not stopped.is_set() and not watchdog_fired.is_set():
+            # Routine polling must not reap a fast exit before identity capture.
+            # Deadline termination remains active while inspection or writes stall.
+            if root_captured.is_set() and child.poll() is not None:
+                return
             current = time.monotonic()
             if deadline is not None and current >= deadline:
                 stop_at_deadline({"kind": "stage", "reason": f"Stage exceeded its {timeout:g}-second hard runtime limit"})
@@ -392,18 +397,17 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
     watchdog = threading.Thread(target=supervise, daemon=True) if activity is not None else None
     observer = threading.Thread(target=observe, daemon=True) if activity is not None else None
     try:
-        # Birth identity is recorded before any concurrent observer, watchdog or
-        # timer can child.poll() and reap a fast-exiting provider. Full sample
-        # still runs after the watchdog starts so a stalled ps cannot make a
-        # bounded stage unbounded.
-        tree.capture_root()
         if hard_timer:
             hard_timer.daemon = True
             hard_timer.start()
-        if observer:
-            observer.start()
         if watchdog:
             watchdog.start()
+        # Capture before ordinary observer/watchdog polling, but after deadline
+        # enforcement starts: native inspection and checkpoint writes can stall.
+        tree.capture_root()
+        root_captured.set()
+        if observer:
+            observer.start()
         live = tree.sample(initial=True)
         publish_activity()
         while child.poll() is None:
@@ -419,8 +423,7 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
         stopped.set()
         if hard_timer:
             hard_timer.cancel()
-        # capture_root() runs before the threads start; an early failure must
-        # still fail closed below instead of joining a never-started thread.
+        # Capture can fail before the observer starts; cleanup still fails closed.
         if watchdog and watchdog.is_alive():
             watchdog.join(timeout=1)
         if observer and observer.is_alive():
