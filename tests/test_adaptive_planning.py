@@ -240,6 +240,43 @@ class FeedbackOnAShownPlan(unittest.TestCase):
         self.assertIn(adaptive.FEEDBACK_TRACE_RULE, adaptive.prompt_rule(state, "glm_revise"))
         self.assertEqual(adaptive.FEEDBACK_TRACE_RULE, adaptive.prompt_rule(state, "astra_finalize"))
 
+    def test_the_runner_names_a_trace_row_that_can_only_be_the_feedback(self):
+        # The live tiny-greeting draft (2026-10-02): the feedback was planned (AC8) but its only trace row
+        # had no requirement_id, which cost two report repairs before the run stopped.
+        state = awaiting()
+        goals.feedback(state, "Also accept --shout.")
+        event_id = state["brief_feedback"][-1]["id"]
+        row = {"disposition": "covered", "evidence": "AC8 verifies the --shout flag"}
+        filled = autoplanner.fill_trace_id(state, "astra_discovery", {"requirement_trace": [row]})
+        self.assertEqual(event_id, filled["requirement_trace"][0]["requirement_id"])
+        self.assertNotIn("requirement_id", row, "the reported row is left as it was")
+        revised = contract_body()
+        revised["acceptance_criteria"].append({"id": "AC8", "criterion": "--shout prints upper case",
+                                               "verification_method": "Run greet.py --shout Ann", "human_review": False})
+        goals.check_requirement_trace(state, filled, revised)  # does not raise
+
+    def test_an_ambiguous_trace_row_is_left_for_the_checks_to_refuse(self):
+        state = awaiting(handoff=HANDOFF)
+        goals.feedback(state, "Also accept --shout.")
+        two_unnamed = {"requirement_trace": [{"disposition": "covered", "evidence": "C1"},
+                                             {"disposition": "covered", "evidence": "C1"}]}
+        self.assertIs(two_unnamed, autoplanner.fill_trace_id(state, "astra_discovery", two_unnamed))
+        complete = {"requirement_trace": [{"requirement_id": "R1", "disposition": "covered", "evidence": "C1"}]}
+        self.assertIs(complete, autoplanner.fill_trace_id(state, "astra_discovery", complete),
+                      "no unnamed row: the missing feedback row stays missing")
+        one = {"requirement_trace": [{"disposition": "covered", "evidence": "C1"}]}
+        self.assertIs(one, autoplanner.fill_trace_id(state, "astra_discovery", one), "R1 and the feedback both untraced")
+        self.assertIs(one, autoplanner.fill_trace_id(state, "astra_challenge", one), "only Planner reports carry a trace")
+
+    def test_a_trace_error_names_the_requirements_it_needs(self):
+        state = awaiting(handoff=HANDOFF)
+        goals.feedback(state, "Also accept --shout.")
+        event_id = state["brief_feedback"][-1]["id"]
+        guessed = [{"requirement_id": "R1", "disposition": "covered", "evidence": "C1"},
+                   {"requirement_id": "R2", "disposition": "covered", "evidence": "C1"}]
+        with self.assertRaisesRegex(ValueError, f"exactly once: R1, {event_id}"):
+            goals.check_requirement_trace(state, {"requirement_trace": guessed}, contract_body())
+
 
 if __name__ == "__main__":
     unittest.main()

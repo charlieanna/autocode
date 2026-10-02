@@ -240,6 +240,24 @@ def trace_rows(state, stage):
             if isinstance(row, dict) and row.get("id")]
 
 
+def fill_trace_id(state, stage, value):
+    """Name the one requirement_trace row a Planner report left without requirement_id, when exactly one
+    requirement it must trace is missing from the trace: that row can only be for it, so no report repair is
+    spent on the missing field (GLM 5.3 left it out when tracing feedback, 2026-10-02). Anything ambiguous is
+    left for the schema and trace checks to refuse, and the row's evidence is still checked."""
+    trace = value.get("requirement_trace") if stage in TRACE_STAGES else None
+    if not isinstance(trace, list) or not all(isinstance(row, dict) for row in trace):
+        return value
+    unnamed = [index for index, row in enumerate(trace) if not row.get("requirement_id")]
+    named = {row.get("requirement_id") for row in trace}
+    untraced = [row["requirement_id"] for row in trace_rows(state, stage) if row["requirement_id"] not in named]
+    if len(unnamed) != 1 or len(untraced) != 1:
+        return value
+    trace = [dict(row) for row in trace]
+    trace[unnamed[0]]["requirement_id"] = untraced[0]
+    return {**value, "requirement_trace": trace}
+
+
 # The first stage of every new run: which kind of job this is (autocode_workflows).
 # It runs read-only with the requirements route when there is one, else the Plan Reviewer's.
 RECOGNIZE = workflows.STAGE

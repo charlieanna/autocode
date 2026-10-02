@@ -176,8 +176,8 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
     else:
         value = util.read_object(Path(record["output"]))
     reported = copy.deepcopy(value)
-    value = normalize_plan_challenge_blocking(value, record)
-    value = default_missing_provenance(value, record)
+    value = default_missing_provenance(normalize_plan_challenge_blocking(value, record), record)
+    value = planning.fill_trace_id(state, str(record.get('stage', '')).removesuffix('_report_repair'), value) if state else value
     evidence_record = evidence_record or record
     validation = value.get('validation', value)
     checks = validation.get('checks') if isinstance(validation, dict) else None
@@ -736,8 +736,8 @@ def execute_report_repair(state, run_dir, workspace):
                             if original['stage'] == 'requirements_gather' else None,
                             'protected_contract': (goals.protected_contract_snapshot(state)
                                 if original['stage'] in ('glm_revise', 'astra_finalize') else None),
-                            'report_identity': {
-                                'contract_hash': (state.get('goal_contract') or {}).get('hash'),
+                            'requirement_trace_rows': planning.trace_rows(state, original['stage']) or None,
+                            'report_identity': {'contract_hash': (state.get('goal_contract') or {}).get('hash'),
                                 'contract_revision': (state.get('goal_contract') or {}).get('revision'),
                                 'task_id': (state.get('current_task') or {}).get('id', '')},
                             'original_executed_checks': [

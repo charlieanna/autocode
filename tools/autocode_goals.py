@@ -347,7 +347,7 @@ def check_requirement_trace(state, report, contract, *, coverage=True):
             raise ValueError("requirement_trace entries need requirement_id, disposition and evidence")
         rid = row.get("requirement_id")
         if rid in by_id or rid not in {r["id"] for r in requirements}:
-            raise ValueError("requirement_trace must contain each known requirement exactly once")
+            raise ValueError("requirement_trace must hold each of these exactly once: " + ", ".join(r["id"] for r in requirements))
         by_id[rid] = row
     missing = [row["id"] for row in requirements if row["id"] not in by_id]
     if missing:
