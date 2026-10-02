@@ -276,7 +276,9 @@ returns a report, whether or not the runner then accepts that report. An attempt
 times out or whose provider fails returns no review, so it is given back before the next
 attempt; the repeated-failure limit, not this allowance, stops a review that keeps failing.
 Bounded recovery does not otherwise extend the allowance. Unresolved final decisions return
-to you as blocking questions. If the
+to you as blocking questions. Once you answer them, planning starts a new cycle, and its first
+review receives the previous review's concerns, its decisions and your answers
+(`previous_review`), so it checks your answers instead of reviewing the plan from scratch. If the
 budget is exhausted, the run pauses at `PAUSED_PLANNING_BUDGET`. After inspecting a
 reconciled checkpoint, an operator can permit one more attempt without discarding the
 accepted challenge and revision (for example, increase a total allowance of 2 to 3):

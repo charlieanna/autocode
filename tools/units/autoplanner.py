@@ -240,17 +240,54 @@ def trace_rows(state, stage):
             if isinstance(row, dict) and row.get("id")]
 
 
+# A late question (the final review returned an unresolved concern to the user, usually permission to change
+# a protected criterion) restarts planning after the answer, and the next review saw only the new draft:
+# 11 of 31 answer-driven re-drafts in live runs (2026-09-28..10-01) reviewed a whole plan again from scratch.
+REREVIEW_RULE = """
+RE-REVIEW AFTER THE USER'S ANSWERS. Your previous review of this plan ended with questions to the user.
+previous_review holds your earlier concerns, your final decisions on them, and each question with the user's
+answer. Check that this draft applies those answers exactly as given. A concern you resolved before stays
+resolved unless an answer or this draft reopens it; do not raise it again. Mark a concern blocking only for what
+the answers changed or for what is still wrong in this draft.
+"""
+
+
+def previous_review(state):
+    """The last planning cycle's review when it ended in questions the user has since answered, so the next
+    review checks the answers instead of reviewing the plan from scratch; None otherwise."""
+    history = state.get("planning_history") or []
+    reports = ((history[-1] if history else None) or {}).get("reports") or {}
+    last = next((reports[stage]["report"] for stage in ("astra_finalize", "glm_revise")
+                 if (reports.get(stage) or {}).get("report")), {})
+    questions = (last.get("contract") or {}).get("open_blocking_questions") or []
+    answers = state.get("answers") or {}
+    if not questions or any(question.get("id") not in answers for question in questions):
+        return None
+    concerns = ((reports.get("astra_challenge") or {}).get("report") or {}).get("concerns") or []
+    return {"concerns": [{key: row.get(key) for key in ("id", "concern", "blocking")} for row in concerns],
+            "decisions": [{key: row.get(key) for key in ("concern_id", "decision", "resolved")}
+                          for row in last.get("decisions") or []],
+            "answered_questions": [{"id": question["id"], "question": question.get("question", ""),
+                                    "answer": answers[question["id"]].get("text", "")} for question in questions]}
+
+
 def fill_trace_id(state, stage, value):
     """Name the one requirement_trace row a Planner report left without requirement_id, when exactly one
     requirement it must trace is missing from the trace: that row can only be for it, so no report repair is
-    spent on the missing field (GLM 5.3 left it out when tracing feedback, 2026-10-02). Anything ambiguous is
-    left for the schema and trace checks to refuse, and the row's evidence is still checked."""
+    spent on the missing field (GLM 5.3 left it out when tracing feedback, 2026-10-02; 16 repairs to date).
+    When nothing must be traced, rows without an ID are dropped. Anything ambiguous is left for the schema
+    and trace checks to refuse, and a named row's evidence is still checked."""
     trace = value.get("requirement_trace") if stage in TRACE_STAGES else None
     if not isinstance(trace, list) or not all(isinstance(row, dict) for row in trace):
         return value
     unnamed = [index for index, row in enumerate(trace) if not row.get("requirement_id")]
+    expected = trace_rows(state, stage)
+    if unnamed and not expected:
+        # Nothing must be traced (no Requirements stage ran), so the trace is never checked: drop the rows
+        # that name nothing rather than repair them (the first adaptive draft of small-json-flag, 2026-10-02).
+        return {**value, "requirement_trace": [row for row in trace if row.get("requirement_id")]}
     named = {row.get("requirement_id") for row in trace}
-    untraced = [row["requirement_id"] for row in trace_rows(state, stage) if row["requirement_id"] not in named]
+    untraced = [row["requirement_id"] for row in expected if row["requirement_id"] not in named]
     if len(unnamed) != 1 or len(untraced) != 1:
         return value
     trace = [dict(row) for row in trace]
@@ -978,6 +1015,9 @@ def context(state, stage, state_path):
     rows = trace_rows(state, stage)
     if rows:
         packet["requirement_trace_rows"] = rows
+    earlier = previous_review(state) if stage == "astra_challenge" else None
+    if earlier:
+        packet["previous_review"] = earlier
     if state["settings"].get("figma_file"):
         packet["figma_file"] = state["settings"]["figma_file"]
     packet['user_events'] = state.get('user_events', [])
@@ -1029,7 +1069,7 @@ def context(state, stage, state_path):
         design_rule += acceptance_policy.DOMAIN
     if rows and stage in TRACE_STAGES:
         design_rule += REQUIREMENT_TRACE_RULE
-    design_rule += adaptive.prompt_rule(state, stage)
+    design_rule += adaptive.prompt_rule(state, stage) + (REREVIEW_RULE if earlier else "")
     prompt = (PROMPTS[stage] + JOB_TYPE_POLICY + design_rule + recovery_instruction + figma_instruction + planning_policy + clarification_policy + progressive_policy + s.COMMON
               + "\nWork read-only; return the report, the runner saves it.\nCURRENT HANDOFF DATA\n"
               + json.dumps(packet, indent=2))
