@@ -256,3 +256,25 @@ class DraftExampleRevisionTests(unittest.TestCase):
             state["planning"]["reports"]["astra_challenge"]["report"]["concerns"][0]["concern"] = f'AC1: `{old}` should be `{new}`.'
             with self.subTest(new=new), self.assertRaises(ValueError):
                 revision_guard(state, after, changes, "glm_revise")
+
+
+class ExampleCorrectionSchemaTests(unittest.TestCase):
+    """A contract change that is not a draft example correction says example_correction: null."""
+
+    def change(self, receipt):
+        return {"item": "AC7", "change": "reworded", "basis": "user_feedback", "answer_id": "feedback-1",
+                "replacement": "AC7 documents --shout", "example_correction": receipt}
+
+    def test_the_schema_the_planner_is_given_accepts_null_and_a_receipt_only(self):
+        # The live tiny-greeting draft (2026-10-02) was refused for example_correction: null.
+        from autocode_util import model_output_schema, validate_schema
+        from units import autoplanner
+        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+            item = model_output_schema(autoplanner.SCHEMAS[stage])["properties"]["contract_changes"]["items"]
+            self.assertIn("example_correction", item["required"], stage)
+            validate_schema(self.change(None), item)
+            validate_schema(self.change({"concern_id": "C1", "before": "3", "after": "4"}), item)
+            with self.assertRaisesRegex(ValueError, "example_correction: expected object or null"):
+                validate_schema(self.change("none"), item)
+            with self.assertRaisesRegex(ValueError, "missing after"):
+                validate_schema(self.change({"concern_id": "C1", "before": "3"}), item)

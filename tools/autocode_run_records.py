@@ -260,6 +260,17 @@ def default_missing_provenance(value, record):
         if optional:
             record["defaulted_fields"] = sorted(optional)
         return {**value, **optional}
+    contract_schema = properties.get("contract", {}).get("properties", {})
+    if isinstance(value.get("contract"), dict):
+        # A report-level field written inside the contract is the model's own content, only misplaced:
+        # move it up instead of rejecting the report (`$.contract: unexpected fields`, 8 repairs to
+        # 2026-10-02, contract_changes for one) or defaulting it to empty.
+        misplaced = sorted(key for key in value["contract"]
+                           if key in properties and key not in contract_schema and not value.get(key))
+        if misplaced:
+            record["hoisted_fields"] = misplaced
+            value = {**value, **{key: value["contract"][key] for key in misplaced},
+                     "contract": {k: v for k, v in value["contract"].items() if k not in misplaced}}
     missing = sorted(key for key in PROVENANCE_LISTS
                      if key in properties and key not in value and properties[key].get("type") == "array")
     defaults = {**optional, **{key: [] for key in missing}}
@@ -269,7 +280,6 @@ def default_missing_provenance(value, record):
     if "task_kind" in properties and "task_kind" not in value:
         defaults["task_kind"] = "build"
     contract = value.get("contract")
-    contract_schema = properties.get("contract", {}).get("properties", {})
     if isinstance(contract, dict) and "task_kind" in contract_schema and "task_kind" not in contract:
         defaults["contract"] = {**contract, "task_kind": "build"}
         missing.append("contract.task_kind")

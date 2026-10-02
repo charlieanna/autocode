@@ -1,5 +1,7 @@
 """Adaptive planning decisions (autocode_adaptive_planning): pure functions over state and plans."""
+import json
 import unittest
+from pathlib import Path
 
 import autocode_adaptive_planning as adaptive
 import autocode_goals as goals
@@ -268,6 +270,14 @@ class FeedbackOnAShownPlan(unittest.TestCase):
         self.assertIs(one, autoplanner.fill_trace_id(state, "astra_discovery", one), "R1 and the feedback both untraced")
         self.assertIs(one, autoplanner.fill_trace_id(state, "astra_challenge", one), "only Planner reports carry a trace")
 
+    def test_trace_rows_naming_nothing_are_dropped_when_nothing_must_be_traced(self):
+        # The first adaptive draft of a clear request (no Requirements stage): GLM traced anyway, without IDs.
+        state = awaiting()
+        value = {"requirement_trace": [{"disposition": "covered", "evidence": "AC1"},
+                                       {"requirement_id": "R1", "disposition": "covered", "evidence": "AC1"}]}
+        self.assertEqual([{"requirement_id": "R1", "disposition": "covered", "evidence": "AC1"}],
+                         autoplanner.fill_trace_id(state, "astra_discovery", value)["requirement_trace"])
+
     def test_a_trace_error_names_the_requirements_it_needs(self):
         state = awaiting(handoff=HANDOFF)
         goals.feedback(state, "Also accept --shout.")
@@ -276,6 +286,44 @@ class FeedbackOnAShownPlan(unittest.TestCase):
                    {"requirement_id": "R2", "disposition": "covered", "evidence": "C1"}]
         with self.assertRaisesRegex(ValueError, f"exactly once: R1, {event_id}"):
             goals.check_requirement_trace(state, {"requirement_trace": guessed}, contract_body())
+
+
+class ReReviewAfterAnswers(unittest.TestCase):
+    """A review after the user answered the previous review's questions sees that review (both pipelines)."""
+
+    def cycle(self, questions=("Q1",)):
+        concern = {"id": "C1", "concern": "AC2 contradicts the request", "requested_change": "Reword AC2",
+                   "acceptance_test": "AC2 matches the request", "evidence_refs": ["task"], "blocking": True}
+        decision = {"concern_id": "C1", "decision": "Rewording protected AC2 needs the user's permission",
+                    "rationale": "AC2 is protected", "acceptance_test": "AC2 matches the request", "resolved": False}
+        contract = {**contract_body(), "open_blocking_questions": [
+            {"id": question, "question": "May AC2 be reworded to match the request?", "why": "AC2 is protected",
+             "options": ["Yes", "No"], "proposed_default": "Yes"} for question in questions]}
+        return {"astra_calls": 2, "final_token": None, "reports": {
+            "astra_challenge": {"report": {"summary": "", "concerns": [concern]}},
+            "astra_finalize": {"report": {"summary": "", "decisions": [decision], "contract": contract}}}}
+
+    def test_a_review_after_answered_questions_sees_its_earlier_review(self):
+        state = {**awaiting(status="RUNNING"), "planning_history": [self.cycle()],
+                 "planning": {"astra_calls": 0, "reports": {}, "final_token": None}}
+        self.assertIsNone(autoplanner.previous_review(state), "the question is not answered yet")
+        state["answers"] = {"Q1": {"kind": "answer", "text": "Yes, reword AC2."}}
+        earlier = autoplanner.previous_review(state)
+        self.assertEqual([{"id": "Q1", "question": "May AC2 be reworded to match the request?",
+                           "answer": "Yes, reword AC2."}], earlier["answered_questions"])
+        self.assertEqual([{"concern_id": "C1", "decision": "Rewording protected AC2 needs the user's permission",
+                           "resolved": False}], earlier["decisions"])
+        self.assertEqual([{"id": "C1", "concern": "AC2 contradicts the request", "blocking": True}], earlier["concerns"])
+        path = Path(state["workspace"]) / "state.json"
+        review, _ = autoplanner.context(state, "astra_challenge", path)
+        self.assertIn(autoplanner.REREVIEW_RULE, review)
+        self.assertEqual(earlier, json.loads(review.split("CURRENT HANDOFF DATA\n", 1)[1])["previous_review"])
+        revise, _ = autoplanner.context(state, "glm_revise", path)
+        self.assertNotIn(autoplanner.REREVIEW_RULE, revise)
+
+    def test_a_cycle_that_ended_without_questions_gives_nothing(self):
+        self.assertIsNone(autoplanner.previous_review({**awaiting(), "planning_history": [self.cycle(questions=())]}))
+        self.assertIsNone(autoplanner.previous_review(awaiting()))
 
 
 if __name__ == "__main__":
