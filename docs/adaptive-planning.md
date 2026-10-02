@@ -114,6 +114,65 @@ request's two final plans side by side as Plan A and Plan B, with the key in
 `blind/key.json`, so plan quality can be judged without knowing which variant
 wrote which.
 
+## Results: live comparison with feedback, 2026-10-02
+
+Each of the 11 requests in `planning.toml` was planned once per pipeline on the
+default routes (Requirements and Planner on GLM 5.3, Plan Reviewer on GPT-6 Sol).
+After the first plan, each run got the request's `feedback` instead of an approval
+and went on to the next plan shown for approval. The code under test was the
+feedback path above plus the re-review context for answered questions
+(`feat/rereview-after-answers`). Evidence:
+`.scenario-runs/20261002T091307Z-plan-compare-default-ac6a8qs0` (not committed;
+`blind/verdicts-before-key.md` holds the verdicts written before the key was opened).
+
+| | Today | Adaptive | Change |
+| --- | --- | --- | --- |
+| **First plan:** plans reached | 11/11 | 11/11 | |
+| model calls | 112 | 95 | −15% |
+| questions to the user | 26 | 16 | −38% |
+| **Feedback round:** new plans reached | 9/11 | 9/11 | |
+| model calls | 85 | 50 | −41% |
+| plan-review calls | 26 | 15 | −42% |
+| tokens in / out | 5.45M / 1.05M | 4.50M / 0.63M | −17% / −40% |
+| model time | 267 min | 157 min | −41% |
+
+The first-plan numbers repeat the 2026-09-30 comparison (−15% calls, −37%
+questions). Four adaptive feedback rounds took two calls: the Planner revised the
+plan and the Plan Reviewer approved it at once.
+
+**Plan quality after the feedback was the same.** Judged blind on whether the
+feedback was applied as stated and the rest of the plan kept: adaptive better in
+3 pairs (deployment-planner, tenant-http-api, transactional-outbox), today's
+pipeline in 3 (small-json-flag, vague-reading-list, vague-timesheet-useful), 5
+ties. Both pipelines sometimes added criteria nobody asked for.
+
+**Where the adaptive path fell short:**
+
+- `vague-reading-list` ("make it a web page instead of a command-line tool"):
+  the Planner produced no output for 300 seconds three times and the run stopped
+  for a person, so the send-back to Requirements was never exercised live. A large
+  change can exceed the idle limit before the Planner writes anything.
+- `vague-timesheet-useful`: the revision appended a section to the default report
+  although the feedback said to keep that output exactly as it is, and the Plan
+  Reviewer did not object.
+- Planner slips on the feedback path, each costing a report repair: a
+  `conflict_resolutions` entry for a feedback-versus-plan conflict (2 runs; the
+  Planner rule now says to use `contract_changes` instead), a blank feedback
+  `answer_id` on an assumption (2 runs), and contract changes named by list
+  instead of by item.
+
+Today's pipeline missed a new plan twice: `deployment-planner` (both pipelines
+stopped for a person) and `transactional-outbox` (an AutoResolver blocker,
+"Planning recovery scope or inputs changed").
+
+Earlier attempts at this comparison, stopped and restarted, found four Planner
+slips, each fixed on this branch or an accompanying one: a trace row without its
+`requirement_id` (now named by the runner when only one requirement can be meant;
+this branch), `example_correction: null` refused by the schema
+(`fix/example-correction-null`), a declared change whose item was wrapped in its
+list name (`fix/contract-change-item-refs`), and report fields written inside the
+contract (`feat/rereview-after-answers`).
+
 ## Results: live comparison, 2026-09-30
 
 Each of the 11 requests in `planning.toml` was planned once with each pipeline
