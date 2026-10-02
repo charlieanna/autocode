@@ -14,6 +14,7 @@ try:
     from .. import autocode_goal_lifecycle as lifecycle
     from .. import autocode_discuss_job as discuss_job, autocode_stuck_job as stuck_job, autocode_failures as failures
     from .. import autocode_providers, autocode_verify as verify
+    from .. import autocode_investigation_workspace as investigation_workspace
 except ImportError:
     import autocode_verify as verify
     import autocode_util as util
@@ -23,6 +24,7 @@ except ImportError:
     import autocode_discuss_job as discuss_job
     import autocode_stuck_job as stuck_job
     import autocode_providers
+    import autocode_investigation_workspace as investigation_workspace
     import autocode_failures as failures
 from . import autoplanner
 from .common import ModelRequest, capped_route, execution_request
@@ -52,10 +54,12 @@ def prepare_investigation(state):
     state["phase"] = "INVESTIGATING"
     roles = state["settings"]["roles"]
     roles.setdefault("investigator", copy.deepcopy(roles.get("plan_reviewer") or roles["astra"]))
+    scratch = investigation_workspace.prepare(state['workspace'])
     prompt, metrics = bug_job.prompt(
         state, autoplanner.workspace_inventory(state["workspace"], state["task"]),
         state["settings"].get("context_soft_tokens", 10000),
-        autoplanner.engine_for(state["settings"], "investigator"))
+        autoplanner.engine_for(state["settings"], "investigator"), scratch_workspace=str(scratch),
+        python_executable=verify.python_for(state['workspace']))
     return ModelRequest("astra", "investigator", prompt, metrics, bug_job.SCHEMA, True)
 
 

@@ -96,6 +96,10 @@ consult that table, so a new one is added there, not in `autocode.py` or `autopi
 
 CLI model flags follow the code names: `--astra-model`, `--glm-model`,
 `--terra-model`, `--sol-model`. Do not introduce a fourth naming scheme.
+Per-stage artifact file stems under `iterations/` use readable slugs from
+`autocode_artifacts.FILE_SLUGS` (`terra-01.jsonl` is written as
+`builder-01.jsonl`); a launch still refuses when a legacy code-name stem holds
+artifacts.
 
 ## Testing
 

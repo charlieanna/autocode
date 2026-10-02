@@ -40,9 +40,11 @@ from pathlib import Path, PurePosixPath
 try:
     from . import autocode_util as util, autocode_agent_env as agent_env
     from . import autocode_test_environment as test_env
+    from . import autocode_investigation_workspace as investigation_workspace
 except ImportError:
     import autocode_util as util, autocode_agent_env as agent_env
     import autocode_test_environment as test_env
+    import autocode_investigation_workspace as investigation_workspace
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
 # Directories that hold tests wherever they appear, and ones that do only at the repository root:
@@ -468,6 +470,34 @@ def per_test_results(framework, receipt, xml_path) -> dict | None:
 
 # --- scratch trees ----------------------------------------------------------
 
+def copy_vendored_dependencies(source_root, tree):
+    """Make ignored vendored dependencies available without sharing writable source files."""
+    if not source_root:
+        return
+    source_root = Path(source_root).resolve()
+    source, target = source_root / 'vendor', Path(tree) / 'vendor'
+    if source.is_symlink() or target.is_symlink():
+        raise ValueError('Vendored dependencies must not use a symlinked root')
+    if not source.is_dir() or target.exists():
+        return  # Tracked dependencies already come from the selected Git base and overlay.
+    ignored_files = _git(source_root, 'ls-files', '-z', '--others', '--ignored', '--exclude-standard',
+                         '--', 'vendor').split('\0')
+    # Include only ignored, untracked files and their ancestors. In particular,
+    # a new tracked vendor tree must not bring candidate code into the base.
+    included = set()
+    for name in filter(None, ignored_files):
+        path = Path(name)
+        included.update((path, *path.parents))
+    if not included:
+        return
+
+    def ignored_entries(directory, names):
+        relative = Path(directory).relative_to(source_root)
+        omitted = {name for name in names if relative / name not in included}
+        return omitted | investigation_workspace.ignored_entries(source_root, directory, set(names) - omitted)
+
+    shutil.copytree(source, target, ignore=ignored_entries)
+
 def link_dependencies(source_root, tree):
     """Expose ignored dependency directories (node_modules, venvs) to a scratch tree."""
     if not source_root:
@@ -557,6 +587,7 @@ def make_tree(repo, base, destination, overlay_root, changes, *, dependencies_fr
             elif source.is_file():
                 shutil.copy2(source, target)
         link_dependencies(dependencies_from, destination)
+        copy_vendored_dependencies(dependencies_from, destination)
         copy_generated_sources(dependencies_from, destination)
     except BaseException:
         remove_tree(repo, destination)

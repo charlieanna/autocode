@@ -9,10 +9,13 @@ import contextlib
 import io
 import ast
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import Mock, patch
@@ -22,6 +25,125 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run  # noqa: E402
 from harness import baseline, catalog, compare, oracle, plan_compare, processes, profiles, routing, stats, verdict  # noqa: E402
 from harness.driver import Driver, DriveError, leaves_for_person, metrics, model_routes, split_by_turn, turn_state  # noqa: E402
+
+
+class PhaseCatalogTests(unittest.TestCase):
+    def test_reused_sequence_base_cannot_inherit_credentials_or_overwrite_evidence(self):
+        from harness.phase_env import PhaseSequence, write_synthetic_credentials
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root) / 'sequence'
+            first = PhaseSequence('first', base)
+            phase = first.phase('stats')
+            write_synthetic_credentials(phase.credential_root, 'prior-token')
+            phase.requests_log.write_text('{"phase":"stats"}\n')
+            first.finish()
+            previous = {p.relative_to(base): p.read_bytes() for p in base.rglob('*') if p.is_file()}
+            with self.assertRaisesRegex(ValueError, 'fresh|owned'):
+                PhaseSequence('second', base)
+            self.assertEqual(previous, {p.relative_to(base): p.read_bytes()
+                                        for p in base.rglob('*') if p.is_file()})
+
+    def test_duplicate_phase_names_cannot_reuse_roots_or_refusal_logs(self):
+        from harness.phase_env import PhaseSequence, write_synthetic_credentials
+        with tempfile.TemporaryDirectory() as root:
+            sequence = PhaseSequence('acceptance', Path(root) / 'fresh')
+            first = sequence.phase('compat')
+            credential = write_synthetic_credentials(first.credential_root, 'first-phase-token')
+            first.requests_log.write_text('{"phase":"compat"}\n')
+            previous = (credential.read_bytes(), first.requests_log.read_bytes())
+            for name in ('compat', 'COMPAT', 'compat/.', 'compat/../compat'):
+                with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'duplicate|single'):
+                    sequence.phase(name)
+            self.assertEqual([first], sequence.phases)
+            self.assertEqual(previous, (credential.read_bytes(), first.requests_log.read_bytes()))
+
+    def test_phase_catalog_seed_reference_and_controls(self):
+        rows = run.self_test(catalog.load('acceptance-phase-isolation'))
+        self.assertEqual({'seed', 'reference', 'broken/contamination', 'broken/swallowed-call',
+                          'broken/swallowed-teardown', 'broken/swallowed-teardown-cleanup'},
+                         {name for name, _, _ in rows})
+        self.assertTrue(all(ok for _, ok, _ in rows), rows)
+
+    def _score(self, overlay):
+        from harness.project import materialize
+        scenario = catalog.load('acceptance-phase-isolation')
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        project = materialize(scenario.seed, Path(temporary.name) / 'project', overlay)
+        evidence = (project.parent / '.phase-evidence').resolve()
+        evidence.mkdir()
+        sentinel = evidence / 'prior.json'
+        sentinel.write_text('{"outcome":"ERROR"}')
+        before = sentinel.read_bytes()
+        result = verdict.evaluate(scenario, project)
+        self.assertEqual('', result.error)
+        record = json.loads(next(c.detail for c in result.checks if c.name == 'phase_records'))
+        self.assertEqual(before, sentinel.read_bytes())
+        base = Path(record['base'])
+        self.assertNotEqual(evidence, base)
+        self.assertTrue(base.is_relative_to(evidence))
+        for phase in record['phases']:
+            for key in ('credential_root', 'config_root', 'state_root', 'cache_root', 'requests_log'):
+                self.assertTrue(Path(phase[key]).is_relative_to(base), (key, phase))
+        self.assertTrue(Path(record['record_path']).is_relative_to(base))
+        return result, record
+
+    def test_reference_real_loopback_lifecycle_and_parent_oauth(self):
+        from harness.phase_env import GREEN
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            oauth = home / '.config/provider/oauth.json'
+            oauth.parent.mkdir(parents=True)
+            oauth.write_text('{"parent":"oauth"}')
+            with patch.dict(os.environ, {'HOME': str(home)}):
+                parent = dict(os.environ)
+                result, record = self._score(catalog.load('acceptance-phase-isolation').reference)
+                self.assertEqual(parent, dict(os.environ))
+                self.assertEqual('{"parent":"oauth"}', oauth.read_text())
+                self.assertFalse(Path(record['base']).is_relative_to(home))
+        self.assertTrue(result.passed, result.summary)
+        self.assertEqual(GREEN, record['outcome'])
+        self.assertTrue(all(not p['unexpected_requests'] for p in record['phases']))
+        life = record['stats_lifecycle']
+        self.assertEqual(('127.0.0.1', 200, {'status': 'ok'}), (life['host'], life['status'], life['body']))
+        self.assertTrue(life['started'] and life['polled'] and life['stopped'])
+
+    def test_swallowed_call_and_teardown_remain_error_with_green_children(self):
+        from harness.phase_env import ERROR
+        scenario = catalog.load('acceptance-phase-isolation')
+        for name in ('swallowed-call', 'swallowed-teardown', 'swallowed-teardown-cleanup'):
+            with self.subTest(control=name):
+                result, record = self._score(scenario.dir / 'broken' / name)
+                self.assertFalse(result.passed)
+                self.assertEqual(ERROR, record['outcome'])
+                self.assertTrue(all(c['ok'] for c in record['checks'] if c['name'].endswith('subprocess 1 exit')))
+                self.assertEqual(1, sum(len(p['unexpected_requests']) for p in record['phases']))
+
+    def test_oracle_does_not_write_delivered_project(self):
+        from harness.project import materialize
+        scenario = catalog.load('acceptance-phase-isolation')
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / 'project', scenario.reference)
+            before = {p.relative_to(project): p.read_bytes() for p in project.rglob('*')
+                      if p.is_file() and '.git' not in p.parts}
+            result = verdict.evaluate(scenario, project)
+            self.assertTrue(result.passed, result.summary)
+            after = {p.relative_to(project): p.read_bytes() for p in project.rglob('*')
+                     if p.is_file() and '.git' not in p.parts}
+            self.assertEqual(before, after)
+
+    def test_phase_root_escape_rejected_before_prior_evidence_write(self):
+        from harness.phase_env import PhaseSequence
+        with tempfile.TemporaryDirectory() as root:
+            previous = Path(root) / 'prior-evidence'
+            previous.mkdir()
+            sentinel = previous / '.credentials.json'
+            sentinel.write_text('{"token":"prior-evidence"}')
+            sequence = PhaseSequence('acceptance', Path(root) / 'fresh')
+            with self.assertRaisesRegex(ValueError, 'inside'):
+                sequence.phase('stats', credential_root=previous)
+            self.assertEqual('{"token":"prior-evidence"}', sentinel.read_text())
+            self.assertEqual([], sequence.phases)
 
 
 class OracleCommandTests(unittest.TestCase):
@@ -851,6 +973,371 @@ class TokenBudgetOptionTests(unittest.TestCase):
                 self.assertEqual(2, caught.exception.code)
                 self.assertIn("unrecognized arguments", error.getvalue())
                 launch.assert_not_called()
+
+
+STATS_PHASE_SCRIPT = """
+import os
+import sys
+
+sys.path.insert(0, os.environ["PHASE_HARNESS_ROOT"])
+from harness import phase_env
+
+phase_env.write_synthetic_credentials(os.environ["PHASE_CREDENTIAL_ROOT"], "synthetic-stats-token")
+"""
+
+COMPAT_PHASE_SCRIPT = """
+import os
+import sys
+
+sys.path.insert(0, os.environ["PHASE_HARNESS_ROOT"])
+from harness import phase_env
+
+STAGE = sys.argv[1] if len(sys.argv) > 1 else "call"
+GUARD = phase_env.guard()
+
+
+def usage_snapshot():
+    # A production-like client: it polls the default usage destination and
+    # swallows a transport refusal into "no snapshot", so the child exit stays
+    # green while the phase record keeps the violation.
+    try:
+        with GUARD.get(phase_env.DEFAULT_USAGE_URL, timeout=5) as response:
+            return response.read()
+    except phase_env.RefusedTransportError:
+        return None
+
+
+found = phase_env.find_credentials(os.environ["PHASE_CREDENTIAL_ROOT"]) is not None
+if found and STAGE == "call":
+    usage_snapshot()
+if found and STAGE == "teardown":
+    usage_snapshot()
+sys.exit(0)
+"""
+
+
+class PhaseEnvironmentTests(unittest.TestCase):
+    """Phase-owned acceptance environments for issue #225 (milestone M1).
+
+    ``harness.phase_env`` is imported inside each test so this module still
+    imports — and the oracle-inheritance guard below still passes — on a
+    checkout without the fix, which is what the fail-first regression capture
+    runs against. Test scratch stays under the workspace's ignored
+    ``.autocode`` tree; no test writes outside the workspace or touches HOME.
+    """
+
+    def phase_env(self):
+        from harness import phase_env
+
+        return phase_env
+
+    def sequence_base(self, label):
+        base = Path(__file__).resolve().parent.parent / ".autocode" / "phase-env-tests" / f"{label}-{uuid.uuid4().hex[:10]}"
+        base.mkdir(parents=True)
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        return base
+
+    def run_two_phase_sequence(self, base, *, share_credential_root=False):
+        phase_env = self.phase_env()
+        sequence = phase_env.PhaseSequence("acceptance", base)
+        stats = sequence.phase("stats")
+        compat = sequence.phase("compat",
+                                share_credential_root_with=stats if share_credential_root else None)
+        stats.run([sys.executable, "-c", STATS_PHASE_SCRIPT])
+        compat.run([sys.executable, "-c", COMPAT_PHASE_SCRIPT, "call"])
+        return sequence, stats, compat
+
+    def test_state_teardown_preserves_refusals_without_failing_clean_phases(self):
+        phase_env = self.phase_env()
+        for refused in (False, True):
+            with self.subTest(refused=refused):
+                sequence = phase_env.PhaseSequence('teardown', self.sequence_base('state-cleanup'))
+                phase = sequence.phase('compat')
+                if refused:
+                    phase_env.write_synthetic_credentials(phase.credential_root, 'synthetic-token')
+                script = COMPAT_PHASE_SCRIPT.replace(
+                    'sys.exit(0)', "import shutil\nshutil.rmtree(os.environ['PHASE_STATE_ROOT'])\nsys.exit(0)")
+                child = phase.run([sys.executable, '-c', script, 'teardown'])
+                self.assertEqual(0, child.returncode, child.stderr)
+                self.assertFalse(phase.state_root.exists())
+                record = sequence.finish()
+                self.assertEqual(phase_env.ERROR if refused else phase_env.GREEN, record['outcome'], record)
+                self.assertEqual(int(refused), len(record['phases'][0]['unexpected_requests']))
+
+    def test_missing_or_corrupt_refusal_ledger_cannot_be_green(self):
+        phase_env = self.phase_env()
+        for damage in ('missing', 'corrupt'):
+            with self.subTest(damage=damage):
+                sequence = phase_env.PhaseSequence('ledger', self.sequence_base('ledger-loss'))
+                phase = sequence.phase('compat')
+                phase_env.write_synthetic_credentials(phase.credential_root, 'synthetic-token')
+                teardown = ("from pathlib import Path\nledger = Path(os.environ['PHASE_UNEXPECTED_REQUESTS'])\n"
+                            + ("ledger.unlink()\n" if damage == 'missing' else "ledger.write_text('{broken')\n")
+                            + 'sys.exit(0)')
+                child = phase.run([sys.executable, '-c', COMPAT_PHASE_SCRIPT.replace('sys.exit(0)', teardown)])
+                self.assertEqual(0, child.returncode, child.stderr)
+                record = sequence.finish()
+                self.assertEqual(phase_env.ERROR, record['outcome'], record)
+                self.assertTrue(record['phases'][0]['evidence_error'])
+                self.assertIsNone(record['phases'][0]['unexpected_requests'])
+
+    def test_ac1_isolated_compat_phase_sends_zero_default_usage_requests(self):
+        phase_env = self.phase_env()
+        sequence, stats, compat = self.run_two_phase_sequence(self.sequence_base("ac1"))
+        record = sequence.finish()
+        stats_record, compat_record = record["phases"]
+        self.assertEqual('{"token": "synthetic-stats-token"}',
+                         phase_env.credentials_path(stats_record["credential_root"]).read_text())
+        self.assertEqual([], compat_record["unexpected_requests"])
+        self.assertFalse(phase_env.credentials_path(compat_record["credential_root"]).exists())
+        self.assertTrue(all(check["ok"] for check in record["checks"]), record["checks"])
+        self.assertEqual("GREEN", record["outcome"], record["reason"])
+
+    def test_ac2_shared_credential_root_is_contamination_error(self):
+        phase_env = self.phase_env()
+        sequence, stats, compat = self.run_two_phase_sequence(self.sequence_base("ac2"),
+                                                             share_credential_root=True)
+        self.assertEqual(stats.credential_root, compat.credential_root)
+        record = sequence.finish()
+        [entry] = record["phases"][1]["unexpected_requests"]
+        self.assertEqual(phase_env.DEFAULT_USAGE_URL, entry["url"])
+        self.assertEqual("ERROR", record["outcome"])
+        self.assertIn("phase contamination", record["reason"])
+        self.assertIn("the run or the oracle broke; no judgement possible", record["reason"])
+        # A green child exit alone cannot produce acceptance: the exit checks
+        # are ok while the sequence is still reported as an ERROR.
+        exits = [check for check in record["checks"] if check["name"].endswith("exit")]
+        self.assertTrue(all(check["ok"] for check in exits), record["checks"])
+        self.assertFalse(all(check["ok"] for check in record["checks"]))
+
+    def test_ac3_swallowed_refusal_visible_behind_green_exit(self):
+        phase_env = self.phase_env()
+        sequence = phase_env.PhaseSequence("acceptance", self.sequence_base("ac3"))
+        compat = sequence.phase("compat")
+        phase_env.write_synthetic_credentials(compat.credential_root, "synthetic-compat-token")
+        result = compat.run([sys.executable, "-c", COMPAT_PHASE_SCRIPT, "call"])
+        self.assertEqual(0, result.returncode, result.stderr)
+        record = sequence.finish()
+        [entry] = record["phases"][0]["unexpected_requests"]
+        self.assertEqual(phase_env.DEFAULT_USAGE_URL, entry["url"])
+        self.assertEqual("ERROR", record["outcome"], record["reason"])
+
+    def test_ac13_swallowed_teardown_refusal_still_error(self):
+        phase_env = self.phase_env()
+        sequence = phase_env.PhaseSequence("acceptance", self.sequence_base("ac13"))
+        compat = sequence.phase("compat")
+        phase_env.write_synthetic_credentials(compat.credential_root, "synthetic-compat-token")
+        result = compat.run([sys.executable, "-c", COMPAT_PHASE_SCRIPT, "teardown"])
+        self.assertEqual(0, result.returncode, result.stderr)
+        record = sequence.finish()
+        [entry] = record["phases"][0]["unexpected_requests"]
+        self.assertEqual(phase_env.DEFAULT_USAGE_URL, entry["url"])
+        self.assertEqual("ERROR", record["outcome"], record["reason"])
+
+    def test_ac4_phase_records_list_roots_identity_and_requests(self):
+        sequence, stats, compat = self.run_two_phase_sequence(self.sequence_base("ac4"))
+        record = sequence.finish()
+        for phase_record, identity in zip(record["phases"], ("synthetic-stats", "synthetic-compat")):
+            for key in ("credential_root", "config_root", "state_root", "cache_root"):
+                self.assertIn(key, phase_record)
+                self.assertTrue(Path(phase_record[key]).is_dir(), (key, phase_record[key]))
+            self.assertEqual(identity, phase_record["traffic_identity"])
+            self.assertEqual([], phase_record["unexpected_requests"])
+        self.assertNotEqual(record["phases"][0]["credential_root"], record["phases"][1]["credential_root"])
+
+    def test_ac7_nonloopback_default_request_refused_and_recorded(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        phase_env = self.phase_env()
+
+        class StatsRoute(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b'{"status": "ok"}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), StatsRoute)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        port = server.server_address[1]
+
+        sequence = phase_env.PhaseSequence("guard", self.sequence_base("ac7"))
+        probe = sequence.phase("probe", allowed_endpoints=[f"127.0.0.1:{port}"])
+        guard = phase_env.guard(probe.build_env())
+        refused = ("http://192.0.2.10/usage", phase_env.DEFAULT_USAGE_URL)
+        with patch("socket.socket", side_effect=AssertionError("a refused destination must never open a socket")):
+            for url in refused:
+                with self.assertRaises(phase_env.RefusedTransportError):
+                    guard.get(url)
+        self.assertEqual(set(refused), {entry["url"] for entry in probe.unexpected_requests()})
+        with guard.get(f"http://127.0.0.1:{port}/stats") as response:
+            self.assertEqual(200, response.status)
+            self.assertEqual(b'{"status": "ok"}', response.read())
+        self.assertEqual(2, len(probe.unexpected_requests()))
+
+    def test_ac8_parent_home_and_oauth_sentinel_untouched(self):
+        phase_env = self.phase_env()
+        base = self.sequence_base("ac8")
+        parent_home = base / "parent-home"
+        sentinel = parent_home / ".config" / "provider" / "oauth.json"
+        sentinel.parent.mkdir(parents=True)
+        sentinel.write_text('{"parent": "oauth"}')
+        sentinel_bytes = sentinel.read_bytes()
+        home_before = os.environ["HOME"]
+        with patch.dict(os.environ, {"HOME": str(parent_home)}):
+            sequence, stats, compat = self.run_two_phase_sequence(base / "sequence")
+            record = sequence.finish()
+            self.assertEqual(str(parent_home), os.environ["HOME"])
+            self.assertEqual("GREEN", record["outcome"], record["reason"])
+        self.assertEqual(home_before, os.environ["HOME"])
+        self.assertEqual(sentinel_bytes, sentinel.read_bytes())
+        for phase_record in record["phases"]:
+            for key in ("credential_root", "config_root", "state_root", "cache_root"):
+                root = Path(phase_record[key])
+                self.assertFalse(root.is_relative_to(parent_home), (key, root))
+
+    def transport_servers(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        observed = {"declared": [], "undeclared": []}
+
+        class Undeclared(BaseHTTPRequestHandler):
+            def do_GET(self):
+                observed["undeclared"].append(self.path)
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"undeclared transport")
+
+            def log_message(self, *args):
+                pass
+
+        other = ThreadingHTTPServer(("127.0.0.1", 0), Undeclared)
+
+        class Declared(BaseHTTPRequestHandler):
+            def do_GET(self):
+                observed["declared"].append(self.path)
+                if self.path == "/redirect":
+                    self.send_response(302)
+                    self.send_header("Location", f"http://127.0.0.1:{other.server_port}/escaped")
+                    self.end_headers()
+                else:
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"declared stats")
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Declared)
+        for item in (other, server):
+            thread = threading.Thread(target=item.serve_forever, daemon=True)
+            thread.start()
+
+            def stop(item=item, thread=thread):
+                item.shutdown()
+                thread.join(timeout=2)
+                item.server_close()
+
+            self.addCleanup(stop)
+        return server, other, observed
+
+    def test_ac7_redirect_to_undeclared_endpoint_is_refused_before_socket(self):
+        phase_env = self.phase_env()
+        server, other, observed = self.transport_servers()
+        sequence = phase_env.PhaseSequence("redirect", self.sequence_base("redirect"))
+        phase = sequence.phase("probe", allowed_endpoints=[f"127.0.0.1:{server.server_port}"])
+        with self.assertRaises(phase_env.RefusedTransportError):
+            phase_env.guard(phase.build_env()).get(f"http://127.0.0.1:{server.server_port}/redirect")
+        self.assertEqual(["/redirect"], observed["declared"])
+        self.assertEqual([], observed["undeclared"])
+        [entry] = phase.unexpected_requests()
+        self.assertEqual(f"http://127.0.0.1:{other.server_port}/escaped", entry["url"])
+        self.assertTrue(entry["refused_before_socket"])
+        self.assertEqual("ERROR", sequence.finish()["outcome"])
+
+    def test_ac7_ambient_proxy_cannot_reroute_declared_loopback_request(self):
+        import urllib.request
+
+        phase_env = self.phase_env()
+        server, other, observed = self.transport_servers()
+        sequence = phase_env.PhaseSequence("proxy", self.sequence_base("proxy"))
+        phase = sequence.phase("probe", allowed_endpoints=[f"127.0.0.1:{server.server_port}"])
+        proxy = f"http://127.0.0.1:{other.server_port}"
+        with patch.dict(os.environ, {"http_proxy": proxy, "HTTP_PROXY": proxy,
+                                     "no_proxy": "", "NO_PROXY": ""}), \
+                patch.object(urllib.request, "_opener", None):
+            with phase_env.guard(phase.build_env()).get(f"http://127.0.0.1:{server.server_port}/stats") as response:
+                self.assertEqual(b"declared stats", response.read())
+        self.assertEqual(["/stats"], observed["declared"])
+        self.assertEqual([], observed["undeclared"])
+        self.assertEqual([], phase.unexpected_requests())
+
+
+    def test_declared_refusal_log_cannot_be_overridden(self):
+        phase_env = self.phase_env()
+        base = self.sequence_base("declared-log-binding")
+        sequence = phase_env.PhaseSequence("binding", base)
+        compat = sequence.phase("compat")
+        phase_env.write_synthetic_credentials(compat.credential_root, "synthetic-token")
+        hidden_log = base / "undeclared-refusals.jsonl"
+        with self.assertRaisesRegex(ValueError, "phase-owned"):
+            compat.run([sys.executable, "-c", COMPAT_PHASE_SCRIPT, "call"],
+                       env={"PHASE_UNEXPECTED_REQUESTS": str(hidden_log)})
+        self.assertFalse(hidden_log.exists(), "an undeclared log hid a swallowed refusal")
+
+    def test_phase_extra_environment_preserves_home_and_declared_roots(self):
+        sequence = self.phase_env().PhaseSequence("binding", self.sequence_base("declared-roots"))
+        phase = sequence.phase("compat")
+        for key in ("HOME", "PHASE_CREDENTIAL_ROOT", "PHASE_ALLOWED_ENDPOINTS"):
+            with self.subTest(key=key):
+                with self.assertRaisesRegex(ValueError, "phase-owned"):
+                    phase.build_env(**{key: "undeclared"})
+                with self.assertRaisesRegex(ValueError, "phase-owned"):
+                    phase.run([sys.executable, "-c", "raise SystemExit(0)"], env={key: "undeclared"})
+        self.assertEqual("permitted", phase.build_env(CUSTOM_MARKER="permitted")["CUSTOM_MARKER"])
+
+
+class OracleEnvInheritanceTests(unittest.TestCase):
+    """AC9 guard: the oracle's optional env parameter changes no existing caller's behavior.
+
+    Uses only code that exists before the change, so it passes both before and
+    after the oracle grows the parameter.
+    """
+
+    def scratch(self, label):
+        base = Path(__file__).resolve().parent.parent / ".autocode" / "phase-env-tests" / f"{label}-{uuid.uuid4().hex[:10]}"
+        base.mkdir(parents=True)
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        return base
+
+    def test_ac9_oracle_default_env_inheritance_unchanged(self):
+        base = self.scratch("ac9")
+        with patch.dict(os.environ, {"PHASE_ENV_GUARD": "1"}):
+            shown = oracle.run([sys.executable, "-c", "import os; print(os.environ.get('PHASE_ENV_GUARD'))"], base)
+            self.assertEqual(0, shown.returncode, shown.stderr)
+            self.assertEqual("1", shown.stdout.strip())
+            tests = base / "tests"
+            tests.mkdir()
+            (tests / "__init__.py").touch()
+            (tests / "test_marker.py").write_text(
+                "import os\n"
+                "import unittest\n"
+                "\n"
+                "\n"
+                "class MarkerTests(unittest.TestCase):\n"
+                "    def test_child_process_sees_the_marker(self):\n"
+                "        self.assertEqual('1', os.environ.get('PHASE_ENV_GUARD'))\n")
+            suite = oracle.python_tests(base)
+            self.assertEqual(0, suite.returncode, oracle.tail(suite))
 
 
 if __name__ == "__main__":

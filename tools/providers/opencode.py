@@ -11,6 +11,14 @@ import subprocess
 import sys
 import uuid
 
+# os and shutil stay imported: the autocode_opencode compatibility shim star-exports
+# them, and existing tests patch oc.os / oc.shutil to fake the process environment.
+
+try:
+    from . import env_prep
+except ImportError:  # Script-style execution from tools/ remains supported.
+    from providers import env_prep
+
 
 DEFAULT_MODELS = {
     # Planning path (Z.ai): Requirements medium → Planner high.
@@ -43,26 +51,37 @@ DEFAULT_REASONING_EFFORTS = {
 }
 
 
-def configuration_inputs(workspace):
+def _configuration_path(value, home):
+    if value == "~" or value.startswith("~/"):
+        return home / value[2:]
+    return Path(value).expanduser()
+
+
+def configuration_inputs(workspace, *, env=None):
     """Enumerate local configuration definitions, never OpenCode's auth database.
 
     Directory contents matter as well as directory names. Generated dependencies,
     caches and sessions are deliberately excluded from the configuration identity.
+    Configuration roots (XDG_CONFIG_HOME, HOME, OPENCODE_CONFIG_DIR, OPENCODE_CONFIG,
+    OPENCODE_TEST_MANAGED_CONFIG_DIR) resolve from the effective environment: the
+    explicit ``env`` mapping, or one snapshot of the process environment.
     """
+    effective = env_prep.snapshot_environment(env)
     root = Path(workspace).resolve()
-    global_root = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "opencode"
-    directories = {global_root, Path.home() / ".opencode"}
+    home = Path(effective["HOME"]) if effective.get("HOME") else Path.home()
+    global_root = (Path(effective["XDG_CONFIG_HOME"]) if effective.get("XDG_CONFIG_HOME") else home / ".config") / "opencode"
+    directories = {global_root, home / ".opencode"}
     paths = set()
     for parent in (root, *root.parents):
         paths.update(parent / name for name in ("opencode.json", "opencode.jsonc"))
         directories.add(parent / ".opencode")
         if (parent / ".git").exists():
             break
-    if os.environ.get("OPENCODE_CONFIG_DIR"):
-        directories.add(Path(os.environ["OPENCODE_CONFIG_DIR"]).expanduser())
-    if os.environ.get("OPENCODE_CONFIG"):
-        paths.add(Path(os.environ["OPENCODE_CONFIG"]).expanduser())
-    managed = os.environ.get("OPENCODE_TEST_MANAGED_CONFIG_DIR")
+    if effective.get("OPENCODE_CONFIG_DIR"):
+        directories.add(_configuration_path(effective["OPENCODE_CONFIG_DIR"], home))
+    if effective.get("OPENCODE_CONFIG"):
+        paths.add(_configuration_path(effective["OPENCODE_CONFIG"], home))
+    managed = effective.get("OPENCODE_TEST_MANAGED_CONFIG_DIR")
     directories.add(Path(managed) if managed else Path(
         "/Library/Application Support/opencode" if sys.platform == "darwin" else "/etc/opencode"))
     for directory in directories:
@@ -78,22 +97,28 @@ def configuration_inputs(workspace):
     return sorted({(p if p.is_absolute() else root / p).absolute() for p in paths}, key=str)
 
 
-def local_settings(workspace):
-    executable = shutil.which("opencode")
+def local_settings(workspace, *, env=None):
+    effective = env_prep.snapshot_environment(env)
+    cwd = workspace if env is not None else None
+    executable = env_prep.resolve_executable("opencode", effective, cwd=cwd,
+                                             allow_default_path=env is None)
     if not executable:
-        raise RuntimeError("OpenCode is not on PATH")
+        raise RuntimeError("OpenCode is not on PATH; no provider request was launched")
     try:
-        result = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=15)
+        result = env_prep.preflight_run([executable, "--version"], effective, cwd=cwd,
+                                        capture_output=True, text=True, timeout=15)
     except subprocess.TimeoutExpired as error:
         raise RuntimeError("OpenCode version check timed out; no agent was launched") from error
+    except OSError as error:
+        raise RuntimeError("OpenCode version check cannot start; no provider request was launched") from error
     version = result.stdout.strip()
     if result.returncode or not re.fullmatch(r"1\.\d+\.\d+(?:[-+].*)?", version):
         raise RuntimeError("This adapter requires OpenCode 1.x; inspect opencode --version")
     # Fingerprint configuration, never credentials. OAuth token refreshes must not
     # invalidate a run, and the runner never opens OpenCode's auth.json.
     fingerprints = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
-                    for p in configuration_inputs(workspace)}
-    inline = {key: hashlib.sha256(os.environ[key].encode()).hexdigest() if key in os.environ else None
+                    for p in configuration_inputs(workspace, env=effective)}
+    inline = {key: hashlib.sha256(effective[key].encode()).hexdigest() if key in effective else None
               for key in ("OPENCODE_CONFIG_CONTENT", "OPENCODE_PERMISSION", "OPENCODE_CONFIG_DIR",
                           "OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_PURE", "OPENCODE_TEST_MANAGED_CONFIG_DIR")}
     return {"engine": "opencode", "identity_version": 2, "executable": executable, "version": version,
@@ -113,31 +138,40 @@ def transport_drift(current, checkpoint):
                for key, value in checkpoint.get(section, {}).items())
 
 
-def available_models(workspace=None):
+def available_models(workspace=None, *, env=None):
     """The model IDs ``opencode models`` offers this login."""
     # Slow opencode installations can take well over 30s just to list models
     # (observed ~57s on a free cursor-acp plan with 250+ entries). The call is
     # read-only and infrequent; give it room rather than failing the run before
     # any agent is launched.
+    effective = env_prep.snapshot_environment(env)
+    if env is not None and not env_prep.resolve_executable("opencode", effective, cwd=workspace):
+        # The explicit environment cannot find the provider: nothing was started.
+        raise RuntimeError("OpenCode is not on PATH; no agent was launched")
     try:
-        result = subprocess.run(["opencode", "models"], cwd=workspace,
-                                capture_output=True, text=True, timeout=180)
+        result = env_prep.preflight_run(["opencode", "models"], effective, cwd=workspace,
+                                        capture_output=True, text=True, timeout=180)
     except subprocess.TimeoutExpired as error:
         raise RuntimeError("OpenCode model listing timed out; no agent was launched") from error
+    except OSError as error:
+        # The roster subprocess could not even be spawned (issue #226's failure
+        # class): report it as the honest prelaunch state, never FileNotFoundError.
+        raise RuntimeError("OpenCode is not on PATH; no agent was launched") from error
     if result.returncode:
-        raise RuntimeError("Cannot list OpenCode models; check opencode models and opencode auth list")
+        raise RuntimeError("Cannot list OpenCode models; check opencode models and opencode auth list; "
+                           "no agent was launched")
     return set(result.stdout.splitlines())
 
 
-def check_models(roles, workspace=None):
-    available = available_models(workspace)
+def check_models(roles, workspace=None, *, env=None):
+    available = available_models(workspace, env=env)
     missing = [entry["model"] for entry in roles.values() if entry["model"] not in available]
     if missing:
         raise RuntimeError("Models unavailable in OpenCode: " + ", ".join(sorted(set(missing)))
                            + "; `autocode models` lists what your plans offer")
 
 
-def check_subscription_routes(roles, workspace=None):
+def check_subscription_routes(roles, workspace=None, *, env=None):
     """Check OpenCode's nonsecret CLI auth summary, never its credential file.
 
     OpenAI selections in the subscription workflow must use the existing OAuth
@@ -146,11 +180,12 @@ def check_subscription_routes(roles, workspace=None):
     """
     if not any(config.get("model", "").startswith("openai/") for config in roles.values()):
         return
-    if any(key in os.environ for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL")):
+    if any(key in env_prep.combined_environment(env)
+           for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL")):
         raise RuntimeError("OpenAI API-key or endpoint environment overrides are present; "
                            "subscription selection will not silently change billing routes")
     try:
-        failed, modes = _openai_auth_modes(workspace)
+        failed, modes = _openai_auth_modes(workspace, env)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise RuntimeError("Cannot verify OpenCode's OpenAI OAuth connection; no provider request was launched") from error
     if failed or modes != ["oauth"]:
@@ -158,12 +193,12 @@ def check_subscription_routes(roles, workspace=None):
                            "OpenAI → ChatGPT Plus/Pro; API-key fallback is disabled")
 
 
-def openai_auth(workspace=None):
+def openai_auth(workspace=None, *, env=None):
     """How OpenCode signs in to OpenAI: "oauth" (the ChatGPT login), another mode such as
     "api", "missing" when OpenAI is not connected, or None when the summary cannot be read.
     Only "oauth" passes check_subscription_routes."""
     try:
-        failed, modes = _openai_auth_modes(workspace)
+        failed, modes = _openai_auth_modes(workspace, env)
     except (OSError, subprocess.TimeoutExpired):
         return None
     if failed or len(modes) > 1:
@@ -171,15 +206,17 @@ def openai_auth(workspace=None):
     return modes[0] if modes else "missing"
 
 
-def _openai_auth_modes(workspace):
+def _openai_auth_modes(workspace, env=None):
     # `opencode auth list` is a full CLI cold start (7-15 s observed inside
     # containers, worse under load). A single slow start must not read as a
     # missing OAuth connection, so a transport-level failure retries a couple
     # of times; a completed check is never retried -- its verdict stands.
+    effective = env_prep.snapshot_environment(env)
     for attempt in range(3):
         try:
-            result = subprocess.run(["opencode", "auth", "list"], cwd=workspace,
-                                    capture_output=True, text=True, timeout=15)
+            result = env_prep.preflight_run(["opencode", "auth", "list"], effective, cwd=workspace,
+                                            require_executable=env is not None,
+                                            capture_output=True, text=True, timeout=15)
             break
         except (OSError, subprocess.TimeoutExpired):
             if attempt == 2:
@@ -189,7 +226,7 @@ def _openai_auth_modes(workspace):
 
 
 def launch(role, workspace, run_dir, session, model, effort, allow_write, *, planning=False,
-           report=None, schema=None, prompt_file=None, sandbox=None):
+           report=None, schema=None, prompt_file=None, sandbox=None, env=None):
     if not model or "/" not in model or any(c.isspace() for c in model):
         raise ValueError("OpenCode model must use provider/model, e.g. zai-coding-plan/glm-5.3")
     agent = "autocode_" + role
@@ -210,8 +247,8 @@ def launch(role, workspace, run_dir, session, model, effort, allow_write, *, pla
     overrides = {"$schema": "https://opencode.ai/config.json", "share": "disabled", "autoupdate": False,
                  "agent": {agent: {"description": f"Autocode {role} role", "mode": "primary",
                                     "permission": permissions}}}
-    env = dict(os.environ)
-    inherited = json.loads(env.get("OPENCODE_CONFIG_CONTENT", "{}"))
+    child = env_prep.child_environment(env)
+    inherited = json.loads(child.get("OPENCODE_CONFIG_CONTENT", "{}"))
     if not isinstance(inherited, dict):
         raise ValueError("OPENCODE_CONFIG_CONTENT must be a JSON object")
     # Preserve inline provider configuration and unrelated agents. Our reserved
@@ -227,14 +264,14 @@ def launch(role, workspace, run_dir, session, model, effort, allow_write, *, pla
         raise ValueError("OpenCode agent permissions must be an action or an object")
     definition = {**prior, **overrides["agent"][agent], "permission": {**policy, **permissions}}
     combined = {**inherited, **overrides, "agent": {**agents, agent: definition}}
-    env["OPENCODE_CONFIG_CONTENT"] = json.dumps(combined)
+    child["OPENCODE_CONFIG_CONTENT"] = json.dumps(combined)
     command = ["opencode", "run", "--dir", str(workspace), "--format", "json", "--agent", agent,
                "--model", model, "--title", f"Autocode {role}: {run_dir}"]
     if session:
         command += ["--session", session]
     if effort:
         command += ["--variant", effort]
-    return command, env, overrides
+    return command, child, overrides
 
 
 def prompt_for_schema(prompt, schema, events):
@@ -273,7 +310,7 @@ def prompt_for_schema(prompt, schema, events):
         "private_source_exceptions. Use their workspacePath only, preserve their canonicalPath, "
         "sourceId, and SHA-256 identity, and do not treat this as permission to access the "
         "external canonical location or any other external file.\n"
-        + json.dumps(schema, indent=2) + "\n")
+        + json.dumps(schema, separators=(",", ":")) + "\n")
     return prompt.replace("\nCURRENT HANDOFF DATA\n", instructions + "\nCURRENT HANDOFF DATA\n", 1)
 
 

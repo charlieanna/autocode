@@ -25,10 +25,10 @@ import uuid
 try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
     from . import autocode_gocode as gocode, autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, model_catalogue
-    from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes
+    from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log
 except ImportError:
-    import autocode_dependency as dependency, autocode_status_command as status_command
+    import autocode_dependency as dependency, autocode_status_command as status_command, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts
     import autocode_regression as regression, autocode_format_correction as format_correction, autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_event_log as event_log
     import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
     import autocode_providers, autocode_opencode as opencode, autocode_gocode as gocode, autocode_run_view as run_view
@@ -323,12 +323,8 @@ def run_role(
         resolver_runtime.check_diagnostic_capacity(sys.modules[__name__], state, run_dir)
     # New names cannot overwrite legacy finals or an uncertain provider request.
     attempt = 1 + sum(r.get("stage") == stage and r.get("iteration") == iteration for r in state.get("stages", []))
-    base = run_dir / "iterations" / f"{iteration:03d}" / f"{stage}-{attempt:02d}"
-    output = base.with_suffix(".json")
-    events = base.with_suffix(".jsonl")
-    prompt_file = base.with_suffix(".prompt.md")
-    if output.exists() or events.exists() or prompt_file.exists():
-        raise support.Paused("PAUSED_UNCERTAIN_STAGE", f"Existing stage artifacts require reconciliation: {base}")
+    base = artifacts.reserve(run_dir, iteration, stage, attempt)
+    output, events, prompt_file = base.with_suffix(".json"), base.with_suffix(".jsonl"), base.with_suffix(".prompt.md")
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
     if not report_only and original_stage in ('sol', 'astra_review', 'astra_checkpoint'):
         bound_schema = support.review_generation_schema(read_json(schema), state, original_stage)
@@ -459,8 +455,8 @@ def run_role(
             for prepared in (prompt_file, events, base.with_suffix(".before.json"), base.with_suffix(".opencode.json")):
                 prepared.unlink(missing_ok=True)
             raise
-        print(f"{stage}: started; log={events}", flush=True)
-        activity = ActivityMonitor(events, idle_seconds=idle_timeout, tool_seconds=tool_timeout)
+        print(f"{autocode_status.role_name(stage)}: started; model={model or 'default'}; log={events}", flush=True)
+        activity = ActivityMonitor(events, idle_seconds=idle_timeout, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage), model))
         activity_label = None
         last_activity_print = 0
         def activity_checkpoint(snapshot):
@@ -472,7 +468,7 @@ def run_role(
             label = (snapshot.get("activity"), snapshot.get("detail"))
             current = time.monotonic()
             if label != activity_label or current - last_activity_print >= 60:
-                print(f"{stage}: {snapshot.get('activity', 'waiting_for_provider')}; "
+                print(f"{autocode_status.role_name(stage)}: {snapshot.get('activity', 'waiting_for_provider')}; model={model or 'default'}; "
                       f"elapsed={record['activity']['elapsed_seconds']:g}s; "
                       f"idle={snapshot.get('idle_seconds', 0):g}s/{idle_timeout or 'off'}; "
                       f"tool={snapshot.get('tool_elapsed_seconds', 0) or 0:g}s/{tool_timeout or 'off'}; "

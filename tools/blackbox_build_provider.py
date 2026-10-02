@@ -49,6 +49,8 @@ def main():
     session = sys.argv[sys.argv.index('resume') + 1] if 'resume' in sys.argv else str(uuid.uuid4())
     print(json.dumps({'type': 'thread.started', 'thread_id': session}), flush=True)
     contract = data.get('goal_contract') or {'revision': 0, 'hash': ''}
+    # Review handoffs may reference the complete criteria already in the contract.
+    criteria = data.get('acceptance_criteria', (contract.get('body') or {}).get('acceptance_criteria', []))
     common = dict(contract_revision=contract['revision'], contract_hash=contract['hash'],
                   task_id=task.get('id', ''), deferred_backlog=[], user_request=dict(
                       kind='none', discovered='', impact='', decision_needed='', options=[], proposed_delta=''))
@@ -193,7 +195,8 @@ def main():
                 ready.append(row)
         row = ready[0] if ready else rows[-1]
         result = dict(common, status='REWORK' if data.get('validation',{}).get('verdict')=='FAIL' else 'CONTINUE', next_objective=row['objective'], affected_paths=row['affected_paths'],
-            acceptance_criteria=[dict(c, status='unverified', evidence='') for c in data['acceptance_criteria']],
+            acceptance_criteria=[dict(id=c['id'], criterion=c['criterion'], status='unverified', evidence='')
+                                 for c in criteria],
             next_task=dict(kind='implement', milestone_id=row['id'], requirements=[row['objective']],
                 acceptance_criteria=row['acceptance_criteria'], validation_plan=[spec['checks'][row['id']]], findings=[]),
             plan=['Execute approved DAG'], evidence=['Checkpoint checks'], blocker='', agreed_limitations=[], findings=[], finding_dispositions=[])

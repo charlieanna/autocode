@@ -459,6 +459,7 @@ class StrayWriteTests(unittest.TestCase):
         batch = d.prepare(self.state, self.root, self.run, d.select(self.state))
         d.run_workers(self.state, self.run, batch)
         for row in batch["workers"]:
-            prompt = next(Path(row["run_dir"]).glob("iterations/*/terra-*.prompt.md")).read_text()
+            prompts = list(Path(row["run_dir"]).glob("iterations/*/builder-*.prompt.md")) + list(Path(row["run_dir"]).glob("iterations/*/terra-*.prompt.md"))
+            prompt = prompts[0].read_text()
             self.assertIn(f"Your worktree is {row['workspace']}", prompt)
             self.assertIn("never write there, and never cd there", prompt)
