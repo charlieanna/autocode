@@ -24,7 +24,7 @@ import copy
 import uuid
 try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
-    from . import autocode_gocode as gocode, autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, model_catalogue
+    from . import autocode_gocode as gocode, autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_planning_metadata as planning_metadata, model_catalogue
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log
 except ImportError:
@@ -33,7 +33,7 @@ except ImportError:
     import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
     import autocode_providers, autocode_opencode as opencode, autocode_gocode as gocode, autocode_run_view as run_view
     import autocode_process as processes, autocode_registry as registry, autocode_planning as planning
-    import autocode_escalation as escalation, autocode_failures as failures, model_catalogue
+    import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue
 
 try:
     from . import autocode_workspaces as task_workspaces, autocode_figma as figma
@@ -176,7 +176,7 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
     else:
         value = util.read_object(Path(record["output"]))
     reported = copy.deepcopy(value)
-    value = normalize_plan_challenge_blocking(value, record)
+    value = normalize_plan_challenge_blocking(planning_metadata.normalize_planning_metadata(value, state, record), record)
     value = default_missing_provenance(value, record)
     evidence_record = evidence_record or record
     validation = value.get('validation', value)
