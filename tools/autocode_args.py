@@ -97,6 +97,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--headroom", choices=["off","on"], default=None,
                         help="Off by default; on fails closed until compatibility is verified")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Stream each stage's live model activity (tools started/finished, new provider text) to stderr")
     parser.add_argument("--migrate-only", action="store_true")
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--pause-after-stage", action="store_true")
@@ -226,6 +228,12 @@ def parse(unit, argv, default_models):
         parser.error("Build and review units require an existing --run-dir with an approved plan")
     if args.chat is None:
         args.chat = sys.stdin.isatty() and sys.stdout.isatty()
+    if args.verbose:
+        try:
+            from . import autocode_verbose as verbose
+        except ImportError:
+            import autocode_verbose as verbose
+        verbose.enable()
     for flag in ("max_iterations", "legacy_iteration_ceiling", "max_seconds", "max_stage_seconds", "max_idle_seconds", "max_tool_seconds", "no_progress_limit", "max_milestone_seconds", "max_milestone_replans", "max_milestone_stalled_reviews", "max_findings_per_task"):
         if getattr(args, flag) is not None and getattr(args, flag) < 0:
             parser.error(f"--{flag.replace('_', '-')} must be nonnegative")

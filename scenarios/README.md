@@ -1,5 +1,38 @@
 # Scenarios
 
+`acceptance-phase-isolation` reproduces the stats-to-compatibility credential
+leak with synthetic credentials and a real stdlib HTTP server on 127.0.0.1.
+Its reference uses distinct declared phase roots; seed and broken controls
+share credentials or swallow refusals during a call or teardown. Every variant
+runs through the oracle subprocess boundary in a fresh sequence directory
+beside the delivered project. Oracle evaluation leaves its source files intact.
+A child exit of zero cannot override recorded unexpected requests: the raw
+sequence stays ERROR and the catalog oracle rejects acceptance. Each record
+includes roots, traffic identity, refusals and the started/polled/stopped smoke
+lifecycle. Previous evidence stays untouched.
+Refusal ledgers are created before execution in a separate observer directory,
+outside the phase's mutable state. State teardown preserves recorded refusals;
+a missing or corrupt ledger produces ERROR with unknown requests, never GREEN.
+
+Use `harness.phase_env.PhaseSequence` for new acceptance sequences. Its phases
+copy the ambient environment, preserve HOME and provider OAuth, and add their
+declared credential/config/state/cache roots.
+Phase names must be distinct single path components; case variants and repeat
+names are rejected before they can reuse roots or refusal logs.
+Each sequence requires a fresh empty base and claims it exclusively. Reusing
+a prior or already owned base fails before credentials or evidence can change.
+Roots outside the sequence base are rejected before any directory or child
+process can write through them. Extra environment variables may
+add unrelated inputs; they cannot override HOME or any declared phase binding.
+The guard allows declared loopback destinations, checks redirect destinations,
+ignores ambient proxies, and records refusals before opening a socket. Existing
+oracle calls without `env` retain ambient inheritance.
+
+This opt-in synthetic regression does not qualify genuine Headroom/PyO3 startup
+or current-core integration. Those remain external gates, along with migrating
+other catalog sequences. The earlier V2 ERROR remains historical evidence;
+collection-time refusal is not a separately exercised control here.
+
 Realistic engineering tasks for AutoCode, each with an independent **oracle**
 that judges the delivered project from the outside. The oracle, not AutoCode's
 own completion claim, decides whether the work is right.

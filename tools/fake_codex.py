@@ -15,6 +15,9 @@ if sys.argv[1:] == ["login", "status"]:
     raise SystemExit(0)
 
 data = json.loads(sys.stdin.read().split("CURRENT HANDOFF DATA\n", 1)[1])
+if 'acceptance_criteria_ref' in data:
+    data['acceptance_criteria'] = [{k: c[k] for k in ('id', 'criterion')}
+                                  for c in data['goal_contract']['body']['acceptance_criteria']]
 
 
 def open_finding_id(source, text):

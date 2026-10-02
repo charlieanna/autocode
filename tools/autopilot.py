@@ -11,7 +11,7 @@ try:
     from . import autocode_planning_artifacts as planning_artifacts, autocode_planning_graph as planning_graph
     from . import autocode_workflow as workflow, autocode_milestones as milestones, autocode_escalation as escalation
     from . import autocode_findings as findings_ledger, autocode_builder_policy as builder_policy
-    from . import autocode_resolver_human as human, autocode_failures as failures, autocode_assignment as assignment
+    from . import autocode_resolver_human as human, autocode_failures as failures, autocode_assignment as assignment, autocode_status
     from . import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery
     from . import autocode_planning_clarification as clarification
     from . import autocode_progressive_state as progressive_state
@@ -28,7 +28,7 @@ except ImportError:
     import autocode_findings as findings_ledger
     import autocode_builder_policy as builder_policy
     import autocode_resolver_human as human
-    import autocode_failures as failures, autocode_assignment as assignment
+    import autocode_failures as failures, autocode_assignment as assignment, autocode_status
     import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery
     import autocode_planning_clarification as clarification
     import autocode_progressive_state as progressive_state
@@ -937,7 +937,7 @@ def run(runtime, state, workspace, run_dir, args):
         write_json(state_path, current)
 
     def after_code_stage(current, stage, _record):
-        print(f"{stage}: saved; next={current['next_stage']}; status={current['status']}", flush=True)
+        print(f"{autocode_status.role_name(stage)}: saved; next={autocode_status.role_name(current['next_stage']) or 'none'}; status={current['status']}", flush=True)
         if milestones.enabled(current):
             print(milestones.status_line(current), flush=True)
         try:

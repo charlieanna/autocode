@@ -116,11 +116,12 @@ class ActivityMonitor:
     }
 
     def __init__(self, events_path, *, idle_seconds=300, tool_seconds=1800,
-                 clock=time.monotonic):
+                 clock=time.monotonic, reporter=None):
         self.path = Path(events_path)
         self.idle_limit = max(0, float(idle_seconds))
         self.tool_limit = max(0, float(tool_seconds))
         self.clock = clock
+        self._reporter = reporter
         self._lock = threading.RLock()
         self._last_activity = clock()
         self._provider_active = False
@@ -150,6 +151,10 @@ class ActivityMonitor:
         self._last_activity = now
         self._provider_active = provider
 
+    def _report(self, kind, detail):
+        if self._reporter is not None:
+            self._reporter(kind, detail)
+
     @staticmethod
     def _identifier(value):
         return value if isinstance(value, str) and value else None
@@ -166,6 +171,7 @@ class ActivityMonitor:
                 return
             self._active[key] = (now, label)
             self._activity(now)
+            self._report("tool", f"{label} started")
         elif phase == "complete":
             if key in self._closed:
                 return
@@ -174,6 +180,7 @@ class ActivityMonitor:
                 self._closed.add(key)
             if self._new("complete:" + key) or was_active:
                 self._activity(now)
+                self._report("tool", f"{label} finished")
                 if not self._explicit_starts and self._fallback_started is not None:
                     # Completion-only providers may keep helper processes alive
                     # across many tools. A real new completion proves an end to
@@ -198,6 +205,7 @@ class ActivityMonitor:
         suffix_new = self._new("text:" + suffix.strip()) if suffix.strip() != value.strip() else full_new
         if full_new and suffix_new and suffix.strip():
             self._activity(now, provider=True)
+            self._report("text", suffix)
 
     def _event(self, row, now):
         if not isinstance(row, dict):

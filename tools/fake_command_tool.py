@@ -69,6 +69,9 @@ if observation:
     observation.write_text(json.dumps({"stdin": stdin, "prompt": prompt}))
 invocations = argument("--invocations")
 data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+if 'acceptance_criteria_ref' in data:
+    data['acceptance_criteria'] = [{k: c[k] for k in ('id', 'criterion')}
+                                  for c in data['goal_contract']['body']['acceptance_criteria']]
 if invocations:
     with invocations.open("a") as handle:
         handle.write(data.get("stage", "report_repair") + "\n")
