@@ -271,6 +271,22 @@ def default_missing_provenance(value, record):
             record["hoisted_fields"] = misplaced
             value = {**value, **{key: value["contract"][key] for key in misplaced},
                      "contract": {k: v for k, v in value["contract"].items() if k not in misplaced}}
+    # An optional item field written as null was left out, not given a wrong value: drop it. GLM 5.3
+    # wrote contract_changes[].example_correction null (an optional object since 2026-10-01) in both
+    # planning pipelines on 2026-10-02, and the schema refused the whole report.
+    nulls = []
+    for key in PROVENANCE_LISTS:
+        items = (properties.get(key) or {}).get("items") or {}
+        nullable = set(items.get("properties") or {}) - set(items.get("required") or [])
+        rows = value.get(key)
+        if nullable and isinstance(rows, list) and any(isinstance(row, dict) and any(
+                field in row and row[field] is None for field in nullable) for row in rows):
+            nulls.append(key)
+            value = {**value, key: [{field: entry for field, entry in row.items()
+                                     if not (field in nullable and entry is None)} if isinstance(row, dict) else row
+                                    for row in rows]}
+    if nulls:
+        record["dropped_null_fields"] = nulls
     missing = sorted(key for key in PROVENANCE_LISTS
                      if key in properties and key not in value and properties[key].get("type") == "array")
     defaults = {**optional, **{key: [] for key in missing}}
