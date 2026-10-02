@@ -107,6 +107,15 @@ class PlanningMetadataTests(unittest.TestCase):
             with self.subTest(kind=kind), self.assertRaises(ValueError):
                 goals.revision_guard(state, result["contract"], result["contract_changes"], "glm_revise")
 
+    def test_null_example_correction_is_a_valid_absent_receipt(self):
+        state, report = self.inputs()
+        self.addition(report)
+        report["contract_changes"][0]["example_correction"] = None
+        result = normalize_planning_metadata(report, state, {"stage": "glm_revise"})
+        self.assertEqual([], result["contract_changes"])
+        self.assertEqual(report["contract"], result["contract"])
+        goals.revision_guard(state, result["contract"], result["contract_changes"], "glm_revise")
+
     def test_real_or_malformed_receipts_are_retained_for_validation(self):
         valid = {"item": "AC2", "change": "reworded", "basis": "agent_proposed", "answer_id": "", "replacement": "Addition"}
         for changes in ([{"item": "AC1", "change": "reworded", "basis": "agent_proposed", "answer_id": ""}],
@@ -114,7 +123,7 @@ class PlanningMetadataTests(unittest.TestCase):
                         [{"item": "AC2", "change": "reworded", "basis": "user_answer", "answer_id": "invented"}],
                         [{"item": "AC2", "change": "reworded", "basis": "agent_proposed", "example_correction": []}],
                         [dict(valid, answer_id=0)], [dict(valid, extra=False)],
-                        [dict(valid, example_correction=None)], [dict(valid, example_correction={})],
+                        [dict(valid, example_correction={})],
                         [{key: value for key, value in valid.items() if key != "replacement"}],
                         ["invalid"]):
             state, report = self.inputs()

@@ -67,7 +67,7 @@ def _addition_declarations(report, state):
             return False
         if "example_correction" in row:
             correction = row["example_correction"]
-            if (not isinstance(correction, dict) or set(correction) != {"concern_id", "before", "after"}
+            if correction is not None and (not isinstance(correction, dict) or set(correction) != {"concern_id", "before", "after"}
                     or any(value != "" for value in correction.values())):
                 return False
         item = row.get("item")
