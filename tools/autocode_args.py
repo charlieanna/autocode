@@ -47,9 +47,10 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                              "~/.config/autocode/config.toml, then opencode. Other names load ~/.config/autocode/providers/<name>.toml")
     parser.add_argument("--joint-planning", action="store_true",
                         help="Separate requirements, planning, and independent review; default for new OpenCode/GoCode runs, opt-in for Codex")
-    parser.add_argument("--adaptive-planning", action="store_true",
-                        help="New runs: skip requirements for a clear build request and let a Plan Reviewer with no "
-                             "blocking concern approve the draft (docs/adaptive-planning.md)")
+    parser.add_argument("--adaptive-planning", action=argparse.BooleanOptionalAction, default=None,
+                        help="New runs plan adaptively by default when they use joint planning on the default flow: "
+                             "skip requirements for a clear build request and let a Plan Reviewer with no blocking "
+                             "concern approve the draft (docs/adaptive-planning.md); --no-adaptive-planning opts out")
     parser.add_argument('--planning-v2', action='store_true',
                         help='Opt in to transactional planning-v2 artifacts; never changes role models or the default planning flow')
     parser.add_argument("--glm-model", help="Planner model: OpenCode provider/model or native Codex GPT name")

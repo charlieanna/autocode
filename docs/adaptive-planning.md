@@ -1,6 +1,6 @@
 # Adaptive planning
 
-By default every build request goes through the same AutoPlanner sequence,
+The fixed AutoPlanner sequence sends every build request through the same stages,
 whatever its size:
 
 ```
@@ -12,10 +12,15 @@ Plan Reviewer has no objection to is still revised and reviewed again. A hard
 plan gets exactly one revision, and whatever the Reviewer still objects to comes
 back to you as questions.
 
-`--adaptive-planning` (new runs only; needs joint planning and the default
-planning flow) lets the evidence decide how much planning a request gets. It
-does not predict the job's size up front. Each decision is made by the first
-stage that has the evidence for it:
+Adaptive planning lets the evidence decide how much planning a request gets
+instead. It is **on by default** for new runs that use joint planning on the
+default planning flow (since 2026-10-02, after the two live comparisons below
+found fewer model calls and questions with the same plan quality).
+`--no-adaptive-planning` keeps the fixed sequence for a new run, and
+`--adaptive-planning` insists on adaptive planning, refusing a run that cannot
+use it. A saved run keeps the planning flow it was started with. It does not
+predict the job's size up front. Each decision is made by the first stage that
+has the evidence for it:
 
 | Decision | Made by | Evidence | Effect |
 | --- | --- | --- | --- |
@@ -24,7 +29,7 @@ stage that has the evidence for it:
 | How many review rounds? | The runner | The draft's declared milestones and the files they touch (`plan_size`) | A large plan (3+ milestones or 10+ files) gets 3 review calls instead of 2, so a revision is reviewed again before the final decision. |
 
 For this to work, the Planner's draft includes its `initial_task` (the first
-Builder task). Without the flag, only the final review writes one.
+Builder task). In the fixed sequence only the final review writes one.
 
 What does not change:
 
@@ -32,9 +37,10 @@ What does not change:
   your approval.
 - A build named with `--workflow build` skips recognition, so nobody judges its
   clarity and the Requirements stage always runs.
-- The flag applies only to new runs. Resuming a run that was started without
-  it, with the flag added, is refused, so an existing run keeps its planning
-  flow. Repeating the flag on an adaptive run is fine.
+- The setting applies only to new runs. A saved run keeps the planning flow it
+  was started with: resuming with `--adaptive-planning` a run that lacks it, or
+  with `--no-adaptive-planning` an adaptive one, is refused. Repeating the run's
+  own choice, or passing no flag, is fine.
 - Questions work as before. On the fast path the Planner asks them itself.
 - The Validator and Completion Owner still judge the work, and bug-fix, review,
   design and discuss workflows are unaffected.

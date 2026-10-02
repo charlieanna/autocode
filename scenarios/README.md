@@ -262,7 +262,7 @@ live comparison with matched models and a recorded profile.
 ## Planning: today's pipeline vs adaptive planning
 
 `plan-compare` plans each build request in `planning.toml` twice: once with
-today's fixed AutoPlanner sequence and once with `--adaptive-planning`
+today's fixed AutoPlanner sequence (`--no-adaptive-planning`) and once with `--adaptive-planning`
 ([docs/adaptive-planning.md](../docs/adaptive-planning.md)). It stops each run
 at the plan the user is asked to approve, so nothing is built. It reports
 stages, review calls and blocking concerns, questions, tokens and model time
