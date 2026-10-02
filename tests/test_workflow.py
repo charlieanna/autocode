@@ -152,7 +152,11 @@ class WorkflowTests(unittest.TestCase):
         prompt,_=stage_context.context_packet(self.state,'astra_checkpoint',self.run/'state.json')
         data=json.loads(prompt.split('CURRENT HANDOFF DATA\n',1)[1])
         self.assertEqual('exact.diff',data['diff_ref'])
-        self.assertEqual(self.state['goal_contract'],data['goal_contract'])
+        contract=copy.deepcopy(self.state['goal_contract'])
+        restated=contract['body'].pop('acceptance_criteria')
+        self.assertEqual(contract,data['goal_contract'])
+        self.assertEqual([c['criterion'] for c in restated],
+                         [c['criterion'] for c in data['acceptance_criteria']])
         self.assertIn('ONE call',prompt)
         self.assertNotIn('MILESTONE HANDOFF POLICY v1',prompt)
 

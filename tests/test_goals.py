@@ -1323,7 +1323,11 @@ class GoalTests(unittest.TestCase):
         for stage in ("terra", "sol", "astra_review"):
             prompt, _ = stage_context.context_packet(self.state, stage, self.run / "state.json")
             data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
-            self.assertEqual(self.state["goal_contract"], data["goal_contract"])
+            contract = copy.deepcopy(self.state["goal_contract"])
+            restated = contract["body"].pop("acceptance_criteria")
+            self.assertEqual(contract, data["goal_contract"])
+            self.assertEqual([c["criterion"] for c in restated],
+                             [c["criterion"] for c in data["acceptance_criteria"]])
             self.assertEqual(assigned, data["current_task"])
             self.assertEqual(s.snapshot(self.root)["revision"], data["source_revision"])
             if stage != "terra": self.assertEqual(self.state["implementation"], data["implementation"])
