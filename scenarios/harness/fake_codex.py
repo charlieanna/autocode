@@ -300,8 +300,11 @@ def run_verify(command: str, *, fabricated=False) -> tuple[int, str]:
 
 
 def requirements() -> list[dict]:
-    """One requirement per sentence, quoted verbatim, as AutoCode's planner rules demand."""
-    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", CONFIG["brief"].strip()) if part.strip()]
+    """One requirement per sentence of the brief, then of the user's saved feedback, quoted verbatim, as
+    AutoCode's planner rules demand."""
+    texts = [CONFIG["brief"], *(row.get("text", "") for row in DATA.get("brief_feedback") or []
+                                if row.get("actor") == "user_cli")]
+    sentences = [part.strip() for text in texts for part in re.split(r"(?<=[.!?])\s+", text.strip()) if part.strip()]
     return [{"id": f"R{number}", "text": sentence, "source_quote": sentence}
             for number, sentence in enumerate(sentences, start=1)]
 
@@ -312,6 +315,12 @@ def source_refs() -> list[str]:
     return tracked[:8] or ["task"]
 
 
+def feedback_rows() -> list[dict]:
+    """Rows AutoCode asks the Planner to trace that are not brief sentences: the user's feedback on a shown plan."""
+    brief = {row["id"] for row in requirements()}
+    return [row for row in DATA.get("requirement_trace_rows") or [] if row["requirement_id"] not in brief]
+
+
 def trace() -> list[dict]:
     body = (DATA.get("goal_contract") or {}).get("body") or {}
     if PROGRESSIVE and body.get("intended_outcome") == RENEWED_OUTCOME:
@@ -319,6 +328,11 @@ def trace() -> list[dict]:
         # the explicitly edited goal retires only the named standalone check.
         return [{"requirement_id": row["id"], "disposition": "covered",
                  "evidence": body["acceptance_criteria"][0]["id"]} for row in requirements()]
+    # Feedback is applied as a required behavior quoting it (contract), which covers its row.
+    rows = DATA.get("requirement_trace_rows")
+    if rows is not None:
+        return [{"requirement_id": row["requirement_id"], "disposition": "covered", "evidence": row["requirement"]}
+                for row in rows]
     return [{"requirement_id": row["id"], "disposition": "covered", "evidence": row["text"]}
             for row in requirements()]
 
@@ -352,7 +366,8 @@ def contract(final: bool = False) -> dict:
         "milestones": [{"id": "M1", "objective": outcome(), "acceptance_criteria": ["C1"],
                         "depends_on": [], "affected_paths": PATHS}],
         "deliverables": PATHS,
-        "required_behaviors": [row["text"] for row in requirements()],
+        "required_behaviors": list(dict.fromkeys([row["text"] for row in requirements()]
+                                                 + [row["requirement"] for row in feedback_rows()])),
         "important_failure_cases": ["The scenario check command fails"],
         "scope_exclusions": ["Anything outside the scenario brief"],
         "constraints": ["Change only the paths the reference solution touches"],
@@ -650,6 +665,9 @@ def report_for(stage: str, data: dict) -> dict:
     if stage == "astra_discovery":
         report = {"summary": "Scripted plan", "contract": contract(final=adaptive), "alternatives": [],
                   "uncertainties": [], **planning}
+        if os.environ.get("SCENARIO_FAKE_REQUIREMENTS_RERUN") == "1" and "set requirements_rerun" in PROMPT:
+            # The Planner sends feedback that changes what is built back to Requirements.
+            report["requirements_rerun"] = "Scripted: the feedback changes what is being built"
         if CONFIG.get("fault") == "planner_citation" and not guided_to_fix_citation():
             # Prose after an existing path is valid. A nonexistent sibling is a
             # deterministic rejected citation, including on report-only repairs.

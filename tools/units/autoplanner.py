@@ -204,13 +204,14 @@ HUMAN REVIEW: an acceptance criterion's human_review is """ + HUMAN_REVIEW_NOTE 
 # IDs as a short list (requirement_trace_rows) and this rule; the runner's check is unchanged.
 REQUIREMENT_TRACE_RULE = """
 REQUIREMENT TRACE: requirement_trace_rows in the handoff data lists every requirement from the requirements
-handoff. requirement_trace must contain exactly one row for each of those requirement_id values, no more and no
-fewer; an empty requirement_trace is refused. disposition is covered, excluded or superseded. For covered, evidence
-is an acceptance criterion ID of this contract (for example "AC3", or "AC3 checks this"), or a required_behaviors
-entry copied exactly; a paraphrase is refused. For excluded, evidence is a scope_exclusions entry copied exactly and
-backed by a saved user answer; for superseded, it cites the saved answer or feedback event ID. While the draft has
-open_blocking_questions and no criteria yet, a covered row may say what it waits on (for example "pending Q1"); the
-next draft, after the answer, must cite criteria.
+handoff, and any feedback on a plan the user was shown that no Requirements report has read yet (its
+requirement_id is the feedback event ID). requirement_trace must contain exactly one row for each of those
+requirement_id values, no more and no fewer; an empty requirement_trace is refused. disposition is covered,
+excluded or superseded. For covered, evidence is an acceptance criterion ID of this contract (for example "AC3",
+or "AC3 checks this"), or a required_behaviors entry copied exactly; a paraphrase is refused. For excluded,
+evidence is a scope_exclusions entry copied exactly and backed by a saved user answer; for superseded, it cites
+the saved answer or feedback event ID. While the draft has open_blocking_questions and no criteria yet, a covered
+row may say what it waits on (for example "pending Q1"); the next draft, after the answer, must cite criteria.
 """
 TRACE_STAGES = ("astra_discovery", "glm_revise", "astra_finalize")
 
@@ -232,9 +233,11 @@ def trace_rows(state, stage):
     if stage not in (*TRACE_STAGES, "astra_challenge"):
         return []
     handoff = (state.get("requirements_handoff") or {}).get("report") or {}
+    # Feedback on a shown plan that no Requirements report has read yet is traced like a requirement.
     return [{"requirement_id": row["id"], "requirement": row.get("text", ""),
              "source_quote": row.get("source_quote", "")}
-            for row in handoff.get("requirements") or [] if isinstance(row, dict) and row.get("id")]
+            for row in (handoff.get("requirements") or []) + adaptive.feedback_requirements(state)
+            if isinstance(row, dict) and row.get("id")]
 
 
 # The first stage of every new run: which kind of job this is (autocode_workflows).
@@ -1093,6 +1096,17 @@ def after_challenge(state, value, record):
     planning["final_token"] = goals.token(state["goal_contract"])
     planning["adaptive"].update(approved_at=f"astra_challenge#{planning['adaptive']['challenges']}",
                                 final_stage="astra_challenge")
+
+
+def rerun_requirements(state, value):
+    """Whether the Planner sent feedback on the shown plan back to Requirements instead of revising the plan
+    (adaptive planning). Its draft is discarded and the Requirements stage, which reads every saved feedback,
+    runs next; the pipeline then continues in full, as it would without adaptive planning."""
+    reason = adaptive.requirements_rerun(state, value)
+    if reason:
+        state.update(status="RUNNING", phase="DISCOVERING", next_stage="requirements_gather",
+                     discovery_summary="Planner: " + reason)
+    return bool(reason)
 
 
 def after_revise(state):

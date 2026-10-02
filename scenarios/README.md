@@ -191,11 +191,13 @@ live comparison with matched models and a recorded profile.
 `plan-compare` plans each build request in `planning.toml` twice: once with
 today's fixed AutoPlanner sequence and once with `--adaptive-planning`
 ([docs/adaptive-planning.md](../docs/adaptive-planning.md)). It stops each run
-at the plan the user is asked to approve, so nothing is built. It reports
-stages, review calls and blocking concerns, questions, tokens and model time
-side by side. Under `blind/` it writes each request's two plans as Plan A and
-Plan B, with the key kept separately, for judging plan quality without knowing
-which variant wrote which.
+at the plan the user is asked to approve, so nothing is built. A request with
+`feedback` sends it instead of approving that plan, and stops at the next plan
+shown for approval. It reports stages, review calls and blocking concerns,
+questions, tokens and model time side by side, with the feedback round in its
+own columns. Under `blind/` it writes each request's two plans as Plan A and
+Plan B (before and after the feedback, when there is one), with the key kept
+separately, for judging plan quality without knowing which variant wrote which.
 
 ```sh
 $PY scenarios/run.py plan-compare --fake                   # every adaptive path, scripted, seconds

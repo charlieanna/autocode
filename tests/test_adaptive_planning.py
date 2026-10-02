@@ -3,7 +3,9 @@ import unittest
 
 import autocode_adaptive_planning as adaptive
 import autocode_goals as goals
+import autocode_util as util
 import autocode_workflows as workflows
+from goal_fixtures import body as contract_body
 from units import autoplanner
 
 ON = {"settings": {"adaptive_planning": True}}
@@ -138,6 +140,105 @@ class Convergence(unittest.TestCase):
     def test_unlimited_allowance_stops_re_reviewing_after_the_cap(self):
         self.assertEqual(adaptive.after_revise(0, 2, 2), "astra_challenge")
         self.assertEqual(adaptive.after_revise(0, 3, adaptive.MAX_CHALLENGES), "astra_finalize")
+
+
+def awaiting(*, setting=True, roles=("requirements", "plan_reviewer"), status="AWAITING_GOAL_APPROVAL", handoff=None):
+    """A joint-planning run showing its plan for approval."""
+    contract = {"task_id": "task-1", "revision": 1, "body": contract_body()}
+    contract["hash"] = util.digest(contract)
+    state = {"version": 3, "task_id": "task-1", "task": "Build a greeting CLI", "workspace": "/absent-workspace",
+             "status": status, "goal_contract": contract, "answers": {}, "user_events": [], "acceptance_criteria": [],
+             "settings": {"joint_planning": True, "adaptive_planning": setting, "roles": {role: {} for role in roles}}}
+    if handoff:
+        state["requirements_handoff"] = handoff
+    return state
+
+
+HANDOFF = {"report": {"requirements": [{"id": "R1", "text": "Print Hello, NAME for a nonempty name",
+                                        "source_quote": "Print Hello, NAME for a nonempty name"}]},
+           "output": "iterations/001/requirements_gather-01.json"}
+
+
+class FeedbackOnAShownPlan(unittest.TestCase):
+    def test_feedback_on_a_plan_waiting_for_approval_goes_to_the_planner(self):
+        state = awaiting(handoff=HANDOFF)
+        goals.feedback(state, "Also accept --shout.")
+        event = state["brief_feedback"][-1]
+        self.assertEqual("astra_discovery", state["next_stage"])
+        self.assertEqual({"requirements_handoff": HANDOFF["output"]}, event[adaptive.FEEDBACK])
+        self.assertEqual("draft", state["goal_contract"]["approval_status"])
+
+    def test_other_feedback_restarts_from_requirements(self):
+        for state in (awaiting(setting=False), awaiting(status="WAITING_FOR_USER"),
+                      awaiting(status="PAUSED_PLANNING_BUDGET")):
+            with self.subTest(status=state["status"], adaptive=state["settings"]["adaptive_planning"]):
+                goals.feedback(state, "Also accept --shout.")
+                self.assertEqual("requirements_gather", state["next_stage"])
+                self.assertNotIn(adaptive.FEEDBACK, state["brief_feedback"][-1])
+
+    def test_feedback_is_a_requirement_until_a_requirements_report_reads_it(self):
+        state = awaiting(handoff=HANDOFF)
+        goals.feedback(state, "Also accept --shout.")
+        event_id = state["brief_feedback"][-1]["id"]
+        rows = adaptive.feedback_requirements(state)
+        self.assertEqual([{"id": event_id, "text": "Also accept --shout.", "source_quote": "Also accept --shout."}], rows)
+        self.assertEqual(["R1", event_id], [row["requirement_id"] for row in autoplanner.trace_rows(state, "astra_discovery")])
+        self.assertEqual([], autoplanner.trace_rows(state, "requirements_gather"))
+        state["requirements_handoff"] = {**HANDOFF, "output": "iterations/002/requirements_gather-01.json"}
+        self.assertEqual([], adaptive.feedback_requirements(state), "the new Requirements report took it in")
+
+    def test_without_a_requirements_stage_the_feedback_is_still_traced(self):
+        state = awaiting()
+        goals.feedback(state, "Also accept --shout.")
+        self.assertEqual(["Also accept --shout."], [row["text"] for row in adaptive.feedback_requirements(state)])
+
+    def test_the_revision_must_deliver_the_feedback(self):
+        state = awaiting(handoff=HANDOFF)
+        goals.feedback(state, "Also accept --shout.")
+        event_id = state["brief_feedback"][-1]["id"]
+        revised = contract_body()
+        r1 = {"requirement_id": "R1", "disposition": "covered", "evidence": "C1"}
+        with self.assertRaisesRegex(ValueError, "Planner dropped requirements with no trace: " + event_id):
+            goals.check_requirement_trace(state, {"requirement_trace": [r1]}, revised)
+        unsupported = {"requirement_id": event_id, "disposition": "covered", "evidence": "Accept --shout"}
+        with self.assertRaisesRegex(ValueError, f"Requirement {event_id} is not covered"):
+            goals.check_requirement_trace(state, {"requirement_trace": [r1, unsupported]}, revised)
+        revised["required_behaviors"].append("Accept --shout")
+        goals.check_requirement_trace(state, {"requirement_trace": [r1, unsupported]}, revised)  # does not raise
+
+    def test_only_a_draft_revising_from_feedback_may_send_it_back_to_requirements(self):
+        state = awaiting(handoff=HANDOFF)
+        self.assertNotIn("requirements_rerun", autoplanner.schema_for(state, "astra_discovery")["properties"])
+        self.assertEqual("", adaptive.requirements_rerun(state, {"requirements_rerun": "New product"}))
+        goals.feedback(state, "Make it a web page instead.")
+        self.assertIn("requirements_rerun", autoplanner.schema_for(state, "astra_discovery")["properties"])
+        self.assertNotIn("requirements_rerun", autoplanner.schema_for(state, "astra_discovery")["required"])
+        self.assertNotIn("requirements_rerun", autoplanner.schema_for(state, "glm_revise")["properties"])
+        self.assertEqual("New product", adaptive.requirements_rerun(state, {"requirements_rerun": " New product "}))
+        no_stage = awaiting(roles=("plan_reviewer",))
+        goals.feedback(no_stage, "Make it a web page instead.")
+        self.assertEqual("", adaptive.requirements_rerun(no_stage, {"requirements_rerun": "New product"}),
+                         "nowhere to send it without a Requirements stage")
+
+    def test_a_send_back_discards_the_draft_and_runs_requirements(self):
+        state = awaiting(handoff=HANDOFF)
+        goals.feedback(state, "Make it a web page instead.")
+        self.assertFalse(autoplanner.rerun_requirements(state, {"requirements_rerun": "", "summary": ""}))
+        self.assertEqual("astra_discovery", state["next_stage"])
+        self.assertTrue(autoplanner.rerun_requirements(state, {"requirements_rerun": "A web page is another product",
+                                                                "summary": ""}))
+        self.assertEqual(("requirements_gather", "RUNNING"), (state["next_stage"], state["status"]))
+
+    def test_prompt_rules_name_the_feedback_only_while_it_is_traced(self):
+        state = awaiting(handoff=HANDOFF)
+        self.assertNotIn(adaptive.FEEDBACK_RULE, adaptive.prompt_rule(state, "astra_discovery"))
+        goals.feedback(state, "Also accept --shout.")
+        planner = adaptive.prompt_rule(state, "astra_discovery")
+        self.assertIn(adaptive.FEEDBACK_RULE, planner)
+        self.assertIn(adaptive.RERUN_RULE, planner)
+        self.assertIn(adaptive.FEEDBACK_REVIEW_RULE, adaptive.prompt_rule(state, "astra_challenge"))
+        self.assertIn(adaptive.FEEDBACK_TRACE_RULE, adaptive.prompt_rule(state, "glm_revise"))
+        self.assertEqual(adaptive.FEEDBACK_TRACE_RULE, adaptive.prompt_rule(state, "astra_finalize"))
 
 
 if __name__ == "__main__":

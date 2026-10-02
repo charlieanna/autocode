@@ -22,6 +22,7 @@ stage that has the evidence for it:
 | Does the request need requirements gathering? | Job recognizer | The request text: does it say what to build and how to tell it is done, with no product choice left open? | `clear` build requests go straight to the Planner; `vague` ones keep the Requirements stage. When unsure the recognizer says `vague`. |
 | Is the plan finished? | Plan Reviewer | Its own concerns, each marked blocking or not | No blocking concern: the Planner's draft is the final plan and goes to you, with the non-blocking concerns as notes. Otherwise the Planner revises. |
 | How many review rounds? | The runner | The draft's declared milestones and the files they touch (`plan_size`) | A large plan (3+ milestones or 10+ files) gets 3 review calls instead of 2, so a revision is reviewed again before the final decision. |
+| Does feedback on a plan need requirements gathering? | The runner, then the Planner | The run's status: a complete plan waiting for your approval | The Planner revises the plan you were shown, then the Plan Reviewer reviews it. The Planner can send feedback that changes what is being built back to Requirements. See [below](#feedback-on-a-plan-you-were-shown). |
 
 For this to work, the Planner's draft includes its `initial_task` (the first
 Builder task). Without the flag, only the final review writes one.
@@ -43,16 +44,61 @@ What does not change:
 
 Where it lives: `tools/autocode_adaptive_planning.py` holds the decisions as pure
 functions. `units/autoplanner.py` (`schema_for`, `after_challenge`,
-`after_revise`) and `autocode_workflows.apply` apply them. State:
-`workflow.clarity`, and `planning.adaptive` (`size`, `signals`, `review_limit`,
-`challenges`, `approved_at`, `final_stage`).
+`after_revise`, `rerun_requirements`), `autocode_workflows.apply` and
+`autocode_goals.feedback` apply them. State: `workflow.clarity`,
+`planning.adaptive` (`size`, `signals`, `review_limit`, `challenges`,
+`approved_at`, `final_stage`), and `revises_plan` on a feedback event.
+
+## Feedback on a plan you were shown
+
+Without adaptive planning, feedback on a plan (`--feedback`, or typing a change
+in chat) restarts planning from the top, however small the change:
+
+```
+your feedback → requirements → plan → review → revise → final review → your approval
+```
+
+In an adaptive run, feedback sent while a complete plan waits for your approval
+goes to the Planner, which revises the plan you saw:
+
+```
+your feedback → plan (revises the plan you saw) → review → your approval
+```
+
+The review works as for any adaptive draft: with no blocking concern the plan
+comes back to you; otherwise it is revised and reviewed again. Feedback at any
+other point (while questions are open, or queued during a build) still restarts
+from Requirements.
+
+Requirements is skipped because its job was done for the request you already
+planned; your feedback changes that plan. Three checks keep the shortcut safe:
+
+1. **The runner checks the revision delivers your feedback.** Your feedback
+   becomes a requirement the Planner must trace, like the ones the Requirements
+   stage writes: covered by an acceptance criterion or required behavior of the
+   new plan, or the draft is rejected. This needs no model call. It stays a
+   traced requirement until a Requirements report takes it in.
+2. **The Planner can send it back.** If your feedback changes what is being built
+   (a different product, user or outcome, not an added or changed behavior), the
+   Planner says so instead of revising (`requirements_rerun`), and the runner
+   discards that draft and runs the Requirements stage. "Make it a web page
+   instead of a command-line tool" is the example in the comparison corpus.
+3. **The Plan Reviewer still reviews the revision**, and is told to check that
+   your feedback is applied as you said it and that nothing you asked for earlier
+   was lost. The runner's existing guard already refuses a revision that drops or
+   rewords a protected item (a criterion, behavior or exclusion) without citing
+   your feedback.
+
+You still approve the revised plan.
 
 ## Comparing it with today's pipeline
 
 `scenarios/run.py plan-compare` plans each request in `scenarios/planning.toml`
 twice, once with today's pipeline and once with `--adaptive-planning`. Each run
 starts in a fresh copy of the request's seed and stops when AutoCode shows the
-plan for approval. Nothing is built. The driver answers questions with
+plan for approval. A request with `feedback` then sends that feedback instead of
+approving, and stops at the next plan shown for approval; the feedback round is
+reported in its own columns. Nothing is built. The driver answers questions with
 AutoCode's proposed default, the same way for both variants.
 
 ```sh

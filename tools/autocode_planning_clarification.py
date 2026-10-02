@@ -131,6 +131,23 @@ def clarify_discoverable(state, stage, value, record, *, investigation_stages, c
     return value, False
 
 
+def check_handoff_questions(state, value):
+    """A Planner draft keeps every question the requirements handoff left open until it is answered or settled.
+    A fact settled from the workspace stays settled while the handoff that asked it is unchanged; answering
+    another question renews the episode but not the handoff. A refreshed handoff must settle it again."""
+    handoff = state.get("requirements_handoff")
+    if not handoff:
+        return
+    pending = {question["id"] for question in handoff["report"]["open_questions"]}
+    preserved = {question["id"] for question in value["contract"]["open_blocking_questions"]}
+    current = goals.handoff_ref(state)
+    resolved = {row["question_id"] for row in state.get("machine_resolutions", [])
+                if row.get("requirements_handoff") == current}
+    missing = pending - preserved - set(state.get("answers", {})) - resolved
+    if missing:
+        raise ValueError("Planner dropped unresolved requirements questions: " + ", ".join(sorted(missing)))
+
+
 def label_unresolved(state, questions):
     """Runner-authored, visible relabelling; never a fabricated answer."""
     for index, question in enumerate(questions):
