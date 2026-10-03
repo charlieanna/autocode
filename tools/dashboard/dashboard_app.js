@@ -2081,6 +2081,13 @@ function renderBrief(run) {
   }
   const checklist=workChecklistPanel(run);checklist.classList.add('plan-checklist');
   const current=card('','plan-current-task'),facts=stateFacts(run);current.append(n('h3','Current task'),n('p',facts.objective),n('p',facts.step));
+  // A plan awaiting approval must expose its constraints and work sequence
+  // before the reader opens the complete saved-plan disclosure. The action
+  // itself stays in the conversation transcript.
+  if(ready&&!approved){
+    box.append(planDocumentSection('Constraints',brief.constraints),
+               planDocumentSection('Implementation sequence',brief.implementation_sequence||brief.technical_approach||brief.milestones||brief.plan,true));
+  }
   box.append(checklist,current,disclosure('Saved plan details','saved-plan-details:'+run.goal_token,[provenance,body],run.run));
   if(run.astra_plan?.current_plan?.length){const strategy=card('','current-strategy');strategy.append(n('h3','Current execution approach'),n('p','The team’s latest work sequence within this task. This is separate from the plan approval above.'),planList(run.astra_plan.current_plan));box.append(strategy);}host.append(box);
 }
