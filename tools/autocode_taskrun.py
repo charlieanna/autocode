@@ -48,9 +48,12 @@ class TaskRun:
         workspace = Path(workspace).resolve()
         before = set(_runs(workspace))
         run = cls(workspace, Path(), tuple(command), tuple(options), env, timeout)
-        run._invoke("start", brief, "--in-place", "--no-chat", *run.options, *start_options,
+        proc = run._invoke("start", brief, "--in-place", "--no-chat", *run.options, *start_options,
                     advancing=True, with_run_dir=False)
         created = set(_runs(workspace)) - before
+        if not created:
+            detail = (proc.stderr or proc.stdout).strip()[-800:]
+            raise TaskRunError(f"start exited {proc.returncode} without creating a run: {detail}")
         if len(created) != 1:
             raise TaskRunError(f"expected one new run in {workspace}, found {sorted(map(str, created))}")
         run.run_dir = created.pop()
@@ -76,6 +79,10 @@ class TaskRun:
         except (ValueError, KeyError) as error:
             raise TaskRunError(f"--status did not return a status view: {error}") from None
 
+    def show_goal(self) -> str:
+        """Return the displayed brief a person must read before approving its token."""
+        return self._invoke("show goal", "--show-goal").stdout
+
     def advance(self) -> dict:
         """Relaunch the run; it works until it completes or stops for input."""
         self._invoke("advance", "--no-chat", *self.options, advancing=True)
@@ -98,14 +105,48 @@ class TaskRun:
         self._invoke("resume", "--resume-paused", "--no-chat", *self.options, advancing=True)
         return self.status()
 
+    def grant_recovery(self, amount: int) -> dict:
+        """Grant exactly N new recoveries after the operator resolves the pause cause."""
+        if type(amount) is not int or amount < 1:
+            raise ValueError('recovery allowance must be a positive integer')
+        self._invoke('grant recovery', '--resume-paused', '--grant-recovery', str(amount),
+                     '--no-chat', *self.options, advancing=True)
+        return self.status()
+
+    def accept_transport_change(self) -> dict:
+        """Explicitly accept a validated OpenCode transport change and continue."""
+        self._invoke("accept transport change", "--resume-paused", "--accept-transport-change",
+                     "--no-chat", *self.options, advancing=True)
+        return self.status()
+
+    def retry_report(self, attempt_id: str) -> dict:
+        """Request one fresh report for the exact inspected rejected attempt."""
+        self._invoke("retry report", "--resume-paused", "--retry-report", attempt_id,
+                     "--no-chat", advancing=True)
+        return self.status()
+
+    def retry_failed_stage(self) -> dict:
+        """Authorize one inspected retry of a repeated failed stage."""
+        self._invoke("retry failed stage", "--resume-paused", "--retry-failed-stage",
+                     "--no-chat", advancing=True)
+        return self.status()
+
     def bind_dependency(self, specification: Path) -> dict:
         return self._act("bind dependency", "--bind-dependency", str(specification))
 
     def receive_dependency(self, manifest: Path) -> dict:
         return self._act("receive dependency", "--receive-dependency", str(manifest))
 
-    def answer(self, question_id: str, text: str) -> dict:
-        return self._act("answer", "--answer", f"{question_id}={text}")
+    def answer(self, question_id: str, text: str, *, resolver_token: str | None = None) -> dict:
+        """Answer the displayed question, retaining its resolver token when present."""
+        token_args = ("--resolver-token", resolver_token) if resolver_token is not None else ()
+        return self._act("answer", "--answer", f"{question_id}={text}", *token_args)
+
+    def respond_operational(self, request_id: str, request_token: str, text: str) -> dict:
+        """Send corrective information to the published AutoResolver request."""
+        return self._act("resolver response", "--resolver-request", request_id,
+                         "--resolver-token", request_token, "--resolver-response",
+                         "provide_information", "--resolver-message", text)
 
     def approve_plan(self, token: str) -> dict:
         return self._act("approve plan", "--approve-goal", token)
@@ -137,8 +178,11 @@ class TaskRun:
         # Advancing exits 0 when complete and 2 when stopped for input. Usage errors
         # also exit 2, so recognize argparse's message rather than trusting the code.
         usage_error = proc.returncode == 2 and proc.stderr.startswith("usage:")
+        rejected_input = proc.returncode == 2 and any(
+            line.startswith("Input rejected:")
+            for message in (proc.stdout, proc.stderr) for line in message.splitlines())
         accepted = proc.returncode in (0, 2) if advancing else proc.returncode == 0
-        if usage_error or not accepted:
+        if usage_error or rejected_input or not accepted:
             detail = (proc.stderr or proc.stdout).strip()[-800:]
             raise TaskRunError(f"{name} exited {proc.returncode}: {detail}")
         return proc

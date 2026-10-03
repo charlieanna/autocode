@@ -62,7 +62,7 @@ MUTATIONS = [
      '    if decision.get("status") != "BLOCKED":\n'
      '        _record(state, "astra", decision.get("findings", []), record, initial_scope)',
      ["tests.test_catalogue_t05"]),
-    ("M08", "tools/autocode_support.py",
+    ("M08", "tools/autocode_event_matching.py",
      '    for event_body in _command_bodies(event_command):',
      '    import shlex as _s\n'
      '    return sorted(_s.split(event_command)) == sorted(_s.split(check_command))\n'

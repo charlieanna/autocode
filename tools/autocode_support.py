@@ -21,6 +21,8 @@ try:
     from .autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
                                 model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
     from . import autocode_receipts as receipts, autocode_usage as token_usage
+    from . import autocode_event_matching as event_matching
+    from .autocode_event_matching import same_command
 except ImportError:
     from autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report
     import autocode_output_filter as output_filter, autocode_request_usage as request_usage
@@ -28,6 +30,8 @@ except ImportError:
     from autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
                                model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
     import autocode_receipts as receipts, autocode_usage as token_usage
+    import autocode_event_matching as event_matching
+    from autocode_event_matching import same_command
 
 
 def duplicate_runner_command(command):
@@ -201,60 +205,6 @@ def evidence_hashes(refs, workspace, run_dir):
     return found
 
 
-_ZSH_WRAPPER = re.compile(r"^\S*/zsh\s+(?:-lc|-l\s+-c)\s+(.+)$", re.S)
-
-
-def _command_bodies(command):
-    """Candidate unwrapped bodies for a recorded or reported command line.
-    Shlex-unwraps the login-shell wrapper when quoting is well-formed; also
-    offers the line with one stray trailing quote removed, which codex event
-    recording has been observed to leave behind on nested-quote commands.
-    The wrapper is only unwrapped when it accounts for the whole line:
-    anything after the body (an operator chain, or extra arguments that
-    become the shell's positional parameters) is executable content, and
-    dropping it would make a different program look identical."""
-    variants = [command]
-    stripped = command.rstrip()
-    if stripped and stripped[-1] in "\"'":
-        variants.append(stripped[:-1])
-    bodies = []
-    for variant in variants:
-        try:
-            parts = shlex.split(variant)
-        except ValueError:
-            parts = None
-        if parts and parts[0].endswith("/zsh"):
-            if parts[1:2] == ["-lc"] and len(parts) == 3:
-                bodies.append(parts[2])
-                continue
-            if parts[1:3] == ["-l", "-c"] and len(parts) == 4:
-                bodies.append(parts[3])
-                continue
-        if parts is None:
-            match = _ZSH_WRAPPER.match(variant.strip())
-            if match:
-                bodies.append(match.group(1))
-                continue
-        bodies.append(variant)
-    return bodies
-
-
-def same_command(event_command, check_command):
-    """Codex may record the model command wrapped in a login shell (/bin/zsh -lc '...').
-    Normalize the wrapper on either side: the event is recorded wrapped, and a report
-    may quote the event line verbatim (wrapper included) or as the bare command."""
-    if event_command == check_command:
-        return True
-    for event_body in _command_bodies(event_command):
-        for check_body in _command_bodies(check_command):
-            # Compare the shell program text. Token equality drops quotes, so a
-            # command that prints an operator can look identical to one that
-            # executes it (`printf '%s\n' '&&' false` versus `printf '%s\n' && false`).
-            if event_body == check_body:
-                return True
-    return False
-
-
 def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_context=None):
     """Verify checks against executed events or attempt-bound, output-hashed receipts.
     Fill only absent exit codes from unique evidence."""
@@ -276,24 +226,30 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
             matches = [e["item"] for e in rows
                        if e.get("type") == "item.completed" and e.get("item", {}).get("id") == event_id
                        and e["item"].get("type") == "command_execution"]
-            if (len(matches) == 1 and isinstance(matches[0].get('command'), str)
-                    and same_command(matches[0]['command'], check['command'])
-                    and type(matches[0].get('exit_code')) is int
-                    and (missing_exit or matches[0]['exit_code'] == check['exit_code'])):
-                check['exit_code'] = matches[0]['exit_code']
-                continue
+            if len(matches) == 1 and isinstance(matches[0].get('command'), str):
+                executed = matches[0]['command']
+                same = same_command(executed, check['command'])
+                if not same and event_matching.workspace_wrapped_command(executed, check['command'], workspace):
+                    same = True
+                    check['command'] = executed
+                if (same and type(matches[0].get('exit_code')) is int
+                        and (missing_exit or matches[0]['exit_code'] == check['exit_code'])):
+                    check['exit_code'] = matches[0]['exit_code']
+                    continue
             # A model sees no event IDs or exit codes, so a check may cite a bare "event:": it binds to the LATEST
             # run of its exact command, exit-less runs included, whose exit must be known and match (EVD-06).
             if not matches:
                 alternates = [e["item"] for e in rows if e.get("type") == "item.completed"
                               and e.get("item", {}).get("type") in ("command_execution", "tool_output")
                               and isinstance(e['item'].get('command'), str)
-                              and same_command(e['item']['command'], check['command'])]
+                              and (same_command(e['item']['command'], check['command'])
+                                   or event_matching.workspace_wrapped_command(e['item']['command'], check['command'], workspace))]
                 latest = alternates[-1] if alternates else {}
                 if (type(latest.get('exit_code')) is int and isinstance(latest.get('id'), str) and latest['id']
                         and (missing_exit or latest['exit_code'] == check['exit_code'])):
                     check["evidence_ref"] = "event:" + latest["id"]
                     check['exit_code'] = latest['exit_code']
+                    check['command'] = latest['command']
                     continue
             raise ValueError("Check is not supported by an exact executed Validator event")
         path = Path(check["evidence_ref"])

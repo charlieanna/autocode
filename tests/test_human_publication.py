@@ -7,10 +7,12 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import autocode as runner, autocode_resolver_human as human, autocode_support as support
+import autocode_run_actions as run_actions
 from . import test_resolver_human, test_subprocess
 
 
@@ -20,6 +22,34 @@ class HumanPublicationTests(unittest.TestCase):
     queue_question = test_resolver_human.ResolverHumanTests.queue_question
     request = test_resolver_human.ResolverHumanTests.request
     publish_operational = test_resolver_human.ResolverHumanTests.publish_operational
+
+    def test_recovery_grant_validates_published_request_before_resume_epoch_changes(self):
+        import autocode_args
+        self.state.update(status='PAUSED_TIMEOUT_RECOVERY', next_stage='investigate_bug',
+                          automatic_recoveries_since_resume=3, consecutive_timeout_recoveries=3)
+        self.state['resolver'] = {'attempts': {'external-directory': 3}}
+        run = Path(self.state['run_dir'])
+        runner.resolver_runtime.record_operational_exhaustion(
+            runner, self.state, run, support.Paused('PAUSED_TIMEOUT_RECOVERY', 'Recovery exhausted'))
+        runner.write_json(run / 'state.json', self.state)
+        published = human.current(self.state)
+        self.assertIsNotNone(published)
+        args = autocode_args.build_parser(None, runner.DEFAULT_ROLE_MODELS).parse_args(
+            ['--run-dir', str(run), '--resume-paused', '--grant-recovery', '1', '--no-chat'])
+        fake_runner = Mock(wraps=runner)
+        fake_runner.ReportRepairQueued = runner.ReportRepairQueued
+        class GrantApplied(Exception):
+            pass
+        fake_runner.prepare_abandoned_completion_revalidation.side_effect = GrantApplied
+        with self.assertRaises(GrantApplied):
+            run_actions.handle(fake_runner, args, None, self.state, run / 'state.json', run, self.root)
+        self.assertEqual(2, self.state['automatic_recoveries_since_resume'])
+        self.assertEqual(1, len(self.state['recovery_grants']))
+        self.assertEqual(published['request_id'], self.state['recovery_grants'][0]['request_id'])
+        self.assertEqual(3, self.state['resolver']['lifetime_attempts'])
+        self.assertEqual('superseded',
+                         self.state['resolver']['human_escalations'][published['request_id']]['status'])
+        fake_runner.run_role.assert_not_called()
 
     def test_generic_answer_cannot_reclassify_operational_question_as_new_requirements(self):
         self.contract()
@@ -104,6 +134,31 @@ class HumanPublicationTests(unittest.TestCase):
         self.assertFalse(human.projection(saved)['human_request_authorized'])
         self.assertEqual([], saved['pending_questions'])
         self.assertIn(human.PRIVATE, saved)
+
+    def test_answered_operational_request_allows_explicit_stage_abandonment(self):
+        published = self.publish_operational()
+        human.respond_operational(self.state, published['request_id'], published['request_token'],
+                                  'provide_information', 'Inspected the uncertain attempt')
+        human.review_operational_response(self.state)
+        self.assertTrue(human.response_holds_current_frontier(self.state))
+        args = SimpleNamespace(
+            run_dir=self.state['run_dir'], expected_goal_token=None, conversation_handoff=None,
+            answer=None, delegate=None, approve_goal=None, edit_goal=None, approve_review=None,
+            reconcile_review=None, feedback=None, follow_up=None, show_goal=None,
+            accept_completion=None, resolver_response=None, planning_review_call_limit=None,
+            resume_paused=False, retry_builder=False, retry_failed_stage=False, retry_report=False,
+            abandon_stage='001/terra-01', grant_recovery=None, diagnose_failed_stage=False)
+        fake_runner = Mock()
+        fake_runner.abandon_stage.side_effect = lambda state, *_: state.update(
+            status='PAUSED_STAGE_ABANDONED', stop_reason='Stage set aside')
+        with patch.object(run_actions.dependency, 'apply', return_value=None), \
+                patch.object(run_actions.resolver_runtime, 'record_operational_exhaustion', return_value=True) as publish:
+            result = run_actions.handle(fake_runner, args, None, self.state,
+                                        Path(self.state['run_dir']) / 'state.json',
+                                        Path(self.state['run_dir']), self.root)
+        self.assertEqual(0, result)
+        fake_runner.abandon_stage.assert_called_once()
+        publish.assert_not_called()
 
 
 class HumanResponseCLITests(unittest.TestCase):

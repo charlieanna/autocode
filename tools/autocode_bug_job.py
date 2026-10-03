@@ -93,10 +93,14 @@ what is actually happening. You do not fix anything and you do not edit the repo
 
 What to do:
 1. Restate what the reporter observed (observed).
-2. Try to reproduce it. Make your own scratch copy OUTSIDE the workspace (for example under a temporary
-   directory) and run the code there: the command or scenario from the report, the existing tests, a small
-   script or test of your own. Never write into the workspace itself; the runner compares it before and
-   after and rejects an investigation that changed anything outside docs/bugs/.
+2. Try to reproduce it in a fresh scratch copy under .autocode/investigation/<unique-name>/ inside the
+   current workspace. Do not create scratch copies outside the workspace or use /tmp or mktemp's default
+   location. Exclude .autocode/ and .git/ when copying source and dependencies, and do not follow symlinks
+   outside the workspace. Write scratch source, test output and caches only in this new scratch directory;
+   never modify existing runner state or evidence. Run bounded checks in the foreground, without nohup
+   or detached processes: the command or scenario from the report, the existing tests, a small script
+   or test of your own. Do not edit application source in the original workspace. The runner excludes
+   .autocode/ scratch artifacts from its source comparison and rejects changes outside docs/bugs/.
    Record exactly what you ran and what happened (reproduction, tests_run).
 3. If it reproduces (outcome reproduced): find the ROOT cause, not the place the symptom shows up.
    - root_cause: why it happens, in terms of the code's logic.
