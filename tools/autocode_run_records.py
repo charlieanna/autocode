@@ -26,7 +26,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_support as support
     from . import autocode_workflow as workflow
-    from . import autocode_progressive_state as progressive
+    from . import autocode_progressive_state as progressive, autocode_output_policy as output_policy
 except ImportError:
     import autopilot
     import autocode_goals as goals
@@ -37,7 +37,7 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_support as support
     import autocode_workflow as workflow
-    import autocode_progressive_state as progressive
+    import autocode_progressive_state as progressive, autocode_output_policy as output_policy
 
 
 def check_evidence_options(record):
@@ -192,6 +192,7 @@ def read_json(path: Path) -> dict[str, Any]:
 def account_stage(state, record):
     """Charge a finished attempt once, including rejected/recovered responses."""
     if not record.get("accounted"):
+        output_policy.account(state, record)
         duration = record.get("duration_seconds")
         if duration is None and record.get("started_at"):
             started = dt.datetime.fromisoformat(record["started_at"]).timestamp()

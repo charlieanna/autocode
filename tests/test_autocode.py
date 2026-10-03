@@ -339,10 +339,10 @@ class RetrofitTest(unittest.TestCase):
         c=s.compact_output(text)
         for fragment in ["Error first","frame.rb:9","Error second","3 tests, 2 failures"]:
             self.assertIn(fragment,c["content"])
-        self.assertEqual({"ok":1},c["repeated_lines"])
-        self.assertEqual(1,c["omitted_progress_lines"])
+        self.assertEqual({},c["repeated_lines"])
+        self.assertEqual(0,c["omitted_progress_lines"])
         self.assertEqual(text,s.compact_output(text,enabled=False)["content"])
-        self.assertEqual({"errors":["A","B"]},s.compact_output('{"errors":["A","B"]}')["content"])
+        self.assertEqual('{"errors":["A","B"]}',s.compact_output('{"errors":["A","B"]}')["content"])
 
     def test_rate_and_budget_are_not_success(self):
         p=self.run/"events.jsonl"

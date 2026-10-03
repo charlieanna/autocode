@@ -23,14 +23,14 @@ try:
     from . import autocode_budget_recovery as budget_recovery, autocode_verification_config as verification_config
     from . import autocode_retired_token_budget as retired_token_budget, autocode_design_manifest as design_manifest
     from . import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
-    from . import autocode_task_preflight as task_preflight
+    from . import autocode_task_preflight as task_preflight, autocode_output_policy as output_policy
 except ImportError:
     import autocode_support as support, autocode_goals as goals, autocode_providers
     import autocode_opencode, autocode_gocode as gocode, autocode_figma as figma
     import autocode_budget_recovery as budget_recovery, autocode_verification_config as verification_config
     import autocode_retired_token_budget as retired_token_budget, autocode_design_manifest as design_manifest
     import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
-    import autocode_task_preflight as task_preflight
+    import autocode_task_preflight as task_preflight, autocode_output_policy as output_policy
 
 DEFAULT_ROLE_MODELS = {
     "astra": "gpt-5.6-sol",
@@ -261,7 +261,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
             settings["orchestration"]["max_parallel"] = args.max_parallel_builders
         settings = autopilot.stuck.configure(settings, args)
         settings = verification_config.configure_resume(state, settings, args)
-        return task_preflight.configure(state, settings, args)
+        return task_preflight.configure(state, output_policy.configure(state, settings, args), args)
     if engine == "opencode":
         local = opencode.local_settings(state["workspace"])
     elif engine == "gocode":
@@ -342,7 +342,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         settings['adaptive_planning'] = True
     if getattr(args,'unlimited_iterations',False):
         settings['limits']['iteration_ceiling']=None
-    return task_preflight.configure(state, autopilot.stuck.configure(settings, args), args)
+    return task_preflight.configure(state, output_policy.configure(state, autopilot.stuck.configure(settings, args), args), args)
 
 
 def _provider_model(role, requested, mod=None):

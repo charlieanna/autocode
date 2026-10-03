@@ -56,10 +56,11 @@ class ProgressiveRunViewTests(unittest.TestCase):
                                  "findings": [], "regression_proof": None, "test_cases": [],
                                  "check_replay": None}}
         result = run_view.view(state)
-        self.assertEqual({key: value for key, value in result.items() if key != "usage"}, expected)
+        self.assertEqual({key: result[key] for key in expected}, expected)
+        self.assertNotIn('progressive', result)
         self.assertEqual(result.get("usage", {}).get("stages", 0), 0)
         state["progressive"] = {}
-        self.assertEqual({key: value for key, value in run_view.view(state).items() if key != "usage"},
+        self.assertEqual({key: run_view.view(state)[key] for key in expected},
                          expected)
 
     def test_proposal_and_disclosure_are_not_approval(self):

@@ -81,6 +81,7 @@ for the architecture format, approvals and integration.
 - [Parallel task lanes and components](docs/task-lanes.md)
 - [Large projects and workstreams](docs/program.md)
 - [Execution and completion checks](docs/execution.md)
+- [Exact output, raw fallback and usage measurement](docs/exact-output.md)
 - [Dashboard](docs/dashboard.md) and [macOS app](docs/macos-app.md)
 - [Testing](docs/testing.md) and [scenario harness](scenarios/README.md)
 - [Check a coding tool/model's conformance](docs/provider-conformance.md)

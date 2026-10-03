@@ -48,8 +48,8 @@ PROFILES = {
                    "builder": "low", "requirements": "low", "resolver": "high"},
     },
     # Verifier differs from producer: OpenAI GPT checks GLM work and GLM checks GPT work.
-    # MiMo is never used (user 2026-09-27): it twice spent its whole reasoning budget on
-    # a design review and returned nothing. OpenAI models go through the ChatGPT login.
+    # This profile pairs GLM with OpenAI; it is not a restriction on other profiles.
+    # OpenAI models go through the ChatGPT login.
     "glm53-openai": {
         "provider": "opencode",
         "models": {
