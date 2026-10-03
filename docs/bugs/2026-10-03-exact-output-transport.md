@@ -64,3 +64,27 @@ both original and corrected scores. No logs or evidence bundles are committed.
 Post-probe changes add interrupted-request accounting, reject a `.log` receipt
 name collision, and correct explicit-range byte accounting; their focused
 regressions pass. The exercised successful capture/retrieval path is unchanged.
+
+## Follow-up verification
+
+Three conservative probes on feature commit `7961c7fd` passed (GLM, MiMo,
+OpenAI). After integrating master, GLM and OpenAI passed again; MiMo completed
+the capture, diagnostic, hash, and retrieval checks but reached the 240-second
+turn limit without a final report. That run remains a failure, with no automatic
+retry. Earlier MiMo passes do not establish uniform completion reliability.
+
+Review then found that a Unicode line separator inside a message shifted the
+filter's omission ranges relative to the exact byte reader. Both now use byte
+line boundaries. A regression checks the referenced bytes, and a fresh OpenAI
+live probe retrieved the first omitted test line after an actual Unicode
+separator; its exact report, execution, hash, and diagnostic checks all passed.
+The baseline, paired and follow-up probes are focused transport checks, not
+complete software-project campaigns.
+
+The merged feature passed master's full CI suite at `441fbc65`. Local parallel
+runs encountered failures that remain recorded separately; the diagnosis
+module (39 tests) and truncated-review module (5 tests) passed isolated reruns.
+The post-integration fake catalog finished with 53 PASS, one existing
+NOT_EXERCISED case and one intentional live-Investigator SKIPPED case.
+Follow-up artifacts are ignored under `.scenario-runs/issue-214-integration/`,
+including the timed-out MiMo run and `unicode-v4` exact-retrieval probe.

@@ -28,7 +28,9 @@ def compact_output(text, *, enabled=True, command=None, exit_code=None):
     footer = re.search(r"(?m)^Ran \d+ tests? in [\d.]+s\r?\n\r?\n(OK(?: \([^\r\n]*\))?|FAILED \([^\r\n]*\))\r?\n?\Z", text)
     if not footer or (exit_code == 0) != footer[1].startswith('OK') or exit_code not in (0, 1):
         return result
-    lines = text.splitlines(keepends=True)
+    # Use the retained byte reader's boundaries: Unicode separators in messages
+    # must not shift references to later physical output lines.
+    lines = [line.decode('utf-8') for line in text.encode('utf-8').splitlines(keepends=True)]
     kept, pending = [], []
     diagnostics = False
 
