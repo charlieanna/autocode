@@ -1,5 +1,38 @@
 # Scenarios
 
+`acceptance-phase-isolation` reproduces the stats-to-compatibility credential
+leak with synthetic credentials and a real stdlib HTTP server on 127.0.0.1.
+Its reference uses distinct declared phase roots; seed and broken controls
+share credentials or swallow refusals during a call or teardown. Every variant
+runs through the oracle subprocess boundary in a fresh sequence directory
+beside the delivered project. Oracle evaluation leaves its source files intact.
+A child exit of zero cannot override recorded unexpected requests: the raw
+sequence stays ERROR and the catalog oracle rejects acceptance. Each record
+includes roots, traffic identity, refusals and the started/polled/stopped smoke
+lifecycle. Previous evidence stays untouched.
+Refusal ledgers are created before execution in a separate observer directory,
+outside the phase's mutable state. State teardown preserves recorded refusals;
+a missing or corrupt ledger produces ERROR with unknown requests, never GREEN.
+
+Use `harness.phase_env.PhaseSequence` for new acceptance sequences. Its phases
+copy the ambient environment, preserve HOME and provider OAuth, and add their
+declared credential/config/state/cache roots.
+Phase names must be distinct single path components; case variants and repeat
+names are rejected before they can reuse roots or refusal logs.
+Each sequence requires a fresh empty base and claims it exclusively. Reusing
+a prior or already owned base fails before credentials or evidence can change.
+Roots outside the sequence base are rejected before any directory or child
+process can write through them. Extra environment variables may
+add unrelated inputs; they cannot override HOME or any declared phase binding.
+The guard allows declared loopback destinations, checks redirect destinations,
+ignores ambient proxies, and records refusals before opening a socket. Existing
+oracle calls without `env` retain ambient inheritance.
+
+This opt-in synthetic regression does not qualify genuine Headroom/PyO3 startup
+or current-core integration. Those remain external gates, along with migrating
+other catalog sequences. The earlier V2 ERROR remains historical evidence;
+collection-time refusal is not a separately exercised control here.
+
 Realistic engineering tasks for AutoCode, each with an independent **oracle**
 that judges the delivered project from the outside. The oracle, not AutoCode's
 own completion claim, decides whether the work is right.
@@ -13,6 +46,7 @@ $PY scenarios/run.py run bugfix-iso-weeks --profile glm53-openai --i-authorize-l
 $PY scenarios/run.py route --fake                 # which workflow AutoCode recognizes for each prompt in routing.toml
 $PY scenarios/run.py compare --fake               # AutoCode vs a plain agent on the same oracles (scripted; no spend)
 $PY scenarios/run.py stats                        # per scenario and mode: runs, passes, pass streak, time, model stages
+$PY scenarios/run.py build-compare greenfield-greeting-cli greenfield-todo-cli feature-timesheet-by-project parallel-diamond --fake --repeats 2 --jobs 4
 $PY -m unittest scenarios/test_harness.py         # the harness's own tests, including all catalog controls
 ```
 
@@ -57,6 +91,45 @@ The driver answers AutoCode's clarifying questions with AutoCode's own proposed
 default and records each answer in `result.json`. It approves the plan it is
 shown and accepts requested human reviews. It never writes AutoCode state and
 does not resume paused runs: a pause is reported as `HONEST_BLOCKER`.
+
+## Fixed versus adaptive through completion
+
+`build-compare` uses catalog briefs verbatim and judges finished projects with
+their independent oracles. It repeats both modes in fresh projects, alternates
+which mode runs first, keeps the same model profile and budgets, and retains
+errors, skips and timeouts in the scheduled denominator. `plan-compare` still
+stops at plan approval; its custom briefs cannot inherit the seed's build oracle.
+
+For a bounded live comparison on the frozen October 2 defaults:
+
+```sh
+$PY scenarios/run.py build-compare greenfield-greeting-cli greenfield-todo-cli feature-timesheet-by-project parallel-diamond \
+  --profile build-comparison --repeats 2 --jobs 2 --timeout-minutes 45 \
+  --max-seconds 2400 --max-stage-seconds 600 --max-iterations 6 \
+  --rate-card scenarios/api-pricing-2026-10-02.json --i-authorize-live-model-spend
+$PY scenarios/run.py build-compare --rebuild .scenario-runs/<comparison-directory>
+```
+
+`protocol.json` freezes the revision, model profile, brief hashes, rate card,
+budgets and scheduled pairs before execution. Each completed attempt is saved
+separately; rebuilding reports calls no models and shows missing attempts. Live
+API dollar estimates use individual OpenCode request finishes, deduplicate
+replayed usage, include reasoning, rejected calls and report repairs, apply
+cache rates and long-context surcharges, and leave unknown usage unpriced.
+`API $ / pass` includes spend on failed attempts. These are standard API token
+estimates, even when the configured connection uses a subscription; actual
+billing, tool fees and unreported/incomplete-request usage are not established.
+Fake runs show gate correctness and oracle sensitivity, never dollar savings or
+model effectiveness. A short successful live sample is evidence to expand the
+comparison, not proof that changing the default is safe for every job.
+Add `--prepare` to save the exact protocol, including briefs and seed hashes,
+without launching AutoCode or needing live-spend authorization.
+
+Inspect recorded clarification answers before interpreting quality differences.
+The driver accepts model-proposed defaults; a default can change an output
+contract away from the original-brief oracle. Such a mismatch is not evidence
+that a Builder ignored its approved plan. Retain the attempt and flag the changed
+target rather than presenting its oracle score as a comparison on the same goal.
 
 A scenario whose `scenario.toml` carries `[run] known_failure = "why"` is one
 AutoCode is known not to pass yet. `run` still reports its verdict but does not

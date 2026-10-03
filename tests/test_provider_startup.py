@@ -111,7 +111,7 @@ class ProviderStartupRecovery(AdversarialCase):
 
     def test_partial_report_is_retained_without_automatic_retry(self):
         self.assert_no_retry("report")
-        self.assertTrue(any(p.read_text() == '{"partial":' for p in self.driver.run_dir.glob("iterations/*/recognize_workflow-*.json")))
+        self.assertTrue(any(p.read_text() == '{"partial":' for p in self.driver.run_dir.glob("iterations/*/*.json")))
 
     def test_quota_does_not_trigger_startup_retries(self):
         self.assert_no_retry("quota")

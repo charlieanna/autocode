@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import autocode as runner
+import autocode as runner, autocode_format_correction as format_correction
 import autocode_event_log as event_log
 import autocode_configure
 import autocode_milestones as milestones
@@ -322,7 +322,7 @@ class OpenCodeTests(unittest.TestCase):
             support.verify_checks([{"command": "python test.py", "exit_code": 0, "evidence_ref": "event:prt_tool_use"}], Path(temp), path)
             with self.assertRaises(ValueError):
                 support.verify_checks([{"command": "different test", "exit_code": 0, "evidence_ref": "event:prt_tool_use"}], Path(temp), path)
-            self.assertEqual("ses_fixture", runner.event_thread_id(path))
+            self.assertEqual("ses_fixture", format_correction.event_thread_id(path))
 
     def test_completed_raw_stage_recovers_without_relaunch(self):
         with tempfile.TemporaryDirectory() as temp:

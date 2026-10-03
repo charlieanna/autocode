@@ -75,18 +75,3 @@ def workspace_wrapped_command(executed, reported, workspace):
     if body.endswith(' 2>&1'):
         body = body[:-5]
     return body == reported
-
-
-def identical_executions(events):
-    """Whether repeated matching events are indistinguishable recorded executions.
-
-    Distinct events with the same command, exit code and nonempty aggregated
-    output are interchangeable as evidence; anything else stays ambiguous."""
-    return (len(events) > 1
-            and isinstance(events[0].get('aggregated_output'), str)
-            and bool(events[0]['aggregated_output'])
-            and len({e.get('id') for e in events}) == len(events)
-            and all(e.get('command') == events[0]['command']
-                    and e.get('exit_code') == events[0]['exit_code']
-                    and e.get('aggregated_output') == events[0]['aggregated_output']
-                    for e in events))

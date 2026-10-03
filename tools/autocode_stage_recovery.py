@@ -23,6 +23,7 @@ try:
     from . import autocode_workflow as workflow
     from . import autocode_run_records as records
     from . import autocode_validation_recovery as validation_recovery
+    from . import autocode_permission_recovery as permission_recovery
 except ImportError:
     import autocode_escalation as escalation
     import autocode_failures as failures
@@ -36,6 +37,7 @@ except ImportError:
     import autocode_workflow as workflow
     import autocode_run_records as records
     import autocode_validation_recovery as validation_recovery
+    import autocode_permission_recovery as permission_recovery
 
 
 def recover_legacy_report_repair(state, run_dir, workspace):
@@ -528,6 +530,15 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
         records.assert_stage_stopped(record)
     except support.Paused:
         return False
+    denied = permission_recovery.operation(raw)
+    try:
+        diagnostics = permission_recovery.prepare(workspace, record.get('original_stage') or record['stage'],
+                       denied, state.get('automatic_permission_recoveries', []), state.get('stages', []),
+                       run_dir=run_dir)
+    except (OSError, ValueError) as error:
+        raise support.Paused('PAUSED_PROVIDER_UNCERTAIN',
+            f"Cannot provision workspace-contained permission diagnostics: {error}. "
+            "The stopped attempt and partial work remain for reconciliation; no retry was launched.") from error
     before = records.read_json(Path(record["before_ref"]))
     after = support.snapshot(workspace)
     record["metrics"] = support.event_metrics(event_path)
@@ -553,6 +564,11 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
                     "path and correct it rather than repeating it or requesting broader permissions. "
                     "Use only workspace-contained evidence paths; do not use /tmp, default mktemp paths, "
                     "nohup, or detached processes. Inspect retained work and start a fresh request."}
+    recovery.update(diagnostics)
+    recovery['instruction'] += (f" The denied operation is {recovery['denied_operation']}. "
+        f"Use the existing diagnostic_directory {recovery['diagnostic_directory']} for scratch files; "
+        "for mktemp, supply an explicit template below that directory. Diagnostic success alone is "
+        "not task completion; return through the normal independent verification gates.")
     records.count_automatic_recovery(state)
     state.setdefault("automatic_permission_recoveries", []).append(recovery)
     state.setdefault("user_events", []).append({"kind": "automatic_permission_recovery", "actor": "runner",
@@ -564,9 +580,14 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
     state.update(status="RUNNING", phase="PLANNING" if planning.is_planning(state, next_stage) else "EXECUTING",
                  next_stage=next_stage)
     state.pop("stop_reason", None)
+    message = permission_recovery.hold_message(recovery) if recovery['repeat_count'] >= 2 else None
+    if message:
+        state.update(status='PAUSED_REPEATED_FAILURE', phase='PAUSED_OR_BLOCKED', stop_reason=message)
     records.write_json(run_dir / "state.json", state)
     for artifact in originals:
         artifact.unlink(missing_ok=True)
+    if message:
+        raise support.Paused('PAUSED_REPEATED_FAILURE', message)
     return True
 
 

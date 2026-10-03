@@ -37,16 +37,19 @@ class TaskRun:
     timeout: float | None = None
 
     @classmethod
-    def start(cls, workspace, brief: str, *, options=(), command=AUTOCODE, env=None, timeout=None) -> "TaskRun":
+    def start(cls, workspace, brief: str, *, options=(), start_options=(), command=AUTOCODE, env=None, timeout=None) -> "TaskRun":
         """Create a run that works directly in ``workspace`` and advance it to its first stop.
 
         The caller owns the workspace (for example a worktree it created), so
         AutoCode does not create another one. Start one run per workspace at a time.
+        ``start_options`` supplies inputs such as --ui-run only on this invocation;
+        unlike ``options``, they are not repeated when advancing the saved run.
         """
         workspace = Path(workspace).resolve()
         before = set(_runs(workspace))
         run = cls(workspace, Path(), tuple(command), tuple(options), env, timeout)
-        proc = run._invoke("start", brief, "--in-place", "--no-chat", *run.options, advancing=True, with_run_dir=False)
+        proc = run._invoke("start", brief, "--in-place", "--no-chat", *run.options, *start_options,
+                    advancing=True, with_run_dir=False)
         created = set(_runs(workspace)) - before
         if not created:
             detail = (proc.stderr or proc.stdout).strip()[-800:]

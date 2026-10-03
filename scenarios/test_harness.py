@@ -9,10 +9,13 @@ import contextlib
 import io
 import ast
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import Mock, patch
@@ -20,8 +23,127 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import run  # noqa: E402
-from harness import baseline, catalog, compare, oracle, plan_compare, processes, profiles, routing, stats, verdict  # noqa: E402
+from harness import api_cost, baseline, build_compare, catalog, compare, oracle, plan_compare, processes, profiles, routing, stats, verdict  # noqa: E402
 from harness.driver import Driver, DriveError, leaves_for_person, metrics, model_routes, split_by_turn, turn_state  # noqa: E402
+
+
+class PhaseCatalogTests(unittest.TestCase):
+    def test_reused_sequence_base_cannot_inherit_credentials_or_overwrite_evidence(self):
+        from harness.phase_env import PhaseSequence, write_synthetic_credentials
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root) / 'sequence'
+            first = PhaseSequence('first', base)
+            phase = first.phase('stats')
+            write_synthetic_credentials(phase.credential_root, 'prior-token')
+            phase.requests_log.write_text('{"phase":"stats"}\n')
+            first.finish()
+            previous = {p.relative_to(base): p.read_bytes() for p in base.rglob('*') if p.is_file()}
+            with self.assertRaisesRegex(ValueError, 'fresh|owned'):
+                PhaseSequence('second', base)
+            self.assertEqual(previous, {p.relative_to(base): p.read_bytes()
+                                        for p in base.rglob('*') if p.is_file()})
+
+    def test_duplicate_phase_names_cannot_reuse_roots_or_refusal_logs(self):
+        from harness.phase_env import PhaseSequence, write_synthetic_credentials
+        with tempfile.TemporaryDirectory() as root:
+            sequence = PhaseSequence('acceptance', Path(root) / 'fresh')
+            first = sequence.phase('compat')
+            credential = write_synthetic_credentials(first.credential_root, 'first-phase-token')
+            first.requests_log.write_text('{"phase":"compat"}\n')
+            previous = (credential.read_bytes(), first.requests_log.read_bytes())
+            for name in ('compat', 'COMPAT', 'compat/.', 'compat/../compat'):
+                with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'duplicate|single'):
+                    sequence.phase(name)
+            self.assertEqual([first], sequence.phases)
+            self.assertEqual(previous, (credential.read_bytes(), first.requests_log.read_bytes()))
+
+    def test_phase_catalog_seed_reference_and_controls(self):
+        rows = run.self_test(catalog.load('acceptance-phase-isolation'))
+        self.assertEqual({'seed', 'reference', 'broken/contamination', 'broken/swallowed-call',
+                          'broken/swallowed-teardown', 'broken/swallowed-teardown-cleanup'},
+                         {name for name, _, _ in rows})
+        self.assertTrue(all(ok for _, ok, _ in rows), rows)
+
+    def _score(self, overlay):
+        from harness.project import materialize
+        scenario = catalog.load('acceptance-phase-isolation')
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        project = materialize(scenario.seed, Path(temporary.name) / 'project', overlay)
+        evidence = (project.parent / '.phase-evidence').resolve()
+        evidence.mkdir()
+        sentinel = evidence / 'prior.json'
+        sentinel.write_text('{"outcome":"ERROR"}')
+        before = sentinel.read_bytes()
+        result = verdict.evaluate(scenario, project)
+        self.assertEqual('', result.error)
+        record = json.loads(next(c.detail for c in result.checks if c.name == 'phase_records'))
+        self.assertEqual(before, sentinel.read_bytes())
+        base = Path(record['base'])
+        self.assertNotEqual(evidence, base)
+        self.assertTrue(base.is_relative_to(evidence))
+        for phase in record['phases']:
+            for key in ('credential_root', 'config_root', 'state_root', 'cache_root', 'requests_log'):
+                self.assertTrue(Path(phase[key]).is_relative_to(base), (key, phase))
+        self.assertTrue(Path(record['record_path']).is_relative_to(base))
+        return result, record
+
+    def test_reference_real_loopback_lifecycle_and_parent_oauth(self):
+        from harness.phase_env import GREEN
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root)
+            oauth = home / '.config/provider/oauth.json'
+            oauth.parent.mkdir(parents=True)
+            oauth.write_text('{"parent":"oauth"}')
+            with patch.dict(os.environ, {'HOME': str(home)}):
+                parent = dict(os.environ)
+                result, record = self._score(catalog.load('acceptance-phase-isolation').reference)
+                self.assertEqual(parent, dict(os.environ))
+                self.assertEqual('{"parent":"oauth"}', oauth.read_text())
+                self.assertFalse(Path(record['base']).is_relative_to(home))
+        self.assertTrue(result.passed, result.summary)
+        self.assertEqual(GREEN, record['outcome'])
+        self.assertTrue(all(not p['unexpected_requests'] for p in record['phases']))
+        life = record['stats_lifecycle']
+        self.assertEqual(('127.0.0.1', 200, {'status': 'ok'}), (life['host'], life['status'], life['body']))
+        self.assertTrue(life['started'] and life['polled'] and life['stopped'])
+
+    def test_swallowed_call_and_teardown_remain_error_with_green_children(self):
+        from harness.phase_env import ERROR
+        scenario = catalog.load('acceptance-phase-isolation')
+        for name in ('swallowed-call', 'swallowed-teardown', 'swallowed-teardown-cleanup'):
+            with self.subTest(control=name):
+                result, record = self._score(scenario.dir / 'broken' / name)
+                self.assertFalse(result.passed)
+                self.assertEqual(ERROR, record['outcome'])
+                self.assertTrue(all(c['ok'] for c in record['checks'] if c['name'].endswith('subprocess 1 exit')))
+                self.assertEqual(1, sum(len(p['unexpected_requests']) for p in record['phases']))
+
+    def test_oracle_does_not_write_delivered_project(self):
+        from harness.project import materialize
+        scenario = catalog.load('acceptance-phase-isolation')
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / 'project', scenario.reference)
+            before = {p.relative_to(project): p.read_bytes() for p in project.rglob('*')
+                      if p.is_file() and '.git' not in p.parts}
+            result = verdict.evaluate(scenario, project)
+            self.assertTrue(result.passed, result.summary)
+            after = {p.relative_to(project): p.read_bytes() for p in project.rglob('*')
+                     if p.is_file() and '.git' not in p.parts}
+            self.assertEqual(before, after)
+
+    def test_phase_root_escape_rejected_before_prior_evidence_write(self):
+        from harness.phase_env import PhaseSequence
+        with tempfile.TemporaryDirectory() as root:
+            previous = Path(root) / 'prior-evidence'
+            previous.mkdir()
+            sentinel = previous / '.credentials.json'
+            sentinel.write_text('{"token":"prior-evidence"}')
+            sequence = PhaseSequence('acceptance', Path(root) / 'fresh')
+            with self.assertRaisesRegex(ValueError, 'inside'):
+                sequence.phase('stats', credential_root=previous)
+            self.assertEqual('{"token":"prior-evidence"}', sentinel.read_text())
+            self.assertEqual([], sequence.phases)
 
 
 class OracleCommandTests(unittest.TestCase):
@@ -753,6 +875,283 @@ class PlanCompareTests(unittest.TestCase):
                 self.assertTrue(adaptive["final_plan"])
 
 
+class ApiCostTests(unittest.TestCase):
+    """Accounting must not turn shorter prompts, cached tokens or failures into misleading dollars."""
+
+    def setUp(self):
+        self.card = json.loads((Path(__file__).parent / "api-pricing-2026-10-02.json").read_text())
+
+    def test_fresh_cache_read_cache_write_and_output_have_separate_rates(self):
+        value = api_cost.request_cost({"input": 1000, "cache_read": 2000, "cache_write": 3000, "output": 4000},
+                                      "openai/gpt-6-sol", self.card)
+        self.assertAlmostEqual(.002 + .0004 + .0075 + .04, value)
+
+    def test_long_context_surcharge_is_per_request_and_uses_all_input(self):
+        for total, multiplier in ((272000, 1), (272001, 2)):
+            with self.subTest(total=total):
+                tokens = {"input": 1000, "cache_read": total - 1000, "cache_write": 0, "output": 10}
+                value = api_cost.request_cost(tokens, "openai/gpt-6-sol", self.card)
+                expected = (.002 + (total - 1000) * .2 / 1e6) * multiplier + .0001 * (1.5 if multiplier == 2 else 1)
+                self.assertAlmostEqual(expected, value)
+
+    def test_unknown_rates_and_usage_are_not_zero_cost(self):
+        tokens = {"input": 100, "cache_read": 0, "cache_write": 0, "output": 10}
+        with self.assertRaisesRegex(ValueError, "no API rates"):
+            api_cost.request_cost(tokens, "unknown/model", self.card)
+        with self.assertRaisesRegex(ValueError, "unknown cache_write"):
+            api_cost.request_cost({**tokens, "cache_write": 1}, "zai-coding-plan/glm-5.3", self.card)
+        for value in (None, -1, True, "100"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "invalid request"):
+                api_cost.request_cost({**tokens, "input": value}, "openai/gpt-6-sol", self.card)
+
+    def event(self, id_="one", *, reasoning=10, reason="stop"):
+        return {"type": "step_finish", "sessionID": "session", "part": {
+            "id": id_, "sessionID": "session", "reason": reason,
+            "tokens": {"input": 1000, "output": 20, "reasoning": reasoning, "cache": {"read": 100, "write": 0}}}}
+
+    def stage(self, path, name="terra", **extra):
+        return {"stage": name, "engine": "opencode", "events": str(path),
+                "command": ["opencode", "run", "--model", "openai/gpt-6-sol"], **extra}
+
+    def test_replayed_finishes_across_stages_bill_once_and_reasoning_is_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "events.jsonl"
+            path.write_text("\n".join(json.dumps(self.event()) for _ in range(2)))
+            result = api_cost.estimate({"stages": [self.stage(path), self.stage(path, "sol")]}, self.card)
+        self.assertTrue(result["complete"], result["issues"])
+        self.assertEqual(1, result["requests"])
+        self.assertAlmostEqual(.002 + .00002 + .0003, result["usd"])
+
+    def test_rejected_and_truncated_calls_and_active_stage_still_cost(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first, active = Path(tmp) / "first.jsonl", Path(tmp) / "active.jsonl"
+            first.write_text(json.dumps(self.event("first", reason="length")))
+            active.write_text(json.dumps(self.event("active", reason="tool-calls")))
+            state = {"stages": [self.stage(first, "sol_report_repair", rejected=True),
+                                {"stage": "orchestrator", "runner_owned": True}],
+                     "active_stage": self.stage(active)}
+            result = api_cost.estimate(state, self.card)
+        self.assertTrue(result["complete"], result["issues"])
+        self.assertEqual(2, result["requests"])
+        self.assertAlmostEqual(.00464, result["usd"])
+
+    def test_permission_ui_notices_do_not_erase_valid_usage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "events.jsonl"
+            path.write_text("\x1b[93m\x1b[1m! \x1b[0mpermission requested: external_directory (/example)\n"
+                            + json.dumps(self.event()))
+            result = api_cost.estimate({"stages": [self.stage(path)]}, self.card)
+        self.assertTrue(result["complete"], result["issues"])
+        self.assertAlmostEqual(.00232, result["usd"])
+
+    def test_interrupted_request_keeps_earlier_spend_but_total_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "events.jsonl"
+            start = {"type": "step_start", "sessionID": "session", "part": {"id": "new", "sessionID": "session"}}
+            path.write_text(json.dumps(self.event()) + "\n" + json.dumps(start))
+            result = api_cost.estimate({"stages": [self.stage(path)]}, self.card)
+        self.assertFalse(result["complete"])
+        self.assertIsNone(result["usd"])
+        self.assertAlmostEqual(.00232, result["known_usd"])
+
+    def test_missing_or_malformed_evidence_keeps_total_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            good, bad = Path(tmp) / "good.jsonl", Path(tmp) / "bad.jsonl"
+            good.write_text(json.dumps(self.event()))
+            for contents in ("not json", json.dumps({"type": "error"}),
+                             json.dumps(self.event(reasoning=-1))):
+                with self.subTest(contents=contents):
+                    bad.write_text(contents)
+                    result = api_cost.estimate({"stages": [self.stage(good), self.stage(bad, "sol")]}, self.card)
+                    self.assertIsNone(result["usd"])
+                    self.assertFalse(result["complete"])
+                    self.assertGreater(result["known_usd"], 0)
+            result = api_cost.estimate({"stages": [self.stage(Path(tmp) / "missing.jsonl")]}, self.card)
+            self.assertIsNone(result["usd"])
+
+    def test_conflicting_replays_and_mixed_sessions_do_not_claim_complete_accounting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first, second = Path(tmp) / "first.jsonl", Path(tmp) / "second.jsonl"
+            first.write_text(json.dumps(self.event()))
+            second.write_text(json.dumps(self.event(reasoning=11)))
+            result = api_cost.estimate({"stages": [self.stage(first), self.stage(second)]}, self.card)
+            self.assertIsNone(result["usd"])
+            other = self.event("second")
+            other["sessionID"] = other["part"]["sessionID"] = "other"
+            second.write_text(json.dumps(self.event()) + "\n" + json.dumps(other))
+            result = api_cost.estimate({"stages": [self.stage(second)]}, self.card)
+            self.assertIsNone(result["usd"])
+
+
+class BuildCompareTests(unittest.TestCase):
+    def protocol(self, *, fake=False):
+        return {"fake": fake, "profile_name": "build-comparison", "pairs": build_compare.schedule(["case"], 2)}
+
+    def record(self, variant, repeat, *, outcome=verdict.PASS, cost=1):
+        return {"scenario": "case", "variant": variant, "repeat": repeat, "verdict": outcome,
+                "oracle_passed": outcome == verdict.PASS, "checks": [{"name": "behavior", "ok": outcome == verdict.PASS}],
+                "api_cost": {"usd": cost, "complete": True}, "wall_seconds": 1,
+                "metrics": {"model_stages": 6, "report_repairs": 0}}
+
+    def test_pairs_balance_order_and_invalid_repeats_and_duplicates_are_refused(self):
+        pairs = build_compare.schedule(["one", "two"], 2)
+        self.assertEqual(["fixed", "adaptive", "adaptive", "fixed"], [pair["order"][0] for pair in pairs])
+        for ids, repeats in ((["one"], 0), (["one", "one"], 2)):
+            with self.assertRaises(ValueError):
+                build_compare.schedule(ids, repeats)
+
+    def test_failed_attempt_spend_is_in_cost_per_pass_and_false_completion_is_failure(self):
+        rows = [self.record("fixed", 1), self.record("fixed", 2), self.record("adaptive", 1),
+                self.record("adaptive", 2, outcome=verdict.FALSE_COMPLETE, cost=3)]
+        with tempfile.TemporaryDirectory() as tmp:
+            result = build_compare.report(Path(tmp), self.protocol(), rows)
+        self.assertEqual(4, result["summary"]["adaptive"]["api_usd_per_pass"])
+        self.assertEqual(1, result["summary"]["fixed"]["api_usd_per_pass"])
+        self.assertFalse(result["all_passed"])
+
+    def test_incomplete_oracle_and_harness_errors_cannot_count_as_success(self):
+        row = self.record("fixed", 1)
+        for override in ({"oracle_passed": False}, {"harness_error": "deadline"}, {"verdict": verdict.NOT_EXERCISED}):
+            with self.subTest(override=override):
+                self.assertFalse(build_compare.passed({**row, **override}))
+
+    def test_missing_attempts_unknown_costs_and_fake_runs_cannot_prove_savings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = build_compare.report(Path(tmp), self.protocol(), [self.record("fixed", 1)])
+            self.assertEqual(3, len(result["missing"]))
+            self.assertEqual(2, result["summary"]["fixed"]["scheduled"])
+            self.assertIsNone(result["summary"]["fixed"]["api_usd"])
+            rows = [self.record(variant, repeat) for repeat in (1, 2) for variant in ("fixed", "adaptive")]
+            rows[0]["api_cost"] = {"usd": None, "complete": False}
+            result = build_compare.report(Path(tmp), self.protocol(), rows)
+            self.assertIsNone(result["summary"]["fixed"]["api_usd"])
+            result = build_compare.report(Path(tmp), self.protocol(fake=True), rows)
+            self.assertIsNone(result["summary"]["adaptive"]["api_usd"])
+
+    def test_rebuild_preserves_partial_pairs_and_runs_no_models(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "protocol.json").write_text(json.dumps(self.protocol()))
+            pair = root / "pair-case-1"
+            pair.mkdir()
+            (pair / "attempt-fixed.json").write_text(json.dumps(self.record("fixed", 1)))
+            result = build_compare.rebuild(root)
+            self.assertEqual(3, len(result["missing"]))
+            with self.assertRaisesRegex(ValueError, "duplicate"):
+                build_compare.report(root, self.protocol(), [self.record("fixed", 1)] * 2)
+
+    def test_live_profile_cannot_silently_follow_changing_defaults(self):
+        args = argparse.Namespace(jobs=1, repeats=2, rate_card=Path(__file__).parent / "api-pricing-2026-10-02.json",
+                                  profile="default", fake=False)
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(ValueError, "explicit model profile"):
+            build_compare.run([], args, Path(tmp), run_one=Mock(), revision={})
+
+    def test_prepare_freezes_the_live_protocol_without_spend_authorization_or_launching(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(run, "run_one") as launch:
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = run.main(["build-compare", "greenfield-greeting-cli", "--profile", "build-comparison",
+                                 "--prepare", "--repeats", "2", "--out", tmp,
+                                 "--rate-card", str(Path(__file__).parent / "api-pricing-2026-10-02.json")])
+            launch.assert_not_called()
+            self.assertEqual(0, code)
+            path, = Path(tmp).glob("*/protocol.json")
+            protocol = json.loads(path.read_text())
+            self.assertEqual(4, sum(len(pair["order"]) for pair in protocol["pairs"]))
+            self.assertEqual(catalog.load("greenfield-greeting-cli").brief, protocol["briefs"]["greenfield-greeting-cli"])
+            self.assertIn("rates_per_million", protocol["rate_card"])
+
+    def test_repeated_fake_campaign_completes_both_modes_in_fresh_projects(self):
+        with tempfile.TemporaryDirectory(prefix="build-compare-test-") as tmp:
+            args = argparse.Namespace(jobs=2, repeats=2, rate_card=None, profile=None, fake=True,
+                                      fake_solution="reference", out=Path(tmp), autocode=None,
+                                      max_steps=20, timeout_minutes=5)
+            result = build_compare.run([catalog.load("greenfield-greeting-cli")], args, Path(tmp),
+                                       run_one=run.run_one, revision={"commit": "test"})
+            self.assertTrue(result["all_passed"], result["records"])
+            self.assertEqual(4, len({row["evidence"] for row in result["records"]}))
+            for row in result["records"]:
+                stages = row["metrics"]["model_stage_names"]
+                self.assertIn("sol", stages)
+                self.assertIn("astra_review", stages)
+                steps = [json.loads(line) for line in (Path(row["evidence"]) / "steps.jsonl").read_text().splitlines()]
+                self.assertIn("approve-plan", [step["kind"] for step in steps])
+            counts = {row["variant"]: row["metrics"]["model_stages"] for row in result["records"]}
+            self.assertLess(counts["adaptive"], counts["fixed"])
+
+
+class AdaptiveCompletionTests(unittest.TestCase):
+    """Exercise adaptive decisions through the public CLI and independent delivery oracles."""
+
+    def run_fake(self, scenario, *, env=None, solution="reference", flags=()):
+        with tempfile.TemporaryDirectory(prefix="adaptive-complete-test-") as tmp:
+            args = argparse.Namespace(fake=True, profile=None, fake_solution=solution, out=Path(tmp), autocode=None,
+                                      max_steps=None, timeout_minutes=5)
+            return run.run_one(catalog.load(scenario), args, extra_flags=("--adaptive-planning", *flags), extra_env=env)
+
+    def test_vague_requests_keep_requirements_and_still_complete(self):
+        result = self.run_fake("feature-timesheet-by-project", env={"SCENARIO_FAKE_CLARITY": "vague"})
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertIn("requirements_gather", result["metrics"]["model_stage_names"])
+
+    def test_forced_build_without_recognition_keeps_requirements(self):
+        result = self.run_fake("greenfield-greeting-cli", flags=("--workflow", "build"))
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertIn("requirements_gather", result["metrics"]["model_stage_names"])
+
+    def test_negative_exit_plan_probes_complete_in_both_planning_modes(self):
+        for flags in ((), ("--adaptive-planning",)):
+            with self.subTest(flags=flags), tempfile.TemporaryDirectory(prefix="negative-plan-test-") as tmp:
+                args = argparse.Namespace(fake=True, profile=None, fake_solution="reference", out=Path(tmp),
+                                          autocode=None, max_steps=None, timeout_minutes=5)
+                result = run.run_one(catalog.load("greenfield-greeting-cli"), args, extra_flags=flags,
+                                     extra_env={"SCENARIO_FAKE_NEGATIVE_PLAN": "1"})
+                self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+                self.assertEqual(0, result["metrics"]["report_repairs"], "valid probes need no report repair")
+
+    def test_blocking_reviews_require_a_revision_before_complete_delivery(self):
+        for id_ in ("greenfield-greeting-cli", "parallel-diamond"):
+            with self.subTest(scenario=id_):
+                result = self.run_fake(id_, env={"SCENARIO_FAKE_BLOCKING_REVIEW": "1"})
+                self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+                stages = result["metrics"]["model_stage_names"]
+                self.assertIn("glm_revise", stages)
+                self.assertEqual(2 if id_ == "parallel-diamond" else 1, stages.count("astra_challenge"))
+                self.assertIn("sol", stages)
+
+    def test_broken_deliveries_are_rejected_by_the_original_brief_oracle(self):
+        for id_ in ("greenfield-todo-cli", "feature-timesheet-by-project", "parallel-diamond"):
+            scenario = catalog.load(id_)
+            with self.subTest(scenario=id_):
+                solution = str(scenario.broken[0].relative_to(scenario.dir))
+                result = self.run_fake(id_, solution=solution)
+                self.assertNotEqual(verdict.PASS, result["verdict"], result["summary"])
+                self.assertFalse(result["oracle_passed"])
+
+    def test_missing_literal_brackets_is_false_completion_despite_passing_delivered_tests(self):
+        result = self.run_fake("greenfield-todo-cli", solution="broken/unbracketed-status")
+        self.assertEqual(verdict.FALSE_COMPLETE, result["verdict"], result["summary"])
+        self.assertEqual({"add_then_list", "complete_marks_done", "ids_stable_across_restarts"},
+                         {check["name"] for check in result["checks"] if not check["ok"]})
+
+    def test_review_and_discussion_keep_the_same_model_sequence(self):
+        for id_, expected in (("review-clean-pr", ["recognize_workflow", "review_change"]),
+                              ("discuss-cache-choice", ["recognize_workflow", "answer_question"])):
+            with self.subTest(scenario=id_):
+                result = self.run_fake(id_)
+                self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+                self.assertEqual(expected, result["metrics"]["model_stage_names"])
+
+    def test_progressive_delegations_retain_the_review_that_authorizes_execution(self):
+        for id_ in ("progressive-learning-journey", "progressive-cumulative-regression",
+                    "progressive-split-learning-journey"):
+            with self.subTest(scenario=id_):
+                result = self.run_fake(id_)
+                self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+                stages = result["metrics"]["model_stage_names"]
+                self.assertLess(stages.index("glm_revise"), stages.index("astra_finalize"))
+                self.assertLess(stages.index("astra_finalize"), stages.index("terra"))
+
+
 class BaselineTests(unittest.TestCase):
     """The plain agent AutoCode is compared against: how it is launched and what its exit means."""
 
@@ -840,6 +1239,371 @@ class TokenBudgetOptionTests(unittest.TestCase):
                 self.assertEqual(2, caught.exception.code)
                 self.assertIn("unrecognized arguments", error.getvalue())
                 launch.assert_not_called()
+
+
+STATS_PHASE_SCRIPT = """
+import os
+import sys
+
+sys.path.insert(0, os.environ["PHASE_HARNESS_ROOT"])
+from harness import phase_env
+
+phase_env.write_synthetic_credentials(os.environ["PHASE_CREDENTIAL_ROOT"], "synthetic-stats-token")
+"""
+
+COMPAT_PHASE_SCRIPT = """
+import os
+import sys
+
+sys.path.insert(0, os.environ["PHASE_HARNESS_ROOT"])
+from harness import phase_env
+
+STAGE = sys.argv[1] if len(sys.argv) > 1 else "call"
+GUARD = phase_env.guard()
+
+
+def usage_snapshot():
+    # A production-like client: it polls the default usage destination and
+    # swallows a transport refusal into "no snapshot", so the child exit stays
+    # green while the phase record keeps the violation.
+    try:
+        with GUARD.get(phase_env.DEFAULT_USAGE_URL, timeout=5) as response:
+            return response.read()
+    except phase_env.RefusedTransportError:
+        return None
+
+
+found = phase_env.find_credentials(os.environ["PHASE_CREDENTIAL_ROOT"]) is not None
+if found and STAGE == "call":
+    usage_snapshot()
+if found and STAGE == "teardown":
+    usage_snapshot()
+sys.exit(0)
+"""
+
+
+class PhaseEnvironmentTests(unittest.TestCase):
+    """Phase-owned acceptance environments for issue #225 (milestone M1).
+
+    ``harness.phase_env`` is imported inside each test so this module still
+    imports — and the oracle-inheritance guard below still passes — on a
+    checkout without the fix, which is what the fail-first regression capture
+    runs against. Test scratch stays under the workspace's ignored
+    ``.autocode`` tree; no test writes outside the workspace or touches HOME.
+    """
+
+    def phase_env(self):
+        from harness import phase_env
+
+        return phase_env
+
+    def sequence_base(self, label):
+        base = Path(__file__).resolve().parent.parent / ".autocode" / "phase-env-tests" / f"{label}-{uuid.uuid4().hex[:10]}"
+        base.mkdir(parents=True)
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        return base
+
+    def run_two_phase_sequence(self, base, *, share_credential_root=False):
+        phase_env = self.phase_env()
+        sequence = phase_env.PhaseSequence("acceptance", base)
+        stats = sequence.phase("stats")
+        compat = sequence.phase("compat",
+                                share_credential_root_with=stats if share_credential_root else None)
+        stats.run([sys.executable, "-c", STATS_PHASE_SCRIPT])
+        compat.run([sys.executable, "-c", COMPAT_PHASE_SCRIPT, "call"])
+        return sequence, stats, compat
+
+    def test_state_teardown_preserves_refusals_without_failing_clean_phases(self):
+        phase_env = self.phase_env()
+        for refused in (False, True):
+            with self.subTest(refused=refused):
+                sequence = phase_env.PhaseSequence('teardown', self.sequence_base('state-cleanup'))
+                phase = sequence.phase('compat')
+                if refused:
+                    phase_env.write_synthetic_credentials(phase.credential_root, 'synthetic-token')
+                script = COMPAT_PHASE_SCRIPT.replace(
+                    'sys.exit(0)', "import shutil\nshutil.rmtree(os.environ['PHASE_STATE_ROOT'])\nsys.exit(0)")
+                child = phase.run([sys.executable, '-c', script, 'teardown'])
+                self.assertEqual(0, child.returncode, child.stderr)
+                self.assertFalse(phase.state_root.exists())
+                record = sequence.finish()
+                self.assertEqual(phase_env.ERROR if refused else phase_env.GREEN, record['outcome'], record)
+                self.assertEqual(int(refused), len(record['phases'][0]['unexpected_requests']))
+
+    def test_missing_or_corrupt_refusal_ledger_cannot_be_green(self):
+        phase_env = self.phase_env()
+        for damage in ('missing', 'corrupt'):
+            with self.subTest(damage=damage):
+                sequence = phase_env.PhaseSequence('ledger', self.sequence_base('ledger-loss'))
+                phase = sequence.phase('compat')
+                phase_env.write_synthetic_credentials(phase.credential_root, 'synthetic-token')
+                teardown = ("from pathlib import Path\nledger = Path(os.environ['PHASE_UNEXPECTED_REQUESTS'])\n"
+                            + ("ledger.unlink()\n" if damage == 'missing' else "ledger.write_text('{broken')\n")
+                            + 'sys.exit(0)')
+                child = phase.run([sys.executable, '-c', COMPAT_PHASE_SCRIPT.replace('sys.exit(0)', teardown)])
+                self.assertEqual(0, child.returncode, child.stderr)
+                record = sequence.finish()
+                self.assertEqual(phase_env.ERROR, record['outcome'], record)
+                self.assertTrue(record['phases'][0]['evidence_error'])
+                self.assertIsNone(record['phases'][0]['unexpected_requests'])
+
+    def test_ac1_isolated_compat_phase_sends_zero_default_usage_requests(self):
+        phase_env = self.phase_env()
+        sequence, stats, compat = self.run_two_phase_sequence(self.sequence_base("ac1"))
+        record = sequence.finish()
+        stats_record, compat_record = record["phases"]
+        self.assertEqual('{"token": "synthetic-stats-token"}',
+                         phase_env.credentials_path(stats_record["credential_root"]).read_text())
+        self.assertEqual([], compat_record["unexpected_requests"])
+        self.assertFalse(phase_env.credentials_path(compat_record["credential_root"]).exists())
+        self.assertTrue(all(check["ok"] for check in record["checks"]), record["checks"])
+        self.assertEqual("GREEN", record["outcome"], record["reason"])
+
+    def test_ac2_shared_credential_root_is_contamination_error(self):
+        phase_env = self.phase_env()
+        sequence, stats, compat = self.run_two_phase_sequence(self.sequence_base("ac2"),
+                                                             share_credential_root=True)
+        self.assertEqual(stats.credential_root, compat.credential_root)
+        record = sequence.finish()
+        [entry] = record["phases"][1]["unexpected_requests"]
+        self.assertEqual(phase_env.DEFAULT_USAGE_URL, entry["url"])
+        self.assertEqual("ERROR", record["outcome"])
+        self.assertIn("phase contamination", record["reason"])
+        self.assertIn("the run or the oracle broke; no judgement possible", record["reason"])
+        # A green child exit alone cannot produce acceptance: the exit checks
+        # are ok while the sequence is still reported as an ERROR.
+        exits = [check for check in record["checks"] if check["name"].endswith("exit")]
+        self.assertTrue(all(check["ok"] for check in exits), record["checks"])
+        self.assertFalse(all(check["ok"] for check in record["checks"]))
+
+    def test_ac3_swallowed_refusal_visible_behind_green_exit(self):
+        phase_env = self.phase_env()
+        sequence = phase_env.PhaseSequence("acceptance", self.sequence_base("ac3"))
+        compat = sequence.phase("compat")
+        phase_env.write_synthetic_credentials(compat.credential_root, "synthetic-compat-token")
+        result = compat.run([sys.executable, "-c", COMPAT_PHASE_SCRIPT, "call"])
+        self.assertEqual(0, result.returncode, result.stderr)
+        record = sequence.finish()
+        [entry] = record["phases"][0]["unexpected_requests"]
+        self.assertEqual(phase_env.DEFAULT_USAGE_URL, entry["url"])
+        self.assertEqual("ERROR", record["outcome"], record["reason"])
+
+    def test_ac13_swallowed_teardown_refusal_still_error(self):
+        phase_env = self.phase_env()
+        sequence = phase_env.PhaseSequence("acceptance", self.sequence_base("ac13"))
+        compat = sequence.phase("compat")
+        phase_env.write_synthetic_credentials(compat.credential_root, "synthetic-compat-token")
+        result = compat.run([sys.executable, "-c", COMPAT_PHASE_SCRIPT, "teardown"])
+        self.assertEqual(0, result.returncode, result.stderr)
+        record = sequence.finish()
+        [entry] = record["phases"][0]["unexpected_requests"]
+        self.assertEqual(phase_env.DEFAULT_USAGE_URL, entry["url"])
+        self.assertEqual("ERROR", record["outcome"], record["reason"])
+
+    def test_ac4_phase_records_list_roots_identity_and_requests(self):
+        sequence, stats, compat = self.run_two_phase_sequence(self.sequence_base("ac4"))
+        record = sequence.finish()
+        for phase_record, identity in zip(record["phases"], ("synthetic-stats", "synthetic-compat")):
+            for key in ("credential_root", "config_root", "state_root", "cache_root"):
+                self.assertIn(key, phase_record)
+                self.assertTrue(Path(phase_record[key]).is_dir(), (key, phase_record[key]))
+            self.assertEqual(identity, phase_record["traffic_identity"])
+            self.assertEqual([], phase_record["unexpected_requests"])
+        self.assertNotEqual(record["phases"][0]["credential_root"], record["phases"][1]["credential_root"])
+
+    def test_ac7_nonloopback_default_request_refused_and_recorded(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        phase_env = self.phase_env()
+
+        class StatsRoute(BaseHTTPRequestHandler):
+            def do_GET(self):
+                body = b'{"status": "ok"}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), StatsRoute)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        port = server.server_address[1]
+
+        sequence = phase_env.PhaseSequence("guard", self.sequence_base("ac7"))
+        probe = sequence.phase("probe", allowed_endpoints=[f"127.0.0.1:{port}"])
+        guard = phase_env.guard(probe.build_env())
+        refused = ("http://192.0.2.10/usage", phase_env.DEFAULT_USAGE_URL)
+        with patch("socket.socket", side_effect=AssertionError("a refused destination must never open a socket")):
+            for url in refused:
+                with self.assertRaises(phase_env.RefusedTransportError):
+                    guard.get(url)
+        self.assertEqual(set(refused), {entry["url"] for entry in probe.unexpected_requests()})
+        with guard.get(f"http://127.0.0.1:{port}/stats") as response:
+            self.assertEqual(200, response.status)
+            self.assertEqual(b'{"status": "ok"}', response.read())
+        self.assertEqual(2, len(probe.unexpected_requests()))
+
+    def test_ac8_parent_home_and_oauth_sentinel_untouched(self):
+        phase_env = self.phase_env()
+        base = self.sequence_base("ac8")
+        parent_home = base / "parent-home"
+        sentinel = parent_home / ".config" / "provider" / "oauth.json"
+        sentinel.parent.mkdir(parents=True)
+        sentinel.write_text('{"parent": "oauth"}')
+        sentinel_bytes = sentinel.read_bytes()
+        home_before = os.environ["HOME"]
+        with patch.dict(os.environ, {"HOME": str(parent_home)}):
+            sequence, stats, compat = self.run_two_phase_sequence(base / "sequence")
+            record = sequence.finish()
+            self.assertEqual(str(parent_home), os.environ["HOME"])
+            self.assertEqual("GREEN", record["outcome"], record["reason"])
+        self.assertEqual(home_before, os.environ["HOME"])
+        self.assertEqual(sentinel_bytes, sentinel.read_bytes())
+        for phase_record in record["phases"]:
+            for key in ("credential_root", "config_root", "state_root", "cache_root"):
+                root = Path(phase_record[key])
+                self.assertFalse(root.is_relative_to(parent_home), (key, root))
+
+    def transport_servers(self):
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        observed = {"declared": [], "undeclared": []}
+
+        class Undeclared(BaseHTTPRequestHandler):
+            def do_GET(self):
+                observed["undeclared"].append(self.path)
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"undeclared transport")
+
+            def log_message(self, *args):
+                pass
+
+        other = ThreadingHTTPServer(("127.0.0.1", 0), Undeclared)
+
+        class Declared(BaseHTTPRequestHandler):
+            def do_GET(self):
+                observed["declared"].append(self.path)
+                if self.path == "/redirect":
+                    self.send_response(302)
+                    self.send_header("Location", f"http://127.0.0.1:{other.server_port}/escaped")
+                    self.end_headers()
+                else:
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(b"declared stats")
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Declared)
+        for item in (other, server):
+            thread = threading.Thread(target=item.serve_forever, daemon=True)
+            thread.start()
+
+            def stop(item=item, thread=thread):
+                item.shutdown()
+                thread.join(timeout=2)
+                item.server_close()
+
+            self.addCleanup(stop)
+        return server, other, observed
+
+    def test_ac7_redirect_to_undeclared_endpoint_is_refused_before_socket(self):
+        phase_env = self.phase_env()
+        server, other, observed = self.transport_servers()
+        sequence = phase_env.PhaseSequence("redirect", self.sequence_base("redirect"))
+        phase = sequence.phase("probe", allowed_endpoints=[f"127.0.0.1:{server.server_port}"])
+        with self.assertRaises(phase_env.RefusedTransportError):
+            phase_env.guard(phase.build_env()).get(f"http://127.0.0.1:{server.server_port}/redirect")
+        self.assertEqual(["/redirect"], observed["declared"])
+        self.assertEqual([], observed["undeclared"])
+        [entry] = phase.unexpected_requests()
+        self.assertEqual(f"http://127.0.0.1:{other.server_port}/escaped", entry["url"])
+        self.assertTrue(entry["refused_before_socket"])
+        self.assertEqual("ERROR", sequence.finish()["outcome"])
+
+    def test_ac7_ambient_proxy_cannot_reroute_declared_loopback_request(self):
+        import urllib.request
+
+        phase_env = self.phase_env()
+        server, other, observed = self.transport_servers()
+        sequence = phase_env.PhaseSequence("proxy", self.sequence_base("proxy"))
+        phase = sequence.phase("probe", allowed_endpoints=[f"127.0.0.1:{server.server_port}"])
+        proxy = f"http://127.0.0.1:{other.server_port}"
+        with patch.dict(os.environ, {"http_proxy": proxy, "HTTP_PROXY": proxy,
+                                     "no_proxy": "", "NO_PROXY": ""}), \
+                patch.object(urllib.request, "_opener", None):
+            with phase_env.guard(phase.build_env()).get(f"http://127.0.0.1:{server.server_port}/stats") as response:
+                self.assertEqual(b"declared stats", response.read())
+        self.assertEqual(["/stats"], observed["declared"])
+        self.assertEqual([], observed["undeclared"])
+        self.assertEqual([], phase.unexpected_requests())
+
+
+    def test_declared_refusal_log_cannot_be_overridden(self):
+        phase_env = self.phase_env()
+        base = self.sequence_base("declared-log-binding")
+        sequence = phase_env.PhaseSequence("binding", base)
+        compat = sequence.phase("compat")
+        phase_env.write_synthetic_credentials(compat.credential_root, "synthetic-token")
+        hidden_log = base / "undeclared-refusals.jsonl"
+        with self.assertRaisesRegex(ValueError, "phase-owned"):
+            compat.run([sys.executable, "-c", COMPAT_PHASE_SCRIPT, "call"],
+                       env={"PHASE_UNEXPECTED_REQUESTS": str(hidden_log)})
+        self.assertFalse(hidden_log.exists(), "an undeclared log hid a swallowed refusal")
+
+    def test_phase_extra_environment_preserves_home_and_declared_roots(self):
+        sequence = self.phase_env().PhaseSequence("binding", self.sequence_base("declared-roots"))
+        phase = sequence.phase("compat")
+        for key in ("HOME", "PHASE_CREDENTIAL_ROOT", "PHASE_ALLOWED_ENDPOINTS"):
+            with self.subTest(key=key):
+                with self.assertRaisesRegex(ValueError, "phase-owned"):
+                    phase.build_env(**{key: "undeclared"})
+                with self.assertRaisesRegex(ValueError, "phase-owned"):
+                    phase.run([sys.executable, "-c", "raise SystemExit(0)"], env={key: "undeclared"})
+        self.assertEqual("permitted", phase.build_env(CUSTOM_MARKER="permitted")["CUSTOM_MARKER"])
+
+
+class OracleEnvInheritanceTests(unittest.TestCase):
+    """AC9 guard: the oracle's optional env parameter changes no existing caller's behavior.
+
+    Uses only code that exists before the change, so it passes both before and
+    after the oracle grows the parameter.
+    """
+
+    def scratch(self, label):
+        base = Path(__file__).resolve().parent.parent / ".autocode" / "phase-env-tests" / f"{label}-{uuid.uuid4().hex[:10]}"
+        base.mkdir(parents=True)
+        self.addCleanup(shutil.rmtree, base, ignore_errors=True)
+        return base
+
+    def test_ac9_oracle_default_env_inheritance_unchanged(self):
+        base = self.scratch("ac9")
+        with patch.dict(os.environ, {"PHASE_ENV_GUARD": "1"}):
+            shown = oracle.run([sys.executable, "-c", "import os; print(os.environ.get('PHASE_ENV_GUARD'))"], base)
+            self.assertEqual(0, shown.returncode, shown.stderr)
+            self.assertEqual("1", shown.stdout.strip())
+            tests = base / "tests"
+            tests.mkdir()
+            (tests / "__init__.py").touch()
+            (tests / "test_marker.py").write_text(
+                "import os\n"
+                "import unittest\n"
+                "\n"
+                "\n"
+                "class MarkerTests(unittest.TestCase):\n"
+                "    def test_child_process_sees_the_marker(self):\n"
+                "        self.assertEqual('1', os.environ.get('PHASE_ENV_GUARD'))\n")
+            suite = oracle.python_tests(base)
+            self.assertEqual(0, suite.returncode, oracle.tail(suite))
 
 
 if __name__ == "__main__":

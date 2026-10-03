@@ -78,6 +78,13 @@ OpenCode version or configuration drift pauses the saved run, including changes 
 custom config-directory files, agent definitions and local plugin/tool definitions.
 This adapter was live-checked with OpenCode **1.18.31**; OpenCode 2.x is not supported.
 
+## Check provider compatibility
+
+Before relying on a new tool/model combination, run the shared
+[provider conformance probe](provider-conformance.md). It checks the same workspace,
+JSON report, command evidence, usage and session rules through Codex, OpenCode and
+KiloCode. Passing applies to that recorded tool/model/configuration combination.
+
 ## Codex provider overrides
 
 Pass `--engine codex` to start a Codex-engine run. Roles can use different

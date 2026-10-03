@@ -206,7 +206,6 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework):
                                timeout=suite_timeout(state),
                                new_behavior=goals.task_kind(state) != "bugfix", base_patch=base_patch)
         path = out / "verification.json"
-        util.atomic_json(path, result)
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
         check_cases(proof, cases(state))
         proof["checks"] = {label: {"command": receipt["command"], "exit_code": receipt["exit_code"],
@@ -214,6 +213,11 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework):
                            for label, receipt in result["checks"].items()}
     proof.update(case_scope=scope, path=str(path) if path else None, proved_at=util.now(),
                  duration_seconds=round(time.monotonic() - started, 1))
+    if path:
+        # A suite-level PASS may still miss a required case. Persist the final
+        # decision and coverage while retaining the full executed check receipts.
+        result.update({key: proof[key] for key in SUMMARY_KEYS if key in proof}, case_scope=scope)
+        util.atomic_json(path, result)
     state["regression_proof"] = proof
     state.setdefault("regression_proofs", []).append(
         {k: proof.get(k) for k in ("verdict", "source_revision", "path", "proved_at", "duration_seconds")})

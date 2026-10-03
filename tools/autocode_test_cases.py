@@ -23,6 +23,11 @@ from __future__ import annotations
 
 import re
 
+try:
+    from . import autocode_progressive_state as progressive_state
+except ImportError:
+    import autocode_progressive_state as progressive_state
+
 MARK = "test:"
 # Behavior that already works and must keep working: its test passes before and after the change
 # (a "preserve" case, autocode_regression.check_cases). Live review-then-fix plans (2026-09-29) had
@@ -82,6 +87,15 @@ def in_scope(state: dict) -> set[str] | None:
     current task names no milestone, and once every milestone is current or accepted.
     """
     contract = state.get("goal_contract") or {}
+    progressive = progressive_state.context(state)
+    if progressive:
+        # Contribution checks are due, but do not prove the broader product case.
+        # Findings stay in the product ledger; this only selects contract tests.
+        criteria = (contract.get("body") or {}).get("acceptance_criteria") or []
+        outstanding = set(progressive.get("outstanding_criteria") or [])
+        fully_due = {criterion for check in progressive.get("required_checks") or []
+                     if check.get("relation") == "fully_verify" for criterion in check.get("criterion_ids") or []}
+        return {row["id"] for row in criteria if row.get("id") not in outstanding or row.get("id") in fully_due}
     milestones = (contract.get("body") or {}).get("milestones") or []
     task = state.get("current_task") or {}
     current = set(task.get("milestone_ids") or []) or ({task["milestone_id"]} if task.get("milestone_id") else set())

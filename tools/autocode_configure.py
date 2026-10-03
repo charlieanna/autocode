@@ -15,18 +15,19 @@ import json
 import re
 import uuid
 from pathlib import Path
+from urllib.parse import urlparse
 
 try:
     from . import autocode_support as support, autocode_goals as goals, autocode_providers
     from . import autocode_opencode, autocode_gocode as gocode, autocode_figma as figma
     from . import autocode_budget_recovery as budget_recovery, autocode_verification_config as verification_config
-    from . import autocode_retired_token_budget as retired_token_budget
+    from . import autocode_retired_token_budget as retired_token_budget, autocode_design_manifest as design_manifest
     from . import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
 except ImportError:
     import autocode_support as support, autocode_goals as goals, autocode_providers
     import autocode_opencode, autocode_gocode as gocode, autocode_figma as figma
     import autocode_budget_recovery as budget_recovery, autocode_verification_config as verification_config
-    import autocode_retired_token_budget as retired_token_budget
+    import autocode_retired_token_budget as retired_token_budget, autocode_design_manifest as design_manifest
     import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
 
 DEFAULT_ROLE_MODELS = {
@@ -76,6 +77,13 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         raise ValueError('--builder-strong-model is a new-run policy; existing runs keep their persisted budget and route')
     if started and adaptive.resume_refused(state.get('settings') or {}, getattr(args, 'adaptive_planning', False)):
         raise ValueError('--adaptive-planning is a new-run policy; start a new run to use it')
+    manifest_input = None
+    if getattr(args, "figma_manifest", None):
+        if started:
+            raise ValueError("--figma-manifest is a new-run input; saved references are immutable")
+        manifest_input = getattr(args, "_design_manifest_input", None) or design_manifest.load(args.figma_manifest)
+    if started and not getattr(args, "status", False):
+        design_manifest.context(state.get("settings") or {})
     saved_provider = dict(state.get("settings") or {})
     # Checkpoints created before provider selection shipped were necessarily
     # OpenCode runs.  Treating that as explicit prevents an unsafe transport
@@ -90,6 +98,9 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         raise ValueError("--provider requires the OpenCode engine; --engine codex uses its native transport")
     figma_file = getattr(args, "figma_file", None)
     saved_figma = state.get("settings", {}).get("figma_file")
+    if manifest_input and figma_file and urlparse(figma.design_url(figma_file)).path.strip("/").split("/")[1] not in {
+            file["key"] for file in manifest_input["body"]["files"]}:
+        raise ValueError("Native Figma file is not declared in --figma-manifest")
     if (figma_file or saved_figma) and engine != "codex":
         raise ValueError("Figma integration requires the Codex engine")
     if figma_file or saved_figma:
@@ -307,6 +318,9 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
                        "no_progress_batches": args.no_progress_limit if args.no_progress_limit is not None else 3,
                        "max_findings_per_task": getattr(args, "max_findings_per_task", None),
                         "automatic_retries": 0}}
+    if manifest_input:
+        settings["design_manifest"] = (manifest_input if getattr(args, "dry_run", False) or getattr(args, "status", False)
+                                       else design_manifest.retain(manifest_input, state["workspace"]))
     if figma_file:
         figma.require_chatgpt(local)
         for config in settings["roles"].values():

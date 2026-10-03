@@ -229,6 +229,10 @@ class FeatureProofTests(unittest.TestCase):
         proof = self.prove([ORDINARY, EXAMPLE])
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
         self.assertEqual({"C2": ["test_calc.CalcTests.test_c2_subtracts"]}, proof["case_tests"])
+        artifact = json.loads(Path(proof["path"]).read_text())
+        self.assertEqual("PASS", artifact["verdict"])
+        self.assertEqual(proof["case_tests"], artifact["case_tests"])
+        self.assertEqual(["C2"], artifact["case_scope"])
 
     def test_an_example_without_its_test_fails_the_proof_and_is_named(self):
         missing = {**EXAMPLE, "id": "C3", "criterion": "Given calc.mul; when mul(2, 3) runs; then it returns 6",
@@ -237,6 +241,11 @@ class FeatureProofTests(unittest.TestCase):
         self.assertEqual("FAIL", proof["verdict"])
         self.assertEqual([], proof["case_tests"]["C3"])
         self.assertTrue(any("C3: Given calc.mul" in failure and "test_c3_" in failure for failure in proof["failures"]))
+        artifact = json.loads(Path(proof["path"]).read_text())
+        self.assertEqual("FAIL", artifact["verdict"])
+        self.assertEqual(proof["failures"], artifact["failures"])
+        self.assertEqual([], artifact["case_tests"]["C3"])
+        self.assertEqual(["C2", "C3"], artifact["case_scope"])
 
 
     # Live review-then-fix plans (2026-09-29) could only mark "a timeout before execution is still
@@ -257,6 +266,7 @@ class FeatureProofTests(unittest.TestCase):
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
         self.assertEqual(["test_calc.CalcTests.test_c4_add_still_works"], proof["case_tests"]["C4"])
         self.assertTrue(any("not shown to have passed before" in note for note in proof["notes"]), proof["notes"])
+        self.assertEqual(proof["notes"], json.loads(Path(proof["path"]).read_text())["notes"])
 
     def test_a_guard_whose_test_ran_and_failed_before_the_change_is_mis_tagged(self):
         new_behavior = {**self.GUARD, "id": "C5", "verification_method": "guard: test_c5_sub_exists"}

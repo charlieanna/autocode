@@ -13,14 +13,13 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import tomllib
 
 try:
-    from . import opencode as _opencode_events
+    from . import env_prep, opencode as _opencode_events
 except ImportError:  # Script-style execution from tools/.
-    from providers import opencode as _opencode_events
+    from providers import env_prep, opencode as _opencode_events
 
 
 REQUIRED_ROLES = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
@@ -50,18 +49,27 @@ class CommandProvider:
         # The models the config lists, or None when it lists them with models_command or not at all.
         self.LISTED_MODELS = config.get("models")
 
-    def local_settings(self, workspace=None):
+    def local_settings(self, workspace=None, *, env=None):
+        effective = env_prep.snapshot_environment(env)
         command = self._config["command"]
-        executable = shutil.which(command[0])
+        cwd = workspace if env is not None else None
+        executable = env_prep.resolve_executable(command[0], effective, cwd=cwd,
+                                                allow_default_path=env is None)
         if not executable:
-            raise RuntimeError(f"{self._config['name']} command {command[0]!r} is not on PATH")
+            raise RuntimeError(f"{self._config['name']} command {command[0]!r} is not on PATH; "
+                               "no provider request was launched")
         version = None
         version_command = self._config.get("version_command")
         if version_command:
             try:
-                result = subprocess.run(version_command, capture_output=True, text=True, timeout=15)
+                result = env_prep.preflight_run(version_command, effective,
+                                                cwd=cwd,
+                                                require_executable=env is not None,
+                                                capture_output=True, text=True, timeout=15)
             except subprocess.TimeoutExpired as error:
                 raise RuntimeError(f"{self._config['name']} version check timed out; no agent was launched") from error
+            except OSError as error:
+                raise RuntimeError(f"{self._config['name']} version check cannot start; no agent was launched") from error
             if result.returncode:
                 raise RuntimeError(f"{self._config['name']} version command failed; no agent was launched")
             version = (result.stdout or result.stderr).strip()
@@ -77,8 +85,8 @@ class CommandProvider:
     def transport_drift(self, current, checkpoint):
         return current != checkpoint
 
-    def check_models(self, roles, workspace=None):
-        available = self._available_models(workspace)
+    def check_models(self, roles, workspace=None, *, env=None):
+        available = self._available_models(workspace, env)
         missing = []
         for entry in roles.values():
             model = entry.get("model")
@@ -90,16 +98,16 @@ class CommandProvider:
             raise RuntimeError(f"Models unavailable in {self._config['name']}: " + ", ".join(sorted(set(missing)))
                                + f"; `autocode models --provider {self._config['name']}` lists what it offers")
 
-    def available_models(self, workspace=None):
+    def available_models(self, workspace=None, *, env=None):
         """Models from models/models_command; None when the config lists neither."""
-        return self._available_models(workspace)
+        return self._available_models(workspace, env)
 
-    def list_models(self, workspace=None):
+    def list_models(self, workspace=None, *, env=None):
         """Models from models/models_command, or the configured role models when neither is set."""
-        available = self._available_models(workspace)
+        available = self._available_models(workspace, env)
         return sorted(available if available is not None else set(self.DEFAULT_MODELS.values()))
 
-    def check_subscription_routes(self, roles, workspace=None):
+    def check_subscription_routes(self, roles, workspace=None, *, env=None):
         """Verify configured subscription routes. Tools without [auth] are not checked."""
         auth = self._config.get("auth")
         if not auth:
@@ -109,12 +117,14 @@ class CommandProvider:
                     if any(str(entry.get("model", "")).startswith(route["models"]) for entry in roles.values())]
         if not selected:
             return None
-        forbidden = [key for key in auth.get("forbid_env", []) if key in os.environ]
+        forbidden = [key for key in auth.get("forbid_env", []) if key in env_prep.combined_environment(env)]
         if forbidden:
             raise RuntimeError(
                 f"{', '.join(forbidden)} is set; {name} subscription selection will not silently change billing routes")
         try:
-            result = subprocess.run(auth["command"], cwd=workspace, capture_output=True, text=True, timeout=15)
+            result = env_prep.preflight_run(auth["command"], env_prep.snapshot_environment(env), cwd=workspace,
+                                            require_executable=env is not None,
+                                            capture_output=True, text=True, timeout=15)
         except (OSError, subprocess.TimeoutExpired) as error:
             raise RuntimeError(f"cannot verify {name} login; no provider request was launched") from error
         if result.returncode:
@@ -128,7 +138,7 @@ class CommandProvider:
         return None
 
     def launch(self, role, workspace, run_dir, session, model, effort, allow_write, *,
-               planning=False, report=None, schema=None, prompt_file=None, sandbox=None):
+               planning=False, report=None, schema=None, prompt_file=None, sandbox=None, env=None):
         if sandbox is None:
             sandbox = "workspace-write" if allow_write and not planning else "read-only"
         values = {
@@ -146,7 +156,7 @@ class CommandProvider:
         if session and self.SUPPORTS_SESSIONS:
             command += [self._fill(part, {**values, "session": session}, RESUME_PLACEHOLDERS)
                         for part in self._config["resume"]]
-        return command, dict(os.environ), {"provider": self._config["name"], "sandbox": sandbox, "report": str(report or "")}
+        return command, env_prep.child_environment(env), {"provider": self._config["name"], "sandbox": sandbox, "report": str(report or "")}
 
     def prompt_for_schema(self, prompt, schema, events):
         if self.OUTPUT == "opencode_events":
@@ -201,7 +211,7 @@ class CommandProvider:
             return _opencode_events.normalized_events(rows)
         return [row for row in rows if isinstance(row, dict)]
 
-    def _available_models(self, workspace):
+    def _available_models(self, workspace, env=None):
         listed = self._config.get("models")
         if listed is not None:
             return set(listed)
@@ -209,11 +219,17 @@ class CommandProvider:
         if not command:
             return None
         try:
-            result = subprocess.run(command, cwd=workspace, capture_output=True, text=True, timeout=30)
+            result = env_prep.preflight_run(command, env_prep.snapshot_environment(env), cwd=workspace,
+                                            require_executable=env is not None,
+                                            capture_output=True, text=True, timeout=30)
         except subprocess.TimeoutExpired as error:
             raise RuntimeError(f"{self._config['name']} model listing timed out; no agent was launched") from error
+        except OSError as error:
+            # The models command could not even be spawned (issue #226's failure
+            # class): report the honest prelaunch state, never the raw OSError.
+            raise RuntimeError(f"Cannot list {self._config['name']} models; no agent was launched") from error
         if result.returncode:
-            raise RuntimeError(f"Cannot list {self._config['name']} models")
+            raise RuntimeError(f"Cannot list {self._config['name']} models; no agent was launched")
         return {
             line.split()[0]
             for line in (line.strip() for line in result.stdout.splitlines())

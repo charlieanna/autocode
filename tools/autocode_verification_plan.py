@@ -2,11 +2,19 @@
 
 Natural-language methods stay with the Validator. Commands are plain shell
 commands or backtick snippets explicitly requested for execution. Quoted
-documentation examples are not commands. Imports only the standard library.
+documentation examples are not commands. Depends only on the standard library
+and the exit-expectation helper.
 """
 from pathlib import Path, PurePosixPath
+import hashlib
+import json
 import re
 import shlex
+
+try:
+    from . import autocode_verification_expectations as expectations
+except ImportError:
+    import autocode_verification_expectations as expectations
 
 # Plain text (no backticks) is a command only when all of it is one: prose after a command makes the whole
 # method prose, left to the Validator. Live bugfix-trivial runs (Claude models, 2026-09-30) approved
@@ -58,21 +66,62 @@ def commands(method):
             if requested and executable(command):
                 result.append(command)
             previous = snippet.end()
-        return result
+        return expectations.assertion_commands(text, result)
     if text.lower().startswith("run "):
         text = text[4:].strip()
     bare = QUOTED.sub("", text)
     return [text] if executable(text) and not PROSE.search(bare) and not SENTENCE.search(bare) else []
 
 
-def approved_commands(state):
+def approved_commands(state, *, progressive_context=None):
+    """Select ordinary checks or the authoritative, normalized cumulative checklist.
+
+    The caller supplies progressive_state.context(state); proposals and tentative
+    future checks are never read here. Invalid required checks fail closed.
+    """
     body = (state.get("goal_contract") or {}).get("body") or {}
     task = state.get("current_task") or {}
     ids = set(task.get("acceptance_criteria") or [])
     methods = list(task.get("validation_plan") or [])
+    if progressive_context:
+        required = progressive_context.get("required_checks")
+        if not isinstance(required, list) or not required:
+            raise ValueError("Progressive verification requires a nonempty cumulative required_checks set")
+        for check in required:
+            extracted = commands(check.get("method", "")) if isinstance(check, dict) else []
+            if not extracted:
+                raise ValueError(f"Progressive required check has no executable command: {check!r}")
+            methods.append(check["method"])
+        methods += [check["method"] for check in product_checks(body, required)]
+        return list(dict.fromkeys(command for method in methods for command in commands(method)))
     methods += [row.get("verification_method", "") for row in body.get("acceptance_criteria") or []
                 if not row.get("human_review") and (not ids or row.get("id") in ids)]
     return list(dict.fromkeys(command for method in methods for command in commands(method)))
+
+
+def product_checks(body, required_checks):
+    """Retain prescribed product commands once their full-verification target is due.
+
+    Contribution-only slices do not bring future product commands forward.
+    Explicit original methods cannot disappear merely because a slice declares
+    a different demonstration. Prose methods remain with the independent
+    Validator, as on the ordinary path; no command is guessed from them.
+    """
+    due = {criterion for check in required_checks if check.get("relation") == "fully_verify"
+           for criterion in check.get("criterion_ids", [])}
+    checks = []
+    for criterion in body.get("acceptance_criteria", []):
+        method = criterion.get("verification_method", "")
+        if criterion["id"] not in due or criterion.get("human_review") or not commands(method):
+            continue
+        represented = {command for check in required_checks if criterion["id"] in check.get("criterion_ids", [])
+                       for command in commands(check.get("method", ""))}
+        if set(commands(method)) <= represented:
+            continue
+        identity = hashlib.sha256(json.dumps(criterion, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        checks.append({"id": "contract-" + identity[:24], "method": method, "relation": "fully_verify",
+                       "criterion_ids": [criterion["id"]], "origin": "product_contract"})
+    return checks
 
 
 def package_markers(command):

@@ -1,15 +1,14 @@
 """Move bulky historical material to an immutable, retrievable handoff artifact."""
-import copy
 import json
 from pathlib import Path
 
 
 def compact(base, state_path):
     try:
-        from . import autocode_util as util
+        from . import autocode_util as util, autocode_handoff_dedup as handoff
     except ImportError:
-        import autocode_util as util
-    result = copy.deepcopy(base)
+        import autocode_util as util, autocode_handoff_dedup as handoff
+    result = handoff.deduplicate(base)
     moved = {}
     # Never remove requirements, saved answers, human decisions or current findings.
     for key in ('evidence_locations', 'deferred_backlog',

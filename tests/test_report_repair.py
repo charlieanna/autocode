@@ -202,6 +202,49 @@ class RepairTests(unittest.TestCase):
         launch.assert_called_once()
         return launch.call_args.kwargs
 
+    FORMAT_ERROR = RuntimeError('OpenCode final message is not a JSON report; inspect the saved raw events')
+
+    def test_format_error_resumes_the_session_with_a_tiny_correction_first(self):
+        self.state['next_stage'] = 'terra'
+        self.queue(error=self.FORMAT_ERROR, engine='opencode')
+        with patch.object(runner, 'account_stage') as accounted, \
+                patch.object(runner, 'accept_repaired_report') as accepted, \
+                patch.object(runner, 'run_role', return_value=({}, {'stage': 'terra_report_repair'})) as launch:
+            runner.execute_report_repair(self.state, self.run, self.root)
+        kwargs = launch.call_args.kwargs
+        self.assertEqual('t-session', kwargs['resume_session'])
+        self.assertTrue(kwargs['report_only'])
+        self.assertLess(len(kwargs['prompt']), 800)
+        self.assertIn('could not be parsed as the report', kwargs['prompt'])
+        self.assertNotIn('CURRENT HANDOFF DATA', kwargs['prompt'])
+        accounted.assert_called_once()
+        accepted.assert_called_once()
+        # The correction borrows no repair budget: the full repair remains available.
+        self.assertEqual(0, self.state['pending_report_repair']['attempts'])
+
+    def test_failed_correction_falls_back_to_the_unchanged_full_repair(self):
+        self.state['next_stage'] = 'terra'
+        self.queue(error=self.FORMAT_ERROR, engine='opencode')
+        with patch.object(runner, 'run_role', side_effect=RuntimeError('correction also malformed')):
+            with self.assertRaisesRegex(RuntimeError, 'correction also malformed'):
+                runner.execute_report_repair(self.state, self.run, self.root)
+        self.assertEqual(0, self.state['pending_report_repair']['attempts'])
+        prompt = self.repair_request()['prompt']
+        self.assertIn('CURRENT HANDOFF DATA', prompt)
+        self.assertEqual(1, self.state['pending_report_repair']['attempts'])
+
+    def test_without_a_session_thread_the_full_repair_runs_directly(self):
+        self.state['next_stage'] = 'terra'
+        self.queue(error=self.FORMAT_ERROR, engine='opencode', event_rows=[{'type': 'turn.completed'}])
+        self.assertIn('CURRENT HANDOFF DATA', self.repair_request()['prompt'])
+
+    def test_non_format_errors_never_resume_the_session(self):
+        self.state['next_stage'] = 'terra'
+        self.queue(error=ValueError('$.requirements[48]: unexpected fields'), engine='opencode')
+        kwargs = self.repair_request()
+        self.assertIsNone(kwargs.get('resume_session'))
+        self.assertIn('CURRENT HANDOFF DATA', kwargs['prompt'])
+
     def test_requirements_repair_receives_authoritative_user_sources(self):
         self.state['task'] = 'Build a planner.'
         self.state['brief_feedback'] = [{'text': 'Declare the test file in M2.'}]
@@ -214,6 +257,58 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(['Build a planner.', 'Declare the test file in M2.'], data['source_texts'])
         self.assertNotIn('Fix an existing test race.', data['source_texts'])
         self.assertIn('current Builder task and approved contract are inherited obligations', prompt)
+
+    def test_finalizer_repair_receives_current_concerns_and_saved_human_context(self):
+        self.state.update(next_stage='astra_finalize', requirements_handoff={'report': {
+            'requirements': [{'id': 'R1', 'source_quote': 'Reject blank names'}], 'open_questions': []}},
+            brief_feedback=[{'id': 'feedback-1', 'text': 'Preserve valid-name output'}],
+            planning={'reports': {
+                'astra_challenge': {'report': {'concerns': [{'id': 'C1', 'concern': 'Keep the guard'}]}},
+                'glm_revise': {'report': {'responses': [{'concern_id': 'C1'}]}}}})
+        self.queue(stage='astra_finalize', role='astra')
+
+        prompt = self.repair_request()['prompt']
+        data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+        context = data['clarification_context']
+
+        self.assertEqual(self.state['requirements_handoff'], context['requirements_handoff'])
+        self.assertEqual(self.state['planning']['reports'], context['planning_exchange'])
+        self.assertEqual(self.state['brief_feedback'], context['saved_feedback'])
+        self.assertIn('preserving that task inside contract.initial_task', prompt)
+        self.assertIn('original_report is historical planning context', prompt)
+        self.assertNotIn('original_report is also supplied, it is the immutable execution-history baseline', prompt)
+
+    def test_builder_repair_retains_immutable_execution_baseline_instruction(self):
+        self.queue()
+
+        prompt = self.repair_request()['prompt']
+        data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+
+        self.assertIn('original_report is also supplied, it is the immutable execution-history baseline', prompt)
+        self.assertNotIn('clarification_context', data)
+
+    def test_nonfinal_planning_repair_preserves_original_prompt_and_requirement_handoff(self):
+        before = copy.deepcopy(self.state)
+        requirements = [{'id': 'R1', 'text': 'Build a planner', 'source_quote': 'Build a planner.'}]
+        for stage, role in (('requirements_gather', 'requirements'),
+                            ('astra_discovery', 'astra'), ('glm_revise', 'astra')):
+            with self.subTest(stage=stage):
+                self.state.clear()
+                self.state.update(copy.deepcopy(before))
+                self.state.update(next_stage=stage, requirements_handoff={'report': {
+                    'requirements': requirements, 'open_questions': []}})
+                self.state['settings']['roles']['requirements'] = {'model': 'requirements-model'}
+                self.queue(stage=stage, role=role)
+
+                prompt = self.repair_request()['prompt']
+                data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+
+                self.assertNotIn('clarification_context', data)
+                self.assertEqual(requirements if stage == 'requirements_gather' else None,
+                                 data['previous_requirements'])
+                self.assertNotIn('Planning report repair:', prompt)
+                self.assertNotIn('original_report is historical planning context', prompt)
+                self.assertIn('original_report is also supplied, it is the immutable execution-history baseline', prompt)
 
     def assert_repair_blocked(self, status='PAUSED_REPORT_REPAIR_INPUT'):
         attempts = self.state['pending_report_repair']['attempts']
@@ -317,6 +412,9 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(text, archived.read_text())
         self.assertEqual(support.file_hash(archived), pending['pins'][str(archived)])
         self.assertGreater(Path(pending['original']['events']).stat().st_size, runner.REPAIR_HANDOFF_BYTES)
+        # The same-session format correction runs first for this error (see
+        # FormatCorrectionTests); the full handoff asserted here is the fallback attempt.
+        pending['attempts'] = 1
         prompt = self.repair_request()['prompt']
         data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
         self.assertEqual(str(error.exception), data['error'])

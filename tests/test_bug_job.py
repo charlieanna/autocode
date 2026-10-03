@@ -2,6 +2,7 @@
 the report does not reproduce."""
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -70,9 +71,54 @@ class InvestigationPromptBoundaryTests(unittest.TestCase):
         self.assertIn('Exclude .autocode/ and .git/', text)
         self.assertIn('Do not edit application source in the original workspace', text)
         self.assertIn('never modify existing runner state or evidence', text)
+    def test_prepared_scratch_handoff_requires_using_complete_copy_without_rebuilding(self):
+        scratch = '/repo/.autocode/investigation/bug-example'
+        text, _ = bug_job.prompt(state_for('/repo'), engine='opencode', scratch_workspace=scratch)
+        data = json.loads(text.split('CURRENT HANDOFF DATA\n', 1)[1])
+        self.assertEqual(scratch, data['investigation_workspace'])
+        self.assertIn('Use the runner-prepared investigation_workspace', text)
+        self.assertIn('Do not rebuild the copy', text)
+        self.assertNotIn('Try to reproduce it in a fresh scratch copy', text)
+        self.assertIn('original workspace', text)
 
 
 class PrepareTests(unittest.TestCase):
+    def test_investigation_uses_virtualenv_dependencies_with_the_scratch_source(self):
+        for name in ('.venv', 'venv'):
+            with self.subTest(environment=name), tempfile.TemporaryDirectory() as workspace:
+                root = Path(workspace).resolve()
+                environment = root / name
+                subprocess.run([sys.executable, '-m', 'venv', '--without-pip', str(environment)],
+                               check=True, capture_output=True)
+                python = environment / 'bin/python'
+                site = Path(subprocess.check_output(
+                    [str(python), '-c', "import sysconfig; print(sysconfig.get_path('purelib'))"],
+                    text=True).strip())
+                (site / 'offline_dependency.py').write_text('value = 42\n')
+                (root / 'app.py').write_text('value = 1\n')
+                request = autoresolver.prepare(state_for(str(root)), bug_job.STAGE, '/run/state.json', None)
+                data = json.loads(request.prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+                scratch = Path(data['investigation_workspace'])
+                self.assertEqual(str(python), data['investigation_python'])
+                self.assertFalse((scratch / name).exists())
+                (scratch / 'app.py').write_text('value = 2\n')
+                result = subprocess.run([data['investigation_python'], '-B', '-c',
+                    'import app, offline_dependency; assert app.value == 2; assert offline_dependency.value == 42'],
+                    cwd=scratch, capture_output=True, text=True)
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual('value = 1\n', (root / 'app.py').read_text())
+
+    def test_investigation_request_contains_complete_scratch_before_model_launch(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            root = Path(workspace)
+            (root / 'rule').mkdir()
+            (root / 'rule/rule.go').write_text('package rule')
+            request = autoresolver.prepare(state_for(workspace), bug_job.STAGE, '/run/state.json', None)
+            data = json.loads(request.prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+            scratch = Path(data['investigation_workspace'])
+            self.assertEqual('package rule', (scratch / 'rule/rule.go').read_text())
+            self.assertEqual(root.resolve() / '.autocode/investigation', scratch.parent)
+
     def test_investigator_gets_its_own_route_and_a_scratch_copy_but_no_plan(self):
         with tempfile.TemporaryDirectory() as workspace:
             state = state_for(workspace)

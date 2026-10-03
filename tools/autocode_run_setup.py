@@ -18,15 +18,15 @@ import uuid
 from pathlib import Path
 
 try:
-    from . import autocode_figma as figma
-    from . import autocode_goals as goals
+    from . import autocode_figma as figma, autocode_design_manifest as design_manifest
+    from . import autocode_goals as goals, autocode_protected_oracles as protected_oracles
     from . import autocode_interventions as interventions
     from . import autocode_milestones as milestones
     from . import model_catalogue
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_registry as registry
-    from . import autocode_regression as regression
+    from . import autocode_regression as regression, autocode_verify as verify
     from . import autocode_resolver_human as resolver_human
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_status_command as status_command
@@ -34,15 +34,15 @@ try:
     from . import autocode_workspaces as task_workspaces
     from . import autocode_workflows as workflows
 except ImportError:
-    import autocode_figma as figma
-    import autocode_goals as goals
+    import autocode_figma as figma, autocode_design_manifest as design_manifest
+    import autocode_goals as goals, autocode_protected_oracles as protected_oracles
     import autocode_interventions as interventions
     import autocode_milestones as milestones
     import model_catalogue
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
     import autocode_registry as registry
-    import autocode_regression as regression
+    import autocode_regression as regression, autocode_verify as verify
     import autocode_resolver_human as resolver_human
     import autocode_retired_token_budget as retired_token_budget
     import autocode_status_command as status_command
@@ -53,6 +53,10 @@ except ImportError:
 
 def resolve(runner, args, parser):
     """Return (workspace, run_dir, state_path, state), or an exit code when the invocation ends here."""
+    if getattr(args, "figma_manifest", None):
+        if args.run_dir:
+            parser.error("--figma-manifest is a new-run input; saved references are immutable")
+        args._design_manifest_input = design_manifest.load(args.figma_manifest)
     if args.ui_run and args.figma_file:
         parser.error("Choose --ui-run or --figma-file")
     if args.run_dir and (args.ui_run or args.figma_review):
@@ -148,6 +152,11 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
                 "repair": state.pop("pending_report_repair")})
             runner.write_json(state_path, state)
     settings = runner.configure(args, state)
+    settings = protected_oracles.reconcile(state, settings, args, workspace, run_dir,
+        is_test_path=verify.is_test_path,
+        discover_command=lambda: (verify.detect_framework(workspace,
+                                  python=verify.python_for(state.get("project_workspace") or workspace)) or
+                                  verify.Framework("unknown", None)).suite)
     if args.run_dir and args.autoresolver_managed_limits:
         origins = settings.setdefault('budget_origins', {})
         for kind in runner.BUDGET_ARGUMENTS:

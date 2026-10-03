@@ -37,6 +37,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument('--builder-strong-model', help='New-run Builder escalation model after one ordinary retry (default openai/gpt-6-sol, xhigh); pinned routes never escalate')
     parser.add_argument("--retry-builder", action="append", default=[], metavar="MILESTONE_ID",
                         help="Explicitly retry a stopped Builder after inspecting its retained work; requires --resume-paused")
+    parser.add_argument("--figma-manifest", type=Path,
+                        help="New run: immutable multi-file/frame/state inventory with exported Figma references; any saved engine")
     parser.add_argument("--figma-file", help="Figma Design URL to implement using the connected Codex plugin")
     parser.add_argument("--ui-run", type=Path, help="Accepted autocode-ui run to implement")
     parser.add_argument("--figma-review", choices=["automatic", "human"], help="Visual review policy for new Figma runs (default: automatic)")
@@ -68,6 +70,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         help="Override independent plan-reviewer reasoning effort")
     parser.add_argument("--test-command", help="Shell command for the project's test suite (default: detected); "
                         "repair a saved command at a reconciled pause with --resume-paused")
+    parser.add_argument("--revise-protected-tests", type=Path,
+                        help="Explicit user revision JSON for the original test inventory and command; requires a reconciled validation pause")
     parser.add_argument("--regression-command", help="Shell command for new or changed regression tests (default: derived); "
                         "repair a saved command at a reconciled pause with --resume-paused")
     parser.add_argument("--max-iterations", type=int, help="Total iteration ceiling (new-run default: unlimited; resumes keep saved limits)")
@@ -97,6 +101,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--headroom", choices=["off","on"], default=None,
                         help="Off by default; on fails closed until compatibility is verified")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Stream each stage's live model activity (tools started/finished, new provider text) to stderr")
     parser.add_argument("--migrate-only", action="store_true")
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--pause-after-stage", action="store_true")
@@ -226,6 +232,12 @@ def parse(unit, argv, default_models):
         parser.error("Build and review units require an existing --run-dir with an approved plan")
     if args.chat is None:
         args.chat = sys.stdin.isatty() and sys.stdout.isatty()
+    if args.verbose:
+        try:
+            from . import autocode_verbose as verbose
+        except ImportError:
+            import autocode_verbose as verbose
+        verbose.enable()
     for flag in ("max_iterations", "legacy_iteration_ceiling", "max_seconds", "max_stage_seconds", "max_idle_seconds", "max_tool_seconds", "no_progress_limit", "max_milestone_seconds", "max_milestone_replans", "max_milestone_stalled_reviews", "max_findings_per_task"):
         if getattr(args, flag) is not None and getattr(args, flag) < 0:
             parser.error(f"--{flag.replace('_', '-')} must be nonnegative")

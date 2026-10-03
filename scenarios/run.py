@@ -30,7 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import baseline, catalog, compare, plan_compare, profiles, routing, stats, verdict  # noqa: E402
+from harness import baseline, build_compare, catalog, compare, plan_compare, profiles, routing, stats, verdict  # noqa: E402
 from harness.driver import (REPO, DriveError, Driver, default_autocode, fake_setup, live_setup, metrics,  # noqa: E402
                             split_by_turn)
 from harness.project import materialize  # noqa: E402
@@ -124,7 +124,7 @@ def evidence_directory(root: Path, label: str) -> tuple[str, Path]:
     return stamp, Path(tempfile.mkdtemp(prefix=f"{stamp}-{label}-", dir=root))
 
 
-def run_one(scenario, args) -> dict:
+def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     mode = ("fake" if args.fake_solution == "reference" else f"fake-{Path(args.fake_solution).name}") if args.fake else args.profile
     stamp, out = evidence_directory(args.out, f"{scenario.id}-{mode}")
     result = {"scenario": scenario.id, "title": scenario.title, "category": scenario.category, "mode": mode,
@@ -148,7 +148,8 @@ def run_one(scenario, args) -> dict:
 
     project = materialize(scenario.seed, out / "project")
     flags, env = fake_setup(scenario, out, solution) if args.fake else live_setup(args.profile)
-    flags = [*flags, *caps_flags(args)]
+    flags = [*flags, *caps_flags(args), *extra_flags]
+    env = {**env, **(extra_env or {})}
     driver = Driver(project, out, flags, env, autocode=args.autocode or default_autocode(),
                     max_steps=args.max_steps or scenario.max_steps,
                     timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes))
@@ -169,6 +170,7 @@ def run_one(scenario, args) -> dict:
     if drive_error:
         outcome, summary = verdict.ERROR, f"harness stopped: {drive_error}; oracle {oracle.summary}"
     result.update(runner_status=state.get("status"), run_dir=str(driver.run_dir or ""),
+                  harness_error=drive_error, oracle_passed=oracle.passed,
                   cli_calls=len(driver.steps), answers=driver.answers, metrics=metrics(state),
                   resolutions=record["resolutions"],
                   wall_seconds=wall_seconds, cli_seconds=round(sum(step["seconds"] for step in driver.steps), 1),
@@ -285,6 +287,29 @@ def cmd_plan_compare(args) -> int:
     print((out / "comparison.md").read_text())
     print(f"evidence: {out}")
     return 1 if any(record["error"] for record in records.values()) else 0
+
+
+def cmd_build_compare(args) -> int:
+    """Repeat complete scenarios with fixed and adaptive planning, preserving every attempt."""
+    if args.rebuild:
+        report = build_compare.rebuild(args.rebuild)
+        print((args.rebuild / "comparison.md").read_text())
+    else:
+        if not args.prepare:
+            require_mode(args)
+        elif not args.fake and not args.profile:
+            sys.exit("--prepare needs --fake or --profile NAME")
+        if args.repeats < 1 or args.jobs < 1:
+            sys.exit("--repeats and --jobs must be positive")
+        _, out = evidence_directory(args.out, f"build-compare-{'fake' if args.fake else args.profile}")
+        if args.prepare:
+            protocol = build_compare.prepare(selected(args.ids), args, out, revision=autocode_revision())
+            print(f"Prepared {2 * len(protocol['pairs'])} attempts; no model calls\n  protocol: {out / 'protocol.json'}")
+            return 0
+        report = build_compare.run(selected(args.ids), args, out, run_one=run_one, revision=autocode_revision())
+        print((out / "comparison.md").read_text())
+        print(f"evidence: {out}")
+    return 0 if report["all_passed"] else 1
 
 
 def cmd_compare(args) -> int:
@@ -453,6 +478,28 @@ def main(argv=None) -> int:
     planning.add_argument("--rebuild", type=Path, metavar="DIR", help="rewrite DIR's comparison from its runs' "
                           "record.json files (for a comparison that was cut short); runs nothing")
     planning.set_defaults(func=cmd_plan_compare)
+
+    builds = commands.add_parser("build-compare", help="repeat complete scenarios with fixed and adaptive "
+                                   "planning; judge deliveries and retain failed attempts")
+    builds.add_argument("ids", nargs="*", help="scenario ids (default: all; original briefs and oracles)")
+    mode = builds.add_mutually_exclusive_group()
+    mode.add_argument("--fake", action="store_true", help="scripted model; no spend")
+    mode.add_argument("--profile", help="explicit live model profile from harness/profiles.py")
+    builds.add_argument("--fake-solution", default="reference", metavar="DIR")
+    builds.add_argument("--i-authorize-live-model-spend", action="store_true")
+    builds.add_argument("--repeats", type=int, default=2, help="pairs per scenario (default 2)")
+    builds.add_argument("--jobs", type=int, default=1, help="pairs at a time; arms within a pair run sequentially")
+    builds.add_argument("--out", type=Path, default=REPO / ".scenario-runs")
+    builds.add_argument("--autocode", nargs="+")
+    builds.add_argument("--max-steps", type=int)
+    builds.add_argument("--timeout-minutes", type=int)
+    builds.add_argument("--max-seconds", type=int)
+    builds.add_argument("--max-stage-seconds", type=int)
+    builds.add_argument("--max-iterations", type=int)
+    builds.add_argument("--rate-card", type=Path, help="frozen public API rates JSON; required for live comparisons")
+    builds.add_argument("--prepare", action="store_true", help="save the exact protocol without model calls")
+    builds.add_argument("--rebuild", type=Path, metavar="DIR", help="rebuild reports from saved attempts; no model calls")
+    builds.set_defaults(func=cmd_build_compare)
 
     summary = commands.add_parser("stats", help="runs, passes, pass streak, time and model stages from saved results")
     summary.add_argument("ids", nargs="*")

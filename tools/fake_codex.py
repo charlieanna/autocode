@@ -15,6 +15,9 @@ if sys.argv[1:] == ["login", "status"]:
     raise SystemExit(0)
 
 data = json.loads(sys.stdin.read().split("CURRENT HANDOFF DATA\n", 1)[1])
+if 'acceptance_criteria_ref' in data:
+    data['acceptance_criteria'] = [{k: c[k] for k in ('id', 'criterion')}
+                                  for c in data['goal_contract']['body']['acceptance_criteria']]
 
 
 def open_finding_id(source, text):
@@ -74,6 +77,8 @@ common = {"contract_revision": contract["revision"], "contract_hash": contract["
           "deferred_backlog": ["Optional web UI"], "user_request": {"kind": "none", "discovered": "", "impact": "",
               "decision_needed": "", "options": [], "proposed_delta": ""}}
 session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
+NO_PROPOSAL = {"version": 0, "needed_because": "", "shared_decisions": [], "outstanding_criteria": [],
+               "done_slices": [], "slices": []}
 if os.environ.get("AUTOCODE_FIXTURE_SESSION_DRIFT"):
     session = str(uuid.uuid4())
 print(json.dumps({"type": "thread.started", "thread_id": session}))
@@ -124,7 +129,8 @@ elif stage == "astra_discovery":
         result.update(code_refs=[f"{source}:1"] if source else ["goal_contract.body"],
                       alternatives=["A web endpoint would need deployment"],
                       uncertainties=[], contract_changes=[], requirement_trace=[], conflict_resolutions=[],
-                      machine_resolutions=[], access_blockers=[], remediation_records=[])
+                      machine_resolutions=[], access_blockers=[], remediation_records=[],
+                      progressive_proposal=dict(NO_PROPOSAL))
 elif stage == "astra_challenge":
     result = {"summary": "Check whitespace-only input", "obligation_decisions": [], "concerns": [{"id": "P1", "concern": "Empty includes whitespace",
         "evidence_refs": ["goal_contract.body.important_failure_cases"], "requested_change": "Specify whitespace rejection",
@@ -137,6 +143,7 @@ elif stage == "glm_revise":
     result = {"contract": draft, "summary": "Added whitespace case",
         "code_refs": [f"{source}:1"] if source else ["goal_contract.body"],
         "contract_changes": [], "requirement_trace": [], "conflict_resolutions": [], "machine_resolutions": [], "remediation_records": [], "access_blockers": [],
+        "progressive_proposal": dict(NO_PROPOSAL),
         "responses": [{"concern_id": "P1", "response": "Whitespace is invalid", "evidence_refs": ["goal_contract.body"],
                        "change": "Added whitespace case", "acceptance_test": "Whitespace input exits 2"}]}
 elif stage == "astra_finalize":
@@ -152,7 +159,8 @@ elif stage == "astra_finalize":
             "kind": "decision", "category": "behavior", "delegable": False}]
     result = {"contract": draft, "summary": "Ready for approval" if not blocked else "User decision required",
         "contract_changes": [], "requirement_trace": [], "conflict_resolutions": [],
-        "obligation_decisions": [], "decisions": [{"concern_id": "P1", "decision": "Reject whitespace" if not blocked else "Ask the user",
+        "obligation_decisions": [], "progressive_proposal": dict(NO_PROPOSAL),
+        "decisions": [{"concern_id": "P1", "decision": "Reject whitespace" if not blocked else "Ask the user",
             "rationale": "Consistent invalid-input contract", "acceptance_test": "Whitespace input exits 2", "resolved": not blocked}]}
     if mode == "planning-invalid":
         result["decisions"] = []
@@ -303,5 +311,9 @@ if stage=='terra' and (data.get('workflow') or {}).get('mode')=='glm_final_audit
         'reason':'Fixture-specific debugging question' if action=='ESCALATE_SOL' else 'Continue approved work',
         'question':'Check the empty input boundary' if action=='ESCALATE_SOL' else '',
         'self_assessment':assessment}
+if "--output-schema" in sys.argv:
+    schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+    if "progressive_checkpoint" in schema.get("properties", {}):
+        result.setdefault("progressive_checkpoint", False)
 Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 50}}))

@@ -29,6 +29,75 @@ class DraftVerificationRevisionTests(unittest.TestCase):
                     "replacement": after["acceptance_criteria"][0]["verification_method"]}]
         revision_guard(state, after, changes, "astra_finalize")
 
+    def revision_report(self):
+        state, after = self.inputs()
+        before = state["goal_contract"]["body"]
+        before.update(technical_approach=["Old proposal"], initial_task={"objective": "Old"},
+                      milestones=[{"id": "M1", "objective": "Old"}])
+        after.update(technical_approach=["Corrected proposal"], initial_task={"objective": "Corrected"},
+                     milestones=[{"id": "M1", "objective": "Corrected"}])
+        after["acceptance_criteria"].append({"id": "AC8", "criterion": "Exact helper literals match",
+            "verification_method": "test: test_ac8_exact_literals", "human_review": False})
+        changes = [{"item": item, "change": "reworded", "basis": "agent_proposed", "answer_id": "",
+                    "replacement": "Corrected engineering proposal"} for item in (
+                    "AC5 verification_method", "AC8 (new criterion added)",
+                    "technical_approach", "M1", "initial_task")]
+        return state, after, changes
+
+    def test_live_report_overdeclared_engineering_deltas_do_not_require_permission(self):
+        state, after, changes = self.revision_report()
+        retained = copy.deepcopy((state, after, changes))
+        revision_guard(state, after, changes, "glm_revise")
+        self.assertEqual(retained, (state, after, changes))
+
+    def test_engineering_delta_alias_does_not_authorize_a_protected_change(self):
+        for mutation in ("behavior", "permission", "required", "approved", "user_set", "history", "marker"):
+            with self.subTest(mutation=mutation):
+                state, after, changes = self.revision_report()
+                if mutation == "behavior":
+                    after["acceptance_criteria"][0]["criterion"] = "Only a selected check passes"
+                elif mutation == "permission":
+                    after["permission_boundaries"] = ["Allow network"]
+                elif mutation == "required":
+                    after["required_behaviors"] = []
+                elif mutation == "approved":
+                    state["goal_contract"]["approval_status"] = "approved"
+                elif mutation == "user_set":
+                    state["goal_contract"]["origin"] = "user_cli_edit"
+                elif mutation == "history":
+                    prior = copy.deepcopy(state["goal_contract"])
+                    prior["approval_status"] = "approved"
+                    state["contract_history"] = [prior]
+                else:
+                    state["goal_contract"]["body"]["acceptance_criteria"][0]["verification_method"] = "test: test_ac5_old"
+                with self.assertRaises(ValueError):
+                    revision_guard(state, after, changes, "glm_revise")
+
+    def test_synthetic_deltas_do_not_resolve_real_or_forged_user_changes(self):
+        for kind in ("existing_addition", "unknown", "forged_user", "protected_collision", "removed"):
+            with self.subTest(kind=kind):
+                state, after, changes = self.revision_report()
+                if kind == "existing_addition":
+                    changes[1]["item"] = "AC5 (new criterion added)"
+                    after["acceptance_criteria"][0]["criterion"] = "Only a selected check passes"
+                elif kind == "unknown":
+                    changes.append(dict(changes[0], item="unknown.proposal"))
+                elif kind == "forged_user":
+                    changes[0].update(basis="user_feedback", answer_id="not-a-saved-event")
+                elif kind == "protected_collision":
+                    state["goal_contract"]["body"]["required_behaviors"].append("technical_approach")
+                    after["required_behaviors"].append("technical_approach")
+                else:
+                    changes[0]["change"] = "removed"
+                with self.assertRaises(ValueError):
+                    revision_guard(state, after, changes, "glm_revise")
+
+    def test_rejection_identifies_the_declared_item_for_bounded_repair(self):
+        state, after = self.inputs()
+        with self.assertRaisesRegex(ValueError, "'unknown.proposal' needs a saved user"):
+            revision_guard(state, after, [{"item": "unknown.proposal", "change": "reworded",
+                "basis": "agent_proposed", "answer_id": ""}], "glm_revise")
+
     def test_current_or_invalidated_user_approval_keeps_verification_protected(self):
         for fields in ({"approval_status": "approved"},
                        {"approval_status": "draft", "approval_event": {"kind": "goal_approval"}}):
@@ -256,3 +325,25 @@ class DraftExampleRevisionTests(unittest.TestCase):
             state["planning"]["reports"]["astra_challenge"]["report"]["concerns"][0]["concern"] = f'AC1: `{old}` should be `{new}`.'
             with self.subTest(new=new), self.assertRaises(ValueError):
                 revision_guard(state, after, changes, "glm_revise")
+
+
+class ExampleCorrectionSchemaTests(unittest.TestCase):
+    """A contract change that is not a draft example correction says example_correction: null."""
+
+    def change(self, receipt):
+        return {"item": "AC7", "change": "reworded", "basis": "user_feedback", "answer_id": "feedback-1",
+                "replacement": "AC7 documents --shout", "example_correction": receipt}
+
+    def test_the_schema_the_planner_is_given_accepts_null_and_a_receipt_only(self):
+        # The live tiny-greeting draft (2026-10-02) was refused for example_correction: null.
+        from autocode_util import model_output_schema, validate_schema
+        from units import autoplanner
+        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+            item = model_output_schema(autoplanner.SCHEMAS[stage])["properties"]["contract_changes"]["items"]
+            self.assertIn("example_correction", item["required"], stage)
+            validate_schema(self.change(None), item)
+            validate_schema(self.change({"concern_id": "C1", "before": "3", "after": "4"}), item)
+            with self.assertRaisesRegex(ValueError, "example_correction: expected object or null"):
+                validate_schema(self.change("none"), item)
+            with self.assertRaisesRegex(ValueError, "missing after"):
+                validate_schema(self.change({"concern_id": "C1", "before": "3"}), item)

@@ -235,7 +235,7 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
     for check in normalized:
         if not isinstance(check, dict) or not isinstance(check.get('command'), str) or not isinstance(check.get('evidence_ref'), str):
             raise ValueError('Check needs a command and evidence reference')
-        missing_exit = 'exit_code' not in check
+        missing_exit = check.get('exit_code') is None
         if not missing_exit and type(check['exit_code']) is not int:
             raise ValueError('Check exit code must be an integer')
         if check["evidence_ref"].startswith("event:"):
@@ -255,22 +255,20 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
                         and (missing_exit or matches[0]['exit_code'] == check['exit_code'])):
                     check['exit_code'] = matches[0]['exit_code']
                     continue
-            # Models sometimes cite conversation call ids that never occur in events;
-            # accept a unique executed command+exit match and record the real event id.
+            # A model sees no event IDs or exit codes, so a check may cite a bare "event:": it binds to the LATEST
+            # run of its exact command, exit-less runs included, whose exit must be known and match (EVD-06).
             if not matches:
-                alternates = [e["item"] for e in rows
-                              if e.get("type") == "item.completed" and e.get("item", {}).get("type") == "command_execution"
+                alternates = [e["item"] for e in rows if e.get("type") == "item.completed"
+                              and e.get("item", {}).get("type") in ("command_execution", "tool_output")
                               and isinstance(e['item'].get('command'), str)
                               and (same_command(e['item']['command'], check['command'])
-                                   or event_matching.workspace_wrapped_command(e['item']['command'], check['command'], workspace))
-                              and (missing_exit or e['item'].get('exit_code') == check['exit_code'])]
-                identical_repeats = event_matching.identical_executions(alternates)
-                if ((len(alternates) == 1 or identical_repeats)
-                        and type(alternates[0].get('exit_code')) is int
-                        and isinstance(alternates[0].get('id'), str) and alternates[0]['id']):
-                    check["evidence_ref"] = "event:" + alternates[0]["id"]
-                    check['exit_code'] = alternates[0]['exit_code']
-                    check['command'] = alternates[0]['command']
+                                   or event_matching.workspace_wrapped_command(e['item']['command'], check['command'], workspace))]
+                latest = alternates[-1] if alternates else {}
+                if (type(latest.get('exit_code')) is int and isinstance(latest.get('id'), str) and latest['id']
+                        and (missing_exit or latest['exit_code'] == check['exit_code'])):
+                    check["evidence_ref"] = "event:" + latest["id"]
+                    check['exit_code'] = latest['exit_code']
+                    check['command'] = latest['command']
                     continue
             raise ValueError("Check is not supported by an exact executed Validator event")
         path = Path(check["evidence_ref"])
@@ -408,10 +406,10 @@ not proof of execution in this attempt. PASS requires every listed check to exit
 runs and their resolution in checks_run and the full logs. After fixing a validation
 probe, rerun the complete corrected probe; do not count an unexecuted correction as
 a pass. Source diff exit 1 means files differ, not a successful verification command.
-Return exact command/exit_code and evidence_ref='event:<id>' from a completed shell
-tool event (also usable in criterion and end-to-end evidence_refs). Follow the
-execution engine's evidence instructions; for capture receipts copy command_text verbatim into checks[].command.
-event: IDs refer only to completed shell commands in this stage's event log.
+List each check by its exact command with evidence_ref 'event:' and exit_code null: the runner attaches the
+event ID and exit code of that command's latest completed run in this stage, so never read your event log
+for them. Cite a listed check in criterion, end-to-end and milestone evidence_refs as check:<its position from 1>.
+For capture receipts follow the execution engine's evidence instructions and copy command_text verbatim.
 For criterion and end-to-end evidence from image/MCP calls or retained earlier
 stages, cite the exact existing artifact path (including the owning JSONL log),
 not a foreign or non-command event: ID. These artifacts still require independent

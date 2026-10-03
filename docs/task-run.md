@@ -44,6 +44,11 @@ workspace at a time. `options` (engine and model flags) are passed whenever the
 run starts or advances. Any rejected command raises `TaskRunError` with
 AutoCode's message.
 
+Inputs fixed when a run starts, such as `--ui-run`, belong in `start_options`
+instead of `options`: `TaskRun.start(workspace, brief, options=("--engine", "codex"),
+start_options=("--ui-run", str(design_run)))`. They are passed once; later advances
+and reattachment use the saved design settings.
+
 ## Commands
 
 All commands take `--workspace WORKSPACE`; commands on an existing run add

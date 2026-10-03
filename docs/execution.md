@@ -224,6 +224,17 @@ Compact JSON reduces repeated formatting overhead. Per-stage context metrics rec
 externalized fields and bytes saved. This does not remove provider session history
 or alter independent-review requirements.
 
+Validator and Completion Owner handoffs also replace exact repeated text with
+inline JSON pointers when that makes the packet smaller. `acceptance_criteria_ref`
+points to the complete definitions in `goal_contract.body.acceptance_criteria`;
+the approved contract stays intact. A replay check's `command_ref` can point to
+the identical command in `validation.checks`, while its independent exit code,
+error, source revision and evidence remain present. These references affect only
+the prompt copy. Saved state, reports and the public status view retain their
+original shape. Different criteria or commands are never combined.
+Scripted providers that consume handoff JSON must follow these references;
+output report schemas still require the full criterion wording and commands.
+
 ## Baseline comparison
 
 For an explicitly authorized existing-failure exception, use the maintained

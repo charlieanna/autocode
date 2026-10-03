@@ -26,6 +26,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_support as support
     from . import autocode_workflow as workflow
+    from . import autocode_progressive_state as progressive
 except ImportError:
     import autopilot
     import autocode_goals as goals
@@ -36,6 +37,12 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_support as support
     import autocode_workflow as workflow
+    import autocode_progressive_state as progressive
+
+
+def check_evidence_options(record):
+    return {'receipt_only': record.get('output_mode') == 'report_file',
+            'capture_context': record.get('capture_context')}
 
 # Planning restarts allowed per deferral reason since the user's last input; the next deferral pauses.
 MAX_DEFERRED_APPROVAL_RESTARTS = 2
@@ -193,6 +200,9 @@ def account_stage(state, record):
                      else events_path.stat().st_mtime if events_path.exists() else started)
             duration = max(0, ended - started)
             record["duration_seconds"] = duration
+        if not progressive.account_stage(state, record):
+            record["accounted"] = True
+            return
         state["active_seconds"] = state.get("active_seconds", 0) + (duration or 0)
         milestones.account(state, record)
         record["accounted"] = True
@@ -234,15 +244,26 @@ def default_missing_provenance(value, record):
     report that only lacked such a list (VALIDATION.md: `$: missing code_refs`).
     """
     stage = str(record.get("stage", "")).removesuffix("_report_repair")
-    if stage not in PLANNING_STAGES or not isinstance(value, dict):
+    if not isinstance(value, dict):
         return value
     try:
         properties = read_json(Path(record["schema"])).get("properties", {})
     except (OSError, ValueError, KeyError):
         return value
+    optional = {}
+    if "progressive_checkpoint" in properties and "progressive_checkpoint" not in value:
+        optional["progressive_checkpoint"] = False
+    if "progressive_proposal" in properties and "progressive_proposal" not in value:
+        optional["progressive_proposal"] = {"version": 0, "needed_because": "", "shared_decisions": [],
+                                             "outstanding_criteria": [], "done_slices": [], "slices": []}
+    if stage not in PLANNING_STAGES:
+        if optional:
+            record["defaulted_fields"] = sorted(optional)
+        return {**value, **optional}
     missing = sorted(key for key in PROVENANCE_LISTS
                      if key in properties and key not in value and properties[key].get("type") == "array")
-    defaults = {key: [] for key in missing}
+    defaults = {**optional, **{key: [] for key in missing}}
+    missing.extend(optional)
     # An omitted job type is "build", as for every run before task_kind existed; approval
     # always shows the job type, so a wrong default is visible before any build starts.
     if "task_kind" in properties and "task_kind" not in value:

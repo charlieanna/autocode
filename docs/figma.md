@@ -2,7 +2,7 @@
 
 [← Back to README](../README.md)
 
-The Figma workflow uses Codex with the connected Figma plugin. Requirements planning,
+The native connected-Figma workflow uses Codex with the Figma plugin. Requirements planning,
 plan review, plan finalization, validation, and completion decisions use the review model
 tier (Sol); the review and decision steps default to Sol High. Figma editing uses the
 Builder model tier (Terra). OpenCode is not needed for this path. The plugin must
@@ -39,6 +39,10 @@ An accepted handoff records the Figma URL and hashes of the brief and review rep
 modified or incomplete artifacts are rejected when imported. The implementation
 roles inspect the live Figma reference again, since the file can change after design.
 
+A [multi-component build](task-lanes.md#a-component-with-a-figma-design) can also
+give an individual component a `ui_run` or `figma_file` in `components.json`.
+The design is supplied before the build, and only that component receives it.
+
 `--build` starts the normal implementation brief and orchestration in Codex. Its
 initial product brief still needs approval. Subsequent visual checks use Figma
 comparisons and independent validation by default; they do not require another
@@ -63,3 +67,78 @@ they do not require a fresh canvas inspection unless they affect presentation or
 a visual criterion. Final visual acceptance requirements remain in force.
 
 See also: [Models and escalation](models.md) · [Execution and completion](execution.md)
+
+## Multi-file reference inventory (opt-in)
+
+New implementation runs can receive an exported reference bundle through
+`--figma-manifest /absolute/path/to/bundle/manifest.json`. This input works with
+Codex, GoCode and OpenCode and preserves the selected role routes, pins and limits.
+It does not change the native `--figma-file` authentication requirements. When
+combined with native Figma input, that file must also be declared in the manifest.
+
+Version 1 declares every approved file and frame separately from its implementation
+cases. Every declared frame needs at least one case; states and responsive viewports
+use distinct stable case IDs. For example:
+
+```json
+{
+  "version": 1,
+  "files": [{"key": "FILEKEY", "nodes": ["422:1495"]}],
+  "cases": [{
+    "id": "workspace.desktop.empty",
+    "file_key": "FILEKEY",
+    "node_id": "422:1495",
+    "state": "empty conversation",
+    "route": "/workspace",
+    "implementation_paths": ["src/workspace.js", "src/workspace.css"],
+    "viewport": {"width": 1440, "height": 900, "device_scale_factor": 1},
+    "export_scale": 1,
+    "artifacts": {
+      "screenshot": {"path": "references/workspace.png", "sha256": "<actual PNG SHA256>"},
+      "design_context": {"path": "references/workspace.json", "sha256": "<actual context SHA256>"}
+    }
+  }]
+}
+```
+
+Artifact paths are portable paths relative to the manifest's directory; symlinks
+that escape it, missing files and conflicting hashes are refused. The PNG export
+dimensions must equal the native CSS viewport multiplied by `export_scale`.
+A scaled 1024×640 reference export does not imply a 1024 CSS-pixel application.
+The rendered candidate dimensions instead use `device_scale_factor`.
+The exact exported context should include component, token, font and asset details
+needed to implement the case; this version does not automatically collect a live
+Figma file or package separately referenced fonts/assets.
+
+Before any paid stage, the runner validates the declared inventory and copies the
+references to `.autocode/design-inputs/<manifest-hash>/` in the new task workspace.
+This also retains ignored inputs or bundles outside the repository when a task gets
+an isolated worktree. Deleting the original exports later does not invalidate this
+retained copy. Changed retained inputs pause execution as `PAUSED_DESIGN_REFERENCE`.
+Saved runs cannot replace or add a manifest; start a new run for a changed inventory.
+
+Planning and execution contexts carry the full inventory and its hash. The
+independent Validator reports `design_manifest_hash` and `design_results`, one row
+per case, with `id`, `status` (PASS/FAIL/NOT_VERIFIED), `criterion_ids`,
+`candidate_ref` and `comparison_ref`. A passing row needs passing approved criteria,
+a PNG candidate at the declared viewport/device scale, and a separate nonempty
+comparison artifact inside the task workspace. The reference itself cannot be cited
+as the rendered candidate. The runner pins these evidence files alongside the
+existing independent check evidence.
+
+Intermediate milestones can explicitly leave future cases NOT_VERIFIED. Whole-task
+completion requires every case PASS in the same current independent validation;
+omissions, duplicates, stale manifests, changed evidence or wrong dimensions refuse
+completion. Existing contract, regression, replay and human acceptance gates remain
+mandatory. `--status` adds `view.design`: inventory/hash, reported source revision
+and cases without a reported PASS. It deliberately leaves
+`current_visual_acceptance` unknown: the status projection alone authenticates no
+current source or screenshot.
+
+This is a coverage foundation, not a guarantee of pixel fidelity. It cannot detect a
+file/frame absent from the supplied inventory, authenticate screenshot acquisition,
+or determine whether a comparison artifact's conclusion is visually correct.
+Automatic discovery and plan coverage remain in issue #250; runner-owned capture,
+image comparison and independent visual adjudication are issue #251, with screenshot
+freshness tracked in #227. The offline fixture exercises these gates without any
+Figma access or model spend; its PNGs are not real visual acceptance evidence.

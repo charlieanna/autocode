@@ -222,7 +222,7 @@ class OutputLimitTests(unittest.TestCase):
             self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", reconciled.exception.status)
             self.assertIn("output token limit", str(reconciled.exception))
             self.assertIn("never automatically replayed", str(reconciled.exception))
-            self.assertIn("--abandon-stage 001/terra-01", str(reconciled.exception))
+            self.assertIn("--abandon-stage 001/builder-01", str(reconciled.exception))
             self.assertEqual([], state["stages"])
             with patch.object(support, "snapshot", return_value=snapshot):
                 runner.abandon_stage(state, self.run, self.root, runner.attempt_id(record))
