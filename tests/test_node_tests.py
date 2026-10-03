@@ -1,0 +1,124 @@
+"""Real Node events and hostile evidence controls for named case proof."""
+import json
+import shlex
+import shutil
+import tempfile
+import unittest
+from pathlib import Path
+
+import autocode_node_tests as node_tests
+import autocode_verify as verify
+
+
+class CommandTests(unittest.TestCase):
+    def test_only_direct_test_commands_are_instrumented(self):
+        for command in ('node --test tests/a.cjs', '/usr/bin/node --test "tests/a b.cjs"'):
+            self.assertTrue(node_tests.command_words(command))
+            self.assertTrue(verify.expects_results(None, command))
+        for command in ('node tests/a.cjs --test', 'npm test', 'node --test | cat',
+                        'node --test; true', 'node --test\ntrue', 'node --test --watch',
+                        'node --test --test-reporter=spec', 'node -- tests/a.cjs --test',
+                        'node --test $(echo tests/a.cjs)', 'node --test "unterminated'):
+            with self.subTest(command=command):
+                self.assertIsNone(node_tests.command_words(command))
+                self.assertEqual(command, node_tests.instrument(command, '/tmp/proof.jsonl'))
+
+
+@unittest.skipUnless(shutil.which('node'), 'Node is required for the actual test-runner protocol')
+class NodeTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.evidence = self.root / 'evidence'
+        self.framework = verify.Framework('node', 'node --test')
+
+    def run_node(self, files, *, label='probe'):
+        for name, source in files.items():
+            (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / name).write_text(source)
+        command = 'node --test ' + shlex.join(list(files))
+        return verify.run_suite(self.framework, command, self.root, self.evidence, label, timeout=20)
+
+    def test_named_outcomes_nested_suites_and_same_name_in_other_files(self):
+        receipt = self.run_node({
+            'a.test.cjs': "const {test,describe}=require('node:test');"
+                          "const assert=require('node:assert/strict');"
+                          "test('test_ok',()=>{});test('test_bad',()=>assert.fail('wrong'));"
+                          "test('test_skip',{skip:true},()=>{});"
+                          "describe('group',()=>{test('test_nested',()=>{});"
+                          "test('test_todo',{todo:true},()=>assert.fail('todo'));});",
+            'b.test.cjs': "require('node:test')('test_ok',()=>{});",
+        })
+        self.assertEqual(1, receipt['exit_code'], receipt)
+        self.assertEqual({'passed': ['a.test.cjs::group::test_nested', 'a.test.cjs::test_ok', 'b.test.cjs::test_ok'],
+                          'failed': ['a.test.cjs::test_bad'],
+                          'skipped': ['a.test.cjs::group::test_todo', 'a.test.cjs::test_skip'],
+                          'collection_errors': [], 'total': 6, 'complete': True}, receipt['results'])
+
+    def test_forged_stdout_empty_file_and_early_exit_do_not_prove_a_named_case(self):
+        for source in ("console.log('PASS test_fake');",
+                       "console.log(JSON.stringify({type:'pass',name:'test_fake'}));",
+                       "require('node:test')('test_fake',()=>{process.exit(0)});"):
+            with self.subTest(source=source):
+                receipt = self.run_node({'test_fake.cjs': source})
+                self.assertTrue(receipt['results_expected'])
+                self.assertEqual([], (receipt['results'] or {}).get('passed', []), receipt)
+
+    def test_collection_and_hook_errors_do_not_reproduce_a_bug(self):
+        for source in ("require('./missing.cjs');",
+                       "const {test,before}=require('node:test');before(()=>{throw Error('setup')});"
+                       "test('test_case',()=>{});"):
+            with self.subTest(source=source):
+                receipt = self.run_node({'a.cjs': source})
+                self.assertEqual(1, receipt['exit_code'])
+                self.assertTrue(receipt['results']['collection_errors'], receipt)
+                self.assertEqual(receipt['results']['failed'], receipt['results']['collection_errors'])
+
+    def test_duplicate_identities_are_ambiguous_even_when_node_exits_zero(self):
+        receipt = self.run_node({'a.cjs': "const {test}=require('node:test');"
+                                        "for(let i=0;i<2;i++)test('test_same',()=>{});"})
+        self.assertEqual(0, receipt['exit_code'])
+        self.assertIsNone(receipt['results'])
+
+    def test_aborted_test_is_not_a_passing_case(self):
+        receipt = self.run_node({'a.cjs': "const ac=new AbortController(); ac.abort();"
+                                        "require('node:test')('test_cancel',{signal:ac.signal},()=>{});"})
+        self.assertEqual(1, receipt['exit_code'], receipt)
+        result = receipt['results']
+        self.assertIsNotNone(result, receipt)
+        self.assertNotIn('a.cjs::test_cancel', result['passed'])
+        self.assertIn('a.cjs::test_cancel', result['collection_errors'])
+
+    def test_incomplete_malformed_or_inconsistent_evidence_is_never_credited(self):
+        receipt = self.run_node({'a.cjs': "require('node:test')('test_case',()=>{});"})
+        self.assertEqual(['a.cjs::test_case'], receipt['results']['passed'])
+        path = self.evidence / 'probe.node.jsonl'
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        broken_counts = json.loads(json.dumps(rows))
+        broken_counts[-2]['counts']['passed'] += 1
+        variants = [rows[:-1], rows[:1] + rows[2:], rows[:-2] + rows[-1:],
+                    rows + [{'type': 'pass'}], rows[:2] + [rows[2]] + rows[2:],
+                    broken_counts, rows[:-2] + [{'type': 'summary', 'counts': []}, rows[-1]],
+                    [None], [{'protocol': 'autocode-node-tests', 'version': 2}, *rows[1:]]]
+        for variant in variants:
+            with self.subTest(variant=variant):
+                path.write_text('\n'.join(map(json.dumps, variant)) + '\n')
+                self.assertIsNone(node_tests.results(path))
+        path.write_text('{not JSON}\n')
+        self.assertIsNone(node_tests.results(path))
+        path.unlink()
+        self.assertIsNone(node_tests.results(path))
+
+    def test_generic_suite_keeps_its_exit_code_and_does_not_reuse_stale_results(self):
+        self.run_node({'a.cjs': "require('node:test')('test_case',()=>{});"})
+        receipt = verify.run_suite(self.framework, 'node -e "process.exit(0)"', self.root,
+                                   self.evidence, 'probe', timeout=20)
+        self.assertEqual(0, receipt['exit_code'])
+        self.assertFalse(receipt['results_expected'])
+        self.assertIsNone(receipt['results'])
+        # A subsequent failed Node launch must delete the previous named report.
+        receipt = verify.run_suite(self.framework, '/missing/node --test a.cjs', self.root,
+                                   self.evidence, 'probe', timeout=20)
+        self.assertTrue(receipt['results_expected'])
+        self.assertIsNone(receipt['results'])

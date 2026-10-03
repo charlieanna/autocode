@@ -174,6 +174,17 @@ def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "
     return shown
 
 
+NAMED_PROOF_NOTE = """
+NAMED TEST PROOF: the runner can attribute cases with Python unittest/pytest, Go tests, or Node's built-in
+node:test. In Node projects register each named case with node:test, for example
+`const {test} = require('node:test'); test('test_c2_example', async () => { /* existing assertions */ });`,
+and run `node --test tests/example.cjs`. Keep fixture helpers and assertions; await every async check.
+Custom scripts printing PASS labels, or npm/Jest/Vitest/Mocha summaries, do not supply named proof.
+Keep the existing project suite and protected tests intact. Add supported named tests within the approved
+test paths; plan any needed test paths before approval. Do not replace test:/guard: criteria with prose to
+avoid proof. If no supported runner fits the project, raise the compatibility blocker before approval.
+"""
+
 BUILDER_NOTE = """
 TESTS NAMED IN THE PLAN: every acceptance criterion of your milestone whose verification_method starts with
 "test:" is a concrete example you must write as its own test, named with that criterion's id (C2 ->
@@ -184,8 +195,10 @@ that already works and must keep working: write its test the same way (C4 -> tes
 before and after the change, so put it where it imports only code that exists before the change. Criteria without "test:" or "guard:" are checked by the Validator as usual.
 Keep existing test names and assertions intact. Add a new case test when needed; do not rename or remove an
 existing test to make its name match a planned case id. The regression proof rejects removed test names.
-"""
+""" + NAMED_PROOF_NOTE
 
 
 def builder_note(state: dict) -> str:
-    return BUILDER_NOTE if contract_cases(state) else ""
+    if contract_cases(state):
+        return BUILDER_NOTE
+    return NAMED_PROOF_NOTE if (state.get("investigation") or {}).get("test_cases") else ""

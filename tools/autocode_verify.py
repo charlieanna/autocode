@@ -41,10 +41,12 @@ try:
     from . import autocode_util as util, autocode_agent_env as agent_env
     from . import autocode_test_environment as test_env
     from . import autocode_investigation_workspace as investigation_workspace
+    from . import autocode_node_tests as node_tests
 except ImportError:
     import autocode_util as util, autocode_agent_env as agent_env
     import autocode_test_environment as test_env
     import autocode_investigation_workspace as investigation_workspace
+    import autocode_node_tests as node_tests
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
 # Directories that hold tests wherever they appear, and ones that do only at the repository root:
@@ -180,15 +182,19 @@ def _python_can_import(python, module):
 class Framework:
     """How to run the whole suite and a targeted subset for one project."""
 
-    def __init__(self, name, suite, *, python=None, runner=None, note=""):
+    def __init__(self, name, suite, *, python=None, runner=None, note="", node_files=()):
         self.name, self.suite, self.python, self.runner, self.note = name, suite, python, runner, note
+        self.node_files = frozenset(node_files)
 
     @property
     def per_test(self):
-        return self.name in ("pytest", "unittest", "go")
+        return self.name in ("pytest", "unittest", "go", "node")
 
     def targeted(self, test_paths):
         files = sorted(test_paths)
+        if self.name == "node":
+            scripts = [p for p in files if p in self.node_files]
+            return "node --test " + " ".join(map(shlex.quote, scripts)) if scripts else None
         if self.name == "pytest":
             modules = [p for p in files if PYTHON_TEST_MODULE.match(PurePosixPath(p).name)]
             return (f"{shlex.quote(self.python)} -m pytest -q -p no:cacheprovider "
@@ -250,6 +256,7 @@ def detect_framework(root, *, python=None) -> Framework | None:
             return Framework("unittest", f"{shlex.quote(python)} -m unittest discover -v{start}", python=python, note=note)
     if "go.mod" in files:
         return Framework("go", "go test ./...")
+    node_files = node_tests.test_files(root, [p for p in files if is_test_path(p)])
     if "package.json" in files:
         try:
             package = json.loads(_read(root / "package.json") or "{}")
@@ -261,8 +268,13 @@ def detect_framework(root, *, python=None) -> Framework | None:
         for name in ("vitest", "jest", "mocha"):
             if name in deps:
                 return Framework(name, suite or f"npx --no-install {'vitest run' if name == 'vitest' else name}")
+        if node_files or node_tests.command_words(script):
+            return Framework("node", suite or "node --test " + " ".join(map(shlex.quote, node_files)),
+                             node_files=node_files)
         if suite:
             return Framework("npm", suite)
+    if node_files:
+        return Framework("node", "node --test " + " ".join(map(shlex.quote, node_files)), node_files=node_files)
     if "Cargo.toml" in files:
         return Framework("cargo", "cargo test")
     if "Gemfile" in files and any(p.endswith("_spec.rb") for p in files):
@@ -336,6 +348,8 @@ def _go_test(command):
 
 
 def _with_results(framework, command, xml_path):
+    if node_tests.command_words(command):
+        return node_tests.instrument(command, xml_path)
     if framework and framework.name == "pytest" and " -m pytest" in command:
         return f"{command} --junitxml={shlex.quote(str(xml_path))}"
     if framework and framework.name == "go" and _go_test(command) and " -json" not in command:
@@ -347,6 +361,8 @@ def _with_results(framework, command, xml_path):
 
 def expects_results(framework, command):
     """True when this command, run by the runner, must yield per-test results."""
+    if node_tests.command_words(command):
+        return True
     if not framework or not framework.per_test or not command:
         return False
     if framework.name == "go":
@@ -405,7 +421,9 @@ def per_test_results(framework, receipt, xml_path) -> dict | None:
     ``collection_errors`` are failures of a module to import or collect; they are
     failures, but they never name a test that ran.
     """
-    if not framework or not framework.per_test:
+    if str(xml_path).endswith(".node.jsonl"):
+        return node_tests.results(xml_path)
+    if not framework or not framework.per_test or framework.name == "node":
         return None
     if framework.name == "go":
         output = receipt.get("output")
@@ -672,7 +690,8 @@ def select_commands(framework, test_paths, *, suite_command=None, regression_com
 
 
 def run_suite(framework, command, tree, evidence_dir, label, *, timeout):
-    xml = Path(evidence_dir) / f"{label}.junit.xml"
+    extension = "node.jsonl" if node_tests.command_words(command) else "junit.xml"
+    xml = Path(evidence_dir) / f"{label}.{extension}"
     xml.unlink(missing_ok=True)  # never parse a previous run's results
     receipt = run_command(_with_results(framework, command, xml), tree, Path(evidence_dir) / f"{label}.log",
                           timeout=timeout)

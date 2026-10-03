@@ -1,0 +1,41 @@
+# Named test proof
+
+A plan's `test: test_c1_example` criterion requires that named test to pass with
+the change and not before it. A `guard:` criterion must pass before and after.
+An exit code or a printed `PASS test_c1_example` is not enough to identify which
+case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
+and Node's built-in `node:test` runner.
+
+For Node, register each case as a real test, keeping its existing assertions
+and fixture helpers:
+
+```js
+const {test} = require('node:test');
+const assert = require('node:assert/strict');
+const {add} = require('../app.cjs');
+
+test('test_c1_adds_two_numbers', () => {
+  assert.equal(add(2, 3), 5);
+});
+```
+
+Run it with `node --test tests/cases.cjs`. Use unique case names within each
+suite and await asynchronous assertions. AutoCode detects `node:test` imports
+in changed test files and derives the targeted command. It runs identical tests
+against the original and candidate source in isolated worktrees. Keep the
+project's existing suite (including custom npm scripts) and protected tests;
+`--test-command` can continue to run that suite.
+
+AutoCode attaches its own structured reporter to direct `node --test` commands.
+It checks completed event streams and final counts, ignores test stdout, and
+does not count skipped, todo, empty-file or ambiguous duplicate results as named
+passes. Import and fixture-hook failures cannot demonstrate a reproduced bug.
+Missing or incomplete evidence stays unverified. The adapter uses the
+[documented Node TestsStream custom reporter API](https://nodejs.org/api/test.html#custom-reporters),
+including final summary events available in current Node 22 and later releases.
+
+Shell pipelines, custom reporters, npm/Jest/Vitest/Mocha summaries and custom
+assertion scripts do not currently provide named proof. A direct supported
+targeted command can accompany an existing package-script suite. If the project
+cannot use a supported runner, settle that compatibility blocker during planning;
+do not downgrade an approved named criterion to prose to make a run finish.

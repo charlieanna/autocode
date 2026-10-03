@@ -13,11 +13,11 @@ import shlex
 try:
     from . import autocode_support as support
     from .autocode_util import criteria_definition
-    from . import autocode_design_manifest as design_manifest, autocode_protected_oracles as protected_oracles
+    from . import autocode_design_manifest as design_manifest, autocode_protected_oracles as protected_oracles, autocode_visual_evidence as visual
 except ImportError:
     import autocode_support as support
     from autocode_util import criteria_definition
-    import autocode_design_manifest as design_manifest, autocode_protected_oracles as protected_oracles
+    import autocode_design_manifest as design_manifest, autocode_protected_oracles as protected_oracles, autocode_visual_evidence as visual
 
 
 def context_packet(state, stage, state_path):
@@ -66,6 +66,9 @@ def context_packet(state, stage, state_path):
     manifest_context = design_manifest.context(state["settings"])
     if manifest_context:
         base["design_manifest"] = manifest_context
+    capture_context = visual.context(state, current)
+    if capture_context:
+        base['implementation_captures'] = capture_context
     prerequisites = state['settings'].get('task_preflight', {}).get('body', {})
     if prerequisites.get('design'):
         base['design_readiness'] = prerequisites['design']
@@ -134,6 +137,9 @@ def context_packet(state, stage, state_path):
     instruction = support.STABLE.get(stage, "") + proof_note
     if manifest_context:
         instruction += design_manifest.INSTRUCTION
+    if capture_context:
+        instruction += visual.INSTRUCTION
+        base['visual_capture_command'] = shlex.join([sys.executable, str(Path(__file__).with_name('autocode.py')), 'visual-capture'])
     if stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
         try:
             from . import autocode_progressive_state as progressive_state

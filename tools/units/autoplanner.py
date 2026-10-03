@@ -111,7 +111,7 @@ affected_paths before approval. `python3 -m unittest discover -s tests -t .` nee
 assign that file explicitly (or tests/) when it does not exist. Never leave the Builder to expand scope.
 ERROR PATHS: inject failures after staged or transactional work begins; verify the public error contract,
 unchanged persistent state and complete cleanup across the relevant underlying failure modes.
-"""
+""" + test_cases.NAMED_PROOF_NOTE
 # Two live ladder runs (Claude models, 2026-09-30) approved an example that contradicted its own rule: "2024-02-28
 # to 2024-03-01 is 4 dates", and an entry with a TTL of 2**63 still present at time 1e300. Both plan reviews passed
 # it, the Builder bent its test to fit, and the run stopped for a person after the build.
