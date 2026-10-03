@@ -671,6 +671,8 @@ class JointFlow(unittest.TestCase):
 
     def test_gpt_sol_revalidates_terras_rework_in_its_own_opencode_session(self):
         run, state = self.draft("rework")
+        # Preserve coverage of Resolver/Validator session separation on the fallback path.
+        self.env["AUTOCODE_FIXTURE_INCOMPLETE_REWORK"] = "1"
         args = ["--run-dir", str(run)]
         self.launch([*args, "--approve-goal", state["displayed_goal"]], 0)
         self.launch([*args, "--no-chat"], 0)

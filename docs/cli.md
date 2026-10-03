@@ -167,3 +167,9 @@ Use `--tool-output-mode raw|conservative` for AutoCode capture/file-read display
 `autocode output retrieve SHA256 --raw` recovers exact bytes. See
 [exact output transport](exact-output.md) for options, recovery and measurement
 limits. Native provider tools keep their existing behavior.
+
+A failed read-only workflow job exposes an exact `retry_job` action in status.
+After inspecting the archived attempt, retry with `--resume-paused
+--retry-failed-stage --job-retry-token TOKEN` using its current
+`needs.job_retry_token`. Plain resume does not repeat the job. Unrestored source
+or changed source/model/limits requires a fresh authorized run.

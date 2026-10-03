@@ -26,17 +26,18 @@ try:
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_task_preflight as task_preflight
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     from . import autocode_stop as stop_policy, autocode_status as status_records
-    from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log
+    from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy
 except ImportError:
     import autocode_dependency as dependency, autocode_status_command as status_command, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     import autocode_regression as regression, autocode_format_correction as format_correction, autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_event_log as event_log
     import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
     import autocode_providers, autocode_opencode as opencode, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_task_preflight as task_preflight
     import autocode_stop as stop_policy, autocode_status as status_records
-    import autocode_process as processes, autocode_registry as registry, autocode_planning as planning
+    import autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_rework_policy as rework_policy
     import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue
 
 try:
+    from . import autocode_job_source as job_source, autocode_job_failure as job_failure
     from . import autocode_workspaces as task_workspaces, autocode_figma as figma
     from . import autopilot
     from . import autocode_workflow as workflow
@@ -67,6 +68,7 @@ try:
         recover_legacy_report_repair, retry_format_failed_report)
     from .autocode_activity import ActivityMonitor
 except ImportError:
+    import autocode_job_source as job_source, autocode_job_failure as job_failure
     import autocode_workspaces as task_workspaces
     import autocode_figma as figma
     import autopilot
@@ -185,7 +187,8 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
     evidence_record = evidence_record or record
     validation = value.get('validation', value)
     checks = validation.get('checks') if isinstance(validation, dict) else None
-    if isinstance(checks, list) and any(isinstance(check, dict) and check.get('exit_code') is None for check in checks):
+    if isinstance(checks, list) and ((record.get('stage') == 'sol' and workspace is not None)
+            or any(isinstance(check, dict) and check.get('exit_code') is None for check in checks)):
         if workspace is None:
             raise ValueError('Cannot derive check metadata without the validation workspace')
         support.verify_checks(checks, workspace, evidence_record['events'], **check_evidence_options(evidence_record))
@@ -214,7 +217,7 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
             if (reported.get('validation', reported)['checks'][index]).get('exit_code') is None]
     if record.get('engine') == 'opencode' or value != reported:
         write_json(Path(record['output']), value)
-    return value
+    return rework_policy.capture(record, value) if workspace is not None else value
 
 
 class ReportRepairQueued(Exception):
@@ -299,8 +302,6 @@ def run_role(
     if state.get('next_stage') == 'astra_diagnose' and state.get('active_stage'):
         raise support.Paused('PAUSED_UNCERTAIN_STAGE', 'Reconcile the active diagnosis before another provider request')
     timeout_recovery_guard(state)
-    # Unskippable chokepoint: every Builder/Validator/Completion launch goes
-    # through run_role. Before_code_stage and dispatch are belt-and-suspenders.
     if role in ("terra", "sol", "completion", "astra", "plan_reviewer", "glm"):
         dispatch.enforce_cross_model_verification(state)
     iteration = state["iteration"]
@@ -325,7 +326,6 @@ def run_role(
         stage += '_report_repair'
     if stage == 'astra_diagnose' and not dry_run:
         resolver_runtime.check_diagnostic_capacity(sys.modules[__name__], state, run_dir)
-    # New names cannot overwrite legacy finals or an uncertain provider request.
     attempt = 1 + sum(r.get("stage") == stage and r.get("iteration") == iteration for r in state.get("stages", []))
     base = artifacts.reserve(run_dir, iteration, stage, attempt)
     output, events, prompt_file = base.with_suffix(".json"), base.with_suffix(".jsonl"), base.with_suffix(".prompt.md")
@@ -409,6 +409,7 @@ def run_role(
     write_json(base.with_suffix(".before.json"), before)
     record["before_ref"] = str(base.with_suffix(".before.json"))
     record["context"] = state.pop("pending_context_metrics", {})
+    job_source.capture(workspace, base, record, before)
     started = time.monotonic()
     timed_out = False
     interrupted = False
@@ -416,8 +417,6 @@ def run_role(
     worker_path = run_dir / "active-processes.json"
     with processes.interruption_handler(), prompt_file.open("r") as stdin, event_log.open_events(events) as stdout:
         try:
-            # Preparation can be slow. Linearize immediately before the durable
-            # active request and launch, with submission using the same short lock.
             with interventions.admission(run_dir):
                 if joint_stage and not report_only:
                     planning.charge(state, original_stage, record=record, workspace=workspace)
@@ -431,6 +430,7 @@ def run_role(
                             if grant.get('consumed') and grant['binding']['selected_route'] == admitted)
                 resolver_runtime.charge_diagnostic_dispatch(sys.modules[__name__], state, run_dir, workspace, record)
                 progressive_state.admit_attempt(state, record, before)
+                job_failure.admit(state, record, workspace)
                 state["active_stage"] = record
                 write_json(run_dir / "state.json", state)
                 child_stdin = (subprocess.DEVNULL if engine == "opencode" and configured_tool
@@ -439,8 +439,8 @@ def run_role(
                                          text=True, **checkout_lock.child_options(workspace, child_options))
                 record["pid"] = child.pid
         except support.Paused:
+            job_source.discard_prepared(record)
             # Admission lost to a submission: no request or provider was started.
-            # Keep attempt numbering retryable without inventing uncertain work.
             for prepared in (prompt_file, events, base.with_suffix(".before.json"), base.with_suffix(".opencode.json")):
                 prepared.unlink(missing_ok=True)
             raise
@@ -491,7 +491,7 @@ def run_role(
             "kind": "stage", "reason": f"Stage exceeded its {stage_timeout}-second hard runtime limit"}
         record.update(timeout_kind=timeout["kind"], timeout_reason=timeout["reason"])
     account_stage(state, record)
-    # Persist terminal subprocess evidence before parsing or advancing.
+    if not cleanup_error and exit_code is not None: job_source.stopped(workspace, base, record)
     write_json(run_dir / "state.json", state)
     if cleanup_error:
         raise support.Paused("PAUSED_PROCESS_CLEANUP", cleanup_error)
@@ -754,7 +754,9 @@ def execute_report_repair(state, run_dir, workspace):
 
 
 def apply_result(state, stage, value, record, workspace, run_dir):
-    return autopilot.apply_result(sys.modules[__name__], state, stage, value, record, workspace, run_dir)
+    result = autopilot.apply_result(sys.modules[__name__], state, stage, value, record, workspace, run_dir)
+    job_failure.completed(state, stage)
+    return result
 
 
 def save_record(state, record):
@@ -1246,7 +1248,6 @@ def _main_body(unit=None) -> int:
         opencode = autocode_providers.resolve(selected_provider)
     except (RuntimeError, ValueError) as error:
         parser.error(str(error))
-    # Legacy runner does not own our new lock; detect it before touching state.
     support.assert_no_legacy_process(run_dir, workspace)
     task_workspaces.keep_out_of_git(workspace)
     with support.run_lock(run_dir):
@@ -1263,7 +1264,7 @@ def _main_body(unit=None) -> int:
         except (support.Paused, ValueError, RuntimeError, OSError) as error:
             state.update(status=getattr(error,"status","PAUSED_INVALID_OUTPUT"), stop_reason=str(error), paused_at=now())
             state["phase"] = "PAUSED_OR_BLOCKED"
-            if isinstance(error, support.Paused):
+            if isinstance(error, support.Paused) and error.status != "PAUSED_JOB_FAILURE":
                 resolver_runtime.record_operational_exhaustion(sys.modules[__name__], state, run_dir, error)
             write_json(state_path, state)
             print(f"{state['status']}: {error}", file=sys.stderr)

@@ -143,6 +143,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument('--resolver-response', choices=('provide_information', 'leave_paused'),
                         help='Respond to AutoResolver without authorizing execution or increasing limits')
     parser.add_argument('--resolver-message', default='', help='Corrective information for AutoResolver')
+    parser.add_argument("--job-retry-token", help="Exact retry_job token for a stopped workflow job; requires --resume-paused --retry-failed-stage")
     parser.add_argument("--retry-failed-stage", action="store_true",
                         help="Authorize one fresh attempt for the recorded unchanged repeated failure after inspecting it; requires --resume-paused")
     parser.add_argument("--diagnose-failed-stage", action="store_true",
@@ -212,6 +213,8 @@ def parse(unit, argv, default_models):
         parser.error("--accept-transport-change requires --run-dir and --resume-paused")
     if args.retry_report and (not args.run_dir or not args.resume_paused):
         parser.error("--retry-report requires --run-dir and --resume-paused")
+    if args.job_retry_token and not (args.retry_failed_stage and args.resume_paused and args.run_dir):
+        parser.error("--job-retry-token requires --run-dir --resume-paused --retry-failed-stage")
     if args.retry_failed_stage and (not args.run_dir or not args.resume_paused):
         parser.error("--retry-failed-stage requires --run-dir and --resume-paused")
     if args.diagnose_failed_stage and (not args.run_dir or not args.resume_paused):

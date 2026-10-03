@@ -10,6 +10,7 @@ from __future__ import annotations
 
 
 try:
+    from . import autocode_job_failure as job_failure
     from . import autopilot
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_dispatch as dispatch
@@ -23,6 +24,7 @@ try:
     from . import autocode_workflow as workflow
     from . import autocode_workflows as workflows
 except ImportError:
+    import autocode_job_failure as job_failure
     import autopilot
     import autocode_checkout_lock as checkout_lock
     import autocode_dispatch as dispatch
@@ -148,6 +150,8 @@ def run(runner, args, state, state_path, run_dir, workspace):
         except runner.ReportRepairQueued:
             return runner.orchestrator.SKIP
         except support.Paused as error:
+            if job_failure.recover(runner, current, run_dir, workspace, error):
+                return runner.orchestrator.SKIP
             if provider_recovery.recover_startup(runner, current, run_dir, workspace, error):
                 return runner.orchestrator.SKIP
             if runner.automatically_recover_truncated_review(current, run_dir, workspace, error):

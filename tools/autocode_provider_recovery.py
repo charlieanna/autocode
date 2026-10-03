@@ -12,6 +12,11 @@ from pathlib import Path
 import re
 import time
 
+try:
+    from . import autocode_job_failure as job_failure
+except ImportError:
+    import autocode_job_failure as job_failure
+
 MAX_STARTUP_RETRIES = 2
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 LOCK = re.compile(r"(?:Error: Unexpected error\s+)?"
@@ -58,6 +63,8 @@ def recover_startup(runtime, state, run_dir, workspace, error, *, sleep=time.sle
     existing reconciliation paths. Pause/admission guards run before any retry.
     """
     record = state.get("active_stage") or {}
+    if job_failure.owner(record):
+        return job_failure.recover(runtime, state, run_dir, workspace, error)
     run_dir = Path(run_dir)
     if (error.status != "PAUSED_PROVIDER_UNCERTAIN" or state.get("status") != "RUNNING"
             or not record.get("finished_at") or type(record.get("exit_code")) is not int
@@ -122,7 +129,8 @@ def recover_startup(runtime, state, run_dir, workspace, error, *, sleep=time.sle
 
 def recover_dispatch(runtime, state, run_dir, workspace, error):
     """The controller's recovery boundary; other recovery policies are unchanged."""
-    return (recover_startup(runtime, state, run_dir, workspace, error)
+    return (job_failure.recover(runtime, state, run_dir, workspace, error)
+            or recover_startup(runtime, state, run_dir, workspace, error)
             or runtime.automatically_recover_truncated_review(state, run_dir, workspace, error)
             or runtime.automatically_recover_timed_out_stage(state, run_dir, workspace, error)
             or runtime.automatically_recover_external_directory_denial(state, run_dir, workspace, error))

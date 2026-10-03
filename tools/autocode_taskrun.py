@@ -105,6 +105,12 @@ class TaskRun:
         self._invoke("resume", "--resume-paused", "--no-chat", *self.options, advancing=True)
         return self.status()
 
+    def retry_job(self, token: str) -> dict:
+        """Retry exactly the inspected failed workflow job, retaining route and limits."""
+        self._invoke('retry job', '--resume-paused', '--retry-failed-stage', '--job-retry-token', token,
+                     '--no-chat', *self.options, advancing=True)
+        return self.status()
+
     def grant_recovery(self, amount: int) -> dict:
         """Grant exactly N new recoveries after the operator resolves the pause cause."""
         if type(amount) is not int or amount < 1:

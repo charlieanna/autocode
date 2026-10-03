@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 try:
+    from . import autocode_job_failure as job_failure
     from . import autocode_escalation as escalation
     from . import autocode_failures as failures
     from . import autocode_interventions as interventions
@@ -25,6 +26,7 @@ try:
     from . import autocode_validation_recovery as validation_recovery
     from . import autocode_permission_recovery as permission_recovery
 except ImportError:
+    import autocode_job_failure as job_failure
     import autocode_escalation as escalation
     import autocode_failures as failures
     import autocode_interventions as interventions
@@ -87,6 +89,8 @@ def abandon_stage(state, run_dir, workspace, selected):
     if not record or selected != records.attempt_id(record):
         raise ValueError("--abandon-stage must match the active attempt_id shown by --status")
     records.assert_stage_stopped(record)
+    if job_failure.recover(records, state, run_dir, workspace, abandoned=True):
+        return
     record["metrics"] = support.event_metrics(record["events"])
     records.account_stage(state, record)
     before = records.read_json(Path(record["before_ref"]))
@@ -239,6 +243,8 @@ def automatically_recover_capacity_stage(state, run_dir, workspace, error):
     recoveries and require an explicit resume.
     """
     record = state.get("active_stage")
+    if job_failure.owner(record or {}):
+        return job_failure.recover(records, state, run_dir, workspace, error)
     if (error.status != "PAUSED_PROVIDER_CAPACITY" or not record
             or (run_dir / "pause-requested").exists()):
         return False
@@ -385,6 +391,8 @@ def automatically_recover_truncated_review(state, run_dir, workspace, error):
 def reconcile_rate_limited_stage(state, run_dir, workspace):
     """AutoResolver retires a proven stopped rate-limit attempt without replay."""
     record = state.get('active_stage') or {}
+    if job_failure.owner(record or {}):
+        return job_failure.recover(records, state, run_dir, workspace)
     event_path = Path(record.get('events', ''))
     if (not event_path.is_file() or support.failure_status(event_path) != 'PAUSED_RATE_LIMIT'
             or any(event.get('type') == 'turn.completed' for event in support.events(event_path))
@@ -427,6 +435,8 @@ def automatically_recover_timed_out_stage(state, run_dir, workspace, error):
     consume the existing no-progress budget before another provider is launched.
     """
     record = state.get("active_stage")
+    if job_failure.owner(record or {}):
+        return job_failure.recover(records, state, run_dir, workspace, error)
     if record and record.get('report_only'):
         return automatically_recover_report_repair_timeout(state, run_dir, workspace, error)
     # Startup reconciliation classifies a non-terminal saved log as uncertain;
@@ -515,6 +525,8 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
     stay uncertain and require reconciliation.
     """
     record = state.get("active_stage")
+    if job_failure.owner(record or {}):
+        return job_failure.recover(records, state, run_dir, workspace, error)
     if not record or record.get("timed_out") or (run_dir / "pause-requested").exists():
         return False
     event_path = Path(record.get("events", ""))
