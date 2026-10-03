@@ -13,9 +13,11 @@ import shlex
 try:
     from . import autocode_support as support
     from .autocode_util import criteria_definition
+    from . import autocode_design_manifest as design_manifest
 except ImportError:
     import autocode_support as support
     from autocode_util import criteria_definition
+    import autocode_design_manifest as design_manifest
 
 
 def context_packet(state, stage, state_path):
@@ -46,7 +48,8 @@ def context_packet(state, stage, state_path):
                 execution_engine=planning.engine_for(state["settings"], planning.role_for(state, stage)))
     if stage == 'terra':
         base['builder_artifact_policy'] = {
-            'evidence_directory': str(Path(state_path).parent / 'evidence'),
+            'evidence_directory': (state.get('recovery_context') or {}).get('diagnostic_directory')
+                or str(Path(state_path).parent / 'evidence'),
             'instruction': 'Source writes must stay within current_task.affected_paths. '
                 'Shell commands start in workspace; use relative source paths there. '
                 'When a file tool requires an absolute path, derive it from the exact workspace '
@@ -57,6 +60,9 @@ def context_packet(state, stage, state_path):
                 'never runner state/config. Cite bare event: IDs or exact existing paths in evidence_refs; '
                 'put explanations in summary/results, not in paths. Create missing assigned outputs '
                 'rather than treating them as missing prerequisites.'}
+    manifest_context = design_manifest.context(state["settings"])
+    if manifest_context:
+        base["design_manifest"] = manifest_context
     figma_file = state["settings"].get("figma_file")
     if figma_file:
         base["figma_file"] = figma_file
@@ -112,6 +118,8 @@ def context_packet(state, stage, state_path):
     base["capture_command"] = shlex.join([sys.executable, str(Path(__file__).with_name("autocode.py")), "capture"])
     base["baseline_compare_command"] = shlex.join([sys.executable, str(Path(__file__).with_name("autocode.py")), "compare-baseline"])
     instruction = support.STABLE.get(stage, "") + proof_note
+    if manifest_context:
+        instruction += design_manifest.INSTRUCTION
     if stage in ("terra", "sol", "astra_review", "astra_checkpoint"):
         try:
             from . import autocode_progressive_state as progressive_state
@@ -144,10 +152,6 @@ def context_packet(state, stage, state_path):
             import autocode_figma as figma
         instruction += figma.instructions(state["settings"], stage=stage,
                                            current_task=state.get("current_task"))
-    if stage == "sol" and base["execution_engine"] == "codex":
-        instruction += ("Read this stage's events .jsonl. Cite the item.id (item_N) of a completed "
-                        "command_execution item.completed event, with its full command and exit_code. "
-                        "Conversation call IDs are not event IDs.\n")
     if state.get("version", 2) >= 3:
         try:
             from . import autocode_goals as goals

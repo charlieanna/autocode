@@ -412,6 +412,10 @@ def contract(final: bool = False) -> dict:
         body["initial_task"] = {"kind": "implement", "milestone_id": "M1", "objective": outcome(),
                                 "affected_paths": PATHS, "requirements": [requirements()[0]["text"]],
                                  "acceptance_criteria": ["C1"], "validation_plan": [CHECK]}
+        if os.environ.get("SCENARIO_FAKE_NEGATIVE_PLAN") == "1":
+            body["initial_task"]["validation_plan"].append(
+                "Run `python3 greet.py Alice`, `python3 greet.py` and `python3 greet.py Alice Bob` "
+                "directly and confirm exact stdout/stderr bytes and exit codes 0/2/2.")
         if PROGRESSIVE and "PROGRESSIVE PLANNING" in PROMPT:
             body["initial_task"] = progressive_task()
     return body
@@ -760,15 +764,18 @@ def report_for(stage: str, data: dict) -> dict:
     if stage in ("sol", "astra_checkpoint"):
         code = run_check()
         status = "PASS" if code == 0 else "FAIL"
+        # The Validator sees neither event IDs nor exit codes: it names its check by command and cites it as
+        # check:1, and the runner attaches the event and exit code (autocode_check_refs).
+        ref, check = ("check:1", {"command": CHECK, "exit_code": None, "evidence_ref": "event:"}) if stage == "sol" \
+            else ("event:check", {"command": CHECK, "exit_code": code, "evidence_ref": "event:check"})
         return {**common, "verdict": status, "checks_run": [CHECK], "findings": [],
-                "finding_dispositions": [], "unverified_criteria": [],
-                "checks": [{"command": CHECK, "exit_code": code, "evidence_ref": "event:check"}],
+                "finding_dispositions": [], "unverified_criteria": [], "checks": [check],
                 # Every criterion of the approved contract (a bug fix's English test cases add some).
-                "criterion_results": [{"id": row["id"], "status": status, "evidence_refs": ["event:check"]}
+                "criterion_results": [{"id": row["id"], "status": status, "evidence_refs": [ref]}
                                       for row in ((data.get("goal_contract") or {}).get("body") or {})
                                       .get("acceptance_criteria") or [{"id": "C1"}]],
                 "end_to_end_result": {"status": status, "summary": f"{CHECK} exited {code}",
-                                      "evidence_refs": ["event:check"]}}
+                                      "evidence_refs": [ref]}}
     if stage in ("astra_review", "astra_plan") and MILESTONES and not (data.get("goal_contract") or {}).get("revision"):
         # Report repair: the handoff has no live contract or current task; fix
         # the rejected draft's identity fields and return it as instructed.

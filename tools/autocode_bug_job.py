@@ -161,7 +161,8 @@ def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int =
         start = instruction.index('2. Try to reproduce')
         end = instruction.index('3. If it reproduces')
         instruction = instruction[:start] + """2. Use the runner-prepared investigation_workspace in CURRENT HANDOFF DATA. It already contains a
-   complete copy of the application source and file dependencies. Do not rebuild the copy, copy individual
+   complete copy of eligible application source. Git copies include tracked and ordinary untracked inputs,
+   excluding ignored credentials, dependencies and outputs. Do not rebuild the copy, copy individual
    source files into it, or substitute an incomplete directory. Reproduce the reported behavior there.
    Keep scratch tests, output and caches in that directory. Do not edit application source in the
    original workspace, create scratch outside the workspace, or modify existing runner state or

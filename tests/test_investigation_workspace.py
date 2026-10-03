@@ -113,5 +113,58 @@ class PrepareTests(unittest.TestCase):
             self.assertEqual('original', (root / 'source.txt').read_text())
 
 
+class GitInventoryTests(unittest.TestCase):
+    def repository(self, root):
+        import subprocess
+        subprocess.run(['git', 'init', '-q', str(root)], check=True)
+        return subprocess
+
+    def test_tracked_input_under_ignore_rule_survives_without_ignored_siblings(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            git = self.repository(root)
+            (root / '.gitignore').write_text('public/\n')
+            (root / 'public').mkdir()
+            (root / 'public/proof.md').write_text('declared tracked proof')
+            (root / 'public/secret.txt').write_text('excluded')
+            git.run(['git', '-C', str(root), 'add', '-f', 'public/proof.md'], check=True)
+            scratch = investigation_workspace.prepare(root)
+            self.assertEqual('declared tracked proof', (scratch / 'public/proof.md').read_text())
+            self.assertFalse((scratch / 'public/secret.txt').exists())
+
+    def test_nonignored_alias_cannot_materialize_an_ignored_secret(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.repository(root)
+            (root / '.gitignore').write_text('secret.txt\n')
+            (root / 'secret.txt').write_text('excluded')
+            (root / 'alias.txt').symlink_to('secret.txt')
+            with self.assertRaisesRegex(ValueError, 'symlink'):
+                investigation_workspace.prepare(root)
+
+    def test_initialized_nested_git_source_keeps_its_own_inventory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            git = self.repository(root)
+            nested = root / 'component'
+            nested.mkdir()
+            self.repository(nested)
+            (nested / '.gitignore').write_text('output/\n')
+            (nested / 'app.py').write_text('value = 1\n')
+            git.run(['git', '-C', str(nested), 'add', '.'], check=True)
+            git.run(['git', '-C', str(nested), '-c', 'user.name=T', '-c',
+                     'user.email=t@example.test', 'commit', '-qm', 'component'], check=True)
+            git.run(['git', '-C', str(root), 'add', 'component'], check=True, capture_output=True)
+            (nested / 'app.py').write_text('value = 2\n')
+            (nested / 'public.md').write_text('ordinary untracked input')
+            (nested / 'output').mkdir()
+            (nested / 'output/result.txt').write_text('excluded')
+            scratch = investigation_workspace.prepare(root)
+            self.assertEqual('value = 2\n', (scratch / 'component/app.py').read_text())
+            self.assertEqual('ordinary untracked input', (scratch / 'component/public.md').read_text())
+            self.assertFalse((scratch / 'component/output').exists())
+            self.assertFalse((scratch / 'component/.git').exists())
+
+
 if __name__ == '__main__':
     unittest.main()

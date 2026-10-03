@@ -1037,10 +1037,14 @@ def context(state, stage, state_path):
     if stage in ("requirements_gather", "astra_discovery"):
         packet['workspace_inventory'] = workspace_inventory(state['workspace'], state['task'])
     try:
-        from .. import autocode_figma as figma
+        from .. import autocode_figma as figma, autocode_design_manifest as design_manifest
     except ImportError:
-        import autocode_figma as figma
+        import autocode_figma as figma, autocode_design_manifest as design_manifest
     figma_instruction = figma.instructions(state["settings"])
+    manifest_context = design_manifest.context(state["settings"])
+    if manifest_context:
+        packet["design_manifest"] = manifest_context
+        figma_instruction += design_manifest.INSTRUCTION
     planning_policy = "" if stage == "requirements_gather" else (
         goals.DECISION_PROVENANCE + goals.CONTRACT_REFERENCES + examples.RULE + s.MILESTONE_POLICY + EVIDENCE_FACTS
         + ("" if stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE))
@@ -1145,7 +1149,10 @@ def after_challenge(state, value, record):
             planning["review_call_limit"] = adaptive.review_limit(planning["adaptive"]["size"], review_call_limit(state))
         planning["adaptive"]["review_limit"] = review_call_limit(state)
     planning["adaptive"]["challenges"] += 1
-    if adaptive.blocking(value["concerns"]) or not adaptive.approvable(contract["body"]):
+    if (adaptive.blocking(value["concerns"]) or not adaptive.approvable(contract["body"])
+            or progressive.view(state).get("candidate")):
+        # A progressive delegation is authorized by an accepted revision and final
+        # independent review. A challenge cannot supply that approval evidence.
         state["next_stage"] = "glm_revise"
         return
     try:
@@ -1172,7 +1179,7 @@ def rerun_requirements(state, value):
 
 def after_revise(state):
     """After a revision: the final review, or in an adaptive run another first-style review while budget allows."""
-    if not adaptive.enabled(state):
+    if not adaptive.enabled(state) or progressive.view(state).get("candidate"):
         return "astra_finalize"
     planning = state["planning"]
     return adaptive.after_revise(review_call_limit(state), planning["astra_calls"],

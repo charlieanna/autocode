@@ -607,9 +607,22 @@ def patch_applies(repo, base, patch) -> str:
 
 
 def remove_tree(repo, destination):
-    _git(repo, "worktree", "remove", "--force", str(destination), check=False)
-    if Path(destination).exists():
-        shutil.rmtree(destination, ignore_errors=True)
+    """Remove a scratch worktree, including read-only caches created by probes."""
+    destination = Path(destination)
+    if destination.is_symlink():
+        destination.unlink()
+    else:
+        _git(repo, "worktree", "remove", "--force", str(destination), check=False)
+        if destination.exists():
+            # Go's module cache makes directories read-only. Restore owner
+            # access only inside this scratch tree; linked dependencies stay intact.
+            destination.chmod(destination.stat().st_mode | 0o700)
+            for directory, children, _ in os.walk(destination, followlinks=False):
+                for name in children:
+                    child = Path(directory) / name
+                    if not child.is_symlink():
+                        child.chmod(child.stat().st_mode | 0o700)
+            shutil.rmtree(destination)
     _git(repo, "worktree", "prune", check=False)
 
 

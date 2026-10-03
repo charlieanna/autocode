@@ -2,13 +2,19 @@
 
 Natural-language methods stay with the Validator. Commands are plain shell
 commands or backtick snippets explicitly requested for execution. Quoted
-documentation examples are not commands. Imports only the standard library.
+documentation examples are not commands. Depends only on the standard library
+and the exit-expectation helper.
 """
 from pathlib import Path, PurePosixPath
 import hashlib
 import json
 import re
 import shlex
+
+try:
+    from . import autocode_verification_expectations as expectations
+except ImportError:
+    import autocode_verification_expectations as expectations
 
 # Plain text (no backticks) is a command only when all of it is one: prose after a command makes the whole
 # method prose, left to the Validator. Live bugfix-trivial runs (Claude models, 2026-09-30) approved
@@ -60,7 +66,7 @@ def commands(method):
             if requested and executable(command):
                 result.append(command)
             previous = snippet.end()
-        return result
+        return expectations.assertion_commands(text, result)
     if text.lower().startswith("run "):
         text = text[4:].strip()
     bare = QUOTED.sub("", text)

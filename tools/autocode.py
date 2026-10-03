@@ -45,7 +45,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_reviewer_fallback as reviewer_fallback
     from . import autocode_planning_artifacts as planning_artifacts
-    from . import autocode_budget_recovery as budget_recovery
+    from . import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits
     from . import autocode_progressive_state as progressive_state
     from . import autocode_findings as findings_ledger
     from . import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
@@ -75,7 +75,7 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_reviewer_fallback as reviewer_fallback
     import autocode_planning_artifacts as planning_artifacts
-    import autocode_budget_recovery as budget_recovery
+    import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits
     import autocode_progressive_state as progressive_state
     import autocode_findings as findings_ledger
     import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
@@ -181,7 +181,7 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
     evidence_record = evidence_record or record
     validation = value.get('validation', value)
     checks = validation.get('checks') if isinstance(validation, dict) else None
-    if isinstance(checks, list) and any(isinstance(check, dict) and 'exit_code' not in check for check in checks):
+    if isinstance(checks, list) and any(isinstance(check, dict) and check.get('exit_code') is None for check in checks):
         if workspace is None:
             raise ValueError('Cannot derive check metadata without the validation workspace')
         support.verify_checks(checks, workspace, evidence_record['events'], **check_evidence_options(evidence_record))
@@ -207,7 +207,7 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
             {'check_index': index, 'field': 'exit_code', 'value': check['exit_code'],
              'evidence_ref': check['evidence_ref'], 'events': evidence_record['events']}
             for index, check in enumerate(checks or [])
-            if 'exit_code' not in (reported.get('validation', reported)['checks'][index])]
+            if (reported.get('validation', reported)['checks'][index]).get('exit_code') is None]
     if record.get('engine') == 'opencode' or value != reported:
         write_json(Path(record['output']), value)
     return value
@@ -794,19 +794,9 @@ def _apply_result(state, stage, value, record, workspace, run_dir):
 
 MAX_AUTOMATIC_RECOVERIES = 3
 def timeout_recovery_guard(state):
-    limit = state.get("settings", {}).get("limits", {}).get("no_progress_batches", 3)
-    exhausted = recovery_count(state) >= MAX_AUTOMATIC_RECOVERIES
-    # Match the CLI's no-progress policy: 0 disables this threshold. The
-    # independent aggregate recovery guard above still bounds automatic replay.
-    consecutive = bool(limit) and state.get("consecutive_timeout_recoveries", 0) >= limit
-    if exhausted or consecutive:
-        ctx = state.get("recovery_context") or {}
-        cause = ctx.get("timeout_reason") or ctx.get("instruction", "Inspect saved provider logs")
-        raise support.Paused("PAUSED_TIMEOUT_RECOVERY",
-            f"Automatic recovery budget exhausted; no further provider will launch. Last cause: {cause}. "
-            "AutoResolver retained the diagnosis and failure history; this is an operational "
-            "stop, not a request for approval. After fixing the cause, authorize more recoveries "
-            "explicitly with --resume-paused --grant-recovery N.")
+    reason = recovery_limits.stop_reason(state, recovery_count(state), MAX_AUTOMATIC_RECOVERIES)
+    if reason:
+        raise support.Paused(*reason)
 
 
 def retry_format_failed_report(state, run_dir, workspace, selected):

@@ -9,8 +9,9 @@ finalize. With it, each decision is made by the first stage that has the evidenc
   from the request itself. Clarity is a property of the text, so the recognizer,
   which reads no files, can judge it.
 - Convergence, from the Plan Reviewer. The Planner's draft carries its initial_task,
-  so a first review with no blocking concern approves the draft as written and it
-  goes to the user. Blocking concerns get a revision, then another review while the
+  so a first review with no blocking concern approves an ordinary draft as written and it
+  goes to the user. Progressive delegations retain revision and final independent review.
+  Blocking concerns get a revision, then another review while the
   allowance leaves room for a final one.
 - Size, from the draft itself, computed here rather than asked of a model: its
   milestones and the files they touch. A large plan gets one more review call than
@@ -67,7 +68,8 @@ ADAPTIVE PLANNING. Include initial_task in your contract now, with the same fiel
 objective, affected_paths, kind (implement or validate), milestone_id, requirements, acceptance_criteria IDs,
 validation_plan; its milestone has depends_on []. While a blocking question remains, use kind=none with empty
 strings and lists. If the Plan Reviewer raises no blocking concern, this contract goes to the user for approval
-exactly as you wrote it, with no further planning round, so make it complete.
+exactly as you wrote it, with no further planning round, so make it complete. A progressive_proposal
+delegating future slices still needs revision and final independent review before user approval.
 """
 
 NO_REQUIREMENTS_RULE = """
@@ -80,7 +82,8 @@ REVIEW_RULE = """
 ADAPTIVE PLANNING. Mark a concern blocking only when the plan must change before anyone builds it: a missing or
 weakened requirement, a wrong dependency or ownership claim, an untestable criterion, an unsafe or incoherent
 initial_task. If none of your concerns is blocking, your review approves the plan as drafted: it goes to the user
-with your non-blocking concerns as notes, and there is no revise or final round. Do not raise a blocking concern
+with your non-blocking concerns as notes, and there is no revise or final round. Progressive delegations retain
+revision and final independent review even without blocking concerns. Do not raise a blocking concern
 only to get another round. If planning.reports already holds a glm_revise report, this is a re-review of the
 revised plan: judge whether the Planner's responses settled your earlier concerns, and raise only what remains
 or what the revision introduced.

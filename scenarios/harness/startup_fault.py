@@ -8,6 +8,29 @@ import json
 import os
 from pathlib import Path
 import sys
+import threading
+import time
+
+
+def await_registration(root):
+    """Keep this fake launch alive until the supervisor records its birth identity.
+
+    Real startup failures have time to be observed. An instant scripted exit can
+    race process sampling, correctly forcing uncertain-execution handling instead
+    of exercising startup recovery. Synchronize on the launch receipt, not a delay.
+    """
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        for path in (root / "project/.autocode/runs").glob("*/active-processes.json"):
+            try:
+                receipt = json.loads(path.read_text())
+            except (OSError, ValueError):
+                continue
+            if any(row.get("pid") == os.getpid() and row.get("birth_identity") is not None
+                   for row in receipt.get("processes", [])):
+                return
+        threading.Event().wait(.01)
+    raise RuntimeError("Startup fixture launch was not registered by the supervisor")
 
 
 def before_launch():
@@ -35,6 +58,7 @@ def before_launch():
         out.write(json.dumps({"stage": stage, "attempt": count, "injected": fail}) + "\n")
     if not fail:
         return
+    await_registration(root)
     case = fault["case"]
     if case == "session":
         print(json.dumps({"type": "thread.started", "thread_id": "started-session"}), flush=True)

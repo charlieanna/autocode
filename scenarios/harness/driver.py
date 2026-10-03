@@ -133,9 +133,16 @@ class Driver:
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
             raise DriveError(f"time budget used up after {len(self.steps)} CLI calls")
+        flags = self.flags
+        if self.run_dir:
+            # Workflow selection is a new-run action; repeating it after recognition
+            # is refused by the public CLI even when it names the saved workflow.
+            flags = [arg for index, arg in enumerate(flags)
+                     if arg != "--workflow" and not arg.startswith("--workflow=")
+                     and not (index and flags[index - 1] == "--workflow")]
         cmd = [*self.autocode, *([task] if task else []), "--workspace", str(self.project),
                *(["--run-dir", str(self.run_dir)] if self.run_dir else ["--in-place"]),
-               *([] if action else ["--no-chat", *self.flags]), *extra]
+               *([] if action else ["--no-chat", *flags]), *extra]
         started = time.monotonic()
         try:
             proc = run_cli(cmd, env=self.env, cwd=self.root, timeout=remaining)

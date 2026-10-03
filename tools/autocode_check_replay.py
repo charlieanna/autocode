@@ -46,6 +46,8 @@ The clean copy is the repository's source only: no ignored files and no .autocod
 runner's own executed evidence: cite its verdict and source_revision directly, never a command that reads it.
 The runner also executes explicit commands from the approved verification methods and current_task.validation_plan;
 another successful command cannot replace them. Empty Python test bodies cannot establish behavioral coverage.
+An explicit planned exit-code expectation is replayed as an assertion: a usage-error probe expected to exit 2
+must actually exit 2. Your reported checks in a PASS still need to exit 0 themselves.
 Keep every scratch copy and test artefact inside the workspace under .autocode/ (for example .autocode/scratch/);
 the runner's changed-file measurement ignores .autocode/. Never use /tmp, mktemp or any path outside the
 workspace: the provider sandbox denies external directories and the whole attempt is lost (a live run paused

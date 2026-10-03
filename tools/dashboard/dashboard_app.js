@@ -1034,7 +1034,10 @@ function syncModelOptions(data={}) {
   if(retry){retry.hidden=availability==='ready'||availability==='loading';retry.disabled=availability==='ready'||availability==='loading';}
   const submit=$('#create-submit');
   if(submit){submit.disabled=!usable;if(usable)submit.removeAttribute?.('aria-describedby');else submit.setAttribute?.('aria-describedby','create-model-catalogue-status');}
-  if(typeof renderTaskModelSettings==='function'&&typeof latestRun!=='undefined'&&latestRun)renderTaskModelSettings(latestRun);
+  if(typeof latestRun!=='undefined'&&latestRun){
+    if(typeof renderTaskModelSettings==='function')renderTaskModelSettings(latestRun);
+    if(typeof renderPrimaryAction==='function')renderPrimaryAction(latestRun);
+  }
 }
 async function loadModels(refresh=false) {
   const request=++modelRequest, retry=$('#retry-models');

@@ -55,6 +55,11 @@ Codex launch compatibility was checked against installed exec/resume help and
 
 ### Opt-in product audits
 
+The [shared provider conformance probe](provider-conformance.md) exercises a Builder,
+a fresh Validator and resumed validation through the same small fixture on Codex,
+OpenCode and KiloCode. Its offline mode includes fault injection; live mode requires
+explicit spend authorization. It complements the full workflow scenarios below.
+
 `tests.test_autoreview_products` is skipped unless `REVIEW_AUDIT_LIVE_CODEX` is
 explicitly set. These tests make real model calls using the selected Codex
 executable and its credentials; they are not part of offline model verification.

@@ -20,7 +20,7 @@ stage that has the evidence for it:
 | Decision | Made by | Evidence | Effect |
 | --- | --- | --- | --- |
 | Does the request need requirements gathering? | Job recognizer | The request text: does it say what to build and how to tell it is done, with no product choice left open? | `clear` build requests go straight to the Planner; `vague` ones keep the Requirements stage. When unsure the recognizer says `vague`. |
-| Is the plan finished? | Plan Reviewer | Its own concerns, each marked blocking or not | No blocking concern: the Planner's draft is the final plan and goes to you, with the non-blocking concerns as notes. Otherwise the Planner revises. |
+| Is the plan finished? | Plan Reviewer | Its own concerns, each marked blocking or not | No blocking concern: an ordinary Planner draft goes to you, with the non-blocking concerns as notes. Otherwise the Planner revises. Progressive delegations keep revision and final independent review, which supply their approval authority. |
 | How many review rounds? | The runner | The draft's declared milestones and the files they touch (`plan_size`) | A large plan (3+ milestones or 10+ files) gets 3 review calls instead of 2, so a revision is reviewed again before the final decision. |
 | Does feedback on a plan need requirements gathering? | The runner, then the Planner | The run's status: a complete plan waiting for your approval | The Planner revises the plan you were shown, then the Plan Reviewer reviews it. The Planner can send feedback that changes what is being built back to Requirements. See [below](#feedback-on-a-plan-you-were-shown). |
 

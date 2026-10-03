@@ -46,6 +46,7 @@ $PY scenarios/run.py run bugfix-iso-weeks --profile glm53-openai --i-authorize-l
 $PY scenarios/run.py route --fake                 # which workflow AutoCode recognizes for each prompt in routing.toml
 $PY scenarios/run.py compare --fake               # AutoCode vs a plain agent on the same oracles (scripted; no spend)
 $PY scenarios/run.py stats                        # per scenario and mode: runs, passes, pass streak, time, model stages
+$PY scenarios/run.py build-compare greenfield-greeting-cli greenfield-todo-cli feature-timesheet-by-project parallel-diamond --fake --repeats 2 --jobs 4
 $PY -m unittest scenarios/test_harness.py         # the harness's own tests, including all catalog controls
 ```
 
@@ -90,6 +91,45 @@ The driver answers AutoCode's clarifying questions with AutoCode's own proposed
 default and records each answer in `result.json`. It approves the plan it is
 shown and accepts requested human reviews. It never writes AutoCode state and
 does not resume paused runs: a pause is reported as `HONEST_BLOCKER`.
+
+## Fixed versus adaptive through completion
+
+`build-compare` uses catalog briefs verbatim and judges finished projects with
+their independent oracles. It repeats both modes in fresh projects, alternates
+which mode runs first, keeps the same model profile and budgets, and retains
+errors, skips and timeouts in the scheduled denominator. `plan-compare` still
+stops at plan approval; its custom briefs cannot inherit the seed's build oracle.
+
+For a bounded live comparison on the frozen October 2 defaults:
+
+```sh
+$PY scenarios/run.py build-compare greenfield-greeting-cli greenfield-todo-cli feature-timesheet-by-project parallel-diamond \
+  --profile build-comparison --repeats 2 --jobs 2 --timeout-minutes 45 \
+  --max-seconds 2400 --max-stage-seconds 600 --max-iterations 6 \
+  --rate-card scenarios/api-pricing-2026-10-02.json --i-authorize-live-model-spend
+$PY scenarios/run.py build-compare --rebuild .scenario-runs/<comparison-directory>
+```
+
+`protocol.json` freezes the revision, model profile, brief hashes, rate card,
+budgets and scheduled pairs before execution. Each completed attempt is saved
+separately; rebuilding reports calls no models and shows missing attempts. Live
+API dollar estimates use individual OpenCode request finishes, deduplicate
+replayed usage, include reasoning, rejected calls and report repairs, apply
+cache rates and long-context surcharges, and leave unknown usage unpriced.
+`API $ / pass` includes spend on failed attempts. These are standard API token
+estimates, even when the configured connection uses a subscription; actual
+billing, tool fees and unreported/incomplete-request usage are not established.
+Fake runs show gate correctness and oracle sensitivity, never dollar savings or
+model effectiveness. A short successful live sample is evidence to expand the
+comparison, not proof that changing the default is safe for every job.
+Add `--prepare` to save the exact protocol, including briefs and seed hashes,
+without launching AutoCode or needing live-spend authorization.
+
+Inspect recorded clarification answers before interpreting quality differences.
+The driver accepts model-proposed defaults; a default can change an output
+contract away from the original-brief oracle. Such a mismatch is not evidence
+that a Builder ignored its approved plan. Retain the attempt and flag the changed
+target rather than presenting its oracle score as a comparison on the same goal.
 
 A scenario whose `scenario.toml` carries `[run] known_failure = "why"` is one
 AutoCode is known not to pass yet. `run` still reports its verdict but does not

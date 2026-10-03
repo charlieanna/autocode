@@ -6,11 +6,11 @@ from pathlib import Path
 
 try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals
-    from . import autocode_goal_lifecycle as lifecycle
+    from . import autocode_goal_lifecycle as lifecycle, autocode_design_coverage as design_coverage
 except ImportError:
     import autocode_support as support, autocode_completion as completion_gate
     import autocode_goals as goals
-    import autocode_goal_lifecycle as lifecycle
+    import autocode_goal_lifecycle as lifecycle, autocode_design_coverage as design_coverage
 
 MODE = "glm_first_v1"
 FINAL_MODE = "glm_final_audit_v2"
@@ -281,7 +281,7 @@ def apply_checkpoint(runner, state, value, record, workspace, run_dir):
     guard(state)
     if not enabled(state) or record.get("role") != "astra":
         raise ValueError("Independent checkpoint must run under the approved Plan Reviewer role")
-    support.validate_schema(value, checkpoint_schema(runner.SCHEMA_DIR))
+    support.validate_schema(value, design_coverage.extend_schema(checkpoint_schema(runner.SCHEMA_DIR), state, "astra_checkpoint"))
     current = support.snapshot(workspace)
     if record.get("source_revision") != current["revision"] or record.get("changed_files"):
         raise support.Paused("PAUSED_STALE_VALIDATION", "Checkpoint does not match a read-only current artifact")

@@ -23,7 +23,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import run  # noqa: E402
-from harness import baseline, catalog, compare, oracle, plan_compare, processes, profiles, routing, stats, verdict  # noqa: E402
+from harness import api_cost, baseline, build_compare, catalog, compare, oracle, plan_compare, processes, profiles, routing, stats, verdict  # noqa: E402
 from harness.driver import Driver, DriveError, leaves_for_person, metrics, model_routes, split_by_turn, turn_state  # noqa: E402
 
 
@@ -884,6 +884,283 @@ class PlanCompareTests(unittest.TestCase):
                 self.assertEqual(["requirements_gather", plan, review, revise, "astra_finalize"],
                                  today["feedback_round"]["model_stages"], "today restarts from Requirements")
                 self.assertTrue(today["feedback_round"]["final_plan"] and adaptive["feedback_round"]["final_plan"])
+
+
+class ApiCostTests(unittest.TestCase):
+    """Accounting must not turn shorter prompts, cached tokens or failures into misleading dollars."""
+
+    def setUp(self):
+        self.card = json.loads((Path(__file__).parent / "api-pricing-2026-10-02.json").read_text())
+
+    def test_fresh_cache_read_cache_write_and_output_have_separate_rates(self):
+        value = api_cost.request_cost({"input": 1000, "cache_read": 2000, "cache_write": 3000, "output": 4000},
+                                      "openai/gpt-6-sol", self.card)
+        self.assertAlmostEqual(.002 + .0004 + .0075 + .04, value)
+
+    def test_long_context_surcharge_is_per_request_and_uses_all_input(self):
+        for total, multiplier in ((272000, 1), (272001, 2)):
+            with self.subTest(total=total):
+                tokens = {"input": 1000, "cache_read": total - 1000, "cache_write": 0, "output": 10}
+                value = api_cost.request_cost(tokens, "openai/gpt-6-sol", self.card)
+                expected = (.002 + (total - 1000) * .2 / 1e6) * multiplier + .0001 * (1.5 if multiplier == 2 else 1)
+                self.assertAlmostEqual(expected, value)
+
+    def test_unknown_rates_and_usage_are_not_zero_cost(self):
+        tokens = {"input": 100, "cache_read": 0, "cache_write": 0, "output": 10}
+        with self.assertRaisesRegex(ValueError, "no API rates"):
+            api_cost.request_cost(tokens, "unknown/model", self.card)
+        with self.assertRaisesRegex(ValueError, "unknown cache_write"):
+            api_cost.request_cost({**tokens, "cache_write": 1}, "zai-coding-plan/glm-5.3", self.card)
+        for value in (None, -1, True, "100"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "invalid request"):
+                api_cost.request_cost({**tokens, "input": value}, "openai/gpt-6-sol", self.card)
+
+    def event(self, id_="one", *, reasoning=10, reason="stop"):
+        return {"type": "step_finish", "sessionID": "session", "part": {
+            "id": id_, "sessionID": "session", "reason": reason,
+            "tokens": {"input": 1000, "output": 20, "reasoning": reasoning, "cache": {"read": 100, "write": 0}}}}
+
+    def stage(self, path, name="terra", **extra):
+        return {"stage": name, "engine": "opencode", "events": str(path),
+                "command": ["opencode", "run", "--model", "openai/gpt-6-sol"], **extra}
+
+    def test_replayed_finishes_across_stages_bill_once_and_reasoning_is_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "events.jsonl"
+            path.write_text("\n".join(json.dumps(self.event()) for _ in range(2)))
+            result = api_cost.estimate({"stages": [self.stage(path), self.stage(path, "sol")]}, self.card)
+        self.assertTrue(result["complete"], result["issues"])
+        self.assertEqual(1, result["requests"])
+        self.assertAlmostEqual(.002 + .00002 + .0003, result["usd"])
+
+    def test_rejected_and_truncated_calls_and_active_stage_still_cost(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first, active = Path(tmp) / "first.jsonl", Path(tmp) / "active.jsonl"
+            first.write_text(json.dumps(self.event("first", reason="length")))
+            active.write_text(json.dumps(self.event("active", reason="tool-calls")))
+            state = {"stages": [self.stage(first, "sol_report_repair", rejected=True),
+                                {"stage": "orchestrator", "runner_owned": True}],
+                     "active_stage": self.stage(active)}
+            result = api_cost.estimate(state, self.card)
+        self.assertTrue(result["complete"], result["issues"])
+        self.assertEqual(2, result["requests"])
+        self.assertAlmostEqual(.00464, result["usd"])
+
+    def test_permission_ui_notices_do_not_erase_valid_usage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "events.jsonl"
+            path.write_text("\x1b[93m\x1b[1m! \x1b[0mpermission requested: external_directory (/example)\n"
+                            + json.dumps(self.event()))
+            result = api_cost.estimate({"stages": [self.stage(path)]}, self.card)
+        self.assertTrue(result["complete"], result["issues"])
+        self.assertAlmostEqual(.00232, result["usd"])
+
+    def test_interrupted_request_keeps_earlier_spend_but_total_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "events.jsonl"
+            start = {"type": "step_start", "sessionID": "session", "part": {"id": "new", "sessionID": "session"}}
+            path.write_text(json.dumps(self.event()) + "\n" + json.dumps(start))
+            result = api_cost.estimate({"stages": [self.stage(path)]}, self.card)
+        self.assertFalse(result["complete"])
+        self.assertIsNone(result["usd"])
+        self.assertAlmostEqual(.00232, result["known_usd"])
+
+    def test_missing_or_malformed_evidence_keeps_total_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            good, bad = Path(tmp) / "good.jsonl", Path(tmp) / "bad.jsonl"
+            good.write_text(json.dumps(self.event()))
+            for contents in ("not json", json.dumps({"type": "error"}),
+                             json.dumps(self.event(reasoning=-1))):
+                with self.subTest(contents=contents):
+                    bad.write_text(contents)
+                    result = api_cost.estimate({"stages": [self.stage(good), self.stage(bad, "sol")]}, self.card)
+                    self.assertIsNone(result["usd"])
+                    self.assertFalse(result["complete"])
+                    self.assertGreater(result["known_usd"], 0)
+            result = api_cost.estimate({"stages": [self.stage(Path(tmp) / "missing.jsonl")]}, self.card)
+            self.assertIsNone(result["usd"])
+
+    def test_conflicting_replays_and_mixed_sessions_do_not_claim_complete_accounting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first, second = Path(tmp) / "first.jsonl", Path(tmp) / "second.jsonl"
+            first.write_text(json.dumps(self.event()))
+            second.write_text(json.dumps(self.event(reasoning=11)))
+            result = api_cost.estimate({"stages": [self.stage(first), self.stage(second)]}, self.card)
+            self.assertIsNone(result["usd"])
+            other = self.event("second")
+            other["sessionID"] = other["part"]["sessionID"] = "other"
+            second.write_text(json.dumps(self.event()) + "\n" + json.dumps(other))
+            result = api_cost.estimate({"stages": [self.stage(second)]}, self.card)
+            self.assertIsNone(result["usd"])
+
+
+class BuildCompareTests(unittest.TestCase):
+    def protocol(self, *, fake=False):
+        return {"fake": fake, "profile_name": "build-comparison", "pairs": build_compare.schedule(["case"], 2)}
+
+    def record(self, variant, repeat, *, outcome=verdict.PASS, cost=1):
+        return {"scenario": "case", "variant": variant, "repeat": repeat, "verdict": outcome,
+                "oracle_passed": outcome == verdict.PASS, "checks": [{"name": "behavior", "ok": outcome == verdict.PASS}],
+                "api_cost": {"usd": cost, "complete": True}, "wall_seconds": 1,
+                "metrics": {"model_stages": 6, "report_repairs": 0}}
+
+    def test_pairs_balance_order_and_invalid_repeats_and_duplicates_are_refused(self):
+        pairs = build_compare.schedule(["one", "two"], 2)
+        self.assertEqual(["fixed", "adaptive", "adaptive", "fixed"], [pair["order"][0] for pair in pairs])
+        for ids, repeats in ((["one"], 0), (["one", "one"], 2)):
+            with self.assertRaises(ValueError):
+                build_compare.schedule(ids, repeats)
+
+    def test_failed_attempt_spend_is_in_cost_per_pass_and_false_completion_is_failure(self):
+        rows = [self.record("fixed", 1), self.record("fixed", 2), self.record("adaptive", 1),
+                self.record("adaptive", 2, outcome=verdict.FALSE_COMPLETE, cost=3)]
+        with tempfile.TemporaryDirectory() as tmp:
+            result = build_compare.report(Path(tmp), self.protocol(), rows)
+        self.assertEqual(4, result["summary"]["adaptive"]["api_usd_per_pass"])
+        self.assertEqual(1, result["summary"]["fixed"]["api_usd_per_pass"])
+        self.assertFalse(result["all_passed"])
+
+    def test_incomplete_oracle_and_harness_errors_cannot_count_as_success(self):
+        row = self.record("fixed", 1)
+        for override in ({"oracle_passed": False}, {"harness_error": "deadline"}, {"verdict": verdict.NOT_EXERCISED}):
+            with self.subTest(override=override):
+                self.assertFalse(build_compare.passed({**row, **override}))
+
+    def test_missing_attempts_unknown_costs_and_fake_runs_cannot_prove_savings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = build_compare.report(Path(tmp), self.protocol(), [self.record("fixed", 1)])
+            self.assertEqual(3, len(result["missing"]))
+            self.assertEqual(2, result["summary"]["fixed"]["scheduled"])
+            self.assertIsNone(result["summary"]["fixed"]["api_usd"])
+            rows = [self.record(variant, repeat) for repeat in (1, 2) for variant in ("fixed", "adaptive")]
+            rows[0]["api_cost"] = {"usd": None, "complete": False}
+            result = build_compare.report(Path(tmp), self.protocol(), rows)
+            self.assertIsNone(result["summary"]["fixed"]["api_usd"])
+            result = build_compare.report(Path(tmp), self.protocol(fake=True), rows)
+            self.assertIsNone(result["summary"]["adaptive"]["api_usd"])
+
+    def test_rebuild_preserves_partial_pairs_and_runs_no_models(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "protocol.json").write_text(json.dumps(self.protocol()))
+            pair = root / "pair-case-1"
+            pair.mkdir()
+            (pair / "attempt-fixed.json").write_text(json.dumps(self.record("fixed", 1)))
+            result = build_compare.rebuild(root)
+            self.assertEqual(3, len(result["missing"]))
+            with self.assertRaisesRegex(ValueError, "duplicate"):
+                build_compare.report(root, self.protocol(), [self.record("fixed", 1)] * 2)
+
+    def test_live_profile_cannot_silently_follow_changing_defaults(self):
+        args = argparse.Namespace(jobs=1, repeats=2, rate_card=Path(__file__).parent / "api-pricing-2026-10-02.json",
+                                  profile="default", fake=False)
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(ValueError, "explicit model profile"):
+            build_compare.run([], args, Path(tmp), run_one=Mock(), revision={})
+
+    def test_prepare_freezes_the_live_protocol_without_spend_authorization_or_launching(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(run, "run_one") as launch:
+            with contextlib.redirect_stdout(io.StringIO()):
+                code = run.main(["build-compare", "greenfield-greeting-cli", "--profile", "build-comparison",
+                                 "--prepare", "--repeats", "2", "--out", tmp,
+                                 "--rate-card", str(Path(__file__).parent / "api-pricing-2026-10-02.json")])
+            launch.assert_not_called()
+            self.assertEqual(0, code)
+            path, = Path(tmp).glob("*/protocol.json")
+            protocol = json.loads(path.read_text())
+            self.assertEqual(4, sum(len(pair["order"]) for pair in protocol["pairs"]))
+            self.assertEqual(catalog.load("greenfield-greeting-cli").brief, protocol["briefs"]["greenfield-greeting-cli"])
+            self.assertIn("rates_per_million", protocol["rate_card"])
+
+    def test_repeated_fake_campaign_completes_both_modes_in_fresh_projects(self):
+        with tempfile.TemporaryDirectory(prefix="build-compare-test-") as tmp:
+            args = argparse.Namespace(jobs=2, repeats=2, rate_card=None, profile=None, fake=True,
+                                      fake_solution="reference", out=Path(tmp), autocode=None,
+                                      max_steps=20, timeout_minutes=5)
+            result = build_compare.run([catalog.load("greenfield-greeting-cli")], args, Path(tmp),
+                                       run_one=run.run_one, revision={"commit": "test"})
+            self.assertTrue(result["all_passed"], result["records"])
+            self.assertEqual(4, len({row["evidence"] for row in result["records"]}))
+            for row in result["records"]:
+                stages = row["metrics"]["model_stage_names"]
+                self.assertIn("sol", stages)
+                self.assertIn("astra_review", stages)
+                steps = [json.loads(line) for line in (Path(row["evidence"]) / "steps.jsonl").read_text().splitlines()]
+                self.assertIn("approve-plan", [step["kind"] for step in steps])
+            counts = {row["variant"]: row["metrics"]["model_stages"] for row in result["records"]}
+            self.assertLess(counts["adaptive"], counts["fixed"])
+
+
+class AdaptiveCompletionTests(unittest.TestCase):
+    """Exercise adaptive decisions through the public CLI and independent delivery oracles."""
+
+    def run_fake(self, scenario, *, env=None, solution="reference", flags=()):
+        with tempfile.TemporaryDirectory(prefix="adaptive-complete-test-") as tmp:
+            args = argparse.Namespace(fake=True, profile=None, fake_solution=solution, out=Path(tmp), autocode=None,
+                                      max_steps=None, timeout_minutes=5)
+            return run.run_one(catalog.load(scenario), args, extra_flags=("--adaptive-planning", *flags), extra_env=env)
+
+    def test_vague_requests_keep_requirements_and_still_complete(self):
+        result = self.run_fake("feature-timesheet-by-project", env={"SCENARIO_FAKE_CLARITY": "vague"})
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertIn("requirements_gather", result["metrics"]["model_stage_names"])
+
+    def test_forced_build_without_recognition_keeps_requirements(self):
+        result = self.run_fake("greenfield-greeting-cli", flags=("--workflow", "build"))
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertIn("requirements_gather", result["metrics"]["model_stage_names"])
+
+    def test_negative_exit_plan_probes_complete_in_both_planning_modes(self):
+        for flags in ((), ("--adaptive-planning",)):
+            with self.subTest(flags=flags), tempfile.TemporaryDirectory(prefix="negative-plan-test-") as tmp:
+                args = argparse.Namespace(fake=True, profile=None, fake_solution="reference", out=Path(tmp),
+                                          autocode=None, max_steps=None, timeout_minutes=5)
+                result = run.run_one(catalog.load("greenfield-greeting-cli"), args, extra_flags=flags,
+                                     extra_env={"SCENARIO_FAKE_NEGATIVE_PLAN": "1"})
+                self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+                self.assertEqual(0, result["metrics"]["report_repairs"], "valid probes need no report repair")
+
+    def test_blocking_reviews_require_a_revision_before_complete_delivery(self):
+        for id_ in ("greenfield-greeting-cli", "parallel-diamond"):
+            with self.subTest(scenario=id_):
+                result = self.run_fake(id_, env={"SCENARIO_FAKE_BLOCKING_REVIEW": "1"})
+                self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+                stages = result["metrics"]["model_stage_names"]
+                self.assertIn("glm_revise", stages)
+                self.assertEqual(2 if id_ == "parallel-diamond" else 1, stages.count("astra_challenge"))
+                self.assertIn("sol", stages)
+
+    def test_broken_deliveries_are_rejected_by_the_original_brief_oracle(self):
+        for id_ in ("greenfield-todo-cli", "feature-timesheet-by-project", "parallel-diamond"):
+            scenario = catalog.load(id_)
+            with self.subTest(scenario=id_):
+                solution = str(scenario.broken[0].relative_to(scenario.dir))
+                result = self.run_fake(id_, solution=solution)
+                self.assertNotEqual(verdict.PASS, result["verdict"], result["summary"])
+                self.assertFalse(result["oracle_passed"])
+
+    def test_missing_literal_brackets_is_false_completion_despite_passing_delivered_tests(self):
+        result = self.run_fake("greenfield-todo-cli", solution="broken/unbracketed-status")
+        self.assertEqual(verdict.FALSE_COMPLETE, result["verdict"], result["summary"])
+        self.assertEqual({"add_then_list", "complete_marks_done", "ids_stable_across_restarts"},
+                         {check["name"] for check in result["checks"] if not check["ok"]})
+
+    def test_review_and_discussion_keep_the_same_model_sequence(self):
+        for id_, expected in (("review-clean-pr", ["recognize_workflow", "review_change"]),
+                              ("discuss-cache-choice", ["recognize_workflow", "answer_question"])):
+            with self.subTest(scenario=id_):
+                result = self.run_fake(id_)
+                self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+                self.assertEqual(expected, result["metrics"]["model_stage_names"])
+
+    def test_progressive_delegations_retain_the_review_that_authorizes_execution(self):
+        for id_ in ("progressive-learning-journey", "progressive-cumulative-regression",
+                    "progressive-split-learning-journey"):
+            with self.subTest(scenario=id_):
+                result = self.run_fake(id_)
+                self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+                stages = result["metrics"]["model_stage_names"]
+                self.assertLess(stages.index("glm_revise"), stages.index("astra_finalize"))
+                self.assertLess(stages.index("astra_finalize"), stages.index("terra"))
 
 
 class BaselineTests(unittest.TestCase):

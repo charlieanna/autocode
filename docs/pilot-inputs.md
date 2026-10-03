@@ -30,6 +30,13 @@ exits 2 before any TaskRun or model provider starts, with a non-ignored-path
 remedy. The copy remains available for inspection; a new invocation allocates
 a different directory.
 
+The bug-fix workflow's actual Investigator also selects tracked and ordinary
+untracked inputs from each Git source inventory, including dirty source and
+initialized nested Git components. Its copy excludes ignored credentials,
+dependencies and outputs. It rejects source aliases that would materialize an
+ignored target. The prepared-copy handoff names the exact directory in which
+the Investigator runs its checks; it does not need a parent-directory search.
+
 On success, the coordinator starts the task in the original workspace through
 the public TaskRun interface. The JSON report names the checked copy, inputs,
 HEAD and run directory. The opt-in coordinator does not change ordinary
@@ -50,7 +57,7 @@ input case invokes no provider and creates no task-run directory. The inventory
 guard remains a separate baseline behavior test.
 
 ```sh
-.venv/bin/python -B -m unittest tests.test_autocode_input_preflight tests.test_input_inventory_guard tests.test_autocode_pilot_prep tests.test_taskrun
+.venv/bin/python -B -m unittest tests.test_autocode_input_preflight tests.test_input_inventory_guard tests.test_autocode_pilot_prep tests.test_pilot_investigator_cli tests.test_taskrun
 .venv/bin/python -B tools/run_suite.py --changed --jobs 2
 .venv/bin/python -B scenarios/run.py run --fake
 ```

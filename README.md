@@ -83,4 +83,5 @@ for the architecture format, approvals and integration.
 - [Execution and completion checks](docs/execution.md)
 - [Dashboard](docs/dashboard.md) and [macOS app](docs/macos-app.md)
 - [Testing](docs/testing.md) and [scenario harness](scenarios/README.md)
+- [Check a coding tool/model's conformance](docs/provider-conformance.md)
 - [Task-run interface for integrations](docs/task-run.md)
