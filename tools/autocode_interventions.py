@@ -77,7 +77,7 @@ def _read_inbox(inbox: Path) -> dict[str, Any]:
     seen_ids = set()
     for request in value["requests"]:
         if (not isinstance(request, dict) or not isinstance(request.get("id"), str) or not request["id"]
-                or request.get("kind") not in {"feedback", "pause"} or not isinstance(request.get("text"), str)
+                or request.get("kind") not in {"feedback", "pause", "stop"} or not isinstance(request.get("text"), str)
                 or not isinstance(request.get("order"), int) or isinstance(request["order"], bool) or request["order"] < 1
                 or not isinstance(request.get("submitted_at"), str)
                 or request.get("observed_goal_token") is not None and not isinstance(request["observed_goal_token"], str)
@@ -114,12 +114,14 @@ def _locked_inbox(lock: Path) -> Any:
 def _payload(request_id: str, kind: str, text: str) -> dict[str, str]:
     if not isinstance(request_id, str) or not request_id:
         raise InterventionError("invalid_request_id", "Request ID must be a nonempty string")
-    if kind not in {"feedback", "pause"}:
-        raise InterventionError("invalid_kind", "Intervention kind must be feedback or pause")
+    if kind not in {"feedback", "pause", "stop"}:
+        raise InterventionError("invalid_kind", "Intervention kind must be feedback, pause or stop")
     if not isinstance(text, str) or (kind == "feedback" and not text):
         raise InterventionError("invalid_text", "Feedback text must be a nonempty string")
     if kind == "pause" and text:
         raise InterventionError("invalid_text", "Pause requests do not accept feedback text")
+    if kind == "stop" and text:
+        raise InterventionError("invalid_text", "Stop requests do not accept feedback text")
     return {"id": request_id, "kind": kind, "text": text}
 
 
@@ -259,7 +261,7 @@ def cli(argv: list[str]) -> int:
     submit_parser.add_argument("--workspace", required=True, type=Path)
     submit_parser.add_argument("--run-dir", required=True, type=Path)
     submit_parser.add_argument("--request-id", required=True)
-    submit_parser.add_argument("--kind", required=True, choices=("feedback", "pause"))
+    submit_parser.add_argument("--kind", required=True, choices=("feedback", "pause", "stop"))
     submit_parser.add_argument("--text", default="")
     submit_parser.add_argument("--json", action="store_true")
     inspect_parser = commands.add_parser("inspect")

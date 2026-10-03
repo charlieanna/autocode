@@ -14,7 +14,6 @@ import json
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 import time
@@ -26,12 +25,14 @@ try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_task_preflight as task_preflight
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
+    from . import autocode_stop as stop_policy, autocode_status as status_records
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy
 except ImportError:
     import autocode_dependency as dependency, autocode_status_command as status_command, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     import autocode_regression as regression, autocode_format_correction as format_correction, autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_event_log as event_log
     import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
     import autocode_providers, autocode_opencode as opencode, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_task_preflight as task_preflight
+    import autocode_stop as stop_policy, autocode_status as status_records
     import autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_rework_policy as rework_policy
     import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue
 
@@ -54,7 +55,7 @@ try:
     from .autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
-        repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json)
+        repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)
     from .autocode_report_source import (REPAIR_REPORT_BYTES, original_report_for_repair,
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)
     from .autocode_report_findings import preserved_dispositions
@@ -86,7 +87,7 @@ except ImportError:
     from autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
-        repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json)
+        repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)
     from autocode_report_source import (REPAIR_REPORT_BYTES, original_report_for_repair,
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)
     from autocode_report_findings import preserved_dispositions
@@ -100,6 +101,7 @@ except ImportError:
     from autocode_activity import ActivityMonitor
 
 
+write_json = stop_policy.state_writer(ordinary_write_json, status_records.persist)
 # Compatibility for integrations that imported the previous controller attribute.
 orchestrator = autopilot
 
@@ -1004,12 +1006,10 @@ def recheck_completion(state, workspace):
         return
     if completion_gate.completion_ready(state, state.get("final_decision", {}), support.snapshot(workspace)):
         return
-    state.setdefault("completion_archive", []).append({
-        "completed_at": state.pop("completed_at", None), "decision": state.pop("final_decision", None)})
+    state.setdefault("completion_archive", []).append({"completed_at": state.pop("completed_at", None), "decision": state.pop("final_decision", None)})
     state.pop("completion_actor", None)
     if state.get("validation"):
-        state.setdefault("validation_archive", []).append({
-            "reason": "Completed artifact or evidence changed", "validation": state.pop("validation")})
+        state.setdefault("validation_archive", []).append({"reason": "Completed artifact or evidence changed", "validation": state.pop("validation")})
     state["human_reviews"] = {}
     state.pop("displayed_review", None)
     state.update(status="PAUSED_STALE_VALIDATION", phase="PAUSED_OR_BLOCKED", next_stage=workflow.review_stage(state),
@@ -1018,58 +1018,12 @@ def recheck_completion(state, workspace):
 
 def intervention_metadata(workspace, run_dir, state):
     """Return read-only inbox state without creating its inbox or lock file."""
-    runner_capability = state.get("intervention_capability", {
-        "supported": False, "reason": "The recorded runner predates intervention consumption"})
-    try:
-        inspection = interventions.inspect(workspace, run_dir)
-        pending = inspection["requests"]
-        error = None
-    except interventions.InterventionError as exc:
-        pending = []
-        error = {"code": exc.code, "message": str(exc)}
-    blocked = []
-    if state.get("active_stage"):
-        blocked.append("active_stage_requires_reconciliation")
-    if state.get("intervention_ack_pending"):
-        blocked.append("acknowledgement_pending")
-    return {"inspector_capability": {"supported": True, "version": interventions.INBOX_VERSION},
-            "runner_capability": runner_capability, "pending_count": len(pending),
-            "pending_ids": [item["id"] for item in pending], "pause_intent": state.get("pause_intent"),
-            "applied_receipts": state.get("applied_interventions", []), "blocked_conditions": blocked,
-            "inbox_error": error}
+    return stop_policy.metadata(workspace, run_dir, state)
 
 
 def consume_interventions(state, run_dir, workspace, *, lock_held=False):
     """Commit receipt effects and identity together before clearing the inbox."""
-    def write_state():
-        write_json(run_dir / "state.json", state)
-
-    def apply_feedback(receipt, applied_receipt):
-        pending = state.pop("pending_report_repair", None)
-        if pending:
-            state.setdefault("report_repair_archive", []).append({
-                "reason": "Superseded by applied user feedback", "receipt_id": receipt["id"], "repair": pending})
-        goals.apply_intervention_feedback(state, receipt, applied_receipt)
-
-    def apply_pause_effects(consumed):
-        pauses = [item for item in consumed if item["kind"] == "pause"]
-        if pauses:
-            state["pause_intent"] = {"request_ids": [item["id"] for item in pauses], "applied_at": now(),
-                                     "acknowledged_at": None, "next_stage": state.get("next_stage")}
-        if not any(item["kind"] == "feedback" for item in consumed):
-            state.update(status="PAUSED_INTERVENTION", phase="PAUSED_OR_BLOCKED",
-                         stop_reason="Queued pause was applied; explicitly resume when ready.")
-        # A completion proposal is retained in its report, but cannot commit while
-        # an earlier accepted pause is still awaiting explicit continuation.
-        if state.get("next_stage") is None:
-            state["next_stage"] = "astra_review"
-        if state.get("status") != "TASK_COMPLETE":
-            state.pop("completed_at", None)
-            state.pop("completion_actor", None)
-            state.pop("final_decision", None)
-
-    return bool(interventions.consume(run_dir, state, write_state=write_state, apply_feedback=apply_feedback,
-                                      before_commit=apply_pause_effects, lock_held=lock_held))
+    return stop_policy.consume(state, run_dir, workspace, write_json=write_json, now=now, lock_held=lock_held)
 
 
 def commit_user_action(state, candidate, run_dir):
@@ -1298,6 +1252,8 @@ def _main_body(unit=None) -> int:
     support.assert_no_legacy_process(run_dir, workspace)
     task_workspaces.keep_out_of_git(workspace)
     with support.run_lock(run_dir):
+        if stop_policy.applied_stop(state):
+            return stop_policy.refuse_before_configure(write_json, state, state_path)
         state = run_setup.load_locked(sys.modules[__name__], args, parser, state, state_path, run_dir, workspace)
         try:
             code = run_actions.handle(sys.modules[__name__], args, parser, state, state_path, run_dir, workspace)

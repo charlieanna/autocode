@@ -42,7 +42,7 @@ const run=projectedRun('goal_approval',{workspace:'/fixture/project',run:'/fixtu
       {id:'C2',criterion:'Recommendations use progress'},{id:'C3',criterion:'Authors publish lessons'}],
   }}});
 class Element{
-  constructor(tag='div',text=''){this.tagName=tag.toUpperCase();this.textContent=text;this.children=[];this.dataset={};this.open=false;this.disabled=false;}
+  constructor(tag='div',text=''){this.tagName=tag.toUpperCase();this.textContent=text;this.children=[];this.dataset={};this.open=false;this.disabled=false;this.classList={add:()=>{}};}
   append(...children){this.children.push(...children);}
   replaceChildren(...children){this.children=children;}
   get childElementCount(){return this.children.length;}
@@ -51,14 +51,15 @@ const flatten=node=>[node,...node.children.flatMap(flatten)];
 const visible=node=>[node,...(node.tagName==='DETAILS'&&!node.open?[]:node.children.flatMap(visible))];
 const buttons=node=>flatten(node).filter(row=>row.tagName==='BUTTON');
 function harness(){
-  const host=new Element(),calls=[],notices=[];
+  const host=new Element(),planHost=new Element(),calls=[],notices=[];
+  const nodes=new Map([['#inline-task-action',host],['#brief-current',planHost]]);
   const context=vm.createContext({console,Date,URLSearchParams,
-    $:()=>host,n:(tag,text)=>new Element(tag,text),card:()=>new Element(),
+    $:selector=>nodes.get(selector)||new Element(),n:(tag,text)=>new Element(tag,text),card:()=>new Element(),
     button:(label,onclick)=>Object.assign(new Element('button',label),{onclick}),
     document:{createElement:tag=>new Element(tag)},detailsState:new Map(),
     renderDocument:value=>new Element('pre',JSON.stringify(value)),human:value=>String(value),
     taskArchiveBlocked:()=>false,projectBlocked:()=>false,interruptedAttempt:()=>null,
-    renderLiveControls(){},renderExecution(){},renderTaskNow(){},renderInlineTaskAction(){},
+    renderLiveControls(){},renderExecution(){},renderTaskNow(){},
     dashboardNotice:message=>notices.push(message),refresh:async()=>{},
     latestRun:run,chosen:{run:run.run},taskReadError:'',seq:0,
     taskActionPending:new Set(),taskChatPending:new Map(),
@@ -71,11 +72,14 @@ function harness(){
     +range('function jointPlanning(', 'function setView(')
     +range('const approveBuildState=', 'function currentConversationDraft(')
     +range('function approveBuildStatusLine(', 'function renderInlineTaskAction(')
+    +range('function renderInlineTaskAction(', 'function planEntryText(')
     +range('function planEntryText(', 'function output(')
+    +range('function workRequirementRows(', 'function renderTaskNow(')
     +range('function requestKey(', 'function taskSentence(')
     +range('async function submitTaskAction(', 'function modelCatalogueSnapshot('),context);
   context.renderBrief(run);
-  return {context,host,calls,notices};
+  context.renderInlineTaskAction(run);
+  return {context,host,planHost,calls,notices};
 }
 function approval(h,label){
   const button=buttons(h.host).find(row=>row.textContent===label);
@@ -90,10 +94,10 @@ function approvedRun(){return {...run,status:'READY',human_request_authorized:fa
   actions:[{id:'approval-1',status:'finished',exit_status:0}]};}
 
 async function tests(){
-  const h=harness(),shown=visible(h.host);
+  const h=harness(),shown=visible(h.planHost);
   assert.equal(h.calls.length,0,'Rendering never submits approval');
-  assert.ok(flatten(h.host).some(row=>row.tagName==='DETAILS'),'Exercise the real collapsed detail panels');
-  assert.ok(flatten(h.host).filter(row=>row.tagName==='DETAILS').every(row=>row.open===false),'Fresh state has no open details');
+  assert.ok(flatten(h.planHost).some(row=>row.tagName==='DETAILS'),'Exercise the real collapsed detail panels');
+  assert.ok(flatten(h.planHost).filter(row=>row.tagName==='DETAILS').every(row=>row.open===false),'Fresh state has no open details');
   assert.equal(run.goal.body.implementation_sequence,undefined);
   assert.match(generated.fields.constraints[0],new RegExp(generated.identity));
   assert.ok(shown.some(row=>row.tagName==='LI'&&row.textContent===retirement),
@@ -134,6 +138,7 @@ async function tests(){
     confirmation:run.goal_token,expected_goal_token:run.goal_token,
   }}],'Approve-and-build remains two distinct requests for the same authorized goal');
   combined.context.renderBrief(fresh);
+  combined.context.renderInlineTaskAction(fresh);
   assert.equal(buttons(combined.host).some(row=>/^Approve/.test(row.textContent)),false,
     'Approved contracts must not acquire a second approval action');
 

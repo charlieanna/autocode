@@ -30,6 +30,17 @@ jobs:
         with:
           python-version: "3.11"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dashboard browser test dependencies
+        # AC15 runs a real browser from the Python suite, before the Node gate.
+        # Pin the version used for the local feature acceptance checks.
+        run: |
+          npm install --global agent-browser@0.25.3
+          agent-browser install --with-deps
+
       - name: Install package and runtime dependencies
         run: python3 -m pip install -e .
 
@@ -68,17 +79,14 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
       - name: Run the dashboard Node tests
-        # The two browser tests drive the agent-browser CLI, which this job
-        # doesn't install; the log names each one it leaves out.
+        # Browser checks invoked by Python tests run in the suite above.
+        # Standalone browser matrices remain part of local visual acceptance;
+        # the log names those omitted from this separate Node gate.
         run: |
           for test_file in tools/dashboard/tests/test_*.js; do
             if grep -q "agent-browser" "$test_file"; then
-              echo "Not run here (needs agent-browser): $test_file"
+              echo "Standalone browser matrix (verified separately): $test_file"
               continue
             fi
             echo "node $test_file"

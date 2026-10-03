@@ -15,7 +15,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agent_console import Console, Handler, LoopbackHTTPServer
 from dashboard_chat import planning_messages
-from test_pending_decisions import publish, resolver_human
+from tools.dashboard.tests.test_pending_decisions import publish, resolver_human
 
 
 FAKE_RUNNER = r'''
@@ -125,7 +125,10 @@ class ChatFixture:
         self.addCleanup(close)
         return console
 
-    def eventually(self, function, timeout=5):
+    def eventually(self, function, timeout=30):
+        # The fixture's fake runner/provider threads keep making progress under
+        # parallel clean-copy load while far exceeding the old five-second
+        # ceiling, so the deadline only bounds genuine fixture hang failures.
         end = time.monotonic() + timeout
         while time.monotonic() < end:
             result = function()
@@ -555,12 +558,16 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         other = self.make_console()
         entered, release, second_started = threading.Event(), threading.Event(), threading.Event()
         submitted = []
+        # The waits below are finite hang detectors, not speed assumptions: chat()
+        # performs flock/reconcile/save work before reaching the hook, and that
+        # arrival time is load dependent. A failure must diagnose the first call.
+        timeout = 30
         for console in (self.console, other):
             original = console.intervene
             def held_submit(*args, original=original, **kwargs):
                 submitted.append(args)
                 entered.set()
-                if not release.wait(timeout=3):
+                if not release.wait(timeout=timeout):
                     raise AssertionError('fixture release timed out')
                 return original(*args, **kwargs)
             console.intervene = held_submit
@@ -569,16 +576,25 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         def replay():
             second_started.set()
             return other.chat(data)
+        def first_call_report(started_at, first):
+            report = {'first_chat_elapsed_s': round(time.monotonic() - started_at, 3),
+                      'first_chat_done': first.done()}
+            if first.done():
+                error = first.exception(timeout=0)
+                report['first_chat_exception' if error else 'first_chat_result'] = (
+                    repr(error) if error else first.result(timeout=0))
+            return report
         with ThreadPoolExecutor(max_workers=2) as pool:
+            started_at = time.monotonic()
             first = pool.submit(self.console.chat, data)
             try:
-                self.assertTrue(entered.wait(timeout=2))
+                self.assertTrue(entered.wait(timeout=timeout), first_call_report(started_at, first))
                 second = pool.submit(replay)
-                self.assertTrue(second_started.wait(timeout=2))
+                self.assertTrue(second_started.wait(timeout=timeout), first_call_report(started_at, first))
             finally:
                 release.set()
-            first.result(timeout=3)
-            second.result(timeout=3)
+            first.result(timeout=timeout)
+            second.result(timeout=timeout)
         self.assertEqual(1, len(submitted))
         self.assertEqual(1, len(json.loads((self.root / 'inbox.json').read_text())))
         self.assertEqual(1, len(self.console._chat_rows(self.run)))
@@ -622,7 +638,9 @@ class ChatHttpTests(ChatFixture, unittest.TestCase):
         self.addCleanup(shutdown)
 
     def request(self, method, path, data=None, headers=None):
-        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=3)
+        # The handler runs several sequential fake-runner subprocesses whose latency
+        # is load dependent, so this read is a finite hang bound, not a speed claim.
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=30)
         try:
             connection.request(method, path, body=json.dumps(data) if data is not None else None,
                                headers={'Content-Type': 'application/json', **(headers or {})})

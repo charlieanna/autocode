@@ -335,11 +335,12 @@ class ConversationStore:
         except (UnicodeError, json.JSONDecodeError) as error:
             raise ValueError('This saved conversation could not be read.') from error
         if (not isinstance(doc, dict) or doc.get('id') != conversation_id
-                or not isinstance(doc.get('messages'), list) or not doc['messages']
-                or not all(isinstance(row, dict) and row.get('role') in ('user', 'assistant')
-                           and isinstance(row.get('text'), str) and isinstance(row.get('id'), str)
-                           for row in doc['messages'])
-                or not any(row['role'] == 'user' for row in doc['messages'])
+                or not isinstance(doc.get('messages'), list)
+                or (doc['messages'] and (not all(isinstance(row, dict) and row.get('role') in ('user', 'assistant')
+                            and isinstance(row.get('text'), str) and isinstance(row.get('id'), str)
+                            for row in doc['messages'])
+                    or not any(row['role'] == 'user' for row in doc['messages'])))
+                or (not doc['messages'] and doc.get('status') != 'ready')
                 or not all(isinstance(doc.get(key), str) for key in ('title', 'created_at', 'updated_at'))
                 or not isinstance(doc.get('models'), dict)
                 or not isinstance(doc['models'].get('glm_model'), str)
@@ -374,7 +375,7 @@ class ConversationStore:
     @staticmethod
     def _public(doc):
         public = deepcopy({key: doc[key] for key in (
-            'id', 'title', 'created_at', 'updated_at', 'status', 'error', 'models', 'attachment', 'archived_at')
+            'id', 'title', 'created_at', 'updated_at', 'status', 'error', 'models', 'attachment', 'archived_at', 'project_workspace')
             if key in doc})
         messages = public['messages'] = []
         receipts = doc.get('_resolver_intake', {})
@@ -411,6 +412,31 @@ class ConversationStore:
     def _pending_message(doc):
         return next(row for row in reversed(doc['messages']) if row['role'] == 'user')
 
+    @staticmethod
+    def _pending_human_request(messages):
+        """Project the current verified, unresolved intake request for lists.
+
+        This reads only what _public already verified against the saved
+        receipt; a read never authorizes a request. An authorized intake
+        request stays pending until the user's saved reply follows it, so
+        delivery errors, autonomous recovery and answered questions never
+        project a human request.
+        """
+        pending = None
+        for message in messages:
+            if message.get('role') == 'user':
+                pending = None
+                continue
+            request = message.get('human_escalation')
+            body = request.get('request') if isinstance(request, dict) else None
+            decision = body.get('decision_needed') if isinstance(body, dict) else None
+            if (message.get('human_request_authorized') is True and isinstance(request, dict)
+                    and request.get('scope') == 'intake' and isinstance(body, dict)
+                    and body.get('kind') == 'intake'
+                    and isinstance(decision, str) and decision.strip()):
+                pending = {'kind': 'intake', 'decision_needed': decision}
+        return pending
+
     def list(self, include_archived=False):
         with self._guard():
             result = []
@@ -426,6 +452,7 @@ class ConversationStore:
                 summary = self._public(doc)
                 summary['message_count'] = len(summary['messages'])
                 summary['last_message'] = summary['messages'][-1]['text'] if summary['messages'] else ''
+                summary['human_request'] = self._pending_human_request(summary['messages'])
                 summary.pop('messages')
                 result.append(summary)
             return sorted(result, key=lambda item: item['updated_at'], reverse=True)
@@ -450,23 +477,54 @@ class ConversationStore:
                 self._save(doc)
             return self._public(doc)
 
-    def create(self, text, models=None, request_id=None):
+    def create(self, text, models=None, request_id=None, workspace=None):
         text, models, request_id = _text(text), _models(models), _request_id(request_id)
+        if workspace is not None and (not isinstance(workspace, str) or not workspace.strip() or len(workspace) > 4096):
+            raise ValueError('The creation-time project scope must be a short non-empty path.')
         with self._guard():
             self._ensure_open()
             for summary in self.list(include_archived=True):
                 doc = self._load(summary['id'])
                 if doc.get('_create_request_id') == request_id:
-                    if doc['messages'][0]['text'] != text or doc['models'] != models:
+                    if ((doc['messages'] and doc['messages'][0]['text'] != text)
+                            or doc['models'] != models
+                            or (doc.get('project_workspace') or None) != (workspace or None)):
                         raise ValueError('That request ID was already used for a different conversation.')
                     return self._public(doc)
             created = _now()
             doc = {'id': uuid.uuid4().hex, 'title': ' '.join(text.split())[:80],
                    'created_at': created, 'updated_at': created, 'status': 'thinking', 'error': None,
                    'messages': [], 'models': models, 'attachment': None,
+                   **({'project_workspace': workspace} if workspace else {}),
                    '_create_request_id': request_id, '_requests': {}}
             self._append_user(doc, text, request_id)
             return self._start(doc)
+
+    def create_empty(self, workspace=None, request_id=None):
+        """Save an empty conversation before the first message is sent.
+
+        Activating a New conversation control opens this saved record with its
+        project scope already attached; the first message continues it.
+        """
+        request_id = _request_id(request_id)
+        if workspace is not None and (not isinstance(workspace, str) or not workspace.strip() or len(workspace) > 4096):
+            raise ValueError('The creation-time project scope must be a short non-empty path.')
+        with self._guard():
+            self._ensure_open()
+            for summary in self.list(include_archived=True):
+                doc = self._load(summary['id'])
+                if doc.get('_create_request_id') == request_id:
+                    if doc['messages'] or (doc.get('project_workspace') or None) != (workspace or None):
+                        raise ValueError('That request ID was already used for a different conversation.')
+                    return self._public(doc)
+            created = _now()
+            doc = {'id': uuid.uuid4().hex, 'title': 'New conversation',
+                   'created_at': created, 'updated_at': created, 'status': 'ready', 'error': None,
+                   'messages': [], 'models': _models(None), 'attachment': None,
+                   **({'project_workspace': workspace} if workspace else {}),
+                   '_create_request_id': request_id, '_requests': {}}
+            self._save(doc)
+            return self._public(doc)
 
     def send(self, conversation_id, text, request_id=None):
         text, request_id = _text(text), _request_id(request_id)
@@ -486,6 +544,10 @@ class ConversationStore:
                 raise ValueError('This conversation is attached to a project. Continue in its task conversation.')
             if doc['status'] == 'error':
                 raise ValueError('Retry the saved message before sending another one.')
+            if not doc['messages']:
+                # The first message titles a pre-send conversation opened from
+                # the sidebar's New conversation control.
+                doc['title'] = ' '.join(text.split())[:80]
             self._append_user(doc, text, request_id)
             return self._start(doc)
 
