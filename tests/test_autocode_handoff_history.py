@@ -105,6 +105,22 @@ class CondenseTests(unittest.TestCase):
             self.assertEqual({"total": 1}, artifact["fields"]["saved_answers"])
             self.assertEqual(small, context.compact(original, state_path)[0])
 
+    def test_a_short_settled_history_never_grows_the_final_compacted_packet(self):
+        # The context_artifact index costs more than a small settled history saves.
+        # The final packet, index included, must stay exactly what a run without
+        # settled-history shortening would produce.
+        for stage in history.STAGES:
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as tmp:
+                original = packet(stage)
+                original["brief_feedback"] = [{"kind": "brief_feedback", "id": "f1", "actor": "user_cli",
+                                               "at": BEFORE, "text": "x" * 800}]
+                original["saved_answers"] = {}
+                small, moved = context.compact(original, Path(tmp) / "state.json")
+                self.assertLessEqual(len(json.dumps(small)), len(json.dumps(original)))
+                self.assertEqual([], moved)
+                self.assertNotIn("context_artifact", small)
+                self.assertEqual(original["brief_feedback"], small["brief_feedback"])
+
 
 if __name__ == "__main__":
     unittest.main()
