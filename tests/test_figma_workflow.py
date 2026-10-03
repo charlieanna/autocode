@@ -353,6 +353,8 @@ class FigmaWorkflow(unittest.TestCase):
         _, design, _ = self.run_ui()
         flow = test_subprocess.SubprocessFlow(); flow.setUp()
         self.addCleanup(flow.doCleanups)
+        from tests.visual_capture_fixtures import install_native_hook
+        install_native_hook(flow.root / 'fixture-bin' / 'codex')
         env = {**flow.env, 'AUTOCODE_FIXTURE_MODE': 'no-human', 'CODEX_HOME': str(flow.root / 'codex-config')}
         for key in ('OPENAI_API_KEY', 'CODEX_API_KEY', 'OPENAI_BASE_URL'):
             env.pop(key, None)

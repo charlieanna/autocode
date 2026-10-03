@@ -65,6 +65,8 @@ For an assigned implementation or review task, Figma instructions cover the affe
 visual work. Test/parser/harness-only repairs can reuse applicable design evidence;
 they do not require a fresh canvas inspection unless they affect presentation or verify
 a visual criterion. Final visual acceptance requirements remain in force.
+An implementation capture must still match the current source snapshot when used
+for acceptance; see [implementation capture bundles](visual-captures.md).
 
 See also: [Models and escalation](models.md) · [Execution and completion](execution.md)
 
@@ -72,7 +74,7 @@ See also: [Models and escalation](models.md) · [Execution and completion](execu
 
 New implementation runs can receive an exported reference bundle through
 `--figma-manifest /absolute/path/to/bundle/manifest.json`. This input works with
-Codex, GoCode and OpenCode and preserves the selected role routes, pins and limits.
+Codex and OpenCode and preserves the selected role routes, pins and limits.
 It does not change the native `--figma-file` authentication requirements. When
 combined with native Figma input, that file must also be declared in the manifest.
 
@@ -120,11 +122,16 @@ Saved runs cannot replace or add a manifest; start a new run for a changed inven
 Planning and execution contexts carry the full inventory and its hash. The
 independent Validator reports `design_manifest_hash` and `design_results`, one row
 per case, with `id`, `status` (PASS/FAIL/NOT_VERIFIED), `criterion_ids`,
-`candidate_ref` and `comparison_ref`. A passing row needs passing approved criteria,
+`candidate_ref`, `comparison_ref`, `capture_ref` and `capture_sha256`.
+A passing row needs passing approved criteria,
 a PNG candidate at the declared viewport/device scale, and a separate nonempty
 comparison artifact inside the task workspace. The reference itself cannot be cited
-as the rendered candidate. The runner pins these evidence files alongside the
-existing independent check evidence.
+as the rendered candidate. `capture_ref` identifies a current
+[browser capture manifest](visual-captures.md), and `capture_sha256` pins that
+manifest. Its candidate must be the exact image in the review. The runner pins
+the capture inputs and artifacts alongside the independent check evidence and
+rechecks them at completion. FAIL/NOT_VERIFIED rows may leave the evidence
+fields empty when acquisition is unavailable.
 
 Intermediate milestones can explicitly leave future cases NOT_VERIFIED. Whole-task
 completion requires every case PASS in the same current independent validation;
@@ -135,10 +142,11 @@ and cases without a reported PASS. It deliberately leaves
 `current_visual_acceptance` unknown: the status projection alone authenticates no
 current source or screenshot.
 
-This is a coverage foundation, not a guarantee of pixel fidelity. It cannot detect a
-file/frame absent from the supplied inventory, authenticate screenshot acquisition,
-or determine whether a comparison artifact's conclusion is visually correct.
-Automatic discovery and plan coverage remain in issue #250; runner-owned capture,
-image comparison and independent visual adjudication are issue #251, with screenshot
-freshness tracked in #227. The offline fixture exercises these gates without any
-Figma access or model spend; its PNGs are not real visual acceptance evidence.
+Coverage and capture provenance do not guarantee pixel fidelity. They cannot detect
+a file/frame absent from the supplied inventory or determine whether a comparison
+artifact's conclusion is visually correct. Automatic discovery and plan coverage
+remain in issue #250; image comparison and independent visual adjudication remain
+in issue #251. Capture freshness is checked separately from those judgments.
+The offline provider tests use synthetic images to exercise completion gates;
+the optional Chromium tests exercise real capture acquisition. Neither performs
+a live Figma/model review.

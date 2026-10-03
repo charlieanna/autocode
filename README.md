@@ -56,6 +56,9 @@ autocode --workspace /path/to/project --engine codex \
 
 See [Figma design and implementation](docs/figma.md) for design review,
 accepted handoffs and visual verification.
+Implementation reviews use [current browser capture bundles](docs/visual-captures.md):
+`autocode visual-capture --config capture.json` records the rendered implementation
+and its inputs before an independent reviewer judges the images.
 
 ## Give one component its own design
 

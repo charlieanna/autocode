@@ -171,7 +171,8 @@ or proof remains NOT_VERIFIED, never an invented PASS or human acceptance.
 Intermediate tasks may leave future cases NOT_VERIFIED; overall completion needs
 fresh independent PASS for every case on the same source and approved contract.
 The independent Validator reports design_manifest_hash and design_results with each
-case ID exactly once, mapped criterion_ids, status, candidate_ref and comparison_ref.
+case ID exactly once, mapped criterion_ids, status, candidate_ref, comparison_ref,
+capture_ref and capture_sha256 from the current implementation capture bundle.
 A PASS needs a current rendered PNG at viewport * device_scale_factor and a separate
 comparison artifact describing reference comparison and functional/state checks.
 Do not cite a reference PNG as the candidate or use a passing test log as a capture.
