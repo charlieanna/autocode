@@ -12,7 +12,7 @@ try:
     from . import autocode_workflow as workflow, autocode_milestones as milestones, autocode_escalation as escalation
     from . import autocode_findings as findings_ledger, autocode_builder_policy as builder_policy
     from . import autocode_resolver_human as human, autocode_failures as failures, autocode_assignment as assignment, autocode_status
-    from . import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery
+    from . import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery, autocode_rework_policy as rework_policy
     from . import autocode_planning_clarification as clarification
     from . import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage
     from .units import autoplanner as planning_unit
@@ -29,7 +29,7 @@ except ImportError:
     import autocode_builder_policy as builder_policy
     import autocode_resolver_human as human
     import autocode_failures as failures, autocode_assignment as assignment, autocode_status
-    import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery
+    import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery, autocode_rework_policy as rework_policy
     import autocode_planning_clarification as clarification
     import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage
     from units import autoplanner as planning_unit
@@ -730,11 +730,9 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
                 return
     if (modern and stage == "astra_review" and value.get("status") == "REWORK"
             and not workflow.enabled(state)):
-        # The reviewer's findings are authoritative state; record them before the
-        # resolver diagnosis consumes the rejection. The decision itself is recorded
-        # when the resolver's bounded repair is applied, so it is not duplicated.
+        # Keep the review authoritative whether its correction is assigned or diagnosed.
         findings_ledger.record_decision(state, value, record)
-        queue_resolution(state, value, record)
+        rework_policy.route(runtime, state, value, record, queue_resolution, builder_policy, run_dir=run_dir)
         save_record(state, record)
         return
     if stage.startswith("astra"):

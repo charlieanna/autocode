@@ -97,7 +97,11 @@ class JointPlannerUnit(unittest.TestCase):
 
 
 class ResolverFlow(unittest.TestCase):
-    setUp = UnitFlow.setUp
+    def setUp(self):
+        UnitFlow.setUp(self)
+        # These tests exercise the Resolver unit; complete first repairs may bypass it.
+        self.env['AUTOCODE_FIXTURE_INCOMPLETE_REWORK'] = '1'
+
     launch = UnitFlow.launch
     saved = UnitFlow.saved
     select = UnitFlow.select

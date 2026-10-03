@@ -1,0 +1,182 @@
+"""Public CLI coverage for bounded Completion repairs, using isolated fake providers."""
+import dataclasses
+import json
+from pathlib import Path
+import shutil
+import tempfile
+import unittest
+
+from scenarios import run as scenario_run
+from harness import catalog, verdict
+from harness.driver import Driver, DriveError, default_autocode, fake_setup
+from harness.project import materialize
+
+
+class CompletionReworkCLI(unittest.TestCase):
+    def setUp(self):
+        results = Path(__file__).resolve().parents[1] / ".scenario-runs"
+        results.mkdir(exist_ok=True)
+        scratch = tempfile.TemporaryDirectory(prefix="rework-cli-", dir=results)
+        self.addCleanup(scratch.cleanup)
+        self.root = Path(scratch.name).resolve()
+        self.scenario = catalog.load("completion-rework-direct")
+        self.project = materialize(self.scenario.seed, self.root / "project")
+        self.config_home = self.root / "config"
+        self.config_home.mkdir()
+        self.codex_home = self.root / "codex-home"
+        self.codex_home.mkdir()
+
+    def driver(self, fault="direct", *extra):
+        scenario = dataclasses.replace(self.scenario, fake_fault="completion_rework_" + fault)
+        flags, env = fake_setup(scenario, self.root, scenario.reference)
+        env.update(XDG_CONFIG_HOME=str(self.config_home), CODEX_HOME=str(self.codex_home), AUTOCODE_PROVIDER="opencode")
+        return Driver(self.project, self.root, [*flags, "--max-iterations", "6", *extra], env,
+                      autocode=default_autocode(), max_steps=20, timeout_seconds=180)
+
+    def trace(self):
+        return [json.loads(line) for line in (self.root / "rework-trace.jsonl").read_text().splitlines()]
+
+    def assert_delivery(self, driver, view):
+        self.assertTrue(view["done"], view)
+        self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
+        checks = self.scenario.oracle()(self.project, self.scenario)
+        self.assertTrue(all(check.ok for check in checks), [dataclasses.asdict(check) for check in checks if not check.ok])
+        validators = [row for row in self.trace() if row["stage"] == "sol"]
+        owners = [row for row in self.trace() if row["stage"] == "astra_review"]
+        self.assertEqual([1] * (len(validators) - 1) + [0], [row["exit_code"] for row in validators])
+        self.assertEqual(len(validators), len({row["task_id"] for row in validators}))
+        self.assertEqual(len(validators), len({row["source_revision"] for row in validators}))
+        for validator, owner in zip(validators, owners):
+            self.assertEqual(validator["task_id"], owner["validation_task_id"])
+            self.assertEqual(validator["source_revision"], owner["source_revision"])
+            self.assertEqual(validator["status"], owner["validation_verdict"])
+        self.assertEqual(validators[-1]["source_revision"], view["evidence"]["check_replay"]["source_revision"])
+        receipts = []
+        for path in driver.run_dir.glob("iterations/**/*.jsonl"):
+            for line in path.read_text().splitlines():
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                item = event.get("item") or {}
+                if event.get("type") == "item.completed" and item.get("type") == "command_execution":
+                    receipts.append(item)
+        self.assertTrue(any(row.get("exit_code") == 1 and row.get("command") == self.scenario.fake_check
+                            and "FAILED" in row.get("aggregated_output", "") for row in receipts), receipts)
+        self.assertTrue(any(row.get("exit_code") == 0 and row.get("command") == self.scenario.fake_check
+                            and "OK" in row.get("aggregated_output", "") for row in receipts), receipts)
+
+    def test_oracle_rejects_seed_and_each_broken_delivery(self):
+        rows = scenario_run.self_test(self.scenario)
+        self.assertEqual(["seed", "reference", "broken/accepts-empty", "broken/vacuous-tests"],
+                         [name for name, _, _ in rows])
+        self.assertTrue(all(ok for _, ok, _ in rows), rows)
+
+    def test_first_bounded_rework_skips_resolver_but_not_independent_checks(self):
+        driver = self.driver()
+        view = driver.drive(self.scenario.brief)
+        self.assert_delivery(driver, view)
+        record = scenario_run.run_record(driver, driver.state())
+        result = verdict.evaluate(self.scenario, self.project, record)
+        self.assertTrue(result.passed, result.summary)
+        self.assertEqual(1, len(view["direct_rework_assignments"]))
+        self.assertEqual(["terra", "sol", "astra_review", "terra", "sol", "astra_review"],
+                         [row["stage"] for row in self.trace()])
+
+    def test_schema_valid_incomplete_and_ambiguous_tasks_use_normal_resolver(self):
+        for fault in ("incomplete", "ambiguous"):
+            with self.subTest(fault=fault):
+                # Each subcase is a new approved public run, not a rewritten state.
+                root = self.root / fault
+                root.mkdir()
+                project = materialize(self.scenario.seed, root / "project")
+                old_root, old_project = self.root, self.project
+                self.root, self.project = root, project
+                try:
+                    driver = self.driver(fault)
+                    view = driver.drive(self.scenario.brief)
+                    self.assert_delivery(driver, view)
+                    self.assertEqual([], view["direct_rework_assignments"])
+                    self.assertEqual(["terra", "sol", "astra_review", "astra_resolve", "terra", "sol", "astra_review"],
+                                     [row["stage"] for row in self.trace()])
+                    self.assertEqual(0, scenario_run.metrics(driver.state())["report_repairs"])
+                    first = next(row for row in self.trace() if row["stage"] == "astra_review")
+                    self.assertEqual("REWORK", first["status"])
+                    self.assertEqual("FAIL", first["validation_verdict"])
+                    if fault == "incomplete":
+                        self.assertEqual([], first["next_task"]["validation_plan"])
+                    else:
+                        self.assertEqual("", first["next_objective"])
+                finally:
+                    self.root, self.project = old_root, old_project
+
+    def test_recurring_rework_uses_resolver_and_fresh_current_source_checks(self):
+        driver = self.driver("recurring")
+        view = driver.drive(self.scenario.brief)
+        self.assert_delivery(driver, view)
+        self.assertEqual(1, len(view["direct_rework_assignments"]))
+        self.assertEqual(["terra", "sol", "astra_review", "terra", "sol", "astra_review",
+                          "astra_resolve", "terra", "sol", "astra_review"],
+                         [row["stage"] for row in self.trace()])
+
+    def test_exhausted_pinned_builder_keeps_existing_pause(self):
+        driver = self.driver("exhausted", "--pin-model-role", "terra")
+        view = driver.drive(self.scenario.brief)
+        self.assertFalse(view["done"], view)
+        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", view["status"])
+        self.assertEqual(1, len(view["direct_rework_assignments"]))
+        self.assertEqual(["terra", "sol", "astra_review", "terra", "sol", "astra_review", "astra_resolve"],
+                         [row["stage"] for row in self.trace()])
+        self.assertEqual([1, 1], [row["exit_code"] for row in self.trace() if row["stage"] == "sol"])
+
+    def test_restart_after_assignment_commit_does_not_repeat_assignment_or_provider(self):
+        driver = self.driver()
+        hooks = self.root / "hooks"
+        hooks.mkdir()
+        shutil.copy2(self.scenario.dir / "restart_hook.py", hooks / "sitecustomize.py")
+        marker = self.root / "assignment-committed.json"
+        driver.env.update(PYTHONPATH=str(hooks), SCENARIO_REWORK_CRASH_ON_ASSIGNMENT=str(marker))
+        with self.assertRaisesRegex(DriveError, "exited 97"):
+            driver.drive(self.scenario.brief)
+        self.assertTrue(marker.is_file(), "Crash never reached the committed direct assignment")
+        committed = driver.view()
+        self.assertEqual(1, len(committed["direct_rework_assignments"]))
+        saved_assignment = committed["direct_rework_assignments"][0]
+        charge = saved_assignment["retry_charge"]
+        self.assertEqual("retry", charge["action"])
+        self.assertEqual(["terra", "sol", "astra_review"], [row["stage"] for row in self.trace()])
+        driver.env.pop("PYTHONPATH")
+        driver.env.pop("SCENARIO_REWORK_CRASH_ON_ASSIGNMENT")
+        final = driver.until_stopped()
+        self.assert_delivery(driver, final)
+        self.assertEqual([saved_assignment], final["direct_rework_assignments"])
+        self.assertEqual(2, final["iteration"])
+        self.assertEqual(["terra", "sol", "astra_review", "terra", "sol", "astra_review"],
+                         [row["stage"] for row in self.trace()])
+
+    def test_restart_before_assignment_commit_reconciles_without_another_review_call(self):
+        driver = self.driver()
+        hooks = self.root / "hooks"
+        hooks.mkdir()
+        shutil.copy2(self.scenario.dir / "restart_hook.py", hooks / "sitecustomize.py")
+        marker = self.root / "assignment-not-committed.json"
+        driver.env.update(PYTHONPATH=str(hooks), SCENARIO_REWORK_CRASH_ON_ASSIGNMENT=str(marker),
+                          SCENARIO_REWORK_CRASH_WHEN="before")
+        with self.assertRaisesRegex(DriveError, "exited 97"):
+            driver.drive(self.scenario.brief)
+        self.assertEqual("before_assignment_commit", json.loads(marker.read_text())["boundary"])
+        self.assertEqual([], driver.view()["direct_rework_assignments"])
+        self.assertEqual(["terra", "sol", "astra_review"], [row["stage"] for row in self.trace()])
+        for key in ("PYTHONPATH", "SCENARIO_REWORK_CRASH_ON_ASSIGNMENT", "SCENARIO_REWORK_CRASH_WHEN"):
+            driver.env.pop(key)
+        final = driver.until_stopped()
+        self.assert_delivery(driver, final)
+        self.assertEqual(1, len(final["direct_rework_assignments"]))
+        self.assertEqual("retry", final["direct_rework_assignments"][0]["retry_charge"]["action"])
+        self.assertEqual(2, final["iteration"])
+        self.assertEqual(["terra", "sol", "astra_review", "terra", "sol", "astra_review"],
+                         [row["stage"] for row in self.trace()])
+
+
+if __name__ == "__main__":
+    unittest.main()

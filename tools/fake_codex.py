@@ -222,6 +222,9 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
             acceptance_criteria=["C1"], validation_plan=["Ask the user to accept the current artifact"])
     if stage == 'astra_resolve':
         result['diagnosis'] = 'Empty names are accepted by the CLI; add input validation and retest both cases.'
+    if stage == 'astra_review' and rework and os.environ.get('AUTOCODE_FIXTURE_INCOMPLETE_REWORK'):
+        # Exercise Resolver routing with a valid rejection that still needs a repair plan.
+        result['next_task']['validation_plan'] = []
 elif stage == "terra":
     # Each implement attempt must produce a real tree delta; the runner
     # measures changed files from the workspace snapshot, not the report.

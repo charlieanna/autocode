@@ -650,6 +650,13 @@ def report_for(stage: str, data: dict) -> dict:
                          "options": [], "proposed_delta": ""},
     }
     planning = {"code_refs": [ref for ref in source_refs() if ref != "task"], "contract_changes": [], "conflict_resolutions": [], "requirement_trace": trace()}
+    if CONFIG.get("fault", "").startswith("completion_rework_") and stage in (
+            "terra", "sol", "astra_review", "astra_resolve"):
+        import runpy
+        scenario = next(parent for parent in Path(CONFIG["reference"]).parents
+                        if (parent / "scenario.toml").is_file())
+        provider = runpy.run_path(str(scenario.parents[1] / "harness" / "completion_rework_provider.py"))
+        return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
     if PROGRESSIVE:
         report = progressive_report(stage, data, common)
         if report is not None:

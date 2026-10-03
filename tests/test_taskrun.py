@@ -31,13 +31,25 @@ class RunViewTests(unittest.TestCase):
     def test_contract_fields(self):
         self.assertEqual({"schema", "status", "done", "needs", "phase", "next_stage", "iteration", "stop_reason", "runner_check",
                           "current_task", "workflow", "workflow_source", "workflow_reason", "turn", "evidence",
-                          "dependency", "usage", "request_context", "output_transport"},
+                          "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments"},
                          set(run_view.view({"status": "RUNNING"})))
 
     def test_evidence_is_empty_before_planning(self):
         self.assertEqual({"outcome": None, "base_commit": None, "acceptance": [], "findings": [],
                           "regression_proof": None, "test_cases": [], "check_replay": None},
                          run_view.evidence({"status": "RUNNING"}))
+
+    def test_direct_rework_provenance_is_not_completion_proof_and_is_copied(self):
+        receipt = {"source_task_id": "task-old", "assigned_task_id": "task-repair",
+                   "evidence_hashes": {"review.json": "digest"}, "provenance": "completion_direct_assignment"}
+        state = {"status": "RUNNING", "direct_rework_assignments": [receipt]}
+        view = run_view.view(state)
+        self.assertEqual([receipt], view["direct_rework_assignments"])
+        self.assertFalse(view["done"])
+        self.assertIsNone(view["evidence"]["check_replay"])
+        view["direct_rework_assignments"][0]["evidence_hashes"]["review.json"] = "changed"
+        self.assertEqual("digest", receipt["evidence_hashes"]["review.json"])
+        self.assertEqual([], run_view.view({"status": "RUNNING"})["direct_rework_assignments"])
 
     def test_evidence_carries_the_english_test_cases_and_what_proves_them(self):
         case = {"id": "T1", "given": "a timeout", "when": "renew()", "then": "one mutation"}
