@@ -81,6 +81,9 @@ def run_check(spec: dict) -> int:
     return proc.returncode
 
 
+PROMPT = ""
+
+
 def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
     task = data.get("current_task") or {}
     revision = data.get("goal_contract") or {"revision": 0, "hash": ""}
@@ -91,7 +94,9 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
     planning = {"code_refs": source_refs(), "contract_changes": [], "conflict_resolutions": [],
                "requirement_trace": [{"requirement_id": "R1", "disposition": "covered", "evidence": spec["description"]}]}
     if stage == "recognize_workflow":
-        return {"workflow": "build", "reason": "Scripted: component builds are builds", "signals": [], "design_document": ""}
+        # Vague keeps the Requirements stage this fake's requirement trace relies on (adaptive planning is the default).
+        return {"workflow": "build", "reason": "Scripted: component builds are builds", "signals": [], "design_document": "",
+                **({"clarity": "vague"} if 'Add "clarity"' in PROMPT else {})}
     if stage == "investigate_stuck":
         return {"diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.", "cause": "other", "guidance": "", "recommendation": "pause", "user_question": "", "evidence_refs": [], "example": "", "probe": "", "untestable": ""}
     if stage == "requirements_gather":
@@ -100,12 +105,15 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
                 "source_refs": source_refs(), "proposed_assumptions": [], "open_questions": [],
                 "requirements": requirements(component_id, spec), "ignored_statements": ignored_statements(component_id),
                 "conflicts": [], "proposed_reframes": []}
+    adaptive = "ADAPTIVE PLANNING" in PROMPT  # an adaptive Planner's draft carries its initial_task
     if stage == "astra_discovery":
-        return {"summary": "Scripted component plan", "contract": contract(spec), "alternatives": [], "uncertainties": [], **planning}
+        return {"summary": "Scripted component plan", "contract": contract(spec, final=adaptive), "alternatives": [],
+                "uncertainties": [], **planning}
     if stage == "astra_challenge":
         return {"summary": "Scripted plan review: no concerns", "concerns": []}
     if stage == "glm_revise":
-        return {"summary": "Scripted revision: nothing to revise", "contract": contract(spec), "responses": [], **planning}
+        return {"summary": "Scripted revision: nothing to revise", "contract": contract(spec, final=adaptive),
+                "responses": [], **planning}
     if stage == "astra_finalize":
         final = {key: value for key, value in planning.items() if key != "code_refs"}
         return {"summary": "Scripted final component plan", "contract": contract(spec, final=True), "decisions": [], **final}
@@ -186,7 +194,8 @@ def main() -> int:
         print("Logged in using ChatGPT (multicomponent fake)")
         return 0
     session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
-    prompt = sys.stdin.read()
+    global PROMPT
+    prompt = PROMPT = sys.stdin.read()
     print(json.dumps({"type": "thread.started", "thread_id": session}), flush=True)
     if "CURRENT HANDOFF DATA\n" not in prompt:
         print(json.dumps({"error": "no handoff data"}))

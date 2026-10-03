@@ -14,7 +14,8 @@ if sys.argv[1:] == ["login", "status"]:
     print("Logged in using ChatGPT (offline fixture)")
     raise SystemExit(0)
 
-data = json.loads(sys.stdin.read().split("CURRENT HANDOFF DATA\n", 1)[1])
+prompt = sys.stdin.read()
+data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
 if 'acceptance_criteria_ref' in data:
     data['acceptance_criteria'] = [{k: c[k] for k in ('id', 'criterion')}
                                   for c in data['goal_contract']['body']['acceptance_criteria']]
@@ -85,8 +86,25 @@ print(json.dumps({"type": "thread.started", "thread_id": session}))
 if os.environ.get("AUTOCODE_FIXTURE_QUOTA_STAGE") == stage:
     print(json.dumps({"type": "error", "error": {"message": "subscription usage limit reached"}}))
     raise SystemExit(3)
+
+
+def adaptive_task(draft, implement):
+    """An adaptive-planning Planner draft carries its initial_task: kind none while a blocking question is open."""
+    if "ADAPTIVE PLANNING" not in prompt:
+        return
+    draft["initial_task"] = (dict(implement) if not draft.get("open_blocking_questions") else
+                             {"objective": "", "affected_paths": [], "kind": "none", "milestone_id": "",
+                              "requirements": [], "acceptance_criteria": [], "validation_plan": []})
+
+
+IMPLEMENT_TASK = {"objective": "Implement greeting CLI", "affected_paths": sorted(builder_files) if builder_files else ["greet.py"],
+                  "kind": "implement", "milestone_id": "M1", "requirements": ["Greet names; reject empty/whitespace input"],
+                  "acceptance_criteria": ["C1"], "validation_plan": ["Execute valid, empty and whitespace input"]}
 if stage == "recognize_workflow":
     result = {"workflow": "build", "reason": "Offline fixture: every request is treated as a build", "signals": [], "design_document": ""}
+    if 'Add "clarity"' in prompt:
+        # Vague keeps the Requirements stage, so a default (adaptive) run plans in the same stages as before.
+        result["clarity"] = os.environ.get("AUTOCODE_FIXTURE_CLARITY", "vague")
 elif stage == "investigate_stuck":
     result = {"diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.", "cause": "other", "guidance": "", "recommendation": "pause", "user_question": "", "evidence_refs": [], "example": "", "probe": "", "untestable": ""}
 elif stage == "requirements_gather":
@@ -125,6 +143,7 @@ elif stage == "astra_discovery":
         if draft["open_blocking_questions"]:
             draft["milestones"] = []
             draft["technical_approach"] = []
+        adaptive_task(draft, IMPLEMENT_TASK)
         source = next((name for name in ("greet.py", "bye.py") if Path(name).is_file()), None)
         result.update(code_refs=[f"{source}:1"] if source else ["goal_contract.body"],
                       alternatives=["A web endpoint would need deployment"],
@@ -139,6 +158,7 @@ elif stage == "glm_revise":
     draft = dict(contract["body"])
     draft.pop("initial_task", None)
     draft["important_failure_cases"] = [*draft["important_failure_cases"], "Reject whitespace-only input"]
+    adaptive_task(draft, IMPLEMENT_TASK)
     source = next((name for name in ("greet.py", "bye.py") if Path(name).is_file()), None)
     result = {"contract": draft, "summary": "Added whitespace case",
         "code_refs": [f"{source}:1"] if source else ["goal_contract.body"],

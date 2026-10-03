@@ -9,6 +9,7 @@ and oracle paths are real.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import uuid
@@ -215,9 +216,13 @@ def main() -> int:
                          "decision_needed": "", "options": [], "proposed_delta": ""},
     }
 
+    adaptive = "ADAPTIVE PLANNING" in prompt  # an adaptive Planner's draft carries its initial_task
     if stage == "recognize_workflow":
         report = {"workflow": "build", "reason": "Handwritten fixture: every request is a build", "signals": [],
                   "design_document": ""}
+        if 'Add "clarity"' in prompt:
+            # Vague keeps the Requirements stage the fixture's handwritten trace relies on.
+            report["clarity"] = os.environ.get("LIVE_FIXTURE_CLARITY", "vague")
     elif stage == "investigate_stuck":
         report = {"diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.", "cause": "other", "guidance": "", "recommendation": "pause", "user_question": "", "evidence_refs": [],
                   "example": "", "probe": "", "untestable": ""}
@@ -256,7 +261,7 @@ def main() -> int:
     elif stage == "astra_discovery":
         report = {
             "summary": "Handwritten greeting plan",
-            "contract": _contract(),
+            "contract": _planning_contract() if adaptive else _contract(),
             "code_refs": [ref for ref in _source_refs() if ref != 'task'], "alternatives": [], "uncertainties": [],
             "contract_changes": [], "conflict_resolutions": [],
             "machine_resolutions": [], "remediation_records": [], "access_blockers": [],
@@ -275,7 +280,7 @@ def main() -> int:
     elif stage == "glm_revise":
         report = {
             "summary": "Handwritten revision; nothing to revise",
-            "contract": _contract(),
+            "contract": _planning_contract() if adaptive else _contract(),
             "code_refs": [ref for ref in _source_refs() if ref != 'task'], "responses": [], "contract_changes": [],
             "conflict_resolutions": [],
             "machine_resolutions": [], "remediation_records": [], "access_blockers": [],

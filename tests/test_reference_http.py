@@ -76,7 +76,9 @@ class ReferenceHttpTests(unittest.TestCase):
         code, out, err = scenarios._run(
             [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_e2e.py"],
             cwd=self.project, timeout=30)
-        self.assertEqual(1, code, out + err)
+        # unittest exits 5 on newer Python when setUpClass fails before any
+        # test runs; older releases use the ordinary failure exit code 1.
+        self.assertIn(code, (1, 5), out + err)
         self.assertIn("catalog did not start", err)
         children = [json.loads(line) for line in self.log.read_text().splitlines()
                     if json.loads(line)["script"].endswith("server.py")]

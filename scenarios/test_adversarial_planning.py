@@ -61,6 +61,35 @@ class PlanningClarificationRecovery(AdversarialCase):
         self.assertEqual(["Q_AFTER"], [row["id"] for row in self.driver.answers])
 
 
+class PlanningMetadataRecovery(AdversarialCase):
+    def setUp(self):
+        super().setUp()
+        self.driver.flags += ["--requirements-model", "gpt-6-luna"]
+
+    def test_metadata_omission_and_mislabeled_addition_reach_approval_without_model_repair(self):
+        self.set_fault("planning", "recover_planning_metadata")
+        self.start_to_approval()
+        self.assertTrue(self.trace("omitted_trace_id"), self.root)
+        self.assertTrue(self.trace("mislabeled_addition", "glm_revise"), self.root)
+        self.assertEqual([], self.trace("metadata_rejection"), "Mechanical metadata needs no model repair")
+        self.assertFalse(self.trace("stage_enter", "terra"), "Approval is still required")
+        displayed = self.driver.call("show-goal", "--show-goal", action=True)
+        self.assertIn("C1", displayed.stdout)
+        self.assertIn("C2", displayed.stdout)
+        self.approve()
+        self.assertEqual("TASK_COMPLETE", self.finish()["status"], self.root)
+
+    def test_redundant_metadata_does_not_allow_a_proof_downgrade_or_builder(self):
+        self.set_fault("planning", "metadata_with_proof_downgrade")
+        view = self.driver.drive(self.scenario.brief)
+        self.assertFalse(view["done"], self.root)
+        self.assertFalse(self.trace("stage_enter", "terra"))
+        self.assertFalse(any(step["kind"] == "approve-plan" for step in self.driver.steps))
+        self.assertTrue(self.trace("mislabeled_addition", "glm_revise"), self.root)
+        rejected = self.trace("metadata_rejection", "glm_revise")
+        self.assertTrue(any("drops or changes 'C1'" in row["error"] for row in rejected), self.root)
+
+
 class DraftProofPlanning(AdversarialCase):
     def test_draft_command_is_corrected_before_approval_without_a_question(self):
         from .harness.project import git

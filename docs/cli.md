@@ -93,7 +93,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--engine opencode\|codex\|gocode` | Engine for the run. OpenCode is the default. `gocode` is the GoCode-native route (see the [README](../README.md#runtime-requirements-and-gocode-support)). |
 | `--provider <name>` | External tool registered via TOML (see [Providers](providers.md#add-a-tool)). |
 | `--joint-planning` | Add joint Requirements Planner / Plan Reviewer work. |
-| `--adaptive-planning` | New runs: plan as deep as the job needs. A clear build request skips the Requirements stage, and a Plan Reviewer with no blocking concern approves the draft. See [Adaptive planning](adaptive-planning.md). |
+| `--adaptive-planning` / `--no-adaptive-planning` | New runs plan as deep as the job needs by default (joint planning on the default flow): a clear build request skips the Requirements stage, and a Plan Reviewer with no blocking concern approves the draft. `--no-adaptive-planning` keeps the fixed sequence; `--adaptive-planning` insists. See [Adaptive planning](adaptive-planning.md). |
 | `--builder-strong-model MODEL` | Stronger model for the Builder's second attempt. |
 | `--requirements-model`, `--glm-model`, `--plan-reviewer-model` | Planning-role model overrides (bare GPT names). |
 | `--astra-model`, `--terra-model`, `--sol-model`, `--completion-model` | Execution-role model overrides (`provider/model` IDs). |

@@ -12,6 +12,9 @@ from harness.project import git
 class ProviderStartupRecovery(AdversarialCase):
     def setUp(self):
         super().setUp()
+        # Startup recovery is followed through the Requirements stage; a clear request would skip it now that
+        # adaptive planning is the default, so the scripted recognizer calls the request vague.
+        self.env["SCENARIO_FAKE_CLARITY"] = "vague"
         (self.project / "README.md").write_text("Existing source citation target.\n")
         git(self.project, "add", "README.md")
         git(self.project, "commit", "-qm", "Seed source")
