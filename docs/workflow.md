@@ -595,3 +595,30 @@ All listed acceptance criteria are required. Optional enhancements go in the def
 backlog and do not participate in the completion gate.
 
 See also: [Execution and completion](execution.md) · [Models](models.md) · [Providers](providers.md)
+
+## Task chat message intent
+
+Task chat uses deterministic, context-first rules; it makes no model call to
+guess a destructive action. Each saved message includes its kind and rule
+version. The rules are evaluated in this order:
+
+| Context or text | Saved kind | Effect |
+| --- | --- | --- |
+| A standalone control phrase such as “stop”, “pause after this step”, or “continue” | Control | Explains the composer buttons; executes no control. |
+| A question, a status request, or a question-word prefix | Question | Replies from saved status. It does not change the plan, queue feedback, or start a worker. |
+| Other reply explicitly linked to a current question card | Answer | Uses the existing answer/delegate operation and current request token. A typed “yes” here is only an answer, never plan approval. |
+| Unscoped “yes”, “approve”, “go ahead”, or equivalent approval wording | Approval guidance | Points to the exact reviewed-plan approval card; does not approve or start work. |
+| Other prose, including “actually use SMS instead” and ambiguous instructions | Proposed change | Saves the text and displays a confirmation card. Nothing is submitted to the runner yet. |
+
+“Yes, change the plan” confirms that saved text against the same plan token.
+Only then is a correction queued through the existing durable feedback operation.
+During execution it waits for the next safe boundary; fresh planning, independent
+review and explicit approval remain required. “No, keep as a question” records
+that decision and replies from saved status. If the plan token changed, the old
+confirmation is refused and the user must submit a new message.
+
+Replay uses the original request ID and saved decision. Failed or uncertain
+delivery retains the receipt and requires the existing explicit retry/reconciliation
+path. Historical feedback already submitted before these rules keeps its original
+authority on retry. Pre-task planning conversations remain draft discussions and
+cannot approve or control a task.

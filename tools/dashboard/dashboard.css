@@ -1226,3 +1226,8 @@ a,.next-action,.workflow-active,.task-path li.done,.model-state.mutable,button.t
   #task-detail .context-pane .context-pane-content{padding-top:2px}
   #task-detail .work-summary{padding:8px 12px}
 }
+
+/* Task input classification and explicit plan-change decisions stay in chat. */
+#task-detail #interview .chat-intent{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;padding:12px;border:1px solid var(--border-subtle);border-radius:10px;background:var(--surface-default);color:var(--text-primary)}
+#task-detail #interview .chat-intent>p{flex-basis:100%;margin:0}
+#task-detail #interview .chat-intent button{min-height:44px;min-width:44px;padding:10px 12px;white-space:normal;text-align:left}

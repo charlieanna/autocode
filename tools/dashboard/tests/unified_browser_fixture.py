@@ -318,6 +318,10 @@ def scenario_states(workspace):
          'created_at': '2026-09-22T12:28:00Z'},
     ]
     states['flow-m3-chat'] = m3_chat
+    for viewport in ('desktop', 'tablet', 'mobile'):
+        intent = copy.deepcopy(states['recovery'])
+        intent['task'] = 'Inspect chat intent before changing a plan'
+        states['flow-chat-intent-' + viewport] = intent
     return states
 
 
@@ -457,6 +461,22 @@ def main():
                 view = super().task_view(workspace, run)
                 view['monitor'] = self._fixture_monitor(run)
                 return view
+
+            def intervene(self, workspace, run, kind, text, ident):
+                if not run.name.startswith('flow-chat-intent-'):
+                    return super().intervene(workspace, run, kind, text, ident)
+                if kind != 'feedback':
+                    raise ValueError('The chat intent fixture accepts feedback only')
+                state = self._state(run)
+                entries = state.setdefault('_fixture_interventions', {}).setdefault('entries', [])
+                previous = next((entry for entry in entries if entry['id'] == ident), None)
+                if previous:
+                    return previous
+                receipt = {'id': ident, 'kind': kind, 'text': text, 'status': 'queued',
+                           'durable': True, 'observed_goal_token': self.view(workspace, run).get('goal_token')}
+                entries.append(receipt)
+                self._save_state(run, state)
+                return receipt
 
             def mutate(self, data):
                 """Authoritative, disposable transitions used only by browser flows.

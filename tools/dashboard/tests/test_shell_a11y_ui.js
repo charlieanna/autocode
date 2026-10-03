@@ -851,7 +851,10 @@ function assertM2Scenario(name, viewport) {
       // independently, so dispatch the native activation instead of letting a
       // coordinate click miss the control.
       data('()=>{const control=[...document.querySelectorAll("#inline-task-action button")].find(button=>button.textContent.trim().startsWith("Approve plan revision"));if(!control)throw Error("chat plan-approval control missing");const transcript=document.querySelector("#interview");if(!transcript||!transcript.contains(control))throw Error("the plan-approval control must be a DOM descendant of the #interview chat transcript, not the composer section");control.scrollIntoView({block:"center"});control.click();return true;}');
-      waitForCondition('document.querySelector("#brief-current")?.textContent.includes("Revision 7 is confirmed")', viewport.name + ' approval receipt');
+      // The saved plan can arrive during the action's read-after-write refresh,
+      // before submitTaskAction releases its pending guard. Observe the completed
+      // transition, not an intermediate approved-but-still-busy render.
+      waitForCondition('document.querySelector("#brief-current")?.textContent.includes("Revision 7 is confirmed")&&!taskActionBusy(latestRun)&&[...document.querySelectorAll("#inline-task-action button")].some(button=>button.textContent.trim()==="Start building"&&!button.disabled)', viewport.name + ' settled approval receipt and separate Start building');
       const approved=data('()=>({approval:latestRun.goal?.approval_status||"",buttons:[...document.querySelectorAll("#brief-current button")].filter(button=>!button.hidden).map(button=>button.textContent.trim()),chatButtons:[...document.querySelectorAll("#inline-task-action button")].filter(button=>!button.hidden).map(button=>button.textContent.trim()),receipt:(latestRun.actions||[]).find(action=>action.label==="Approve goal")||null})');
       assert.equal(approved.approval, 'approved', viewport.name+' exact plan approval returns an authoritative approved state');
       assert.deepEqual(approved.buttons, [], viewport.name+' confirmed approval leaves the Plan pane read-only');

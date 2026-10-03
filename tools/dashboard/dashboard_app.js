@@ -1602,16 +1602,35 @@ function renderQuestion(host,question,run) {
   if(question.proposed_default&&!operationalRequest(run)){const delegate=focusKey(button('Accept suggested answer',()=>sendTaskChat(run,{question_id:id,delegate:true,text:'',request_id:newRequestId(),...resolverResponseFields(run)})),'question:'+run.run+':'+id+':delegate');delegate.disabled=taskActionBusy(run)||taskChatPending.has(run.run);element.append(delegate);}
   host.append(element);
 }
+function renderChatIntent(row,entry,identity) {
+  if(!entry.kind)return;
+  const detail=card('','chat-intent');
+  detail.append(Object.assign(n('p','AutoCode · '+({proposed_change:'Proposed plan change',correction:'Confirmed plan change',question:'Saved status',control:'Control guidance',approval:'Approval guidance',answer:'Answer'}[entry.kind]||entry.kind)),{className:'speaker'}));
+  if(entry.reply)detail.append(n('p',entry.reply));
+  const confirmation=entry.confirmation;
+  if(confirmation?.status==='pending'&&latestRun?.run===identity){
+    const current=latestRun;
+    const stale=confirmation.goal_token!==(current.goal_token??null);
+    if(stale)detail.append(Object.assign(n('p','The plan changed. Send a new message to review the current plan.'),{className:'field-note'}));
+    else for(const [decision,label]of [['confirm','Yes, change the plan'],['question','No, keep as a question']]){
+      const control=button(label,()=>sendTaskChat(latestRun,{...entry,request_id:entry.client_request_id||entry.id,text:entry.submitted_text??entry.text,decision,decision_token:confirmation.token}),'text-button');
+      control.disabled=!!taskReadError||taskChatPending.has(identity)||taskActionBusy(current)||!!operationalRequest(current)||statusInfo(current).label==='Answer needed';
+      detail.append(control);
+    }
+  }
+  row.append(detail);
+}
 function renderMessageHistory(host,messages,identity){
   const split=Math.max(0,messages.length-4),older=card('','earlier-content');
   const latestAssistant=messages.findLast(entry=>entry.role!=='user');
-  const render=(parent,entry)=>{const row=appendMessage(parent,{...entry,expanded:entry===latestAssistant||entry===messages.at(-1),text:entry.text||(entry.delegate?'Accepted suggested answer':'Saved answer')});if(entry.question_text)row.prepend(Object.assign(n('p','In reply to: '+entry.question_text),{className:'reply-context'}));if(entry.error)row.append(Object.assign(n('p',entry.error),{className:'error'}));if(entry.role==='user'&&entry.status==='error'&&latestRun?.run===identity)row.append(button('Retry same message',()=>sendTaskChat(latestRun,{...entry,request_id:entry.id,retry:true})));};
+  const render=(parent,entry)=>{const row=appendMessage(parent,{...entry,expanded:entry===latestAssistant||entry===messages.at(-1),text:entry.text||(entry.delegate?'Accepted suggested answer':'Saved answer')});if(entry.kind)renderChatIntent(row,entry,identity);if(entry.question_text)row.prepend(Object.assign(n('p','In reply to: '+entry.question_text),{className:'reply-context'}));if(entry.error)row.append(Object.assign(n('p',entry.error),{className:'error'}));if(entry.role==='user'&&entry.status==='error'&&latestRun?.run===identity)row.append(button('Retry same message',()=>sendTaskChat(latestRun,{...entry,request_id:entry.id,retry:true})));};
   for(const entry of messages.slice(0,split))render(older,entry);
   if(split){const history=disclosure('Earlier conversation · '+split+' messages','earlier-messages',[older],identity);history.className='earlier-messages';host.append(history);}
   for(const entry of messages.slice(split))render(host,entry);
 }
 function taskMessages(run){
-  const journal=run.conversation?.messages||[],journalRequests=new Set(journal.map(entry=>entry.client_request_id||entry.request_id).filter(Boolean));
+  const receiptById=new Map((run.chat_messages||[]).map(entry=>[entry.id,entry]));
+  const journal=(run.conversation?.messages||[]).map(entry=>({...entry,...(receiptById.get(entry.client_request_id)||{}),id:entry.id,client_request_id:entry.client_request_id})),journalRequests=new Set(journal.map(entry=>entry.client_request_id||entry.request_id).filter(Boolean));
   const receipts=(run.chat_messages||[]).filter(entry=>!journalRequests.has(entry.id)&&!journalRequests.has(entry.request_id));
   const answered=new Set((run.chat_messages||[]).filter(entry=>entry.question_id).map(entry=>String(entry.question_id)));
   const answers=Object.entries(run.answers||{}).filter(([id])=>!answered.has(id)).map(([id,answer])=>({role:'user',speaker:'You',id,created_at:answer.at||answer.created_at,question_text:answer.question?.question,text:answer.text||answer.answer||'Saved answer',status:'saved'}));
@@ -2582,12 +2601,16 @@ async function sendChange(run,kind,retry){
   finally{sendingRequests.delete(key);if(chosen?.run===run.run)renderLiveControls(run);await refresh();}
 }
 function requestRow(entry,run){const row=card('','request-row');row.append(Object.assign(n('span',({pause:'Pause',stop:'Stop'}[entry.kind]||'Change')+' · '+(entry.status==='delivered'?'delivered to legacy checkpoint':entry.status)),{className:'badge '+(['failed','uncertain'].includes(entry.status)?'failed':entry.status==='queued'||entry.status?.startsWith('submitting')?'attention':['applied','resumed','delivered'].includes(entry.status)?'complete':'')}));if(entry.text)row.append(n('p',entry.text));if(entry.error)row.append(Object.assign(n('p',entry.error),{className:'error'}));row.append(disclosure('Receipt','receipt:'+entry.id,[n('code',entry.id)],run.run));if(entry.status==='uncertain')row.append(n('p','Refresh status and reconcile this request ID before retrying to avoid a duplicate mutation.'));else if(entry.status==='failed'&&!entry.legacy&&entry.kind)row.append(button('Retry same request',()=>sendChange(run,entry.kind,entry)));return row;}
+function isReadOnlyChatText(text){
+  const words=String(text||'').trim().toLowerCase().replace(/[.!?]+$/,'');
+  return /^(?:please )?(?:stop|pause|resume|continue)(?: (?:now|the task|after (?:this|the current) step))?$/.test(words)||String(text||'').includes('?')||/^(?:how|why|what|when|where|is|are|did|does|can|could|would)\b/.test(words)||['status','status update','progress','update'].includes(words);
+}
 async function sendTaskChat(run,retry) {
   const current=latestRun?.run===run.run?latestRun:run;
   if(taskReadError||taskArchiveBlocked(run.run)||current.task_archived||projectBlocked(run.workspace)||current.project_removed||taskChatPending.has(run.run)||current.status==='TASK_COMPLETE'||current.interventions?.mode==='unavailable')return;
   const questions=statusInfo(run).label==='Answer needed'?run.questions||[]:[],operational=operationalRequest(run),question_id=questions.length?$('#question-target').value||String(questions[0].id):null;
   let request=retry;
-  if(!request){const text=$('#change-text').value.trim();if(!text)return;const prior=readSavedRequest('task-request:'+run.run),payload={text,question_id,...(operational?{resolver_response:'provide_information'}:{}),...(question_id||operational?resolverResponseFields(run):{})},saved=prior?.payload?.text===text?prior:savedRequest('task-request:'+run.run,payload);request={...saved.payload,request_id:saved.id};}
+  if(!request){const text=$('#change-text').value.trim();if(!text)return;const prior=readSavedRequest('task-request:'+run.run),passive=isReadOnlyChatText(text),payload={text,question_id:passive?null:question_id,...(!passive&&operational?{resolver_response:'provide_information'}:{}),...(!passive&&(question_id||operational)?resolverResponseFields(run):{})},saved=prior?.payload?.text===text?prior:savedRequest('task-request:'+run.run,payload);request={...saved.payload,request_id:saved.id};}
   if(!request.text&&!request.delegate)return;
   const responding=!!(request.question_id||request.delegate||request.resolver_response||request.resolver_request||request.resolver_token);
   if(responding&&taskActionBusy(current))return;
@@ -2597,9 +2620,9 @@ async function sendTaskChat(run,retry) {
     if(responding&&(!resolverReplyCurrent(current,request,scopes)
         ||(request.resolver_response&&(request.resolver_response!=='provide_information'||request.delegate||request.question_id))
         ||(!request.resolver_response&&(!(current.questions||[]).some(question=>String(question.id)===String(request.question_id))||statusInfo(current).label!=='Answer needed'))))throw Error('This saved reply belongs to an outdated AutoResolver request. Review the current request and edit your draft before sending a new reply.');
-    if(!responding&&(operationalRequest(current)||statusInfo(current).label==='Answer needed'))throw Error('A new AutoResolver request is pending. Review it before sending this saved message.');
+    if(!responding&&!isReadOnlyChatText(request.text)&&(operationalRequest(current)||statusInfo(current).label==='Answer needed'))throw Error('A new AutoResolver request is pending. Review it before sending this saved message.');
     const text=request.submitted_text??request.text;
-    const payload=request.resolver_response?{workspace:run.workspace,run:run.run,action:'resolver_response',resolver_request:request.resolver_request,resolver_token:request.resolver_token,resolver_response:request.resolver_response,resolver_message:text}:{...chatPayload(current,text,request.question_id,request.request_id,request.delegate),...(request.retry?{retry:true}:{})};
+    const payload=request.resolver_response?{workspace:run.workspace,run:run.run,action:'resolver_response',resolver_request:request.resolver_request,resolver_token:request.resolver_token,resolver_response:request.resolver_response,resolver_message:text}:{...chatPayload(current,text,request.question_id,request.request_id,request.delegate),...(request.retry?{retry:true}:{}),...(request.decision?{decision:request.decision,decision_token:request.decision_token}:{})};
     const response=await api(request.resolver_response?'/api/action':'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     if(['error','failed','uncertain','launch_failed'].includes(response.status))taskChatErrors.set(run.run,{...request,error:response.error||'This message needs attention.'});
     else{persist('task-request:'+run.run,'');persist('task-scroll:'+run.run,'');if(!request.delegate&&$('#change-text').dataset.run===run.run&&$('#change-text').value.trim()===request.text){$('#change-text').value='';changeDrafts.set(run.run,'');persist('task-draft:'+run.run,'');}}
@@ -2629,7 +2652,7 @@ function renderLiveControls(run){
   input.oninput=()=>{changeDrafts.set(input.dataset.run,input.value);persist('task-draft:'+input.dataset.run,input.value);$('#send-change').disabled=sendBlocked||!!taskReadError||!input.value.trim();};
   requestAnimationFrame(()=>resizeComposer(input));
   $('#change-form').onsubmit=event=>{event.preventDefault();sendTaskChat(run);};renderPrimaryAction(run);renderTaskAttention(run);
-  $('#task-delivery').textContent=sending?'Saving your message…':operational?'Information is saved for AutoResolver. The task stays paused.':questions.length?'Planning continues only if the controller returns to Running with no pending request.':run.status==='TASK_COMPLETE'?'This task is complete. Start a new conversation for more work.':'Messages are saved when sent and applied at the next safe step';
+  $('#task-delivery').textContent=sending?'Saving your message…':operational?'Information is saved for AutoResolver. The task stays paused.':questions.length?'Planning continues only if the controller returns to Running with no pending request.':run.status==='TASK_COMPLETE'?'This task is complete. Start a new conversation for more work.':'Questions use saved status. Plan changes need confirmation before being applied.';
   $('#live-mode').textContent=operational?'This does not approve goals, change permissions, reset budgets, or continue execution.':questions.length?'This does not approve a plan or start implementation.':unavailable?'Live controls are unavailable.':statusInfo(run).group==='stopped'&&!busy?'Messages stay saved while this task is paused.':'';
   $('#live-error').textContent=data.error||'';
   const host=$('#change-history');host.replaceChildren();const entries=data.entries||data.requests||[],chatIds=new Set((run.chat_messages||[]).map(entry=>entry.id));
