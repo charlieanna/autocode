@@ -205,6 +205,15 @@ class TaskRunTests(unittest.TestCase):
         with self.assertRaisesRegex(taskrun.TaskRunError, "unrecognized arguments"):
             broken.advance()
 
+    def test_rejected_verification_change_is_reported_to_the_caller(self):
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
+        before = (run.run_dir / 'state.json').read_bytes()
+        broken = taskrun.TaskRun(self.workspace, run.run_dir,
+                                options=('--test-command', 'python -m unittest'), env=self.env)
+        with self.assertRaisesRegex(taskrun.TaskRunError, 'Changing saved verification commands'):
+            broken.resume_paused()
+        self.assertEqual(before, (run.run_dir / 'state.json').read_bytes())
+
 
 class TaskRunClientTests(unittest.TestCase):
     def test_advancing_command_rejects_input_error_instead_of_treating_it_as_a_pause(self):

@@ -532,7 +532,7 @@ def assign_task(state, decision, current):
         return "implement"
     if not spec or spec["kind"] not in ("implement", "validate"):
         raise ValueError("CONTINUE or REWORK requires a concrete next task")
-    if decision["status"] == "REWORK" and (spec["kind"] != "implement" or not decision["evidence"]):
+    if decision["status"] == "REWORK" and not decision["evidence"]:
         raise ValueError("REWORK requires a correction task with defect evidence")
     for field in ("requirements", "acceptance_criteria", "validation_plan"):
         if not spec[field] or any(not entry.strip() for entry in spec[field]):

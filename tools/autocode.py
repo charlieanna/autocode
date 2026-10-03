@@ -47,7 +47,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_reviewer_fallback as reviewer_fallback
     from . import autocode_planning_artifacts as planning_artifacts
-    from . import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits
+    from . import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants
     from . import autocode_progressive_state as progressive_state
     from . import autocode_findings as findings_ledger
     from . import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
@@ -79,7 +79,7 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_reviewer_fallback as reviewer_fallback
     import autocode_planning_artifacts as planning_artifacts
-    import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits
+    import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants
     import autocode_progressive_state as progressive_state
     import autocode_findings as findings_ledger
     import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
@@ -780,35 +780,10 @@ def timeout_recovery_guard(state):
         raise support.Paused(*reason)
 
 
-def grant_recovery_allowance(state, run_dir, amount):
-    """Authorize N more automatic timeout recoveries for an exhausted run.
-
-    Acknowledging a pause never restores a spent allowance; only this explicit,
-    audited operator grant does. The automatic_timeout_recoveries history stays
-    intact for audit, and the answered request is retired, not deleted.
-    """
-    issued = resolver_human.current(state)
-    issued_cause = (state.get('resolver', {}).get('human_escalations', {}).get(issued['request_id'], {})
-                    .get('identity', {}).get('proposal', {}).get('origin', {}).get('pause_status')) if issued else None
-    if (state.get('status') != 'PAUSED_TIMEOUT_RECOVERY'
-            and not (issued and issued['scope'] == 'operational_exhaustion' and issued_cause == 'PAUSED_TIMEOUT_RECOVERY')):
-        raise ValueError('--grant-recovery requires a run paused for exhausted timeout recovery')
-    previous = recovery_count(state)
-    remaining = max(0, previous - amount)
-    state['automatic_recoveries_since_resume'] = remaining
-    state['consecutive_timeout_recoveries'] = 0
-    state.setdefault('recovery_grants', []).append({
-        'at': now(), 'actor': 'user_cli', 'amount': amount,
-        'request_id': issued['request_id'] if issued else None,
-        'previous_count': previous, 'remaining_count': remaining})
-    state.setdefault('user_events', []).append({
-        'kind': 'recovery_grant', 'at': now(), 'actor': 'user_cli', 'amount': amount,
-        'request_id': issued['request_id'] if issued else None, 'previous_count': previous})
-    resolver_human.supersede_operational(state, f'Operator granted {amount} more automatic recoveries')
-    write_json(run_dir / 'state.json', state)
-    print(f"Recovery grant recorded: {amount} more automatic timeout recoveries authorized "
-          f"({previous} -> {remaining} counted); history retained.", flush=True)
-    return remaining
+def grant_recovery_allowance(state, run_dir, amount, *, previous_settings=None):
+    return recovery_grants.grant(state, run_dir, amount, previous_settings=previous_settings,
+        current_request=resolver_human.current, count=recovery_count(state),
+        supersede=resolver_human.supersede_operational, persist=write_json)
 
 
 def repeated_failure_resume_guard(state, workspace, *, authorization=None):

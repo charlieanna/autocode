@@ -119,6 +119,35 @@ class CompletionReworkCLI(unittest.TestCase):
                           "astra_resolve", "terra", "sol", "astra_review"],
                          [row["stage"] for row in self.trace()])
 
+    def test_resolver_validation_repair_runs_fresh_checks_without_another_builder(self):
+        driver = self.driver("validate", "--pause-after-stage")
+        view = driver.drive(self.scenario.brief)
+        while (not (self.root / "rework-trace.jsonl").exists()
+               or not any(row["stage"] == "astra_resolve" for row in self.trace())):
+            self.assertEqual("--pause-after-stage checkpoint reached", view["needs"].get("reason"), view)
+            driver.call("resume-checkpoint", "--resume-paused")
+            view = driver.until_stopped()
+        self.assertFalse(view["done"], view)
+        self.assertEqual("sol", view["next_stage"], view)
+        self.assertEqual("validate", driver.state()["current_task"]["kind"])
+        self.assertEqual(0, scenario_run.metrics(driver.state())["report_repairs"])
+        # The previous passing report belongs to another task and cannot finish this one.
+        previous = [row for row in self.trace() if row["stage"] == "sol"]
+        self.assertEqual(1, len(previous))
+        self.assertNotEqual(previous[0]["task_id"], driver.state()["current_task"]["id"])
+        while not view["done"]:
+            self.assertEqual("--pause-after-stage checkpoint reached", view["needs"].get("reason"), view)
+            driver.call("resume-checkpoint", "--resume-paused")
+            view = driver.until_stopped()
+        self.assertEqual(["terra", "sol", "astra_review", "astra_resolve", "sol", "astra_review"],
+                         [row["stage"] for row in self.trace()])
+        self.assertEqual(1, len({row["source_revision"] for row in self.trace() if row["stage"] != "terra"}))
+        self.assertEqual(1, len({row["source_sha256"] for row in self.trace()}))
+        self.assertEqual([0, 0], [row["exit_code"] for row in self.trace() if row["stage"] == "sol"])
+        self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
+        checks = self.scenario.oracle()(self.project, self.scenario)
+        self.assertTrue(all(check.ok for check in checks), checks)
+
     def test_exhausted_pinned_builder_keeps_existing_pause(self):
         driver = self.driver("exhausted", "--pin-model-role", "terra")
         view = driver.drive(self.scenario.brief)

@@ -505,7 +505,8 @@ def automatically_recover_timed_out_stage(state, run_dir, workspace, error):
         reviewer_fallback.record_failed(state, record['reviewer_fallback_grant'], record)
     elif planning.is_planning(state, semantic_stage):
         reviewer_fallback.reserve(state, run_dir, workspace, semantic_stage)
-    state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
+    if semantic_stage == 'terra':
+        state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
     state["consecutive_timeout_recoveries"] = state.get("consecutive_timeout_recoveries", 0) + 1
     state.update(status="RUNNING", phase=phase, next_stage=next_stage)
     state.pop("stop_reason", None)
@@ -587,7 +588,8 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
                                                    "at": recovery["at"], "attempt_id": recovery["attempt_id"],
                                                    "next_stage": next_stage, "changed_files": record["changed_files"]})
     state["recovery_context"] = recovery
-    state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
+    if (record.get('original_stage') or record['stage']) == 'terra':
+        state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
     resolver_runtime.observe_operational_recovery(records, state, run_dir, workspace, recovery)
     state.update(status="RUNNING", phase="PLANNING" if planning.is_planning(state, next_stage) else "EXECUTING",
                  next_stage=next_stage)
