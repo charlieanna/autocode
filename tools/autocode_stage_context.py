@@ -13,11 +13,11 @@ import shlex
 try:
     from . import autocode_support as support
     from .autocode_util import criteria_definition
-    from . import autocode_design_manifest as design_manifest
+    from . import autocode_design_manifest as design_manifest, autocode_protected_oracles as protected_oracles
 except ImportError:
     import autocode_support as support
     from autocode_util import criteria_definition
-    import autocode_design_manifest as design_manifest
+    import autocode_design_manifest as design_manifest, autocode_protected_oracles as protected_oracles
 
 
 def context_packet(state, stage, state_path):
@@ -60,6 +60,9 @@ def context_packet(state, stage, state_path):
                 'never runner state/config. Cite bare event: IDs or exact existing paths in evidence_refs; '
                 'put explanations in summary/results, not in paths. Create missing assigned outputs '
                 'rather than treating them as missing prerequisites.'}
+    protected = protected_oracles.context(state["settings"], (state.get("current_task") or {}).get("affected_paths", []))
+    if protected:
+        base["protected_tests"] = protected
     manifest_context = design_manifest.context(state["settings"])
     if manifest_context:
         base["design_manifest"] = manifest_context

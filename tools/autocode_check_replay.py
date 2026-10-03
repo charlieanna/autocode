@@ -28,10 +28,10 @@ from pathlib import Path
 
 try:
     from . import autocode_verification_plan as verification_plan, autocode_test_quality as test_quality
-    from . import autocode_acceptance_policy as acceptance_policy
+    from . import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles
 except ImportError:
     import autocode_verification_plan as verification_plan, autocode_test_quality as test_quality
-    import autocode_acceptance_policy as acceptance_policy
+    import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles
 
 PASS, FAIL = "PASS", "FAIL"
 # Told to the Validator with every request. A live Validator showed "fails without __init__.py" as a check
@@ -67,6 +67,7 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
            required_commands=None, progressive_context=None) -> dict:
     """Re-run each distinct check command; return the result or raise ValueError on the first that fails."""
     out = Path(run_dir) / "check-replay" / Path(record.get("output") or "validation").stem
+    protected = protected_oracles.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout)
     checks = list(checks)
     prescribed = verification_plan.approved_commands(approved_state or {}, progressive_context=progressive_context)
     if required_commands is not None:
@@ -93,7 +94,7 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
                      "evidence_ref": check.get("evidence_ref")})
     failed = [row for row in rows if row["error"] or row["timed_out"] or row["exit_code"] != 0]
     result = {"verdict": FAIL if failed else PASS, "checks": rows, "source_revision": record.get("source_revision"),
-              "timeout_seconds": timeout, "replayed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+              "protected_tests": protected, "timeout_seconds": timeout, "replayed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
     out.mkdir(parents=True, exist_ok=True)
     (out / "replay.json").write_text(json.dumps(result, indent=2) + "\n")
     if failed:
