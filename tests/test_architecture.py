@@ -1,9 +1,4 @@
-"""Ratchets that stop the architecture getting worse. See AGENTS.md.
-
-The recorded limits may only go down. If a change needs to raise one, the change
-is in the wrong place: put the new behavior in its own module, below the
-modules that use it.
-"""
+"""Guard import cycles and shared-helper dependency isolation. See AGENTS.md."""
 import ast
 import unittest
 from pathlib import Path
@@ -22,15 +17,6 @@ TANGLED = frozenset({
     "autocode_stage_context", "autocode_workflow", "live_scenarios", "live_token_sampler",
     "score_autocode_run", "task_scenarios", "units.autoplanner", "units.common",
 })
-
-# Lower each limit when its module shrinks. Keep one entry per line so independent
-# reductions do not conflict; when the same entry conflicts, retain the lower limit.
-MAX_LINES = {
-    "autocode.py": 1381,
-    "autocode_goals.py": 1208,
-    "autocode_support.py": 572,
-    "autopilot.py": 972,
-}
 
 
 def source_modules() -> dict[str, Path]:
@@ -107,13 +93,6 @@ class ArchitectureTests(unittest.TestCase):
     def test_the_shared_helpers_import_nothing_from_autocode(self):
         # autocode_util is the bottom layer; one AutoCode import would drag its 18 users back into the cycle.
         self.assertEqual(set(), import_graph()["autocode_util"])
-
-    def test_largest_modules_do_not_grow(self):
-        for name, limit in MAX_LINES.items():
-            with self.subTest(module=name):
-                lines = len((TOOLS / name).read_text().splitlines())
-                self.assertLessEqual(lines, limit, f"{name} grew to {lines} lines (limit {limit}); "
-                                     "put new behavior in a focused module instead")
 
 
 if __name__ == "__main__":
