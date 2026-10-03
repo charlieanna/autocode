@@ -23,14 +23,15 @@ def _run_root(output):
                  and parent.parent.parent.name == '.autocode'), None)
 
 
-def _owned(path, workspace, run_dir, *, artifact=False):
+def _owned(path, workspace, run_dir, *, artifact=False, check_evidence=False):
     _require(isinstance(path, str) and bool(path), 'Repair evidence has no file path')
     target = Path(path)
     target = target if target.is_absolute() else workspace / target
     _require('..' not in target.parts and target.is_relative_to(workspace),
              'Repair evidence is outside this workspace')
     _require(not artifact or target.is_relative_to(run_dir), 'Stage evidence belongs to another run')
-    _require(not target.is_relative_to(workspace / '.autocode') or target.is_relative_to(run_dir),
+    shared = check_evidence and target.is_relative_to(workspace / '.autocode' / 'evidence')
+    _require(not target.is_relative_to(workspace / '.autocode') or target.is_relative_to(run_dir) or shared,
              'Repair evidence belongs to another run')
     _require(not any(parent.is_symlink() for parent in (target, *target.parents)
                      if parent.is_relative_to(workspace)), 'Repair evidence traverses a symlink')
@@ -41,7 +42,7 @@ def _owned(path, workspace, run_dir, *, artifact=False):
 def _report(path):
     try:
         return util.read_object(path)
-    except (OSError, RuntimeError) as error:
+    except (OSError, ValueError, RuntimeError) as error:
         raise util.Paused('PAUSED_STALE_HANDOFF', 'Saved repair report is unreadable') from error
 
 
@@ -74,17 +75,30 @@ def _repaired(record):
     return any(record.get(key) for key in ('report_only', 'report_repaired', 'repaired_by', 'applied_original_events'))
 
 
+def verify_existing(record):
+    """Verify existing authority before a report loader can parse or overwrite it."""
+    if 'rework_evidence' not in record or _repaired(record):
+        return
+    seal = record['rework_evidence']
+    _require(isinstance(seal, dict) and isinstance(seal.get('run_dir'), str) and bool(seal['run_dir']),
+             'Existing repair seal lost its run provenance')
+    root = Path(seal['run_dir'])
+    _require(root.is_absolute() and root.parent.name == 'runs' and root.parent.parent.name == '.autocode'
+             and _run_root(record.get('output')) == root, 'Existing repair seal belongs to a different run')
+    _verify(record, root.parent.parent.parent, root)
+
+
 def capture(record, value):
     """Seal normalized, unrepaired modern reports at the report-loader boundary."""
     if record.get('stage') not in ('sol', 'astra_review') or _repaired(record):
         return value
     if not isinstance(value, dict) or not all(value.get(key) for key in ('contract_hash', 'contract_revision', 'task_id')):
-        _require(not record.get('rework_evidence'), 'A sealed report lost its accepted provenance')
+        _require('rework_evidence' not in record, 'A sealed report lost its accepted provenance')
         return value
     root = _run_root(record.get('output'))
     if root is None or not all(record.get(key) for key in ('task_id', 'source_revision', 'contract_hash', 'contract_revision')):
         # Old reports without runner provenance remain usable, but cannot earn this optimization.
-        _require(not record.get('rework_evidence'), 'A sealed report lost its runner provenance')
+        _require('rework_evidence' not in record, 'A sealed report lost its runner provenance')
         return value
     workspace = root.parent.parent.parent
     sealed = _seal(record, value, workspace, root)
@@ -97,12 +111,14 @@ def capture(record, value):
 
 
 def _verify(record, workspace, run_dir, value=None):
-    seal = record.get('rework_evidence')
-    if not seal or _repaired(record):
+    if 'rework_evidence' not in record or _repaired(record):
         return None
+    seal = record['rework_evidence']
+    _require(isinstance(seal, dict) and bool(seal), 'Existing repair seal is incomplete')
     _require(run_dir.is_relative_to(workspace / '.autocode' / 'runs'), 'Repair run does not belong to this workspace')
     paths = {key: _owned(record[key], workspace, run_dir, artifact=True)
              for key in ('output', 'events', 'reported_output') if record.get(key)}
+    _require('output' in paths and 'events' in paths, 'Sealed repair report lost its artifact paths')
     report = _report(paths['output']) if value is None else value
     _require(_seal(record, report, workspace, run_dir) == seal, 'Saved repair seal or evidence changed')
     return report
@@ -213,13 +229,17 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
     pins = validation.get('evidence_hashes') or {}
     if report is not None and current_validation:
         for path, digest in pins.items():
-            _require(_hash(_owned(path, workspace, root)) == digest, 'Validator evidence changed before repair')
+            _require(_hash(_owned(path, workspace, root, check_evidence=True)) == digest,
+                     'Validator evidence changed before repair')
     queue(state, decision, record)
     _require(not any(row.get('source_output') == record.get('output') for row in state.get('direct_rework_assignments', [])),
              'This Completion repair was already assigned; reconcile its existing handoff')
     if (completion is None or report is None or not current_validation or validation.get('verdict') != 'FAIL'
             or not _eligible(state, decision, record, previous_criteria, prior_request, pending_human, retry_policy)):
         return False
+    # Queue admission must not turn a concurrent edit into fresh authoritative pins.
+    _verify(record, workspace, root, decision)
+    _verify(accepted, workspace, root)
     builders = [row for row in state['stages'] if row.get('stage') == 'terra']
     builder = builders[0]
     roles = state['settings'].get('roles', {})
@@ -235,23 +255,28 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
     failed = [check for check in validation.get('checks', []) if type(check.get('exit_code')) is int and check['exit_code'] != 0]
     if not failed or not pins:
         return False
+    shared_receipt = False
     for check in failed:
         ref = check.get('evidence_ref') or ''
         if ref.startswith('event:'):
             if accepted['events'] not in pins:
                 return False
         else:
-            receipt_path = _owned(ref, workspace, root, artifact=True)
+            receipt_path = _owned(ref, workspace, root, check_evidence=True)
             receipt = _report(receipt_path)
-            raw = _owned(receipt.get('full_output'), workspace, root, artifact=True)
+            raw = _owned(receipt.get('full_output'), workspace, root, check_evidence=True)
             if str(receipt_path) not in pins or str(raw) not in pins:
                 return False
+            shared_receipt |= not receipt_path.is_relative_to(root) or not raw.is_relative_to(root)
     try:
         runtime.support.verify_checks(copy.deepcopy(failed), workspace, accepted['events'],
                                       **runtime.check_evidence_options(accepted))
     except ValueError as error:
         raise util.Paused('PAUSED_STALE_HANDOFF', 'Failed check lacks an executed Validator receipt') from error
+    if shared_receipt:
+        return False  # Supported workspace-shared captures still need ordinary Resolver admission.
     current = runtime.support.snapshot(workspace)
+    _require(current['revision'] == record['source_revision'], 'Source changed while admitting the repair')
     probe = copy.deepcopy(state)
     probe['iteration'] += 1
     try:
@@ -288,7 +313,8 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
         'source_revision': record['source_revision'], 'source_output': record['output'],
         'source_stage': 'astra_review', 'provenance': 'completion_direct_assignment',
         'report_digest': record['rework_evidence']['report_digest'],
-        'evidence_hashes': {**request['evidence_hashes'], **accepted['rework_evidence']['hashes']},
+        'evidence_hashes': {**request['evidence_hashes'], **record['rework_evidence']['hashes'],
+                            **accepted['rework_evidence']['hashes']},
         'retry_charge': {'action': action, 'evidence': record['output'], 'iteration': candidate['iteration']},
         'reason': reason, 'assigned_at': util.now(),
     })

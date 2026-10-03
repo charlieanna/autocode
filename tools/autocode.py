@@ -170,6 +170,7 @@ slug = util.slug
 
 def load_stage_report(record, workspace=None, evidence_record=None, state=None):
     """Validate provider output, retaining raw bytes before hydrating review IDs."""
+    rework_policy.verify_existing(record)
     if record.get("engine") == "opencode":
         # Raw provider events are authoritative, including during recovery.
         record['response_text'] = str(Path(record['output']).with_suffix('.response.txt'))
