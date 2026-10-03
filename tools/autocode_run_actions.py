@@ -31,6 +31,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_support as support
+    from . import autocode_test_integrity as test_integrity
     from . import autocode_workflows as workflows
     from . import autocode_worktrees as worktrees
 except ImportError:
@@ -50,6 +51,7 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
     import autocode_support as support
+    import autocode_test_integrity as test_integrity
     import autocode_workflows as workflows
     import autocode_worktrees as worktrees
 
@@ -75,7 +77,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         progressive.set_explicit_limits(state, run_seconds=explicit_run_seconds,
                                         slice_seconds=explicit_slice_seconds)
     decision_action = any((args.answer, args.delegate, args.approve_goal, args.edit_goal,
-                           args.approve_review, args.reconcile_review, args.feedback is not None, args.follow_up is not None,
+                           args.approve_review, args.reconcile_review, args.approve_test_change,
+                           args.feedback is not None, args.follow_up is not None,
                            args.show_goal, args.accept_completion, args.resolver_response,
                            args.planning_review_call_limit is not None))
     active = state.get('active_stage') or {}
@@ -299,7 +302,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     runner.normalize_human_boundary(state, run_dir)
     user_action = any((args.show_goal, args.answer, args.delegate, args.delegate_all, args.reject_assumption,
                        args.approve_goal, args.edit_goal,
-                       args.approve_review, args.reconcile_review,
+                       args.approve_review, args.reconcile_review, args.approve_test_change,
                        args.feedback is not None, args.follow_up is not None, args.accept_completion,
                        args.planning_review_call_limit is not None))
     if user_action:
@@ -368,6 +371,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                     raise ValueError("--reconcile-review uses CRITERION_ID=ANSWER_ID")
                 goals.reconcile_legacy_review(candidate, criterion, answer_id,
                                               args.review_token, support.snapshot(workspace))
+            for path in args.approve_test_change:
+                test_integrity.approve(candidate, path, workspace, runner.now())
             if args.accept_completion:
                 runner.accept_completion(candidate, workspace)
             if published and any((args.answer, args.delegate, args.approve_goal, args.approve_review)):

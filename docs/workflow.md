@@ -463,6 +463,32 @@ setuptools-scm or hatch-vcs `_version.py`) are copied from the project into ever
 scratch tree, base and fix alike, so the package imports there. Ignored build
 output directories are not copied.
 
+### Tests the run started with are protected
+
+A Builder must fix the code to satisfy an existing test, not change the test to
+accept the code. In every run, before the Validator runs, the runner looks for
+test files that existed at the run's base commit and have since been edited or
+deleted. It runs each edited file twice in scratch worktrees, over the same
+current code: once as edited, once as it was at base.
+
+- **Weakened.** A test that fails in its original form but not as edited was
+  weakened: its expected value was changed, an assertion was dropped, it was
+  skipped, renamed or removed, or it was made to always pass. Deleting the file
+  counts too. Without per-test results, exit codes decide.
+- **Allowed.** New test files, new tests in an existing file, and rewrites
+  that keep each test's meaning pass both ways.
+- **The Validator and Completion Owner see the result** as `protected_tests`.
+  Completion is refused while a weakened test is unapproved, and a weakening
+  still there after a rework pauses the run (`PAUSED_PROTECTED_TEST_CHANGED`)
+  instead of retrying.
+- **When the change to a test is intended**, approve it:
+  `autocode --approve-test-change tests/test_x.py`, then `--resume-paused`. The
+  approval covers the file exactly as the runner last checked it; a later edit
+  is checked again.
+
+The guard is in `tools/autocode_test_integrity.py`. It protects only tests from
+the base commit, not tests a run wrote and had accepted earlier.
+
 Planning reports that omit only a provenance list (such as `code_refs` or
 `source_refs`) now get an empty list instead of a report-repair model call; the
 raw report is kept and every semantic check still runs. Reports that omit a list

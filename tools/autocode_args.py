@@ -170,6 +170,9 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--approve-goal", metavar="TOKEN", help="Approve exactly a previously displayed revision")
     parser.add_argument("--edit-goal", type=Path, help="Load a revised contract body JSON; invalidates approval")
     parser.add_argument("--approve-review", action="append", default=[], metavar="CRITERION_ID")
+    parser.add_argument("--approve-test-change", action="append", default=[], metavar="PATH",
+                        help="Accept one edit to a test that existed when the run started, exactly as the "
+                             "runner last checked it; never approves anything else")
     parser.add_argument("--reconcile-review", metavar="CRITERION_ID=ANSWER_ID",
                         help="Bind an authenticated legacy acceptance to current validated evidence without a new approval")
     parser.add_argument("--accept-completion", action="store_true",
@@ -219,6 +222,7 @@ def parse(unit, argv, default_models):
     if args.resolver_response and not (args.run_dir and args.resolver_request and args.resolver_token):
         parser.error('--resolver-response requires --run-dir, --resolver-request and --resolver-token')
     if args.resolver_response and any((args.answer, args.delegate, args.approve_goal, args.approve_review,
+                                      args.approve_test_change,
                                       args.feedback is not None, args.retry_failed_stage, args.grant_recovery is not None,
                                       args.resume_paused)):
         parser.error('A resolver response cannot be combined with approval, feedback or execution authorization')
@@ -242,7 +246,7 @@ def parse(unit, argv, default_models):
     actions = [args.status, args.dry_run, args.migrate_only, args.show_goal,
                bool(args.answer or args.delegate), bool(args.delegate_all), bool(args.reject_assumption),
                bool(args.approve_goal), bool(args.edit_goal),
-               bool(args.approve_review), bool(args.reconcile_review),
+               bool(args.approve_review), bool(args.reconcile_review), bool(args.approve_test_change),
                args.feedback is not None, args.follow_up is not None, args.accept_completion, args.abandon_stage is not None,
                args.request_milestone_checkpoints, args.planning_review_call_limit is not None,
                args.bind_dependency, args.receive_dependency]

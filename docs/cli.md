@@ -58,6 +58,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--approve-goal 'r3:<hash>'` | Approve the exact displayed revision. |
 | `--edit-goal body.json` | Load a full contract body as a new draft revision. |
 | `--approve-review C1 --review-token '…'` | Record a human-review decision for criterion `C1`. |
+| `--approve-test-change tests/test_x.py` | Accept an edit to a test that existed when the run started, exactly as the runner last checked it (repeatable). The runner refuses completion while a weakened test is unapproved; see [Workflow](workflow.md#tests-the-run-started-with-are-protected). |
 | `--investigator-model MODEL`, `--investigator-reasoning-effort LEVEL` | Pin the stuck-stage Investigator's model for this run (default, at high: Claude Opus 5.5 in `kilocode` runs, otherwise GPT-6 Sol, or GLM 5.3 when the stuck stage runs on Sol). A `provider/model` id runs it through OpenCode. See [Workflow](workflow.md#when-a-stage-stops-making-progress). |
 | `--resolver-response provide_information --resolver-request ID --resolver-token '…'` | Answer an AutoResolver operational request with corrective information. `--resolver-response` requires both `--resolver-request` and `--resolver-token`; the response itself authorizes no retry, approval or budget change. |
 

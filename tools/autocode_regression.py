@@ -37,7 +37,9 @@ try:
     from . import autocode_bug_job as bug_job, autocode_test_cases as test_cases
     from . import autocode_follow_up as follow_up
     from . import autocode_runner_check as runner_check, autocode_status as status
+    from . import autocode_test_integrity as test_integrity
 except ImportError:
+    import autocode_test_integrity as test_integrity
     import autocode_bug_job as bug_job
     import autocode_follow_up as follow_up
     import autocode_test_cases as test_cases
@@ -236,6 +238,8 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework):
 
 def rejection(state):
     """The completion gate's reason when the current source has no passing proof."""
+    if test_integrity.outstanding(state) or not required(state):
+        return test_integrity.rejection(state)
     proof = state.get("regression_proof") or {}
     reasons = "; ".join((proof.get("failures") or []) + (proof.get("unverified") or [])) or \
         "no proof exists for the current source"
@@ -301,12 +305,36 @@ def check_cases(proof, cases):
 def before_review(state, stage, workspace, run_dir):
     """Called by both dispatch paths just before the Validator (or combined checkpoint) runs."""
     runner_check.clear(state, run_dir, status.persist)
-    if stage in ("sol", "astra_checkpoint") and required(state):
+    if stage not in ("sol", "astra_checkpoint"):
+        return
+    if required(state):
         prove(state, workspace, run_dir)
+    protect(state, workspace, run_dir)
+
+
+def protect(state, workspace, run_dir):
+    """Every run, not only proven ones: edited tests from the base commit must not be weakened."""
+    base = base_commit(state, workspace)
+    if not base:
+        return
+    options = settings(state)
+    python = options.get("python") or verify.python_for(state.get("project_workspace") or workspace)
+    result = test_integrity.check(
+        state, workspace, run_dir, base=base, framework=lambda: verify.detect_framework(workspace, python=python),
+        suite_command=options.get("test_command"),
+        dependencies_from=state.get("project_workspace") or str(workspace), timeout=suite_timeout(state),
+        track=lambda summary: runner_check.track(state, run_dir, test_integrity.STAGE, summary, status.persist))
+    held = test_integrity.hold(state, result)
+    if held:
+        raise held
 
 
 def complete(state, current_revision):
-    """True when the run needs no proof, or has a passing proof for exactly this source."""
+    """True when the run needs no proof, or has a passing proof for exactly this source.
+
+    Either way, no edited protected test may be weakened without the user's approval."""
+    if not test_integrity.complete(state, current_revision):
+        return False
     if not required(state):
         return True
     proof = state.get("regression_proof") or {}

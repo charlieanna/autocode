@@ -62,6 +62,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Answer | `autocode --answer QUESTION_ID=TEXT` | 0 saved, 2 rejected |
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
 | Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
+| Approve a test edit | `autocode --approve-test-change PATH` | 0 saved, 2 rejected |
 | Plan feedback | `autocode --feedback TEXT` | 0 saved, 2 rejected |
 | Follow up a finished run | `autocode --follow-up TEXT` | 0 saved, 2 rejected |
 

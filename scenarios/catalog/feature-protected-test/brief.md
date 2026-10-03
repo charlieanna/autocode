@@ -1,0 +1,1 @@
+Add express shipping to shop/shipping.py: shipping_cents(subtotal_cents, express=False). Express shipping costs 1500 cents and is never free. Standard shipping must keep working exactly as it does now. Add tests for express shipping.

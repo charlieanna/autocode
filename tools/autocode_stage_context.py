@@ -112,6 +112,14 @@ def context_packet(state, stage, state_path):
                 "validator" if stage == "sol" else "owner"]
         else:
             proof_note = ""
+        try:
+            from . import autocode_test_integrity as test_integrity
+        except ImportError:
+            import autocode_test_integrity as test_integrity
+        protected = test_integrity.handoff(state)
+        if protected:
+            base["protected_tests"] = protected
+            proof_note += test_integrity.note(state, "validator" if stage == "sol" else "owner")
     else:
         proof_note = ""
     import sys
