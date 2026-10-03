@@ -30,6 +30,7 @@ try:
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_progressive_state as progressive
     from . import autocode_resolver_human as resolver_human
+    from . import autocode_recovery_progress as recovery_progress
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_stop as stop
     from . import autocode_support as support
@@ -51,6 +52,7 @@ except ImportError:
     import autocode_planning_artifacts as planning_artifacts
     import autocode_progressive_state as progressive
     import autocode_resolver_human as resolver_human
+    import autocode_recovery_progress as recovery_progress
     import autocode_resolver_runtime as resolver_runtime
     import autocode_stop as stop
     import autocode_support as support
@@ -112,6 +114,11 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                            args.approve_review, args.reconcile_review, args.feedback is not None, args.follow_up is not None,
                            args.show_goal, args.accept_completion, args.resolver_response,
                            args.planning_review_call_limit is not None))
+    if (args.resume_paused and not decision_action and not explicit_recovery_requested(args)
+            and recovery_progress.reconcile(state, issued=resolver_human.current(state),
+                approved=goals.approved(state), supersede=resolver_human.supersede_operational,
+                now=runner.now)):
+        runner.write_json(state_path, state)
     active = state.get('active_stage') or {}
     if (not decision_action and active and support.failure_status(active.get('events', '')) == 'PAUSED_RATE_LIMIT'):
         prior = resolver_human.current(state)
@@ -236,7 +243,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             # the user events bound into the resolver request's identity.
             if args.grant_recovery is not None:
                 try:
-                    runner.grant_recovery_allowance(state, run_dir, args.grant_recovery)
+                    runner.grant_recovery_allowance(state, run_dir, args.grant_recovery,
+                        previous_settings=getattr(args, "_recovery_grant_settings", None))
                 except ValueError as error:
                     print(f"Input rejected: {error}", file=sys.stderr)
                     return 2

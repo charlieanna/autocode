@@ -15,6 +15,7 @@ def report_for(stage, data, common, config, run_check, requirements):
     task = data["current_task"]
     body = data["goal_contract"]["body"]
     fault = config["fault"]
+    validation_only = fault == "completion_rework_validate"
     dispositions = [{"id": ident, "disposition": "resolved", "evidence": "event:check"}
                     for ident in (data.get("review_identity_policy") or {}).get("own_open_finding_ids", [])]
     finding = {"id": "", "severity": "high", "blocking": True,
@@ -23,7 +24,7 @@ def report_for(stage, data, common, config, run_check, requirements):
     code = None
     if stage == "terra":
         attempt = 1 + sum(row["stage"] == "terra" for row in previous)
-        broken = attempt == 1 or (fault in ("completion_rework_recurring", "completion_rework_exhausted")
+        broken = (attempt == 1 and not validation_only) or (fault in ("completion_rework_recurring", "completion_rework_exhausted")
                                   and attempt == 2) or fault == "completion_rework_exhausted"
         if not broken:
             for rel in config["paths"]:
@@ -56,7 +57,8 @@ def report_for(stage, data, common, config, run_check, requirements):
                   "end_to_end_result": {"status": status, "summary": f"Real greeting tests exited {code}",
                                         "evidence_refs": ["check:1"]}}
     else:
-        failed = data["validation"]["verdict"] == "FAIL"
+        recheck = validation_only and not any(row["stage"] == "astra_resolve" for row in previous)
+        failed = data["validation"]["verdict"] == "FAIL" or recheck
         result = {**common, "status": "REWORK" if failed else "COMPLETE",
                   "acceptance_criteria": [{"id": row["id"], "criterion": row["criterion"],
                       "status": "unverified" if failed else "verified", "evidence": "event:check"}
@@ -81,6 +83,13 @@ def report_for(stage, data, common, config, run_check, requirements):
                 result["next_objective"] = ""
         if stage == "astra_resolve":
             result["diagnosis"] = "The greeting regression command failed; retain the immutable tests, repair the input guard, and rerun all cases"
+        if recheck:
+            result["next_task"]["kind"] = "validate"
+            result["next_objective"] = "Independently rerun the unchanged greeting checks without modifying source"
+            result["plan"] = [result["next_objective"]]
+            result["findings"] = []
+            if stage == "astra_resolve":
+                result["diagnosis"] = "The source already passes; the remaining requested work is fresh independent validation, not a code repair"
     row = {"stage": stage, "task_id": common["task_id"], "contract_hash": common["contract_hash"],
            "contract_revision": common["contract_revision"], "source_revision": data["source_revision"],
            "source_sha256": hashlib.sha256(Path("greet.py").read_bytes()).hexdigest(),

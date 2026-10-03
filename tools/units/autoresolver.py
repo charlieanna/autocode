@@ -217,6 +217,9 @@ def prepare(state, stage, state_path, schema_dir):
               'is a Builder or Validator proposal, not accepted independent validation. Do not promote '
               'its checks, criterion statuses, or claims into accepted review evidence. Return a nonempty diagnosis '
               'and one bounded REWORK next_task with defect evidence and concrete validation_plan retests. '
+              'Use kind=implement for a source correction, or kind=validate when the remaining defect is '
+              'missing or invalid independent verification of unchanged work. A validate task dispatches '
+              'the Validator; it neither authorizes source edits nor accepts prior evidence as current. '
               'The runner exports this task as a one-node repair DAG. Preserve the whole integrated batch. '
               'Return the complete unchanged acceptance_criteria list from the handoff; select the repair subset only in next_task.acceptance_criteria. '
               'Criterion statuses and evidence remain owned by the reviewer, not the resolver. '
@@ -225,7 +228,8 @@ def prepare(state, stage, state_path, schema_dir):
               'bounded repair is available, explain the investigated evidence and remaining smallest '
               'decision in BLOCKED with a structured user_request. If scope or permission must change, '
               'return BLOCKED; never grant it yourself. This only proposes a human question, not execution authority.\n'
-              + instruction + '\nResolver constraint overrides completion choices: only REWORK or BLOCKED.\n'
+              + instruction + '\nResolver constraint overrides completion choices: only REWORK or BLOCKED; '
+              'validation-only repairs use REWORK with next_task.kind=validate.\n'
               + 'CURRENT HANDOFF DATA\n' + json.dumps(data, indent=2))
     metrics = {**request.metrics, 'estimated_prompt_tokens': (len(prompt) + 3) // 4}
     return ModelRequest('astra', 'resolver', prompt, metrics, schema, False)
@@ -239,8 +243,9 @@ def validate(state, value, record, workspace):
         raise util.Paused('PAUSED_STALE_HANDOFF', 'Resolver diagnosis requires its saved successful read-only output')
     if value.get('status') not in ('REWORK', 'BLOCKED') or not value.get('diagnosis', '').strip():
         raise ValueError('Resolver requires a diagnosis and a REWORK or BLOCKED decision')
-    if value['status'] == 'REWORK' and (not value.get('evidence') or value.get('next_task', {}).get('kind') != 'implement'):
-        raise ValueError('Resolver must supply an evidence-backed implementation repair')
+    if value['status'] == 'REWORK' and (not value.get('evidence')
+            or value.get('next_task', {}).get('kind') not in ('implement', 'validate')):
+        raise ValueError('Resolver must supply an evidence-backed implementation or validation repair')
 
 
 # Operational diagnosis: a genuinely separate stage and schema from astra_resolve.

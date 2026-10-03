@@ -230,6 +230,12 @@ class ResolverSafety(unittest.TestCase):
         value['diagnosis'] = ''
         self.rejected(value, record)
 
+    def test_validation_repair_still_requires_defect_evidence(self):
+        value, record = self.ready()
+        value['next_task']['kind'] = 'validate'
+        value['evidence'] = []
+        self.rejected(value, record)
+
     def test_source_writes_are_rejected(self):
         value, record = self.ready()
         record['changed_files'] = ['greet.py']
