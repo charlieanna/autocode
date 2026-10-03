@@ -472,16 +472,27 @@ class DriverAnswerTests(unittest.TestCase):
                                           "--answer", "Q2=yes", action=True)
 
 
-class CatalogTests(unittest.TestCase):
-    def test_every_oracle_rejects_the_seed_accepts_the_reference_and_rejects_broken_variants(self):
-        for scenario in catalog.load_all():
-            if scenario.missing_tools():
-                continue
-            with self.subTest(scenario=scenario.id):
-                self.assertIsNotNone(scenario.reference, "every scenario needs a reference solution")
-                for name, ok, summary in run.self_test(scenario):
-                    self.assertTrue(ok, f"{name}: {summary}")
+def oracle_controls(scenario_id):
+    """The oracle rejects the seed, accepts the reference and rejects every broken variant."""
+    def test(self):
+        scenario = catalog.load(scenario_id)
+        if scenario.missing_tools():
+            self.skipTest("requires " + ", ".join(scenario.missing_tools()))
+        self.assertIsNotNone(scenario.reference, "every scenario needs a reference solution")
+        for name, ok, summary in run.self_test(scenario):
+            self.assertTrue(ok, f"{name}: {summary}")
+    return test
 
+
+class OracleControlTests(unittest.TestCase):
+    """One test per catalog scenario (filled in below), so the controls can run side by side."""
+
+
+for _scenario in catalog.load_all():
+    setattr(OracleControlTests, "test_" + _scenario.id.replace("-", "_"), oracle_controls(_scenario.id))
+
+
+class CatalogTests(unittest.TestCase):
     def test_nothing_here_imports_autocode(self):
         """Oracles and the harness judge AutoCode from outside; importing it would let its bugs hide."""
         here = Path(__file__).resolve().parent
