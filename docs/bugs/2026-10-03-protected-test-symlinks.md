@@ -45,5 +45,9 @@ reset. Both completed reviews used the same runtime/test hashes as these
 local checks. The fake catalogue passed 54 cases, with one existing
 NOT_EXERCISED case and one live-Investigator SKIPPED case.
 
-The full suite is still running and has reported a scenario-oracle module
-failure; no full-suite success is claimed pending diagnosis.
+The full suite ran 3,030 tests in 225 modules: 224 modules passed; three errors
+in `test_scenario_oracles` came from `PermissionError` in the unchanged
+`task_scenarios._run` process-group cleanup. Its isolated 41-test rerun passed
+with one existing skip. The original failure remains recorded as
+https://github.com/charlieanna/autocode/issues/308; this is not a clean full-suite
+pass and no fix for that separate cleanup defect is included here.
