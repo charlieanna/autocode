@@ -17,7 +17,7 @@ from pathlib import Path
 
 from . import api_cost, profiles, verdict
 
-VARIANTS = {"fixed": (), "adaptive": ("--adaptive-planning",)}
+VARIANTS = {"fixed": ("--no-adaptive-planning",), "adaptive": ("--adaptive-planning",)}
 
 
 def schedule(ids: list[str], repeats: int) -> list[dict]:

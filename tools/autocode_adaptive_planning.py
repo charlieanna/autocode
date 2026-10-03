@@ -1,8 +1,11 @@
 """Adaptive planning: planning depth set by evidence, not a fixed stage sequence.
 
-Opt-in per run (``--adaptive-planning``, saved as ``settings["adaptive_planning"]``).
-Without it the build pipeline is unchanged: requirements, draft, challenge, revise,
-finalize. With it, each decision is made by the first stage that has the evidence:
+On by default for new runs that use joint planning on the default flow (since
+2026-10-02, after two live comparisons); ``--no-adaptive-planning`` opts out, and
+``--adaptive-planning`` insists on it. Saved as ``settings["adaptive_planning"]``; a
+saved run keeps its planning flow. Without it the build pipeline is the fixed one:
+requirements, draft, challenge, revise, finalize. With it, each decision is made by
+the first stage that has the evidence:
 
 - Clarity, from the request text, at recognition. A build request the recognizer
   calls ``clear`` skips the Requirements stage; the Planner takes the requirements
@@ -85,11 +88,23 @@ def enabled(state: dict) -> bool:
     return bool((state.get("settings") or {}).get(SETTING))
 
 
-def resume_refused(saved_settings: dict, requested: bool) -> bool:
-    """Whether --adaptive-planning on a resumed run would change it. A saved run keeps its planning flow, so
-    turning the flag on for one that lacks it is refused; repeating it on an adaptive run is harmless (drivers
-    pass the same launch flags on every resume, as with --joint-planning)."""
-    return bool(requested) and not saved_settings.get(SETTING)
+def new_run_setting(requested, joint: bool, v2: bool) -> bool:
+    """Whether a new run plans adaptively. ``requested`` is the flag: None (not given) means whenever the run can,
+    which is joint planning on the default flow; False opts out; True insists, and is refused where it cannot
+    apply."""
+    if requested is True and (not joint or v2):
+        raise ValueError("--adaptive-planning needs joint planning and the default planning flow")
+    return requested is not False and joint and not v2
+
+
+def resume_refused(saved_settings: dict, requested) -> bool:
+    """Whether the adaptive-planning flag on a resumed run would change it. A saved run keeps its planning flow:
+    --adaptive-planning on one that lacks it, or --no-adaptive-planning on an adaptive one, is refused; repeating
+    the run's own choice is harmless (drivers pass the same launch flags on every resume), and no flag changes
+    nothing."""
+    if requested is None:
+        return False
+    return bool(requested) != bool(saved_settings.get(SETTING))
 
 
 def recognizer_rule(state: dict) -> str:
