@@ -268,6 +268,58 @@ class RepairTests(unittest.TestCase):
         data = json.loads(self.repair_request()['prompt'].split('CURRENT HANDOFF DATA\n', 1)[1])
         self.assertEqual(['R1'], [row['requirement_id'] for row in data['requirement_trace_rows']])
 
+    def test_finalizer_repair_receives_current_concerns_and_saved_human_context(self):
+        self.state.update(next_stage='astra_finalize', requirements_handoff={'report': {
+            'requirements': [{'id': 'R1', 'source_quote': 'Reject blank names'}], 'open_questions': []}},
+            brief_feedback=[{'id': 'feedback-1', 'text': 'Preserve valid-name output'}],
+            planning={'reports': {
+                'astra_challenge': {'report': {'concerns': [{'id': 'C1', 'concern': 'Keep the guard'}]}},
+                'glm_revise': {'report': {'responses': [{'concern_id': 'C1'}]}}}})
+        self.queue(stage='astra_finalize', role='astra')
+
+        prompt = self.repair_request()['prompt']
+        data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+        context = data['clarification_context']
+
+        self.assertEqual(self.state['requirements_handoff'], context['requirements_handoff'])
+        self.assertEqual(self.state['planning']['reports'], context['planning_exchange'])
+        self.assertEqual(self.state['brief_feedback'], context['saved_feedback'])
+        self.assertIn('preserving that task inside contract.initial_task', prompt)
+        self.assertIn('original_report is historical planning context', prompt)
+        self.assertNotIn('original_report is also supplied, it is the immutable execution-history baseline', prompt)
+
+    def test_builder_repair_retains_immutable_execution_baseline_instruction(self):
+        self.queue()
+
+        prompt = self.repair_request()['prompt']
+        data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+
+        self.assertIn('original_report is also supplied, it is the immutable execution-history baseline', prompt)
+        self.assertNotIn('clarification_context', data)
+
+    def test_nonfinal_planning_repair_preserves_original_prompt_and_requirement_handoff(self):
+        before = copy.deepcopy(self.state)
+        requirements = [{'id': 'R1', 'text': 'Build a planner', 'source_quote': 'Build a planner.'}]
+        for stage, role in (('requirements_gather', 'requirements'),
+                            ('astra_discovery', 'astra'), ('glm_revise', 'astra')):
+            with self.subTest(stage=stage):
+                self.state.clear()
+                self.state.update(copy.deepcopy(before))
+                self.state.update(next_stage=stage, requirements_handoff={'report': {
+                    'requirements': requirements, 'open_questions': []}})
+                self.state['settings']['roles']['requirements'] = {'model': 'requirements-model'}
+                self.queue(stage=stage, role=role)
+
+                prompt = self.repair_request()['prompt']
+                data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+
+                self.assertNotIn('clarification_context', data)
+                self.assertEqual(requirements if stage == 'requirements_gather' else None,
+                                 data['previous_requirements'])
+                self.assertNotIn('Planning report repair:', prompt)
+                self.assertNotIn('original_report is historical planning context', prompt)
+                self.assertIn('original_report is also supplied, it is the immutable execution-history baseline', prompt)
+
     def assert_repair_blocked(self, status='PAUSED_REPORT_REPAIR_INPUT'):
         attempts = self.state['pending_report_repair']['attempts']
         with patch.object(runner, 'run_role') as launch, self.assertRaises(support.Paused) as error:

@@ -7,9 +7,9 @@ from __future__ import annotations
 import re
 
 try:
-    from . import autocode_protected_text as protected, autocode_test_cases as test_cases, autocode_draft_examples as examples
+    from . import autocode_protected_text as protected, autocode_test_cases as test_cases, autocode_draft_examples as examples, autocode_contract_delta as delta
 except ImportError:
-    import autocode_protected_text as protected, autocode_test_cases as test_cases, autocode_draft_examples as examples
+    import autocode_protected_text as protected, autocode_test_cases as test_cases, autocode_draft_examples as examples, autocode_contract_delta as delta
 
 PLANNER_ORIGINS = {"glm_draft", "glm_revise", "astra_finalize", "astra_discovery"}
 PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
@@ -122,12 +122,14 @@ def revision_guard(state, body, changes, origin):
         if (raw.get("item") in proof_corrections and raw["change"] == "reworded"
                 and raw.get("basis") == "agent_proposed" and not raw.get("answer_id")):
             continue  # Older reports declared this engineering correction as a contract delta.
+        if delta.engineering_delta(raw, previous, body, proof_corrections, PROTECTED_LISTS):
+            continue
         if raw.get("item") in example_corrections:
             continue
         protected_changes.append(raw)
         basis = raw.get("basis")
         if not saved_user_basis(state, basis, raw.get("answer_id")):
-            raise ValueError("Changing a protected contract item needs a saved user answer or feedback event")
+            raise ValueError(f"Changing a protected contract item {raw.get('item')!r} needs a saved user answer or feedback event")
     declared = {}
     for raw in protected_changes:
         declared.setdefault(raw["item"], []).append(raw)

@@ -705,7 +705,14 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
                 return {"error": f"git apply {patch} failed: {(applied.stderr or applied.stdout).strip()[-300:]}",
                         "results": None}
         for relative, source in (files or {}).items():
+            relative_path = PurePosixPath(relative)
+            if relative_path.is_absolute() or ".." in relative_path.parts or str(relative_path) != relative:
+                raise ValueError("Scratch overlays require canonical relative file paths")
             target = tree / relative
+            if target.is_symlink():
+                target.unlink()  # never write through a candidate's replacement link
+            if not target.parent.resolve().is_relative_to(tree.resolve()):
+                raise ValueError("Scratch overlay parent escapes the independent tree")
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
         if command is None:

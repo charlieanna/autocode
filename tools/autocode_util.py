@@ -182,7 +182,7 @@ def validate_schema(value, schema, where="$"):
                 raise ValueError(f"{where}: missing {key}")
         props = schema.get("properties", {})
         if schema.get("additionalProperties") is False and value.keys() - props.keys():
-            raise ValueError(f"{where}: unexpected fields")
+            raise ValueError(f"{where}: unexpected fields: {', '.join(sorted(value.keys() - props.keys()))}")
         for key, child in value.items():
             if key in props:
                 validate_schema(child, props[key], f"{where}.{key}")
