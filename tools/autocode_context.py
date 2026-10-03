@@ -5,12 +5,13 @@ from pathlib import Path
 
 def compact(base, state_path):
     try:
-        from . import autocode_util as util, autocode_handoff_dedup as handoff
+        from . import autocode_util as util, autocode_handoff_dedup as handoff, autocode_handoff_history as history
     except ImportError:
-        import autocode_util as util, autocode_handoff_dedup as handoff
-    result = handoff.deduplicate(base)
-    moved = {}
-    # Never remove requirements, saved answers, human decisions or current findings.
+        import autocode_util as util, autocode_handoff_dedup as handoff, autocode_handoff_history as history
+    result, moved = history.condense(base)
+    result = handoff.deduplicate(result)
+    # Never remove requirements, human decisions or current findings. Saved answers and feedback are only
+    # shortened for review stages once an approved contract reflects them (autocode_handoff_history).
     for key in ('evidence_locations', 'deferred_backlog',
                 'preserved_checkpoint', 'prior_validation_reports', 'source_snapshot'):
         value = result.get(key)
