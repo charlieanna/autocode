@@ -5,9 +5,12 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import autocode_run_view as run_view
 import autocode_taskrun as taskrun
+import autocode_run_actions as run_actions
 
 HERE = Path(__file__).resolve().parents[1] / "tools"  # its fixtures stay beside the runtime
 # The offline fixture provider plans and builds exactly this greeting task.
@@ -21,6 +24,10 @@ FIXTURE_OPTIONS = ("--engine", "codex", "--joint-planning", "--astra-model", "gp
 
 
 class RunViewTests(unittest.TestCase):
+    def test_explicit_report_retry_bypasses_automatic_escalation(self):
+        self.assertTrue(run_actions.explicit_recovery_requested(SimpleNamespace(retry_report='001/sol_report_repair-02')))
+        self.assertFalse(run_actions.explicit_recovery_requested(SimpleNamespace(retry_report=None)))
+
     def test_contract_fields(self):
         self.assertEqual({"schema", "status", "done", "needs", "phase", "next_stage", "iteration", "stop_reason", "runner_check",
                           "current_task", "workflow", "workflow_source", "workflow_reason", "turn", "evidence",
@@ -128,6 +135,14 @@ class RunViewTests(unittest.TestCase):
                          run_view.needs({"status": "PAUSED_BUDGET", "stop_reason": "quota"}))
         self.assertEqual("resume", run_view.needs({"status": "PLAN_REWORK_REQUIRED"})["kind"])
 
+    def test_rejected_validator_report_exposes_exact_retry_attempt(self):
+        state = {"status": "PAUSED_REPEATED_FAILURE", "stop_reason": "report rejected",
+                 "settings": {"report_repair": {"max_attempts": 2}},
+                 "pending_report_repair": {"error": "Check is not supported by an exact executed Validator event",
+                                           "attempts": 2,
+                                           "latest_rejected": {"iteration": 1, "output": "/run/sol_report_repair-02.json"}}}
+        self.assertEqual("001/sol_report_repair-02", run_view.needs(state)["retry_report_attempt"])
+
     def test_running_continues(self):
         self.assertEqual({"kind": "continue"}, run_view.needs({"status": "RUNNING", "pending_questions": []}))
 
@@ -177,6 +192,91 @@ class TaskRunTests(unittest.TestCase):
         broken = taskrun.TaskRun(self.workspace, run.run_dir, options=("--no-such-flag",), env=self.env)
         with self.assertRaisesRegex(taskrun.TaskRunError, "unrecognized arguments"):
             broken.advance()
+
+
+class TaskRunClientTests(unittest.TestCase):
+    def test_advancing_command_rejects_input_error_instead_of_treating_it_as_a_pause(self):
+        run = taskrun.TaskRun(Path('/work/repo'), Path('/work/repo/.autocode/runs/one'))
+        rejected = subprocess.CompletedProcess([], 2,
+                                               stdout='Input rejected: pending report repair must be reconciled\n',
+                                               stderr='')
+        with patch.object(taskrun.subprocess, 'run', return_value=rejected), \
+                self.assertRaisesRegex(taskrun.TaskRunError, 'pending report repair'):
+            run._invoke('retry failed stage', '--resume-paused', '--retry-failed-stage', advancing=True)
+
+    def test_retry_failed_stage_uses_explicit_inspected_retry(self):
+        run = taskrun.TaskRun(Path('/work/repo'), Path('/work/repo/.autocode/runs/one'))
+        with patch.object(run, '_invoke') as invoke, patch.object(run, 'status', return_value={}) as status:
+            run.retry_failed_stage()
+        invoke.assert_called_once_with('retry failed stage', '--resume-paused', '--retry-failed-stage',
+                                       '--no-chat', advancing=True)
+        status.assert_called_once()
+
+    def test_retry_report_uses_exact_attempt_and_explicit_resume(self):
+        run = taskrun.TaskRun(Path('/work/repo'), Path('/work/repo/.autocode/runs/one'))
+        with patch.object(run, '_invoke') as invoke, patch.object(run, 'status', return_value={}) as status:
+            run.retry_report('001/sol_report_repair-02')
+        invoke.assert_called_once_with('retry report', '--resume-paused', '--retry-report',
+                                       '001/sol_report_repair-02', '--no-chat', advancing=True)
+        status.assert_called_once()
+
+    def test_operational_response_uses_resolver_command_not_question_answer(self):
+        run = taskrun.TaskRun(Path('/work/repo'), Path('/work/repo/.autocode/runs/one'))
+        with patch.object(run, '_act', return_value={'needs': {'kind': 'resume'}}) as act:
+            view = run.respond_operational('request-1', 'token-1', 'Cause identified')
+        act.assert_called_once_with('resolver response', '--resolver-request', 'request-1',
+                                    '--resolver-token', 'token-1', '--resolver-response',
+                                    'provide_information', '--resolver-message', 'Cause identified')
+        self.assertEqual('resume', view['needs']['kind'])
+
+    def test_accept_transport_change_requires_explicit_cli_flag(self):
+        run = taskrun.TaskRun(Path('/work/repo'), Path('/work/repo/.autocode/runs/one'))
+        with patch.object(run, '_invoke') as invoke, patch.object(run, 'status', return_value={}) as status:
+            run.accept_transport_change()
+        invoke.assert_called_once_with('accept transport change', '--resume-paused',
+                                       '--accept-transport-change', '--no-chat', advancing=True)
+        status.assert_called_once()
+
+    def test_answer_forwards_the_current_resolver_token(self):
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        with patch.object(run, "_act", return_value={"needs": {"kind": "answer"}}) as act:
+            view = run.answer("Q1", "Use addition.py", resolver_token="current-token")
+        act.assert_called_once_with("answer", "--answer", "Q1=Use addition.py",
+                                     "--resolver-token", "current-token")
+        self.assertEqual("answer", view["needs"]["kind"])
+
+    def test_answer_without_resolver_token_keeps_the_existing_cli_contract(self):
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        with patch.object(run, "_act") as act:
+            run.answer("Q1", "Use addition.py")
+        act.assert_called_once_with("answer", "--answer", "Q1=Use addition.py")
+
+    def test_start_preserves_cli_error_when_no_run_was_created(self):
+        for stderr, stdout in (("autocode: GoCode authentication check failed", ""),
+                               ("", "autocode: startup failed")):
+            with self.subTest(stderr=stderr, stdout=stdout), tempfile.TemporaryDirectory() as root:
+                completed = subprocess.CompletedProcess([], 2, stdout=stdout, stderr=stderr)
+                with patch.object(taskrun.TaskRun, "_invoke", return_value=completed), \
+                     self.assertRaises(taskrun.TaskRunError) as raised:
+                    taskrun.TaskRun.start(root, "A sample task")
+                self.assertIn("start exited 2 without creating a run", str(raised.exception))
+                self.assertIn(stderr or stdout, str(raised.exception))
+
+    def test_start_bounds_diagnostic_output_when_no_run_was_created(self):
+        with tempfile.TemporaryDirectory() as root:
+            completed = subprocess.CompletedProcess([], 2, stdout="", stderr="x" * 2000 + "cause")
+            with patch.object(taskrun.TaskRun, "_invoke", return_value=completed), \
+                 self.assertRaises(taskrun.TaskRunError) as raised:
+                taskrun.TaskRun.start(root, "A sample task")
+            self.assertTrue(str(raised.exception).endswith("cause"))
+            self.assertLess(len(str(raised.exception)), 1000)
+
+    def test_show_goal_returns_the_current_displayed_brief(self):
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        completed = subprocess.CompletedProcess([], 0, stdout="Build brief r2\nAcceptance criteria:\n  [AC1] Works\n")
+        with patch.object(run, "_invoke", return_value=completed) as invoke:
+            self.assertEqual(completed.stdout, run.show_goal())
+        invoke.assert_called_once_with("show goal", "--show-goal")
 
 
 if __name__ == "__main__":

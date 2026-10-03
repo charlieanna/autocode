@@ -23,7 +23,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 OK, MISSING, WARN = "ok", "missing", "warn"
-ENGINES = ("opencode", "codex", "gocode")
+ENGINES = ("opencode", "codex")
 
 
 @dataclass
@@ -84,13 +84,6 @@ def engine_checks(which=shutil.which, runner=run) -> list[Check]:
                       Check("engine:codex", MISSING, "Codex found but not logged in", "run `codex login`"))
     else:
         checks.append(Check("engine:codex", MISSING, "codex is not on PATH", "see docs/providers.md"))
-    if which("gocode"):
-        version = runner(["gocode", "--version"])
-        checks.append(Check("engine:gocode", OK if version.returncode == 0 else MISSING,
-                            f"GoCode {version.stdout.strip()}" if version.returncode == 0
-                            else "gocode --version failed", "" if version.returncode == 0 else "reinstall GoCode"))
-    else:
-        checks.append(Check("engine:gocode", MISSING, "gocode is not on PATH", "see docs/providers.md"))
     return checks
 
 

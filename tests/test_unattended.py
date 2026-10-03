@@ -28,7 +28,7 @@ class RefusalTests(unittest.TestCase):
         self.assertIn("program", unattended.refused(["program", "run"]))
 
     def test_run_and_status_arguments_are_allowed(self):
-        for argv in (["Build a CLI", "--workspace", "/w", "--engine", "gocode"],
+        for argv in (["Build a CLI", "--workspace", "/w", "--engine", "opencode"],
                      ["--run-dir", "r", "--status"], ["--no-chat", "--max-iterations", "5"],
                      ["task", "--", "--approve-goal"]):
             with self.subTest(argv=argv):

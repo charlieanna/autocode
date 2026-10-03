@@ -25,7 +25,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `autocode clean-worktrees [--yes]` | List, then with `--yes` remove, task worktrees whose runs are complete and whose branch holds their work; records are archived and branches kept (see [Task lanes](task-lanes.md#when-a-task-finishes)). |
 | `autocode --version` | Print the installed version and, when run from a checkout, its commit. |
 | `autocode models [--provider NAME] [--workspace PATH] [--json]` | List the models your plans offer, grouped by plan (subscription or pay per token) and tier (cheap worker, strong judge, Resolver only), and check every role's default route. Suggests a replacement for any default you cannot use; exits 1 when one is missing (see [Models](models.md#when-a-model-is-not-in-your-plans)). |
-| `autocode doctor [--workspace PATH] [--engine opencode\|codex\|gocode] [--json]` | Check Python, psutil, Git, each engine (OpenCode must be 1.x; Codex must be logged in) and that the workspace is a Git repository with a commit. Prints the fix for anything missing; exits 1 when not ready. Passes when any engine is ready, unless `--engine` names one. Never reads credentials. |
+| `autocode doctor [--workspace PATH] [--engine opencode\|codex] [--json]` | Check Python, psutil, Git, each engine (OpenCode must be 1.x; Codex must be logged in) and that the workspace is a Git repository with a commit. Prints the fix for anything missing; exits 1 when not ready. Passes when any engine is ready, unless `--engine` names one. Never reads credentials. |
 | `autocode registry location\|list\|import` | Registry API (see [Registry API](registry-api.md)). |
 | `autocode intervention submit\|inspect` | Queued interventions (see [Interventions](interventions.md)). |
 
@@ -72,6 +72,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--pause-after-stage` | Stop at the next saved boundary. |
 | `--retry-builder M2` | With `--resume-paused`, authorize one retry of the exhausted current serial milestone or stopped parallel members. Keeps failure history, model routes and verification gates; all workers must be stopped. |
 | `--abandon-stage '001/terra-01'` | Archive a stopped attempt, keep partial edits and logs. |
+| `--retry-report ATTEMPT_ID` | With `--resume-paused`, request fresh Validator evidence after an exhausted rejected report with an exact attempt ID; saved source and evidence pins must still match. |
 | `--accept-transport-change` | Resume a transport-change pause after route checks. |
 | `--max-parallel-builders N` | Concurrency limit for independent milestone Builders. |
 | `--milestone-checkpoints` / `--request-milestone-checkpoints` | Enable milestone checkpoints (idle boundary / queued). |
@@ -89,7 +90,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 
 | Flag | Meaning |
 | --- | --- |
-| `--engine opencode\|codex\|gocode` | Engine for the run. OpenCode is the default. `gocode` is the GoCode-native route (see the [README](../README.md#runtime-requirements-and-gocode-support)). |
+| `--engine opencode\|codex` | Engine for the run. OpenCode is the default; other tools join as providers (see [Providers](providers.md)). |
 | `--provider <name>` | External tool registered via TOML (see [Providers](providers.md#add-a-tool)). |
 | `--joint-planning` | Add joint Requirements Planner / Plan Reviewer work. |
 | `--adaptive-planning` / `--no-adaptive-planning` | New runs plan as deep as the job needs by default (joint planning on the default flow): a clear build request skips the Requirements stage, and a Plan Reviewer with no blocking concern approves the draft. `--no-adaptive-planning` keeps the fixed sequence; `--adaptive-planning` insists. See [Adaptive planning](adaptive-planning.md). |

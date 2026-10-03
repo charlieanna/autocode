@@ -24,14 +24,14 @@ import copy
 import uuid
 try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
-    from . import autocode_gocode as gocode, autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_task_preflight as task_preflight
+    from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_task_preflight as task_preflight
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log
 except ImportError:
     import autocode_dependency as dependency, autocode_status_command as status_command, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     import autocode_regression as regression, autocode_format_correction as format_correction, autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_event_log as event_log
     import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
-    import autocode_providers, autocode_opencode as opencode, autocode_gocode as gocode, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_task_preflight as task_preflight
+    import autocode_providers, autocode_opencode as opencode, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_task_preflight as task_preflight
     import autocode_process as processes, autocode_registry as registry, autocode_planning as planning
     import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue
 
@@ -63,7 +63,7 @@ try:
         automatically_recover_timed_out_stage, automatically_recover_truncated_review,
         prepare_abandoned_completion_revalidation,
         prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
-        recover_legacy_report_repair)
+        recover_legacy_report_repair, retry_format_failed_report)
     from .autocode_activity import ActivityMonitor
 except ImportError:
     import autocode_workspaces as task_workspaces
@@ -94,7 +94,7 @@ except ImportError:
         automatically_recover_timed_out_stage, automatically_recover_truncated_review,
         prepare_abandoned_completion_revalidation,
         prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
-        recover_legacy_report_repair)
+        recover_legacy_report_repair, retry_format_failed_report)
     from autocode_activity import ActivityMonitor
 
 
@@ -775,35 +775,6 @@ def timeout_recovery_guard(state):
         raise support.Paused(*reason)
 
 
-def retry_format_failed_report(state, run_dir, workspace, selected):
-    """Explicitly request fresh independent evidence after a bounded format failure."""
-    pending = state.get('pending_report_repair') or {}
-    original = pending.get('original') or {}
-    repair = next((row for row in reversed(state.get('stages', []))
-                   if row.get('report_only') and row.get('rejected')), None)
-    if (state.get('status') != 'PAUSED_REPEATED_FAILURE'
-            or pending.get('error') != 'OpenCode final message is not a JSON report; inspect the saved raw events'
-            or original.get('stage') != 'sol'
-            or not repair or selected != attempt_id(repair)
-            or repair.get('original_stage') != original.get('stage')
-            or repair.get('source_revision') != original.get('source_revision')
-            or repair.get('schema') != original.get('schema')
-            or pending.get('attempts') != repair_limit(state)):
-        raise ValueError('--retry-report must match the exhausted rejected report-only attempt')
-    if (support.snapshot(workspace)['revision'] != original['source_revision']
-            or (state.get('goal_contract') or {}).get('hash') != pending.get('contract_hash')
-            or any(not Path(p).is_file() or support.file_hash(p) != h
-                   for p, h in pending.get('pins', {}).items())):
-        raise ValueError('Saved report inputs changed; reconcile them before retrying')
-    if not prepare_exhausted_execution_report_retry(
-            state, run_dir, workspace, allow_repeated=True):
-        raise ValueError('Saved stage cannot be retried as a fresh execution report')
-    state.setdefault('user_events', []).append({
-        'kind': 'report_retry_after_format_fix', 'actor': 'user_cli', 'at': now(),
-        'attempt_id': selected, 'source_revision': original['source_revision']})
-    write_json(run_dir / 'state.json', state)
-
-
 def grant_recovery_allowance(state, run_dir, amount):
     """Authorize N more automatic timeout recoveries for an exhausted run.
 
@@ -962,10 +933,6 @@ def configure_codex_joint(settings, args):
     return autocode_configure.configure_codex_joint(settings, args, planning=planning)
 
 
-def configure_gocode_joint(settings, args, *, fresh):
-    return autocode_configure.configure_gocode_joint(settings, args, fresh=fresh, planning=planning)
-
-
 def migrate_opencode_roles(state, run_dir, workspace):
     return autocode_configure.migrate_opencode_roles(state, run_dir, workspace, planning=planning,
                                                      opencode=opencode, write_json=write_json, now=now)
@@ -974,10 +941,9 @@ def migrate_opencode_roles(state, run_dir, workspace):
 def check_joint_transports(state, workspace):
     identities = state["settings"]["transport_identities"]
     if "gocode" in identities:
-        current = gocode.local_settings(workspace)
-        if gocode.transport_drift(current, identities["gocode"]):
-            raise support.Paused("PAUSED_TRANSPORT_CHANGED", "GoCode managed identity changed")
-        return
+        raise support.Paused("PAUSED_TRANSPORT_CHANGED", "This saved run used the gocode engine, which this "
+                             "checkout no longer bundles; resume it from a checkout that has it, or start a "
+                             "new run with --provider gocode and a user-level provider config")
     roles = {role: config for role, config in state["settings"]["roles"].items()
              if planning.engine_for(state["settings"], role) == "codex"}
     codex_changed = False

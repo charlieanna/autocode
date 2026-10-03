@@ -34,18 +34,39 @@ def feature_state(project, criteria, milestones=1):
 
 
 class ContractCasesTests(unittest.TestCase):
+    def test_approved_test_name_can_prove_two_criteria_with_one_focused_test(self):
+        criteria = [
+            {"id": "AC1", "criterion": "add returns five", "verification_method": "test: test_adds_two_integers"},
+            {"id": "AC2", "criterion": "the focused suite passes", "verification_method": "test: test_adds_two_integers"},
+        ]
+        state = {"goal_contract": {"body": {"acceptance_criteria": criteria}}}
+        cases = test_cases.contract_cases(state)
+        ids = ["test_add.TestAdd.test_adds_two_integers"]
+        self.assertEqual({"AC1": ids, "AC2": ids}, test_cases.match_cases(cases, ids))
+        proof = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": ids}
+        regression.check_cases(proof, cases)
+        self.assertEqual("PASS", proof["verdict"])
+        self.assertEqual([], proof["failures"])
+        self.assertEqual({"AC1": [], "AC2": []},
+                         test_cases.match_cases(cases, ["test_add.TestAdd.test_adds_two_integers_extra"]))
+        missing = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": []}
+        regression.check_cases(missing, cases)
+        self.assertEqual("FAIL", missing["verdict"])
+        self.assertTrue(all("test_adds_two_integers" in failure for failure in missing["failures"]))
+
     def test_only_criteria_marked_test_are_cases(self):
         state = {"goal_contract": {"body": {"milestones": [{"id": "M1"}], "acceptance_criteria": [
             ORDINARY, EXAMPLE, {**EXAMPLE, "id": "C3", "verification_method": "  TEST: test_c3_x"}]}}}
-        self.assertEqual([{"id": "C2", "text": EXAMPLE["criterion"]}, {"id": "C3", "text": EXAMPLE["criterion"]}],
+        self.assertEqual([{"id": "C2", "text": EXAMPLE["criterion"], "test_name": "test_c2_subtracts"},
+                          {"id": "C3", "text": EXAMPLE["criterion"], "test_name": "test_c3_x"}],
                          test_cases.contract_cases(state))
         self.assertEqual("C2: " + EXAMPLE["criterion"], test_cases.case_text(test_cases.contract_cases(state)[0]))
 
     def test_a_guard_criterion_is_a_preserve_case(self):
         guard = {**EXAMPLE, "id": "C4", "verification_method": "guard: test_c4_adds_still"}
         state = {"goal_contract": {"body": {"milestones": [{"id": "M1"}], "acceptance_criteria": [EXAMPLE, guard]}}}
-        self.assertEqual([{"id": "C2", "text": EXAMPLE["criterion"]},
-                          {"id": "C4", "text": EXAMPLE["criterion"], "kind": "preserve"}],
+        self.assertEqual([{"id": "C2", "text": EXAMPLE["criterion"], "test_name": "test_c2_subtracts"},
+                          {"id": "C4", "text": EXAMPLE["criterion"], "test_name": "test_c4_adds_still", "kind": "preserve"}],
                          test_cases.contract_cases(state))
         self.assertIn('"guard:"', test_cases.builder_note(state))
 

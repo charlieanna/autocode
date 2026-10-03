@@ -68,10 +68,14 @@ def contract_cases(state: dict) -> list[dict]:
     due = in_scope(state)
     cases = []
     for row in body.get("acceptance_criteria") or []:
-        method = str(row.get("verification_method", "")).strip().lower() if isinstance(row, dict) else ""
-        if row.get("id") and (due is None or row["id"] in due) and method.startswith((MARK, GUARD_MARK)):
+        method = str(row.get("verification_method", "")).strip() if isinstance(row, dict) else ""
+        lowered = method.lower()
+        if row.get("id") and (due is None or row["id"] in due) and lowered.startswith((MARK, GUARD_MARK)):
+            mark = GUARD_MARK if lowered.startswith(GUARD_MARK) else MARK
+            test_name = method[len(mark):].strip()
             cases.append({"id": row["id"], "text": row.get("criterion", ""),
-                          **({"kind": "preserve"} if method.startswith(GUARD_MARK) else {})})
+                          **({"test_name": test_name} if re.fullmatch(r"test_[A-Za-z0-9_]+", test_name) else {}),
+                          **({"kind": "preserve"} if mark == GUARD_MARK else {})})
     return cases
 
 
@@ -113,8 +117,8 @@ def case_text(case: dict) -> str:
     return f"{case['id']}: Given {case['given']}; when {case['when']}; then {case['then']}"
 
 
-def case_test_name(case_id: str) -> str:
-    return f"test_{case_id.lower()}_<what it checks>"
+def case_test_name(case_id: str, test_name: str | None = None) -> str:
+    return test_name or f"test_{case_id.lower()}_<what it checks>"
 
 
 def _words(name: str) -> list[str]:
@@ -131,13 +135,17 @@ def _test_function(test_id: str) -> str:
 
 
 def match_cases(cases: list[dict], test_ids: list[str]) -> dict[str, list[str]]:
-    """For each case, the tests whose name carries its id as whole words (T1 -> test_t1_...)."""
+    """Match an approved exact test name, or a diagnosis case's id-based test name."""
     matched = {}
     for case in cases:
-        want = _words(case["id"])
-        matched[case["id"]] = [test for test in test_ids
-                               if any(_words(_test_function(test))[i:i + len(want)] == want
-                                      for i in range(len(_words(_test_function(test)))))]
+        if case.get("test_name"):
+            matched[case["id"]] = [test for test in test_ids
+                                   if _test_function(test) == case["test_name"]]
+        else:
+            want = _words(case["id"])
+            matched[case["id"]] = [test for test in test_ids
+                                   if any(_words(_test_function(test))[i:i + len(want)] == want
+                                          for i in range(len(_words(_test_function(test)))))]
     return matched
 
 

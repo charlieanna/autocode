@@ -64,7 +64,7 @@ def cli(argv: list[str] | None = None) -> int:
     parser.add_argument("--integrate", type=Path, metavar="TARGET",
                         help="combine finished components into this worktree of the same repository, relative "
                              "to --workspace unless absolute; created fresh from HEAD if it does not exist")
-    parser.add_argument("--engine", choices=["codex", "gocode", "opencode"])
+    parser.add_argument("--engine", choices=["codex", "opencode"])
     parser.add_argument("--provider", help="see docs/providers.md")
     parser.add_argument("--joint-planning", action="store_true",
                         help="separate requirements, planning and independent review per component; default for "

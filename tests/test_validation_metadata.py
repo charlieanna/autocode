@@ -47,6 +47,57 @@ class ValidationMetadataTests(unittest.TestCase):
             support.verify_checks(checks, self.workspace, self.log)
             self.assertEqual([{'command': 'python test.py', 'evidence_ref': 'event:actual', 'exit_code': 7}], checks)
 
+    def test_exact_event_canonicalizes_workspace_wrapper_only(self):
+        executed = f'cd {self.workspace} && python test.py 2>&1'
+        self.events(self.event(command=executed))
+        check = {'command': 'python test.py', 'evidence_ref': 'event:actual', 'exit_code': 0}
+        support.verify_checks([check], self.workspace, self.log)
+        self.assertEqual(executed, check['command'])
+        for command in ('python other.py', 'python test.py; echo pass'):
+            with self.subTest(command=command), self.assertRaises(ValueError):
+                support.verify_checks([{'command': command, 'evidence_ref': 'event:actual', 'exit_code': 0}],
+                                      self.workspace, self.log)
+        self.events(self.event(command=f'cd {self.workspace.parent} && python test.py 2>&1'))
+        with self.assertRaises(ValueError):
+            support.verify_checks([{'command': 'python test.py', 'evidence_ref': 'event:actual', 'exit_code': 0}],
+                                  self.workspace, self.log)
+
+    def test_unique_alias_canonicalizes_workspace_wrapper_only(self):
+        executed = f'cd {self.workspace} && python test.py 2>&1'
+        self.events(self.event(command=executed))
+        check = {'command': 'python test.py', 'evidence_ref': 'event:conversation-id', 'exit_code': 0}
+        support.verify_checks([check], self.workspace, self.log)
+        self.assertEqual({'command': executed, 'evidence_ref': 'event:actual', 'exit_code': 0}, check)
+
+        self.events(self.event(command=executed), self.event(id='other', command=executed))
+        repeated = {'command': 'python test.py', 'evidence_ref': 'event:conversation-id', 'exit_code': 0}
+        support.verify_checks([repeated], self.workspace, self.log)
+        self.assertEqual('event:other', repeated['evidence_ref'])
+
+        self.events(self.event(command=f'cd {self.workspace.parent} && python test.py 2>&1'))
+        with self.assertRaises(ValueError):
+            support.verify_checks([{'command': 'python test.py', 'evidence_ref': 'event:conversation-id', 'exit_code': 0}],
+                                  self.workspace, self.log)
+
+    def test_repeated_wrapped_executions_bind_the_latest_stale_event_alias(self):
+        executed = f'cd {self.workspace} && python test.py 2>&1'
+        self.events(self.event(id='first', command=executed, aggregated_output='one test passed'),
+                    self.event(id='second', command=executed, aggregated_output='one test passed'))
+        check = {'command': executed, 'evidence_ref': 'event:prior-attempt', 'exit_code': 0}
+        support.verify_checks([check], self.workspace, self.log)
+        self.assertEqual('event:second', check['evidence_ref'])
+
+        self.events(self.event(id='first', command=executed, aggregated_output='one test passed'),
+                    self.event(id='second', command=executed, aggregated_output='different output'))
+        latest = {'command': executed, 'evidence_ref': 'event:prior-attempt', 'exit_code': 0}
+        support.verify_checks([latest], self.workspace, self.log)
+        self.assertEqual('event:second', latest['evidence_ref'])
+
+        self.events(self.event(id='first', command=executed, aggregated_output='one test passed'),
+                    {'type': 'tool_output', 'id': 'second', 'command': executed, 'aggregated_output': 'FAILED'})
+        with self.assertRaises(ValueError):
+            support.verify_checks([{'command': 'python test.py', 'evidence_ref': 'event:', 'exit_code': None}],
+                                  self.workspace, self.log)
     def test_a_bare_event_reference_binds_to_the_latest_run_of_the_command(self):
         # The Validator cannot see event IDs or exit codes; it says event: and null (2026-10-02).
         self.events(self.event(), self.event(id='other', exit_code=1))
