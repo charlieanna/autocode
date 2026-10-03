@@ -20,6 +20,7 @@ Usage:
     python3 tools/run_suite.py --changed         # only the tests for what changed since origin/master
     python3 tools/run_suite.py --changed --include-slow   # the same, with the slow end-to-end modules
     python3 tools/run_suite.py --list-excluded   # print excluded modules and reasons, run nothing
+    python3 tools/run_suite.py --scenario-harness  # scenarios/test_harness.py, one test class per process
 
 By default each test module runs in its own interpreter, one per CPU at a time.
 Most of the suite's time is spent waiting on subprocesses and timeouts, so
@@ -208,6 +209,25 @@ def test_modules(exclusions: dict[str, str]) -> list[str]:
     return [module for module in (f"tests.{path.stem}" for path in paths) if module not in exclusions]
 
 
+HARNESS = "scenarios.test_harness"
+
+
+def harness_classes() -> list[str]:
+    """scenarios/test_harness.py's test classes, in file order, each to run in its own interpreter.
+
+    Loaded the way ``python -m unittest`` loads the file, so no test is left out; a module that
+    fails to load is returned whole, to run (and fail) in its own process."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        tests = [test.id() for test in iter_tests(unittest.defaultTestLoader.loadTestsFromName(HARNESS))]
+    except Exception:  # noqa: BLE001 - the whole-module run reports it
+        return [HARNESS]
+    if not tests or any(test.startswith("unittest.loader._FailedTest") for test in tests):
+        return [HARNESS]
+    return list(dict.fromkeys(test.rsplit(".", 1)[0] for test in tests))
+
+
 def run_module(module: str, verbosity: int) -> dict:
     """Run one test module in its own interpreter from the repository root."""
     started = time.monotonic()
@@ -218,7 +238,7 @@ def run_module(module: str, verbosity: int) -> dict:
             "tests": int(ran.group(1)) if ran else 0, "output": completed.stdout + completed.stderr}
 
 
-def run_parallel(modules: list[str], jobs: int, verbosity: int) -> bool:
+def run_parallel(modules: list[str], jobs: int, verbosity: int, unit: str = "modules") -> bool:
     """Run each module in its own process, ``jobs`` at a time; print a failing module's whole output."""
     started = time.monotonic()
     failed = []
@@ -235,7 +255,7 @@ def run_parallel(modules: list[str], jobs: int, verbosity: int) -> bool:
                 failed.append(row)
     for row in failed:
         print(f"\n{'=' * 70}\nFAIL: {row['module']}\n{'=' * 70}\n{row['output']}")
-    print(f"\nRan {tests} tests in {len(modules)} modules, {jobs} at a time, in {time.monotonic() - started:.0f}s: "
+    print(f"\nRan {tests} tests in {len(modules)} {unit}, {jobs} at a time, in {time.monotonic() - started:.0f}s: "
           + (f"{len(failed)} module(s) FAILED: " + ", ".join(row["module"] for row in failed) if failed else "OK"))
     return not failed
 
@@ -254,10 +274,15 @@ def main(argv: list[str] | None = None) -> int:
                         help="run only the tests for files changed since BASE (default origin/master)")
     parser.add_argument("--include-slow", action="store_true",
                         help="with --changed, also run the slow modules listed in tests/suite_slow.json")
+    parser.add_argument("--scenario-harness", action="store_true",
+                        help="run scenarios/test_harness.py instead, each test class in its own interpreter")
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 1, metavar="N",
                         help="test modules to run at once, each in its own interpreter "
                              "(default: one per CPU; 1 runs everything in this process)")
     args = parser.parse_args(argv)
+
+    if args.scenario_harness:
+        return 0 if run_parallel(harness_classes(), max(args.jobs, 1), args.verbosity, "classes") else 1
 
     exclusions = load_exclusions(args.exclusions)
 
