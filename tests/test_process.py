@@ -16,7 +16,37 @@ import autocode_process as processes
 from autocode_activity import ActivityMonitor
 
 
+def cleanup_fixture_worker(worker):
+    """A provider's correctly reaped child can disappear during fixture cleanup."""
+    try:
+        if worker.is_running() and worker.status() != processes.psutil.STATUS_ZOMBIE:
+            worker.kill()
+        worker.wait(timeout=3)
+    except processes.psutil.NoSuchProcess:
+        pass
+
+
 class ProcessTests(unittest.TestCase):
+    def test_fixture_cleanup_handles_reaping_without_hiding_live_workers_or_denial(self):
+        live = MagicMock()
+        live.is_running.return_value = True
+        live.status.return_value = processes.psutil.STATUS_RUNNING
+        cleanup_fixture_worker(live)
+        live.kill.assert_called_once_with()
+        live.wait.assert_called_once_with(timeout=3)
+        for operation in ('status', 'kill', 'wait'):
+            with self.subTest(disappears_during=operation):
+                worker = MagicMock()
+                worker.is_running.return_value = True
+                worker.status.return_value = processes.psutil.STATUS_RUNNING
+                getattr(worker, operation).side_effect = processes.psutil.NoSuchProcess(123)
+                cleanup_fixture_worker(worker)
+        denied = MagicMock()
+        denied.is_running.return_value = True
+        denied.status.side_effect = processes.psutil.AccessDenied(123)
+        with self.assertRaises(processes.psutil.AccessDenied):
+            cleanup_fixture_worker(denied)
+
     def test_process_id_enumeration_retries_transient_macos_sysctl_denial(self):
         with patch.object(processes.psutil, 'pids',
                           side_effect=[PermissionError('sysctl table refresh'), [101]]):
@@ -537,9 +567,7 @@ time.sleep(30)
                     child.kill()
                     child.wait()
                 for worker_process in workers:
-                    if worker_process.is_running() and worker_process.status() != processes.psutil.STATUS_ZOMBIE:
-                        worker_process.kill()
-                    worker_process.wait(timeout=3)
+                    cleanup_fixture_worker(worker_process)
 
     def test_timeout_stops_detached_tool_processes(self):
         code, expired = self.exercise_tree(expire=True)
