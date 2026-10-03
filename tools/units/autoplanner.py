@@ -170,6 +170,11 @@ CONTRACT DELTA: contract_changes describes only changes from the current goal_co
 handoff, not cumulative history. A permission already incorporated into that revision is not a new change:
 retain its approved text, cite the saved authorization in the summary, and omit it from contract_changes.
 If no protected item changes against the current revision, return contract_changes=[].
+Use exact protected item identities: an acceptance criterion ID such as AC1, or the previous verbatim
+protected list/permission string. Do not use field labels such as "AC1 verification_method",
+"AC8 (new criterion added)", "technical_approach", "M1" or "initial_task" as contract_changes.item.
+Allowed draft proof corrections, new criteria and implementation proposal edits need no delta;
+return [] for them. This does not authorize changing existing behavior, permissions or approved proofs.
 SOURCE CITATIONS: code_refs contains existing repository source paths, optionally :line, never a runner
 state file, .autocode/ artifact, cache, or explanatory sentence. state_file is context to read, not source
 to cite. Read the workspace_inventory candidates; a citation repair changes citations, not requirements.

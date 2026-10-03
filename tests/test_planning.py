@@ -167,6 +167,29 @@ class PlanningTests(unittest.TestCase):
         lifecycle.install_draft(state, body(), origin="glm_draft")
         return state
 
+    def test_reviewed_draft_proof_repair_retains_report_and_prior_contract(self):
+        state = self.state()
+        state["planning"]["reports"]["astra_challenge"] = {"report": {"concerns": []}}
+        before = copy.deepcopy(state["goal_contract"])
+        draft = copy.deepcopy(before["body"])
+        draft["acceptance_criteria"][0]["verification_method"] = "test: test_c1_contract_holds"
+        draft["technical_approach"] = ["Use the existing named regression test"]
+        draft["milestones"][0]["objective"] = "Deliver with the corrected named proof"
+        changes = [{"item": item, "change": "reworded", "basis": "agent_proposed",
+                    "answer_id": "", "replacement": "Corrected proposal"} for item in (
+                    "C1 verification_method", "technical_approach", "M1")]
+        report = {"contract": draft, "summary": "Corrected proof and proposal",
+                  "contract_changes": changes, "requirement_trace": [], "responses": [], "code_refs": []}
+        autopilot.apply_planning(state, "glm_revise", report, {"output": "retained-revision.json"})
+        self.assertEqual("astra_finalize", state["next_stage"])
+        self.assertEqual(before, state["contract_history"][-1])
+        self.assertEqual([dict(changes[0], item="C1"), *changes[1:]],
+                         state["goal_contract"]["declared_changes"])
+        self.assertEqual(changes, state["planning"]["reports"]["glm_revise"]["report"]["contract_changes"])
+        self.assertEqual("draft", state["goal_contract"]["approval_status"])
+        self.assertEqual(before["body"]["required_behaviors"], state["goal_contract"]["body"]["required_behaviors"])
+        self.assertEqual(before["body"]["permission_boundaries"], state["goal_contract"]["body"]["permission_boundaries"])
+
     def test_planning_handoff_keeps_all_review_ids_beyond_six(self):
         state = self.state()
         state['workspace'] = '/fixture'
