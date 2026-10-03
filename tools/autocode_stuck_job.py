@@ -18,6 +18,8 @@ attempt or the question only the user can answer. Then:
   worth of the limit that stopped the stage and runs it again with the guidance in its
   prompt (``with_guidance``). Planning guidance stays in force for every planning stage
   until the plan is presented; any other stage's guidance until that stage completes.
+  Earlier report-format diagnoses remain context for the run, matching the lifetime
+  of spent investigation identities; they grant no additional retry.
 - ``pause``, a ``DIAGNOSE_ONLY`` status, or a failed investigation: the original pause
   is restored exactly, with the diagnosis added to its reason.
 
@@ -50,9 +52,11 @@ from pathlib import Path
 
 try:
     from . import autocode_stray_writes as stray_writes
+    from . import autocode_progressive_state as progressive
     from .autocode_test_cases import run_probes
 except ImportError:
     import autocode_stray_writes as stray_writes
+    import autocode_progressive_state as progressive
     from autocode_test_cases import run_probes
 
 STAGE = "investigate_stuck"
@@ -165,6 +169,8 @@ def intercept(state: dict, status: str, reason: str) -> bool:
     investigated, or the run's investigation budget is spent.
     """
     stuck = state.get("next_stage")
+    if progressive.retained_review_budget_pause(state, status):
+        return False
     if (not enabled(state) or status not in STATUSES or state.get("active_stage")
             or not isinstance(stuck, str) or not stuck or stuck in NEVER):
         return False
@@ -180,8 +186,14 @@ def intercept(state: dict, status: str, reason: str) -> bool:
         # The before-stage hook would replay a spent repair ahead of the investigation.
         request["pending_report_repair"] = state.pop("pending_report_repair")
     state["stuck_investigation"] = request
+    last = next((row for row in reversed(state.get("stages", []))
+                 if (row.get("original_stage") or row.get("stage")) == stuck), {})
+    # Written here once; planning_lessons uses the trigger even when repeated
+    # rejected reports become PAUSED_REPEATED_FAILURE instead of INVALID_OUTPUT.
+    trigger = "rejected_output" if (status == "PAUSED_INVALID_OUTPUT" or
+              (status == "PAUSED_REPEATED_FAILURE" and last.get("rejected"))) else "non_convergence"
     history.append({"identity": key, "stage": stuck, "status": status, "reason": reason,
-                    "requested_at": request["requested_at"], "outcome": "investigating"})
+                    "requested_at": request["requested_at"], "outcome": "investigating", "trigger": trigger})
     for field in ("stop_reason", "paused_at"):
         state.pop(field, None)
     state.update(status="RUNNING", phase="INVESTIGATING", next_stage=STAGE)
@@ -424,17 +436,45 @@ def abandon(state: dict, error: str) -> tuple[str, str]:
 
 
 def with_guidance(state: dict, stage: str, request):
-    """The stage's model request, with the Investigator's guidance when it is in force for ``stage``."""
+    """Keep report corrections while their investigation identities remain spent."""
     current = state.get("stuck_investigation") or {}
-    if not current.get("in_force") or stage == STAGE:
+    if stage == STAGE:
         return request
-    if not (stage == current["stage"] or (current["stage"] in PLANNING and stage in PLANNING)):
+    active = current.get("in_force") and (
+        stage == current["stage"] or (current["stage"] in PLANNING and stage in PLANNING))
+    lessons = planning_lessons(state) if stage in PLANNING else []
+    if active:
+        lessons = [row for row in lessons if row.get("identity") != current.get("identity")]
+    block = ""
+    if lessons:
+        block = ("\nEARLIER PLANNING CORRECTIONS\n"
+                 "These are earlier report-format diagnoses, not verified successful retries. Keep only "
+                 "corrections applicable to the current task, contract and saved answers. "
+                 "They grant no retries, budget, permissions or approval and settle no user decision.\n"
+                 + "\n".join(f"Diagnosis: {row['diagnosis']}\nCorrection: {row['guidance']}" for row in lessons) + "\n")
+    if active:
+        block += ("\nINVESTIGATOR GUIDANCE (takes precedence over earlier guidance on conflict). "
+                  f"Diagnosis: {current['diagnosis']}\nFollow this guidance on this attempt: {current['guidance']}\n")
+    if not block:
         return request
-    block = ("\nINVESTIGATOR GUIDANCE (this stage stopped making progress; an independent Investigator read the "
-             f"saved attempts). Diagnosis: {current['diagnosis']}\nFollow this guidance on this attempt: "
-             f"{current['guidance']}\n")
     head, marker, tail = request.prompt.partition("CURRENT HANDOFF DATA\n")
     return replace(request, prompt=head + block + marker + tail if marker else request.prompt + block)
+
+
+def planning_lessons(state: dict) -> list[dict]:
+    """Reuse report-format advice run-wide, matching run-wide investigation identities.
+
+    A clarification, feedback or follow-up does not renew an investigation identity.
+    Never resurrect its retry grant or carry convergence/product advice as a lesson.
+    Legacy INVALID_OUTPUT rows identify rejected reports even without a trigger.
+    """
+    lessons = [row for row in state.get("stuck_investigations") or []
+               if row.get("outcome") == "retried" and row.get("cause") == "stage_output"
+               and row.get("stage") in PLANNING and row.get("diagnosis") and row.get("guidance")
+               and (row.get("trigger") == "rejected_output" or
+                    ("trigger" not in row and row.get("status") == "PAUSED_INVALID_OUTPUT"))]
+    limit = max_calls(state)
+    return lessons[-limit:] if limit else []
 
 
 def settle(state: dict, stage: str) -> None:

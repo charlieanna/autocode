@@ -17,6 +17,17 @@ runner, support = base.runner, base.s
 class RepairTests(unittest.TestCase):
     setUp = base.RetrofitTest.setUp
 
+    def test_repair_launch_keeps_the_original_pre_upgrade_schema_bytes(self):
+        self.state["next_stage"] = "astra_review"
+        schema = self.run / "legacy-review.schema.json"
+        schema.write_text(json.dumps(support.read(runner.SCHEMA_DIR / "v2/astra-decision.schema.json")))
+        original = schema.read_bytes()
+        _, record = runner.run_role(role="astra", prompt="Repair the saved report", sandbox="read-only",
+            workspace=self.root, run_dir=self.run, state=self.state, schema=schema,
+            model="model-astra", allow_write=False, dry_run=True, report_only=True)
+        self.assertEqual(original, Path(record["schema"]).read_bytes())
+        self.assertEqual(support.file_hash(schema), support.file_hash(record["schema"]))
+
     def timed_out_repair(self):
         pending = self.queue()
         pending['attempts'] = 1
@@ -191,6 +202,49 @@ class RepairTests(unittest.TestCase):
         launch.assert_called_once()
         return launch.call_args.kwargs
 
+    FORMAT_ERROR = RuntimeError('OpenCode final message is not a JSON report; inspect the saved raw events')
+
+    def test_format_error_resumes_the_session_with_a_tiny_correction_first(self):
+        self.state['next_stage'] = 'terra'
+        self.queue(error=self.FORMAT_ERROR, engine='opencode')
+        with patch.object(runner, 'account_stage') as accounted, \
+                patch.object(runner, 'accept_repaired_report') as accepted, \
+                patch.object(runner, 'run_role', return_value=({}, {'stage': 'terra_report_repair'})) as launch:
+            runner.execute_report_repair(self.state, self.run, self.root)
+        kwargs = launch.call_args.kwargs
+        self.assertEqual('t-session', kwargs['resume_session'])
+        self.assertTrue(kwargs['report_only'])
+        self.assertLess(len(kwargs['prompt']), 800)
+        self.assertIn('could not be parsed as the report', kwargs['prompt'])
+        self.assertNotIn('CURRENT HANDOFF DATA', kwargs['prompt'])
+        accounted.assert_called_once()
+        accepted.assert_called_once()
+        # The correction borrows no repair budget: the full repair remains available.
+        self.assertEqual(0, self.state['pending_report_repair']['attempts'])
+
+    def test_failed_correction_falls_back_to_the_unchanged_full_repair(self):
+        self.state['next_stage'] = 'terra'
+        self.queue(error=self.FORMAT_ERROR, engine='opencode')
+        with patch.object(runner, 'run_role', side_effect=RuntimeError('correction also malformed')):
+            with self.assertRaisesRegex(RuntimeError, 'correction also malformed'):
+                runner.execute_report_repair(self.state, self.run, self.root)
+        self.assertEqual(0, self.state['pending_report_repair']['attempts'])
+        prompt = self.repair_request()['prompt']
+        self.assertIn('CURRENT HANDOFF DATA', prompt)
+        self.assertEqual(1, self.state['pending_report_repair']['attempts'])
+
+    def test_without_a_session_thread_the_full_repair_runs_directly(self):
+        self.state['next_stage'] = 'terra'
+        self.queue(error=self.FORMAT_ERROR, engine='opencode', event_rows=[{'type': 'turn.completed'}])
+        self.assertIn('CURRENT HANDOFF DATA', self.repair_request()['prompt'])
+
+    def test_non_format_errors_never_resume_the_session(self):
+        self.state['next_stage'] = 'terra'
+        self.queue(error=ValueError('$.requirements[48]: unexpected fields'), engine='opencode')
+        kwargs = self.repair_request()
+        self.assertIsNone(kwargs.get('resume_session'))
+        self.assertIn('CURRENT HANDOFF DATA', kwargs['prompt'])
+
     def test_requirements_repair_receives_authoritative_user_sources(self):
         self.state['task'] = 'Build a planner.'
         self.state['brief_feedback'] = [{'text': 'Declare the test file in M2.'}]
@@ -203,6 +257,68 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(['Build a planner.', 'Declare the test file in M2.'], data['source_texts'])
         self.assertNotIn('Fix an existing test race.', data['source_texts'])
         self.assertIn('current Builder task and approved contract are inherited obligations', prompt)
+
+    def test_planner_repair_receives_the_requirements_its_trace_must_cover(self):
+        # Without the rows a repair of a trace with a missing requirement_id guessed "R1" (2026-10-02).
+        self.state['requirements_handoff'] = {'report': {'requirements': [
+            {'id': 'R1', 'text': 'Print a greeting', 'source_quote': 'Print a greeting'}]}, 'output': 'r.json'}
+        self.state['settings']['roles']['glm'] = {'model': 'planner-model'}
+        self.state['next_stage'] = 'astra_discovery'
+        self.queue(ValueError('$.requirement_trace[0]: missing requirement_id'), stage='astra_discovery', role='glm')
+        data = json.loads(self.repair_request()['prompt'].split('CURRENT HANDOFF DATA\n', 1)[1])
+        self.assertEqual(['R1'], [row['requirement_id'] for row in data['requirement_trace_rows']])
+
+    def test_finalizer_repair_receives_current_concerns_and_saved_human_context(self):
+        self.state.update(next_stage='astra_finalize', requirements_handoff={'report': {
+            'requirements': [{'id': 'R1', 'source_quote': 'Reject blank names'}], 'open_questions': []}},
+            brief_feedback=[{'id': 'feedback-1', 'text': 'Preserve valid-name output'}],
+            planning={'reports': {
+                'astra_challenge': {'report': {'concerns': [{'id': 'C1', 'concern': 'Keep the guard'}]}},
+                'glm_revise': {'report': {'responses': [{'concern_id': 'C1'}]}}}})
+        self.queue(stage='astra_finalize', role='astra')
+
+        prompt = self.repair_request()['prompt']
+        data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+        context = data['clarification_context']
+
+        self.assertEqual(self.state['requirements_handoff'], context['requirements_handoff'])
+        self.assertEqual(self.state['planning']['reports'], context['planning_exchange'])
+        self.assertEqual(self.state['brief_feedback'], context['saved_feedback'])
+        self.assertIn('preserving that task inside contract.initial_task', prompt)
+        self.assertIn('original_report is historical planning context', prompt)
+        self.assertNotIn('original_report is also supplied, it is the immutable execution-history baseline', prompt)
+
+    def test_builder_repair_retains_immutable_execution_baseline_instruction(self):
+        self.queue()
+
+        prompt = self.repair_request()['prompt']
+        data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+
+        self.assertIn('original_report is also supplied, it is the immutable execution-history baseline', prompt)
+        self.assertNotIn('clarification_context', data)
+
+    def test_nonfinal_planning_repair_preserves_original_prompt_and_requirement_handoff(self):
+        before = copy.deepcopy(self.state)
+        requirements = [{'id': 'R1', 'text': 'Build a planner', 'source_quote': 'Build a planner.'}]
+        for stage, role in (('requirements_gather', 'requirements'),
+                            ('astra_discovery', 'astra'), ('glm_revise', 'astra')):
+            with self.subTest(stage=stage):
+                self.state.clear()
+                self.state.update(copy.deepcopy(before))
+                self.state.update(next_stage=stage, requirements_handoff={'report': {
+                    'requirements': requirements, 'open_questions': []}})
+                self.state['settings']['roles']['requirements'] = {'model': 'requirements-model'}
+                self.queue(stage=stage, role=role)
+
+                prompt = self.repair_request()['prompt']
+                data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+
+                self.assertNotIn('clarification_context', data)
+                self.assertEqual(requirements if stage == 'requirements_gather' else None,
+                                 data['previous_requirements'])
+                self.assertNotIn('Planning report repair:', prompt)
+                self.assertNotIn('original_report is historical planning context', prompt)
+                self.assertIn('original_report is also supplied, it is the immutable execution-history baseline', prompt)
 
     def assert_repair_blocked(self, status='PAUSED_REPORT_REPAIR_INPUT'):
         attempts = self.state['pending_report_repair']['attempts']
@@ -306,6 +422,9 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(text, archived.read_text())
         self.assertEqual(support.file_hash(archived), pending['pins'][str(archived)])
         self.assertGreater(Path(pending['original']['events']).stat().st_size, runner.REPAIR_HANDOFF_BYTES)
+        # The same-session format correction runs first for this error (see
+        # FormatCorrectionTests); the full handoff asserted here is the fallback attempt.
+        pending['attempts'] = 1
         prompt = self.repair_request()['prompt']
         data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
         self.assertEqual(str(error.exception), data['error'])
@@ -656,6 +775,35 @@ class RepairTests(unittest.TestCase):
         self.assertNotIn('pending_report_repair', self.state)
         self.assertEqual('report_retry_after_format_fix', self.state['user_events'][-1]['kind'])
         self.assertTrue(self.state['report_repair_archive'])
+
+    def test_exact_evidence_mismatch_can_request_fresh_sol_validation(self):
+        self.state['next_stage'] = 'sol'
+        error = ValueError('Check is not supported by an exact executed Validator event')
+        self.queue(role='sol', stage='sol', error=error)
+        self.state['pending_report_repair']['attempts'] = 1
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.reject_repair(6, error)
+        self.state = support.read(self.run / 'state.json')
+        self.state['pending_report_repair']['attempts'] = 2
+        with self.assertRaises(support.Paused):
+            self.reject_repair(7, error)
+        self.state = support.read(self.run / 'state.json')
+        selected = runner.attempt_id(self.state['stages'][-1])
+        original_schema = Path(self.state['pending_report_repair']['original']['schema'])
+        copied_schema = self.run / 'same-validator-schema.json'
+        copied_schema.write_text('{"not": "the validator schema"}')
+        self.state['stages'][-1]['schema'] = str(copied_schema)
+        with self.assertRaises(ValueError):
+            runner.retry_format_failed_report(self.state, self.run, self.root, selected)
+        copied_schema.write_bytes(original_schema.read_bytes())
+        self.state['stages'].append({'stage': 'investigate_stuck_report_repair',
+                                     'original_stage': 'investigate_stuck',
+                                     'report_only': True, 'rejected': True,
+                                     'output': str(self.run / 'investigate_stuck_report_repair-02.json')})
+        runner.retry_format_failed_report(self.state, self.run, self.root, selected)
+        self.assertEqual('sol', self.state['next_stage'])
+        self.assertNotIn('pending_report_repair', self.state)
+        self.assertEqual('report_retry_after_format_fix', self.state['user_events'][-1]['kind'])
 
     def test_terminal_error_is_durably_queued_without_replaying_implementation(self):
         sessions = copy.deepcopy(self.state['sessions'])

@@ -23,6 +23,7 @@ try:
     from . import autocode_workflow as workflow
     from . import autocode_run_records as records
     from . import autocode_validation_recovery as validation_recovery
+    from . import autocode_permission_recovery as permission_recovery
 except ImportError:
     import autocode_escalation as escalation
     import autocode_failures as failures
@@ -36,6 +37,7 @@ except ImportError:
     import autocode_workflow as workflow
     import autocode_run_records as records
     import autocode_validation_recovery as validation_recovery
+    import autocode_permission_recovery as permission_recovery
 
 
 def recover_legacy_report_repair(state, run_dir, workspace):
@@ -301,6 +303,85 @@ def automatically_recover_capacity_stage(state, run_dir, workspace, error):
     return True
 
 
+def automatically_recover_truncated_review(state, run_dir, workspace, error):
+    """Queue a bounded report-only repair for a truncated read-only review.
+
+    Only Validator and Completion Owner reports qualify. Their original provider
+    events and usage remain archived; a repair may summarize completed evidence,
+    but it cannot run checks or alter the source. Every truncated repair attempt
+    consumes the existing report-repair allowance.
+    """
+    record = state.get('active_stage') or {}
+    original_stage = record.get('original_stage') or record.get('stage')
+    event_path = Path(record.get('events', ''))
+    reason = support.terminal_failure_reason(event_path) if event_path.is_file() else None
+    if (error.status not in ('PAUSED_PROVIDER_UNCERTAIN', 'PAUSED_UNCERTAIN_STAGE')
+            or original_stage not in ('sol', 'astra_review', 'astra_checkpoint')
+            or not reason or 'output token limit' not in reason.lower()
+            or record.get('timed_out') or record.get('interrupted') or record.get('cleanup_error')
+            or record.get('exit_code') != 0 or not record.get('before_ref')
+            or not Path(record['before_ref']).is_file() or not record.get('schema')
+            or not Path(record['schema']).is_file() or state.get('pause_intent')
+            or (Path(run_dir) / 'pause-requested').exists() or interventions.pending(run_dir)):
+        return False
+    if any(row.get('type') == 'turn.completed' for row in support.events(event_path)):
+        return False
+    try:
+        worker_check = record
+        if record.get('exit_code') is not None and record.get('pid'):
+            # wait_for_stage already reaped this exact parent. Its last process
+            # snapshot still contains that PID; check any recorded descendants.
+            worker_check = copy.deepcopy(record)
+            worker_check['processes'] = [row for row in record.get('processes', [])
+                                         if row.get('pid') != record.get('pid')]
+        records.assert_stage_stopped(worker_check)
+    except support.Paused:
+        return False
+    before = records.read_json(Path(record['before_ref']))
+    after = support.snapshot(workspace)
+    if before.get('revision') != after.get('revision'):
+        return False
+    pending = state.get('pending_report_repair')
+    if pending and (pending.get('original', {}).get('stage') != original_stage
+                    or pending.get('attempts', 0) >= records.repair_limit(state)):
+        if pending.get('original', {}).get('stage') == original_stage:
+            raise support.Paused('PAUSED_REPORT_REPAIR_LIMIT',
+                'Truncated report-only attempts exhausted the bounded repair allowance; original review evidence is preserved')
+        return False
+    if not pending and not records.repair_limit(state):
+        return False
+
+    record['metrics'] = support.event_metrics(event_path)
+    records.account_stage(state, record)
+    after_path = Path(record['output']).with_suffix('.after.json')
+    records.write_json(after_path, after)
+    record.update(after_ref=str(after_path), source_revision=after['revision'], changed_files=[],
+                  abandoned=True, automatic_recovery=True, truncated_output=True,
+                  rejection_reason=reason)
+    originals = records.archive_rejected_stage(state, run_dir, record, reason)
+    paths = {record[key]: support.file_hash(record[key]) for key in ('events', 'before_ref', 'after_ref', 'schema')
+             if record.get(key) and Path(record[key]).is_file()}
+    if pending:
+        pending['latest_rejected'] = copy.deepcopy(record)
+        pending['error'] = reason
+        pending.setdefault('pins', {}).update(paths)
+    else:
+        state['pending_report_repair'] = {
+            'original': copy.deepcopy(record), 'attempts': 0,
+            'contract_hash': (state.get('goal_contract') or {}).get('hash'),
+            'pins': paths, 'error': reason, 'truncated_output': True}
+    state.setdefault('user_events', []).append({
+        'kind': 'truncated_review_report_repair', 'actor': 'runner', 'at': records.now(),
+        'attempt_id': records.attempt_id(record), 'stage': original_stage,
+        'repair_attempts_used': (state.get('pending_report_repair') or {}).get('attempts', 0)})
+    state.update(status='RUNNING', phase='REPORT_REPAIR', next_stage=original_stage)
+    state.pop('stop_reason', None)
+    records.write_json(Path(run_dir) / 'state.json', state)
+    for artifact in originals:
+        artifact.unlink(missing_ok=True)
+    return True
+
+
 def reconcile_rate_limited_stage(state, run_dir, workspace):
     """AutoResolver retires a proven stopped rate-limit attempt without replay."""
     record = state.get('active_stage') or {}
@@ -449,6 +530,15 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
         records.assert_stage_stopped(record)
     except support.Paused:
         return False
+    denied = permission_recovery.operation(raw)
+    try:
+        diagnostics = permission_recovery.prepare(workspace, record.get('original_stage') or record['stage'],
+                       denied, state.get('automatic_permission_recoveries', []), state.get('stages', []),
+                       run_dir=run_dir)
+    except (OSError, ValueError) as error:
+        raise support.Paused('PAUSED_PROVIDER_UNCERTAIN',
+            f"Cannot provision workspace-contained permission diagnostics: {error}. "
+            "The stopped attempt and partial work remain for reconciliation; no retry was launched.") from error
     before = records.read_json(Path(record["before_ref"]))
     after = support.snapshot(workspace)
     record["metrics"] = support.event_metrics(event_path)
@@ -467,7 +557,18 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
                 "stage": record["stage"], "source_revision": after["revision"],
                 "changed_files": record["changed_files"], "events": record["events"],
                 "source_snapshot": record["after_ref"], "next_stage": next_stage,
-                "instruction": "The prior request was stopped by OpenCode's external_directory permission. Use only workspace-contained evidence paths; do not use /tmp, default mktemp paths, nohup, or detached processes. Inspect retained work and start a fresh request."}
+                "instruction": f"The prior request was stopped by OpenCode's external_directory permission. "
+                    f"The exact workspace root is {workspace}. Use source-relative shell paths there; "
+                    "derive absolute file-tool paths from that exact root, never from a guessed run name. "
+                    "A mistyped project path is still outside the allowed workspace: inspect the requested "
+                    "path and correct it rather than repeating it or requesting broader permissions. "
+                    "Use only workspace-contained evidence paths; do not use /tmp, default mktemp paths, "
+                    "nohup, or detached processes. Inspect retained work and start a fresh request."}
+    recovery.update(diagnostics)
+    recovery['instruction'] += (f" The denied operation is {recovery['denied_operation']}. "
+        f"Use the existing diagnostic_directory {recovery['diagnostic_directory']} for scratch files; "
+        "for mktemp, supply an explicit template below that directory. Diagnostic success alone is "
+        "not task completion; return through the normal independent verification gates.")
     records.count_automatic_recovery(state)
     state.setdefault("automatic_permission_recoveries", []).append(recovery)
     state.setdefault("user_events", []).append({"kind": "automatic_permission_recovery", "actor": "runner",
@@ -479,9 +580,14 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
     state.update(status="RUNNING", phase="PLANNING" if planning.is_planning(state, next_stage) else "EXECUTING",
                  next_stage=next_stage)
     state.pop("stop_reason", None)
+    message = permission_recovery.hold_message(recovery) if recovery['repeat_count'] >= 2 else None
+    if message:
+        state.update(status='PAUSED_REPEATED_FAILURE', phase='PAUSED_OR_BLOCKED', stop_reason=message)
     records.write_json(run_dir / "state.json", state)
     for artifact in originals:
         artifact.unlink(missing_ok=True)
+    if message:
+        raise support.Paused('PAUSED_REPEATED_FAILURE', message)
     return True
 
 
@@ -582,6 +688,40 @@ def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None, *, 
     return True
 
 
+def retry_format_failed_report(state, run_dir, workspace, selected):
+    """Explicitly request fresh evidence after a bounded report rejection."""
+    pending = state.get('pending_report_repair') or {}
+    original = pending.get('original') or {}
+    repair = next((row for row in reversed(state.get('stages', []))
+                   if row.get('report_only') and row.get('rejected')
+                   and row.get('original_stage') == original.get('stage')), None)
+    if (state.get('status') != 'PAUSED_REPEATED_FAILURE'
+            or pending.get('error') not in (
+                'OpenCode final message is not a JSON report; inspect the saved raw events',
+                'Check is not supported by an exact executed Validator event')
+            or original.get('stage') != 'sol'
+            or not repair or selected != records.attempt_id(repair)
+            or repair.get('original_stage') != original.get('stage')
+            or repair.get('source_revision') != original.get('source_revision')
+            or not repair.get('schema') or not original.get('schema')
+            or not Path(repair['schema']).is_file() or not Path(original['schema']).is_file()
+            or support.file_hash(repair['schema']) != support.file_hash(original['schema'])
+            or pending.get('attempts') != records.repair_limit(state)):
+        raise ValueError('--retry-report must match the exhausted rejected report-only attempt')
+    if (support.snapshot(workspace)['revision'] != original['source_revision']
+            or (state.get('goal_contract') or {}).get('hash') != pending.get('contract_hash')
+            or any(not Path(p).is_file() or support.file_hash(p) != h
+                   for p, h in pending.get('pins', {}).items())):
+        raise ValueError('Saved report inputs changed; reconcile them before retrying')
+    if not prepare_exhausted_execution_report_retry(
+            state, run_dir, workspace, allow_repeated=True):
+        raise ValueError('Saved stage cannot be retried as a fresh execution report')
+    state.setdefault('user_events', []).append({
+        'kind': 'report_retry_after_format_fix', 'actor': 'user_cli', 'at': records.now(),
+        'attempt_id': selected, 'source_revision': original['source_revision']})
+    records.write_json(run_dir / 'state.json', state)
+
+
 def prepare_abandoned_completion_revalidation(state, run_dir, workspace):
     """Repair old completion-abandonment routing on explicit resume only."""
     if (state.get('status') not in ('PAUSED_STAGE_ABANDONED', 'PAUSED_INVALID_OUTPUT', 'PAUSED_REPEATED_FAILURE')
@@ -621,11 +761,11 @@ def prepare_abandoned_completion_revalidation(state, run_dir, workspace):
         failure = (state.get('failure_history') or {}).get(last.get('failure_key'), {})
         if (failure.get('identity') != {'stage': 'astra_review', 'artifact_hash': revision,
                                        'error_class': 'PAUSED_COMPLETION_GATE'}
-                or last.get('rejection_reason') != missing
-                or any(r.get('rejection_reason') not in (missing,
+                or not str(last.get('rejection_reason') or '').startswith(missing)
+                or any(not str(r.get('rejection_reason') or '').startswith(missing) and r.get('rejection_reason') not in (
                        'OpenCode final message is not a JSON report; inspect the saved raw events') for r in retries)):
             return False
-        attempts = {r.get('failure_attempt') for r in retries if r.get('rejection_reason') == missing}
+        attempts = {r.get('failure_attempt') for r in retries if str(r.get('rejection_reason') or '').startswith(missing)}
         if not failure.get('attempts') or not set(failure['attempts']) <= attempts:
             return False
     elif state['status'] != 'PAUSED_STAGE_ABANDONED':

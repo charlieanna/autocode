@@ -7,7 +7,7 @@ Dimensions (each scored PASS / FAIL / HONEST_BLOCKER / PARTIAL / N/A):
   model_routing    — every stage launch uses the pinned subscription models
   pause_recovery   — pauses state a reason and a recovery command; no silent COMPLETE
   evidence         — COMPLETE/ACCEPT requires evidence, not just claims
-  token_discipline — per-stage tokens recorded; budget flags work
+  token_discipline — per-stage token usage recorded
 
 Cost note: USD values use historical comparison rates, not verified current
 prices or invoices. Inclusive input/output totals are priced once at those flat
@@ -23,23 +23,19 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-# Historical comparison rates, USD per 1M inclusive input/output tokens.
-# These are not verified current provider prices or subscription charges.
-REFERENCE_PRICES = {
-    "zai-coding-plan/glm-5.3": {"input": 0.60, "output": 2.20},
-    # Only for pricing saved runs from before MiMo was dropped (user 2026-09-27); new runs
-    # never use it (FORBIDDEN_MODEL_MARKERS below).
-    "xiaomi-token-plan-sgp/mimo-v2.6-pro": {"input": 0.30, "output": 1.20},
-}
+try:
+    from .autocode_usage import REFERENCE_PRICES
+except ImportError:
+    from autocode_usage import REFERENCE_PRICES
 
-# Never MiMo (user 2026-09-27); OpenAI GPT-6 via the ChatGPT login replaces it.
 ALLOWED_MODEL_PREFIXES = (
     "zai-coding-plan/glm-5.3",
     "openai/gpt-6-astra",
     "openai/gpt-6-sol",
     "openai/gpt-6-luna",
+    "xiaomi-token-plan-sgp/",
 )
-FORBIDDEN_MODEL_MARKERS = ("-free", "flash", "mimo-token-plan/", "xiaomi-token-plan-sgp/", "mimo-", "glm-5.2")
+FORBIDDEN_MODEL_MARKERS = ("-free", "flash", "mimo-token-plan/", "glm-5.2")
 
 # docs/models.md ladder entry points + user independence rule (2026-09-26):
 # verifier never equals producer. OpenAI GPT checks GLM work and GLM checks GPT work.
@@ -231,7 +227,6 @@ def model_route_checks(state: dict, run_dir: Path) -> dict:
 
     uniq = sorted(set(launched))
     bad = [m for m in uniq if any(f in m for f in FORBIDDEN_MODEL_MARKERS)]
-    bad += [m for m in uniq if m.startswith("mimo-token-plan/")]
     # only accept the subscription models for this run
     ok_models = all(m.startswith(ALLOWED_MODEL_PREFIXES) for m in uniq) if uniq else False
     return {"launched_models": uniq, "pinned_roles": pinned, "forbidden_seen": sorted(set(bad)),
@@ -365,9 +360,6 @@ def score_run(run_dir: Path) -> dict:
         token_notes.append(f"{len(rows)} stage metric rows")
         token_notes.append(f"historical-rate estimate: {money(total_usd)}; "
                            f"known subtotal {money(known_usd)}, {unknown_rows} unpriced stage(s)")
-    limits = state.get("limits") or {}
-    if limits.get("max_reported_tokens"):
-        token_notes.append(f"max_reported_tokens={limits['max_reported_tokens']} enforced")
 
     return {
         "run_dir": str(run_dir),

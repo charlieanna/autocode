@@ -22,8 +22,8 @@ from pathlib import Path
 
 # User rule (2026-09-26): subscription models only — never free-tier or flash.
 FORBIDDEN_SUBSTRINGS = ("-free", "flash", "highspeed")
-# mimo-token-plan/ has an invalid API key on this machine; MiMo is never used (user 2026-09-27).
-DEAD_ROUTES = ("mimo-token-plan/", "xiaomi-token-plan-sgp/")
+# No credential is configured for mimo-token-plan/ on this machine.
+DEAD_ROUTES = ("mimo-token-plan/",)
 
 # Ladder entry points when both families are present (docs/models.md).
 PREFERRED = {

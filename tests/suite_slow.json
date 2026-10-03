@@ -4,6 +4,7 @@
   "tests.test_scenario_oracles": "67 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_build_recovery_blackbox": "55 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_multicomponent": "45 s in CI (Ubuntu, one module at a time), 2026-09-29",
+  "tests.test_component_design": "50 s locally (macOS); real CLI approval/resume, integration and design-drift cases, 2026-10-01",
   "tests.test_subprocess": "45 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_builder_policy": "37 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_catalogue_t14": "26 s in CI (Ubuntu, one module at a time), 2026-09-29",

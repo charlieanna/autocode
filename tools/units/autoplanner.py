@@ -10,10 +10,12 @@ import uuid
 
 try:
     from .. import autocode_goals as goals, autocode_planning_artifacts as artifacts, autocode_support as s
-    from .. import autocode_stage_context as stage_context
+    from .. import autocode_stage_context as stage_context, autocode_acceptance_policy as acceptance_policy
     from .. import autocode_bug_job as bug_job, autocode_workflows as workflows, autocode_test_cases as test_cases
-    from .. import autocode_follow_up as follow_up
+    from .. import autocode_follow_up as follow_up, autocode_adaptive_planning as adaptive, autocode_draft_examples as examples
+    from .. import autocode_progressive_state as progressive
 except ImportError:
+    import autocode_acceptance_policy as acceptance_policy
     import autocode_test_cases as test_cases
     import autocode_goals as goals
     import autocode_planning_artifacts as artifacts
@@ -22,6 +24,9 @@ except ImportError:
     import autocode_bug_job as bug_job
     import autocode_follow_up as follow_up
     import autocode_workflows as workflows
+    import autocode_adaptive_planning as adaptive
+    import autocode_draft_examples as examples
+    import autocode_progressive_state as progressive
 
 STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
 # A build that implements an approved design (autocode_design_check_job) skips requirements
@@ -74,7 +79,8 @@ they leave open. Cite the review in code_refs as exactly its report_path.
 EXAMPLE_CRITERIA_RULE = """
 TESTS IN PLAIN ENGLISH: write every acceptance criterion a test can check as one concrete example a person can
 check without reading code: "Given <the exact starting data or state>, when <the exact action or command>,
-then <the exact result, with literal values>". No vague words such as "correctly" or "gracefully". Set its
+then <the exact result, with literal values>". No vague words such as "correctly" or "gracefully". Work each
+literal result out from the criterion's own rule (count the items, do the arithmetic), never estimate it. Set its
 verification_method to "test: test_<criterion id in lowercase>_<what it checks>" (C2 -> test_c2_...). The
 Builder writes that test; the runner itself checks that it passes with the change and did not pass before the
 run began, and refuses the milestone and completion otherwise. With several milestones, list each test
@@ -103,12 +109,39 @@ rename protected criteria in an existing contract without the required user-back
 TEST COMMAND PREREQUISITES: include every missing package marker required by your validation command in
 affected_paths before approval. `python3 -m unittest discover -s tests -t .` needs tests/__init__.py;
 assign that file explicitly (or tests/) when it does not exist. Never leave the Builder to expand scope.
-NUMERIC BOUNDARIES: when the public contract accepts Python integers without a documented bound, include
-examples at 2**63-1, 2**63, and 10**5000 wherever those inputs are valid, and large negative values for signed
-domains. Prove persistence, exact arithmetic, stale/unknown identifiers, and transaction rollback at those
-boundaries. SQLite INTEGER bindings stop at 64 bits and SQL arithmetic can promote overflow to REAL; use
-lossless storage and application integer arithmetic for unbounded values. Decimal int/str conversion can
-hit Python's digit limit too. Preserve the public contract; do not invent a bound to fit the implementation.
+ERROR PATHS: inject failures after staged or transactional work begins; verify the public error contract,
+unchanged persistent state and complete cleanup across the relevant underlying failure modes.
+"""
+# Two live ladder runs (Claude models, 2026-09-30) approved an example that contradicted its own rule: "2024-02-28
+# to 2024-03-01 is 4 dates", and an entry with a TTL of 2**63 still present at time 1e300. Both plan reviews passed
+# it, the Builder bent its test to fit, and the run stopped for a person after the build.
+EXAMPLE_CHECK_RULE = """
+CHECK EVERY WORKED EXAMPLE: recompute the literal result of each acceptance criterion's example from its own rule
+and the request: count the items in a range, do the arithmetic, apply the stated expiry, ordering or rounding rule
+to the example's inputs. An example whose stated result does not follow is a blocking concern naming the
+correct result: no implementation can satisfy both the rule and the example.
+"""
+# A live greenfield run (2026-10-01, docs/bugs/2026-10-01-reliability-live-cases.md) transcribed the brief's
+# literal "ID TEXT [open|done]" into examples without the brackets; the Builder, the tests, the Validator and
+# the completion gate then all honestly served the corrupted criteria and the run completed falsely. Every
+# other handoff has an independent check; the brief-to-criteria transcription had none.
+BRIEF_TRACE_RULE = """
+CHECK EVERY EXAMPLE AGAINST THE BRIEF: re-read the user's brief and re-derive each worked example's literal
+result from the brief's own words, not from the criterion next to it. Every literal the brief states — an
+exact output format, a field name, an exit code, a file name, an error name — must appear verbatim in at
+least one example. An example whose literal drops, normalizes or rewrites what the brief states is a
+blocking concern quoting the brief's sentence and the example's deviation: the plan review approves
+criteria against the brief, and whatever literal the criteria carry will be built, tested, validated and
+completed exactly as written. An example consistent with its own rule but not with the brief is still wrong.
+"""
+# A live cent-drift plan (2026-09-30) required a 175,712-cart enumeration to "finish in under about 10 seconds". The
+# Builder asserted elapsed time, the test took 10.39 s on a loaded machine, and the run stopped after two retries
+# with correct billing code: no code change could make the criterion hold.
+NO_TIMING_RULE = """
+NO TIMING CRITERIA: no acceptance criterion, verification method or test may depend on elapsed time or machine
+speed ("finishes in under 10 seconds", a timing assertion, a benchmark threshold). It passes on an idle machine and
+fails on a loaded one, and the Builder cannot fix that by fixing code. Bound the work instead: state the size of an
+enumeration and keep it to a few thousand cases that run in seconds. A plan reviewer raises a blocking concern for one.
 """
 # A design job delivers documents only (autocode_test_cases.design_only), so it gets this instead of the
 # example-criteria rule, which made a live design run plan every criterion as a test and add tests/.
@@ -137,6 +170,21 @@ CONTRACT DELTA: contract_changes describes only changes from the current goal_co
 handoff, not cumulative history. A permission already incorporated into that revision is not a new change:
 retain its approved text, cite the saved authorization in the summary, and omit it from contract_changes.
 If no protected item changes against the current revision, return contract_changes=[].
+Use exact protected item identities: an acceptance criterion ID such as AC1, or the previous verbatim
+protected list/permission string. Do not use field labels such as "AC1 verification_method",
+"AC8 (new criterion added)", "technical_approach", "M1" or "initial_task" as contract_changes.item.
+Allowed draft proof corrections, new criteria and implementation proposal edits need no delta;
+return [] for them. This does not authorize changing existing behavior, permissions or approved proofs.
+SOURCE CITATIONS: code_refs contains existing repository source paths, optionally :line, never a runner
+state file, .autocode/ artifact, cache, or explanatory sentence. state_file is context to read, not source
+to cite. Read the workspace_inventory candidates; a citation repair changes citations, not requirements.
+SETTLED REQUIREMENTS: preserve literal inputs and outputs from the task, approved design and saved answers.
+Create examples that match those literals. The DRAFT EXAMPLE CORRECTIONS rule is the sole exception for
+numeric stdout in model-written drafts; other protected criterion changes need a saved user basis and delta.
+Verification changes follow the narrow draft-proof policy. Gather remaining decisions before drafting;
+do not reopen answered questions or invent extra clarification cycles for report wording.
+Keep existing test names and assertions. A planned case needs a separate new test if matching its id
+would otherwise require renaming an existing test; a guard must keep the original coverage as well.
 """
 # A live review-then-fix plan (2026-09-29) marked "the diff touches only the two fixes" for human
 # review although its own verification method was "Validator reads git diff"; the run then
@@ -161,13 +209,14 @@ HUMAN REVIEW: an acceptance criterion's human_review is """ + HUMAN_REVIEW_NOTE 
 # IDs as a short list (requirement_trace_rows) and this rule; the runner's check is unchanged.
 REQUIREMENT_TRACE_RULE = """
 REQUIREMENT TRACE: requirement_trace_rows in the handoff data lists every requirement from the requirements
-handoff. requirement_trace must contain exactly one row for each of those requirement_id values, no more and no
-fewer; an empty requirement_trace is refused. disposition is covered, excluded or superseded. For covered, evidence
-is an acceptance criterion ID of this contract (for example "AC3", or "AC3 checks this"), or a required_behaviors
-entry copied exactly; a paraphrase is refused. For excluded, evidence is a scope_exclusions entry copied exactly and
-backed by a saved user answer; for superseded, it cites the saved answer or feedback event ID. While the draft has
-open_blocking_questions and no criteria yet, a covered row may say what it waits on (for example "pending Q1"); the
-next draft, after the answer, must cite criteria.
+handoff, and any feedback on a plan the user was shown that no Requirements report has read yet (its
+requirement_id is the feedback event ID). requirement_trace must contain exactly one row for each of those
+requirement_id values, no more and no fewer; an empty requirement_trace is refused. disposition is covered,
+excluded or superseded. For covered, evidence is an acceptance criterion ID of this contract (for example "AC3",
+or "AC3 checks this"), or a required_behaviors entry copied exactly; a paraphrase is refused. For excluded,
+evidence is a scope_exclusions entry copied exactly and backed by a saved user answer; for superseded, it cites
+the saved answer or feedback event ID. While the draft has open_blocking_questions and no criteria yet, a covered
+row may say what it waits on (for example "pending Q1"); the next draft, after the answer, must cite criteria.
 """
 TRACE_STAGES = ("astra_discovery", "glm_revise", "astra_finalize")
 
@@ -186,11 +235,74 @@ def traces_coverage(contract):
 
 def trace_rows(state, stage):
     """The requirements a stage's requirement_trace must cover, one row each; [] when there are none."""
-    if stage not in TRACE_STAGES:
+    if stage not in (*TRACE_STAGES, "astra_challenge"):
         return []
     handoff = (state.get("requirements_handoff") or {}).get("report") or {}
-    return [{"requirement_id": row["id"], "requirement": row.get("text", "")}
-            for row in handoff.get("requirements") or [] if isinstance(row, dict) and row.get("id")]
+    # Feedback on a shown plan that no Requirements report has read yet is traced like a requirement.
+    return [{"requirement_id": row["id"], "requirement": row.get("text", ""),
+             "source_quote": row.get("source_quote", "")}
+            for row in (handoff.get("requirements") or []) + adaptive.feedback_requirements(state)
+            if isinstance(row, dict) and row.get("id")]
+
+
+# A late question (the final review returned an unresolved concern to the user, usually permission to change
+# a protected criterion) restarts planning after the answer, and the next review saw only the new draft:
+# 11 of 31 answer-driven re-drafts in live runs (2026-09-28..10-01) reviewed a whole plan again from scratch.
+REREVIEW_RULE = """
+RE-REVIEW AFTER THE USER'S ANSWERS. Your previous review of this plan ended with questions to the user.
+previous_review holds your earlier concerns, your final decisions on them, and each question with the user's
+answer. Check that this draft applies those answers exactly as given. A concern you resolved before stays
+resolved unless an answer or this draft reopens it; do not raise it again. Mark a concern blocking only for what
+the answers changed or for what is still wrong in this draft.
+"""
+
+
+def previous_review(state):
+    """The last planning cycle's review when it ended in questions the user has since answered, so the next
+    review checks the answers instead of reviewing the plan from scratch; None otherwise."""
+    history = state.get("planning_history") or []
+    reports = ((history[-1] if history else None) or {}).get("reports") or {}
+    last = next((reports[stage]["report"] for stage in ("astra_finalize", "glm_revise")
+                 if (reports.get(stage) or {}).get("report")), {})
+    questions = (last.get("contract") or {}).get("open_blocking_questions") or []
+    answers = state.get("answers") or {}
+    if not questions or any(question.get("id") not in answers for question in questions):
+        return None
+    concerns = ((reports.get("astra_challenge") or {}).get("report") or {}).get("concerns") or []
+    return {"concerns": [{key: row.get(key) for key in ("id", "concern", "blocking")} for row in concerns],
+            "decisions": [{key: row.get(key) for key in ("concern_id", "decision", "resolved")}
+                          for row in last.get("decisions") or []],
+            "answered_questions": [{"id": question["id"], "question": question.get("question", ""),
+                                    "answer": answers[question["id"]].get("text", "")} for question in questions]}
+
+
+def fill_trace_id(state, stage, value):
+    """Name the one requirement_trace row a Planner report left without requirement_id, when exactly one
+    requirement it must trace is missing from the trace: that row can only be for it, so no report repair is
+    spent on the missing field (GLM 5.3 left it out when tracing feedback, 2026-10-02; 16 repairs to date).
+    When nothing must be traced, rows without an ID are dropped. Anything ambiguous is left for the schema
+    and trace checks to refuse, and a named row's evidence is still checked."""
+    if not adaptive.enabled(state):
+        return value
+    trace = value.get("requirement_trace") if stage in TRACE_STAGES else None
+    if not isinstance(trace, list) or not all(isinstance(row, dict) for row in trace):
+        return value
+    unnamed = [index for index, row in enumerate(trace) if "requirement_id" not in row]
+    expected = trace_rows(state, stage)
+    if unnamed and not expected:
+        return {**value, "requirement_trace": [row for row in trace if "requirement_id" in row]}
+    ids = [row["requirement_id"] for row in expected]
+    assigned = [row["requirement_id"] for row in trace if "requirement_id" in row]
+    if (len(set(ids)) != len(ids) or len(trace) != len(ids)
+            or any(not isinstance(rid, str) or rid not in ids for rid in assigned)
+            or len(set(assigned)) != len(assigned)):
+        return value
+    untraced = [rid for rid in ids if rid not in assigned]
+    if len(unnamed) != 1 or len(untraced) != 1:
+        return value
+    trace = [dict(row) for row in trace]
+    trace[unnamed[0]]["requirement_id"] = untraced[0]
+    return {**value, "requirement_trace": trace}
 
 
 # The first stage of every new run: which kind of job this is (autocode_workflows).
@@ -219,6 +331,10 @@ CONFLICT_RESOLUTION = obj({"requirement_ids": SS,
 CHANGE = obj({"item": S, "change": {"type": "string", "enum": ["removed", "reworded", "permission_changed"]},
               "basis": {"type": "string", "enum": ["user_answer", "user_feedback", "agent_proposed"]},
               "answer_id": S, "replacement": S})
+# Only a draft example correction carries a receipt. Generation schemas require every field, so a change
+# that is not one says null; as a plain object field GLM 5.3's null failed every report declaring a
+# contract change (2026-10-02). Readers treat anything but an object as no correction.
+CHANGE["properties"]["example_correction"] = {**examples.RECEIPT_SCHEMA, "type": ["object", "null"]}
 TRACE = obj({"requirement_id": S, "disposition": {"type": "string", "enum": ["covered", "excluded", "superseded"]},
              "evidence": S})
 # New reports use the structured form; this is also the generation schema, so
@@ -325,6 +441,21 @@ for _stage in ("astra_discovery", "glm_revise"):
     SCHEMAS[_stage]["properties"]["remediation_records"] = {"type": "array", "items": REMEDIATION}
 for _stage in ("astra_challenge", "astra_finalize"):
     SCHEMAS[_stage]["properties"]["obligation_decisions"] = {"type": "array", "items": OBLIGATION_DECISION}
+# Optional progressive proposal for goals that only succeed as several useful
+# end-to-end slices. The runner validates it, generates the plan-card disclosure
+# from it and seals it at ordinary approval; a report without one keeps the
+# ordinary path. Old saved reports remain valid.
+PROGRESSIVE_CHECK = obj({"id": S, "method": S,
+                         "relation": {"type": "string", "enum": ["contributes_to", "fully_verify"]},
+                         "criterion_ids": SS})
+PROGRESSIVE_SLICE = obj({"id": S, "intended_result": S, "criterion_ids": SS, "paths": SS, "depends_on": SS,
+                         "checks": {"type": "array", "items": PROGRESSIVE_CHECK},
+                         "tentative": {"type": "boolean"}})
+PROGRESSIVE_PROPOSAL = obj({"version": {"type": "integer"}, "needed_because": S, "shared_decisions": SS,
+                            "outstanding_criteria": SS, "done_slices": SS,
+                            "slices": {"type": "array", "items": PROGRESSIVE_SLICE}})
+for _stage in ("astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_revise", "plan_finalize"):
+    SCHEMAS[_stage]["properties"]["progressive_proposal"] = PROGRESSIVE_PROPOSAL
 
 
 # The job type travels requirements -> contract -> approval. Every planning stage still runs;
@@ -407,7 +538,6 @@ def engine_for(settings, role):
 
 
 # Independent Plan Reviewer route (user 2026-09-26): never the Planner's model.
-# No MiMo anywhere (user 2026-09-27): OpenAI GPT-6 Sol via the ChatGPT login.
 # Astra is too expensive and only for the Resolver (user 2026-09-28).
 PINNED_REVIEWER_MODEL = "openai/gpt-6-sol"
 
@@ -465,6 +595,7 @@ def set_review_call_limit(state, limit):
     if limit == previous and state['planning'].get('review_call_limit_origin') == 'user_explicit':
         return
     state["planning"]["review_call_limit"] = limit
+    progressive.set_explicit_limits(state, review_calls=limit)
     state['planning']['review_call_limit_origin'] = 'user_explicit'
     if limit == 0:
         state['settings']['planning_review_call_limit'] = 0
@@ -495,6 +626,8 @@ def refund_unreported(state, planning):
 
 def charge(state, stage, record=None, workspace=None):
     if stage not in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize"):
+        return
+    if progressive.charge_review(state, stage, record):
         return
     planning = state["planning"]
     refund_unreported(state, planning)
@@ -641,8 +774,8 @@ the real requirement. Preserve the user's outcome until they explicitly change i
 Settle EVERY concern by ID using the Planner's evidence-backed responses and source inspection as needed.
 Confirm that milestone dependencies are complete and acyclic, and that [] is used only
 for genuinely independent work. Do not schedule or launch milestones.
-Return the proposed final contract and concise decisions/rationales/tests. Include initial_task
-in the contract: objective, affected_paths, kind (implement or validate), milestone_id,
+Return the proposed final contract and concise decisions/rationales/tests. Include contract.initial_task
+inside contract, never at the report root: objective, affected_paths, kind (implement or validate), milestone_id,
 requirements, acceptance_criteria IDs, validation_plan. Its milestone must have depends_on [].
 Make it a substantial, coherent,
 executable milestone including related changes, tests, local fixes and evidence.
@@ -724,6 +857,65 @@ obligation, using its current remediation_hash; resolved=false in the first revi
 blocking concern citing the obligation id. At final review, any obligation still unresolved is
 asked as a decision question under its id, and initial_task.kind must be "none". Otherwise use
 [] for remediation_records and obligation_decisions.
+"""
+
+
+def obligation_policy(stage):
+    """Request only obligation fields this planning stage can return."""
+    if stage != "astra_finalize":
+        return OBLIGATION_POLICY
+    return """
+REJECTED ASSUMPTIONS. deferred_obligations lists assumptions the user rejected; never rely on a
+rejected assumption again, even reworded. An open obligation of kind human_decision must be asked
+as a kind="decision" question whose id is the obligation id; the plan stays clarification-only
+until the user answers it. Review the Planner's saved remediation proposals. Add one
+obligation_decisions entry {obligation_id, remediation_hash, resolved, rationale, evidence_refs}
+for every pending_review obligation, using its current remediation_hash and substantive evidence.
+Any obligation still unresolved is asked as a decision question under its id in
+contract.open_blocking_questions, and contract.initial_task.kind must be "none".
+When no obligations await review, use [] for obligation_decisions. Omit remediation_records;
+the finalization report does not propose remediations.
+"""
+
+
+PROGRESSIVE_POLICY = """
+When revising a previously approved progressive product goal, retain prior check obligations by
+default. A removal requires an exact visible scope_exclusions string:
+'Progressive check retirement: ' + canonical JSON {check_id,check_hash,removes}, with sorted keys
+and separators (',',':'). check_hash is the old check definition identity; removes must name an
+exact old required behavior or criterion text removed from the revised product. Never retire an
+unrelated check, infer removal from changed IDs, or claim a model approval. Ordinary independent
+review and explicit user approval of the new goal token are required before retirement takes effect.
+The runner mirrors the exact scope_exclusions retirement declaration into visible constraints
+before independent review and user approval; retain that exact line, never a conflicting mirror.
+PROGRESSIVE PLANNING (optional). When the goal only succeeds as several genuinely useful end-to-end
+slices, propose a progressive plan instead of one long build: progressive_proposal
+{version: 1, needed_because, shared_decisions, outstanding_criteria, done_slices, slices}. The report
+schema always includes progressive_proposal; when the goal does not need progressive planning return
+its empty form (version 0, empty strings and lists, no slices), which means no proposal. Propose
+it only when those slices and their boundaries can be stated from the requirements and repository
+evidence; never for a small or tightly coupled task, and never to paper over an ambiguous outcome
+(clarify that instead). The product outcome stays fixed: slices deliver it progressively.
+Every acceptance criterion ID must be planned on at least one slice or listed in outstanding_criteria;
+a revision may split, reorder or replace future slices but may never drop a criterion from that map.
+slices[0] is the first slice: the main user journey across the essential layers, with an observable
+useful result, bounded writable paths (paths), the product criteria it touches (criterion_ids) and
+nonempty checks. Later slices are marked tentative: true: not dispatchable until a reviewed slice
+revision promotes them. Investigation or setup work may be tasks inside a slice, but is never
+reported as delivery.
+A check is {id, method, relation, criterion_ids}: relation is contributes_to (the slice demonstrates
+part of the criterion; the criterion stays open) or fully_verify (this proof can establish the
+criterion). method must contain an explicit supported command the runner can replay at the
+checkpoint, for example `python -m pytest tests/test_journey.py -q`; prose that merely describes
+verification is refused, and the command must use repository source or fixtures, never run/session
+state. The commands need not pass before the slice is built.
+The runner generates the plan-card disclosure from your proposal into constraints and
+technical_approach (the delegation, its limits and the slice sequence). Never write lines starting
+"Progressive delegation:", "Progressive slice:" or "Product criteria explicitly outstanding:";
+mismatched hand-written disclosure is refused. Initial approval delegates continuation within the
+agreed outcome, constraints and permissions; product changes, new permissions and unresolved product
+decisions still return to the user, and every slice still gets independent plan review and
+verification.
 """
 
 
@@ -848,12 +1040,15 @@ def context(state, stage, state_path):
         packet['workspace_inventory'] = workspace_inventory(state['workspace'], state['task'], limit=20)
     if stage == "requirements_gather":
         packet["requirement_coverage_checklist"] = [
-            sentence for source in goals.source_texts(state)
+            sentence for source in goals.scan_texts(state)
             for sentence in goals.cue_sentences(source)
         ]
     rows = trace_rows(state, stage)
     if rows:
         packet["requirement_trace_rows"] = rows
+    earlier = previous_review(state) if stage == "astra_challenge" else None
+    if earlier:
+        packet["previous_review"] = earlier
     if state["settings"].get("figma_file"):
         packet["figma_file"] = state["settings"]["figma_file"]
     packet['user_events'] = state.get('user_events', [])
@@ -870,13 +1065,19 @@ def context(state, stage, state_path):
     if stage in ("requirements_gather", "astra_discovery"):
         packet['workspace_inventory'] = workspace_inventory(state['workspace'], state['task'])
     try:
-        from .. import autocode_figma as figma
+        from .. import autocode_figma as figma, autocode_design_manifest as design_manifest
     except ImportError:
-        import autocode_figma as figma
+        import autocode_figma as figma, autocode_design_manifest as design_manifest
     figma_instruction = figma.instructions(state["settings"])
+    manifest_context = design_manifest.context(state["settings"])
+    if manifest_context:
+        packet["design_manifest"] = manifest_context
+        figma_instruction += design_manifest.INSTRUCTION
     planning_policy = "" if stage == "requirements_gather" else (
-        goals.DECISION_PROVENANCE + goals.CONTRACT_REFERENCES + s.MILESTONE_POLICY + EVIDENCE_FACTS
+        goals.DECISION_PROVENANCE + goals.CONTRACT_REFERENCES + examples.RULE + s.MILESTONE_POLICY + EVIDENCE_FACTS
         + ("" if stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE))
+    progressive_policy = PROGRESSIVE_POLICY if stage in ("astra_discovery", "glm_revise", "astra_challenge",
+                                                         "astra_finalize") else ""
     if stage != "requirements_gather":
         packet["capture_command"] = capture_command()
     clarification_policy = ("" if stage == "astra_challenge" else QUESTION_POLICY) + (
@@ -884,7 +1085,7 @@ def context(state, stage, state_path):
     if stage != "requirements_gather":
         packet["deferred_obligations"] = state.get("deferred_obligations", [])
         packet["clarification_episode"] = state.get("clarification_episode")
-        clarification_policy += OBLIGATION_POLICY
+        clarification_policy += obligation_policy(stage)
     request = state.get("investigation_request")
     if request and request.get("stage") == stage:
         # Correctness must not depend on provider-session memory: the pass gets
@@ -895,9 +1096,16 @@ def context(state, stage, state_path):
     design_rule += REVIEW_FINDINGS_RULE if findings else ""
     if stage != "requirements_gather":
         design_rule += DESIGN_DELIVERABLES_RULE if test_cases.design_only(state) else EXAMPLE_CRITERIA_RULE
-    if rows:
+        design_rule += EXAMPLE_CHECK_RULE if stage in ("astra_challenge", "astra_finalize") else ""
+        design_rule += BRIEF_TRACE_RULE if stage in ("astra_challenge", "astra_finalize") else ""
+        design_rule += NO_TIMING_RULE
+    design_rule += acceptance_policy.COVERAGE
+    if stage != "requirements_gather" and not test_cases.design_only(state):
+        design_rule += acceptance_policy.DOMAIN
+    if rows and stage in TRACE_STAGES:
         design_rule += REQUIREMENT_TRACE_RULE
-    prompt = (PROMPTS[stage] + JOB_TYPE_POLICY + design_rule + recovery_instruction + figma_instruction + planning_policy + clarification_policy + s.COMMON
+    design_rule += adaptive.prompt_rule(state, stage) + (REREVIEW_RULE if earlier else "")
+    prompt = (PROMPTS[stage] + JOB_TYPE_POLICY + design_rule + recovery_instruction + figma_instruction + planning_policy + clarification_policy + progressive_policy + s.COMMON
               + "\nWork read-only; return the report, the runner saves it.\nCURRENT HANDOFF DATA\n"
               + json.dumps(packet, indent=2))
     return prompt, {"estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
@@ -906,13 +1114,34 @@ def context(state, stage, state_path):
 
 def prepare(state, stage, state_path, schema_dir):
     from .common import ModelRequest
+    if progressive.revision_pending(state):
+        transition = progressive.view(state)["transition"]
+        schema = (obj({"summary": S, "progressive_proposal": PROGRESSIVE_PROPOSAL,
+                       "initial_task": goals.PLANNING_BODY_SCHEMA["properties"]["initial_task"]})
+                  if transition["phase"] == "detail" else obj({"summary": S, "accepted": {"type": "boolean"},
+                      "product_changes": {"type": "boolean"}, "permission_changes": {"type": "boolean"},
+                      "unresolved_product_decisions": {"type": "boolean"}}))
+        packet = {"goal_contract": state["goal_contract"], "progressive": progressive.context(state),
+                  "progressive_revision": copy.deepcopy(transition), "previous_plan": progressive.view(state)["plan"],
+                  "stage": stage, "task": state["task"], "workspace": state["workspace"],
+                  "current_task": state.get("current_task"), "saved_answers": state.get("answers", {})}
+        prompt = ("Detail/review the next useful slice within the unchanged approved product contract. "
+                  "Do not implement or replace the contract. Retain done_slices and cumulative obligations. "
+                  "The Planner returns a concrete first slice plus its initial_task; the independent Reviewer "
+                  "must inspect the exact persisted candidate and accept only in-bounds technical changes. "
+                  "Product/permission changes or unresolved product decisions cannot be automatically activated.\nCURRENT HANDOFF DATA\n"
+                  + json.dumps(packet, indent=2))
+        role = role_for(state, stage)
+        return ModelRequest(role, route_for(state, stage, role), prompt,
+            {"estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
+             "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000)}, schema, False)
     if stage == RECOGNIZE:
         state["phase"] = "DISCOVERING"
         role = role_for(state, stage)
         prompt, metrics = workflows.prompt(state, workspace_inventory(state["workspace"], state["task"]),
                                           state["settings"].get("context_soft_tokens", 10000),
                                           engine_for(state["settings"], route_for(state, stage, role)))
-        return ModelRequest(role, route_for(state, stage, role), prompt, metrics, workflows.SCHEMA, False)
+        return ModelRequest(role, route_for(state, stage, role), prompt, metrics, schema_for(state, stage), False)
     if stage not in STAGES + V2_STAGES:
         raise ValueError(f"Autoplanner cannot run {stage}")
     joint = is_planning(state, stage)
@@ -925,7 +1154,64 @@ def prepare(state, stage, state_path, schema_dir):
         raise
     role = role_for(state, stage)
     return ModelRequest(role, route_for(state, stage, role), prompt, metrics,
-                        SCHEMAS[stage] if joint else goals.DISCOVERY_SCHEMA, False)
+                        schema_for(state, stage) if joint else goals.DISCOVERY_SCHEMA, False)
+
+
+def schema_for(state, stage):
+    """The report schema for a planning stage in this run (adaptive runs extend two of them)."""
+    if stage == RECOGNIZE:
+        return adaptive.recognizer_schema(state, SCHEMAS[stage])
+    return adaptive.report_schema(state, stage, SCHEMAS[stage], goals.PLANNING_BODY_SCHEMA)
+
+
+def after_challenge(state, value, record):
+    """Where the first review leads. In an adaptive run, a review with no blocking concern approves
+    the Planner's draft as the final plan (autocode_adaptive_planning); otherwise the Planner revises."""
+    if not adaptive.enabled(state):
+        state["next_stage"] = "glm_revise"
+        return
+    planning, contract = state["planning"], state["goal_contract"]
+    if "adaptive" not in planning:
+        planning["adaptive"] = {**adaptive.plan_size(contract["body"]), "approved_at": None, "challenges": 0}
+        if planning.get("review_call_limit_origin") != "user_explicit":
+            planning["review_call_limit"] = adaptive.review_limit(planning["adaptive"]["size"], review_call_limit(state))
+        planning["adaptive"]["review_limit"] = review_call_limit(state)
+    planning["adaptive"]["challenges"] += 1
+    if (adaptive.blocking(value["concerns"]) or not adaptive.approvable(contract["body"])
+            or progressive.view(state).get("candidate")):
+        # A progressive delegation is authorized by an accepted revision and final
+        # independent review. A challenge cannot supply that approval evidence.
+        state["next_stage"] = "glm_revise"
+        return
+    try:
+        from .. import autocode_goal_lifecycle as lifecycle
+    except ImportError:
+        import autocode_goal_lifecycle as lifecycle
+    # The same path a final review takes: install the approved body and queue the user's approval.
+    lifecycle.install_draft(state, copy.deepcopy(contract["body"]), origin="adaptive_review_approval", record=record)
+    planning["final_token"] = goals.token(state["goal_contract"])
+    planning["adaptive"].update(approved_at=f"astra_challenge#{planning['adaptive']['challenges']}",
+                                final_stage="astra_challenge")
+
+
+def rerun_requirements(state, value):
+    """Whether the Planner sent feedback on the shown plan back to Requirements instead of revising the plan
+    (adaptive planning). Its draft is discarded and the Requirements stage, which reads every saved feedback,
+    runs next; the pipeline then continues in full, as it would without adaptive planning."""
+    reason = adaptive.requirements_rerun(state, value)
+    if reason:
+        state.update(status="RUNNING", phase="DISCOVERING", next_stage="requirements_gather",
+                     discovery_summary="Planner: " + reason)
+    return bool(reason)
+
+
+def after_revise(state):
+    """After a revision: the final review, or in an adaptive run another first-style review while budget allows."""
+    if not adaptive.enabled(state) or progressive.view(state).get("candidate"):
+        return "astra_finalize"
+    planning = state["planning"]
+    return adaptive.after_revise(review_call_limit(state), planning["astra_calls"],
+                                 (planning.get("adaptive") or {}).get("challenges", 0))
 
 
 def recognize(state, value, record):

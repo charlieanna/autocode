@@ -1,5 +1,35 @@
 # Measuring the cost of issue solving
 
+## Every task, continuously
+
+Each run keeps its token and cost totals current while it works. Nothing needs to be
+switched on and no model is called.
+
+- **Status view.** `usage` in the view (`autocode --run-dir RUN --status`, [Task run](task-run.md))
+  holds the run's totals so far: stages, tokens, `cost_usd` (`reported`, `estimated`, `complete`),
+  `unknown_stages` and the same by role.
+- **Project ledger.** `PROJECT/.autocode/usage.jsonl` has one row per run, rewritten at every
+  checkpoint save, so it is right during a task and after it pauses, completes or is killed. It
+  is under `.autocode/`, which Git ignores.
+- **Report.** `python3 tools/autocode_usage.py [PROJECT]` prints one line per run and a total;
+  `--json` prints the rows.
+
+Cost has three bases, always kept apart: **reported** is the provider's own `cost_usd` (the Claude
+example provider writes it; a provider that reports none, or only a zero for a subscription plan,
+has none); **estimated** is tokens at the flat comparison rates below, and only for models listed
+there (today the GLM route); anything else is **unknown, not zero**. `complete` is false while a
+stage has no cost or is still running, so a total is then a floor. Stages the runner executes
+itself (the regression proof, the orchestrator) cost nothing. The OpenCode/Codex route reports
+tokens but no price, so its cost shows as unknown until a rate is added to
+`autocode_usage.REFERENCE_PRICES`.
+
+Parallel Builders are counted once, in their parent. A worker run keeps no ledger of its own: when a
+batch finishes, the parent copies each worker's finished stages, cost included, into its own record
+(`autocode_dispatch.account_workers`), so the parent's row holds them. While a batch is still running its
+workers' spend is not yet in the parent's row; it appears when the batch is accounted.
+
+The sections below describe the scorer and sampler, which inspect a saved run after the fact.
+
 The existing scorer and live sampler can inspect a saved run without launching
 providers or changing its state:
 

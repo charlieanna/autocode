@@ -31,8 +31,7 @@ class UsableTest(unittest.TestCase):
     def test_drops_free_flash_highspeed_and_dead_routes(self):
         kept = mc.usable(CATALOGUE)
         self.assertIn("zai-coding-plan/glm-5.3", kept)
-        # MiMo is never used (user 2026-09-27), even when the catalogue offers it.
-        self.assertNotIn("xiaomi-token-plan-sgp/mimo-v2.6-pro", kept)
+        self.assertIn("xiaomi-token-plan-sgp/mimo-v2.6-pro", kept)
         self.assertIn("openai/gpt-5.6-sol", kept)
         self.assertIn("openai/gpt-6-sol", kept)
         self.assertNotIn("zai-coding-plan/glm-5.3-flash", kept)
@@ -74,7 +73,7 @@ class RenderTest(unittest.TestCase):
         models = mc.usable(CATALOGUE)
         text = mc.render(models, mc.suggest(models))
         self.assertIn("openai/gpt-6-sol", text)
-        self.assertNotIn("mimo", text)
+        self.assertIn("xiaomi-token-plan-sgp/mimo-v2.6-pro", text)
         self.assertIn("| builder |", text)
         self.assertIn("verifier", text.lower())
 

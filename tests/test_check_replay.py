@@ -120,6 +120,52 @@ class ScratchReplayTests(unittest.TestCase):
         self.assertEqual("PASS", result["verdict"])
         self.assertEqual([command], [row["command"] for row in result["checks"]])
 
+    def test_approved_negative_cli_probes_enforce_the_declared_exit_codes(self):
+        # Recorded adaptive greeting run: the Validator's assertion probe passed,
+        # but plan-derived usage-error commands were incorrectly replayed as exit 0.
+        (self.workspace / "greet.py").write_text(
+            "import sys\n"
+            "if len(sys.argv) != 2 or not sys.argv[1]:\n"
+            "    print('usage: greet.py NAME', file=sys.stderr)\n"
+            "    sys.exit(2)\n"
+            "print('Hello, ' + sys.argv[1])\n")
+        state = {"current_task": {"validation_plan": [
+            'Run `python3 greet.py Alice`, `python3 greet.py`, `python3 greet.py Alice Bob`, '
+            '`python3 greet.py Zoë`, `python3 greet.py -Ada` and `python3 greet.py " "` '
+            'directly and confirm exact stdout/stderr bytes and exit codes 0/2/2/0/0/0.']}}
+        result = check_replay.replay(
+            [{"command": "python3 greet.py Alice", "exit_code": 0, "evidence_ref": "event:a"}],
+            self.workspace, self.run_dir, {"output": "sol-01.json", "source_revision": "r"},
+            verify.scratch_run, approved_state=state)
+        self.assertEqual("PASS", result["verdict"])
+        self.assertEqual(6, len(result["checks"]), "every planned probe still runs")
+        # A broken CLI returning success for usage errors must fail the same plan.
+        path = self.workspace / "greet.py"
+        path.write_text(path.read_text().replace("sys.exit(2)", "sys.exit(0)"))
+        with self.assertRaises(ValueError):
+            check_replay.replay([], self.workspace, self.run_dir,
+                                {"output": "broken.json", "source_revision": "broken"},
+                                verify.scratch_run, approved_state=state)
+
+    def test_a_validators_wrong_zero_exit_claim_is_still_rejected(self):
+        (self.workspace / "greet.py").write_text("raise SystemExit(2)\n")
+        with self.assertRaisesRegex(ValueError, "reported as exit 0.*exited 2"):
+            self.replay("python3 greet.py")
+
+    def test_an_explicit_shell_exit_cannot_bypass_the_expected_status_assertion(self):
+        for actual in (2, 0):
+            with self.subTest(actual=actual):
+                # Inner quotes and an explicit shell exit must stay inside the assertion.
+                method = f"Run `sh -c 'printf \"literal $HOME\\n\"; exit {actual}'` and confirm exit code 2."
+                state = {"current_task": {"validation_plan": [method]}}
+                args = ([], self.workspace, self.run_dir,
+                        {"output": f"shell-{actual}.json", "source_revision": "r"}, verify.scratch_run)
+                if actual == 2:
+                    self.assertEqual("PASS", check_replay.replay(*args, approved_state=state)["verdict"])
+                else:
+                    with self.assertRaises(ValueError):
+                        check_replay.replay(*args, approved_state=state)
+
     def test_a_command_naming_the_workspace_runs_against_the_copy(self):
         self.replay(f"cat {self.workspace}/new.txt && touch {self.workspace}/written-by-check.txt")
         self.assertFalse((self.workspace / "written-by-check.txt").exists(), "a replay never writes the workspace")
@@ -173,6 +219,9 @@ class ValidatorNoteTests(unittest.TestCase):
         self.assertIn(check_replay.VALIDATOR_NOTE, validator.prompt.split("\nCURRENT HANDOFF DATA\n")[0])
         self.assertIn("sh -c '! python3", check_replay.VALIDATOR_NOTE)
         self.assertIn("no .autocode/", check_replay.VALIDATOR_NOTE)
+        # Scratch stays inside the workspace under .autocode/: a live run (2026-10-01) lost three
+        # validator attempts to OpenCode's external_directory denial over /tmp scratch paths.
+        self.assertIn("Never use /tmp", check_replay.VALIDATOR_NOTE)
         self.assertEqual((len(validator.prompt.encode()) + 3) // 4, validator.metrics["estimated_prompt_tokens"])
         builder = common.execution_request(state, "terra", state_path, schemas)
         self.assertNotIn(check_replay.VALIDATOR_NOTE, builder.prompt)

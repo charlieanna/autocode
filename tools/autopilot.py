@@ -11,12 +11,14 @@ try:
     from . import autocode_planning_artifacts as planning_artifacts, autocode_planning_graph as planning_graph
     from . import autocode_workflow as workflow, autocode_milestones as milestones, autocode_escalation as escalation
     from . import autocode_findings as findings_ledger, autocode_builder_policy as builder_policy
-    from . import autocode_resolver_human as human, autocode_failures as failures, autocode_assignment as assignment
-    from . import autocode_retained_work as retained_work
+    from . import autocode_resolver_human as human, autocode_failures as failures, autocode_assignment as assignment, autocode_status
+    from . import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery
+    from . import autocode_planning_clarification as clarification
+    from . import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage
     from .units import autoplanner as planning_unit
-    from . import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay
+    from . import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay, autocode_check_refs as check_refs
 except ImportError:
-    import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay
+    import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay, autocode_check_refs as check_refs
     import autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs
     import autocode_stuck_job as stuck, autocode_goals as goals, autocode_goal_lifecycle as lifecycle
     import autocode_planning_artifacts as planning_artifacts, autocode_planning_graph as planning_graph
@@ -26,8 +28,10 @@ except ImportError:
     import autocode_findings as findings_ledger
     import autocode_builder_policy as builder_policy
     import autocode_resolver_human as human
-    import autocode_failures as failures, autocode_assignment as assignment
-    import autocode_retained_work as retained_work
+    import autocode_failures as failures, autocode_assignment as assignment, autocode_status
+    import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery
+    import autocode_planning_clarification as clarification
+    import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage
     from units import autoplanner as planning_unit
 
 SKIP = object()
@@ -127,6 +131,7 @@ def publish_handoffs(state, run_dir):
 
 def dispatch_unit(runtime, state, stage, workspace, run_dir):
     """Call one unit using the runner's durable provider/recovery services."""
+    progressive_state.guard_dispatch(state, stage)
     if stage == 'terra':
         builder_policy.guard(state)
     runtime.milestones.dispatch_guard(state, stage)
@@ -159,8 +164,7 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
     except runtime.ReportRepairQueued:
         return SKIP
     except runtime.support.Paused as error:
-        if (runtime.automatically_recover_timed_out_stage(state, run_dir, workspace, error)
-                or runtime.automatically_recover_external_directory_denial(state, run_dir, workspace, error)):
+        if provider_recovery.recover_dispatch(runtime, state, run_dir, workspace, error):
             print(f"{stage}: non-terminal attempt archived; continuing from recovery checkpoint", flush=True)
             return SKIP
         raise
@@ -203,255 +207,33 @@ def _bind_plan(state, value, origin, record):
     goals.check_requirement_trace(state, value, value["contract"], coverage=planning_unit.traces_coverage(value["contract"]))
     if origin in ("glm_draft", "glm_revise"):
         _check_code_refs(state, value.get("code_refs") or [])
+    progressive_state.accept_proposal(state, value, origin=origin)
     lifecycle.install_draft(state, value["contract"], origin=origin, changes=value.get("contract_changes") or [], record=record)
 
 
-# Only a technical fact, or one with no policy weight, can be read from the
-# workspace. Cost, quota, permission, side-effect and requested-outcome choices
-# (and any question without a category) always stay with the user.
-RESOLVABLE_CATEGORIES = frozenset({"technical", "other"})
-
-
-def _stage_questions(stage, value):
-    return value["open_questions"] if stage == "requirements_gather" else value["contract"]["open_blocking_questions"]
-
-
-def _check_resolution_refs(state, refs):
-    """Strict: unlike _check_code_refs, an absent or empty workspace is not a pass."""
-    root = Path(state.get("workspace") or "")
-    if not state.get("workspace") or not root.is_dir():
-        raise ValueError("A machine resolution needs an inspectable workspace")
-    if not refs:
-        raise ValueError("A machine resolution must cite the workspace source it was read from")
-    for ref in refs:
-        target = (root / str(ref).partition(":")[0]).resolve()
-        if not target.is_relative_to(root.resolve()) or not target.is_file():
-            raise ValueError(f"machine_resolutions source_refs entry {ref} is not a file in the workspace")
-    _check_code_refs(state, refs, "machine_resolutions.source_refs")
-
-
-def _clarify_discoverable(state, stage, value, record):
-    """Keep discoverable questions away from the user (issue #62, rules E1-E3).
-
-    The first report in a clarification episode that asks a discoverable
-    question is not installed: the runner spends the episode's single
-    investigation pass by re-running the same stage with an explicit packet
-    (the questions, the report that raised them, and its hash). That pass must
-    resolve each question from cited workspace source, reclassify it as a
-    decision, or record an access blocker. Whatever is still discoverable after
-    the pass, or once the budget is spent, becomes a decision question the
-    runner labels as such; there is no second pass and no fabricated answer.
-
-    Returns (value, deferred); deferred means the pass was queued.
-    """
-    if stage == "astra_finalize":
-        # The final reviewer stage gets no investigation pass; it still cannot
-        # show the user a question labelled as a workspace fact.
-        value = copy.deepcopy(value)
-        _label_unresolved(state, value["contract"]["open_blocking_questions"])
-        return value, False
-    if stage not in planning_unit.INVESTIGATION_STAGES:
-        return value, False
-    request = state.get("investigation_request")
-    if request and request.get("stage") != stage:
-        request = None
-    raised_hash = support.digest(value)
-    value = copy.deepcopy(value)
-    questions = _stage_questions(stage, value)
-    by_id = {question["id"]: question for question in questions}
-    resolutions = value.get("machine_resolutions") or []
-    if resolutions and not request:
-        raise ValueError("machine_resolutions are accepted only in the investigation pass for outstanding "
-                         "discoverable questions")
-    accepted, resolved = [], set()
-    for row in resolutions:
-        question_id = row["question_id"]
-        original = next((q for q in request["questions"] if q["id"] == question_id), None)
-        if question_id in resolved:
-            raise ValueError(f"Duplicate machine_resolution for {question_id}")
-        resolved.add(question_id)
-        if original is None:
-            raise ValueError(f"machine_resolution {question_id} does not name an outstanding discoverable question")
-        if question_id in state.get("answers", {}):
-            raise ValueError(f"Question {question_id} already has a saved user answer")
-        category = original.get("category", "requested_outcome")
-        if category not in RESOLVABLE_CATEGORIES:
-            raise ValueError(f"Question {question_id} is a {category} choice; only a technical fact can be "
-                             "resolved from the workspace")
-        if row["handoff_hash"] != request["handoff_hash"]:
-            raise ValueError(f"machine_resolution {question_id} is bound to a different report")
-        if not row["resolution"].strip():
-            raise ValueError(f"machine_resolution {question_id} needs the resolved fact")
-        _check_resolution_refs(state, row["source_refs"])
-        if question_id in by_id:
-            raise ValueError(f"Question {question_id} was resolved from the workspace and must not also be asked")
-        accepted.append({**copy.deepcopy(row), "stage": stage, "episode_id": request["episode_id"],
-                         "requirements_handoff": goals.handoff_ref(state), "at": support.now()})
-    for row in value.get("access_blockers") or []:
-        question = by_id.get(row["question_id"])
-        if not row["reason"].strip() or question is None or question.get("kind", "decision") != "decision":
-            raise ValueError("An access_blocker must name a question that stays open as kind=decision, with a reason")
-    if request:
-        # Every question the held-back report asked must survive the pass, not
-        # just the discoverable ones: the original report was never installed,
-        # so no later gate could recover a decision dropped here.
-        asked = set(request.get("all_question_ids") or request["question_ids"])
-        dropped = asked - resolved - set(by_id) - set(state.get("answers", {}))
-        if dropped:
-            raise ValueError("Investigation dropped questions without a machine_resolution: "
-                             + ", ".join(sorted(dropped)))
-        state.setdefault("machine_resolutions", []).extend(accepted)
-        state.pop("investigation_request")
-    else:
-        discoverable = [question for question in questions if question.get("kind") == "discoverable"]
-        episode = goals.clarification_episode(state) if discoverable else None
-        if episode and not episode["investigation_used"]:
-            episode.update(investigation_used=True, used_at=support.now(), used_stage=stage)
-            state["investigation_request"] = {
-                "stage": stage, "episode_id": episode["id"], "handoff_hash": raised_hash,
-                "question_ids": [question["id"] for question in discoverable],
-                "all_question_ids": [question["id"] for question in questions],
-                "questions": copy.deepcopy(discoverable), "prior_output": record.get("output"),
-                "prior_report": copy.deepcopy(value), "created_at": support.now()}
-            state.update(status="RUNNING", phase="PLANNING", next_stage=stage)
-            return value, True
-    _label_unresolved(state, questions)
-    return value, False
-
-
-def _label_unresolved(state, questions):
-    """Runner-authored, visible relabelling; never a fabricated answer."""
-    for index, question in enumerate(questions):
-        if question.get("kind") == "discoverable":
-            questions[index] = {**question, "kind": "decision", "why": (
-                "Not determinable from the workspace within this clarification episode's single "
-                "investigation pass. " + question["why"])}
-            goals.clarification_episode(state).setdefault("converted_to_decision", []).append(question["id"])
-
-
-def _surface_obligations(obligations, questions, where):
-    """An unresolved obligation returns to the user as a decision question under
-    its own id. The three-question cap limits presentation per round, not the
-    obligation: with the cap full it waits for the next round."""
-    ids = {ob["id"] for ob in obligations}
-    for question in questions:
-        if question["id"] in ids and question.get("kind", "decision") != "decision":
-            raise ValueError(f"Obligation {question['id']} must be asked as a kind=decision question")
-    missing = sorted(ids - {question["id"] for question in questions})
-    if missing and len(questions) < 3:
-        raise ValueError(f"{where}: unresolved obligations must return to the user as decision questions "
-                         "under their own ids: " + ", ".join(missing))
-
-
-def _apply_obligations(state, stage, value):
-    """Rule E8 (issue #62): rejected assumptions become runner-owned obligations.
-
-    A remediation obligation is discharged only by a Plan Reviewer decision on
-    astra_challenge or astra_finalize, bound to the hash of the exact remediation
-    record it judged; a repaired record resets it to pending review. A human
-    decision obligation, or any obligation still open at final review, goes back
-    to the user as a question under its own id. Agent output alone never
-    discharges an obligation. At finalize, the report's own decisions are applied
-    before the gate is evaluated.
-    """
-    obligations = {ob["id"]: ob for ob in goals.open_obligations(state)}
-    if stage == "requirements_gather":
-        # Resolving how to proceed without an assumption is not permission to
-        # restore it; there is no reinstatement path, so history always applies.
-        rejected = {ob.get("assumption_id") for ob in state.get("deferred_obligations", [])}
-        reused = sorted(rejected & {row.get("id") for row in value.get("proposed_assumptions") or []
-                                    if isinstance(row, dict)})
-        if reused:
-            raise ValueError("A rejected assumption cannot reappear: " + ", ".join(reused))
-        return
-    if stage in ("astra_discovery", "glm_revise"):
-        trace = {row.get("requirement_id"): row.get("disposition") for row in value.get("requirement_trace") or []}
-        episode_id = goals.clarification_episode(state)["id"]
-        seen = set()
-        for record in value.get("remediation_records") or []:
-            obligation_id = record["obligation_id"]
-            obligation = obligations.get(obligation_id)
-            if obligation_id in seen:
-                raise ValueError(f"Duplicate remediation record for {obligation_id}")
-            seen.add(obligation_id)
-            if obligation is None or obligation["kind"] != "remediation":
-                raise ValueError(f"remediation_records {obligation_id} does not name an open remediation obligation")
-            if record["assumption_id"] != obligation["assumption_id"]:
-                raise ValueError(f"remediation_records {obligation_id} names a different assumption")
-            if not record["approach"].strip() or not record["evidence_refs"]:
-                raise ValueError(f"remediation_records {obligation_id} needs an approach and evidence")
-            _check_code_refs(state, record["evidence_refs"], "remediation_records.evidence_refs")
-            covered = record["covered_requirements"]
-            if len(covered) != len(set(covered)) or set(covered) != set(obligation.get("supports") or []):
-                raise ValueError(f"remediation_records {obligation_id} must cover exactly the requirements "
-                                 "the rejected assumption supported")
-            uncovered = sorted(rid for rid in covered if trace.get(rid) != "covered")
-            if uncovered:
-                raise ValueError(f"remediation_records {obligation_id} claims requirements the trace does not "
-                                 "cover: " + ", ".join(uncovered))
-            if record["episode_id"] != episode_id:
-                raise ValueError(f"remediation_records {obligation_id} is bound to a previous clarification episode")
-            obligation.update(remediation=copy.deepcopy(record), remediation_hash=support.digest(record),
-                              status="pending_review")
-        if stage == "astra_discovery":
-            human = [ob for ob in obligations.values() if ob["kind"] == "human_decision"]
-            if human:
-                contract = value["contract"]
-                if (contract.get("milestones") or contract.get("technical_approach")
-                        or contract.get("initial_task", {}).get("kind") in ("implement", "validate")):
-                    raise ValueError("A rejected assumption with policy weight needs the user's decision first; "
-                                     "return a clarification-only draft")
-                _surface_obligations(human, contract["open_blocking_questions"], "Discovery")
-        return
-    if stage not in ("astra_challenge", "astra_finalize"):
-        return
-    report_hash = support.digest(value)
-    pending = {oid: ob for oid, ob in obligations.items() if ob["status"] == "pending_review"}
-    decided = set()
-    for decision in value.get("obligation_decisions") or []:
-        obligation_id = decision["obligation_id"]
-        obligation = pending.get(obligation_id)
-        if obligation_id in decided:
-            raise ValueError(f"Duplicate obligation decision for {obligation_id}")
-        decided.add(obligation_id)
-        if obligation is None:
-            raise ValueError(f"obligation_decisions {obligation_id} does not name a remediation awaiting review")
-        if decision["remediation_hash"] != obligation["remediation_hash"]:
-            raise ValueError(f"Decision for {obligation_id} refers to a superseded remediation")
-        if (obligation.get("remediation") or {}).get("episode_id") != goals.clarification_episode(state)["id"]:
-            raise ValueError(f"Remediation {obligation_id} was proposed in a previous clarification episode; "
-                             "it must be proposed again")
-        if decision["resolved"]:
-            if not decision["rationale"].strip() or not decision["evidence_refs"]:
-                raise ValueError(f"Accepting remediation {obligation_id} needs a rationale and evidence")
-            obligation.update(status="resolved", resolved_by=f"{stage}:{report_hash}:{obligation_id}",
-                              judged_hash=obligation["remediation_hash"], resolved_at=support.now())
-        else:
-            if stage == "astra_challenge" and not any(
-                    concern.get("blocking") and obligation_id in (concern.get("evidence_refs") or [])
-                    for concern in value["concerns"]):
-                raise ValueError(f"Rejecting remediation {obligation_id} needs a blocking concern citing it")
-            obligation["status"] = "open"
-    missing = sorted(set(pending) - decided)
-    if missing:
-        raise ValueError("Every remediation awaiting review needs one obligation_decisions entry: "
-                         + ", ".join(missing))
-    if stage == "astra_finalize":
-        remaining = goals.open_obligations(state)
-        if remaining:
-            contract = value["contract"]
-            if contract.get("initial_task", {}).get("kind") in ("implement", "validate"):
-                raise ValueError("Unresolved obligations block an executable initial_task")
-            _surface_obligations(remaining, contract["open_blocking_questions"], "Final review")
-
-
 def apply_planning(state, stage, value, record, *, run_dir=None):
+    if progressive_state.revision_pending(state):
+        result = progressive_state.apply_revision(state, stage, value, record,
+            product_findings=findings_ledger.blocking_entries(state))
+        if isinstance(result, dict) and "material_request" in result:
+            request = result["material_request"]
+            human.queue(state, request["kind"], {"stage": stage}, request=request,
+                        evidence=result["evidence"], next_stage=result["next_stage"])
+        elif isinstance(result, dict):
+            first = result["initial_task"]
+            decision = {"status": "CONTINUE", "next_task": {key: entry for key, entry in first.items()
+                        if key not in ("objective", "affected_paths")}, "next_objective": first["objective"],
+                        "affected_paths": first["affected_paths"], "evidence": []}
+            kind = lifecycle.assign_task(state, decision, support.snapshot(Path(state["workspace"])))
+            state.update(next_stage="sol" if kind == "validate" else "terra", phase="EXECUTING")
+        return
     # Older saved reports predate explicit, user-backed conflict resolutions.
     # An absent list supplies no authority to resolve any conflict.
     if "conflict_resolutions" in planning_unit.SCHEMAS[stage]["properties"]:
         value = {"conflict_resolutions": [], **value}
     if stage in planning_unit.V2_STAGES:
         support.validate_schema(value, planning_unit.SCHEMAS[stage])
+        progressive_state.accept_proposal(state, value, origin=stage)
         prepared = planning_artifacts.prepare(state, stage, value, origin=stage,
                                               run_dir=run_dir, record=False)
         if stage == "requirements":
@@ -504,13 +286,17 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
         # A pre-structured report's plain-string assumptions stay readable as legacy.
         checked = {**value, "proposed_assumptions": [row for row in value["proposed_assumptions"]
                                                      if not isinstance(row, str)]}
-    support.validate_schema(checked, planning_unit.SCHEMAS[stage])
+    support.validate_schema(checked, planning_unit.schema_for(state, stage))
     if stage == planning_unit.RECOGNIZE:
         return planning_unit.recognize(state, value, record)
-    value, deferred = _clarify_discoverable(state, stage, value, record)
+    if stage == "astra_discovery" and planning_unit.rerun_requirements(state, value):
+        return  # the draft is discarded before any of its checks: Requirements runs next
+    value, deferred = clarification.clarify_discoverable(
+        state, stage, value, record, investigation_stages=planning_unit.INVESTIGATION_STAGES,
+        check_code_refs=_check_code_refs)
     if deferred:
         return
-    _apply_obligations(state, stage, value)
+    clarification.apply_obligations(state, stage, value, check_code_refs=_check_code_refs)
     if stage == "requirements_gather":
         if not value["intended_outcome"].strip() or not value["required_behaviors"] or not value["acceptance_tests"]:
             raise ValueError("Requirements handoff needs an outcome, behaviors, and acceptance tests")
@@ -539,19 +325,7 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
             and any("depends_on" not in row for row in value["contract"].get("milestones", []))):
         raise ValueError("Every planned milestone must declare depends_on (use [] for independent work)")
     if stage == "astra_discovery":
-        handoff = state.get("requirements_handoff")
-        if handoff:
-            pending = {question["id"] for question in handoff["report"]["open_questions"]}
-            preserved = {question["id"] for question in value["contract"]["open_blocking_questions"]}
-            # A fact settled from the workspace stays settled while the handoff
-            # that asked it is unchanged; answering another question renews the
-            # episode but not the handoff. A refreshed handoff must settle it again.
-            current = goals.handoff_ref(state)
-            resolved = {row["question_id"] for row in state.get("machine_resolutions", [])
-                        if row.get("requirements_handoff") == current}
-            missing = pending - preserved - set(state.get("answers", {})) - resolved
-            if missing:
-                raise ValueError("Planner dropped unresolved requirements questions: " + ", ".join(sorted(missing)))
+        clarification.check_handoff_questions(state, value)
         _bind_plan(state, value, "glm_draft", record)
         if human.internal_questions(state):
             state["discovery_summary"] = value["summary"]
@@ -566,7 +340,7 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
             raise ValueError("Concern IDs must be nonempty and unique")
         if any(not c[k].strip() for c in concerns for k in ("concern", "requested_change", "acceptance_test")):
             raise ValueError("Each concern needs a concrete change and acceptance test")
-        state["next_stage"] = "glm_revise"
+        planning_unit.after_challenge(state, value, record)
     elif stage == "glm_revise":
         concerns = reports["astra_challenge"]["report"]["concerns"]
         planning_unit._coverage(value["responses"], concerns)
@@ -577,7 +351,7 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
             reports[stage] = {"report": copy.deepcopy(value), "output": record["output"]}
             state["discovery_summary"] = value["summary"]
             return
-        state.update(status="RUNNING", phase="PLANNING", next_stage="astra_finalize", pending_questions=[])
+        state.update(status="RUNNING", phase="PLANNING", next_stage=planning_unit.after_revise(state), pending_questions=[])
     elif stage == "astra_finalize":
         concerns = reports["astra_challenge"]["report"]["concerns"]
         planning_unit._coverage(value["decisions"], concerns)
@@ -618,10 +392,8 @@ def assert_within_assignment(state, record):
     if outside is None:
         raise support.Paused("PAUSED_ASSIGNMENT_SCOPE",
                              "The assignment's starting snapshot is missing; edits retained for inspection")
-    if outside:
-        raise support.Paused("PAUSED_ASSIGNMENT_SCOPE",
-                             "Builder attempts for this task changed files outside the assigned paths; "
-                             "edits retained for inspection: " + ", ".join(outside))
+    if outside:  # files the assignment created are removed, so a retry is not refused for them
+        raise support.Paused("PAUSED_ASSIGNMENT_SCOPE", assignment.undo_created(outside, state.get("stages", []), record, state.get("workspace")))
 
 
 def retained_validated_candidate(state, value, record, workspace):
@@ -707,15 +479,16 @@ def apply_build_result(runtime, state, value, record, workspace, run_dir):
 
 def apply_review_result(runtime, state, stage, value, record, workspace, run_dir):
     modern = state.get("version", 2) >= 3
-    support.verify_checks(value["checks"], workspace, record["events"],
-                          **runtime.check_evidence_options(record))
+    progressive_state.require_reported_checks(state, value["checks"])
+    support.verify_checks(value["checks"], workspace, record["events"], **runtime.check_evidence_options(record))
+    check_refs.resolve(value)  # check:<n> evidence names a check whose event the runner just attached
     refs = [c["evidence_ref"] for c in value["checks"]]
     for check in value["checks"]:
         if not check["evidence_ref"].startswith("event:"):
             receipt_path = Path(check["evidence_ref"])
             receipt_path = receipt_path if receipt_path.is_absolute() else workspace / receipt_path
             refs.append(support.read(receipt_path)["full_output"])
-    refs += [p for row in value["criterion_results"] for p in row["evidence_refs"]]
+    refs += [p for row in value["criterion_results"] for p in row["evidence_refs"]] + design_coverage.report_refs(state, value, stage=stage)
     flow = value.get("end_to_end_result", {})
     refs += flow.get("evidence_refs", [])
     members = state.get("current_task", {}).get("milestone_ids", [])
@@ -748,10 +521,18 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     validation = {**value, "evidence_hashes": pins, "criteria_revision": state["criteria_revision"],
                   "source_revision": record["source_revision"], "output": record["output"],
                   "reviewer_role": record.get("role", stage)}
-    if value["verdict"] == "PASS" and (not value["checks"] or any(c["exit_code"] for c in value["checks"])):
-        raise ValueError("Validator PASS lacks successful executed checks: list each check you ran, with its exit code")
-    validation["check_replay"] = (check_replay.replay(value["checks"], workspace, run_dir, record, verify.scratch_run, approved_state=state)
-                                  if value["verdict"] == "PASS" else None)  # the runner re-runs every check
+    human_pending = modern and any(goals.human_only_pending_validation(state, value, c["id"])
+                                  for c in state["goal_contract"]["body"]["acceptance_criteria"] if c["human_review"])
+    progressive_pass = progressive_state.enabled(state) and any(
+        row["status"] == "PASS" for row in value.get("criterion_results", []))
+    if (value["verdict"] == "PASS" or human_pending or progressive_pass) and (not value["checks"] or any(c["exit_code"] for c in value["checks"])):
+        raise ValueError("Technically passing validation lacks successful executed checks: list each check you ran, with its exit code")
+    validation["check_replay"] = (check_replay.replay(value["checks"], workspace, run_dir, record, verify.scratch_run,
+                                                   approved_state=state, progressive_context=progressive_state.context(state))
+                                  if value["verdict"] == "PASS" or human_pending or progressive_pass else None)
+    if progressive_state.enabled(state):
+        progressive_state.check_result_binding(state, record, support.snapshot(workspace))
+        progressive_state.assert_product_claims(state, support.snapshot(workspace), validation)
     if state.get("validation"):
         state.setdefault("validation_archive", []).append({
             "reason": "Superseded by another independent validation", "validation": state["validation"]})
@@ -893,6 +674,8 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
         save_record(state, record)
         return
     if modern:
+        if progressive_state.enabled(state):
+            progressive_state.check_result_binding(state, record, support.snapshot(workspace))
         goals.execution_guard(state, value)
         for entry in value.get("deferred_backlog", []):
             if entry not in state.setdefault("deferred_backlog", []):
@@ -970,28 +753,41 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
             findings_ledger.record_decision(state, value, record)
         if modern and stage == "astra_review":  # only the Validator can close its own open blockers
             value = findings_ledger.recheck_by_validator(state, value, record.get("source_revision"))
+        if stage == "astra_review" and value.get("progressive_checkpoint") is True:
+            if value["status"] != "CONTINUE" or not progressive_state.enabled(state):
+                raise ValueError("progressive checkpoint requires explicit CONTINUE within an approved progressive run")
+            if value["next_task"]["kind"] != "none":
+                raise ValueError("slice checkpoint cannot manufacture a next assignment before independent slice review")
+            proven = {row["id"] for row in (state.get("validation") or {}).get("criterion_results", []) if row["status"] == "PASS"}
+            if any(row["status"] == "verified" and row["id"] not in proven for row in value["acceptance_criteria"]):
+                raise ValueError("slice checkpoint cannot claim verified original criteria without the Validator's current product proof")
+            progressive_state.checkpoint(state, support.snapshot(workspace), record,
+                                         product_findings=findings_ledger.blocking_entries(state))
+            goals.record_decision(state, value)
+            save_record(state, record)
+            return
+        current = support.snapshot(workspace)
+        request = (completion_gate.artifact_review_request(state, value, current)
+                   if modern and stage in ("astra_review", "astra_checkpoint") else None)
+        if request:
+            lifecycle.wait_for_user(state, request,
+                origin={'stage': stage, 'output': record['output'], 'source_revision': current['revision']},
+                next_stage='astra_review')
+            goals.record_decision(state, value)
+            save_record(state, record)
+            return
         if value["status"] in ("COMPLETE", "TASK_COMPLETE"):
-            current = support.snapshot(workspace)
+            progressive_state.prepare_completion(state, current, record,
+                                                  product_findings=findings_ledger.blocking_entries(state))
             if modern and findings_ledger.blocking_entries(state):
                 raise support.Paused("PAUSED_COMPLETION_GATE", "Completion rejected: the findings ledger still lists "
                                      "open blocking findings; resolve or retract each one with evidence")
             if modern and goals.missing_human_reviews(state):
-                if not completion_gate.completion_ready(state, value, current, require_human_reviews=False):
-                    raise support.Paused("PAUSED_COMPLETION_GATE", "Artifact review requires current passing independent evidence first")
-                lifecycle.wait_for_user(state,
-                    {"kind": "human_review", "criteria": goals.missing_human_reviews(state),
-                     "decision_needed": "Review the current artifact and explicitly approve the listed criteria",
-                     "impact": "Completion requires the declared human acceptance of this validated artifact",
-                     "options": [], "discovered": "Independent evidence passed; human review remains", "proposed_delta": ""},
-                    origin={'stage': stage, 'output': record['output'], 'source_revision': current['revision']},
-                    next_stage='astra_review')
-                goals.record_decision(state, value)
-                save_record(state, record)
-                return
+                raise support.Paused("PAUSED_COMPLETION_GATE", "Artifact review requires current passing independent evidence first")
             if not completion_gate.completion_ready(state, value, current):
                 if not regression.complete(state, current["revision"]):
                     raise support.Paused("PAUSED_COMPLETION_GATE", regression.rejection(state))
-                raise support.Paused("PAUSED_COMPLETION_GATE", "Completion rejected: missing, stale, failed or unverified independent evidence")
+                raise support.Paused("PAUSED_COMPLETION_GATE", completion_gate.rejection(state))
             state.update(status="TASK_COMPLETE", completed_at=now(), final_decision=value, next_stage=None)
             if milestones.enabled(state):
                 milestones.accept(state, current)
@@ -1047,7 +843,8 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
                                    trigger="validation_rework",
                                    detail=f"{validation_verdict}: {value['next_objective']}",
                                    struggle_id=f"iteration:{record.get('iteration', state.get('iteration', 0))}")
-            state.update(next_action=value["next_objective"], next_stage=workflow.review_stage(state) if kind == "validate" else dispatch.build_stage(state))
+            state.update(next_action=value["next_objective"], next_stage=workflow.review_stage(state) if kind == "validate" else
+                         "terra" if progressive_state.enabled(state) else dispatch.build_stage(state))
             if stage == "astra_resolve":
                 finish_resolution(state, value, record)
         if modern:
@@ -1109,7 +906,6 @@ def run(runtime, state, workspace, run_dir, args):
             raise support.Paused("PAUSED_ITERATION_LIMIT", "Saved iteration ceiling reached")
         if limits["max_seconds"] and current.get("active_seconds",0) >= limits["max_seconds"]:
             raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
-        support.enforce_reported_token_limit(current)
         if (not repairing_before_upgrade and (not milestones.enabled(current) or current.get('next_stage') in ('terra', 'orchestrator')) and limits["no_progress_batches"]
                 and current.get("no_progress_batches",0) >= limits["no_progress_batches"]):
             raise support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review")
@@ -1141,7 +937,7 @@ def run(runtime, state, workspace, run_dir, args):
         write_json(state_path, current)
 
     def after_code_stage(current, stage, _record):
-        print(f"{stage}: saved; next={current['next_stage']}; status={current['status']}", flush=True)
+        print(f"{autocode_status.role_name(stage)}: saved; next={autocode_status.role_name(current['next_stage']) or 'none'}; status={current['status']}", flush=True)
         if milestones.enabled(current):
             print(milestones.status_line(current), flush=True)
         try:

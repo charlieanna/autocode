@@ -3,6 +3,12 @@ category = "bugfix"
 # The symptom is reported in the report output; the cause is in weeks.py. A fix
 # that special-cases late December passes the reported example but not the
 # hidden tests, which cover every day from 2000 to 2030.
+# A live run (glm53-openai, 2026-10-01) was correct but still in AutoResolver's
+# rework loop when the 60-minute catalog default expired; the rerun completed
+# in under 30 minutes with this headroom.
+
+[run]
+timeout_minutes = 90
 
 [fake]
 check = "python3 -m unittest discover -s tests -t ."

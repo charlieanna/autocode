@@ -36,14 +36,12 @@
   ],
   "questions": [
     {
-      "id": "Q1",
-      "question": "Is per-domain ordering required by every consumer, or only by the state-tracking consumer (audit/notifications)? Keying by domain fixes it for all; keying by registry also preserves it but concentrates load.",
-      "options": ["all consumers", "state-tracking consumer only"]
-    },
-    {
       "id": "Q2",
       "question": "Is a duplicate notification acceptable (dedup only in billing), or must every consumer be idempotent?",
-      "options": ["billing only", "every consumer"]
+      "options": [
+        "billing only",
+        "every consumer"
+      ]
     }
   ]
 }

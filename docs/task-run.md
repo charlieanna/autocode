@@ -30,7 +30,8 @@ while not view["done"]:
     elif need["kind"] == "answer":
         for question in need["questions"]:
             # Decision questions may have no default; choose among their options.
-            view = run.answer(question["id"], question["proposed_default"] or question["options"][0])
+            view = run.answer(question["id"], question["proposed_default"] or question["options"][0],
+                              resolver_token=need.get("resolver_token"))
     elif need["kind"] == "continue":
         view = run.advance_until_input()
     else:
@@ -43,6 +44,17 @@ workspace at a time. `options` (engine and model flags) are passed whenever the
 run starts or advances. Any rejected command raises `TaskRunError` with
 AutoCode's message.
 
+Inputs fixed when a run starts, such as `--ui-run`, belong in `start_options`
+instead of `options`: `TaskRun.start(workspace, brief, options=("--engine", "codex"),
+start_options=("--ui-run", str(design_run)))`. They are passed once; later advances
+and reattachment use the saved design settings.
+
+Operator-declared prerequisites can be supplied once with `--task-preflight`
+in `start_options`. A failed prerequisite pauses before paid dispatch and is
+visible in the additive `task_preflight` status field. See
+[task-preflight.md](task-preflight.md) for phase selection, copied input checks,
+receipt reuse and supported correction; readiness does not replace proof.
+
 ## Commands
 
 All commands take `--workspace WORKSPACE`; commands on an existing run add
@@ -52,9 +64,13 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | --- | --- | --- |
 | Start | `autocode "BRIEF" --in-place --no-chat [options]` | 0 complete, 2 stopped for input |
 | Status | `autocode --status` | 0; prints JSON, the view is under `"view"` |
+| Display brief | `autocode --show-goal` | 0; prints the current brief for human review |
 | Continue | `autocode --no-chat [options]` | 0 complete, 2 stopped for input |
 | Resume a pause | `autocode --resume-paused --no-chat [options]` | 0 complete, 2 stopped for input |
-| Answer | `autocode --answer QUESTION_ID=TEXT` | 0 saved, 2 rejected |
+| Grant N recoveries after resolving the cause | `autocode --resume-paused --grant-recovery N --no-chat [options]` | 0 complete, 2 stopped for input |
+| Accept a changed OpenCode transport | `autocode --resume-paused --accept-transport-change --no-chat [options]` | 0 complete, 2 stopped for input |
+| Answer | `autocode --answer QUESTION_ID=TEXT [--resolver-token TOKEN]` | 0 saved, 2 rejected |
+| Respond to an operational AutoResolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT` | 0 saved, 2 rejected |
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
 | Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
 | Plan feedback | `autocode --feedback TEXT` | 0 saved, 2 rejected |
@@ -69,7 +85,15 @@ planned from them: the review's blocking findings are the requirements, so no
 requirements questions are asked, and the plan still goes to the user for
 approval. A usage error
 also exits 2, with a message starting `usage:` on stderr; the client checks for
-it so a mistyped flag is not mistaken for a pause.
+it so a mistyped flag is not mistaken for a pause. A rejection also exits 2,
+starting `Input rejected:`, and startup can exit 2 before any run exists;
+`TaskRun.start` raises with the tail of the CLI's output so a startup failure
+is never mistaken for a pause.
+`TaskRun.respond_operational()` uses the separate AutoResolver response command;
+an operational request cannot be answered with `TaskRun.answer()`.
+`TaskRun.accept_transport_change()` uses the explicit transport-change command
+after a person inspects the new route and the saved run reports
+`PAUSED_TRANSPORT_CHANGED`.
 
 ## Status view
 
@@ -115,6 +139,11 @@ current validation's checks as the runner itself re-ran them in a clean copy:
 `timed_out`, `output`); `null` before a PASS validation and for validations
 that predate it (see [Execution](execution.md#the-runner-re-runs-the-validators-checks)).
 
+`usage` is the run's tokens and cost so far: `stages` (finished), `active_stage` (the stage
+running now, or null), `tokens`, `cost_usd` (`reported`, `estimated`, `complete`), `unknown_stages`
+and `by_role` (see [Cost reporting](cost-reporting.md#every-task-continuously)). Unknown cost is
+not zero: `complete` is false while a stage has none or is running.
+
 `workflow` is the kind of job AutoCode recognized from the request, decided by
 the first stage of every new run (`recognize_workflow`): one of `build`,
 `bugfix`, `review`, `design` or `discuss` (see `scenarios/README.md`,
@@ -137,7 +166,7 @@ run is waiting for:
 
 A `resolver_scope` of `operational_exhaustion` or `blocker` means AutoResolver
 stopped the run because it could not continue safely (for example, the
-reported-token cap was reached). That question is for a person who has looked at
+run time limit was reached). That question is for a person who has looked at
 the run; a caller must not answer it with a proposed default.
 
 Approving a plan or a review is a real user decision. Automated callers should
@@ -186,3 +215,5 @@ source/contracts block transport or resume. Operator feedback or an edited plan 
 the wait so the new decision can be reviewed. Keep the worker running while waiting;
 if it exits with an error, reconcile the reported cause and restart it against the same
 run. A failed/incomplete producer cannot release the consumer.
+
+`TaskRun.grant_recovery(N)` explicitly grants a positive number of additional recoveries after the operator inspects saved work and fixes the cause. It preserves recovery history and uses the CLI checkpoint guards. `resume_paused()` and operational guidance do not grant an allowance.

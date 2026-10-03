@@ -54,20 +54,6 @@ class LifecycleAttacks(AdversarialCase):
         finally:
             self.driver.run_dir = original
 
-    def exhausted_budget(self):
-        self.flags += ["--max-reported-tokens", "1"]
-        result = self.invoke(task=self.scenario.brief)
-        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
-        self.discover_run()
-        view = self.status()
-        self.assertFalse(view["done"], view)
-        self.assertIn("token", str(view).lower(), view)
-        before = self.trace("stage_enter")
-        self.assertGreater(len(before), 0, "The provider must consume the explicit budget first")
-        # Subsequent invocations omit the flag: the saved limit must survive a
-        # fresh process; repeatedly supplying 1 would not test persistence.
-        del self.flags[-2:]
-        return len(before)
 
     def test_control_uninterrupted_run_completes(self):
         self.approve(self.start_to_approval())
@@ -295,31 +281,8 @@ class LifecycleAttacks(AdversarialCase):
         self.assertEqual(2, len(self.trace("stage_enter", "terra")),
                          "Exactly one replacement Builder should follow the killed attempt")
 
-    def test_reported_token_budget_survives_plain_restart(self):
-        before = self.exhausted_budget()
-        for _ in range(2):
-            result = self.invoke()
-            self.assertEqual(2, result.returncode, result.stdout + result.stderr)
-            self.assertEqual(before, len(self.trace("stage_enter")), "Restart silently replenished token budget")
-            self.assertFalse(self.status()["done"])
 
-    def test_resume_paused_cannot_replenish_reported_token_budget(self):
-        before = self.exhausted_budget()
-        for _ in range(2):
-            result = self.invoke("--resume-paused")
-            self.assertEqual(2, result.returncode, result.stdout + result.stderr)
-            self.assertEqual(before, len(self.trace("stage_enter")), "Resume launched providers beyond the saved explicit cap")
-            self.assertFalse(self.status()["done"])
 
-    def test_planning_feedback_cannot_replenish_reported_token_budget(self):
-        before = self.exhausted_budget()
-        result = self.invoke("--feedback", "Reconsider the plan without changing the approved budget.")
-        self.assertIn(result.returncode, (0, 2), result.stdout + result.stderr)
-        self.assertEqual(before, len(self.trace("stage_enter")))
-        resume = self.invoke("--resume-paused")
-        self.assertEqual(2, resume.returncode, resume.stdout + resume.stderr)
-        self.assertEqual(before, len(self.trace("stage_enter")), "Planning feedback erased the consumed-token accounting")
-        self.assertFalse(self.status()["done"])
 
 
 if __name__ == "__main__":

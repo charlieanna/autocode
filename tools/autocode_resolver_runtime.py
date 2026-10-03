@@ -15,12 +15,14 @@ try:
     from . import autocode_resolver as policy, autocode_support as support
     from . import autocode_goals as goals, autocode_failures as failures
     from . import autocode_resolver_human as human
+    from . import autocode_progressive_state as progressive
 except ImportError:
     import autocode_resolver as policy
     import autocode_support as support
     import autocode_goals as goals
     import autocode_failures as failures
     import autocode_resolver_human as human
+    import autocode_progressive_state as progressive
 
 
 REVIEW_STAGES = ('astra_challenge', 'astra_finalize')
@@ -336,10 +338,12 @@ def observe_operational_recovery(runner, state, run_dir, workspace, recovery):
 
 def record_operational_exhaustion(runner, state, run_dir, error):
     """Retain exhaustion and stage a resolver-owned, request-only escalation."""
+    if progressive.retained_review_budget_pause(state, error.status):
+        return False
     if (error.status not in ('PAUSED_RESOLVER_OPERATIONAL', 'PAUSED_TIMEOUT_RECOVERY',
                              'PAUSED_PROVIDER_CAPACITY', 'PAUSED_PLANNING_BUDGET', 'PAUSED_RATE_LIMIT',
                              'PAUSED_TIME_LIMIT', 'PAUSED_ITERATION_LIMIT', 'PAUSED_BUDGET',
-                             'PAUSED_USAGE_UNKNOWN', 'PAUSED_REPORT_REPAIR_LIMIT',
+                             'PAUSED_REPORT_REPAIR_LIMIT',
                              'PAUSED_REPEATED_FAILURE', 'PAUSED_RESOLVER',
                              'PAUSED_ORCHESTRATOR_WORKER', 'PAUSED_BUILDER_RETRY_LIMIT',
                              'PAUSED_MILESTONE_STALLED', 'PAUSED_MILESTONE_BUDGET',
@@ -355,16 +359,8 @@ def record_operational_exhaustion(runner, state, run_dir, error):
     kind = {'PAUSED_ITERATION_LIMIT': 'iteration_ceiling', 'PAUSED_TIME_LIMIT': 'max_seconds',
             'PAUSED_PLANNING_BUDGET': 'planning_review_call_limit',
             'PAUSED_MILESTONE_TIME_LIMIT': 'milestone_max_seconds',
-            'PAUSED_USAGE_UNKNOWN': 'max_reported_tokens', 'PAUSED_NO_PROGRESS': 'no_progress_batches'}.get(error.status)
+            'PAUSED_NO_PROGRESS': 'no_progress_batches'}.get(error.status)
     settings = state.get('settings', {})
-    if error.status == 'PAUSED_BUDGET':
-        if 'reported-token limit' in str(error) and settings.get('limits', {}).get('max_reported_tokens'):
-            kind = 'max_reported_tokens'
-        try:
-            support.enforce_reported_token_limit(state)
-        except support.Paused as spending:
-            if spending.status == 'PAUSED_BUDGET':
-                kind = 'max_reported_tokens'
     origin = settings.get('budget_origins', {}).get(kind, 'unknown')
     limit = settings.get('limits', {}).get(kind)
     if kind == 'planning_review_call_limit':
@@ -373,11 +369,9 @@ def record_operational_exhaustion(runner, state, run_dir, error):
         limit = planning.get('review_call_limit', 2)
     elif kind == 'milestone_max_seconds':
         limit = settings.get('milestone_checkpoints', {}).get('max_seconds')
-    category = ('usage_verification' if error.status == 'PAUSED_USAGE_UNKNOWN' else
-                'no_progress' if error.status == 'PAUSED_NO_PROGRESS' else
+    category = ('no_progress' if error.status == 'PAUSED_NO_PROGRESS' else
                 'internal_default' if origin in ('runner_default', 'resolver_delegated') else
                 'explicit_user_cap' if origin == 'user_explicit' else 'protected_saved_limit') if kind else (
-                'usage_verification' if error.status == 'PAUSED_USAGE_UNKNOWN' else
                 'provider_or_spending_guard' if error.status in ('PAUSED_BUDGET', 'PAUSED_RATE_LIMIT') else 'operational_recovery')
     budget = {'category': category, 'kind': kind, 'origin': origin, 'limit': limit}
     receipt = _operational_receipt(state, run_dir, 'hold',
@@ -386,7 +380,7 @@ def record_operational_exhaustion(runner, state, run_dir, error):
         'astra_calls': state.get('planning', {}).get('astra_calls'),
         'recovery_calls_used': state.get('planning', {}).get('recovery_review_calls_used', 0)})
     attempts = sum(len(state.get(name, [])) for name in ('automatic_timeout_recoveries', 'automatic_capacity_recoveries',
-                                                       'automatic_permission_recoveries'))
+                                                       'automatic_permission_recoveries')) + sum(bool(r.get('startup_recovery')) for r in state.get('stages', []))
     decision = (f'AutoResolver could not resolve {category} after {attempts} recorded operational recoveries. '
                 'Provide corrective information or leave the run paused.')
     options = ['Provide corrective information', 'Leave paused']
@@ -690,7 +684,7 @@ def charge_diagnostic_dispatch(runner, state, run_dir, workspace, record):
     blocker, or archive length. This helper must not persist a charge on its own.
 
     Report-only formatting repair is a separate existing bounded allowance,
-    not a fresh diagnostic stage. Its calls still consume time/token budgets.
+    not a fresh diagnostic stage. Its calls still consume elapsed time and record token usage.
     """
     if record.get('stage') != 'astra_diagnose' or record.get('report_only') or record.get('dry_run'):
         return

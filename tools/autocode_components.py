@@ -9,6 +9,9 @@
 scenarios/catalog/architecture-two-services. ``--workspace`` is an existing Git
 repository with that architecture already committed. See docs/task-run.md and
 ``autocode_multicomponent.py`` for what this drives.
+An individual component may supply a ``ui_run`` (a completed accepted UI run,
+relative to ARCHITECTURE or absolute) or ``figma_file`` URL. Design inputs use
+the existing Codex Figma workflow; see docs/task-lanes.md and docs/figma.md.
 
 Each component builds in ``<workspace>/.autocode-components/<id>``, and
 progress is saved in ``.autocode-components/manifest.json``. Running the command
@@ -61,7 +64,7 @@ def cli(argv: list[str] | None = None) -> int:
     parser.add_argument("--integrate", type=Path, metavar="TARGET",
                         help="combine finished components into this worktree of the same repository, relative "
                              "to --workspace unless absolute; created fresh from HEAD if it does not exist")
-    parser.add_argument("--engine", choices=["codex", "gocode", "opencode"])
+    parser.add_argument("--engine", choices=["codex", "opencode"])
     parser.add_argument("--provider", help="see docs/providers.md")
     parser.add_argument("--joint-planning", action="store_true",
                         help="separate requirements, planning and independent review per component; default for "
@@ -94,9 +97,9 @@ def cli(argv: list[str] | None = None) -> int:
         options.append("--joint-planning")
     options += shlex.split(args.options)
 
-    build = mc.MultiComponentBuild(workspace, architecture, options=tuple(options), timeout=args.timeout,
-                                   max_advances=args.max_advances)
     try:
+        build = mc.MultiComponentBuild(workspace, architecture, options=tuple(options), timeout=args.timeout,
+                                       max_advances=args.max_advances)
         saved = build.saved_components()
     except mc.ArchitectureError as error:
         parser.error(str(error))
@@ -107,7 +110,10 @@ def cli(argv: list[str] | None = None) -> int:
                      f"record it, so this command cannot tell what is in it. Inspect it directly, then remove "
                      f".autocode-components/<id> to rebuild it from scratch.")
 
-    results = build.build(auto_approve=args.auto_approve)
+    try:
+        results = build.build(auto_approve=args.auto_approve)
+    except mc.ArchitectureError as error:
+        parser.error(str(error))
 
     summary = {"components": {cid: {"status": result.status, "resumed": result.resumed,
                                     "workspace": str(result.workspace),
@@ -123,7 +129,10 @@ def cli(argv: list[str] | None = None) -> int:
             _ensure_worktree(workspace, target)
         except subprocess.CalledProcessError as error:
             parser.error(f"could not prepare integration worktree {target}: {error.stderr}")
-        summary["integration"] = build.integrate(target)
+        try:
+            summary["integration"] = build.integrate(target)
+        except mc.ArchitectureError as error:
+            parser.error(str(error))
         if summary["integration"]["failed"]:
             exit_code = max(exit_code, 1)
 

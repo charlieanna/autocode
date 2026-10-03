@@ -13,11 +13,11 @@ try:
     from . import autopilot
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_dispatch as dispatch
-    from . import autocode_gocode as gocode
     from . import autocode_interventions as interventions
     from . import autocode_milestones as milestones
     from . import autocode_planning as planning
-    from . import autocode_regression as regression
+    from . import autocode_progressive_state as progressive
+    from . import autocode_regression as regression, autocode_provider_recovery as provider_recovery
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_support as support
     from . import autocode_workflow as workflow
@@ -26,11 +26,11 @@ except ImportError:
     import autopilot
     import autocode_checkout_lock as checkout_lock
     import autocode_dispatch as dispatch
-    import autocode_gocode as gocode
     import autocode_interventions as interventions
     import autocode_milestones as milestones
     import autocode_planning as planning
-    import autocode_regression as regression
+    import autocode_progressive_state as progressive
+    import autocode_regression as regression, autocode_provider_recovery as provider_recovery
     import autocode_resolver_runtime as resolver_runtime
     import autocode_support as support
     import autocode_workflow as workflow
@@ -68,22 +68,21 @@ def run(runner, args, state, state_path, run_dir, workspace):
         if limits["max_seconds"] and current.get("active_seconds",0) >= limits["max_seconds"]:
             if not runner.recover_default_budget(current, run_dir, workspace, 'max_seconds'):
                 raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
-        support.enforce_reported_token_limit(current)
         if (not repairing_before_upgrade and (not milestones.enabled(current) or current.get('next_stage') in ('terra', 'orchestrator')) and limits["no_progress_batches"]
                 and current.get("no_progress_batches",0) >= limits["no_progress_batches"]):
             raise support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review")
         # Do not silently change auth/provider when local config changes.
         engine = current["settings"].get("engine")
         using_opencode = engine == "opencode"
-        using_gocode = engine == "gocode"
+        if engine not in (None, "codex", "opencode"):
+            raise support.Paused("PAUSED_TRANSPORT_CHANGED", f"Saved engine {engine!r} is not bundled in "
+                             "this checkout; resume it from a checkout that has it, or start a new run "
+                             "with --provider and a user-level provider config")
         if planning.enabled(current):
             runner.check_joint_transports(current, workspace)
         if using_opencode:
             current_settings = runner.opencode.local_settings(workspace)
             drifted = runner.opencode.transport_drift(current_settings, current["settings"]["transport_identity"])
-        elif using_gocode:
-            current_settings = gocode.local_settings(workspace)
-            drifted = gocode.transport_drift(current_settings, current["settings"]["transport_identity"])
         else:
             current_settings = support.local_settings()
             drifted = support.transport_drift(current_settings, current["settings"]["transport_identity"], current["settings"]["roles"])
@@ -104,6 +103,7 @@ def run(runner, args, state, state_path, run_dir, workspace):
             return runner.orchestrator.SKIP
 
     def dispatch_code_stage(current, stage):
+        progressive.guard_dispatch(current, stage)
         # Admission parity with autopilot.dispatch_unit: a paused Builder
         # retry lane blocks the serial writer launch here as well.
         if stage == "terra":
@@ -148,6 +148,10 @@ def run(runner, args, state, state_path, run_dir, workspace):
         except runner.ReportRepairQueued:
             return runner.orchestrator.SKIP
         except support.Paused as error:
+            if provider_recovery.recover_startup(runner, current, run_dir, workspace, error):
+                return runner.orchestrator.SKIP
+            if runner.automatically_recover_truncated_review(current, run_dir, workspace, error):
+                return runner.orchestrator.SKIP
             capacity_recovered = runner.automatically_recover_capacity_stage(current, run_dir, workspace, error)
             if capacity_recovered:
                 recovery = current["recovery_context"]

@@ -8,6 +8,20 @@ from __future__ import annotations
 ROLES = ("requirements", "planner", "reviewer", "builder", "validator", "resolver", "completion")
 
 PROFILES = {
+    # Freeze the 2026-10-02 production defaults for paired full-build tests.
+    # Both arms keep normal recovery/escalation and independent verification.
+    "build-comparison": {
+        "provider": "opencode",
+        "models": {
+            "requirements": "zai-coding-plan/glm-5.3", "planner": "zai-coding-plan/glm-5.3",
+            "reviewer": "openai/gpt-6-sol", "builder": "zai-coding-plan/glm-5.3",
+            "validator": "openai/gpt-6-sol", "completion": "openai/gpt-6-sol",
+            "resolver": "openai/gpt-6-astra",
+        },
+        "effort": {"requirements": "medium", "planner": "high", "reviewer": "high", "builder": "medium",
+                   "validator": "high", "completion": "medium", "resolver": "high"},
+        "extra": ["--resolver-model", "openai/gpt-6-astra", "--resolver-reasoning-effort", "high"],
+    },
     # Bounded qualification using the same OAuth models as the September 29
     # smoke test. Pin execution roles and the Investigator: recovery must not
     # move a checker to GLM or use Kilo's non-OpenAI Investigator default.
@@ -34,13 +48,13 @@ PROFILES = {
                    "builder": "low", "requirements": "low", "resolver": "high"},
     },
     # Verifier differs from producer: OpenAI GPT checks GLM work and GLM checks GPT work.
-    # MiMo is never used (user 2026-09-27): it twice spent its whole reasoning budget on
-    # a design review and returned nothing. OpenAI models go through the ChatGPT login.
+    # This profile pairs GLM with OpenAI; it is not a restriction on other profiles.
+    # OpenAI models go through the ChatGPT login.
     "glm53-openai": {
         "provider": "opencode",
         "models": {
             "requirements": "zai-coding-plan/glm-5.3", "planner": "zai-coding-plan/glm-5.3",
-            "reviewer": "openai/gpt-6-astra", "builder": "openai/gpt-6-sol",
+            "reviewer": "openai/gpt-6-sol", "builder": "openai/gpt-6-sol",
             "validator": "zai-coding-plan/glm-5.3", "completion": "zai-coding-plan/glm-5.3",
             "resolver": "openai/gpt-6-astra",
         },

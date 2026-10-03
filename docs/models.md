@@ -59,7 +59,7 @@ Other engines keep their own defaults, set where each engine is configured:
 | --- | --- |
 | `--engine codex` | `gpt-5.6-terra` for the Builder; `gpt-5.6-sol` for the Resolver, Validator and Completion Owner (`DEFAULT_ROLE_MODELS` in `tools/autocode.py`) |
 | `--provider kilocode` | `openai/gpt-5.6-terra` for the Builder, `zai-coding-plan/glm-5.3` for the Planner, `openai/gpt-5.6-sol` for every other role (`tools/providers/configs/kilocode.toml`) |
-| `--provider gocode` | as OpenCode above (`tools/providers/configs/gocode.toml`) |
+| a user-level provider | whatever its `~/.config/autocode/providers/<name>.toml` `[roles]` specify |
 | Dashboard Codex console | `gpt-5.6-*`, or `glm-5.3` / `glm-5.3-flash` per role through Z.ai |
 
 Autocode advances exactly one rung after durable evidence that the current role
@@ -82,8 +82,8 @@ the configured Builder gets one ordinary retry, then one stronger attempt
 (default `openai/gpt-6-sol` at `xhigh` reasoning, not Astra), then a safety pause. Set
 `--builder-strong-model MODEL` when creating a run to select a different model.
 When the run's provider config lists its models (`models = [...]`) and the strong model is
-not among them, the run gets no stronger attempt: the Builder pauses after its ordinary retry,
-and `--builder-strong-model` must name one of the listed models.
+not among them, the run gets no stronger attempt: the Builder gets one more ordinary retry in its
+place, then pauses, and `--builder-strong-model` must name one of the listed models.
 Explicit model pins and custom providers are never overridden. Existing saved runs
 without this policy retain their previous routing. Restarting/resuming cannot reset
 an exhausted budget. Scope violations, approval requests and transport safety pauses

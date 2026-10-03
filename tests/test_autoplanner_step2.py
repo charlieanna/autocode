@@ -315,15 +315,17 @@ class RequirementTraceRowsTests(EpisodeCase):
         for stage in planner.TRACE_STAGES:
             prompt, packet = self.packet(stage)
             with self.subTest(stage=stage):
-                self.assertEqual([{"requirement_id": "R1", "requirement": "Print Hello, NAME"},
-                                  {"requirement_id": "R2", "requirement": "Reject an empty name"}],
+                self.assertEqual([{"requirement_id": row["id"], "requirement": row["text"],
+                                   "source_quote": row["source_quote"]} for row in self.REQUIREMENTS],
                                  packet["requirement_trace_rows"])
                 self.assertIn(planner.REQUIREMENT_TRACE_RULE, prompt)
 
-    def test_the_plan_review_and_a_run_without_requirements_do_not(self):
+    def test_plan_review_gets_the_sources_without_a_trace_output_requirement(self):
         prompt, packet = self.packet("astra_challenge")
-        self.assertNotIn("requirement_trace_rows", packet)
+        self.assertEqual([row["source_quote"] for row in self.REQUIREMENTS],
+                         [row["source_quote"] for row in packet["requirement_trace_rows"]])
         self.assertNotIn(planner.REQUIREMENT_TRACE_RULE, prompt)
+        self.assertNotIn("requirement_trace", planner.SCHEMAS["astra_challenge"]["properties"])
         self.state["requirements_handoff"] = {"report": {"requirements": []}, "output": "req.json"}
         prompt, packet = self.packet("astra_discovery")
         self.assertNotIn("requirement_trace_rows", packet)

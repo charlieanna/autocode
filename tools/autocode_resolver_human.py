@@ -157,7 +157,9 @@ def _decision(state, proposal):
         if state.get('settings', {}).get('joint_planning') and planning.get('final_token') != token:
             return 'defer', 'Independent planning must finish before requesting approval'
         if state.get('settings', {}).get('joint_planning'):
-            final_stage = 'plan_finalize' if state.get('settings', {}).get('planning_flow') == 'v2' else 'astra_finalize'
+            # An adaptive-planning review that approved the draft is that plan's final review.
+            final_stage = ('plan_finalize' if state.get('settings', {}).get('planning_flow') == 'v2'
+                           else (planning.get('adaptive') or {}).get('final_stage') or 'astra_finalize')
             final = planning.get('reports', {}).get(final_stage, {})
             record = next((row for row in reversed(state.get('stages', []))
                            if (row.get('original_stage') or row.get('stage')) == final_stage

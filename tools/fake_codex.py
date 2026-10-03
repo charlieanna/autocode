@@ -14,7 +14,11 @@ if sys.argv[1:] == ["login", "status"]:
     print("Logged in using ChatGPT (offline fixture)")
     raise SystemExit(0)
 
-data = json.loads(sys.stdin.read().split("CURRENT HANDOFF DATA\n", 1)[1])
+prompt = sys.stdin.read()
+data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+if 'acceptance_criteria_ref' in data:
+    data['acceptance_criteria'] = [{k: c[k] for k in ('id', 'criterion')}
+                                  for c in data['goal_contract']['body']['acceptance_criteria']]
 
 
 def open_finding_id(source, text):
@@ -23,11 +27,39 @@ def open_finding_id(source, text):
             return row["id"]
     return None
 
+def record_launch(stage):
+    probe = os.environ.get("AUTOCODE_REGISTRY_LAUNCH_PROBE")
+    if probe:
+        registry_path = Path(os.environ["AUTOCODE_HOME"]) / "registry.json"
+        try:
+            registry = json.loads(registry_path.read_text())
+            observed = sorted(item["run_dir"] for item in registry.get("runs", {}).values())
+        except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
+            observed = {"error": str(error)}
+        with Path(probe).open("a") as stream:
+            stream.write(json.dumps({"stage": stage, "runs": observed}) + "\n")
+
 if data.get('report_repair'):
+    record_launch(data['original']['stage'] + '_report_repair')
     # This branch only reformats a saved report; never executes the original task.
-    result = json.loads(Path(data['original']['output']).read_text())
+    if data['original'].get('truncated_output'):
+        result = json.loads(data['rejected_report']['content']['partial_text'] + '}')
+    else:
+        result = json.loads(Path(data['original']['output']).read_text())
     if 'summary' not in result and data['original'].get('stage', '').startswith(('terra', 'astra_discovery')):
         result['summary'] = 'Repaired fixture report'
+    if os.environ.get("AUTOCODE_FIXTURE_MODE") == "human-pending":
+        original_stage = data['original'].get('stage')
+        if original_stage == "astra_review":
+            for row in result["acceptance_criteria"]:
+                if not row["evidence"].strip():
+                    row["evidence"] = "Current Validator executed CLI checks; human acceptance is still pending"
+        elif original_stage == "sol" and not result["checks"]:
+            original_events = [json.loads(line) for line in Path(data['original']['events']).read_text().splitlines()]
+            result["checks"] = [{"command": event["item"]["command"], "exit_code": event["item"]["exit_code"],
+                                 "evidence_ref": "event:" + event["item"]["id"]}
+                                for event in original_events if event.get("type") == "item.completed"
+                                and event.get("item", {}).get("type") == "command_execution"]
     session = str(uuid.uuid4())
     print(json.dumps({'type': 'thread.started', 'thread_id': session}))
     Path(sys.argv[sys.argv.index('-o') + 1]).write_text(json.dumps(result))
@@ -40,29 +72,39 @@ task_kind = os.environ.get("AUTOCODE_FIXTURE_TASK_KIND", "build")
 builder_files = (json.loads(Path(os.environ["AUTOCODE_FIXTURE_FILES"]).read_text())
                  if os.environ.get("AUTOCODE_FIXTURE_FILES") else None)
 contract = data["goal_contract"] or {"revision": 0, "hash": ""}
-probe = os.environ.get("AUTOCODE_REGISTRY_LAUNCH_PROBE")
-if probe:
-    registry_path = Path(os.environ["AUTOCODE_HOME"]) / "registry.json"
-    try:
-        registry = json.loads(registry_path.read_text())
-        observed = sorted(item["run_dir"] for item in registry.get("runs", {}).values())
-    except (OSError, json.JSONDecodeError, KeyError, TypeError) as error:
-        observed = {"error": str(error)}
-    with Path(probe).open("a") as stream:
-        stream.write(json.dumps({"stage": stage, "runs": observed}) + "\n")
+record_launch(stage)
 common = {"contract_revision": contract["revision"], "contract_hash": contract["hash"],
           "task_id": (data.get("current_task") or {}).get("id", ""),
           "deferred_backlog": ["Optional web UI"], "user_request": {"kind": "none", "discovered": "", "impact": "",
               "decision_needed": "", "options": [], "proposed_delta": ""}}
 session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
+NO_PROPOSAL = {"version": 0, "needed_because": "", "shared_decisions": [], "outstanding_criteria": [],
+               "done_slices": [], "slices": []}
 if os.environ.get("AUTOCODE_FIXTURE_SESSION_DRIFT"):
     session = str(uuid.uuid4())
 print(json.dumps({"type": "thread.started", "thread_id": session}))
 if os.environ.get("AUTOCODE_FIXTURE_QUOTA_STAGE") == stage:
     print(json.dumps({"type": "error", "error": {"message": "subscription usage limit reached"}}))
     raise SystemExit(3)
+
+
+def adaptive_task(draft, implement):
+    """An adaptive-planning Planner draft carries its initial_task: kind none while a blocking question is open."""
+    if "ADAPTIVE PLANNING" not in prompt:
+        return
+    draft["initial_task"] = (dict(implement) if not draft.get("open_blocking_questions") else
+                             {"objective": "", "affected_paths": [], "kind": "none", "milestone_id": "",
+                              "requirements": [], "acceptance_criteria": [], "validation_plan": []})
+
+
+IMPLEMENT_TASK = {"objective": "Implement greeting CLI", "affected_paths": sorted(builder_files) if builder_files else ["greet.py"],
+                  "kind": "implement", "milestone_id": "M1", "requirements": ["Greet names; reject empty/whitespace input"],
+                  "acceptance_criteria": ["C1"], "validation_plan": ["Execute valid, empty and whitespace input"]}
 if stage == "recognize_workflow":
     result = {"workflow": "build", "reason": "Offline fixture: every request is treated as a build", "signals": [], "design_document": ""}
+    if 'Add "clarity"' in prompt:
+        # Vague keeps the Requirements stage, so a default (adaptive) run plans in the same stages as before.
+        result["clarity"] = os.environ.get("AUTOCODE_FIXTURE_CLARITY", "vague")
 elif stage == "investigate_stuck":
     result = {"diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.", "cause": "other", "guidance": "", "recommendation": "pause", "user_question": "", "evidence_refs": [], "example": "", "probe": "", "untestable": ""}
 elif stage == "requirements_gather":
@@ -81,7 +123,7 @@ elif stage == "requirements_gather":
         "task_kind": task_kind,
     }
 elif stage == "astra_discovery":
-    draft = body(questions=not data["saved_answers"], human=mode == "standard", task_kind=task_kind)
+    draft = body(questions=not data["saved_answers"], human=mode in ("standard", "human-pending"), task_kind=task_kind)
     if builder_files:
         draft["milestones"][0]["affected_paths"] = sorted(builder_files)
     if mode == "milestones":
@@ -101,11 +143,13 @@ elif stage == "astra_discovery":
         if draft["open_blocking_questions"]:
             draft["milestones"] = []
             draft["technical_approach"] = []
+        adaptive_task(draft, IMPLEMENT_TASK)
         source = next((name for name in ("greet.py", "bye.py") if Path(name).is_file()), None)
         result.update(code_refs=[f"{source}:1"] if source else ["goal_contract.body"],
                       alternatives=["A web endpoint would need deployment"],
                       uncertainties=[], contract_changes=[], requirement_trace=[], conflict_resolutions=[],
-                      machine_resolutions=[], access_blockers=[], remediation_records=[])
+                      machine_resolutions=[], access_blockers=[], remediation_records=[],
+                      progressive_proposal=dict(NO_PROPOSAL))
 elif stage == "astra_challenge":
     result = {"summary": "Check whitespace-only input", "obligation_decisions": [], "concerns": [{"id": "P1", "concern": "Empty includes whitespace",
         "evidence_refs": ["goal_contract.body.important_failure_cases"], "requested_change": "Specify whitespace rejection",
@@ -114,10 +158,12 @@ elif stage == "glm_revise":
     draft = dict(contract["body"])
     draft.pop("initial_task", None)
     draft["important_failure_cases"] = [*draft["important_failure_cases"], "Reject whitespace-only input"]
+    adaptive_task(draft, IMPLEMENT_TASK)
     source = next((name for name in ("greet.py", "bye.py") if Path(name).is_file()), None)
     result = {"contract": draft, "summary": "Added whitespace case",
         "code_refs": [f"{source}:1"] if source else ["goal_contract.body"],
         "contract_changes": [], "requirement_trace": [], "conflict_resolutions": [], "machine_resolutions": [], "remediation_records": [], "access_blockers": [],
+        "progressive_proposal": dict(NO_PROPOSAL),
         "responses": [{"concern_id": "P1", "response": "Whitespace is invalid", "evidence_refs": ["goal_contract.body"],
                        "change": "Added whitespace case", "acceptance_test": "Whitespace input exits 2"}]}
 elif stage == "astra_finalize":
@@ -133,7 +179,8 @@ elif stage == "astra_finalize":
             "kind": "decision", "category": "behavior", "delegable": False}]
     result = {"contract": draft, "summary": "Ready for approval" if not blocked else "User decision required",
         "contract_changes": [], "requirement_trace": [], "conflict_resolutions": [],
-        "obligation_decisions": [], "decisions": [{"concern_id": "P1", "decision": "Reject whitespace" if not blocked else "Ask the user",
+        "obligation_decisions": [], "progressive_proposal": dict(NO_PROPOSAL),
+        "decisions": [{"concern_id": "P1", "decision": "Reject whitespace" if not blocked else "Ask the user",
             "rationale": "Consistent invalid-input contract", "acceptance_test": "Whitespace input exits 2", "resolved": not blocked}]}
     if mode == "planning-invalid":
         result["decisions"] = []
@@ -166,6 +213,13 @@ elif stage.startswith("astra") and stage != "astra_checkpoint":
                                   acceptance_criteria=['C2'], validation_plan=['Execute both greeting and goodbye'])
     if mode == 'stalled' and ((data.get('milestone_checkpoint') or {}).get('current') or {}).get('needs_replan'):
         result['next_objective'] = 'Isolate empty input with a focused reproduction before repair'
+    if mode == "human-pending" and stage == "astra_review" and not data.get("human_reviews"):
+        result.update(status="CONTINUE", next_objective="Obtain human acceptance of the validated artifact")
+        result["acceptance_criteria"][0]["status"] = "unverified"
+        if os.environ.get("AUTOCODE_FIXTURE_EMPTY_HUMAN_EVIDENCE"):
+            result["acceptance_criteria"][0]["evidence"] = ""
+        result["next_task"].update(kind="validate", milestone_id="M1", requirements=["Obtain human acceptance"],
+            acceptance_criteria=["C1"], validation_plan=["Ask the user to accept the current artifact"])
     if stage == 'astra_resolve':
         result['diagnosis'] = 'Empty names are accepted by the CLI; add input validation and retest both cases.'
 elif stage == "terra":
@@ -213,9 +267,10 @@ else:
         # Passes only in the Validator's own session: it reads a file the Validator made outside the source.
         Path(".autocode/validator-only").write_text("set up by the Validator\n")
         command = "test -f .autocode/validator-only"
-    print(json.dumps({"type": "item.completed", "item": {"id": "check", "type": "command_execution",
-        "command": command, "exit_code": 0 if passed else 1,
-        "aggregated_output": json.dumps({"valid": [valid.returncode, valid.stdout], "invalid": invalid.returncode})}}))
+    if not os.environ.get("AUTOCODE_FIXTURE_NO_CHECK_EVENT"):
+        print(json.dumps({"type": "item.completed", "item": {"id": "check", "type": "command_execution",
+            "command": command, "exit_code": 0 if passed else 1,
+            "aggregated_output": json.dumps({"valid": [valid.returncode, valid.stdout], "invalid": invalid.returncode})}}))
     findings = [] if passed else [{"id": "", "severity": "high", "blocking": True, "finding": "Empty names are accepted",
         "evidence": "event:check", "reproduction_steps": ["Run greet.py with an empty argument"],
         "expected": "Exit 2", "actual": f"Exit {invalid.returncode}", "why_it_matters": "Required invalid-input behavior",
@@ -231,6 +286,15 @@ else:
     if mode == 'milestones':
         result['criterion_results'].append({'id': 'C2', 'status': 'PASS' if goodbye_passed else 'NOT_VERIFIED',
                                            'evidence_refs': ['event:check'] if goodbye_passed else []})
+    if mode == "human-pending" and passed:
+        result.update(verdict="BLOCKED", unverified_criteria=["C1 human acceptance pending"])
+        result["criterion_results"][0]["status"] = "NOT_VERIFIED"
+        if os.environ.get("AUTOCODE_FIXTURE_OMIT_CHECKS"):
+            result["checks"] = []
+        if os.environ.get("AUTOCODE_FIXTURE_NO_CHECK_EVENT"):
+            result.update(checks=[], checks_run=[])
+            result["criterion_results"][0]["evidence_refs"] = ["greet.py"]
+            result["end_to_end_result"]["evidence_refs"] = ["greet.py"]
     if stage == "astra_checkpoint":
         result = {"validation": result, "consult_sol": {"requested": False, "question": "", "reason": ""},
             "decision": {**common, "status": "COMPLETE" if passed else "REWORK",
@@ -267,5 +331,9 @@ if stage=='terra' and (data.get('workflow') or {}).get('mode')=='glm_final_audit
         'reason':'Fixture-specific debugging question' if action=='ESCALATE_SOL' else 'Continue approved work',
         'question':'Check the empty input boundary' if action=='ESCALATE_SOL' else '',
         'self_assessment':assessment}
+if "--output-schema" in sys.argv:
+    schema = json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text())
+    if "progressive_checkpoint" in schema.get("properties", {}):
+        result.setdefault("progressive_checkpoint", False)
 Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "output_tokens": 50}}))

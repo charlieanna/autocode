@@ -14,12 +14,18 @@ from the runner.
 
 State key written here (and read by autocode_run_view, autopilot):
     workflow: {"kind": one of WORKFLOWS or None, "reason": str, "signals": [str],
-               "source": "model" | "user", "then": the stage to run after recognition}
+               "source": "model" | "user", "then": the stage to run after recognition,
+               "clarity": "clear" | "vague", only in adaptive-planning runs}
 """
 from __future__ import annotations
 
 import json
 from pathlib import Path
+
+try:
+    from . import autocode_adaptive_planning as adaptive
+except ImportError:
+    import autocode_adaptive_planning as adaptive
 
 STAGE = "recognize_workflow"
 WORKFLOWS = ("build", "bugfix", "review", "design", "discuss")
@@ -140,7 +146,7 @@ def follow_up(state: dict) -> dict | None:
 
 def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000,
            engine: str | None = None) -> tuple[str, dict]:
-    text = PROMPT + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, inventory, engine), indent=2)
+    text = PROMPT + adaptive.recognizer_rule(state) + "\nCURRENT HANDOFF DATA\n" + json.dumps(packet(state, inventory, engine), indent=2)
     return text, {"estimated_prompt_tokens": (len(text.encode()) + 3) // 4, "soft_budget_tokens": soft_budget_tokens}
 
 
@@ -160,11 +166,14 @@ def apply(state: dict, value: dict, record: dict) -> None:
     state["workflow"] = {"kind": value["workflow"], "reason": value.get("reason", ""),
                          "signals": list(value.get("signals") or []), "source": "model",
                          "output": record.get("output"), "then": then}
+    if adaptive.enabled(state) and value.get("clarity"):
+        state["workflow"]["clarity"] = value["clarity"]
     design = approved_design(state, value)
     if design:
         state["workflow"]["design_document"] = design
+    first = adaptive.entry_stage(state, value, then, planner_stage(state))
     state.update(status="RUNNING",
-                 next_stage=DESIGN_CHECK_STAGE if design else FIRST_STAGE.get(value["workflow"]) or then)
+                 next_stage=DESIGN_CHECK_STAGE if design else FIRST_STAGE.get(value["workflow"]) or first)
 
 
 def pin(state: dict, kind: str) -> None:

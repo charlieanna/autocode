@@ -5,7 +5,6 @@ import datetime as dt
 
 
 LADDERS = {
-    # No MiMo anywhere (user 2026-09-27): OpenAI GPT-6 via the ChatGPT login.
     # Only the Resolver (astra) climbs GPT-6 Astra: it is too expensive for any other role
     # (user 2026-09-28). A role whose model is on no ladder (the default GLM Builder, a GLM
     # Validator or Completion Owner, the Plan Reviewer) keeps its route and never escalates;

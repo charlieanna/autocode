@@ -82,7 +82,7 @@ class ParallelScenarios(ParallelCase):
         outside = sorted(name for name in ("../escape.txt", "/tmp/escape.txt")
                          if not dispatch.valid_path(name))
         self.check("escape_paths_rejected_by_validator", 2, len(outside))
-        self.finish(summary="INTEGRATION_BLOCKED: ownership violations rejected with edits retained")
+        self.finish(summary="INTEGRATION_BLOCKED: ownership violations rejected, provable edits restored")
 
     def test_par04_hidden_overlap_not_parallelized(self):
         """PAR-04. Existing: test_assignment_scenarios.test_overlapping_tasks_are_not_parallelized_or_merged."""

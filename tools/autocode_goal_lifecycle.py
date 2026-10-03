@@ -8,6 +8,11 @@ from here, so a module that only reads a contract does not pull that machinery i
 from __future__ import annotations
 
 import copy
+
+try:
+    from . import autocode_draft_examples as examples
+except ImportError:
+    import autocode_draft_examples as examples
 import difflib
 import json
 from pathlib import Path
@@ -17,6 +22,8 @@ import uuid
 try:
     from . import autocode_util as s, autocode_workflows as workflows, autocode_milestones as checkpoints
     from . import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
+    from . import autocode_adaptive_planning as adaptive
+    from . import autocode_progressive_state as progressive_state
     from .autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -25,6 +32,8 @@ try:
 except ImportError:
     import autocode_util as s, autocode_workflows as workflows, autocode_milestones as checkpoints
     import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
+    import autocode_adaptive_planning as adaptive
+    import autocode_progressive_state as progressive_state
     from autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -38,7 +47,12 @@ def validate_body(state, body, *, ready=False, allow_legacy=False):
     if "initial_task" in body and not (body["initial_task"]["kind"] == "none" and body["open_blocking_questions"]):
         first = body["initial_task"]
         verification_plan.require_scaffolding(state.get("workspace"), first["affected_paths"], first["validation_plan"])
-        probe = {"goal_contract": {"body": body, "revision": 0, "hash": "draft"}}
+        # This is a structural draft probe, not execution admission. The real
+        # assignment below approval authenticates the progressive disclosure.
+        probe_body = copy.deepcopy(body)
+        probe_body["constraints"] = [line for line in probe_body.get("constraints", [])
+                                     if not line.startswith(progressive_state.rules.DISCLOSURE_DELEGATION)]
+        probe = {"goal_contract": {"body": probe_body, "revision": 0, "hash": "draft"}}
         assign_task(probe, initial_decision(body), {"revision": "draft"})
     questions = body["open_blocking_questions"]
     check_delegable(questions)
@@ -139,7 +153,8 @@ def apply_requirements(state, body, *, artifact_sha256, record=None):
 
 def install_draft(state, body, *, origin, allow_legacy=False, changes=None, record=None, queue_human=True):
     validate_body(state, body, allow_legacy=allow_legacy)
-    revision_guard(state, body, changes or [], origin)
+    changes = revision_guard(progressive_state.planning_revision_state(state), body, changes or [], origin)
+    progressive_state.finish_draft(state)
     previous = state.get("goal_contract")
     if previous:
         state.setdefault("contract_history", []).append(copy.deepcopy(previous))
@@ -299,6 +314,7 @@ def render(state):
                         lines.append("    Owned paths: " + (", ".join(row["affected_paths"]) or "unspecified; serial dispatch"))
                 else:
                     lines.append(f"  - {row['text']} (basis: {row['basis']}; answer: {row['answer_id'] or 'none'})")
+    lines += examples.review_notes(state)
     declared = contract.get("declared_changes") or []
     if declared:
         lines += ["", "Declared contract changes:"]
@@ -337,6 +353,7 @@ def render(state):
         for decision in final.get("decisions", []):
             lines += [f"  [{decision['concern_id']}] {decision['decision']}",
                       "    Why: " + decision["rationale"], "    Test: " + decision["acceptance_test"]]
+        lines += adaptive.review_notes(state["planning"])
     review = review_token(state) if public else None
     if review:
         lines += ["", f"Review token (current validated artifact): {review}",
@@ -371,6 +388,15 @@ def present(state):
 
 
 def approve(state, selected):
+    # Assignment/eligibility may still reject after seal preflight. Publish no
+    # approval, retirement or active pointer unless the whole boundary succeeds.
+    candidate = copy.deepcopy(state)
+    _approve(candidate, selected)
+    state.clear()
+    state.update(candidate)
+
+
+def _approve(state, selected):
     contract = state["goal_contract"]
     # Resuming after an environment failure can reach the execution guard with
     # the same reviewed draft. Keep exact-token approval available in that pause.
@@ -389,9 +415,11 @@ def approve(state, selected):
     if joint and (state.get("planning", {}).get("final_token") != selected or "initial_task" not in contract["body"]):
         raise ValueError("Joint planning requires the Plan Reviewer's final plan before approval")
     current = s.snapshot(Path(state["workspace"])) if joint else None
+    prepared_progressive = progressive_state.prepare_seal(state, selected)
     event = {"kind": "goal_approval", "actor": "user_cli", "at": s.now(), "token": selected}
     state.setdefault("user_events", []).append(event)
     contract.update(approval_status="approved", approval_event=event)
+    progressive_state.seal(state, selected, prepared=prepared_progressive)
     state.update(phase="READY_TO_EXECUTE", status="RUNNING", next_stage="astra_plan")
     carried = []
     if checkpoints.enabled(state):
@@ -409,7 +437,8 @@ def approve(state, selected):
         except ImportError:
             import autocode_dispatch as dispatch
         state.update(next_action=decision["next_objective"], affected_paths=decision["affected_paths"],
-                     next_stage="sol" if kind == "validate" else dispatch.build_stage(state))
+                     next_stage="sol" if kind == "validate" else
+                                "terra" if progressive_state.enabled(state) else dispatch.build_stage(state))
         record_decision(state, decision)
 
 
@@ -519,6 +548,8 @@ def assign_task(state, decision, current):
     allowed = (set(c for mid in previous_batch for c in milestones[mid]["acceptance_criteria"])
                if spec["milestone_id"] in previous_batch else
                set(milestones.get(spec["milestone_id"], {}).get("acceptance_criteria", [])))
+    if spec["kind"] == "validate":
+        allowed |= checkpoints.recheckable(state)
     if milestones and (spec["milestone_id"] not in milestones or
             not set(ids) <= allowed):
         raise ValueError("Task must belong to an approved milestone and its acceptance criteria")
@@ -526,9 +557,10 @@ def assign_task(state, decision, current):
     # merge them into the task so a planner that names only part of the scope
     # cannot make the builder's contract-legal work look out-of-scope.
     task_paths = list(decision.get("affected_paths", []))
-    if task_paths and milestones and spec["milestone_id"] not in previous_batch:
+    if task_paths and milestones and spec["milestone_id"] not in previous_batch and not progressive_state.enabled(state):
         owned = milestones.get(spec["milestone_id"], {}).get("affected_paths", [])
         task_paths = list(dict.fromkeys(task_paths + owned))
+    progressive_state.guard_assignment(state, spec, task_paths)
     verification_plan.require_scaffolding(state.get("workspace"), task_paths, spec["validation_plan"])
     recovery = state.get("recovery_context") or {}
     previous_task = state.get("current_task") or {}
@@ -561,6 +593,7 @@ def assign_task(state, decision, current):
         "objective": decision["next_objective"], "affected_paths": task_paths,
         "contract_revision": contract["revision"], "contract_hash": contract["hash"],
         "assigned_at": s.now(), "source_revision": current["revision"], "decision": decision["status"]}
+    progressive_state.bind_task(state)
     if spec["milestone_id"] in previous_batch:
         # Rework stays accountable for every member of the integrated wave.
         state["current_task"]["milestone_ids"] = previous_batch

@@ -125,6 +125,23 @@ class ProcessTree:
         self.known = {}
         self.checkpoint = checkpoint
 
+    def capture_root(self):
+        """Record the root's birth identity before a concurrent poll can reap it.
+
+        A fast-exiting provider can be reaped by an observer's child.poll()
+        before sample() runs; an empty process receipt then blocks bounded
+        startup recovery. This is only the root lookup — full descendant
+        discovery still happens in sample() under live supervision.
+        """
+        if self.pid in self.known:
+            return self.known[self.pid]
+        table = process_table({self.pid})
+        if self.pid not in table:
+            return None
+        self.known[self.pid] = identity(table[self.pid])
+        self.checkpoint(list(self.known.values()))
+        return self.known[self.pid]
+
     def sample(self, *, initial=False, notify=True):
         table = process_table(set(self.known) | {self.pid})
         if self.pid in table and self.pid not in self.known:
@@ -269,6 +286,7 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
     startup_deadline = time.monotonic() + max(0, float(startup_grace))
     stopped = threading.Event()
     watchdog_fired = threading.Event()
+    root_captured = threading.Event()
     firing = threading.Lock()
     # Only the owner thread samples processes and persists state. The independent
     # event reader consumes bounded chunks; deadline enforcement never waits on
@@ -336,7 +354,11 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
             stop_at_deadline({"kind": "monitor", "reason": "Activity supervision failed"})
 
     def supervise():
-        while not stopped.is_set() and not watchdog_fired.is_set() and child.poll() is None:
+        while not stopped.is_set() and not watchdog_fired.is_set():
+            # Routine polling must not reap a fast exit before identity capture.
+            # Deadline termination remains active while inspection or writes stall.
+            if root_captured.is_set() and child.poll() is not None:
+                return
             current = time.monotonic()
             if deadline is not None and current >= deadline:
                 stop_at_deadline({"kind": "stage", "reason": f"Stage exceeded its {timeout:g}-second hard runtime limit"})
@@ -372,16 +394,20 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
     # The hard limit never depends on event parsing, process sampling or writes.
     hard_timer = threading.Timer(timeout, stop_at_deadline, args=({
         "kind": "stage", "reason": f"Stage exceeded its {timeout:g}-second hard runtime limit"},)) if timeout else None
-    if hard_timer:
-        hard_timer.daemon = True
-        hard_timer.start()
     watchdog = threading.Thread(target=supervise, daemon=True) if activity is not None else None
     observer = threading.Thread(target=observe, daemon=True) if activity is not None else None
-    if observer:
-        observer.start()
-    if watchdog:
-        watchdog.start()
     try:
+        if hard_timer:
+            hard_timer.daemon = True
+            hard_timer.start()
+        if watchdog:
+            watchdog.start()
+        # Capture before ordinary observer/watchdog polling, but after deadline
+        # enforcement starts: native inspection and checkpoint writes can stall.
+        tree.capture_root()
+        root_captured.set()
+        if observer:
+            observer.start()
         live = tree.sample(initial=True)
         publish_activity()
         while child.poll() is None:
@@ -397,9 +423,10 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
         stopped.set()
         if hard_timer:
             hard_timer.cancel()
-        if watchdog:
+        # Capture can fail before the observer starts; cleanup still fails closed.
+        if watchdog and watchdog.is_alive():
             watchdog.join(timeout=1)
-        if observer:
+        if observer and observer.is_alive():
             observer.join(timeout=1)
         # This includes normal exits: a bounded stage must not leave background
         # writers running after its final source snapshot or workspace unlock.

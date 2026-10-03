@@ -26,10 +26,17 @@ class Check:
     detail: str = ""
 
 
-def run(cmd: list[str], cwd: Path, *, timeout: int = 120, input: str | None = None) -> subprocess.CompletedProcess:
-    """Capture command failures: timeout -1, missing binary 127, cannot execute 126."""
+def run(cmd: list[str], cwd: Path, *, timeout: int = 120, input: str | None = None,
+        env: dict | None = None) -> subprocess.CompletedProcess:
+    """Capture command failures: timeout -1, missing binary 127, cannot execute 126.
+
+    ``env`` is None for every existing caller, so children keep inheriting
+    this process's environment unchanged; acceptance phases pass the declared
+    phase environment built by ``harness.phase_env``.
+    """
     try:
-        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, input=input)
+        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
+                              timeout=timeout, input=input, env=env)
     except subprocess.TimeoutExpired as error:
         out = error.stdout.decode(errors="replace") if isinstance(error.stdout, bytes) else error.stdout or ""
         return subprocess.CompletedProcess(cmd, -1, out, f"TIMEOUT after {timeout}s")
@@ -52,16 +59,19 @@ def scratch_copy(project: Path):
         yield target
 
 
-def python_tests(cwd: Path, start: str = "tests", timeout: int = 300) -> subprocess.CompletedProcess:
-    return run([sys.executable, "-m", "unittest", "discover", "-s", start, "-t", "."], cwd, timeout=timeout)
+def python_tests(cwd: Path, start: str = "tests", timeout: int = 300,
+                 env: dict | None = None) -> subprocess.CompletedProcess:
+    return run([sys.executable, "-m", "unittest", "discover", "-s", start, "-t", "."],
+               cwd, timeout=timeout, env=env)
 
 
-def hidden_tests(copy: Path, hidden: Path, timeout: int = 300) -> subprocess.CompletedProcess:
+def hidden_tests(copy: Path, hidden: Path, timeout: int = 300,
+                 env: dict | None = None) -> subprocess.CompletedProcess:
     """Run the scenario's hidden unittest files from the root of a scratch copy."""
     target = copy / "_oracle_hidden"
     shutil.copytree(hidden, target, ignore=IGNORED)
     (target / "__init__.py").touch()
-    return python_tests(copy, start="_oracle_hidden", timeout=timeout)
+    return python_tests(copy, start="_oracle_hidden", timeout=timeout, env=env)
 
 
 def test_names(root: Path) -> set[str]:

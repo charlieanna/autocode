@@ -13,7 +13,14 @@ runner (AGENTS.md rule 2); callers pass the stage history.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+
+try:
+    from . import autocode_stray_writes as stray
+except ImportError:
+    import autocode_stray_writes as stray
 
 BUILDER = "terra"
 
@@ -22,18 +29,25 @@ def contains(root, path):
     return path == root.rstrip("/") or path.startswith(root.rstrip("/") + "/")
 
 
-def _files(ref):
+def _read(ref):
     try:
-        return json.loads(Path(ref).read_text())["files"]
-    except (KeyError, TypeError, OSError, ValueError):
+        value = json.loads(Path(ref).read_text())
+    except (OSError, TypeError, ValueError):
         return None
+    return value if isinstance(value, dict) else None
 
 
-def _same_attempt(row, attempt):
-    """One provider attempt can appear in several saved rows (a checkpoint copy, its
-    archived row, a repaired report's original); they share the launch time."""
-    return row is attempt or (bool(attempt.get("started_at")) and all(
-        row.get(key) == attempt.get(key) for key in ("started_at", "stage", "iteration")))
+def _ref(stages, attempt, key):
+    """The first readable snapshot ref among ``attempt``'s row copies, for its files and head."""
+    for row in (attempt, *stages):
+        if _same_attempt(row, attempt) and _files(row.get(key)) is not None:
+            return row.get(key)
+    return None
+
+
+def _files(ref):
+    value = _read(ref)
+    return value.get("files") if value is not None else None
 
 
 def _snapshot(stages, attempt, key):
@@ -41,12 +55,14 @@ def _snapshot(stages, attempt, key):
 
     Archiving a rejected attempt moves its files and rewrites only the row it archives.
     """
-    for row in (attempt, *stages):
-        if _same_attempt(row, attempt):
-            files = _files(row.get(key))
-            if files is not None:
-                return files
-    return None
+    return _files(_ref(stages, attempt, key))
+
+
+def _same_attempt(row, attempt):
+    """One provider attempt can appear in several saved rows (a checkpoint copy, its
+    archived row, a repaired report's original); they share the launch time."""
+    return row is attempt or (bool(attempt.get("started_at")) and all(
+        row.get(key) == attempt.get(key) for key in ("started_at", "stage", "iteration")))
 
 
 def starting_attempt(stages, record):
@@ -69,6 +85,53 @@ def retained_changes(stages, record):
         # With no earlier attempt, this attempt's runner-measured delta is the whole delta.
         return sorted(record.get("changed_files") or []) if _same_attempt(first, record) else None
     return sorted(name for name in before.keys() | after.keys() if before.get(name) != after.get(name))
+
+
+def undo_created(paths, stages, record, workspace) -> str:
+    """Remove or restore the out-of-scope files this assignment touched, then return the refusal naming what happened.
+
+    A rejected attempt's out-of-scope edits stay in the tree, and the gate measures the whole assignment, so one
+    file an attempt should not have written refuses every retry. Two live greenfield-todo-cli runs (Claude models,
+    2026-09-30) stopped that way: the milestone-1 Builder also wrote README.md, which the plan gave to milestone 2.
+    A file absent from the starting snapshot and unchanged since this attempt is deleted, as autocode_stray_writes
+    does for read-only stages. A pre-existing file is restored from Git the same way when the snapshots prove it
+    safe: unchanged since this attempt, and its starting content exactly what was committed at the recorded head.
+    An edit of a file that already held uncommitted changes, or anything not provable, is kept for a person."""
+    start = _read(_ref(stages, starting_attempt(stages, record), "before_ref")) or {}
+    before, head = start.get("files"), start.get("head")
+    after = _snapshot(stages, record, "after_ref")
+    removed, restored, kept = [], [], []
+    for name in paths:
+        target = Path(workspace) / name if workspace else None
+        if (target is None or before is None or after is None
+                or stray.current(target) != after.get(name, "deleted")):
+            kept.append(name)  # changed since this attempt, or the snapshots cannot prove anything
+        elif name not in before:
+            target.unlink()
+            removed.append(name)
+        elif head and before[name] == stray.committed(Path(workspace), head, name):
+            try:
+                content = subprocess.run(["git", "-C", str(workspace), "show", f"{head}:{name}"],
+                                         capture_output=True, check=True).stdout
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+                mode = os.stat(target).st_mode
+                os.chmod(target, mode | 0o111 if before[name].startswith("executable:") else mode & ~0o111)
+            except (OSError, subprocess.CalledProcessError) as problem:
+                kept.append(f"{name} (restore failed: {problem})")
+            else:
+                restored.append(name)
+        else:
+            kept.append(name)  # held uncommitted changes before the assignment; restoring would lose them
+    message = "Builder attempts for this task changed files outside the assigned paths"
+    if removed:
+        message += "; the runner removed the files they created, so a retry starts without them: " + ", ".join(removed)
+    if restored:
+        message += ("; the runner restored pre-existing files to their committed content, so a retry is not "
+                    "refused for them: " + ", ".join(restored))
+    if kept:
+        message += "; edits retained for inspection: " + ", ".join(kept)
+    return message
 
 
 BUILD_OUTPUT_NOTE = """

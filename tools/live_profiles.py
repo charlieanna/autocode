@@ -54,13 +54,13 @@ PROFILES = {
     # 1) Verifier ≠ producer — OpenAI GPT checks GLM work and GLM checks GPT work.
     # 2) Start at the ladder's medium rung where it says medium; shift to higher
     #    reasoning inside the stage when evidence shows struggle.
-    # Never free-tier or flash. Never MiMo (user 2026-09-27); OpenAI via the ChatGPT login.
+    # Never free-tier or flash; OpenAI via the ChatGPT login.
     "glm53-openai": {
         "provider": "opencode",
         "role_models": {
             "requirements": "zai-coding-plan/glm-5.3",
             "planner": "zai-coding-plan/glm-5.3",
-            "reviewer": "openai/gpt-6-astra",
+            "reviewer": "openai/gpt-6-sol",
             "builder": "openai/gpt-6-sol",
             "validator": "zai-coding-plan/glm-5.3",
             "completion": "zai-coding-plan/glm-5.3",
@@ -96,10 +96,6 @@ PROFILES = {
         "note": "OpenAI-only campaign: Sol plans/verifies, Astra reviews/resolves, Terra builds.",
     },
 }
-
-
-# Master's 2026-09-26 effort-campaign profiles (glm53-mimo-*) derived from glm53-mimo;
-# removed with every MiMo route (user 2026-09-27). VALIDATION.md keeps their results.
 
 
 def resolve(name: str) -> dict:

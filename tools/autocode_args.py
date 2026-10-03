@@ -37,16 +37,24 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument('--builder-strong-model', help='New-run Builder escalation model after one ordinary retry (default openai/gpt-6-sol, xhigh); pinned routes never escalate')
     parser.add_argument("--retry-builder", action="append", default=[], metavar="MILESTONE_ID",
                         help="Explicitly retry a stopped Builder after inspecting its retained work; requires --resume-paused")
+    parser.add_argument("--figma-manifest", type=Path,
+                        help="New run: immutable multi-file/frame/state inventory with exported Figma references; any saved engine")
+    parser.add_argument("--task-preflight", type=Path,
+                        help="Operator prerequisite manifest for planning/build/validation; repair only at its reconciled pause with --resume-paused")
     parser.add_argument("--figma-file", help="Figma Design URL to implement using the connected Codex plugin")
     parser.add_argument("--ui-run", type=Path, help="Accepted autocode-ui run to implement")
     parser.add_argument("--figma-review", choices=["automatic", "human"], help="Visual review policy for new Figma runs (default: automatic)")
-    parser.add_argument("--engine", choices=["codex", "gocode", "opencode"],
-                        help="Select Codex, GoCode, or OpenCode; resumes keep the saved engine")
+    parser.add_argument("--engine", choices=["codex", "opencode"],
+                        help="Select Codex or OpenCode; resumes keep the saved engine")
     parser.add_argument("--provider", default=None,
                         help="Tool that runs each role for a new run. Default: AUTOCODE_PROVIDER, then default_provider in "
                              "~/.config/autocode/config.toml, then opencode. Other names load ~/.config/autocode/providers/<name>.toml")
     parser.add_argument("--joint-planning", action="store_true",
                         help="Separate requirements, planning, and independent review; default for new OpenCode/GoCode runs, opt-in for Codex")
+    parser.add_argument("--adaptive-planning", action=argparse.BooleanOptionalAction, default=None,
+                        help="New runs plan adaptively by default when they use joint planning on the default flow: "
+                             "skip requirements for a clear build request and let a Plan Reviewer with no blocking "
+                             "concern approve the draft (docs/adaptive-planning.md); --no-adaptive-planning opts out")
     parser.add_argument('--planning-v2', action='store_true',
                         help='Opt in to transactional planning-v2 artifacts; never changes role models or the default planning flow')
     parser.add_argument("--glm-model", help="Planner model: OpenCode provider/model or native Codex GPT name")
@@ -65,6 +73,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         help="Override independent plan-reviewer reasoning effort")
     parser.add_argument("--test-command", help="Shell command for the project's test suite (default: detected); "
                         "repair a saved command at a reconciled pause with --resume-paused")
+    parser.add_argument("--revise-protected-tests", type=Path,
+                        help="Explicit user revision JSON for the original test inventory and command; requires a reconciled validation pause")
     parser.add_argument("--regression-command", help="Shell command for new or changed regression tests (default: derived); "
                         "repair a saved command at a reconciled pause with --resume-paused")
     parser.add_argument("--max-iterations", type=int, help="Total iteration ceiling (new-run default: unlimited; resumes keep saved limits)")
@@ -91,9 +101,12 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         help="Override reasoning effort for the completion owner only")
     parser.add_argument("--pin-model-role", action="append", choices=tuple(DEFAULT_ROLE_MODELS), default=[],
                         help="Keep this role's selected model and reasoning effort instead of escalating it automatically")
+    parser.add_argument("--tool-output-mode", choices=("raw", "conservative"), help="Display mode for AutoCode capture/output tools; saved across resume")
     parser.add_argument("--headroom", choices=["off","on"], default=None,
                         help="Off by default; on fails closed until compatibility is verified")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Stream each stage's live model activity (tools started/finished, new provider text) to stderr")
     parser.add_argument("--migrate-only", action="store_true")
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--pause-after-stage", action="store_true")
@@ -119,7 +132,6 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         help="Maximum provider inactivity outside a running tool (default: 300; 0 disables)")
     parser.add_argument("--max-tool-seconds", type=int,
                         help="Maximum time for a running tool or unreported descendant-tool interval (default: 1800; 0 disables)")
-    parser.add_argument("--max-reported-tokens", type=int)
     parser.add_argument('--autoresolver-managed-limits', action='store_true',
                         help='Delegate finite CLI safety limits to bounded AutoResolver recovery; never changes billing/model routes')
     parser.add_argument("--no-progress-limit", type=int, help="Pause after this many unchanged batches (new-run default: 3)")
@@ -224,7 +236,13 @@ def parse(unit, argv, default_models):
         parser.error("Build and review units require an existing --run-dir with an approved plan")
     if args.chat is None:
         args.chat = sys.stdin.isatty() and sys.stdout.isatty()
-    for flag in ("max_iterations", "legacy_iteration_ceiling", "max_seconds", "max_stage_seconds", "max_idle_seconds", "max_tool_seconds", "max_reported_tokens", "no_progress_limit", "max_milestone_seconds", "max_milestone_replans", "max_milestone_stalled_reviews", "max_findings_per_task"):
+    if args.verbose:
+        try:
+            from . import autocode_verbose as verbose
+        except ImportError:
+            import autocode_verbose as verbose
+        verbose.enable()
+    for flag in ("max_iterations", "legacy_iteration_ceiling", "max_seconds", "max_stage_seconds", "max_idle_seconds", "max_tool_seconds", "no_progress_limit", "max_milestone_seconds", "max_milestone_replans", "max_milestone_stalled_reviews", "max_findings_per_task"):
         if getattr(args, flag) is not None and getattr(args, flag) < 0:
             parser.error(f"--{flag.replace('_', '-')} must be nonnegative")
     actions = [args.status, args.dry_run, args.migrate_only, args.show_goal,

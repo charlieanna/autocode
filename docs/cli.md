@@ -25,7 +25,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `autocode clean-worktrees [--yes]` | List, then with `--yes` remove, task worktrees whose runs are complete and whose branch holds their work; records are archived and branches kept (see [Task lanes](task-lanes.md#when-a-task-finishes)). |
 | `autocode --version` | Print the installed version and, when run from a checkout, its commit. |
 | `autocode models [--provider NAME] [--workspace PATH] [--json]` | List the models your plans offer, grouped by plan (subscription or pay per token) and tier (cheap worker, strong judge, Resolver only), and check every role's default route. Suggests a replacement for any default you cannot use; exits 1 when one is missing (see [Models](models.md#when-a-model-is-not-in-your-plans)). |
-| `autocode doctor [--workspace PATH] [--engine opencode\|codex\|gocode] [--json]` | Check Python, psutil, Git, each engine (OpenCode must be 1.x; Codex must be logged in) and that the workspace is a Git repository with a commit. Prints the fix for anything missing; exits 1 when not ready. Passes when any engine is ready, unless `--engine` names one. Never reads credentials. |
+| `autocode doctor [--workspace PATH] [--engine opencode\|codex] [--json]` | Check Python, psutil, Git, each engine (OpenCode must be 1.x; Codex must be logged in) and that the workspace is a Git repository with a commit. Prints the fix for anything missing; exits 1 when not ready. Passes when any engine is ready, unless `--engine` names one. Never reads credentials. |
 | `autocode registry location\|list\|import` | Registry API (see [Registry API](registry-api.md)). |
 | `autocode intervention submit\|inspect` | Queued interventions (see [Interventions](interventions.md)). |
 
@@ -49,7 +49,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--chat` | Interactive chat mode (default in a terminal). |
 | `--no-chat` | One command per turn (default for non-interactive). |
 | `--answer 'Q1=…'` | Answer a requirements question (repeatable). Requires the current `--resolver-token` shown by AutoResolver. |
-| `--feedback '…'` | Send a correction; returns to discovery and requires fresh approval. |
+| `--feedback '…'` | Send a correction; returns to discovery and requires fresh approval. With `--adaptive-planning`, feedback on a plan shown for approval goes to the Planner, which revises it. |
 | `--follow-up '…'` | Say the next thing to a finished run ("Fix them." after a review): the run recognizes the new job and continues in the same run directory. |
 | `--delegate Q1` | Accept a question's proposed default. Requires the current `--resolver-token` shown by AutoResolver. |
 | `--delegate-all --review-token 'r3:<hash>'` | Delegate every pending question marked `delegable` with a proposed default, on the exact displayed revision. Refuses the whole call if any question lacks a default, is not delegable, has a protected or missing category (cost, quota, permission, external side effect, requested outcome), or asks about a rejected assumption. Never approves; invalidates any existing approval. |
@@ -72,6 +72,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--pause-after-stage` | Stop at the next saved boundary. |
 | `--retry-builder M2` | With `--resume-paused`, authorize one retry of the exhausted current serial milestone or stopped parallel members. Keeps failure history, model routes and verification gates; all workers must be stopped. |
 | `--abandon-stage '001/terra-01'` | Archive a stopped attempt, keep partial edits and logs. |
+| `--retry-report ATTEMPT_ID` | With `--resume-paused`, request fresh Validator evidence after an exhausted rejected report with an exact attempt ID; saved source and evidence pins must still match. |
 | `--accept-transport-change` | Resume a transport-change pause after route checks. |
 | `--max-parallel-builders N` | Concurrency limit for independent milestone Builders. |
 | `--milestone-checkpoints` / `--request-milestone-checkpoints` | Enable milestone checkpoints (idle boundary / queued). |
@@ -89,9 +90,10 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 
 | Flag | Meaning |
 | --- | --- |
-| `--engine opencode\|codex\|gocode` | Engine for the run. OpenCode is the default. `gocode` is the GoCode-native route (see the [README](../README.md#runtime-requirements-and-gocode-support)). |
+| `--engine opencode\|codex` | Engine for the run. OpenCode is the default; other tools join as providers (see [Providers](providers.md)). |
 | `--provider <name>` | External tool registered via TOML (see [Providers](providers.md#add-a-tool)). |
 | `--joint-planning` | Add joint Requirements Planner / Plan Reviewer work. |
+| `--adaptive-planning` / `--no-adaptive-planning` | New runs plan as deep as the job needs by default (joint planning on the default flow): a clear build request skips the Requirements stage, and a Plan Reviewer with no blocking concern approves the draft. `--no-adaptive-planning` keeps the fixed sequence; `--adaptive-planning` insists. See [Adaptive planning](adaptive-planning.md). |
 | `--builder-strong-model MODEL` | Stronger model for the Builder's second attempt. |
 | `--requirements-model`, `--glm-model`, `--plan-reviewer-model` | Planning-role model overrides (bare GPT names). |
 | `--astra-model`, `--terra-model`, `--sol-model`, `--completion-model` | Execution-role model overrides (`provider/model` IDs). |
@@ -157,3 +159,11 @@ analyze the work read-only. Keep that directory outside the target workspace.
 - **2** — user input, pause, or error. Inspect `--status`; do not rely on the exit code alone.
 
 See also: [Install](install.md) · [Workflow](workflow.md) · [Execution](execution.md)
+
+## Exact tool output
+
+Use `--tool-output-mode raw|conservative` for AutoCode capture/file-read display.
+`autocode output read FILE` returns exact sections with retained originals;
+`autocode output retrieve SHA256 --raw` recovers exact bytes. See
+[exact output transport](exact-output.md) for options, recovery and measurement
+limits. Native provider tools keep their existing behavior.

@@ -9,6 +9,8 @@ and oracle paths are real.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -148,6 +150,36 @@ def _write_files() -> list[str]:
     return ["greet.py", "test_greet.py", "README.md"]
 
 
+def _source_refs():
+    """Cite the tracked and ordinary untracked inputs in the source inventory."""
+    result = subprocess.run(['git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+                            capture_output=True)
+    sources = []
+    root = Path.cwd().resolve()
+    inventory = {raw.decode(errors='surrogateescape') for raw in result.stdout.split(b'\0') if raw}
+    excluded = ('.autocode', '.git', '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache')
+    for raw in result.stdout.split(b'\0'):
+        name = raw.decode(errors='surrogateescape')
+        path = Path(name)
+        if not raw:
+            continue
+        try:
+            target = path.resolve(strict=True)
+            relative = target.relative_to(root)
+        except (OSError, ValueError):
+            continue
+        # Select directly stored inventory files. Aliases can resolve in this
+        # workspace yet dangle in the copy when any link target is ignored.
+        if relative.as_posix() != path.as_posix() or relative.as_posix() not in inventory:
+            continue
+        if any(p.as_posix().startswith('.autocode-ui/') or p.suffix == '.pyc'
+               or any(part in excluded for part in p.parts) for p in (path, relative)):
+            continue
+        if target.is_file():
+            sources.append(name)
+    return sorted(set(sources))[:8] or ['task']
+
+
 def main() -> int:
     if sys.argv[1:] == ["login", "status"]:
         print("Logged in using ChatGPT (offline live-trial fixture)")
@@ -184,9 +216,13 @@ def main() -> int:
                          "decision_needed": "", "options": [], "proposed_delta": ""},
     }
 
+    adaptive = "ADAPTIVE PLANNING" in prompt  # an adaptive Planner's draft carries its initial_task
     if stage == "recognize_workflow":
         report = {"workflow": "build", "reason": "Handwritten fixture: every request is a build", "signals": [],
                   "design_document": ""}
+        if 'Add "clarity"' in prompt:
+            # Vague keeps the Requirements stage the fixture's handwritten trace relies on.
+            report["clarity"] = os.environ.get("LIVE_FIXTURE_CLARITY", "vague")
     elif stage == "investigate_stuck":
         report = {"diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.", "cause": "other", "guidance": "", "recommendation": "pause", "user_question": "", "evidence_refs": [],
                   "example": "", "probe": "", "untestable": ""}
@@ -197,7 +233,7 @@ def main() -> int:
             "required_behaviors": ["Print Hello, NAME for one nonempty name"],
             "constraints": ["Python standard library only"],
             "acceptance_tests": ["Execute greeting and invalid-input regression checks"],
-            "source_refs": ["task"],
+            "source_refs": _source_refs(),
             "proposed_assumptions": [{"id": "A1", "text": "CLI invocation is sufficient", "kind": "inferable",
                                       "category": "behavior", "convention_ref": "task",
                                       "rationale": "The task specifies a command-line tool", "supports": []}],
@@ -225,8 +261,8 @@ def main() -> int:
     elif stage == "astra_discovery":
         report = {
             "summary": "Handwritten greeting plan",
-            "contract": _contract(),
-            "code_refs": [], "alternatives": [], "uncertainties": [],
+            "contract": _planning_contract() if adaptive else _contract(),
+            "code_refs": [ref for ref in _source_refs() if ref != 'task'], "alternatives": [], "uncertainties": [],
             "contract_changes": [], "conflict_resolutions": [],
             "machine_resolutions": [], "remediation_records": [], "access_blockers": [],
             "requirement_trace": _trace(*TRACE_ROWS),
@@ -244,8 +280,8 @@ def main() -> int:
     elif stage == "glm_revise":
         report = {
             "summary": "Handwritten revision; nothing to revise",
-            "contract": _contract(),
-            "code_refs": [], "responses": [], "contract_changes": [],
+            "contract": _planning_contract() if adaptive else _contract(),
+            "code_refs": [ref for ref in _source_refs() if ref != 'task'], "responses": [], "contract_changes": [],
             "conflict_resolutions": [],
             "machine_resolutions": [], "remediation_records": [], "access_blockers": [],
             "requirement_trace": _trace(*TRACE_ROWS),

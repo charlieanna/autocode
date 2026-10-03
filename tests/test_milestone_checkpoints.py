@@ -222,6 +222,33 @@ class MilestoneCheckpointTests(unittest.TestCase):
         self.state['validation']['end_to_end_result']['status'] = 'PASS'
         self.assertTrue(completion_gate.completion_ready(self.state, decision, current))
 
+    def test_final_validation_may_recheck_accepted_milestones(self):
+        # Live ladder-20 (Claude models, 2026-09-30), twice: the last milestone's validation left out, or
+        # did not pass, the accepted milestone's criteria, so completion was refused, and the Completion
+        # Owner's request to validate every criterion was rejected as outside the milestone. Deadlock.
+        self.start()
+        self.validate(flow_status='NOT_VERIFIED')
+        self.assign('M2')
+        self.validate({'C3': 'PASS'})
+        complete = self.decision('M2', status='COMPLETE')
+        complete['acceptance_criteria'] = [{**c, 'status': 'verified', 'evidence': 'event:check'}
+                                           for c in self.state['acceptance_criteria']]
+        with self.assertRaises(s.Paused) as refused:
+            runner.apply_result(self.state, 'astra_review', complete, {'output': 'astra.json'}, self.root, self.run)
+        self.assertIn('no passing result for C1, C2', str(refused.exception))
+        self.assertIn('kind=validate', str(refused.exception))
+        # A validation may include accepted milestones' criteria; an implementation may not.
+        with self.assertRaisesRegex(ValueError, 'Task must belong to an approved milestone'):
+            self.assign('M2', next_task={**self.decision('M2')['next_task'], 'acceptance_criteria': ['C1', 'C3']})
+        final = self.decision('M2')
+        self.assign('M2', next_task={**final['next_task'], 'kind': 'validate', 'acceptance_criteria': ['C1', 'C2', 'C3']})
+        self.assertEqual(('M2', ['C1', 'C2', 'C3'], 'sol'), (self.state['current_task']['milestone_id'],
+                         self.state['current_task']['acceptance_criteria'], self.state['next_stage']))
+        self.validate({'C1': 'PASS', 'C2': 'PASS', 'C3': 'PASS'})
+        complete = {**self.decision('M2', status='COMPLETE'), 'acceptance_criteria': complete['acceptance_criteria']}
+        runner.apply_result(self.state, 'astra_review', complete, {'output': 'astra.json'}, self.root, self.run)
+        self.assertEqual('TASK_COMPLETE', self.state['status'])
+
     def test_review_handoff_evaluates_current_gate_without_erasing_history(self):
         self.start()
         self.validate(flow_status='NOT_VERIFIED')

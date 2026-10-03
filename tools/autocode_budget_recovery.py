@@ -168,13 +168,17 @@ def recover(state, *, kind, now) -> bool:
     not qualify. No active/unreconciled attempt may remain at this boundary.
 
     Every provider attempt must have known input/output tokens and duration,
-    including failures. Missing usage is not zero even without a token cap.
+    including failures. Missing usage is not zero.
     Failure counts >= 3 or two consecutive timeouts prevent recovery. All prior
     records and usage are immutable; the append-only ledger is the retry fence.
     Planning permits only 2 -> 4, from an absent default or marked runner default,
     backed by a current accepted changed plan, never timeout recovery grants.
     """
     if not isinstance(state, dict) or not isinstance(kind, str) or kind not in _CEILINGS:
+        return False
+    progressive = state.get("progressive") or {}
+    if kind == "max_seconds" and (progressive.get("delegation") or progressive.get("budget")):
+        # Progressive continuation does not delegate aggregate spending increases.
         return False
     clock = _timestamp(now)
     settings = state.get("settings")
@@ -259,11 +263,6 @@ def recover(state, *, kind, now) -> bool:
     stages = state.get("stages")
     if not isinstance(stages, list) or not stages or any(not isinstance(row, dict) for row in stages):
         return False
-    token_cap = limits.get("max_reported_tokens", 0)
-    if token_cap is None:
-        token_cap = 0  # Runtime uses null for an unset cap, not for unknown usage.
-    if not _number(token_cap):
-        return False
     total_tokens = 0
     unknown_usage = False
     for row in stages:
@@ -276,13 +275,11 @@ def recover(state, *, kind, now) -> bool:
         values = [tokens.get(name) for name in ("input_tokens", "output_tokens")]
         if all(type(value) is int and value >= 0 for value in values):
             total_tokens += sum(values)
-        elif (kind == 'max_seconds' and origins.get(kind) == 'resolver_delegated' and token_cap == 0
+        elif (kind == 'max_seconds' and origins.get(kind) == 'resolver_delegated'
               and all(value is None for value in values)):
             unknown_usage = True  # Preserved explicitly below; never converted to zero.
         else:
             return False
-    if token_cap > 0 and total_tokens >= token_cap:
-        return False
     used = state.get("iteration") if kind == "iteration_ceiling" else state.get("active_seconds")
     if kind == PLANNING_KIND:
         used = planning.get("astra_calls")

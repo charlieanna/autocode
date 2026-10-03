@@ -14,6 +14,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -21,6 +22,11 @@ import tempfile
 
 def now():
     return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
+def slug(task: str) -> str:
+    value = re.sub(r"[^a-z0-9]+", "-", task.lower()).strip("-")
+    return (value or "task")[:48]
 
 
 def digest(value):
@@ -164,8 +170,10 @@ def validate_schema(value, schema, where="$"):
     """The small, strict JSON Schema subset used by our checked-in verdicts."""
     kind = schema.get("type")
     types = {"object": dict, "array": list, "string": str, "integer": int, "boolean": bool, "null": type(None)}
-    if kind and (not isinstance(value, types[kind]) or (kind == "integer" and isinstance(value, bool))):
-        raise ValueError(f"{where}: expected {kind}")
+    kinds = kind if isinstance(kind, list) else [kind] if kind else []  # ["object", "null"]: an object or null
+    if kinds and not any(isinstance(value, types[k]) and not (k == "integer" and isinstance(value, bool))
+                         for k in kinds):
+        raise ValueError(f"{where}: expected {' or '.join(kinds)}")
     if "enum" in schema and value not in schema["enum"]:
         raise ValueError(f"{where}: invalid enum")
     if isinstance(value, dict):
@@ -174,7 +182,7 @@ def validate_schema(value, schema, where="$"):
                 raise ValueError(f"{where}: missing {key}")
         props = schema.get("properties", {})
         if schema.get("additionalProperties") is False and value.keys() - props.keys():
-            raise ValueError(f"{where}: unexpected fields")
+            raise ValueError(f"{where}: unexpected fields: {', '.join(sorted(value.keys() - props.keys()))}")
         for key, child in value.items():
             if key in props:
                 validate_schema(child, props[key], f"{where}.{key}")

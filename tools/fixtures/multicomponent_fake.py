@@ -13,6 +13,7 @@ for real, once per component's own worktree.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -80,6 +81,9 @@ def run_check(spec: dict) -> int:
     return proc.returncode
 
 
+PROMPT = ""
+
+
 def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
     task = data.get("current_task") or {}
     revision = data.get("goal_contract") or {"revision": 0, "hash": ""}
@@ -90,7 +94,9 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
     planning = {"code_refs": source_refs(), "contract_changes": [], "conflict_resolutions": [],
                "requirement_trace": [{"requirement_id": "R1", "disposition": "covered", "evidence": spec["description"]}]}
     if stage == "recognize_workflow":
-        return {"workflow": "build", "reason": "Scripted: component builds are builds", "signals": [], "design_document": ""}
+        # Vague keeps the Requirements stage this fake's requirement trace relies on (adaptive planning is the default).
+        return {"workflow": "build", "reason": "Scripted: component builds are builds", "signals": [], "design_document": "",
+                **({"clarity": "vague"} if 'Add "clarity"' in PROMPT else {})}
     if stage == "investigate_stuck":
         return {"diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.", "cause": "other", "guidance": "", "recommendation": "pause", "user_question": "", "evidence_refs": [], "example": "", "probe": "", "untestable": ""}
     if stage == "requirements_gather":
@@ -99,12 +105,15 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
                 "source_refs": source_refs(), "proposed_assumptions": [], "open_questions": [],
                 "requirements": requirements(component_id, spec), "ignored_statements": ignored_statements(component_id),
                 "conflicts": [], "proposed_reframes": []}
+    adaptive = "ADAPTIVE PLANNING" in PROMPT  # an adaptive Planner's draft carries its initial_task
     if stage == "astra_discovery":
-        return {"summary": "Scripted component plan", "contract": contract(spec), "alternatives": [], "uncertainties": [], **planning}
+        return {"summary": "Scripted component plan", "contract": contract(spec, final=adaptive), "alternatives": [],
+                "uncertainties": [], **planning}
     if stage == "astra_challenge":
         return {"summary": "Scripted plan review: no concerns", "concerns": []}
     if stage == "glm_revise":
-        return {"summary": "Scripted revision: nothing to revise", "contract": contract(spec), "responses": [], **planning}
+        return {"summary": "Scripted revision: nothing to revise", "contract": contract(spec, final=adaptive),
+                "responses": [], **planning}
     if stage == "astra_finalize":
         final = {key: value for key, value in planning.items() if key != "code_refs"}
         return {"summary": "Scripted final component plan", "contract": contract(spec, final=True), "decisions": [], **final}
@@ -112,6 +121,16 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
         path = Path(spec["file"])
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(spec["content"])
+        if spec.get("reaccept_ui_run"):
+            # Simulate an external UI workflow accepting a replacement design
+            # while this component is building against the previous acceptance.
+            directory = Path(spec["reaccept_ui_run"])
+            handoff = json.loads((directory / "handoff.json").read_text())
+            ref = handoff["artifacts"]["brief"]
+            brief = directory / ref["path"]
+            brief.write_text("Accepted replacement alpha layout during implementation.")
+            ref["sha256"] = hashlib.sha256(brief.read_bytes()).hexdigest()
+            (directory / "handoff.json").write_text(json.dumps(handoff))
         code = run_check(spec)
         return {**common, "summary": "Wrote the component's file", "changed_files": [spec["file"]],
                 "commands_run": [spec["check"]], "results": [f"exit {code}"], "remaining_risks": [],
@@ -175,7 +194,8 @@ def main() -> int:
         print("Logged in using ChatGPT (multicomponent fake)")
         return 0
     session = sys.argv[sys.argv.index("resume") + 1] if "resume" in sys.argv else str(uuid.uuid4())
-    prompt = sys.stdin.read()
+    global PROMPT
+    prompt = PROMPT = sys.stdin.read()
     print(json.dumps({"type": "thread.started", "thread_id": session}), flush=True)
     if "CURRENT HANDOFF DATA\n" not in prompt:
         print(json.dumps({"error": "no handoff data"}))
@@ -186,7 +206,15 @@ def main() -> int:
     if data.get("report_repair"):
         stage = original.get("stage", stage)
     component_id = component_id_for(prompt, data)
-    report = report_for(stage, component_id, MANIFEST[component_id], data)
+    spec = MANIFEST[component_id]
+    if spec.get("observations"):
+        # Optional external fixture output: assert what the real CLI sent to the
+        # provider without peeking into the task run's private state.json.
+        directory = Path(spec["observations"])
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / f"{component_id}-{stage}-{uuid.uuid4().hex}.json").write_text(json.dumps(
+            {"component_id": component_id, "stage": stage, "prompt": prompt}))
+    report = report_for(stage, component_id, spec, data)
     if "--output-schema" in sys.argv:
         complete(report, json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text()))
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(report))

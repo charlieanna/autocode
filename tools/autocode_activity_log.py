@@ -56,6 +56,7 @@ def _stage_finished(record: dict) -> dict:
             "duration_seconds": record.get("duration_seconds"), "exit_code": record.get("exit_code"),
             "timed_out": record.get("timed_out"), "rejected": bool(record.get("rejected")),
             "changed_files": len(record.get("changed_files") or []),
+            "cost_usd": (record.get("metrics") or {}).get("provider_cost_usd"),
             "tokens": {key: tokens.get(key) for key in ("input_tokens", "cached_input_tokens",
                                                          "output_tokens", "reasoning_output_tokens")}}
 

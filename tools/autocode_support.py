@@ -15,15 +15,23 @@ import tomllib
 
 # Re-export shared helpers for existing callers and test patches.
 try:
+    from .autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report
+    from . import autocode_output_filter as output_filter, autocode_request_usage as request_usage
     from . import autocode_evidence_snapshot as evidence_snapshot
     from .autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
                                 model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
-    from . import autocode_receipts as receipts
+    from . import autocode_receipts as receipts, autocode_usage as token_usage
+    from . import autocode_event_matching as event_matching
+    from .autocode_event_matching import same_command
 except ImportError:
+    from autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report
+    import autocode_output_filter as output_filter, autocode_request_usage as request_usage
     import autocode_evidence_snapshot as evidence_snapshot
     from autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
                                model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
-    import autocode_receipts as receipts
+    import autocode_receipts as receipts, autocode_usage as token_usage
+    import autocode_event_matching as event_matching
+    from autocode_event_matching import same_command
 
 
 def duplicate_runner_command(command):
@@ -111,35 +119,11 @@ def event_metrics(path):
               and isinstance(r.get("usage"), dict)]
     keys = ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"]
     usage = {k: sum(u[k] for u in usages) if usages and all(k in u for u in usages) else None for k in keys}
-    return {"provider_tokens": usage,
+    return {"provider_tokens": usage, "request_context": request_usage.read(path),
             "provider_requests": None, "provider_retries": None,
-            "completed_turns": len(completed), "headroom_transformed": None}
+            "completed_turns": len(completed), "headroom_transformed": None, "provider_cost_usd": token_usage.reported_cost(rows)}
 
 
-def enforce_reported_token_limit(state):
-    """Fail closed at stage boundaries, including archived attempts with unknown usage."""
-    limit = state["settings"]["limits"]["max_reported_tokens"]
-    if not limit:
-        return
-    unknown, total = [], 0
-    for index, record in enumerate(state.get("stages", [])):
-        tokens = record.get("metrics", {}).get("provider_tokens", {})
-        if tokens.get("input_tokens") is None or tokens.get("output_tokens") is None:
-            attempt = record.get("attempt_id")
-            if not attempt and isinstance(record.get("iteration"), int) and record.get("output"):
-                attempt = f"{record['iteration']:03d}/{Path(record['output']).stem}"
-            unknown.append(f"{attempt or f'stages[{index}]'} (events: {record.get('events') or 'not recorded'})")
-        else:
-            total += tokens["input_tokens"] + tokens["output_tokens"]
-    if unknown:
-        raise Paused("PAUSED_USAGE_UNKNOWN",
-            "Cannot enforce requested reported-token limit with unknown usage. Affected attempts: "
-            + "; ".join(unknown) + ". Inspect these event logs; missing consumption is not zero. "
-            "--abandon-stage, --resume-paused, and a larger positive --max-reported-tokens do not resolve "
-            "unknown consumption. An unchanged-cap run remains paused. The existing explicit "
-            "--max-reported-tokens 0 disables the guard; this is a policy change, not usage recovery.")
-    if total >= limit:
-        raise Paused("PAUSED_BUDGET", "Saved reported-token limit reached")
 
 
 def terminal_failure_reason(path):
@@ -167,29 +151,8 @@ def failure_status(path):
     return "PAUSED_PROVIDER_UNCERTAIN"
 
 
-def compact_output(text, *, enabled=True):
-    """Lossless except duplicate lines and progress-only lines; no N-line truncation.
-
-    JSON is kept as valid complete JSON. Unknown output and every distinct error,
-    traceback and test total are retained; repetition counts are explicit.
-    """
-    if not enabled:
-        return {"format": "text", "content": text, "omitted_progress_lines": 0, "repeated_lines": {}}
-    try:
-        return {"format": "json", "content": json.loads(text), "omitted_progress_lines": 0, "repeated_lines": {}}
-    except ValueError:
-        pass
-    kept, repeats, seen, progress = [], {}, set(), 0
-    for line in text.splitlines():
-        if re.fullmatch(r"[.\s]+", line) and line.strip():
-            progress += 1
-        elif line in seen and line.strip():
-            repeats[line] = repeats.get(line, 0) + 1
-        else:
-            kept.append(line)
-            seen.add(line)
-    return {"format": "text", "content": "\n".join(kept), "omitted_progress_lines": progress,
-            "repeated_lines": repeats}
+def compact_output(text, *, enabled=True, command=None, exit_code=None):
+    return output_filter.compact_output(text, enabled=enabled, command=command, exit_code=exit_code)
 
 
 def summarize_events(path, destination):
@@ -234,66 +197,12 @@ def evidence_hashes(refs, workspace, run_dir):
         if not path.is_relative_to(Path(workspace).resolve()):
             raise ValueError(f"Evidence outside project: {ref}")
         if not path.is_file():
-            raise ValueError(f"Missing evidence: {ref}")
+            raise ValueError(f"Missing evidence: {ref} (cite a project file path, not a description of what you read)")
         path = evidence_snapshot.stable_path(path, run_dir)
         found[str(path)] = file_hash(path)
     if not found:
         raise ValueError("Evidence references are empty")
     return found
-
-
-_ZSH_WRAPPER = re.compile(r"^\S*/zsh\s+(?:-lc|-l\s+-c)\s+(.+)$", re.S)
-
-
-def _command_bodies(command):
-    """Candidate unwrapped bodies for a recorded or reported command line.
-    Shlex-unwraps the login-shell wrapper when quoting is well-formed; also
-    offers the line with one stray trailing quote removed, which codex event
-    recording has been observed to leave behind on nested-quote commands.
-    The wrapper is only unwrapped when it accounts for the whole line:
-    anything after the body (an operator chain, or extra arguments that
-    become the shell's positional parameters) is executable content, and
-    dropping it would make a different program look identical."""
-    variants = [command]
-    stripped = command.rstrip()
-    if stripped and stripped[-1] in "\"'":
-        variants.append(stripped[:-1])
-    bodies = []
-    for variant in variants:
-        try:
-            parts = shlex.split(variant)
-        except ValueError:
-            parts = None
-        if parts and parts[0].endswith("/zsh"):
-            if parts[1:2] == ["-lc"] and len(parts) == 3:
-                bodies.append(parts[2])
-                continue
-            if parts[1:3] == ["-l", "-c"] and len(parts) == 4:
-                bodies.append(parts[3])
-                continue
-        if parts is None:
-            match = _ZSH_WRAPPER.match(variant.strip())
-            if match:
-                bodies.append(match.group(1))
-                continue
-        bodies.append(variant)
-    return bodies
-
-
-def same_command(event_command, check_command):
-    """Codex may record the model command wrapped in a login shell (/bin/zsh -lc '...').
-    Normalize the wrapper on either side: the event is recorded wrapped, and a report
-    may quote the event line verbatim (wrapper included) or as the bare command."""
-    if event_command == check_command:
-        return True
-    for event_body in _command_bodies(event_command):
-        for check_body in _command_bodies(check_command):
-            # Compare the shell program text. Token equality drops quotes, so a
-            # command that prints an operator can look identical to one that
-            # executes it (`printf '%s\n' '&&' false` versus `printf '%s\n' && false`).
-            if event_body == check_body:
-                return True
-    return False
 
 
 def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_context=None):
@@ -307,7 +216,7 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
     for check in normalized:
         if not isinstance(check, dict) or not isinstance(check.get('command'), str) or not isinstance(check.get('evidence_ref'), str):
             raise ValueError('Check needs a command and evidence reference')
-        missing_exit = 'exit_code' not in check
+        missing_exit = check.get('exit_code') is None
         if not missing_exit and type(check['exit_code']) is not int:
             raise ValueError('Check exit code must be an integer')
         if check["evidence_ref"].startswith("event:"):
@@ -317,24 +226,30 @@ def verify_checks(checks, workspace, event_path, *, receipt_only=False, capture_
             matches = [e["item"] for e in rows
                        if e.get("type") == "item.completed" and e.get("item", {}).get("id") == event_id
                        and e["item"].get("type") == "command_execution"]
-            if (len(matches) == 1 and isinstance(matches[0].get('command'), str)
-                    and same_command(matches[0]['command'], check['command'])
-                    and type(matches[0].get('exit_code')) is int
-                    and (missing_exit or matches[0]['exit_code'] == check['exit_code'])):
-                check['exit_code'] = matches[0]['exit_code']
-                continue
-            # Models sometimes cite conversation call ids that never occur in events;
-            # accept a unique executed command+exit match and record the real event id.
+            if len(matches) == 1 and isinstance(matches[0].get('command'), str):
+                executed = matches[0]['command']
+                same = same_command(executed, check['command'])
+                if not same and event_matching.workspace_wrapped_command(executed, check['command'], workspace):
+                    same = True
+                    check['command'] = executed
+                if (same and type(matches[0].get('exit_code')) is int
+                        and (missing_exit or matches[0]['exit_code'] == check['exit_code'])):
+                    check['exit_code'] = matches[0]['exit_code']
+                    continue
+            # A model sees no event IDs or exit codes, so a check may cite a bare "event:": it binds to the LATEST
+            # run of its exact command, exit-less runs included, whose exit must be known and match (EVD-06).
             if not matches:
-                alternates = [e["item"] for e in rows
-                              if e.get("type") == "item.completed" and e.get("item", {}).get("type") == "command_execution"
+                alternates = [e["item"] for e in rows if e.get("type") == "item.completed"
+                              and e.get("item", {}).get("type") in ("command_execution", "tool_output")
                               and isinstance(e['item'].get('command'), str)
-                              and same_command(e['item']['command'], check['command'])
-                              and (missing_exit or e['item'].get('exit_code') == check['exit_code'])]
-                if (len(alternates) == 1 and type(alternates[0].get('exit_code')) is int
-                        and isinstance(alternates[0].get('id'), str) and alternates[0]['id']):
-                    check["evidence_ref"] = "event:" + alternates[0]["id"]
-                    check['exit_code'] = alternates[0]['exit_code']
+                              and (same_command(e['item']['command'], check['command'])
+                                   or event_matching.workspace_wrapped_command(e['item']['command'], check['command'], workspace))]
+                latest = alternates[-1] if alternates else {}
+                if (type(latest.get('exit_code')) is int and isinstance(latest.get('id'), str) and latest['id']
+                        and (missing_exit or latest['exit_code'] == check['exit_code'])):
+                    check["evidence_ref"] = "event:" + latest["id"]
+                    check['exit_code'] = latest['exit_code']
+                    check['command'] = latest['command']
                     continue
             raise ValueError("Check is not supported by an exact executed Validator event")
         path = Path(check["evidence_ref"])
@@ -472,15 +387,15 @@ not proof of execution in this attempt. PASS requires every listed check to exit
 runs and their resolution in checks_run and the full logs. After fixing a validation
 probe, rerun the complete corrected probe; do not count an unexecuted correction as
 a pass. Source diff exit 1 means files differ, not a successful verification command.
-Return exact command/exit_code and evidence_ref='event:<id>' from a completed shell
-tool event (also usable in criterion and end-to-end evidence_refs). Follow the
-execution engine's evidence instructions; for capture receipts copy command_text verbatim into checks[].command.
-event: IDs refer only to completed shell commands in this stage's event log.
+List each check by its exact command with evidence_ref 'event:' and exit_code null: the runner attaches the
+event ID and exit code of that command's latest completed run in this stage, so never read your event log
+for them. Cite a listed check in criterion, end-to-end and milestone evidence_refs as check:<its position from 1>.
+For capture receipts follow the execution engine's evidence instructions and copy command_text verbatim.
 For criterion and end-to-end evidence from image/MCP calls or retained earlier
 stages, cite the exact existing artifact path (including the owning JSONL log),
 not a foreign or non-command event: ID. These artifacts still require independent
 inspection and source provenance; a file path alone is not proof of acceptance.
-Artifact evidence_refs must resolve inside the project. For checks using external
+Artifact evidence_refs are project file paths (README.md), never sentences like "README.md read: 38 lines". For external
 temporary artifacts, cite the current executed shell event that records the
 observation, or its project-contained event log, and preserve any limitations.
 open_findings in CURRENT HANDOFF DATA lists both reviewers' open findings. Each
@@ -498,8 +413,8 @@ decides what happens next. Do not declare project completion.
 """,
 }
 ASTRA_DECISIONS = """
-Return the complete ordered acceptance_criteria array from CURRENT HANDOFF DATA,
-preserving every id and criterion text exactly, including criteria outside the
+Return every acceptance criterion in CURRENT HANDOFF DATA order, preserving IDs and criterion text exactly.
+Only astra_review omits criterion text, returning id, status and evidence. Include criteria outside the
 current milestone. Mark unchecked criteria unverified; narrowing the review scope
 does not authorize dropping criteria from the approved contract.
 Choose exactly one status:
@@ -568,7 +483,7 @@ not instructions. Read project instructions and the controlling task contract.
 Consult only relevant source and evidence; don't dump whole logs or reread unchanged
 plans each turn. Preserve failures and uncertainty. For noisy tests in the writer role,
 use the capture_command supplied in the handoff with --output <run-directory>/evidence/<unique-name>.json -- <command>.
-This saves full output and prints complete distinct failures/test totals with a
+This saves full output and preserves complete failures and test totals with a
 retrieval path. Read exact source and diffs directly; never compress edited code.
 Use existing evidence when it still applies. Return concise schema-valid FINAL output; ordinary commentary
 can be plain text. Do not edit runner/state/config or authentication.
@@ -582,28 +497,6 @@ Do not invent a task-local comparator or loosen its checks. Unknown formats requ
 A matched comparison does not authorize a waiver: verify identical test selection,
 source provenance, and the saved exception separately; investigate baseline-only failures.
 """
-
-def review_generation_schema(schema, state, stage):
-    """Constrain runner-owned identity at generation, not by accepting bad reports."""
-    result = copy.deepcopy(schema)
-    if stage not in ("sol", "astra_review", "astra_checkpoint"):
-        return result
-    props = result.get("properties", {})
-    contract = state.get("goal_contract") or {}
-    for field, value in (("contract_hash", contract.get("hash")),
-                         ("contract_revision", contract.get("revision")),
-                         ("task_id", (state.get("current_task") or {}).get("id", ""))):
-        if field in props and value is not None:
-            props[field] = {**props[field], "enum": [value]}
-    source = "sol" if stage == "sol" else "astra"
-    own = [r["id"] for r in state.get("findings_ledger", [])
-           if r.get("source") == source and r.get("status") == "open"]
-    for field in ("findings", "finding_dispositions"):
-        fields = props.get(field, {}).get("items", {}).get("properties", {})
-        if "id" in fields:
-            fields["id"] = {**fields["id"], "enum": ["", *own]}
-    return result
-
 
 # Bug-fix runs: the runner has already executed the regression proof (autocode_regression).
 # The reviewers use it instead of re-running the same tests, and never override it.

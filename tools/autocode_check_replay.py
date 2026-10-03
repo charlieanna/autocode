@@ -28,8 +28,10 @@ from pathlib import Path
 
 try:
     from . import autocode_verification_plan as verification_plan, autocode_test_quality as test_quality
+    from . import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles
 except ImportError:
     import autocode_verification_plan as verification_plan, autocode_test_quality as test_quality
+    import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles
 
 PASS, FAIL = "PASS", "FAIL"
 # Told to the Validator with every request. A live Validator showed "fails without __init__.py" as a check
@@ -44,10 +46,15 @@ The clean copy is the repository's source only: no ignored files and no .autocod
 runner's own executed evidence: cite its verdict and source_revision directly, never a command that reads it.
 The runner also executes explicit commands from the approved verification methods and current_task.validation_plan;
 another successful command cannot replace them. Empty Python test bodies cannot establish behavioral coverage.
-For an unbounded integer contract, test 2**63-1, 2**63, and 10**5000 (plus large negative values when valid),
-including persistence, arithmetic and invalid/stale identifiers. Check that SQLite neither overflows bindings
-nor promotes exact arithmetic to REAL. Decimal conversion limits must not reject otherwise valid integers.
-"""
+An explicit planned exit-code expectation is replayed as an assertion: a usage-error probe expected to exit 2
+must actually exit 2. Your reported checks in a PASS still need to exit 0 themselves.
+Keep every scratch copy and test artefact inside the workspace under .autocode/ (for example .autocode/scratch/);
+the runner's changed-file measurement ignores .autocode/. Never use /tmp, mktemp or any path outside the
+workspace: the provider sandbox denies external directories and the whole attempt is lost (a live run paused
+after three such denials, 2026-10-01).
+Probe mixed-type numeric interactions. For staged/transactional operations inject failures after work begins:
+assert the public error contract, unchanged persistent state and complete cleanup across failure modes.
+""" + acceptance_policy.DOMAIN + acceptance_policy.COVERAGE
 # A Validator closed a proof-linked finding with a check that read the proof from .autocode/, twice
 # (fix run B, 2026-09-29); each replay failed and the run paused. The rejection says why.
 RUN_FILES_HINT = (" The clean copy has no .autocode/, so a check that reads run files cannot pass there: drop it, "
@@ -56,11 +63,19 @@ TIMEOUT_SECONDS = 900
 TAIL_CHARS = 600
 
 
-def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_SECONDS, approved_state=None) -> dict:
+def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_SECONDS, approved_state=None,
+           required_commands=None, progressive_context=None) -> dict:
     """Re-run each distinct check command; return the result or raise ValueError on the first that fails."""
     out = Path(run_dir) / "check-replay" / Path(record.get("output") or "validation").stem
+    protected = protected_oracles.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout)
     checks = list(checks)
-    prescribed = verification_plan.approved_commands(approved_state or {})
+    prescribed = verification_plan.approved_commands(approved_state or {}, progressive_context=progressive_context)
+    if required_commands is not None:
+        for command in required_commands:
+            if not isinstance(command, str) or verification_plan.commands(command) != [command]:
+                raise ValueError(f"Required replay command is not an explicit executable command: {command!r}")
+            prescribed.append(command)
+        prescribed = list(dict.fromkeys(prescribed))
     reported = {check["command"] for check in checks}
     checks += [{"command": command, "exit_code": 0, "evidence_ref": "approved-plan"}
                for command in prescribed if command not in reported]
@@ -79,7 +94,7 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
                      "evidence_ref": check.get("evidence_ref")})
     failed = [row for row in rows if row["error"] or row["timed_out"] or row["exit_code"] != 0]
     result = {"verdict": FAIL if failed else PASS, "checks": rows, "source_revision": record.get("source_revision"),
-              "timeout_seconds": timeout, "replayed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+              "protected_tests": protected, "timeout_seconds": timeout, "replayed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
     out.mkdir(parents=True, exist_ok=True)
     (out / "replay.json").write_text(json.dumps(result, indent=2) + "\n")
     if failed:

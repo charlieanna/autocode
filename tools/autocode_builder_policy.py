@@ -204,6 +204,9 @@ def failure(state, evidence, reason):
         return current['action']
     current['failures'].append(evidence)
     n = len(current['failures'])
+    # With no stronger model the escalation slot is spent as one more ordinary retry: a live Claude run
+    # paused on its second failure with correct code and two tests left to strengthen (2026-09-30).
+    count += 0 if config['strong_model'] else 1
     action = 'retry' if n <= count else 'escalate' if n == count + 1 else 'pause'
     checkers, stop_reason = {}, EXHAUSTED
     if action == 'escalate':

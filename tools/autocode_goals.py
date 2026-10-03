@@ -11,9 +11,17 @@ import uuid
 # present, approve, assign, ask the user) are in autocode_goal_lifecycle, which imports this module,
 # never the other way round.
 try:
-    from . import autocode_util as s, autocode_workflows as workflows, autocode_protected_text as protected, autocode_test_cases as test_cases
+    from .autocode_contract_revision import (PLANNER_ORIGINS, PROTECTED_LISTS as _PROTECTED_LISTS,
+                                            revision_guard, saved_user_basis as _saved_user_basis)
+    from .autocode_requirement_cues import cue_sentences, scan_texts, source_texts
+    from .autocode_trace_coverage import coverage_errors
+    from . import autocode_util as s, autocode_workflows as workflows, autocode_adaptive_planning as adaptive
 except ImportError:
-    import autocode_util as s, autocode_workflows as workflows, autocode_protected_text as protected, autocode_test_cases as test_cases
+    from autocode_contract_revision import (PLANNER_ORIGINS, PROTECTED_LISTS as _PROTECTED_LISTS,
+                                           revision_guard, saved_user_basis as _saved_user_basis)
+    from autocode_requirement_cues import cue_sentences, scan_texts, source_texts
+    from autocode_trace_coverage import coverage_errors
+    import autocode_util as s, autocode_workflows as workflows, autocode_adaptive_planning as adaptive
 
 # The state keys under which a Resolver proposal waits for the user and the request shown to them.
 # autocode_resolver_human owns those records and re-exports these as PRIVATE and PUBLIC; they are
@@ -120,80 +128,16 @@ unrelated refactors, and keep review concerns to whether the plan fixes the root
 proves it. Before completion the runner itself runs the new or changed tests against the
 original code (they must fail) and the fixed code (they must pass), then the project suite.
 """
-USER_REQUEST = obj({"kind": {"type": "string", "enum": [
-    "none", "clarification", "contradiction", "infeasible", "permission", "goal_change", "blocker"]},
-    "discovered": STRING, "impact": STRING, "decision_needed": STRING,
-    "options": STRINGS, "proposed_delta": STRING})
+try:
+    from .autocode_role_schema import USER_REQUEST, role_schema
+except ImportError:
+    from autocode_role_schema import USER_REQUEST, role_schema
 
 
-def role_schema(legacy, role):
-    schema = copy.deepcopy(legacy)
-    schema["properties"].update(contract_revision={"type": "integer"}, contract_hash=STRING, task_id=STRING,
-                                user_request=USER_REQUEST, deferred_backlog=STRINGS)
-    schema["required"] += ["contract_revision", "contract_hash", "task_id", "user_request", "deferred_backlog"]
-    if role == "astra":
-        schema["properties"]["status"]["enum"] = ["CONTINUE", "REWORK", "BLOCKED", "COMPLETE"]
-        schema["properties"]["next_task"] = obj({
-            "kind": {"type": "string", "enum": ["implement", "validate", "none"]},
-            "milestone_id": STRING, "requirements": STRINGS,
-            "acceptance_criteria": STRINGS, "validation_plan": STRINGS,
-        })
-        # Optional: the ledger IDs this task addresses (default: every open finding).
-        schema["properties"]["next_task"]["properties"]["findings"] = STRINGS
-        # Optional structured reviewer findings; prose in requirements is not tracked.
-        schema["properties"]["findings"] = {"type": "array", "items": {
-            "type": "object", "additionalProperties": False, "required": ["severity", "finding", "evidence"],
-            "properties": {"id": STRING,
-                           "severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
-                           "finding": STRING, "evidence": STRING, "blocking": {"type": "boolean"}}}}
-        schema["properties"]["finding_dispositions"] = {"type": "array", "items": {
-            "type": "object", "additionalProperties": False, "required": ["id", "disposition", "evidence"],
-            "properties": {"id": STRING, "disposition": {"type": "string", "enum": ["resolved", "retracted"]},
-                           "evidence": STRING}}}
-        schema["properties"]["agreed_limitations"] = STRINGS
-        schema["required"] += ["next_task", "agreed_limitations"]
-    if role == "terra":
-        for key in ("addressed_requirements", "untested_behavior", "recommended_checks"):
-            schema["properties"][key] = STRINGS
-            schema["required"].append(key)
-    if role == "sol":
-        findings = schema["properties"]["findings"]["items"]
-        findings["properties"]["id"] = STRING
-        findings["properties"]["blocking"] = {"type": "boolean"}
-        findings["required"].append("blocking")
-        for key, field in {"reproduction_steps": STRINGS, "expected": STRING, "actual": STRING,
-                           "why_it_matters": STRING, "suggested_correction": STRING}.items():
-            findings["properties"][key] = field
-            findings["required"].append(key)
-        schema["properties"]["criterion_results"]["items"]["properties"]["status"]["enum"] = [
-            "PASS", "FAIL", "NOT_VERIFIED"]
-        schema["properties"]["end_to_end_result"] = obj({
-            "status": {"type": "string", "enum": ["PASS", "FAIL", "NOT_VERIFIED"]},
-            "summary": STRING, "evidence_refs": STRINGS,
-        })
-        schema["properties"]["finding_dispositions"] = {"type": "array", "items": {
-            "type": "object", "additionalProperties": False, "required": ["id", "disposition", "evidence"],
-            "properties": {"id": STRING, "disposition": {"type": "string", "enum": ["resolved", "retracted"]},
-                           "evidence": STRING}}}
-        schema["required"].append("end_to_end_result")
-    return schema
-
-
-def token(contract):
-    return f"r{contract['revision']}:{contract['hash']}"
-
-
-def sealed(contract):
-    return contract.get("hash") == s.digest({k: contract[k] for k in ("task_id", "revision", "body")})
-
-
-def approved(state):
-    contract = state.get("goal_contract", {})
-    approval = contract.get("approval_event") or {}
-    return bool(contract and sealed(contract) and contract.get("approval_status") == "approved"
-                and approval.get("token") == token(contract) and workflows.approval_actor_ok(contract.get("origin"), approval)
-                and approval in state.get("user_events", [])
-                and not contract["body"]["open_blocking_questions"])
+try:
+    from .autocode_contract_identity import token, sealed, approved
+except ImportError:
+    from autocode_contract_identity import token, sealed, approved
 
 
 def validate_requirements_body(state, body):
@@ -232,24 +176,10 @@ def validate_requirements_body(state, body):
             raise ValueError(f"Requirements are missing {key}")
 
 
-PLANNER_ORIGINS = {"glm_draft", "glm_revise", "astra_finalize", "astra_discovery"}
-_PROTECTED_LISTS = ("required_behaviors", "scope_exclusions", "constraints", "important_failure_cases")
-_CUE = re.compile(r"\b(must not|must|never|do not|don't|required|exactly|only)\b", re.I)
-
-
 def protected_contract_snapshot(state):
     body = (state.get("goal_contract") or {}).get("body") or {}
     return {key: copy.deepcopy(body.get(key))
             for key in (*_PROTECTED_LISTS, "acceptance_criteria", "permission_boundaries")}
-
-
-def _saved_user_basis(state, basis, answer_id):
-    if basis == "user_answer":
-        return bool(answer_id) and answer_id in state.get("answers", {})
-    if basis == "user_feedback":
-        return bool(answer_id) and any(event.get("id") == answer_id and event in state.get("user_events", [])
-                                       for event in state.get("brief_feedback", []))
-    return False
 
 
 def _cites_saved_user_event(state, evidence):
@@ -261,76 +191,6 @@ def _cites_saved_user_event(state, evidence):
     # A valid citation must not mask a fabricated feedback ID alongside it.
     event_tokens = re.findall(r"(?<![\w-])(?:feedback|intervention)-[\w-]+", evidence)
     return known and all(key in ids for key in event_tokens)
-
-
-def revision_guard(state, body, changes, origin):
-    """A planner revision may not drop protected text or widen permissions on its own."""
-    previous_contract = state.get("goal_contract") or {}
-    previous = previous_contract.get("body")
-    if origin not in PLANNER_ORIGINS or not previous:
-        return
-    # A new draft may replace an unapproved one. Revising the current draft, or
-    # replacing an approved contract, cannot drop protected text on its own.
-    if origin in ("glm_draft", "astra_discovery") and previous_contract.get("approval_status") != "approved":
-        return
-    if not isinstance(changes, list):
-        raise ValueError("Planner revision needs contract_changes")
-    protected.restore_spelling(previous, body, {raw.get("item") for raw in changes if isinstance(raw, dict)}, _PROTECTED_LISTS)
-    for raw in changes:
-        if not isinstance(raw, dict) or raw.get("change") not in ("removed", "reworded", "permission_changed"):
-            raise ValueError("contract_changes entries need item, change, basis and answer_id")
-        basis = raw.get("basis")
-        if not _saved_user_basis(state, basis, raw.get("answer_id")):
-            raise ValueError("Changing a protected contract item needs a saved user answer or feedback event")
-    declared = {}
-    for raw in changes:
-        declared.setdefault(raw["item"], []).append(raw)
-
-    def consume(item, kind):
-        rows = declared.get(item, [])
-        match = next((row for row in rows if row["change"] == kind), None)
-        if match is None:
-            raise ValueError(f"Planner revision drops or changes {item!r} without a user-backed contract change")
-        rows.remove(match)
-        if kind == "reworded":
-            replacement = str(match.get("replacement", "")).strip()
-            if not replacement:
-                raise ValueError(f"Rewording {item!r} needs the replacement text")
-            return "user", replacement
-        return "user", None
-
-    for key in _PROTECTED_LISTS:
-        for item in previous.get(key, []):
-            if item in body.get(key, []):
-                continue
-            _, replacement = consume(item, "reworded" if any(row["change"] == "reworded" for row in declared.get(item, [])) else "removed")
-            if replacement and replacement not in body.get(key, []):
-                raise ValueError(f"Rewording {item!r} must appear in {key}")
-    old_criteria = {row["id"]: (row["criterion"], test_cases.proof(row["verification_method"])) for row in previous.get("acceptance_criteria", [])}
-    new_criteria = {row["id"]: (row["criterion"], test_cases.proof(row["verification_method"])) for row in body.get("acceptance_criteria", [])}
-    for cid, text in old_criteria.items():
-        if new_criteria.get(cid) == text:
-            continue
-        consume(cid, "removed" if cid not in new_criteria else "reworded")
-    previous_permissions = previous.get("permission_boundaries", [])
-    if previous_permissions and set(previous_permissions) != set(body.get("permission_boundaries", [])):
-        changed = set(previous.get("permission_boundaries", [])) ^ set(body.get("permission_boundaries", []))
-        for item in changed:
-            consume(item, "permission_changed")
-    if any(rows for rows in declared.values()):
-        raise ValueError("contract_changes contains an item that was not changed in the protected contract")
-
-
-def cue_sentences(text):
-    parts = re.split(r"(?<=[.!?])\s+", str(text or "").strip())
-    return [part.strip() for part in parts if part.strip() and _CUE.search(part)]
-
-
-def source_texts(state):
-    texts = [state.get("task") or ""]
-    texts += [event.get("text", "") for event in state.get("brief_feedback", [])]
-    texts += [event.get("text", "") for event in state.get("answers", {}).values() if isinstance(event, dict)]
-    return [text for text in texts if text]
 
 
 def requirement_coverage_text(text):
@@ -423,7 +283,7 @@ def check_requirement_handoff(state, report):
         raise ValueError("ignored_statements must be an array")
     coverage = [requirement_coverage_text(text) for text in [*quotes, *ignored]]
     missing = []
-    for sentence in (sentence for source in sources for sentence in cue_sentences(source)):
+    for sentence in (sentence for source in scan_texts(state) for sentence in cue_sentences(source)):
         normalized = requirement_coverage_text(sentence)
         if any(quote and (quote in normalized or normalized in quote) for quote in coverage):
             continue
@@ -477,7 +337,7 @@ def check_requirement_handoff(state, report):
 
 def check_requirement_trace(state, report, contract, *, coverage=True):
     handoff = (state.get("requirements_handoff") or {}).get("report") or {}
-    requirements = handoff.get("requirements") or []
+    requirements = (handoff.get("requirements") or []) + adaptive.feedback_requirements(state)
     if not requirements:
         return
     trace = report.get("requirement_trace")
@@ -489,45 +349,15 @@ def check_requirement_trace(state, report, contract, *, coverage=True):
             raise ValueError("requirement_trace entries need requirement_id, disposition and evidence")
         rid = row.get("requirement_id")
         if rid in by_id or rid not in {r["id"] for r in requirements}:
-            raise ValueError("requirement_trace must contain each known requirement exactly once")
+            raise ValueError("requirement_trace must hold each of these exactly once: " + ", ".join(r["id"] for r in requirements))
         by_id[rid] = row
     missing = [row["id"] for row in requirements if row["id"] not in by_id]
     if missing:
         raise ValueError("Planner dropped requirements with no trace: " + ", ".join(missing))
-    behaviors = set(contract.get("required_behaviors", []))
-    criteria = {row["id"] for row in contract.get("acceptance_criteria", [])}
-    exclusions = set(contract.get("scope_exclusions", []))
-    # Citation IDs may be followed by explanatory prose. Compare whole tokens,
-    # and reject unknown IDs in the same ID families so a known ID cannot hide
-    # an accidental AC99 citation in the same evidence string.
-    id_tokens = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z_]+[0-9]+(?![A-Za-z0-9_])")
-    families = {re.match(r"[A-Za-z_]+", cid).group().casefold()
-                for cid in criteria if re.match(r"[A-Za-z_]+[0-9]+$", cid)}
-
-    def cites_defined_criterion(evidence):
-        tokens = id_tokens.findall(evidence)
-        cited = [token for token in tokens
-                 if re.match(r"[A-Za-z_]+", token).group().casefold() in families]
-        known = any(re.search(r"(?<![A-Za-z0-9_])" + re.escape(cid) + r"(?![A-Za-z0-9_])", evidence)
-                    for cid in criteria)
-        return known and all(token in criteria for token in cited)
-
-    for row in requirements:
-        entry = by_id[row["id"]]
-        evidence = str(entry.get("evidence", "")).strip()
-        disposition = entry["disposition"]
-        if coverage and disposition == "covered" and evidence not in (behaviors | criteria) and not cites_defined_criterion(evidence):
-            raise ValueError(f"Requirement {row['id']} is not covered by a behavior or criterion")
-        if disposition == "excluded":
-            if evidence not in exclusions:
-                raise ValueError(f"Requirement {row['id']} is not present in scope_exclusions")
-            # A scope_exclusions match alone is not sufficient: the Planner could
-            # otherwise exclude a user requirement by adding its own exclusion.
-            # excluded now needs the same saved-user-event citation superseded does.
-            if not _cites_saved_user_event(state, evidence):
-                raise ValueError(f"Requirement {row['id']} cannot be excluded without a saved user event")
-        if disposition == "superseded" and not _cites_saved_user_event(state, evidence):
-            raise ValueError(f"Requirement {row['id']} cannot be superseded without a saved user event")
+    errors = coverage_errors(requirements, by_id, contract, covered=coverage,
+                             cites_user_event=lambda evidence: _cites_saved_user_event(state, evidence))
+    if errors:
+        raise ValueError("; ".join(errors))
     conflicts = handoff.get("conflicts") or []
     conflict_sets = {frozenset(row.get("requirement_ids") or []) for row in conflicts}
     # A refreshed handoff may no longer call a settled pair a conflict. Preserve
@@ -728,13 +558,13 @@ def feedback(state, text):
     contract = state.get("goal_contract")
     event = {"kind": "brief_feedback", "id": "feedback-" + uuid.uuid4().hex[:12], "actor": "user_cli", "at": s.now(),
              "text": text.strip(), "contract_token": token(contract) if contract else state.get("requirements_artifact_token", ""),
-             "starts_episode": True}
+             "starts_episode": True, **adaptive.feedback_marker(state)}
     state.setdefault("user_events", []).append(event)
     state.setdefault("brief_feedback", []).append(event)
     start_clarification_episode(state, event["id"])
-    # A new user clarification restarts requirements discovery. The old
-    # report-only repair is bound to the preceding task/contract sources and
-    # must remain as evidence rather than consuming this episode's allowance.
+    # A new user clarification restarts requirements discovery (in an adaptive run, feedback on a shown
+    # plan restarts at the Planner instead). The old report-only repair is bound to the preceding
+    # task/contract sources and must remain as evidence rather than consuming this episode's allowance.
     pending = state.pop("pending_report_repair", None)
     if pending:
         state.setdefault("report_repair_archive", []).append({
@@ -743,9 +573,9 @@ def feedback(state, text):
     if contract:
         contract.update(approval_status="draft", approval_event=None)
         invalidate(state, "Brief feedback requires a refreshed draft and explicit approval")
-    first_stage = ("requirements" if state.get("settings", {}).get("planning_flow") == "v2" else
-                   "requirements_gather" if "requirements" in state.get("settings", {}).get("roles", {}) else "astra_discovery")
-    state.update(status="RUNNING", phase="DISCOVERING", next_stage=first_stage, pending_questions=[])
+    default = ("requirements" if state.get("settings", {}).get("planning_flow") == "v2" else
+               "requirements_gather" if "requirements" in state.get("settings", {}).get("roles", {}) else "astra_discovery")
+    state.update(status="RUNNING", phase="DISCOVERING", next_stage=adaptive.feedback_stage(event, default), pending_questions=[])
 
 
 def apply_intervention_feedback(state, receipt, applied_receipt):
@@ -1277,12 +1107,15 @@ If no matching current or historical conflict exists, retain the saved decision 
 accepted_assumptions instead; an empty conflict_resolutions list then is valid.
 Agent assumptions and unrelated user events cannot resolve a conflict. Carry genuinely
 unresolved conflicts into open_blocking_questions; do not ask again for a saved decision.
-When revising a plan after review, copy required_behaviors, scope_exclusions,
-constraints, important_failure_cases, acceptance_criteria (including verification
-methods), and permission_boundaries verbatim from goal_contract.body. Add new
+When revising, copy required_behaviors, scope_exclusions, constraints, important_failure_cases, acceptance_criteria (including verification
+methods), and permission_boundaries verbatim from goal_contract.body. In a draft without an approval receipt,
+you may correct a planner-generated verification_method that was never approved or user-set, retaining
+exact behavior, ID and human_review. Test:/guard: proofs cannot become prose or suite commands without a saved user basis.
+An unapproved planner draft may add human review. Approved/user-set review changes and removals need a saved basis.
+Use contract_changes=[] only for allowed draft corrections. Add new
 items when review identifies a gap; revise technical_approach, milestones, paths,
 tests and dependencies as needed. Do not rewrite an existing protected item for
-style or detail. A changed or removed protected item requires a saved user answer
+style or detail. Except numeric draft stdout repairs with a reviewer receipt, changes need a saved user answer
 or feedback event and an exact contract_changes entry naming the previous item.
 Use contract_changes=[] when those protected fields are unchanged. Reviewer
 concerns and agent proposals are not saved user authorization.

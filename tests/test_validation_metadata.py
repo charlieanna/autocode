@@ -1,4 +1,4 @@
-"""Derive only missing check metadata from unique, verified execution evidence."""
+"""Derive only missing check metadata from verified execution evidence (the latest run of a command)."""
 import copy
 import contextlib
 import io
@@ -47,15 +47,98 @@ class ValidationMetadataTests(unittest.TestCase):
             support.verify_checks(checks, self.workspace, self.log)
             self.assertEqual([{'command': 'python test.py', 'evidence_ref': 'event:actual', 'exit_code': 7}], checks)
 
+    def test_exact_event_canonicalizes_workspace_wrapper_only(self):
+        executed = f'cd {self.workspace} && python test.py 2>&1'
+        self.events(self.event(command=executed))
+        check = {'command': 'python test.py', 'evidence_ref': 'event:actual', 'exit_code': 0}
+        support.verify_checks([check], self.workspace, self.log)
+        self.assertEqual(executed, check['command'])
+        for command in ('python other.py', 'python test.py; echo pass'):
+            with self.subTest(command=command), self.assertRaises(ValueError):
+                support.verify_checks([{'command': command, 'evidence_ref': 'event:actual', 'exit_code': 0}],
+                                      self.workspace, self.log)
+        self.events(self.event(command=f'cd {self.workspace.parent} && python test.py 2>&1'))
+        with self.assertRaises(ValueError):
+            support.verify_checks([{'command': 'python test.py', 'evidence_ref': 'event:actual', 'exit_code': 0}],
+                                  self.workspace, self.log)
+
+    def test_unique_alias_canonicalizes_workspace_wrapper_only(self):
+        executed = f'cd {self.workspace} && python test.py 2>&1'
+        self.events(self.event(command=executed))
+        check = {'command': 'python test.py', 'evidence_ref': 'event:conversation-id', 'exit_code': 0}
+        support.verify_checks([check], self.workspace, self.log)
+        self.assertEqual({'command': executed, 'evidence_ref': 'event:actual', 'exit_code': 0}, check)
+
+        self.events(self.event(command=executed), self.event(id='other', command=executed))
+        repeated = {'command': 'python test.py', 'evidence_ref': 'event:conversation-id', 'exit_code': 0}
+        support.verify_checks([repeated], self.workspace, self.log)
+        self.assertEqual('event:other', repeated['evidence_ref'])
+
+        self.events(self.event(command=f'cd {self.workspace.parent} && python test.py 2>&1'))
+        with self.assertRaises(ValueError):
+            support.verify_checks([{'command': 'python test.py', 'evidence_ref': 'event:conversation-id', 'exit_code': 0}],
+                                  self.workspace, self.log)
+
+    def test_repeated_wrapped_executions_bind_the_latest_stale_event_alias(self):
+        executed = f'cd {self.workspace} && python test.py 2>&1'
+        self.events(self.event(id='first', command=executed, aggregated_output='one test passed'),
+                    self.event(id='second', command=executed, aggregated_output='one test passed'))
+        check = {'command': executed, 'evidence_ref': 'event:prior-attempt', 'exit_code': 0}
+        support.verify_checks([check], self.workspace, self.log)
+        self.assertEqual('event:second', check['evidence_ref'])
+
+        self.events(self.event(id='first', command=executed, aggregated_output='one test passed'),
+                    self.event(id='second', command=executed, aggregated_output='different output'))
+        latest = {'command': executed, 'evidence_ref': 'event:prior-attempt', 'exit_code': 0}
+        support.verify_checks([latest], self.workspace, self.log)
+        self.assertEqual('event:second', latest['evidence_ref'])
+
+        self.events(self.event(id='first', command=executed, aggregated_output='one test passed'),
+                    {'type': 'tool_output', 'id': 'second', 'command': executed, 'aggregated_output': 'FAILED'})
+        with self.assertRaises(ValueError):
+            support.verify_checks([{'command': 'python test.py', 'evidence_ref': 'event:', 'exit_code': None}],
+                                  self.workspace, self.log)
+    def test_a_bare_event_reference_binds_to_the_latest_run_of_the_command(self):
+        # The Validator cannot see event IDs or exit codes; it says event: and null (2026-10-02).
+        self.events(self.event(), self.event(id='other', exit_code=1))
+        for check in ({'evidence_ref': 'event:'}, {'evidence_ref': 'event:missing'},
+                      {'evidence_ref': 'event:', 'exit_code': None}, {'evidence_ref': 'event:', 'exit_code': 1}):
+            with self.subTest(check=check):
+                checks = [{'command': 'python test.py', **check}]
+                support.verify_checks(checks, self.workspace, self.log)
+                self.assertEqual([{'command': 'python test.py', 'evidence_ref': 'event:other', 'exit_code': 1}], checks)
+        checks = [{'command': 'python test.py', 'evidence_ref': 'event:actual', 'exit_code': None}]
+        support.verify_checks(checks, self.workspace, self.log)
+        self.assertEqual(0, checks[0]['exit_code'], 'a cited event fills a null exit code from that event')
+
+    def test_an_earlier_success_is_never_picked_over_the_latest_run(self):
+        self.events(self.event(), self.event(id='other', exit_code=1))
+        checks = [{'command': 'python test.py', 'evidence_ref': 'event:', 'exit_code': 0}]
+        with self.assertRaises(ValueError):
+            support.verify_checks(checks, self.workspace, self.log)
+        self.assertEqual('event:', checks[0]['evidence_ref'])
+
+    def test_a_later_run_without_an_exit_code_is_never_skipped_for_an_earlier_success(self):
+        # Review of #260: the latest run's exit was unknown (an OpenCode bridge without exit metadata), and the check
+        # was bound to the run before it, a convenient success. It must be refused: capture a receipt instead.
+        self.events(self.event(id='r1'), self.event(id='r2'),
+                    {'type': 'tool_output', 'id': 'r3', 'command': 'python test.py', 'aggregated_output': 'FAILED'})
+        for check in ({'evidence_ref': 'event:', 'exit_code': None}, {'evidence_ref': 'event:', 'exit_code': 0},
+                      {'evidence_ref': 'event:r3', 'exit_code': None}):
+            with self.subTest(check=check):
+                checks = [{'command': 'python test.py', **check}]
+                with self.assertRaises(ValueError):
+                    support.verify_checks(checks, self.workspace, self.log)
+                self.assertEqual(check['evidence_ref'], checks[0]['evidence_ref'])
+
     def test_ambiguity_conflicts_and_unknown_exits_are_not_repaired(self):
         for items, check in [
-            ([self.event(), self.event(id='other', exit_code=1)], {'evidence_ref': 'event:missing'}),
             ([self.event(), self.event()], {'evidence_ref': 'event:actual'}),
+            ([self.event(command='other')], {'evidence_ref': 'event:'}),
             ([self.event(exit_code=None)], {'evidence_ref': 'event:actual'}),
             ([self.event(exit_code=False)], {'evidence_ref': 'event:actual'}),
             ([self.event(command='other')], {'evidence_ref': 'event:actual'}),
             ([self.event(exit_code=1)], {'evidence_ref': 'event:actual', 'exit_code': 0}),
-            ([self.event()], {'evidence_ref': 'event:actual', 'exit_code': None}),
             ([self.event()], {'evidence_ref': 'event:actual', 'exit_code': False}),
         ]:
             with self.subTest(items=items, check=check):

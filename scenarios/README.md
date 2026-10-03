@@ -1,5 +1,78 @@
 # Scenarios
 
+`acceptance-phase-isolation` reproduces the stats-to-compatibility credential
+leak with synthetic credentials and a real stdlib HTTP server on 127.0.0.1.
+Its reference uses distinct declared phase roots; seed and broken controls
+share credentials or swallow refusals during a call or teardown. Every variant
+runs through the oracle subprocess boundary in a fresh sequence directory
+beside the delivered project. Oracle evaluation leaves its source files intact.
+A child exit of zero cannot override recorded unexpected requests: the raw
+sequence stays ERROR and the catalog oracle rejects acceptance. Each record
+includes roots, traffic identity, refusals and the started/polled/stopped smoke
+lifecycle. Previous evidence stays untouched.
+Refusal ledgers are created before execution in a separate observer directory,
+outside the phase's mutable state. State teardown preserves recorded refusals;
+a missing or corrupt ledger produces ERROR with unknown requests, never GREEN.
+
+Use `harness.phase_env.PhaseSequence` for new acceptance sequences. Its phases
+copy a frozen sequence environment, preserve HOME and provider OAuth, and add
+their declared credential/config/state/cache roots. Pass `env=prepared` to the
+sequence to omit ambient account variables without changing the parent process.
+Bind application inputs explicitly with `root_vars={"CLAUDE_CONFIG_DIR":
+"credential_root", "HEADROOM_CONFIG_DIR": "config_root",
+"HEADROOM_WORKSPACE_DIR": "state_root"}`; the generic `PHASE_*` variables alone
+do not isolate applications that never read them. Bindings are copied and
+validated before creating phase roots. Effective application roots and admitted
+endpoints are included in every phase record.
+Phase names must be distinct single path components; case variants and repeat
+names are rejected before they can reuse roots or refusal logs.
+Each sequence requires a fresh empty base and claims it exclusively. Reusing
+a prior or already owned base fails before credentials or evidence can change.
+Roots outside the sequence base are rejected before any directory or child
+process can write through them. Extra environment variables may
+add unrelated inputs; they cannot override HOME or any declared phase binding.
+The guard allows declared loopback destinations, checks redirect destinations,
+ignores ambient proxies, and records refusals before opening a socket. Existing
+oracle calls without `env` retain ambient inheritance.
+
+The catalog regression uses a standard-library consumer. A separate opt-in
+qualification exercises actual Headroom HTTPX, Uvicorn, Rust SDK startup and
+pytest TestClient lifespans against a frozen package/SDK copy and an existing
+qualified interpreter. It does not install dependencies or build a new SDK:
+
+```sh
+.venv/bin/python -B scenarios/headroom_phase_check.py \
+  --source /absolute/path/to/frozen-source \
+  --python /absolute/path/to/qualified/headroom/.venv/bin/python \
+  --out .scenario-runs/headroom-reference-new
+```
+
+The source directory must contain the declared `headroom/` package and a real
+`_core` shared library. Symlinked inputs are refused. Every output directory
+must be fresh. No private fixtures, bearer files or developer config should be
+part of the source copy. The stats phase writes a synthetic credential and
+uses an explicit in-memory usage-URL adapter to an owned loopback server.
+Compatibility retains the production default usage URL and receives empty
+credentials. Default sync/async HTTPX requests, DNS and socket connections are
+observed before I/O across imports, pytest collection, setup, call and teardown.
+Mock/ASGI transports remain local. These observers are acceptance diagnostics,
+not a sandbox for hostile application code.
+
+Run `--omit-application-binding` and `--share-credentials` with separate fresh
+outputs to prove the original and broken environments remain ERROR despite
+green pytest exits. `--inject-swallowed-step collection` (also `setup`, `call`
+and `teardown`) exercises a production client that catches a transport refusal;
+each must remain ERROR. `--policy path/to/phase_policy.json` accepts exactly
+boolean `isolate` and `bind` fields for candidate comparisons. A passing
+qualification exits zero; every negative control exits nonzero.
+
+Receipts bind the frozen source/SDK, evaluator helpers, candidate policy when
+supplied, effective phase roots, pytest cases, real server lifecycle and
+refusals. Parent environment and input/helper hashes must remain unchanged.
+Earlier V2 ERROR evidence is untouched; this qualification does not certify
+the original private #3913 candidate, the full PR #3863 overlay or other
+catalog sequences. See [the production qualification note](../docs/bugs/2026-10-02-headroom-phase-proof.md).
+
 Realistic engineering tasks for AutoCode, each with an independent **oracle**
 that judges the delivered project from the outside. The oracle, not AutoCode's
 own completion claim, decides whether the work is right.
@@ -13,7 +86,8 @@ $PY scenarios/run.py run bugfix-iso-weeks --profile glm53-openai --i-authorize-l
 $PY scenarios/run.py route --fake                 # which workflow AutoCode recognizes for each prompt in routing.toml
 $PY scenarios/run.py compare --fake               # AutoCode vs a plain agent on the same oracles (scripted; no spend)
 $PY scenarios/run.py stats                        # per scenario and mode: runs, passes, pass streak, time, model stages
-$PY -m unittest scenarios/test_harness.py         # the harness's own tests, including all catalog controls
+$PY scenarios/run.py build-compare greenfield-greeting-cli greenfield-todo-cli feature-timesheet-by-project parallel-diamond --fake --repeats 2 --jobs 4
+$PY tools/run_suite.py --scenario-harness         # the harness's own tests, including all catalog controls, in parallel
 ```
 
 Results land in `.scenario-runs/<time>-<id>-<mode>/`: `result.json` (verdict,
@@ -57,6 +131,45 @@ The driver answers AutoCode's clarifying questions with AutoCode's own proposed
 default and records each answer in `result.json`. It approves the plan it is
 shown and accepts requested human reviews. It never writes AutoCode state and
 does not resume paused runs: a pause is reported as `HONEST_BLOCKER`.
+
+## Fixed versus adaptive through completion
+
+`build-compare` uses catalog briefs verbatim and judges finished projects with
+their independent oracles. It repeats both modes in fresh projects, alternates
+which mode runs first, keeps the same model profile and budgets, and retains
+errors, skips and timeouts in the scheduled denominator. `plan-compare` still
+stops at plan approval; its custom briefs cannot inherit the seed's build oracle.
+
+For a bounded live comparison on the frozen October 2 defaults:
+
+```sh
+$PY scenarios/run.py build-compare greenfield-greeting-cli greenfield-todo-cli feature-timesheet-by-project parallel-diamond \
+  --profile build-comparison --repeats 2 --jobs 2 --timeout-minutes 45 \
+  --max-seconds 2400 --max-stage-seconds 600 --max-iterations 6 \
+  --rate-card scenarios/api-pricing-2026-10-02.json --i-authorize-live-model-spend
+$PY scenarios/run.py build-compare --rebuild .scenario-runs/<comparison-directory>
+```
+
+`protocol.json` freezes the revision, model profile, brief hashes, rate card,
+budgets and scheduled pairs before execution. Each completed attempt is saved
+separately; rebuilding reports calls no models and shows missing attempts. Live
+API dollar estimates use individual OpenCode request finishes, deduplicate
+replayed usage, include reasoning, rejected calls and report repairs, apply
+cache rates and long-context surcharges, and leave unknown usage unpriced.
+`API $ / pass` includes spend on failed attempts. These are standard API token
+estimates, even when the configured connection uses a subscription; actual
+billing, tool fees and unreported/incomplete-request usage are not established.
+Fake runs show gate correctness and oracle sensitivity, never dollar savings or
+model effectiveness. A short successful live sample is evidence to expand the
+comparison, not proof that changing the default is safe for every job.
+Add `--prepare` to save the exact protocol, including briefs and seed hashes,
+without launching AutoCode or needing live-spend authorization.
+
+Inspect recorded clarification answers before interpreting quality differences.
+The driver accepts model-proposed defaults; a default can change an output
+contract away from the original-brief oracle. Such a mismatch is not evidence
+that a Builder ignored its approved plan. Retain the attempt and flag the changed
+target rather than presenting its oracle score as a comparison on the same goal.
 
 A scenario whose `scenario.toml` carries `[run] known_failure = "why"` is one
 AutoCode is known not to pass yet. `run` still reports its verdict but does not
@@ -186,6 +299,25 @@ directory holds:
 A fake comparison proves only the plumbing and the scoring. What matters is a
 live comparison with matched models and a recorded profile.
 
+## Planning: today's pipeline vs adaptive planning
+
+`plan-compare` plans each build request in `planning.toml` twice: once with
+today's fixed AutoPlanner sequence (`--no-adaptive-planning`) and once with `--adaptive-planning`
+([docs/adaptive-planning.md](../docs/adaptive-planning.md)). It stops each run
+at the plan the user is asked to approve, so nothing is built. A request with
+`feedback` sends it instead of approving that plan, and stops at the next plan
+shown for approval. It reports stages, review calls and blocking concerns,
+questions, tokens and model time side by side, with the feedback round in its
+own columns. Under `blind/` it writes each request's two plans as Plan A and
+Plan B (before and after the feedback, when there is one), with the key kept
+separately, for judging plan quality without knowing which variant wrote which.
+
+```sh
+$PY scenarios/run.py plan-compare --fake                   # every adaptive path, scripted, seconds
+$PY scenarios/run.py plan-compare --profile default --jobs 3 --i-authorize-live-model-spend
+$PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a comparison cut short
+```
+
 ## Catalog
 
 | Scenario | Category | What it exercises |
@@ -246,13 +378,12 @@ your working checkout):
 
 ```sh
 scenarios/run.py run <scenario> --profile glm53-openai --i-authorize-live-model-spend \
-    --max-seconds 2400 --max-stage-seconds 600 --max-reported-tokens 2000000 --max-iterations 6
+    --max-seconds 2400 --max-stage-seconds 600 --max-iterations 6
 ```
 
 Why each cap: `--max-seconds 2400` bounds the whole run (planning + build + validation fit
 comfortably; a greenfield run spends most of it planning); `--max-stage-seconds 600` makes a
-stuck stage surface as a pause instead of hanging the run; `--max-reported-tokens 2000000`
-because 400k proved too tight — a greenfield run reported roughly 670–865k input on its own;
+stuck stage surface as a pause instead of hanging the run;
 `--max-iterations 6` bounds rework loops.
 
 **Results.** Runs write under `.scenario-runs/` (git-ignored). Read a run's `report.json` there;
@@ -273,7 +404,7 @@ For an OpenAI-only campaign using the existing ChatGPT OAuth connection:
 
 ```sh
 $PY scenarios/run.py run <scenario> --profile codex-only --i-authorize-live-model-spend \
-    --max-seconds 1200 --max-stage-seconds 480 --max-reported-tokens 2000000 --max-iterations 6
+    --max-seconds 1200 --max-stage-seconds 480 --max-iterations 6
 ```
 
 This profile uses GPT-5.6 Terra for requirements, planning and building, and

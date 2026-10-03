@@ -56,6 +56,28 @@ class EvidenceBoundaryTests(AdversarialCase):
         self.assertTrue(self.trace("stage_enter", stage="sol"))
         self.assertTrue(self.trace("stage_enter", stage="astra_review"))
 
+    def test_completion_accepts_id_only_report(self):
+        view = self.complete_case("review_id_only")
+        self.assertTrue(view["done"], self.root)
+        self.assertEqual("id_only", self.require_injection("astra_review")[-1]["shape"])
+        self.assertFalse(self.trace("evidence_rejection_observed"))
+
+    def test_conflicting_completion_text_gets_report_repair(self):
+        view = self.complete_case("review_wrong_literal_once")
+        self.assertTrue(view["done"], self.root)
+        self.assertEqual(["conflicting_legacy", "id_only"],
+                         [row["shape"] for row in self.require_injection("astra_review")])
+        self.assertTrue(any("criterion text conflicts" in row["error"]
+                            for row in self.trace("evidence_rejection_observed")))
+        self.assertEqual(1, len(self.trace("stage_enter", stage="terra")), "Report repair must not repeat the build")
+
+    def test_id_only_deferred_blocker_reaches_the_resolver(self):
+        self.complete_case("review_deferred_blocker")
+        self.assertEqual("id_only", self.require_injection("astra_review")[0]["shape"])
+        self.assertTrue(self.trace("stage_enter", "astra_resolve"), self.root)
+        self.assertFalse(self.trace("evidence_rejection_observed", "astra_review"),
+                         "A deferred blocker must not fail loading criterion text from disk")
+
     def test_validator_cannot_claim_zero_exit_for_failing_command(self):
         view = self.complete_case("evidence_failing_exit")
         rows = self.require_injection("sol")

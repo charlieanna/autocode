@@ -1,0 +1,1 @@
+The stats smoke leaves a synthetic credential that contaminates later compatibility checks. Give each phase its own declared root. A swallowed transport refusal must still invalidate acceptance. Preserve the loopback smoke and prior evidence.

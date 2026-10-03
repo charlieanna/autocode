@@ -9,11 +9,45 @@ from pathlib import Path
 
 try:
     from .autocode_util import Paused, criteria_definition, file_hash
+    from .autocode_progressive_completion import ready as progressive_ready
+    from . import autocode_design_coverage as design_coverage, autocode_protected_oracles as protected_oracles
 except ImportError:
     from autocode_util import Paused, criteria_definition, file_hash
+    from autocode_progressive_completion import ready as progressive_ready
+    import autocode_design_coverage as design_coverage, autocode_protected_oracles as protected_oracles
+
+REFUSED = "Completion rejected: missing, stale, failed or unverified independent evidence"
+
+
+def rejection(state) -> str:
+    """Why COMPLETE was refused, naming the criteria the latest validation did not pass.
+
+    A live ladder-20 run (Claude models, 2026-09-30) reached the plain refusal twice: the last
+    milestone's validation left out the accepted milestone's criteria, and the Completion Owner
+    could not tell what was missing or how to ask for it."""
+    if not design_coverage.ready(state):
+        missing = ", ".join(design_coverage.gaps(state)) or "changed or unbound design evidence"
+        return f"{REFUSED}. Design coverage needs fresh independent evidence for: {missing}."
+    results = {row["id"]: row.get("status") for row in (state.get("validation") or {}).get("criterion_results", [])}
+    gaps = [row["id"] for row in state.get("acceptance_criteria", []) if results.get(row["id"]) != "PASS"]
+    if not gaps:
+        return REFUSED
+    return (f"{REFUSED}. The latest validation has no passing result for {', '.join(gaps)}; completion needs one "
+            "validation that passes every criterion on the current source. Request CONTINUE with a next_task of "
+            "kind=validate that lists every criterion (in a milestone run, on the current milestone: a validate "
+            "task may recheck accepted milestones' criteria).")
 
 
 def completion_ready(state, decision, current, *, require_human_reviews=True, require_independent=True):
+    # Design coverage is an independent-validation obligation (sol / checkpoint).
+    # The final-audit self-check probe passes require_independent=False and must
+    # not demand design_results from the builder's self-assessment.
+    if require_independent and not protected_oracles.ready(state, current.get("revision")):
+        return False
+    if require_independent and not design_coverage.ready(state):
+        return False
+    if not progressive_ready(state, current):
+        return False
     human_only_gap = False
     if (require_independent and state.get('settings', {}).get('milestone_checkpoints', {}).get('enabled')
             and state.get('validation', {}).get('reviewer_role') != 'sol'):
@@ -85,3 +119,53 @@ def completion_ready(state, decision, current, *, require_human_reviews=True, re
     if not regression.complete(state, current["revision"]):
         return False  # a bug fix needs the runner's passing regression proof for this exact source
     return all(Path(p).is_file() and file_hash(p) == h for p, h in pins.items())
+
+
+def artifact_review_request(state, decision, current):
+    """Offer human acceptance when a conservative owner asks to validate only that gap.
+
+    The probe tests the existing completion gate; it never changes the saved report,
+    validation or human events. A human criterion's automated evidence is sufficient
+    to *present* review, but only a user's bound receipt can satisfy acceptance.
+    """
+    try:
+        from . import autocode_goals as goals
+    except ImportError:
+        import autocode_goals as goals
+    if decision.get("status") == "CONTINUE":
+        if (decision.get("next_task") or {}).get("kind") != "validate":
+            return None  # never suppress an implementation or correction task
+    elif decision.get("status") not in ("COMPLETE", "TASK_COMPLETE"):
+        return None
+    missing = goals.missing_human_reviews(state)
+    if not missing:
+        return None
+    validation = state.get("validation") or {}
+    replay = validation.get("check_replay") or {}
+    if replay.get("verdict") != "PASS" or replay.get("source_revision") != current["revision"]:
+        return None
+    human = {row["id"] for row in state["goal_contract"]["body"]["acceptance_criteria"] if row["human_review"]}
+    # The owner may correctly leave human acceptance unverified. Keep that report
+    # unchanged, while checking every technical guard through the normal gate.
+    probe = {**decision, "status": "TASK_COMPLETE", "acceptance_criteria": [
+        {**row, "status": "verified"} if row["id"] in human else row
+        for row in decision.get("acceptance_criteria", [])]}
+    if not completion_ready(state, probe, current, require_human_reviews=False):
+        # Missing human-row prose must be repaired, not turned into another validation
+        # task. Test eligibility with the real Validator references in an ephemeral
+        # probe; never accept this substitute as the owner's report or human approval.
+        refs = {row["id"]: row.get("evidence_refs", []) for row in validation.get("criterion_results", [])}
+        empty = {row["id"] for row in probe["acceptance_criteria"]
+                 if row["id"] in human and not row.get("evidence", "").strip()}
+        repair_probe = {**probe, "acceptance_criteria": [
+            {**row, "evidence": ", ".join(refs.get(row["id"], []))} if row["id"] in empty else row
+            for row in probe["acceptance_criteria"]]}
+        if empty and completion_ready(state, repair_probe, current, require_human_reviews=False):
+            raise ValueError("Human-review decision lacks current validation evidence for " + ", ".join(sorted(empty))
+                             + ": cite the existing Validator evidence while leaving human acceptance unverified; "
+                               "do not invent a user approval or request another validation solely for human acceptance")
+        return None
+    return {"kind": "human_review", "criteria": missing,
+            "decision_needed": "Review the current artifact and explicitly approve the listed criteria",
+            "impact": "Completion requires the declared human acceptance of this validated artifact",
+            "options": [], "discovered": "Independent evidence passed; human review remains", "proposed_delta": ""}

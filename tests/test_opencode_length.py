@@ -63,7 +63,7 @@ class OutputLimitTests(unittest.TestCase):
     def test_a_stream_ending_on_tool_calls_is_a_failed_turn_with_known_usage(self):
         # A live Validator mistyped the workspace path; every tool call was
         # auto-rejected and `opencode run` exited after that step. Unknown usage
-        # made the reported-token cap unenforceable (issue #112, repair 3).
+        # lost usage accounting (issue #112, repair 3).
         tokens = {"input": 10, "output": 5, "reasoning": 7, "cache": {"read": 2, "write": 3}}
         rows = [event("step_start", id="prt_s1"),
                 event("tool_use", id="prt_tool", tool="read", state={"status": "error", "error": "external_directory"}),
@@ -222,7 +222,7 @@ class OutputLimitTests(unittest.TestCase):
             self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", reconciled.exception.status)
             self.assertIn("output token limit", str(reconciled.exception))
             self.assertIn("never automatically replayed", str(reconciled.exception))
-            self.assertIn("--abandon-stage 001/terra-01", str(reconciled.exception))
+            self.assertIn("--abandon-stage 001/builder-01", str(reconciled.exception))
             self.assertEqual([], state["stages"])
             with patch.object(support, "snapshot", return_value=snapshot):
                 runner.abandon_stage(state, self.run, self.root, runner.attempt_id(record))

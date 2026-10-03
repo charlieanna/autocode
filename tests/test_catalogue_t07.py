@@ -269,7 +269,7 @@ class RepairScenarios(RepairCase):
         lifecycle.present(case_state)
         lifecycle.approve(case_state, goals.token(case_state["goal_contract"]))
         case_state["settings"]["limits"] = {"iteration_ceiling": 5, "max_seconds": None,
-                                            "max_reported_tokens": None, "no_progress_batches": 3,
+                                            "no_progress_batches": 3,
                                             "automatic_retries": 0}
         case_state.update(active_seconds=60 * 90 * 3, no_progress_batches=0)  # slow but progressing
         saved = support.atomic_json(self.run / "slow-state.json", case_state)

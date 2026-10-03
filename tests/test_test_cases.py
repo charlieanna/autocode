@@ -34,28 +34,49 @@ def feature_state(project, criteria, milestones=1):
 
 
 class ContractCasesTests(unittest.TestCase):
+    def test_approved_test_name_can_prove_two_criteria_with_one_focused_test(self):
+        criteria = [
+            {"id": "AC1", "criterion": "add returns five", "verification_method": "test: test_adds_two_integers"},
+            {"id": "AC2", "criterion": "the focused suite passes", "verification_method": "test: test_adds_two_integers"},
+        ]
+        state = {"goal_contract": {"body": {"acceptance_criteria": criteria}}}
+        cases = test_cases.contract_cases(state)
+        ids = ["test_add.TestAdd.test_adds_two_integers"]
+        self.assertEqual({"AC1": ids, "AC2": ids}, test_cases.match_cases(cases, ids))
+        proof = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": ids}
+        regression.check_cases(proof, cases)
+        self.assertEqual("PASS", proof["verdict"])
+        self.assertEqual([], proof["failures"])
+        self.assertEqual({"AC1": [], "AC2": []},
+                         test_cases.match_cases(cases, ["test_add.TestAdd.test_adds_two_integers_extra"]))
+        missing = {"verdict": "PASS", "failures": [], "unverified": [], "fail_to_pass": []}
+        regression.check_cases(missing, cases)
+        self.assertEqual("FAIL", missing["verdict"])
+        self.assertTrue(all("test_adds_two_integers" in failure for failure in missing["failures"]))
+
     def test_only_criteria_marked_test_are_cases(self):
         state = {"goal_contract": {"body": {"milestones": [{"id": "M1"}], "acceptance_criteria": [
             ORDINARY, EXAMPLE, {**EXAMPLE, "id": "C3", "verification_method": "  TEST: test_c3_x"}]}}}
-        self.assertEqual([{"id": "C2", "text": EXAMPLE["criterion"]}, {"id": "C3", "text": EXAMPLE["criterion"]}],
+        self.assertEqual([{"id": "C2", "text": EXAMPLE["criterion"], "test_name": "test_c2_subtracts"},
+                          {"id": "C3", "text": EXAMPLE["criterion"], "test_name": "test_c3_x"}],
                          test_cases.contract_cases(state))
         self.assertEqual("C2: " + EXAMPLE["criterion"], test_cases.case_text(test_cases.contract_cases(state)[0]))
 
     def test_a_guard_criterion_is_a_preserve_case(self):
         guard = {**EXAMPLE, "id": "C4", "verification_method": "guard: test_c4_adds_still"}
         state = {"goal_contract": {"body": {"milestones": [{"id": "M1"}], "acceptance_criteria": [EXAMPLE, guard]}}}
-        self.assertEqual([{"id": "C2", "text": EXAMPLE["criterion"]},
-                          {"id": "C4", "text": EXAMPLE["criterion"], "kind": "preserve"}],
+        self.assertEqual([{"id": "C2", "text": EXAMPLE["criterion"], "test_name": "test_c2_subtracts"},
+                          {"id": "C4", "text": EXAMPLE["criterion"], "test_name": "test_c4_adds_still", "kind": "preserve"}],
                          test_cases.contract_cases(state))
         self.assertIn('"guard:"', test_cases.builder_note(state))
 
-    def test_a_planning_revision_may_switch_test_and_guard_but_nothing_else(self):
+    def test_an_approved_revision_may_switch_test_and_guard_but_keeps_the_same_proof(self):
         # A live review-then-fix plan (2026-09-29) could not move a criterion from test: to guard:, as its
         # Plan Reviewer asked, without asking the user.
         import autocode_goals as goals
 
         def revise(method, text=EXAMPLE["criterion"]):
-            state = {"goal_contract": {"body": {"acceptance_criteria": [EXAMPLE]}, "approval_status": "draft"},
+            state = {"goal_contract": {"body": {"acceptance_criteria": [EXAMPLE]}, "approval_status": "approved"},
                      "answers": {}, "user_events": [], "brief_feedback": []}
             body = {"acceptance_criteria": [{**EXAMPLE, "criterion": text, "verification_method": method}]}
             goals.revision_guard(state, body, [], "glm_revise")
@@ -208,6 +229,10 @@ class FeatureProofTests(unittest.TestCase):
         proof = self.prove([ORDINARY, EXAMPLE])
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
         self.assertEqual({"C2": ["test_calc.CalcTests.test_c2_subtracts"]}, proof["case_tests"])
+        artifact = json.loads(Path(proof["path"]).read_text())
+        self.assertEqual("PASS", artifact["verdict"])
+        self.assertEqual(proof["case_tests"], artifact["case_tests"])
+        self.assertEqual(["C2"], artifact["case_scope"])
 
     def test_an_example_without_its_test_fails_the_proof_and_is_named(self):
         missing = {**EXAMPLE, "id": "C3", "criterion": "Given calc.mul; when mul(2, 3) runs; then it returns 6",
@@ -216,6 +241,11 @@ class FeatureProofTests(unittest.TestCase):
         self.assertEqual("FAIL", proof["verdict"])
         self.assertEqual([], proof["case_tests"]["C3"])
         self.assertTrue(any("C3: Given calc.mul" in failure and "test_c3_" in failure for failure in proof["failures"]))
+        artifact = json.loads(Path(proof["path"]).read_text())
+        self.assertEqual("FAIL", artifact["verdict"])
+        self.assertEqual(proof["failures"], artifact["failures"])
+        self.assertEqual([], artifact["case_tests"]["C3"])
+        self.assertEqual(["C2", "C3"], artifact["case_scope"])
 
 
     # Live review-then-fix plans (2026-09-29) could only mark "a timeout before execution is still
@@ -236,6 +266,7 @@ class FeatureProofTests(unittest.TestCase):
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
         self.assertEqual(["test_calc.CalcTests.test_c4_add_still_works"], proof["case_tests"]["C4"])
         self.assertTrue(any("not shown to have passed before" in note for note in proof["notes"]), proof["notes"])
+        self.assertEqual(proof["notes"], json.loads(Path(proof["path"]).read_text())["notes"])
 
     def test_a_guard_whose_test_ran_and_failed_before_the_change_is_mis_tagged(self):
         new_behavior = {**self.GUARD, "id": "C5", "verification_method": "guard: test_c5_sub_exists"}
@@ -292,6 +323,43 @@ class PromptTests(unittest.TestCase):
             self.assertIn(autoplanner.EXAMPLE_CRITERIA_RULE, autoplanner.context(state, stage, state_path)[0], stage)
         self.assertNotIn(autoplanner.EXAMPLE_CRITERIA_RULE,
                          autoplanner.context(state, "requirements_gather", state_path)[0])
+
+    def test_the_plan_reviewer_recomputes_worked_examples(self):
+        from tests.test_bug_job import SmallCorrectionTests
+        from units import autoplanner
+        state = SmallCorrectionTests.start(SmallCorrectionTests(), fix_size="large")
+        state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
+        state_path = Path(state["workspace"]) / "state.json"
+        for stage, wanted in (("astra_challenge", True), ("astra_finalize", True), ("astra_discovery", False),
+                              ("glm_revise", False)):
+            with self.subTest(stage=stage):
+                prompt = autoplanner.context(state, stage, state_path)[0]
+                self.assertEqual(wanted, "CHECK EVERY WORKED EXAMPLE" in prompt)
+
+    def test_the_plan_reviewer_checks_every_example_against_the_brief(self):
+        # A live greenfield run (2026-10-01) transcribed the brief's "ID TEXT [open|done]" into examples
+        # without the brackets and everything downstream honestly served the corrupted criteria.
+        from tests.test_bug_job import SmallCorrectionTests
+        from units import autoplanner
+        state = SmallCorrectionTests.start(SmallCorrectionTests(), fix_size="large")
+        state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
+        state_path = Path(state["workspace"]) / "state.json"
+        for stage, wanted in (("astra_challenge", True), ("astra_finalize", True), ("astra_discovery", False),
+                              ("glm_revise", False)):
+            with self.subTest(stage=stage):
+                prompt = autoplanner.context(state, stage, state_path)[0]
+                self.assertEqual(wanted, "CHECK EVERY EXAMPLE AGAINST THE BRIEF" in prompt)
+
+    def test_every_planning_stage_forbids_timing_criteria_except_requirements(self):
+        from tests.test_bug_job import SmallCorrectionTests
+        from units import autoplanner
+        state = SmallCorrectionTests.start(SmallCorrectionTests(), fix_size="large")
+        state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
+        state_path = Path(state["workspace"]) / "state.json"
+        for stage, wanted in (("astra_discovery", True), ("astra_challenge", True), ("glm_revise", True),
+                              ("astra_finalize", True), ("requirements_gather", False)):
+            with self.subTest(stage=stage):
+                self.assertEqual(wanted, "NO TIMING CRITERIA" in autoplanner.context(state, stage, state_path)[0])
 
     def test_the_builder_is_told_to_write_the_named_tests(self):
         from tests.test_bug_job import approved_small_fix

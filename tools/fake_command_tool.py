@@ -69,6 +69,9 @@ if observation:
     observation.write_text(json.dumps({"stdin": stdin, "prompt": prompt}))
 invocations = argument("--invocations")
 data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+if 'acceptance_criteria_ref' in data:
+    data['acceptance_criteria'] = [{k: c[k] for k in ('id', 'criterion')}
+                                  for c in data['goal_contract']['body']['acceptance_criteria']]
 if invocations:
     with invocations.open("a") as handle:
         handle.write(data.get("stage", "report_repair") + "\n")
@@ -119,8 +122,25 @@ common = {"contract_revision": contract["revision"], "contract_hash": contract["
           "task_id": (data.get("current_task") or {}).get("id", ""),
           "deferred_backlog": ["Optional web UI"], "user_request": {"kind": "none", "discovered": "", "impact": "",
               "decision_needed": "", "options": [], "proposed_delta": ""}}
+
+
+def adaptive_task(draft):
+    """An adaptive-planning Planner draft carries its initial_task: kind none while a blocking question is open."""
+    if "ADAPTIVE PLANNING" not in prompt:
+        return
+    draft["initial_task"] = ({"objective": "Implement greeting CLI", "affected_paths": ["greet.py"], "kind": "implement",
+                              "milestone_id": "M1", "requirements": ["Greet names; reject empty/whitespace input"],
+                              "acceptance_criteria": ["C1"], "validation_plan": ["Execute valid, empty and whitespace input"]}
+                             if not draft.get("open_blocking_questions") else
+                             {"objective": "", "affected_paths": [], "kind": "none", "milestone_id": "",
+                              "requirements": [], "acceptance_criteria": [], "validation_plan": []})
+
+
 if stage == "recognize_workflow":
     result = {"workflow": "build", "reason": "Offline fixture: every request is treated as a build", "signals": [], "design_document": ""}
+    if 'Add "clarity"' in prompt:
+        # Vague keeps the Requirements stage, so a default (adaptive) run plans in the same stages as before.
+        result["clarity"] = os.environ.get("AUTOCODE_FIXTURE_CLARITY", "vague")
 elif stage == "investigate_stuck":
     result = {"diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.", "cause": "other", "guidance": "", "recommendation": "pause", "user_question": "", "evidence_refs": [], "example": "", "probe": "", "untestable": ""}
 elif stage == "requirements_gather":
@@ -146,6 +166,7 @@ elif stage == "astra_discovery":
         draft["technical_approach"] = []
         draft["milestones"] = []
         draft.pop("initial_task", None)
+    adaptive_task(draft)
     result = {"contract": draft, "summary": "Build a small local greeting CLI with a clear invalid-input failure",
               "code_refs": ["greet.py:1"] if Path("greet.py").is_file() else ["goal_contract.body"],
               "alternatives": ["A web endpoint would need deployment"],
@@ -159,6 +180,7 @@ elif stage == "glm_revise":
     draft = dict(contract["body"])
     draft.pop("initial_task", None)
     draft["important_failure_cases"] = [*draft["important_failure_cases"], "Reject whitespace-only input"]
+    adaptive_task(draft)
     result = {"contract": draft, "summary": "Added whitespace case",
               "code_refs": ["greet.py:1"] if Path("greet.py").is_file() else ["goal_contract.body"],
               "contract_changes": [], "conflict_resolutions": [], "requirement_trace": [], "machine_resolutions": [], "remediation_records": [], "access_blockers": [],

@@ -27,6 +27,7 @@ try:
     from . import autocode_milestones as milestones
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
+    from . import autocode_progressive_state as progressive
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_stop as stop
@@ -46,12 +47,23 @@ except ImportError:
     import autocode_milestones as milestones
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
+    import autocode_progressive_state as progressive
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
     import autocode_stop as stop
     import autocode_support as support
     import autocode_workflows as workflows
     import autocode_worktrees as worktrees
+
+
+def explicit_recovery_requested(args):
+    """Whether this invocation carries a scoped operator recovery action."""
+    return any((getattr(args, 'retry_builder', None),
+                getattr(args, 'retry_failed_stage', False),
+                getattr(args, 'retry_report', None),
+                getattr(args, 'abandon_stage', None),
+                getattr(args, 'diagnose_failed_stage', False),
+                getattr(args, 'grant_recovery', None) is not None))
 
 
 def handle(runner, args, parser, state, state_path, run_dir, workspace):
@@ -76,6 +88,11 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                                          lambda: support.snapshot(workspace)["revision"])
     if dependency_result is not None:
         return dependency_result
+    explicit_run_seconds = getattr(args, "max_seconds", None)
+    explicit_slice_seconds = getattr(args, "max_milestone_seconds", None)
+    if explicit_run_seconds is not None or explicit_slice_seconds is not None:
+        progressive.set_explicit_limits(state, run_seconds=explicit_run_seconds,
+                                        slice_seconds=explicit_slice_seconds)
     decision_action = any((args.answer, args.delegate, args.approve_goal, args.edit_goal,
                            args.approve_review, args.reconcile_review, args.feedback is not None, args.follow_up is not None,
                            args.show_goal, args.accept_completion, args.resolver_response,
@@ -138,7 +155,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         state.update(status='RUNNING', phase='EXECUTING')
         state.pop('stop_reason', None)
         runner.write_json(state_path, state)
-    if (not decision_action and args.grant_recovery is None and not args.diagnose_failed_stage and not args.retry_builder
+    if (not decision_action and not explicit_recovery_requested(args)
             and state.get('status') != 'RUNNING'
             and not acknowledged_planning_extension and not acknowledged_bound_change
             and str(state.get('status', '')).startswith('PAUSED_')
@@ -165,10 +182,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         runner.commit_user_action(state, candidate, run_dir)
         print('AutoResolver received the response. Work, approvals and budgets remain unchanged; no provider launched.')
         return 0
-    if (not decision_action and not any((args.retry_builder, args.retry_failed_stage,
-                                           args.retry_report, args.abandon_stage,
-                                           args.diagnose_failed_stage,
-                                           args.grant_recovery is not None))
+    if (not decision_action and not explicit_recovery_requested(args)
             and not (args.chat and state.get('status') == 'WAITING_FOR_USER'
                      and resolver_human.current(state))
             and (state.get(resolver_human.PUBLIC) or {}).get('scope') == 'operational_exhaustion'):
@@ -203,8 +217,16 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             # with --grant-recovery N.
             if state.get("recovery_context") is None:
                 state["recovery_context"] = {}
+            # Validate the displayed grant before resume bookkeeping changes
+            # the user events bound into the resolver request's identity.
+            if args.grant_recovery is not None:
+                try:
+                    runner.grant_recovery_allowance(state, run_dir, args.grant_recovery)
+                except ValueError as error:
+                    print(f"Input rejected: {error}", file=sys.stderr)
+                    return 2
             # Reset milestone budget counters when raising the limit
-            if args.max_milestone_seconds is not None:
+            if args.max_milestone_seconds is not None and not (state.get("progressive") or {}).get("budget"):
                 for row in state.get("milestone_progress", {}).values():
                     if isinstance(row, dict):
                         row["seconds"] = 0
@@ -234,12 +256,6 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                         resolver_runtime.admit_operational_diagnosis(runner, state, run_dir, workspace)
                         print("Diagnosis admitted for the recorded repeated Builder failure; "
                               "a bounded read-only model diagnosis runs before any retry.", flush=True)
-                    except ValueError as error:
-                        print(f"Input rejected: {error}", file=sys.stderr)
-                        return 2
-                elif args.grant_recovery is not None:
-                    try:
-                        runner.grant_recovery_allowance(state, run_dir, args.grant_recovery)
                     except ValueError as error:
                         print(f"Input rejected: {error}", file=sys.stderr)
                         return 2

@@ -60,7 +60,8 @@ class DesignReviewPlantedTests(unittest.TestCase):
     def test_one_vague_multi_keyword_concern_cannot_cover_all_gaps(self):
         self.report["concerns"] = [{"id": "F1", "severity": "blocking",
                                    "summary": "Partition key ordering, duplicate processing, rollback."}]
-        self.assertEqual({"raises_idempotency_as_blocking", "raises_migration_as_blocking"},
+        self.assertEqual({"raises_idempotency_as_blocking", "raises_migration_as_blocking",
+                          "grounds_ordering_in_existing_contract"},
                          self.failed_checks(self.report))
 
     def test_each_planted_gap_remains_required_as_blocking(self):
@@ -68,11 +69,26 @@ class DesignReviewPlantedTests(unittest.TestCase):
             with self.subTest(area=area):
                 report = json.loads(json.dumps(self.report))
                 report["concerns"][index]["severity"] = "advisory"
-                self.assertEqual({f"raises_{area}_as_blocking"}, self.failed_checks(report))
+                expected = {f"raises_{area}_as_blocking"}
+                if area == "ordering":
+                    expected.add("grounds_ordering_in_existing_contract")
+                self.assertEqual(expected, self.failed_checks(report))
 
-    def test_ordering_question_remains_required(self):
-        self.report["questions"] = self.report["questions"][1:]
-        self.assertEqual({"asks_about_ordering_requirement"}, self.failed_checks(self.report))
+    def test_grounded_ordering_blocker_does_not_need_a_user_question(self):
+        self.report["questions"] = []
+        self.assertEqual(set(), self.failed_checks(self.report))
+
+    def test_a_generic_ordering_complaint_is_not_grounded_in_the_existing_contract(self):
+        self.report["concerns"][0].update(summary="Partitioning by kind breaks sequence order.",
+                                          evidence="Producer uses kind as the partition key.")
+        self.assertIn("grounds_ordering_in_existing_contract", self.failed_checks(self.report))
+
+    def test_an_ordering_question_cannot_replace_the_blocking_concern(self):
+        self.report["concerns"] = self.report["concerns"][1:]
+        self.report["questions"] = [{"id": "Q1", "question": "How should per-domain sequence be preserved?",
+                                     "options": ["domain partition key", "ordered dispatch"]}]
+        self.assertIn("raises_ordering_as_blocking", self.failed_checks(self.report))
+        self.assertIn("grounds_ordering_in_existing_contract", self.failed_checks(self.report))
 
     def test_seed_reference_and_all_broken_controls(self):
         variants = [("seed", None, False), ("reference", self.scenario.reference, True)]

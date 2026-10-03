@@ -7,6 +7,8 @@ or edit AutoCode's private state or historical campaign artifacts.
 from __future__ import annotations
 
 import hashlib
+import copy
+import json
 import shlex
 import subprocess
 import sys
@@ -17,7 +19,7 @@ ATTACKS = frozenset({
     "evidence_failing_exit", "evidence_cross_stage", "evidence_wrong_command",
     "evidence_stale_contract", "evidence_stale_task", "evidence_late_source_mutation",
     "evidence_vacuous_tests", "evidence_weak_command", "evidence_out_of_scope",
-    "evidence_forged_receipt",
+    "evidence_forged_receipt", "review_id_only", "review_wrong_literal_once", "review_deferred_blocker",
 })
 
 BROKEN_GREETING = '''"""Deliberately broken implementation supplied by the adversarial Builder."""
@@ -116,7 +118,24 @@ def install(fake, config: dict, trace) -> None:
         current_stage = stage
         if data.get("report_repair") and data.get("error"):
             receipt("rejection_observed", error=data["error"])
-        report = original_report(stage, data)
+        if attack == "review_wrong_literal_once" and stage == "astra_review" and data.get("report_repair"):
+            report = copy.deepcopy(data["rejected_report"]["content"])
+            if isinstance(report, str):
+                report = json.loads(report)
+        else:
+            report = original_report(stage, data)
+        if stage == "astra_review" and attack in ("review_id_only", "review_wrong_literal_once", "review_deferred_blocker"):
+            if attack == "review_wrong_literal_once" and not data.get("report_repair"):
+                report["acceptance_criteria"][0]["criterion"] += " invented wording"
+                receipt("injected", shape="conflicting_legacy")
+            else:
+                for row in report["acceptance_criteria"]:
+                    row.pop("criterion", None)
+                receipt("injected", shape="id_only")
+            if attack == "review_deferred_blocker":
+                report.update(status="BLOCKED", blocker="The reviewer sees conflicting requirements")
+                report["user_request"].update(kind="contradiction", discovered="Conflicting requirements",
+                    impact="Cannot decide completion", decision_needed="Resolve the apparent conflict")
         if stage == "terra" and attack in {
                 "evidence_failing_exit", "evidence_cross_stage", "evidence_wrong_command",
                 "evidence_weak_command", "evidence_forged_receipt"}:

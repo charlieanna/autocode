@@ -26,6 +26,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_support as support
     from . import autocode_workflow as workflow
+    from . import autocode_progressive_state as progressive, autocode_output_policy as output_policy
 except ImportError:
     import autopilot
     import autocode_goals as goals
@@ -36,6 +37,15 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_support as support
     import autocode_workflow as workflow
+    import autocode_progressive_state as progressive, autocode_output_policy as output_policy
+
+
+def check_evidence_options(record):
+    return {'receipt_only': record.get('output_mode') == 'report_file',
+            'capture_context': record.get('capture_context')}
+
+# Planning restarts allowed per deferral reason since the user's last input; the next deferral pauses.
+MAX_DEFERRED_APPROVAL_RESTARTS = 2
 
 
 def now() -> str:
@@ -117,7 +127,30 @@ def normalize_human_boundary(state, run_dir):
     if disposition == 'defer' and proposal['scope'] == 'goal_approval':
         if planning.enabled(state) and not (state.get('goal_contract') or {}).get('body', {}).get('open_blocking_questions'):
             if not state.get('planning') or not planning.is_planning(state, state.get('next_stage')):
+                # A restart begins a cycle with a fresh review allowance, so a deferral that keeps
+                # recurring would spend review calls without limit (docs/bugs/2026-09-30-unbounded-
+                # planning-restart.md). Restarts are counted per reason since the user's last input.
+                reason = state['resolver']['human_disposition']['reason']
+                # Only what the user wrote renews the allowance: runner bookkeeping (recovery
+                # receipts, review reroutes) also lands in user_events and must not reset
+                # this bound. user_intervention is feedback the user queued while the run worked.
+                inputs = sum(1 for event in state.get('user_events', [])
+                             if isinstance(event, dict)
+                             and event.get('actor') in ('user', 'user_cli', 'user_intervention'))
+                identity = support.digest({'task_id': state.get('task_id'), 'reason': reason,
+                                           'user_inputs': inputs})
+                restarts = state['resolver'].setdefault('deferred_approval_restarts', {})
                 planning.start(state)
+                if restarts.get(identity, 0) >= MAX_DEFERRED_APPROVAL_RESTARTS:
+                    # The new cycle is ready, so an explicit resume runs exactly one more.
+                    state.pop(resolver_human.PRIVATE, None)
+                    state.update(status='PAUSED_APPROVAL_DEFERRED', phase='PAUSED_OR_BLOCKED', stop_reason=(
+                        f"Plan approval was deferred again: {reason}. Planning already restarted "
+                        f"{restarts[identity]} times for this reason since your last input, so it stopped "
+                        "instead of starting another cycle. Inspect the run; --resume-paused runs one more "
+                        "planning cycle, and --feedback restarts from requirements."))
+                    return
+                restarts[identity] = restarts.get(identity, 0) + 1
             state.update(status='RUNNING', phase='PLANNING')
             state.pop(resolver_human.PRIVATE, None)
             return
@@ -159,6 +192,7 @@ def read_json(path: Path) -> dict[str, Any]:
 def account_stage(state, record):
     """Charge a finished attempt once, including rejected/recovered responses."""
     if not record.get("accounted"):
+        output_policy.account(state, record)
         duration = record.get("duration_seconds")
         if duration is None and record.get("started_at"):
             started = dt.datetime.fromisoformat(record["started_at"]).timestamp()
@@ -167,6 +201,9 @@ def account_stage(state, record):
                      else events_path.stat().st_mtime if events_path.exists() else started)
             duration = max(0, ended - started)
             record["duration_seconds"] = duration
+        if not progressive.account_stage(state, record):
+            record["accounted"] = True
+            return
         state["active_seconds"] = state.get("active_seconds", 0) + (duration or 0)
         milestones.account(state, record)
         record["accounted"] = True
@@ -208,21 +245,42 @@ def default_missing_provenance(value, record):
     report that only lacked such a list (VALIDATION.md: `$: missing code_refs`).
     """
     stage = str(record.get("stage", "")).removesuffix("_report_repair")
-    if stage not in PLANNING_STAGES or not isinstance(value, dict):
+    if not isinstance(value, dict):
         return value
     try:
         properties = read_json(Path(record["schema"])).get("properties", {})
     except (OSError, ValueError, KeyError):
         return value
+    optional = {}
+    if "progressive_checkpoint" in properties and "progressive_checkpoint" not in value:
+        optional["progressive_checkpoint"] = False
+    if "progressive_proposal" in properties and "progressive_proposal" not in value:
+        optional["progressive_proposal"] = {"version": 0, "needed_because": "", "shared_decisions": [],
+                                             "outstanding_criteria": [], "done_slices": [], "slices": []}
+    if stage not in PLANNING_STAGES:
+        if optional:
+            record["defaulted_fields"] = sorted(optional)
+        return {**value, **optional}
+    contract_schema = properties.get("contract", {}).get("properties", {})
+    if isinstance(value.get("contract"), dict):
+        # A report-level field written inside the contract is the model's own content, only misplaced:
+        # move it up instead of rejecting the report (`$.contract: unexpected fields`, 8 repairs to
+        # 2026-10-02, contract_changes for one) or defaulting it to empty.
+        misplaced = sorted(key for key in value["contract"]
+                           if key in properties and key not in contract_schema and not value.get(key))
+        if misplaced:
+            record["hoisted_fields"] = misplaced
+            value = {**value, **{key: value["contract"][key] for key in misplaced},
+                     "contract": {k: v for k, v in value["contract"].items() if k not in misplaced}}
     missing = sorted(key for key in PROVENANCE_LISTS
                      if key in properties and key not in value and properties[key].get("type") == "array")
-    defaults = {key: [] for key in missing}
+    defaults = {**optional, **{key: [] for key in missing}}
+    missing.extend(optional)
     # An omitted job type is "build", as for every run before task_kind existed; approval
     # always shows the job type, so a wrong default is visible before any build starts.
     if "task_kind" in properties and "task_kind" not in value:
         defaults["task_kind"] = "build"
     contract = value.get("contract")
-    contract_schema = properties.get("contract", {}).get("properties", {})
     if isinstance(contract, dict) and "task_kind" in contract_schema and "task_kind" not in contract:
         defaults["contract"] = {**contract, "task_kind": "build"}
         missing.append("contract.task_kind")

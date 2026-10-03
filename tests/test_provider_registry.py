@@ -33,19 +33,19 @@ class ProviderRegistryTests(unittest.TestCase):
         self.assertEqual("providers.opencode", provider.__name__)
 
     def test_named_provider_loads_its_config(self):
-        provider = autocode_providers.resolve("gocode")
+        provider = autocode_providers.resolve("kilocode")
         self.assertIsInstance(provider, command.CommandProvider)
-        self.assertEqual("openai/gpt-6-sol", provider.DEFAULT_MODELS["plan_reviewer"])
-        self.assertFalse(provider.SUPPORTS_SESSIONS)
+        self.assertEqual("openai/gpt-5.6-sol", provider.DEFAULT_MODELS["plan_reviewer"])
+        self.assertTrue(provider.SUPPORTS_SESSIONS)
 
     def test_unknown_provider_fails_without_silent_opencode_fallback(self):
         with self.assertRaisesRegex(RuntimeError, "no provider config for 'missing'"):
             autocode_providers.resolve("missing")
 
     def test_resume_rejects_provider_drift(self):
-        self.assertEqual("gocode", autocode_providers.select("gocode", {"provider": "gocode"}))
+        self.assertEqual("kilocode", autocode_providers.select("kilocode", {"provider": "kilocode"}))
         with self.assertRaisesRegex(ValueError, "cannot change provider"):
-            autocode_providers.select("opencode", {"provider": "gocode"})
+            autocode_providers.select("opencode", {"provider": "kilocode"})
 
     def test_default_provider_comes_from_environment_then_user_config(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -56,8 +56,8 @@ class ProviderRegistryTests(unittest.TestCase):
                 config.parent.mkdir(parents=True)
                 config.write_text('default_provider = "kilocode"\n')
                 self.assertEqual("kilocode", autocode_providers.select(None, None))
-                os.environ["AUTOCODE_PROVIDER"] = "gocode"
-                self.assertEqual("gocode", autocode_providers.select(None, None))
+                os.environ["AUTOCODE_PROVIDER"] = "kilocode"
+                self.assertEqual("kilocode", autocode_providers.select(None, None))
                 # A saved run keeps its provider, and an explicit engine default wins over the setting.
                 self.assertEqual("opencode", autocode_providers.select(None, {"provider": "opencode"}))
                 self.assertEqual("opencode", autocode_providers.select(None, None, default="opencode"))
@@ -73,7 +73,7 @@ class ProviderRegistryTests(unittest.TestCase):
         args = SimpleNamespace(provider=None, engine="codex", figma_file=None, joint_planning=False, glm_model=None,
                                reasoning_effort=None, headroom=None, context_soft_tokens=None,
                                rotate_after_input_tokens=None, legacy_iteration_ceiling=15, max_iterations=None,
-                               max_seconds=None, max_reported_tokens=None, no_progress_limit=None, pin_model_role=[],
+                               max_seconds=None, no_progress_limit=None, pin_model_role=[],
                                **{f"{role}_{field}": None for role in ("astra", "terra", "sol", "completion")
                                   for field in ("model", "provider", "reasoning_effort")})
         with mock.patch.dict(os.environ, {"AUTOCODE_PROVIDER": "kilocode"}), \
@@ -100,12 +100,12 @@ class ProviderRegistryTests(unittest.TestCase):
         self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["glm"]["model"])
 
     def test_config_provider_joint_review_uses_the_config_role_defaults(self):
-        provider = command.load("gocode")
+        provider = command.load("kilocode")
         previous = autocode.opencode
         autocode.opencode = provider
         try:
             settings = {
-                "provider": "gocode", "transport_identity": {"engine": "gocode"},
+                "provider": "kilocode", "transport_identity": {"engine": "opencode"},
                 "roles": {role: {} for role in ("astra", "terra", "sol")},
             }
             args = SimpleNamespace(astra_model=None, terra_model=None, sol_model=None, glm_model=None)
@@ -113,10 +113,10 @@ class ProviderRegistryTests(unittest.TestCase):
         finally:
             autocode.opencode = previous
         self.assertEqual({
-            "engine": "opencode", "provider": None, "model": "openai/gpt-6-sol",
+            "engine": "opencode", "provider": None, "model": "openai/gpt-5.6-sol",
             "reasoning_effort": "high", "model_pinned": True,
         }, settings["roles"]["plan_reviewer"])
-        self.assertEqual("zai-coding-plan/glm-5.3", settings["roles"]["terra"]["model"])
+        self.assertEqual("openai/gpt-5.6-terra", settings["roles"]["terra"]["model"])
         self.assertEqual("medium", settings["roles"]["glm"]["reasoning_effort"])
 
 

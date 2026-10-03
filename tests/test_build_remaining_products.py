@@ -110,7 +110,9 @@ class RemainingProducts(unittest.TestCase):
         reports = [json.loads(p.read_text()).get('implementation', {}) for p in children]
         requests = [r.get('user_request', {}) for r in reports]
         self.assertTrue(any(r.get('kind') == 'infeasible' for r in requests), requests)
-        logs = '\n'.join(p.read_text() for p in self.project.glob('.autocode/builders/*/*/.autocode/runs/*/iterations/*/terra-*.jsonl'))
+        logs = '\n'.join(p.read_text() for p in (
+            list(self.project.glob('.autocode/builders/*/*/.autocode/runs/*/iterations/*/builder-*.jsonl'))
+            + list(self.project.glob('.autocode/builders/*/*/.autocode/runs/*/iterations/*/terra-*.jsonl'))))
         self.assertIn('syntax error', logs.lower())
 
 

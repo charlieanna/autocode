@@ -62,7 +62,7 @@ class GoalTests(unittest.TestCase):
             "iteration": 1, "sessions": {}, "stages": [], "history": [], "next_stage": "terra", "acceptance_criteria": [],
             "settings": {"roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("astra", "terra", "sol")},
                 "transport_identity": self.local, "headroom": {"enabled": False}, "context_soft_tokens": 10000,
-                "limits": {"iteration_ceiling": 5, "max_seconds": None, "max_reported_tokens": None, "no_progress_batches": 3}}}
+                "limits": {"iteration_ceiling": 5, "max_seconds": None, "no_progress_batches": 3}}}
         lifecycle.migrate(self.state)
 
     def draft(self, **kwargs):
@@ -847,7 +847,6 @@ class GoalTests(unittest.TestCase):
         self.approve()
         for name, value, expected in [("iteration_ceiling", 0, "PAUSED_ITERATION_LIMIT"),
                                       ("max_seconds", 1, "PAUSED_TIME_LIMIT"),
-                                      ("max_reported_tokens", 1, "PAUSED_BUDGET"),
                                       ("no_progress_batches", 1, "PAUSED_NO_PROGRESS")]:
             with self.subTest(name=name):
                 saved = copy.deepcopy(self.state)
@@ -861,7 +860,7 @@ class GoalTests(unittest.TestCase):
                 self.assertNotEqual("TASK_COMPLETE", self.state["status"])
                 self.state = saved
 
-    def test_interrupted_abandoned_unknown_usage_stays_paused_on_resume_and_larger_cap(self):
+    def test_interrupted_abandoned_unknown_usage_retains_work_and_allows_resume(self):
         self.approve()
         self.state["settings"]["limits"]["max_reported_tokens"] = 100
         base = self.run / "iterations/001/terra-01"
@@ -891,87 +890,74 @@ class GoalTests(unittest.TestCase):
         self.assertIsNone(abandoned[0]["metrics"]["provider_tokens"]["output_tokens"])
         events = abandoned[0]["events"]
         self.assertNotEqual(str(base.with_suffix(".jsonl")), events)
-        for args, cap in [(('--resume-paused',), 100), ((), 100), (('--resume-paused',), 100),
-                          (('--resume-paused', '--max-reported-tokens', '1000'), 1000),
-                          (('--resume-paused',), 1000)]:
-            with self.subTest(args=args, cap=cap):
-                self.assertEqual(2, self.invoke(*args))
-                assert_operational_wait(self, self.state, "PAUSED_USAGE_UNKNOWN")
-                self.assertEqual(cap, self.state["settings"]["limits"]["max_reported_tokens"])
-                reason = self.state["stop_reason"]
-                for detail in ("001/terra-01", events, "--abandon-stage", "--resume-paused",
-                               "larger positive --max-reported-tokens do not resolve unknown consumption",
-                               "unchanged-cap run remains paused", "--max-reported-tokens 0",
-                               "policy change, not usage recovery"):
-                    self.assertIn(detail, reason)
-                self.assertIn(reason, self.stdout + self.stderr)
-                # Only AutoResolver's zero-usage, runner-owned diagnostic receipts may be
-                # added; the archived attempt and earlier records are unchanged.
-                self.assertEqual(archived, self.state["stages"][:len(archived)])
-                for added in self.state["stages"][len(archived):]:
-                    self.assertTrue(added["runner_owned"])
-                    self.assertEqual("resolver", added["stage"])
-                    self.assertEqual({"input_tokens": 0, "output_tokens": 0}, added["metrics"]["provider_tokens"])
-                self.assertEqual(raw_events, Path(events).read_text())
-                self.assertEqual("# retained partial work\n", (self.root / "partial.py").read_text())
-                self.assertEqual(8, self.state["active_seconds"])
-
-    def test_unknown_usage_lists_all_affected_attempts_and_legacy_record_locations(self):
-        self.approve()
-        self.state["settings"]["limits"]["max_reported_tokens"] = 100
-        self.state["stages"] = [
-            {"iteration": 1, "output": str(self.run / "terra-01.json"), "events": str(self.run / "terra-01.jsonl"),
-             "metrics": {"provider_tokens": {"input_tokens": None, "output_tokens": 1}}},
-            {"iteration": 1, "output": str(self.run / "sol-01.json"), "events": str(self.run / "sol-01.jsonl"),
-             "metrics": {"provider_tokens": {"input_tokens": 1}}},
-            {},
-            {"iteration": 1, "output": str(self.run / "known.json"), "events": str(self.run / "known.jsonl"),
-             "metrics": {"provider_tokens": {"input_tokens": 100, "output_tokens": 1}}}]
-        records = copy.deepcopy(self.state["stages"])
-        self.assertEqual(2, self.invoke())
-        assert_operational_wait(self, self.state, "PAUSED_USAGE_UNKNOWN")
-        for name in ("terra-01", "sol-01"):
-            self.assertIn(f"001/{name}", self.stderr)
-            self.assertIn(str(self.run / f"{name}.jsonl"), self.stderr)
-        self.assertIn("stages[2] (events: not recorded)", self.stderr)
-        self.assertNotIn("known.jsonl", self.stderr)
-        # Saved attempts are untouched; the only addition is AutoResolver's runner-owned,
-        # zero-usage diagnostic receipt for the operational request.
-        self.assertEqual(records, self.state["stages"][:len(records)])
-        for added in self.state["stages"][len(records):]:
-            self.assertTrue(added["runner_owned"])
-            self.assertEqual("resolver", added["stage"])
-            self.assertEqual({"input_tokens": 0, "output_tokens": 0}, added["metrics"]["provider_tokens"])
-
-    def test_reported_token_known_threshold_still_controls_stage_admission(self):
-        self.approve()
-        self.state["stages"] = [{"metrics": {"provider_tokens": {"input_tokens": 1, "output_tokens": 1}}}]
-        self.assertEqual(2, self.invoke("--max-reported-tokens", "2"))
-        assert_operational_wait(self, self.state, "PAUSED_BUDGET")
         calls = []
-        def attempted(**kwargs):
+        def admitted(**kwargs):
             calls.append(kwargs)
-            raise s.Paused("PAUSED_TEST_LAUNCH", "Mock stage admitted; no provider called")
-        self.assertEqual(2, self.invoke("--resume-paused", "--max-reported-tokens", "3", role=attempted))
-        self.assertEqual("PAUSED_TEST_LAUNCH", self.state["status"])
+            raise s.Paused("PAUSED_TEST_LAUNCH", "Offline stage admission verified")
+        self.assertEqual(2, self.invoke("--resume-paused", role=admitted))
         self.assertEqual(1, len(calls))
+        self.assertEqual("PAUSED_TEST_LAUNCH", self.state["status"])
+        self.assertNotIn("max_reported_tokens", self.state["settings"]["limits"])
+        self.assertEqual(archived, self.state["stages"][:len(archived)])
+        self.assertEqual(raw_events, Path(events).read_text())
+        self.assertEqual("# retained partial work\n", (self.root / "partial.py").read_text())
+        self.assertEqual(8, self.state["active_seconds"])
 
-    def test_autopilot_runtime_uses_same_reported_token_guard(self):
+    def test_saved_token_pause_can_resume_without_a_new_spending_allowance(self):
         self.approve()
-        self.state["settings"]["limits"]["max_reported_tokens"] = 2
-        args = runner.argparse.Namespace(unit=None, resume_paused=True)
-        for tokens, status in [({}, "PAUSED_USAGE_UNKNOWN"),
-                               ({"input_tokens": 1, "output_tokens": 1}, "PAUSED_BUDGET")]:
+        baseline = copy.deepcopy(self.state)
+        human = runner.resolver_runtime.human
+        for status in ("PAUSED_BUDGET", "PAUSED_USAGE_UNKNOWN"):
             with self.subTest(status=status):
-                self.state["stages"] = [{"metrics": {"provider_tokens": tokens}}]
-                with patch.object(runner.autopilot, "dispatch_unit") as dispatch:
-                    with self.assertRaises(s.Paused) as caught:
-                        runner.autopilot.run(runner, self.state, self.root, self.run, args)
-                    dispatch.assert_not_called()
-                self.assertEqual(status, caught.exception.status)
-                with self.assertRaises(s.Paused) as shared:
-                    s.enforce_reported_token_limit(self.state)
-                self.assertEqual(str(shared.exception), str(caught.exception))
+                self.state = copy.deepcopy(baseline)
+                self.state["settings"]["limits"]["max_reported_tokens"] = 1
+                self.state["settings"]["budget_origins"] = {"max_reported_tokens": "user_explicit"}
+                self.state.update(status=status, stop_reason="Saved token guard exhausted")
+                # Construct a saved legacy request with a genuine runner receipt.
+                runner.resolver_runtime.record_operational_exhaustion(
+                    runner, self.state, self.run, s.Paused("PAUSED_BUDGET", self.state["stop_reason"]))
+                proposal = copy.deepcopy(self.state[human.PRIVATE])
+                human.queue(self.state, "operational_exhaustion",
+                    {"stage": "terra", "pause_status": status, "budget": {"kind": "max_reported_tokens"}},
+                    request=proposal["request"], evidence=proposal["evidence"])
+                self.assertEqual("escalate", human.evaluate(self.state))
+                calls = []
+                def admitted(**kwargs):
+                    calls.append(kwargs)
+                    raise s.Paused("PAUSED_TEST_LAUNCH", "Offline stage admission verified")
+                self.assertEqual(2, self.invoke("--resume-paused", role=admitted))
+                self.assertEqual(1, len(calls))
+                self.assertEqual("PAUSED_TEST_LAUNCH", self.state["status"])
+                self.assertNotIn(human.PUBLIC, self.state)
+                self.assertEqual(baseline["goal_contract"], self.state["goal_contract"])
+
+    def test_saved_token_setting_does_not_bypass_plan_approval(self):
+        self.draft()
+        self.state["settings"]["limits"]["max_reported_tokens"] = 1
+        self.assertEqual(2, self.invoke("--resume-paused"))
+        self.assertEqual("AWAITING_GOAL_APPROVAL", self.state["status"])
+        self.assertFalse(g.approved(self.state))
+
+    def test_legacy_token_cap_does_not_stop_known_or_unknown_usage(self):
+        self.approve()
+        baseline = copy.deepcopy(self.state)
+        for tokens in ({"input_tokens": 2000000, "output_tokens": 100},
+                       {"input_tokens": None, "output_tokens": None}):
+            with self.subTest(tokens=tokens):
+                self.state = copy.deepcopy(baseline)
+                self.state["settings"]["limits"]["max_reported_tokens"] = 1
+                attempt = {"metrics": {"provider_tokens": tokens}, "output": "saved-attempt.json"}
+                self.state["stages"].append(attempt)
+                calls = []
+                def admitted(**kwargs):
+                    calls.append(kwargs)
+                    raise s.Paused("PAUSED_TEST_LAUNCH", "Offline stage admission verified")
+                self.assertEqual(2, self.invoke(role=admitted))
+                self.assertEqual(1, len(calls))
+                self.assertEqual("PAUSED_TEST_LAUNCH", self.state["status"])
+                self.assertNotIn("max_reported_tokens", self.state["settings"]["limits"])
+                self.assertEqual(attempt, self.state["stages"][0])
+
 
     def test_cli_approve_saves_ready_without_launching(self):
         self.draft()

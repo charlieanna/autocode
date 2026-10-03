@@ -23,6 +23,19 @@ class CommandsTests(unittest.TestCase):
             # Prose after a plain command (live bugfix-trivial, 2026-09-30): replayed as a command, it never passes.
             ("python3 -m unittest -v passes; Validator reads the diff", []),
             ("Run python3 -m unittest -v via capture and read the diff", []),
+            # A sentence after the command (live parallel-diamond, 2026-10-01): unittest read its words as modules.
+            ("Run python3 -m unittest integration.test_check from repo root: 2 tests OK.", []),
+            ("python3 -m unittest integration.test_check, expect 2 tests OK.", []),
+            ("python3 -m unittest tests.test_a tests.test_b", ["python3 -m unittest tests.test_a tests.test_b"]),
+            ("pytest tests/test_x.py::test_y -k name", ["pytest tests/test_x.py::test_y -k name"]),
+            ("go test ./...", ["go test ./..."]),
+            # A sentence after -c (live architecture-two-services, 2026-09-30): NameError when replayed.
+            ("Run python3 -c doing a topological sort/DFS over depends_on.", []),
+            ("Run `python3 -c doing a topological sort` over the graph", []),
+            ("python3 -c: Kahn topological sort over depends_on sorts all nodes (AC6)", []),
+            ("sh -c checking each file exists", []),
+            ("python3 -c exit", ["python3 -c exit"]),
+            ('python3 -c "import a; a.f()" x y', ['python3 -c "import a; a.f()" x y']),
             ("python3 -m unittest discover -s tests -t .", ["python3 -m unittest discover -s tests -t ."]),
             ("python3 -c 'assert f(1, 2) == 3'", ["python3 -c 'assert f(1, 2) == 3'"]),
             ("pytest --verify --output=out.xml tests", ["pytest --verify --output=out.xml tests"])):
@@ -38,6 +51,20 @@ class CommandsTests(unittest.TestCase):
                 self.assertEqual([], plan.commands(method))
         self.assertEqual(["python3 -m unittest -v"], plan.commands(
             "Run `python3 -m unittest -v` and confirm it exits successfully."))
+
+    def test_declared_zero_exits_keep_the_original_required_commands(self):
+        self.assertEqual(["go test ./a", "go test ./b"], plan.commands(
+            "Run `go test ./a` and `go test ./b` and confirm exit codes 0/0."))
+
+    def test_exit_expectations_with_ambiguous_assignments_are_refused(self):
+        for method in (
+            "Run `go test ./a` and `go test ./b` and confirm exit code 2.",
+            "Run `go test ./a` and inspect `README.md` then confirm exit code 2.",
+            "Run `go test ./a` and confirm exit code 256.",
+            "Run `go test ./a` and confirm exit code -1.",
+        ):
+            with self.subTest(method=method), self.assertRaisesRegex(ValueError, "one status.*per executable command"):
+                plan.commands(method)
 
     def test_later_milestone_commands_are_not_forced_on_the_current_task(self):
         state = {"goal_contract": {"body": {"acceptance_criteria": [

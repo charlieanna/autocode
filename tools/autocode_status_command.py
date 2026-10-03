@@ -17,6 +17,16 @@ def render(runner, state, args, workspace, run_dir):
     current = runner.support.snapshot(workspace) if state["status"] == "TASK_COMPLETE" else None
     completion_current = (runner.completion_gate.completion_ready(state, state.get("final_decision", {}), current)
                           if state["status"] == "TASK_COMPLETE" else None)
+    public_view = runner.run_view.view(state)
+    if public_view.get("progressive") and completion_current is not None:
+        public_view["progressive"]["current_whole_product_proof"] = {
+            "verified": completion_current is True,
+            "status": "current" if completion_current is True else "stale_or_incomplete",
+            "source_revision": current["revision"],
+            "reason": "Checked against the current checkout by the full completion gate.",
+        }
+        if completion_current is True:
+            public_view["progressive"]["outstanding_product_criteria"] = []
     if stale:
         print(f"STALE CHECKPOINT: saved status is RUNNING but the recorded "
               f"{active.get('stage')} workers are gone and no terminal report was saved. "
@@ -45,5 +55,5 @@ def render(runner, state, args, workspace, run_dir):
                        "unit_handoffs": state.get("unit_handoffs", {}),
                        "milestone_activation_pending": (run_dir / 'milestone-checkpoints-requested.json').exists(),
                        "interventions": runner.intervention_metadata(workspace, run_dir, state),
-                       "view": {**runner.run_view.view(state), "delivery": runner.dependency.export(state, current, completion_current)},
+                        "view": {**public_view, "delivery": runner.dependency.export(state, current, completion_current)},
                        **runner.resolver_human.projection(state)}, indent=2))

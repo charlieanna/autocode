@@ -604,7 +604,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
         local = {'auth_mode': 'fixture'}
         self.state['settings']['transport_identity'] = local
         self.state['settings'].setdefault('limits', {
-            'iteration_ceiling': 18, 'max_seconds': None, 'max_reported_tokens': None,
+            'iteration_ceiling': 18, 'max_seconds': None,
             'no_progress_batches': 3, 'automatic_retries': 0})
         support.atomic_json(self.run / 'state.json', self.state)
         argv = ['autocode.py', '--workspace', str(self.root), '--run-dir', str(self.run), '--resume-paused', *options]
@@ -848,29 +848,20 @@ class OperationalDiagnosisTests(unittest.TestCase):
         self.assertNotIn('diagnostic_calls', self.state['resolver'])
         self.assertNotIn('active_stage', self.state)
 
-    def test_cli_time_and_token_budget_guards_do_not_charge(self):
+
+    def test_cli_time_budget_guard_does_not_charge(self):
         self.repeated_terra_failure()
         self.admit()
-        baseline = copy.deepcopy(self.state)
-        for budget in ('time', 'tokens', 'unknown_tokens'):
-            with self.subTest(budget=budget):
-                self.state = copy.deepcopy(baseline)
-                self.state['settings']['limits'] = {
-                    'iteration_ceiling': 18, 'max_seconds': 1 if budget == 'time' else None,
-                    'max_reported_tokens': None if budget == 'time' else 1,
-                    'no_progress_batches': 3, 'automatic_retries': 0}
-                self.state['active_seconds'] = 2
-                if budget == 'tokens':
-                    for row in self.state['stages']:
-                        row['metrics'] = {'provider_tokens': {'input_tokens': 2, 'output_tokens': 0}}
-                with self.provider() as launches:
-                    self.assertEqual(2, self.cli())
-                saved = support.read(self.run / 'state.json')
-                # The budget pause is surfaced as an AutoResolver operational request, uncharged.
-                assert_operational_wait(self, saved, {'time': 'PAUSED_TIME_LIMIT', 'tokens': 'PAUSED_BUDGET',
-                                                      'unknown_tokens': 'PAUSED_USAGE_UNKNOWN'}[budget])
-                self.assertEqual([], launches)
-                self.assertNotIn('diagnostic_calls', saved['resolver'])
+        self.state['settings']['limits'] = {
+            'iteration_ceiling': 18, 'max_seconds': 1,
+            'no_progress_batches': 3, 'automatic_retries': 0}
+        self.state['active_seconds'] = 2
+        with self.provider() as launches:
+            self.assertEqual(2, self.cli())
+        saved = support.read(self.run / 'state.json')
+        assert_operational_wait(self, saved, 'PAUSED_TIME_LIMIT')
+        self.assertEqual([], launches)
+        self.assertNotIn('diagnostic_calls', saved['resolver'])
 
     def test_cli_rejects_combining_diagnose_and_retry_failed_stage(self):
         argv = ['autocode.py', '--workspace', str(self.root.resolve()), '--run-dir', str(self.run.resolve()),

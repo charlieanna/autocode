@@ -34,8 +34,7 @@ class ActivityRuntimeTests(unittest.TestCase):
         values = dict(engine='codex', astra_model=None, terra_model=None, sol_model=None,
                       reasoning_effort=None, headroom=None, context_soft_tokens=None,
                       rotate_after_input_tokens=None, legacy_iteration_ceiling=None,
-                      max_iterations=None, max_seconds=None, max_reported_tokens=None,
-                      no_progress_limit=None, max_stage_seconds=None, max_idle_seconds=None,
+                      max_iterations=None, max_seconds=None, no_progress_limit=None, max_stage_seconds=None, max_idle_seconds=None,
                       max_tool_seconds=None)
         return SimpleNamespace(**{**values, **selected})
 

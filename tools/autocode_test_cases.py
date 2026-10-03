@@ -23,6 +23,11 @@ from __future__ import annotations
 
 import re
 
+try:
+    from . import autocode_progressive_state as progressive_state
+except ImportError:
+    import autocode_progressive_state as progressive_state
+
 MARK = "test:"
 # Behavior that already works and must keep working: its test passes before and after the change
 # (a "preserve" case, autocode_regression.check_cases). Live review-then-fix plans (2026-09-29) had
@@ -63,10 +68,14 @@ def contract_cases(state: dict) -> list[dict]:
     due = in_scope(state)
     cases = []
     for row in body.get("acceptance_criteria") or []:
-        method = str(row.get("verification_method", "")).strip().lower() if isinstance(row, dict) else ""
-        if row.get("id") and (due is None or row["id"] in due) and method.startswith((MARK, GUARD_MARK)):
+        method = str(row.get("verification_method", "")).strip() if isinstance(row, dict) else ""
+        lowered = method.lower()
+        if row.get("id") and (due is None or row["id"] in due) and lowered.startswith((MARK, GUARD_MARK)):
+            mark = GUARD_MARK if lowered.startswith(GUARD_MARK) else MARK
+            test_name = method[len(mark):].strip()
             cases.append({"id": row["id"], "text": row.get("criterion", ""),
-                          **({"kind": "preserve"} if method.startswith(GUARD_MARK) else {})})
+                          **({"test_name": test_name} if re.fullmatch(r"test_[A-Za-z0-9_]+", test_name) else {}),
+                          **({"kind": "preserve"} if mark == GUARD_MARK else {})})
     return cases
 
 
@@ -78,6 +87,15 @@ def in_scope(state: dict) -> set[str] | None:
     current task names no milestone, and once every milestone is current or accepted.
     """
     contract = state.get("goal_contract") or {}
+    progressive = progressive_state.context(state)
+    if progressive:
+        # Contribution checks are due, but do not prove the broader product case.
+        # Findings stay in the product ledger; this only selects contract tests.
+        criteria = (contract.get("body") or {}).get("acceptance_criteria") or []
+        outstanding = set(progressive.get("outstanding_criteria") or [])
+        fully_due = {criterion for check in progressive.get("required_checks") or []
+                     if check.get("relation") == "fully_verify" for criterion in check.get("criterion_ids") or []}
+        return {row["id"] for row in criteria if row.get("id") not in outstanding or row.get("id") in fully_due}
     milestones = (contract.get("body") or {}).get("milestones") or []
     task = state.get("current_task") or {}
     current = set(task.get("milestone_ids") or []) or ({task["milestone_id"]} if task.get("milestone_id") else set())
@@ -99,8 +117,8 @@ def case_text(case: dict) -> str:
     return f"{case['id']}: Given {case['given']}; when {case['when']}; then {case['then']}"
 
 
-def case_test_name(case_id: str) -> str:
-    return f"test_{case_id.lower()}_<what it checks>"
+def case_test_name(case_id: str, test_name: str | None = None) -> str:
+    return test_name or f"test_{case_id.lower()}_<what it checks>"
 
 
 def _words(name: str) -> list[str]:
@@ -117,13 +135,17 @@ def _test_function(test_id: str) -> str:
 
 
 def match_cases(cases: list[dict], test_ids: list[str]) -> dict[str, list[str]]:
-    """For each case, the tests whose name carries its id as whole words (T1 -> test_t1_...)."""
+    """Match an approved exact test name, or a diagnosis case's id-based test name."""
     matched = {}
     for case in cases:
-        want = _words(case["id"])
-        matched[case["id"]] = [test for test in test_ids
-                               if any(_words(_test_function(test))[i:i + len(want)] == want
-                                      for i in range(len(_words(_test_function(test)))))]
+        if case.get("test_name"):
+            matched[case["id"]] = [test for test in test_ids
+                                   if _test_function(test) == case["test_name"]]
+        else:
+            want = _words(case["id"])
+            matched[case["id"]] = [test for test in test_ids
+                                   if any(_words(_test_function(test))[i:i + len(want)] == want
+                                          for i in range(len(_words(_test_function(test)))))]
     return matched
 
 
@@ -160,6 +182,8 @@ runs these tests itself, with those of milestones already accepted: each must pa
 not have passed before the run began. A criterion whose verification_method starts with "guard:" is behavior
 that already works and must keep working: write its test the same way (C4 -> test_c4_...); it must pass both
 before and after the change, so put it where it imports only code that exists before the change. Criteria without "test:" or "guard:" are checked by the Validator as usual.
+Keep existing test names and assertions intact. Add a new case test when needed; do not rename or remove an
+existing test to make its name match a planned case id. The regression proof rejects removed test names.
 """
 
 

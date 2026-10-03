@@ -2,6 +2,8 @@
 workflow's Reviewer stage (autocode_review_job) and the design workflow's
 Architect stage (autocode_design_job)."""
 from pathlib import Path
+from dataclasses import replace
+from copy import deepcopy
 
 try:
     from .. import autocode_design_job as design_job, autocode_goals as goals, autocode_review_job as review_job
@@ -33,6 +35,15 @@ def architect_route(roles):
     return capped_route(roles.get("plan_reviewer") or roles["astra"], ARCHITECT_MAX_EFFORT)
 
 
+def verification_commands(state):
+    """The same approved command set shown to the Validator and independently replayed."""
+    try:
+        from .. import autocode_progressive_state as progressive_state, autocode_verification_plan as plan
+    except ImportError:
+        import autocode_progressive_state as progressive_state, autocode_verification_plan as plan
+    return plan.approved_commands(state, progressive_context=progressive_state.context(state))
+
+
 def prepare(state, stage, state_path, schema_dir):
     if stage == review_job.STAGE:
         # The Reviewer runs on the Validator's route with write access, so it can
@@ -52,6 +63,25 @@ def prepare(state, stage, state_path, schema_dir):
     if stage not in ("sol", "astra_review", "astra_checkpoint"):
         raise ValueError(f"Autoreview cannot run {stage}")
     request = execution_request(state, stage, state_path, schema_dir)
+    if stage == "astra_review":
+        try:
+            from .. import autocode_progressive_state as progressive_state
+        except ImportError:
+            import autocode_progressive_state as progressive_state
+        note = ""
+        if progressive_state.enabled(state):
+            schema = deepcopy(request.schema)
+            schema["properties"]["progressive_checkpoint"] = {"type": "boolean"}
+            request = replace(request, schema=schema)
+            note = ("PROGRESSIVE SLICE CHECKPOINT: Set progressive_checkpoint=true with status CONTINUE "
+                    "and next_task.kind=none only when the active slice's entire cumulative required-check "
+                    "set has independently replayed passing evidence on the current source. This requests "
+                    "the runner's slice checkpoint, not product acceptance. Do not invent a task to advance. "
+                    "Otherwise set false and use the ordinary defect/rework/validation decision. COMPLETE "
+                    "still requires the whole original product criteria and full user flow proven now.\n")
+        prompt = request.prompt.replace("\nCURRENT HANDOFF DATA\n", note + "\nCURRENT HANDOFF DATA\n", 1)
+        request = replace(request, prompt=prompt,
+                          metrics={**request.metrics, "estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4})
     if stage == "sol" and state.get("current_task", {}).get("milestone_ids"):
         request.schema["properties"]["milestone_results"] = {"type": "array", "items": goals.obj({
             "milestone_id": goals.STRING, "status": {"type": "string", "enum": ["PASS", "FAIL", "NOT_VERIFIED"]},

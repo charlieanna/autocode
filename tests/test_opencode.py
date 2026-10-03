@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import autocode as runner
+import autocode as runner, autocode_format_correction as format_correction
 import autocode_event_log as event_log
 import autocode_configure
 import autocode_milestones as milestones
@@ -127,7 +127,7 @@ class OpenCodeTests(unittest.TestCase):
         # A stream ending on a tool-calls finish (the process exited between the
         # model's tool calls and their results, e.g. every call auto-rejected as
         # an external directory) consumed real tokens without completing a turn.
-        # Usage must survive or the runner cannot enforce a reported-token cap.
+        # Usage must survive for accurate accounting.
         denied = event("tool_use", tool="read", state={"status": "error",
                      "input": {"filePath": "/outside/workspace/typo.txt"}})
         cut = event("step_finish", reason="tool-calls", tokens={"input": 40, "output": 6, "reasoning": 4,
@@ -162,12 +162,22 @@ class OpenCodeTests(unittest.TestCase):
             rows[1]["part"]["text"] = 'The probe confirms the claims. Report:\n\n{"ok":true}'
             path.write_text("\n".join(json.dumps(row) for row in rows))
             self.assertEqual({"ok": True}, oc.final_report(path))
-            # Anything after the object, a second object, long prose or a fence before it is still refused.
+            # A long prose lead (a live requirements attempt led with 730 characters)
+            # before the message-ending report is the report: recovered locally instead
+            # of paying a report-repair call (#217).
+            rows[1]["part"]["text"] = "Summary of the coverage walk. " * 27 + '\n\n{"ok":true}'
+            path.write_text("\n".join(json.dumps(row) for row in rows))
+            self.assertEqual({"ok": True}, oc.final_report(path))
+            # Anything after the object, a second object or a fence before it is still
+            # refused, including the two live malformed shapes: fields appended after
+            # an early-closed object, and an outer object that never closes around
+            # complete nested rows. Only a repair can re-serialize those.
             for text in ('Commentary {"ok":true} but I changed my mind',
                          'Commentary {"ok":true}{"ok":false}',
                          'Commentary {"ok":true}{"ok":true}',
-                         "x" * 501 + '{"ok":true}',
-                         'See ```the fence``` {"ok":true}'):
+                         'See ```the fence``` {"ok":true}',
+                         '{"summary": "done"}' + ',"decisions": [{"concern_id": "C1"}]',
+                         '{"rows": [{"id": "R1"}, {"id": "R2"}]'):
                 rows[1]["part"]["text"] = text
                 path.write_text("\n".join(json.dumps(row) for row in rows))
                 with self.subTest(text=text[:40]), self.assertRaisesRegex(RuntimeError, "not a JSON report"):
@@ -312,7 +322,7 @@ class OpenCodeTests(unittest.TestCase):
             support.verify_checks([{"command": "python test.py", "exit_code": 0, "evidence_ref": "event:prt_tool_use"}], Path(temp), path)
             with self.assertRaises(ValueError):
                 support.verify_checks([{"command": "different test", "exit_code": 0, "evidence_ref": "event:prt_tool_use"}], Path(temp), path)
-            self.assertEqual("ses_fixture", runner.event_thread_id(path))
+            self.assertEqual("ses_fixture", format_correction.event_thread_id(path))
 
     def test_completed_raw_stage_recovers_without_relaunch(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -433,12 +443,13 @@ class OpenCodeFlow(unittest.TestCase):
         self.assertIn("ChatGPT login · subscription", result.stdout)
         self.assertRegex(result.stdout, r"openai/gpt-6-sol +strong judge +default for Plan Reviewer, Validator, "
                                         r"Completion Owner")
-        self.assertIn("1 free, flash or MiMo route is not offered.", result.stdout)
+        self.assertNotIn("MiMo route is not offered.", result.stdout)
+        self.assertIn("xiaomi-token-plan-sgp/mimo-v2.6-pro", result.stdout)
         self.assertIn("Every default route can be used:", result.stdout)
         result = models("api")
         self.assertEqual(1, result.returncode, result.stderr)
         self.assertIn("OpenAI via api · not used: AutoCode bills OpenAI only through the ChatGPT login", result.stdout)
-        self.assertIn("Validator (--sol-model): openai/gpt-6-sol → choose one from the list", result.stdout)
+        self.assertIn("Validator (--sol-model): openai/gpt-6-sol → xiaomi-token-plan-sgp/mimo-v2.6-pro", result.stdout)
 
     def test_standalone_cli_full_interview_approval_review_and_completion(self):
         self.launch(["Greeting tool", "--chat"], 0, answers="CLI\nyes\nyes\n")

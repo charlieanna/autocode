@@ -37,14 +37,16 @@ class PolicyTests(unittest.TestCase):
             self.assertEqual('pause',policy.failure(state,'e2','failure'))
             self.assertEqual('gpt-6-luna',state['settings']['roles']['terra']['model'])
 
-    def test_a_provider_that_lists_its_models_without_the_strong_one_pauses_instead_of_escalating(self):
+    def test_a_provider_that_lists_its_models_without_the_strong_one_retries_once_more_then_pauses(self):
         claude = CLAUDE_PROVIDER
         with self.assertRaisesRegex(ValueError, 'is not a claude model'):
             policy.configured('openai/gpt-6-sol', claude)
         self.assertEqual('claude-opus-5-5', policy.configured('claude-opus-5-5', claude)['strong_model'])
         state = self.state(); state['settings']['builder_retry'] = policy.configured(None, claude)
-        policy.failure(state, 'e1', 'failure')
-        self.assertEqual('pause', policy.failure(state, 'e2', 'failure'))
+        self.assertEqual('retry', policy.failure(state, 'e1', 'failure'))
+        self.assertEqual('retry', policy.failure(state, 'e2', 'failure'))
+        policy.guard(state)
+        self.assertEqual('pause', policy.failure(state, 'e3', 'failure'))
         self.assertEqual('gpt-6-luna', state['settings']['roles']['terra']['model'])
         self.assertIn('offers no stronger Builder model', state['stop_reason'])
         with self.assertRaises(policy.s.Paused): policy.guard(state)

@@ -20,7 +20,9 @@ profiles.PROFILES["claude-tiers"] = {
                "validator": "claude-sonnet-5-5", "resolver": "claude-opus-5-5",
                "completion": "claude-opus-5-5"},
     "effort": {role: "medium" for role in profiles.ROLES},
-    # A trial's guard rails: a stage limit, and a cap on reported tokens (cache reads included).
-    "extra": ["--max-stage-seconds", "1200", "--max-reported-tokens", "6000000"],
+    # A trial's guard rail is time: 20 minutes per stage here, and the harness's timeout per run. No token cap:
+    # Claude reports every cache read as input, and a Builder re-reads its conversation on each tool call, so
+    # a 6M cap stopped runs that had cost $4 (4 of 24 ladder rungs, 2026-09-30). Spend is in cost_usd.
+    "extra": ["--max-stage-seconds", "1200"],
 }
 sys.exit(run.main(sys.argv[1:]))

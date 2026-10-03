@@ -210,7 +210,10 @@ def _apply_dispositions(state, source, dispositions, record, scope, all_criteria
             # been rejected before its findings were recorded. A disposition for a
             # finding that was never recorded or is already closed is a no-op.
             continue
-        if not can_resolve:
+        # The runner derives this source-specific allowlist from the pinned
+        # original review, never from a repairer's newly supplied claims.
+        preserved = record.get("preserved_finding_dispositions", {}).get(source, [])
+        if not can_resolve and raw not in preserved:
             raise ValueError("A report-only repair cannot close findings; resubmit the review")
         if not _covers(scope, row.get("scope"), all_criteria):
             raise ValueError(f"{source} disposition {target} belongs to work this report did not review")

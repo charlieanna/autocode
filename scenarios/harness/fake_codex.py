@@ -30,6 +30,226 @@ PATHS = CONFIG["paths"]
 # scripted plan, builds and per-milestone validation follow it, and AutoCode's
 # real orchestrator does the parallel scheduling.
 MILESTONES = CONFIG.get("milestones") or []
+PROGRESSIVE = CONFIG.get("fault", "").startswith("progressive_")
+RENEWED_OUTCOME = "Retain durable lesson answers and expose a browsable lesson catalog"
+SCOPED_NOTE = "# Scoped consent: lesson note"
+SCOPED_DENIAL = "No. Do not add the optional note anywhere. Deliver the original goal using the offline fallback."
+SCOPED_CONDITION = "Yes, append only '# Scoped consent: lesson note' to lessons.py. Do not add this note to progress.py or any other file."
+SCOPED_REQUEST = {"kind": "permission",
+                  "discovered": "An optional explanatory comment can be added to lessons.py, already inside the current task's approved paths",
+                  "impact": "The optional note requires consent; denial leaves an offline implementation of the original goal available",
+                  "decision_needed": "May I append only '# Scoped consent: lesson note' to lessons.py?",
+                  "options": [SCOPED_DENIAL, SCOPED_CONDITION],
+                  "proposed_delta": "No goal, scope, criterion, behavior, filesystem, provider or spending change. Optional comment only in lessons.py within the existing approved paths."}
+
+
+def renewal_proposal(later=False, done=None):
+    body = (DATA.get("goal_contract") or {}).get("body") or {}
+    cid = body["acceptance_criteria"][0]["id"]
+    head = {"id": "S3", "intended_result": "Browse lessons while retaining saved answers",
+            "criterion_ids": [cid], "paths": PATHS, "depends_on": [], "tentative": False,
+            "checks": [{"id": "N", "relation": "contributes_to", "criterion_ids": [cid],
+                        "method": "python3 -m unittest test_change.NewJourney"},
+                       {"id": "PRODUCT", "relation": "fully_verify", "criterion_ids": [cid],
+                        "method": CHECK}]}
+    final = {"id": "S4", "intended_result": "Prove the retained answers and complete browsable catalog",
+             "criterion_ids": [cid], "paths": PATHS, "depends_on": ["S3"], "tentative": not later,
+             "checks": [{"id": "F", "relation": "fully_verify", "criterion_ids": [cid],
+                         "method": "python3 -m unittest test_change"}]}
+    return {"version": 1, "needed_because": "Deliver catalog browsing before fresh whole-product proof",
+            "shared_decisions": ["Retain source modules, cumulative saved-answer proof and prior history"],
+            "outstanding_criteria": [], "done_slices": done or [],
+            "slices": [final] if later else [head, final]}
+
+
+def progressive_proposal(later=False, done=None):
+    """Scripted model proposal, never approval or a runner-owned receipt."""
+    if ((DATA.get("goal_contract") or {}).get("body") or {}).get("intended_outcome") == RENEWED_OUTCOME:
+        return renewal_proposal(later, done)
+    first = {"id": "S1", "intended_result": "Open a lesson, answer and reopen durable progress",
+             "criterion_ids": ["C1"], "paths": PATHS, "depends_on": [], "tentative": False,
+             "checks": [{"id": "A", "relation": "contributes_to", "criterion_ids": ["C1"],
+                         "method": "python3 -m unittest test_journey.Skeleton"}]}
+    second = {"id": "S2", "intended_result": "Recommend the next lesson from retained durable progress",
+              "criterion_ids": ["C1"], "paths": PATHS, "depends_on": ["S1"], "tentative": not later,
+              "checks": [{"id": "B", "relation": "contributes_to", "criterion_ids": ["C1"],
+                          "method": "python3 -m unittest test_journey.Recommendation"},
+                         {"id": "PRODUCT", "relation": "fully_verify", "criterion_ids": ["C1"],
+                          "method": CHECK}]}
+    slices = [second] if later else [first, second]
+    done = (["S1"] if later else []) if done is None else done
+    if later and CONFIG.get("fault") in ("progressive_split", "progressive_split_retry"):
+        child = {**second, "id": "S2a", "intended_result": "NEW: recommend using the earlier saved progress",
+                 "checks": [second["checks"][0]], "tentative": False}
+        final = {**second, "id": "S2b", "intended_result": "NEW: verify the complete retained learning journey",
+                 "depends_on": ["S2a"], "checks": [{**second["checks"][1],
+                 "method": "python3 -m unittest test_journey.Product"}], "tentative": True}
+        if "S2a" in done:
+            final["tentative"] = False
+            slices = [final]
+        else:
+            slices = [child, final]
+    if CONFIG.get("fault") == "progressive_reorder":
+        third = {**second, "id": "S3", "intended_result": "Demonstrate recommendation before complete course proof",
+                 "checks": [second["checks"][0]], "tentative": not later}
+        if not later:
+            slices = [first, second, third]
+        elif "S3" in done:
+            slices = [second]
+        else:
+            second["tentative"] = True
+            slices = [third, second]
+    if CONFIG.get("fault") == "progressive_undetailed_future":
+        slices[-1]["tentative"] = False
+    if CONFIG.get("fault") == "progressive_malformed_future":
+        slices[-1]["checks"] = []
+    return {"version": 1, "needed_because": "Durable answer-and-persist delivery is useful before recommendations",
+            "shared_decisions": ["Keep lessons.py and progress.py and the fixed whole-product criterion"],
+            "outstanding_criteria": [], "done_slices": done, "slices": slices}
+
+
+def progressive_task(later=False, proposal=None):
+    head = (proposal or progressive_proposal(later))["slices"][0]
+    if not later and CONFIG.get("fault") == "progressive_initial_future_task":
+        head = progressive_proposal()["slices"][-1]
+    validate_only = head["id"] in ("S2b", "S4") or (later and CONFIG.get("fault") == "progressive_reorder" and head["id"] == "S2")
+    task = {"kind": "validate" if validate_only else "implement", "milestone_id": "M1", "objective": head["intended_result"],
+            "affected_paths": PATHS, "requirements": [requirements()[0]["text"]],
+            "acceptance_criteria": head["criterion_ids"], "validation_plan": [check["method"] for check in head["checks"]]}
+    if not later and CONFIG.get("fault") == "progressive_initial_broad_task":
+        task["affected_paths"] = [*PATHS, "outside.py"]
+    return task
+
+
+def progressive_report(stage, data, common):
+    """Respond only to actual progressive revision/verification handoffs."""
+    packet = data.get("progressive_revision")
+    if packet:
+        if stage == "glm_revise" and packet.get("phase") == "detail":
+            previous = data["previous_plan"]["proposal"]
+            done = [*previous["done_slices"], previous["slices"][0]["id"]]
+            if data["goal_contract"]["body"].get("intended_outcome") == RENEWED_OUTCOME:
+                # Historic done IDs are runtime-provided, not invented receipts.
+                done = data["progressive"]["done_slices"]
+            proposal = progressive_proposal(True, done=done)
+            return {"summary": "Detail S2 against retained S1 source", "progressive_proposal":
+                    proposal, "initial_task": progressive_task(True, proposal=proposal)}
+        if stage == "astra_finalize" and packet.get("phase") == "review":
+            if CONFIG.get("fault") == "progressive_stale_source":
+                path = Path.cwd() / "lessons.py"
+                path.write_text(path.read_text() + "\n# Unauthorized edit during read-only independent review.\n")
+            permission_change = (CONFIG.get("fault") == "progressive_permission_change"
+                                 and data["goal_contract"]["body"].get("intended_outcome") != RENEWED_OUTCOME)
+            return {"summary": ("The proposed catalog export requires learner-chosen output paths outside the workspace; "
+                                "obtain scoped permission and a revised reviewed plan before proceeding" if permission_change else
+                                "Independent review preserves fixed product coverage and cumulative A+B"),
+                    "accepted": not (CONFIG.get("fault") == "progressive_split_retry" and not packet.get("feedback")),
+                    "product_changes": False, "permission_changes": permission_change,
+                    "unresolved_product_decisions": False}
+        raise SystemExit("fake_codex: unsupported progressive revision packet")
+    verification = data.get("progressive_verification")
+    if not verification:
+        return None
+    head = verification["active_slice"]
+    full_product = (any(check["relation"] == "fully_verify" for check in verification["required_checks"])
+                    and not verification["outstanding_criteria"])
+    final_slice = full_product and not (head["id"] == "S3" and
+                                       data["goal_contract"]["body"].get("intended_outcome") == RENEWED_OUTCOME)
+    commands = verification["required_commands"]
+    if not commands:
+        raise SystemExit("fake_codex: progressive packet has no authoritative required commands")
+    scoped = CONFIG.get("fault") == "progressive_scoped_permission" and head["id"] == "S2"
+    permission_answer = next((answer["text"] for answer in data.get("saved_answers", {}).values()
+                              if answer.get("kind") == "permission_answer" and answer.get("actor") == "user_cli"
+                              and answer.get("request") == SCOPED_REQUEST
+                              and answer.get("contract_token") == f"r{common['contract_revision']}:{common['contract_hash']}"), None)
+    if scoped and permission_answer is not None and permission_answer not in (SCOPED_DENIAL, SCOPED_CONDITION):
+        raise SystemExit("fake_codex: scoped permission answer was not preserved verbatim")
+    if stage == "terra":
+        root = Path(CONFIG["reference"])
+        for rel in PATHS:
+            destination = Path.cwd() / rel
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(root / rel, destination)
+        if head["id"] == "S1":
+            scenario = next(parent for parent in root.parents if (parent / "scenario.toml").is_file())
+            shutil.copy2(scenario / "slices" / "S1" / "lessons.py", Path.cwd() / "lessons.py")
+        elif head["id"] == "S3" and data["goal_contract"]["body"].get("intended_outcome") == RENEWED_OUTCOME:
+            path = Path.cwd() / "lessons.py"
+            path.write_text(path.read_text() + "\n\ndef catalog():\n    return list(LESSONS)\n")
+        elif (CONFIG.get("fault") in ("progressive_regression", "progressive_fabricated_pass")
+              and (data.get("current_task") or {}).get("objective") == head["intended_result"]):
+            # The real cumulative A command catches this introduced S1 regression.
+            path = Path.cwd() / "lessons.py"
+            path.write_text(path.read_text().replace("if response != LESSONS[lesson][1]:",
+                                                    "if lesson == 'addition' or response != LESSONS[lesson][1]:"))
+        if scoped and permission_answer == SCOPED_CONDITION:
+            path = Path.cwd() / "lessons.py"
+            path.write_text(path.read_text() + "\n" + SCOPED_NOTE + "\n")
+        results = [run_verify(command) for command in commands]
+        result = {**common, "summary": f"Deliver {head['id']} through both product modules",
+                "changed_files": PATHS, "commands_run": commands,
+                "results": [f"exit {code}" for code, _ in results], "remaining_risks": [],
+                "evidence_refs": [ref for _, ref in results], "addressed_requirements": ["C1"],
+                "untested_behavior": [], "recommended_checks": commands}
+        if scoped and permission_answer is None:
+            result["user_request"] = SCOPED_REQUEST
+        return result
+    if stage in ("sol", "astra_checkpoint"):
+        fabricated_mode = CONFIG.get("fault") == "progressive_fabricated_pass" and head["id"] == "S2"
+        selected = ([cmd for cmd in commands if cmd != "python3 -m unittest test_journey.Skeleton"]
+                    if CONFIG.get("fault") == "progressive_missing_check" and head["id"] == "S2" else commands)
+        results = [run_verify(command, fabricated=fabricated_mode) for command in selected]
+        passed = all(code == 0 for code, _ in results)
+        status = "PASS" if passed else "FAIL"
+        fabricated = CONFIG.get("fault") == "progressive_fabricated_pass" and not passed
+        product = "PASS" if passed and full_product else "NOT_VERIFIED" if passed else "FAIL"
+        return {**common, "verdict": "PASS" if fabricated else status, "checks_run": selected,
+                "findings": [], "finding_dispositions": [],
+                "unverified_criteria": ["C1"] if product == "NOT_VERIFIED" else [],
+                "checks": [{"command": cmd, "exit_code": 0 if fabricated else code, "evidence_ref": ref}
+                           for cmd, (code, ref) in zip(selected, results)],
+                "criterion_results": [{"id": "C1", "status": "PASS" if fabricated else product,
+                                       "evidence_refs": [ref for _, ref in results]}],
+                "end_to_end_result": {"status": "PASS" if fabricated else product,
+                                      "summary": "Cumulative required checks executed; S1 is not full product proof",
+                                      "evidence_refs": [ref for _, ref in results]}}
+    if stage in ("astra_review", "astra_plan", "astra_resolve"):
+        failed = (data.get("validation") or {}).get("verdict") == "FAIL"
+        permission_repair = (scoped and permission_answer is not None and
+                             (data.get("validation") or {}).get("task_id") != common["task_id"])
+        repair = failed or permission_repair
+        approved = data["goal_contract"]["body"]["acceptance_criteria"]
+        report = {**common, "status": "REWORK" if repair else "COMPLETE" if final_slice else "CONTINUE",
+                  "acceptance_criteria": [{"id": row["id"], "criterion": row["criterion"],
+                                           "status": "verified" if full_product and not repair else "unverified",
+                                           "evidence": "Cumulative Validator execution"} for row in approved],
+                  "evidence": (data.get("validation") or {}).get("evidence_refs") or ["event:check"],
+                  "next_objective": head["intended_result"] if permission_repair else
+                                    "Restore answer persistence without dropping recommendations" if failed else "",
+                  "blocker": "", "plan": [], "affected_paths": PATHS if repair else [],
+                  "findings": [], "finding_dispositions": [], "agreed_limitations": [],
+                  "next_task": {"kind": "validate" if permission_repair and permission_answer == SCOPED_DENIAL else
+                                        "implement" if repair else "none", "milestone_id": "M1" if repair else "",
+                                "requirements": [requirements()[0]["text"]] if repair else [],
+                                "acceptance_criteria": ["C1"] if repair else [],
+                                "validation_plan": commands if repair else [], "findings": []}}
+        if stage == "astra_review" and permission_repair and permission_answer == SCOPED_DENIAL:
+            report["status"] = "CONTINUE"  # Validate the delivered fallback; no implementation repair is needed.
+        if scoped and permission_answer is None:
+            request = (data.get("agent_request") or {}).get("request")
+            if request != SCOPED_REQUEST:
+                raise SystemExit("fake_codex: scoped permission lacks its Builder request")
+            report.update(status="BLOCKED", user_request=request, blocker=request["decision_needed"])
+            for row in report["acceptance_criteria"]:
+                row["status"] = "unverified"
+        if not repair and not final_slice:
+            report["progressive_checkpoint"] = True
+        if stage == "astra_resolve":
+            report["diagnosis"] = ("Honor the exact saved permission answer, then independently validate the unchanged task; denial selects the offline fallback"
+                                   if permission_repair else "S2 rejects the earlier correct addition answer before persisting it; restore A while retaining recommendations B")
+        return report
+    return None
 
 
 def criterion_id(milestone_id: str) -> str:
@@ -65,22 +285,26 @@ def next_milestone(done: set) -> dict | None:
     return None
 
 
-def run_verify(command: str) -> tuple[int, str]:
+def run_verify(command: str, *, fabricated=False) -> tuple[int, str]:
     """Run one milestone's verification and record it as a real command event
     whose id the reports then cite, the way the runner requires."""
     import shlex
-    event_id = "check-" + re.sub(r"[^a-z0-9]+", "-", command.lower()).strip("-")[:24]
+    event_id = "check-" + (uuid.uuid5(uuid.NAMESPACE_URL, command).hex[:24] if PROGRESSIVE else
+                          re.sub(r"[^a-z0-9]+", "-", command.lower()).strip("-")[:24])
     proc = subprocess.run(shlex.split(command), cwd=Path.cwd(), capture_output=True, text=True, timeout=600)
     emit({"type": "item.completed", "item": {
         "id": event_id, "type": "command_execution",
-        "command": command, "exit_code": proc.returncode,
-        "aggregated_output": (proc.stdout + proc.stderr)[-2000:]}})
+        "command": command, "exit_code": 0 if fabricated else proc.returncode,
+        "aggregated_output": "Fabricated provider PASS" if fabricated else (proc.stdout + proc.stderr)[-2000:]}})
     return proc.returncode, f"event:{event_id}"
 
 
 def requirements() -> list[dict]:
-    """One requirement per sentence, quoted verbatim, as AutoCode's planner rules demand."""
-    sentences = [part.strip() for part in re.split(r"(?<=[.!?])\s+", CONFIG["brief"].strip()) if part.strip()]
+    """One requirement per sentence of the brief, then of the user's saved feedback, quoted verbatim, as
+    AutoCode's planner rules demand."""
+    texts = [CONFIG["brief"], *(row.get("text", "") for row in DATA.get("brief_feedback") or []
+                                if row.get("actor") == "user_cli")]
+    sentences = [part.strip() for text in texts for part in re.split(r"(?<=[.!?])\s+", text.strip()) if part.strip()]
     return [{"id": f"R{number}", "text": sentence, "source_quote": sentence}
             for number, sentence in enumerate(sentences, start=1)]
 
@@ -91,7 +315,24 @@ def source_refs() -> list[str]:
     return tracked[:8] or ["task"]
 
 
+def feedback_rows() -> list[dict]:
+    """Rows AutoCode asks the Planner to trace that are not brief sentences: the user's feedback on a shown plan."""
+    brief = {row["id"] for row in requirements()}
+    return [row for row in DATA.get("requirement_trace_rows") or [] if row["requirement_id"] not in brief]
+
+
 def trace() -> list[dict]:
+    body = (DATA.get("goal_contract") or {}).get("body") or {}
+    if PROGRESSIVE and body.get("intended_outcome") == RENEWED_OUTCOME:
+        # Original full-suite G still proves backwards-compatible behavior;
+        # the explicitly edited goal retires only the named standalone check.
+        return [{"requirement_id": row["id"], "disposition": "covered",
+                 "evidence": body["acceptance_criteria"][0]["id"]} for row in requirements()]
+    # Feedback is applied as a required behavior quoting it (contract), which covers its row.
+    rows = DATA.get("requirement_trace_rows")
+    if rows is not None:
+        return [{"requirement_id": row["requirement_id"], "disposition": "covered", "evidence": row["requirement"]}
+                for row in rows]
     return [{"requirement_id": row["id"], "disposition": "covered", "evidence": row["text"]}
             for row in requirements()]
 
@@ -110,6 +351,13 @@ def approach() -> list[str]:
 
 
 def contract(final: bool = False) -> dict:
+    existing = (DATA.get("goal_contract") or {}).get("body") or {}
+    if PROGRESSIVE and existing.get("intended_outcome") == RENEWED_OUTCOME:
+        body = json.loads(json.dumps(existing))
+        body.pop("initial_task", None)
+        if final:
+            body["initial_task"] = progressive_task()
+        return body
     body = {
         "intended_outcome": outcome(),
         "intended_user": "The person who made the request",
@@ -118,7 +366,8 @@ def contract(final: bool = False) -> dict:
         "milestones": [{"id": "M1", "objective": outcome(), "acceptance_criteria": ["C1"],
                         "depends_on": [], "affected_paths": PATHS}],
         "deliverables": PATHS,
-        "required_behaviors": [row["text"] for row in requirements()],
+        "required_behaviors": list(dict.fromkeys([row["text"] for row in requirements()]
+                                                 + [row["requirement"] for row in feedback_rows()])),
         "important_failure_cases": ["The scenario check command fails"],
         "scope_exclusions": ["Anything outside the scenario brief"],
         "constraints": ["Change only the paths the reference solution touches"],
@@ -147,10 +396,28 @@ def contract(final: bool = False) -> dict:
         return body
     if (DATA.get("bug_diagnosis") or {}).get("root_cause"):
         body["task_kind"] = "bugfix"  # planned from a bug diagnosis
+    if PROGRESSIVE and "PROGRESSIVE PLANNING" in PROMPT:
+        body["intended_outcome"] = "Answer lessons with durable progress and recommend the next unfinished lesson"
+        body["end_to_end_flow"] = ["Open a lesson", "Answer its exercise", "Reopen saved progress",
+                                   "Request the next uncompleted lesson", "Finish both lessons"]
+        body["acceptance_criteria"][0]["criterion"] = (
+            "Correct answers persist across reopen and recommendations advance through both lessons to course completion")
+        body["milestones"][0]["objective"] = body["intended_outcome"]
+        existing = (DATA.get("goal_contract") or {}).get("body") or {}
+        for field in ("constraints", "technical_approach"):
+            body[field] += [line for line in existing.get(field, [])
+                            if line.startswith(("Progressive delegation:", "Progressive slice:",
+                                                "Product criteria explicitly outstanding:"))]
     if final:
         body["initial_task"] = {"kind": "implement", "milestone_id": "M1", "objective": outcome(),
                                 "affected_paths": PATHS, "requirements": [requirements()[0]["text"]],
-                                "acceptance_criteria": ["C1"], "validation_plan": [CHECK]}
+                                 "acceptance_criteria": ["C1"], "validation_plan": [CHECK]}
+        if os.environ.get("SCENARIO_FAKE_NEGATIVE_PLAN") == "1":
+            body["initial_task"]["validation_plan"].append(
+                "Run `python3 greet.py Alice`, `python3 greet.py` and `python3 greet.py Alice Bob` "
+                "directly and confirm exact stdout/stderr bytes and exit codes 0/2/2.")
+        if PROGRESSIVE and "PROGRESSIVE PLANNING" in PROMPT:
+            body["initial_task"] = progressive_task()
     return body
 
 
@@ -194,8 +461,11 @@ def recognize(brief: str, follow_up: dict | None = None) -> dict:
         kind, signal = "build", "no other signal"
     named = re.search(r"(docs/design/[\w./-]+\.md)", brief)
     design = named.group(1) if kind == "build" and named and has(r"approved") else ""
+    # Adaptive-planning runs also ask how clear the request is; the planning stress corpus
+    # scripts the answer per case (scenarios/planning.toml), since keywords cannot judge it.
     return {"workflow": kind, "reason": f"Scripted keyword rule: {signal}", "signals": [signal],
-            "design_document": design}
+            "design_document": design,
+            **({"clarity": os.environ.get("SCENARIO_FAKE_CLARITY") or "clear"} if 'Add "clarity"' in PROMPT else {})}
 
 
 def check_design(data: dict) -> dict:
@@ -348,6 +618,13 @@ def answer() -> dict:
 
 
 def report_for(stage: str, data: dict) -> dict:
+    if PROGRESSIVE and data.get("report_repair"):
+        # A report-only repair may preserve its original proposal/checklist, not
+        # invent progressive authority from a packet without execution context.
+        original = data.get("rejected_report") or data.get("original_report") or {}
+        content = original.get("content") if isinstance(original, dict) else None
+        if content:
+            return json.loads(content) if isinstance(content, str) else content
     if stage == "recognize_workflow":
         return recognize(data.get("task") or CONFIG["brief"], data.get("follow_up"))
     if stage == "answer_question":
@@ -373,26 +650,56 @@ def report_for(stage: str, data: dict) -> dict:
                          "options": [], "proposed_delta": ""},
     }
     planning = {"code_refs": [ref for ref in source_refs() if ref != "task"], "contract_changes": [], "conflict_resolutions": [], "requirement_trace": trace()}
+    if PROGRESSIVE:
+        report = progressive_report(stage, data, common)
+        if report is not None:
+            return report
+        if stage in ("terra", "sol", "astra_review", "astra_checkpoint", "astra_resolve"):
+            raise SystemExit("fake_codex: progressive execution missing its authoritative verification packet")
+        if "PROGRESSIVE PLANNING" in PROMPT and stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+            planning["progressive_proposal"] = progressive_proposal()
     if stage == "requirements_gather":
         return {"summary": "Scripted requirements: one per brief sentence",
                 "intended_outcome": outcome(), "required_behaviors": [r["text"] for r in requirements()],
                 "constraints": [], "acceptance_tests": [CHECK], "source_refs": source_refs(),
                 "proposed_assumptions": [], "open_questions": [], "requirements": requirements(),
                 "ignored_statements": [], "conflicts": [], "proposed_reframes": []}
+    # An adaptive-planning Planner drafts the complete plan, initial_task included.
+    adaptive = "ADAPTIVE PLANNING" in PROMPT
     if stage == "astra_discovery":
-        report = {"summary": "Scripted plan", "contract": contract(), "alternatives": [], "uncertainties": [], **planning}
+        report = {"summary": "Scripted plan", "contract": contract(final=adaptive), "alternatives": [],
+                  "uncertainties": [], **planning}
+        if os.environ.get("SCENARIO_FAKE_REQUIREMENTS_RERUN") == "1" and "set requirements_rerun" in PROMPT:
+            # The Planner sends feedback that changes what is built back to Requirements.
+            report["requirements_rerun"] = "Scripted: the feedback changes what is being built"
         if CONFIG.get("fault") == "planner_citation" and not guided_to_fix_citation():
             # Prose after an existing path is valid. A nonexistent sibling is a
             # deterministic rejected citation, including on report-only repairs.
             report["code_refs"] = [f"{note}.missing" for note in bug_notes()]
         return report
+    reviewed = ((((DATA.get("planning") or {}).get("reports") or {}).get("astra_challenge") or {})
+                .get("report") or {}).get("concerns") or []
     if stage == "astra_challenge":
+        # SCENARIO_FAKE_BLOCKING_REVIEW=1 makes the first review of a plan blocking, so the
+        # revise path runs; a review of a revised plan never blocks.
+        revised = "glm_revise" in ((DATA.get("planning") or {}).get("reports") or {})
+        if os.environ.get("SCENARIO_FAKE_BLOCKING_REVIEW") == "1" and not revised:
+            return {"summary": "Scripted plan review: one blocking concern", "concerns": [{
+                "id": "B1", "concern": "The plan does not say how the change is verified end to end",
+                "evidence_refs": ["task"], "requested_change": f"Run {CHECK} as the acceptance check",
+                "acceptance_test": CHECK, "blocking": True}]}
         return {"summary": "Scripted plan review: no concerns", "concerns": []}
     if stage == "glm_revise":
-        return {"summary": "Scripted revision: nothing to revise", "contract": contract(), "responses": [], **planning}
+        responses = [{"concern_id": row["id"], "response": "Adopted", "evidence_refs": ["task"],
+                      "change": row["requested_change"], "acceptance_test": row["acceptance_test"]}
+                     for row in reviewed]
+        return {"summary": "Scripted revision", "contract": contract(final=adaptive), "responses": responses,
+                **planning}
     if stage == "astra_finalize":
         final = {key: value for key, value in planning.items() if key != "code_refs"}
-        return {"summary": "Scripted final plan", "contract": contract(final=True), "decisions": [], **final}
+        decisions = [{"concern_id": row["id"], "decision": "Accepted as revised", "rationale": "Adopted",
+                      "acceptance_test": row["acceptance_test"], "resolved": True} for row in reviewed]
+        return {"summary": "Scripted final plan", "contract": contract(final=True), "decisions": decisions, **final}
     if stage == "terra" and MILESTONES:
         row = milestone_row((data.get("current_task") or {}).get("milestone_id"))
         applied = []
@@ -457,15 +764,18 @@ def report_for(stage: str, data: dict) -> dict:
     if stage in ("sol", "astra_checkpoint"):
         code = run_check()
         status = "PASS" if code == 0 else "FAIL"
+        # The Validator sees neither event IDs nor exit codes: it names its check by command and cites it as
+        # check:1, and the runner attaches the event and exit code (autocode_check_refs).
+        ref, check = ("check:1", {"command": CHECK, "exit_code": None, "evidence_ref": "event:"}) if stage == "sol" \
+            else ("event:check", {"command": CHECK, "exit_code": code, "evidence_ref": "event:check"})
         return {**common, "verdict": status, "checks_run": [CHECK], "findings": [],
-                "finding_dispositions": [], "unverified_criteria": [],
-                "checks": [{"command": CHECK, "exit_code": code, "evidence_ref": "event:check"}],
+                "finding_dispositions": [], "unverified_criteria": [], "checks": [check],
                 # Every criterion of the approved contract (a bug fix's English test cases add some).
-                "criterion_results": [{"id": row["id"], "status": status, "evidence_refs": ["event:check"]}
+                "criterion_results": [{"id": row["id"], "status": status, "evidence_refs": [ref]}
                                       for row in ((data.get("goal_contract") or {}).get("body") or {})
                                       .get("acceptance_criteria") or [{"id": "C1"}]],
                 "end_to_end_result": {"status": status, "summary": f"{CHECK} exited {code}",
-                                      "evidence_refs": ["event:check"]}}
+                                      "evidence_refs": [ref]}}
     if stage in ("astra_review", "astra_plan") and MILESTONES and not (data.get("goal_contract") or {}).get("revision"):
         # Report repair: the handoff has no live contract or current task; fix
         # the rejected draft's identity fields and return it as instructed.

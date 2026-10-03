@@ -188,6 +188,58 @@ class ApplyTests(unittest.TestCase):
 
 
 class GuidanceTests(unittest.TestCase):
+    def history(self, **overrides):
+        return {"identity": "astra_discovery:PAUSED_INVALID_OUTPUT", "stage": "astra_discovery",
+                "requested_at": "2026-09-30T08:00:00+00:00", "outcome": "retried",
+                "status": "PAUSED_INVALID_OUTPUT", "trigger": "rejected_output",
+                "cause": "stage_output", "diagnosis": "The Planner cited runner state instead of source.",
+                "guidance": "Cite README.md and app/__init__.py, never .autocode/state.json.", **overrides}
+
+    def test_report_corrections_reach_a_fresh_planning_request_after_clarification(self):
+        state = {"stuck_investigations": [self.history()], "answers": {"Q1": {"text": "Use the existing API"}}}
+        before = copy.deepcopy(state)
+        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+            with self.subTest(stage=stage):
+                text = stuck.with_guidance(state, stage, self.request()).prompt
+                self.assertIn(self.history()["guidance"], text)
+                self.assertLess(text.index(self.history()["guidance"]), text.index("CURRENT HANDOFF DATA"))
+        self.assertEqual(before, state, "Remembering a correction must not replenish a retry or budget")
+        self.assertEqual(self.request(), stuck.with_guidance(state, "terra", self.request()))
+
+    def test_pauses_and_decision_diagnoses_are_not_reused_as_report_corrections(self):
+        for row in (self.history(outcome="paused"), self.history(cause="needs_user"),
+                    self.history(cause="environment"), self.history(stage="terra"),
+                    self.history(guidance="")):
+            with self.subTest(row=row):
+                self.assertEqual(self.request(), stuck.with_guidance(
+                    {"stuck_investigations": [row]}, "astra_discovery", self.request()))
+
+    def test_report_lessons_survive_boundaries_that_do_not_reset_investigation_identity(self):
+        state = {"turns": [{"at": "2026-09-30T09:00:00+00:00"}],
+                 "clarification_episode": {"started_by": "answer:Q1"}, "stuck_investigations": [self.history()]}
+        self.assertIn(self.history()["guidance"], stuck.with_guidance(state, "astra_discovery", self.request()).prompt)
+
+    def test_active_guidance_keeps_earlier_lessons_and_wins_on_conflict(self):
+        first = self.history()
+        active = self.history(identity="glm_revise:PAUSED_INVALID_OUTPUT", stage="glm_revise", guidance="Use a valid field")
+        state = {"stuck_investigations": [first, active], "stuck_investigation": dict(active, in_force=True)}
+        text = stuck.with_guidance(state, "astra_discovery", self.request()).prompt
+        self.assertEqual(1, text.count(active["guidance"]))
+        self.assertLess(text.index(first["guidance"]), text.index(active["guidance"]))
+        self.assertIn("takes precedence", text)
+        self.assertNotIn("PREVIOUSLY VERIFIED", text)
+
+    def test_configured_lesson_limit_and_rejection_trigger(self):
+        rows = [self.history(identity=str(i), guidance=f"Correction {i}", status="PAUSED_REPEATED_FAILURE") for i in range(5)]
+        rows.append(self.history(trigger="non_convergence", status="PAUSED_PLANNING_BUDGET", guidance="Accept M3"))
+        state = {"settings": {"stuck_investigation": {"max_calls_per_run": 5}}, "stuck_investigations": rows}
+        text = stuck.with_guidance(state, "astra_discovery", self.request()).prompt
+        for i in range(5):
+            self.assertIn(f"Correction {i}", text)
+        self.assertNotIn("Accept M3", text)
+        state["settings"]["stuck_investigation"]["max_calls_per_run"] = 0
+        self.assertEqual(self.request(), stuck.with_guidance(state, "astra_discovery", self.request()))
+
     def request(self):
         return common.ModelRequest("glm", "glm", "Do the stage.\nCURRENT HANDOFF DATA\n{}", {}, {}, False)
 

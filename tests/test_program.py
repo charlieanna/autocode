@@ -152,8 +152,7 @@ class DeriveTests(unittest.TestCase):
                       "settings": {"roles": {r: {"model": r, "reasoning_effort": "high"} for r in ("astra", "terra", "sol")},
                                    "transport_identity": {"auth_mode": "fixture"}, "headroom": {"enabled": False},
                                    "context_soft_tokens": 10000,
-                                   "limits": {"iteration_ceiling": 5, "max_seconds": None, "max_reported_tokens": None,
-                                              "no_progress_batches": 3}}}
+                                   "limits": {"iteration_ceiling": 5, "max_seconds": None, "no_progress_batches": 3}}}
         lifecycle.migrate(self.state)
 
     def two_milestones(self):

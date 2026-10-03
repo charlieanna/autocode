@@ -93,6 +93,14 @@ First decide the mode:
    - advisory: worth fixing, not a reason to stop.
    Give evidence: the part of the design and the code that shows it. A concern the design already
    answers is not a concern. Do not pad the list to look thorough.
+   Judge the proposed design against its stated requirements and their scope. An explicitly accepted
+   tradeoff is advisory unless it violates another binding requirement: name that requirement and
+   explain the conflict. Do not silently strengthen a goal or reopen a decision the design settles.
+   In particular, rollback to the previous version may explicitly restore its previous behavior,
+   including a known bug. Do not require that old version to retain the new version's guarantee unless
+   the request or design requires that guarantee during rollback. A probe showing the old bug proves
+   old behavior; it does not by itself prove a defect in the proposed design. Still block missing
+   rollback procedures, incompatible persisted data, or violations of an explicit rollback guarantee.
    Give every blocking concern an example: the problem as one concrete case in plain English, "Given
    <exact starting state>, when <exact event or action>, then <what goes wrong>". When the concern rests
    on what the CODE does today (an invariant, an ordering check, a charge per call), also give probe: a

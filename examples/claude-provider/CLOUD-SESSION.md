@@ -114,9 +114,11 @@ This is the loop that took the batch from 44 to 49 of 51 runs passing:
 
 ## Known limits
 
-- **The trial profile caps a run at 6M reported tokens, counting cache reads** (`trial.py`). A long Builder
-  session can reach it: 1 run in 51, stopped as `HONEST_BLOCKER` with correct code and only about $3 spent.
-  AutoCode has no token cap by default; this one belongs to the trial.
+- **Runs are bounded by time, not tokens**: 20 minutes per stage (`trial.py`) and the harness's timeout per
+  run (`--timeout-minutes`). Claude reports every cache read as input,
+  and a Builder re-reads its conversation on each tool call, so a token cap stops cheap runs: a 6M cap
+  stopped 4 of 24 ladder rungs (2026-09-30) that had cost about $4 each, all with correct code. The real
+  spend is `cost_usd` in each stage's event log, which `batch.py status` adds up.
 - **The harness approves plans and answers questions itself**, so a passing run was not approved by a person.
 - **Every stage costs at least $0.06 to $0.25**, because Claude Code sends its own system prompt with each call.
 - **Results on Claude models do not qualify the OpenCode route** that AutoCode uses by default.

@@ -221,7 +221,7 @@ class RetrofitTest(unittest.TestCase):
         state["history"]=history
         args=SimpleNamespace(astra_model=None,terra_model="custom-terra",sol_model=None,terra_provider="ZAI",
             reasoning_effort=None,headroom=None,context_soft_tokens=None,rotate_after_input_tokens=None,
-            legacy_iteration_ceiling=None,max_iterations=15,max_seconds=None,max_reported_tokens=None,no_progress_limit=3)
+            legacy_iteration_ceiling=None,max_iterations=15,max_seconds=None,no_progress_limit=3)
         with patch.object(s,"local_settings",return_value=local):
             result=autocode_configure.configure(args,state, planning=planning, milestones=milestones, autopilot=autopilot)
         self.assertEqual("gpt-5.6-sol",result["roles"]["astra"]["model"])  # role default, not local-model
@@ -339,10 +339,10 @@ class RetrofitTest(unittest.TestCase):
         c=s.compact_output(text)
         for fragment in ["Error first","frame.rb:9","Error second","3 tests, 2 failures"]:
             self.assertIn(fragment,c["content"])
-        self.assertEqual({"ok":1},c["repeated_lines"])
-        self.assertEqual(1,c["omitted_progress_lines"])
+        self.assertEqual({},c["repeated_lines"])
+        self.assertEqual(0,c["omitted_progress_lines"])
         self.assertEqual(text,s.compact_output(text,enabled=False)["content"])
-        self.assertEqual({"errors":["A","B"]},s.compact_output('{"errors":["A","B"]}')["content"])
+        self.assertEqual('{"errors":["A","B"]}',s.compact_output('{"errors":["A","B"]}')["content"])
 
     def test_rate_and_budget_are_not_success(self):
         p=self.run/"events.jsonl"
@@ -855,8 +855,8 @@ class RetrofitTest(unittest.TestCase):
         # v3 deliberately requires an actual displayed-revision user approval.
         approve_fixture(self.state, goals)
         local={"auth_mode":"fixture"}
-        self.settings.update(transport_identity=local,limits={"iteration_ceiling":18,"max_seconds":None,
-            "max_reported_tokens":None,"no_progress_batches":3,"automatic_retries":0})
+        self.state["settings"].update(transport_identity=local,limits={"iteration_ceiling":18,"max_seconds":None,
+            "no_progress_batches":3,"automatic_retries":0})
         self.state["workspace"]=str(self.root.resolve())
         s.atomic_json(self.run/"state.json",self.state)
         called=[]
@@ -897,13 +897,12 @@ class RetrofitTest(unittest.TestCase):
         # callback must honour builder_policy.guard like autopilot.dispatch_unit.
         approve_fixture(self.state, goals)
         local = {"auth_mode": "fixture"}
-        self.settings.update(transport_identity=local, builder_retry=dict(builder_policy.DEFAULTS),
-                             limits={"iteration_ceiling": 18, "max_seconds": None, "max_reported_tokens": None,
-                                     "no_progress_batches": 3, "automatic_retries": 0})
+        self.state["settings"].update(transport_identity=local, builder_retry=dict(builder_policy.DEFAULTS),
+                             limits={"iteration_ceiling": 18, "max_seconds": None, "no_progress_batches": 3, "automatic_retries": 0})
         self.state["workspace"] = str(self.root.resolve())
         lane = builder_policy.key(self.state)
         self.state["builder_retry_key"] = lane
-        self.state["builder_retries"] = {lane: {"initial_route": copy.deepcopy(self.settings["roles"]["terra"]),
+        self.state["builder_retries"] = {lane: {"initial_route": copy.deepcopy(self.state["settings"]["roles"]["terra"]),
                                                  "failures": ["review-1", "review-2", "review-3"], "action": "pause"}}
         s.atomic_json(self.run / "state.json", self.state)
         argv = ["autocode.py", "--workspace", str(self.root.resolve()), "--run-dir", str(self.run.resolve())]
