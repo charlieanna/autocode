@@ -6,30 +6,17 @@ caller supplies test classification, framework discovery and scratch execution.
 """
 from __future__ import annotations
 import copy
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import shutil
 import uuid
 try:
     from . import autocode_util as util
+    from . import autocode_protected_paths as paths
+    from .autocode_protected_paths import identity, path_in
 except ImportError:
     import autocode_util as util
-
-
-def path_in(root, name):
-    relative = PurePosixPath(name)
-    if not name or relative.is_absolute() or '..' in relative.parts or str(relative) != name:
-        raise ValueError('Protected test paths must be portable repository-relative paths')
-    path = Path(root) / name
-    if any(parent.is_symlink() for parent in [path, *path.parents] if parent != Path(root).parent):
-        raise ValueError(f'Protected test must not follow a symlink: {name}')
-    if not path.resolve().is_relative_to(Path(root).resolve()) or not path.is_file():
-        raise ValueError(f'Protected test is missing: {name}')
-    return path
-
-
-def identity(path):
-    return {'sha256': util.file_hash(path), 'size': path.stat().st_size,
-            'mode': path.stat().st_mode & 0o777}
+    import autocode_protected_paths as paths
+    from autocode_protected_paths import identity, path_in
 
 
 def body(record):
@@ -37,19 +24,22 @@ def body(record):
 
 
 def verify_binding(record):
-    if record.get('version') != 1 or record.get('binding_hash') != util.digest(body(record)):
+    if record.get('version') not in (1, 2) or record.get('binding_hash') != util.digest(body(record)):
         raise ValueError('Protected test binding changed; a model cannot revise the original gate')
     if record.get('inventory_path') and util.read_object(record['inventory_path']) != body(record):
         raise ValueError('Retained protected-test inventory changed')
     for name, expected in record['files'].items():
-        if identity(path_in(record['root'], name)) != expected:
+        if identity(path_in(record['root'], name, allow_link=record['version'] == 2)) != expected:
             raise ValueError(f'Original protected test bundle changed: {name}')
+    if record['version'] == 2:
+        paths.verify_links(record['root'], record['files'])
     return record
 
 
 def retain(workspace, run_dir, files, command):
     workspace = Path(workspace).resolve()
-    record = {'version': 1, 'files': copy.deepcopy(files), 'command': command}
+    version = 2 if any('symlink' in value for value in files.values()) else 1
+    record = {'version': version, 'files': copy.deepcopy(files), 'command': command}
     record['binding_hash'] = util.digest(body(record))
     root = Path(run_dir) / 'protected-tests' / record['binding_hash']
     record['root'] = str(root)
@@ -58,12 +48,11 @@ def retain(workspace, run_dir, files, command):
         temporary.mkdir(parents=True)
         try:
             for name, expected in files.items():
-                source = path_in(workspace, name)
+                source = path_in(workspace, name, allow_link=record['version'] == 2)
                 if identity(source) != expected:
                     raise ValueError(f'Protected input changed during capture: {name}')
                 target = temporary / name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, target)
+                paths.copy_entry(source, target)
             verify_binding({**record, 'root': str(temporary)})
             temporary.rename(root)
         finally:
@@ -77,8 +66,9 @@ def retain(workspace, run_dir, files, command):
 
 
 def inventory(workspace, is_test_path):
-    return {name: identity(path_in(workspace, name)) for name, value in util.snapshot(workspace)['files'].items()
-            if is_test_path(name) and value != 'deleted'}
+    snapshot = util.snapshot(workspace)['files']
+    names = [name for name, value in snapshot.items() if is_test_path(name) and value != 'deleted']
+    return paths.collect(workspace, names, snapshot)
 
 
 def reconcile(state, settings, args, workspace, run_dir, *, is_test_path, discover_command):
@@ -147,7 +137,7 @@ def replay(state, workspace, out, scratch_run, *, timeout):
     changed = []
     for name, expected in record['files'].items():
         try:
-            actual = identity(path_in(workspace, name))
+            actual = identity(path_in(workspace, name, allow_link=record['version'] == 2))
         except (OSError, ValueError):
             actual = None
         if actual != expected:
@@ -162,8 +152,13 @@ def replay(state, workspace, out, scratch_run, *, timeout):
         result.update(verdict='NOT_VERIFIED', error='No original suite command was available; explicit user revision required')
     else:
         result['candidate'] = scratch_run(workspace, directory / 'candidate', command=record['command'], timeout=timeout)
+        overlays = {'files': {name: str(path_in(record['root'], name))
+                              for name, value in record['files'].items() if 'symlink' not in value}}
+        links = {name: value['symlink'] for name, value in record['files'].items() if 'symlink' in value}
+        if links:
+            overlays['links'] = links
         result['original'] = scratch_run(workspace, directory / 'original', command=record['command'], timeout=timeout,
-                                        files={name: str(path_in(record['root'], name)) for name in record['files']})
+                                        **overlays)
         receipts = (result['candidate'], result['original'])
         if any(row.get('exit_code') != 0 or row.get('error') or row.get('timed_out') for row in receipts):
             result['verdict'] = 'FAIL'
