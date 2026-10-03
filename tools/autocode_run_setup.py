@@ -18,7 +18,7 @@ import uuid
 from pathlib import Path
 
 try:
-    from . import autocode_figma as figma
+    from . import autocode_figma as figma, autocode_design_manifest as design_manifest
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
     from . import autocode_milestones as milestones
@@ -34,7 +34,7 @@ try:
     from . import autocode_workspaces as task_workspaces
     from . import autocode_workflows as workflows
 except ImportError:
-    import autocode_figma as figma
+    import autocode_figma as figma, autocode_design_manifest as design_manifest
     import autocode_goals as goals
     import autocode_interventions as interventions
     import autocode_milestones as milestones
@@ -53,6 +53,10 @@ except ImportError:
 
 def resolve(runner, args, parser):
     """Return (workspace, run_dir, state_path, state), or an exit code when the invocation ends here."""
+    if getattr(args, "figma_manifest", None):
+        if args.run_dir:
+            parser.error("--figma-manifest is a new-run input; saved references are immutable")
+        args._design_manifest_input = design_manifest.load(args.figma_manifest)
     if args.ui_run and args.figma_file:
         parser.error("Choose --ui-run or --figma-file")
     if args.run_dir and (args.ui_run or args.figma_review):

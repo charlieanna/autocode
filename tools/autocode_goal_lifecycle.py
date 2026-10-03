@@ -153,7 +153,7 @@ def apply_requirements(state, body, *, artifact_sha256, record=None):
 
 def install_draft(state, body, *, origin, allow_legacy=False, changes=None, record=None, queue_human=True):
     validate_body(state, body, allow_legacy=allow_legacy)
-    revision_guard(progressive_state.planning_revision_state(state), body, changes or [], origin)
+    changes = revision_guard(progressive_state.planning_revision_state(state), body, changes or [], origin)
     progressive_state.finish_draft(state)
     previous = state.get("goal_contract")
     if previous:

@@ -4,6 +4,8 @@ Pure functions over contract bodies and user events. No runner imports or writes
 """
 from __future__ import annotations
 
+import re
+
 try:
     from . import autocode_protected_text as protected, autocode_test_cases as test_cases, autocode_draft_examples as examples
 except ImportError:
@@ -63,18 +65,51 @@ def saved_user_basis(state, basis, answer_id):
     return False
 
 
+def canonical_items(previous: dict, changes: list) -> list:
+    """Declared changes, each naming its protected item exactly as the guard compares it.
+
+    GLM 5.3 sometimes wrapped the item it declared (`required_behaviors: "<text>"`, `AC12: '<text>'`,
+    `AC9.criterion`), and the guard refused a correctly declared, user-backed change: 8 of 50 guard
+    refusals to 2026-10-02. A reference is rewritten only when it holds exactly one protected text of the
+    previous contract with little else around it and names no criterion, or names exactly one criterion ID
+    (quoting at most that criterion's own wording). A reference that could mean two items is left for the
+    guard to refuse.
+    """
+    criteria = {row["id"]: row.get("criterion", "") for row in previous.get("acceptance_criteria", []) if row.get("id")}
+    texts = {text for key in (*PROTECTED_LISTS, "permission_boundaries") for text in previous.get(key, [])}
+
+    def canonical(item):
+        if not isinstance(item, str) or item in texts or item in criteria:
+            return item
+        wrapped = [text for text in texts if text in item and len(item) - len(text) <= 80]
+        rest = item
+        for text in wrapped:
+            rest = rest.replace(text, "")
+        named = [cid for cid in criteria if re.search(r"(?<![\w-])" + re.escape(cid) + r"(?![\w-])", rest)]
+        # An explicit criterion ID names that criterion, as long as any protected text it quotes is the
+        # criterion's own wording; quoting another item's text beside it is ambiguous (review of #259).
+        if len(named) == 1 and all(text == criteria[named[0]] for text in wrapped):
+            return named[0]
+        return wrapped[0] if len(wrapped) == 1 and not named else item
+
+    return [dict(raw, item=canonical(raw.get("item"))) if isinstance(raw, dict) else raw for raw in changes]
+
+
 def revision_guard(state, body, changes, origin):
-    """A planner revision may not drop protected text or widen permissions on its own."""
+    """A planner revision may not drop protected text or widen permissions on its own.
+
+    Returns the declared changes with each item named exactly (canonical_items)."""
     previous_contract = state.get("goal_contract") or {}
     previous = previous_contract.get("body")
     if origin not in PLANNER_ORIGINS or not previous:
-        return
+        return changes
     # A new draft may replace an unapproved one. Revising the current draft, or
     # replacing an approved contract, cannot drop protected text on its own.
     if origin in ("glm_draft", "astra_discovery") and previous_contract.get("approval_status") != "approved":
-        return
+        return changes
     if not isinstance(changes, list):
         raise ValueError("Planner revision needs contract_changes")
+    changes = canonical_items(previous, changes)
     protected.restore_spelling(previous, body, {raw.get("item") for raw in changes if isinstance(raw, dict)}, PROTECTED_LISTS)
     proof_corrections = draft_proof_corrections(state, previous, body) - {
         raw.get("item") for raw in changes if isinstance(raw, dict)
@@ -140,3 +175,4 @@ def revision_guard(state, body, changes, origin):
             consume(item, "permission_changed")
     if any(rows for rows in declared.values()):
         raise ValueError("contract_changes contains an item that was not changed in the protected contract")
+    return changes

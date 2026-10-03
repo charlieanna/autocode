@@ -13,11 +13,11 @@ from __future__ import annotations
 from copy import deepcopy
 
 try:
-    from . import autocode_usage
+    from . import autocode_usage, autocode_design_coverage as design_coverage
     from . import autocode_contract_identity as contract_identity
     from . import autocode_progressive_plan as progressive_rules
 except ImportError:
-    import autocode_usage
+    import autocode_usage, autocode_design_coverage as design_coverage
     import autocode_contract_identity as contract_identity
     import autocode_progressive_plan as progressive_rules
 
@@ -58,6 +58,9 @@ def view(state: dict) -> dict:
         # Tokens and cost so far, by role (autocode_usage.summary): reported, estimated and unknown kept apart.
         "usage": autocode_usage.summary(state),
     }
+    design = design_coverage.projection(state)
+    if design is not None:
+        result["design"] = design
     projection = progressive(state)
     if projection is not None:
         result["progressive"] = projection

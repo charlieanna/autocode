@@ -37,6 +37,65 @@ class RevisionGuardTests(unittest.TestCase):
             lifecycle.install_draft(current, wider, origin="glm_revise")
         self.assertEqual(["Print Hello, NAME for a nonempty name"], current["goal_contract"]["body"]["required_behaviors"])
 
+    def test_a_declared_change_may_wrap_the_item_it_names(self):
+        # Live feedback revision (tiny-greeting, 2026-10-02): the item was `required_behaviors: "<text>"`.
+        current = state("Print Hello, NAME.")
+        lifecycle.install_draft(current, body(), origin="glm_draft")
+        feedback = {"kind": "brief_feedback", "id": "feedback-1", "actor": "user_cli", "text": "Add --shout."}
+        current["user_events"].append(feedback)
+        current["brief_feedback"] = [feedback]
+        revised = body()
+        revised["required_behaviors"] = ["Print Hello, NAME, or HELLO, NAME with --shout"]
+        revised["acceptance_criteria"][0]["criterion"] = "Contract holds, --shout included"
+        old = "Print Hello, NAME for a nonempty name"
+        changes = [{"item": f'required_behaviors: "{old}"', "change": "reworded", "basis": "user_feedback",
+                    "answer_id": "feedback-1", "replacement": revised["required_behaviors"][0]},
+                   {"item": "C1.criterion", "change": "reworded", "basis": "user_feedback", "answer_id": "feedback-1",
+                    "replacement": revised["acceptance_criteria"][0]["criterion"]}]
+        lifecycle.install_draft(current, revised, origin="glm_revise", changes=changes)
+        self.assertEqual([old, "C1"], [row["item"] for row in current["goal_contract"]["declared_changes"]])
+
+    def test_a_reference_to_two_items_is_not_guessed(self):
+        current = state("Print Hello, NAME.")
+        lifecycle.install_draft(current, body(), origin="glm_draft")
+        import autocode_contract_revision as revision
+        previous = {**current["goal_contract"]["body"], "acceptance_criteria": [{"id": "C1"}, {"id": "C2"}]}
+        rows = revision.canonical_items(previous, [{"item": "C1 and C2"}, {"item": "C2: reworded"}, {"item": "Q1"}])
+        self.assertEqual(["C1 and C2", "C2", "Q1"], [row["item"] for row in rows])
+
+    def install_criterion_quoting_a_behavior(self):
+        # Review of #259: C1's wording repeats a required behavior, so "C1: '<text>'" quotes both.
+        current = state()
+        original = body()
+        original["acceptance_criteria"][0]["criterion"] = "Print Hello, NAME for a nonempty name"
+        lifecycle.install_draft(current, original, origin="glm_draft")
+        current["answers"]["Q1"] = {"id": "Q1", "text": "Add --shout."}
+        change = {"item": "C1: 'Print Hello, NAME for a nonempty name'", "change": "reworded",
+                  "basis": "user_answer", "answer_id": "Q1", "replacement": "Print Hello, NAME, or HELLO, NAME with --shout"}
+        return current, original, change
+
+    def test_an_explicit_criterion_id_keeps_its_identity(self):
+        current, original, change = self.install_criterion_quoting_a_behavior()
+        revised = copy.deepcopy(original)
+        revised["acceptance_criteria"][0]["criterion"] = change["replacement"]
+        lifecycle.install_draft(current, revised, origin="glm_revise", changes=[change])
+        self.assertEqual("C1", current["goal_contract"]["declared_changes"][0]["item"])
+        self.assertEqual(["Print Hello, NAME for a nonempty name"], current["goal_contract"]["body"]["required_behaviors"])
+
+    def test_a_criterion_declaration_cannot_authorize_a_behavior_edit(self):
+        current, original, change = self.install_criterion_quoting_a_behavior()
+        revised = copy.deepcopy(original)
+        revised["required_behaviors"] = [change["replacement"]]
+        with self.assertRaises(ValueError):
+            lifecycle.install_draft(current, revised, origin="glm_revise", changes=[change])
+
+    def test_an_id_beside_another_items_text_is_not_guessed(self):
+        import autocode_contract_revision as revision
+        previous = {"required_behaviors": ["Print Hello, NAME for a nonempty name"],
+                    "acceptance_criteria": [{"id": "C1", "criterion": "Contract holds"}]}
+        self.assertEqual(["C1: 'Print Hello, NAME for a nonempty name'"], [row["item"] for row in revision.canonical_items(
+            previous, [{"item": "C1: 'Print Hello, NAME for a nonempty name'"}])])
+
     def install_with_tab_text(self):
         first = body()
         first["required_behaviors"] = ["Print the fields separated by a literal \\t"]

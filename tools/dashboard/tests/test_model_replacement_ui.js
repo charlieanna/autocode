@@ -2,7 +2,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 
 const source=fs.readFileSync(path.join(__dirname,'../dashboard_app.js'),'utf8');
 class Element {
-  constructor(tag='div',text=''){this.tag=tag;this.textContent=text;this.children=[];this.dataset={};this.hidden=false;this.disabled=false;this.value='';this.className='';}
+  constructor(tag='div',text=''){this.tag=tag;this.textContent=text;this.children=[];this.dataset={};this.hidden=false;this.disabled=false;this.value='';this.className='';this.classList={toggle:()=>{}};}
   append(...children){this.children.push(...children);}
   replaceChildren(...children){this.children=[...children];}
   setAttribute(name,value){this[name]=value;}
@@ -22,13 +22,17 @@ const context=vm.createContext({
   human:value=>value[0].toUpperCase()+value.slice(1),
   stored:key=>storage.get(key)||'',persist:(key,value)=>storage.set(key,value),
   statusInfo:run=>({group:run.status==='TASK_COMPLETE'?'complete':'stopped'}),taskActionBusy:()=>false,
-  dashboardNotice:()=>{},renderPrimaryAction:()=>{},refresh:()=>Promise.resolve(),
+  dashboardNotice:()=>{},refresh:()=>Promise.resolve(),
+  taskSentence:()=> 'Continue the saved task',primaryAction:()=>({kind:'continue',label:'Continue task'}),
+  taskArchiveBlocked:()=>false,projectBlocked:()=>false,requestKey:(run,kind)=>run+':'+kind,
   mutationRequestId:()=> 'replace-request-1',
   api:(_url,options)=>{requests.push(JSON.parse(options.body));return new Promise(resolve=>resolveRequest=resolve);},
   document:{},
 });
-vm.runInContext("let taskReadError='',modelCatalogue={models:['openai/new-model'],usable:true,loading:false,error:null},chosen={run:'/workspace/run'},latestRun=null;const modelReplacementState=new Map();",context);
+vm.runInContext("let taskReadError='',modelCatalogue={models:['openai/new-model'],usable:true,loading:false,error:null},chosen={run:'/workspace/run'},latestRun=null,currentTab='now';const modelReplacementState=new Map(),taskChatPending=new Set(),sendingRequests=new Set();",context);
 vm.runInContext(source.slice(source.indexOf('function modelCatalogueSnapshot()'),source.indexOf('function renderTaskReasoning(')),context);
+vm.runInContext(source.slice(source.indexOf('function renderPrimaryAction('),source.indexOf('async function submitTaskAction(')),context);
+vm.runInContext(source.slice(source.indexOf('function syncModelOptions('),source.indexOf('async function loadModels(')),context);
 
 const run={workspace:'/workspace',run:'/workspace/run',status:'PAUSED',active_stage:{},interventions:{mode:'legacy'},actions:[],model_settings:{engine:'opencode',roles:{astra:'openai/retired-model'},role_engines:{astra:'opencode'},role_efforts:{astra:'high'}}};
 context.renderTaskModelSettings(run);
@@ -60,6 +64,28 @@ host=$('#task-model-settings');let confirm=walk(host,node=>node.tag==='button'&&
   assert(unsupportedSelect);assert.equal(unsupportedSelect.disabled,true);
   assert.equal(unsupportedSelect['aria-describedby'],'task-astra-replacement-reason','the disabled selector names its adjacent explanation');
   assert.match(text($('#task-model-settings')),/No compatible replacement is available/);
+
+  // A catalogue response changes both model controls and task admission in
+  // the same render. No periodic status refresh should be needed to block it.
+  context.catalogueRun=unsupported;
+  vm.runInContext('latestRun=catalogueRun;',context);
+  context.syncModelOptions({usable:true,models:['openai/retired-model']});
+  context.renderPrimaryAction(unsupported);
+  assert.equal($('#continue-run').disabled,false);
+  context.syncModelOptions({usable:true,models:['openai/new-model']});
+  assert.equal($('#continue-run').disabled,true,'catalogue removal immediately blocks Continue');
+  assert.equal($('#continue').disabled,true,'the alternate Continue action is blocked too');
+  assert.equal($('#continue-run')['aria-describedby'],'task-model-gate');
+  assert.match($('#task-model-gate').textContent,/saved Plan review director model openai\/retired-model is unavailable/);
+  assert.equal(unsupported.model_settings.roles.astra,'openai/retired-model','refresh preserves the saved model');
+  context.syncModelOptions({usable:true,models:[]});
+  assert.equal($('#continue-run').disabled,true,'an empty catalogue retains the unavailable-model gate');
+  context.syncModelOptions({usable:true,models:['openai/retired-model']});
+  assert.equal($('#continue-run').disabled,false,'a restored route immediately clears the gate');
+  assert.equal($('#continue').disabled,false);
+  assert.equal($('#task-model-gate').hidden,true);
+  assert.equal($('#continue-run')['aria-describedby'],undefined);
+  vm.runInContext('latestRun=null;',context);
 
   context.saveModelReplacement(run,'astra',{state:'unconfirmed',saved:'openai/retired-model',proposed:'openai/new-model',request_id:'replace-uncertain-1'});
   vm.runInContext("modelCatalogue={models:['openai/new-model'],usable:true,loading:false,error:null};",context);
