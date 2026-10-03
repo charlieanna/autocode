@@ -14,11 +14,13 @@ try:
     from .autocode_contract_revision import (PLANNER_ORIGINS, PROTECTED_LISTS as _PROTECTED_LISTS,
                                             revision_guard, saved_user_basis as _saved_user_basis)
     from .autocode_requirement_cues import cue_sentences, scan_texts, source_texts
+    from .autocode_trace_coverage import coverage_errors
     from . import autocode_util as s, autocode_workflows as workflows, autocode_adaptive_planning as adaptive
 except ImportError:
     from autocode_contract_revision import (PLANNER_ORIGINS, PROTECTED_LISTS as _PROTECTED_LISTS,
                                            revision_guard, saved_user_basis as _saved_user_basis)
     from autocode_requirement_cues import cue_sentences, scan_texts, source_texts
+    from autocode_trace_coverage import coverage_errors
     import autocode_util as s, autocode_workflows as workflows, autocode_adaptive_planning as adaptive
 
 # The state keys under which a Resolver proposal waits for the user and the request shown to them.
@@ -352,40 +354,10 @@ def check_requirement_trace(state, report, contract, *, coverage=True):
     missing = [row["id"] for row in requirements if row["id"] not in by_id]
     if missing:
         raise ValueError("Planner dropped requirements with no trace: " + ", ".join(missing))
-    behaviors = set(contract.get("required_behaviors", []))
-    criteria = {row["id"] for row in contract.get("acceptance_criteria", [])}
-    exclusions = set(contract.get("scope_exclusions", []))
-    # Citation IDs may be followed by explanatory prose. Compare whole tokens,
-    # and reject unknown IDs in the same ID families so a known ID cannot hide
-    # an accidental AC99 citation in the same evidence string.
-    id_tokens = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z_]+[0-9]+(?![A-Za-z0-9_])")
-    families = {re.match(r"[A-Za-z_]+", cid).group().casefold()
-                for cid in criteria if re.match(r"[A-Za-z_]+[0-9]+$", cid)}
-
-    def cites_defined_criterion(evidence):
-        tokens = id_tokens.findall(evidence)
-        cited = [token for token in tokens
-                 if re.match(r"[A-Za-z_]+", token).group().casefold() in families]
-        known = any(re.search(r"(?<![A-Za-z0-9_])" + re.escape(cid) + r"(?![A-Za-z0-9_])", evidence)
-                    for cid in criteria)
-        return known and all(token in criteria for token in cited)
-
-    for row in requirements:
-        entry = by_id[row["id"]]
-        evidence = str(entry.get("evidence", "")).strip()
-        disposition = entry["disposition"]
-        if coverage and disposition == "covered" and evidence not in (behaviors | criteria) and not cites_defined_criterion(evidence):
-            raise ValueError(f"Requirement {row['id']} is not covered by a behavior or criterion")
-        if disposition == "excluded":
-            if evidence not in exclusions:
-                raise ValueError(f"Requirement {row['id']} is not present in scope_exclusions")
-            # A scope_exclusions match alone is not sufficient: the Planner could
-            # otherwise exclude a user requirement by adding its own exclusion.
-            # excluded now needs the same saved-user-event citation superseded does.
-            if not _cites_saved_user_event(state, evidence):
-                raise ValueError(f"Requirement {row['id']} cannot be excluded without a saved user event")
-        if disposition == "superseded" and not _cites_saved_user_event(state, evidence):
-            raise ValueError(f"Requirement {row['id']} cannot be superseded without a saved user event")
+    errors = coverage_errors(requirements, by_id, contract, covered=coverage,
+                             cites_user_event=lambda evidence: _cites_saved_user_event(state, evidence))
+    if errors:
+        raise ValueError("; ".join(errors))
     conflicts = handoff.get("conflicts") or []
     conflict_sets = {frozenset(row.get("requirement_ids") or []) for row in conflicts}
     # A refreshed handoff may no longer call a settled pair a conflict. Preserve

@@ -278,6 +278,41 @@ class FeedbackOnAShownPlan(unittest.TestCase):
         self.assertEqual([{"requirement_id": "R1", "disposition": "covered", "evidence": "AC1"}],
                          autoplanner.fill_trace_id(state, "astra_discovery", value)["requirement_trace"])
 
+    def test_explicit_empty_and_unknown_trace_ids_are_not_reassigned(self):
+        state = awaiting(handoff=HANDOFF)
+        goals.feedback(state, "Also accept --shout.")
+        for rows in (
+            [{"requirement_id": "R1"}, {"requirement_id": ""}],
+            [{"requirement_id": "unknown"}, {}],
+            [{"requirement_id": "R1"}, {"requirement_id": "R1"}, {}],
+            [{"requirement_id": "R1"}, {"requirement_id": state["brief_feedback"][-1]["id"]}, {}],
+        ):
+            with self.subTest(rows=rows):
+                value = {"requirement_trace": [dict(row, disposition="covered", evidence="AC1") for row in rows]}
+                self.assertIs(value, autoplanner.fill_trace_id(state, "astra_discovery", value))
+
+    def test_loader_recovers_feedback_id_before_strict_planning_metadata(self):
+        import json
+        import tempfile
+        from pathlib import Path
+        import autocode as runner
+        state = awaiting()
+        goals.feedback(state, "Also accept --shout.")
+        ident = state["brief_feedback"][-1]["id"]
+        raw = {"requirement_trace": [{"disposition": "covered", "evidence": "AC1"}]}
+        schema = {"type": "object", "properties": {"requirement_trace": {"type": "array", "items": {
+            "type": "object", "required": ["requirement_id", "disposition", "evidence"],
+            "properties": {"requirement_id": {"type": "string"}, "disposition": {"type": "string"},
+                           "evidence": {"type": "string"}}}}}}
+        with tempfile.TemporaryDirectory() as directory:
+            output, schema_path = Path(directory)/"report.json", Path(directory)/"schema.json"
+            output.write_text(json.dumps(raw)); schema_path.write_text(json.dumps(schema))
+            record = {"stage": "astra_discovery", "engine": "codex", "output": str(output), "schema": str(schema_path)}
+            value = runner.load_stage_report(record, state=state)
+            self.assertEqual(ident, value["requirement_trace"][0]["requirement_id"])
+            self.assertEqual(raw, json.loads(Path(record["reported_output"]).read_text()))
+            self.assertEqual(value, runner.load_stage_report(record, state=state))
+
     def test_a_trace_error_names_the_requirements_it_needs(self):
         state = awaiting(handoff=HANDOFF)
         goals.feedback(state, "Also accept --shout.")

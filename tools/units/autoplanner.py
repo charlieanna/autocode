@@ -282,17 +282,22 @@ def fill_trace_id(state, stage, value):
     spent on the missing field (GLM 5.3 left it out when tracing feedback, 2026-10-02; 16 repairs to date).
     When nothing must be traced, rows without an ID are dropped. Anything ambiguous is left for the schema
     and trace checks to refuse, and a named row's evidence is still checked."""
+    if not adaptive.enabled(state):
+        return value
     trace = value.get("requirement_trace") if stage in TRACE_STAGES else None
     if not isinstance(trace, list) or not all(isinstance(row, dict) for row in trace):
         return value
-    unnamed = [index for index, row in enumerate(trace) if not row.get("requirement_id")]
+    unnamed = [index for index, row in enumerate(trace) if "requirement_id" not in row]
     expected = trace_rows(state, stage)
     if unnamed and not expected:
-        # Nothing must be traced (no Requirements stage ran), so the trace is never checked: drop the rows
-        # that name nothing rather than repair them (the first adaptive draft of small-json-flag, 2026-10-02).
-        return {**value, "requirement_trace": [row for row in trace if row.get("requirement_id")]}
-    named = {row.get("requirement_id") for row in trace}
-    untraced = [row["requirement_id"] for row in expected if row["requirement_id"] not in named]
+        return {**value, "requirement_trace": [row for row in trace if "requirement_id" in row]}
+    ids = [row["requirement_id"] for row in expected]
+    assigned = [row["requirement_id"] for row in trace if "requirement_id" in row]
+    if (len(set(ids)) != len(ids) or len(trace) != len(ids)
+            or any(not isinstance(rid, str) or rid not in ids for rid in assigned)
+            or len(set(assigned)) != len(assigned)):
+        return value
+    untraced = [rid for rid in ids if rid not in assigned]
     if len(unnamed) != 1 or len(untraced) != 1:
         return value
     trace = [dict(row) for row in trace]

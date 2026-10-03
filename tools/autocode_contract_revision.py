@@ -129,7 +129,7 @@ def revision_guard(state, body, changes, origin):
         protected_changes.append(raw)
         basis = raw.get("basis")
         if not saved_user_basis(state, basis, raw.get("answer_id")):
-            raise ValueError(f"Changing a protected contract item {raw.get('item')!r} needs a saved user answer or feedback event")
+            raise ValueError(f"Changing a protected contract item {raw.get('item')!r} needs a saved user answer or feedback event; change={raw['change']!r}")
     declared = {}
     for raw in protected_changes:
         declared.setdefault(raw["item"], []).append(raw)
