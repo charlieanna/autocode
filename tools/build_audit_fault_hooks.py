@@ -30,6 +30,13 @@ if mode and root and Path(sys.argv[0]).name == 'autocode_build.py':
 
     def execute(command, *args, **kwargs):
         applies = isinstance(command, list) and command[0] == 'git' and 'apply' in command
+        if (isinstance(command, list) and command[0] == 'git' and '-C' in command and 'diff' in command
+                and '--binary' in command and not marker.exists() and mode == 'parent_edit_before_collection'):
+            # A user creates an owned-path file after Builders finish, before collection settles.
+            target = Path(command[command.index('-C') + 1]) / os.environ['BUILD_AUDIT_PARENT_EDIT']
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text('User-authored content must survive\n')
+            marker.write_text(str(os.getpid()))
         if applies and not marker.exists() and mode == 'integration_conflict' and '--check' in command:
             # Real conflicting filesystem content appears after the baseline check.
             target = Path(command[command.index('-C') + 1]) / 'server/health.py'
@@ -38,6 +45,11 @@ if mode and root and Path(sys.argv[0]).name == 'autocode_build.py':
             marker.write_text(str(os.getpid()))
         result = run(command, *args, **kwargs)
         if applies and not marker.exists() and mode == 'after_integration' and '--check' not in command and result.returncode == 0:
+            crash()
+        if (isinstance(command, list) and command[0] == 'git' and 'worktree' in command
+                and not marker.exists() and result.returncode == 0
+                and ((mode == 'during_retirement' and 'remove' in command)
+                     or (mode == 'after_retirement' and 'prune' in command))):
             crash()
         return result
 

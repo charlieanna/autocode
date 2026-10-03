@@ -20,7 +20,7 @@ Usage:
     python3 tools/run_suite.py --changed         # only the tests for what changed since origin/master
     python3 tools/run_suite.py --changed --include-slow   # the same, with the slow end-to-end modules
     python3 tools/run_suite.py --list-excluded   # print excluded modules and reasons, run nothing
-    python3 tools/run_suite.py --scenario-harness  # scenarios/test_harness.py, one test class per process
+    python3 tools/run_suite.py --scenario-harness  # scenarios/test_harness.py, one test per process
 
 By default each test module runs in its own interpreter, one per CPU at a time.
 Most of the suite's time is spent waiting on subprocesses and timeouts, so
@@ -212,8 +212,9 @@ def test_modules(exclusions: dict[str, str]) -> list[str]:
 HARNESS = "scenarios.test_harness"
 
 
-def harness_classes() -> list[str]:
-    """scenarios/test_harness.py's test classes, in file order, each to run in its own interpreter.
+def harness_tests() -> list[str]:
+    """scenarios/test_harness.py's tests, each to run in its own interpreter (importing the file
+    takes about 0.2 s), so the slowest single test, not the slowest class, bounds the run.
 
     Loaded the way ``python -m unittest`` loads the file, so no test is left out; a module that
     fails to load is returned whole, to run (and fail) in its own process."""
@@ -225,7 +226,7 @@ def harness_classes() -> list[str]:
         return [HARNESS]
     if not tests or any(test.startswith("unittest.loader._FailedTest") for test in tests):
         return [HARNESS]
-    return list(dict.fromkeys(test.rsplit(".", 1)[0] for test in tests))
+    return tests
 
 
 def run_module(module: str, verbosity: int) -> dict:
@@ -275,14 +276,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--include-slow", action="store_true",
                         help="with --changed, also run the slow modules listed in tests/suite_slow.json")
     parser.add_argument("--scenario-harness", action="store_true",
-                        help="run scenarios/test_harness.py instead, each test class in its own interpreter")
+                        help="run scenarios/test_harness.py instead, each test in its own interpreter")
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 1, metavar="N",
                         help="test modules to run at once, each in its own interpreter "
                              "(default: one per CPU; 1 runs everything in this process)")
     args = parser.parse_args(argv)
 
     if args.scenario_harness:
-        return 0 if run_parallel(harness_classes(), max(args.jobs, 1), args.verbosity, "classes") else 1
+        return 0 if run_parallel(harness_tests(), max(args.jobs, 1), args.verbosity, "processes") else 1
 
     exclusions = load_exclusions(args.exclusions)
 
