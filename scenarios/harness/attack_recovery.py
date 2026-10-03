@@ -107,6 +107,7 @@ def install(fake, configuration: dict, trace) -> None:
             if counts[stage] == 1:
                 partial.write_text("# retained partial implementation\n")
             mark("builder_permission_handoff", recovery=data.get("recovery_context"),
+                 artifact_policy=data.get("builder_artifact_policy"),
                  partial=partial.read_text() if partial.exists() else None)
             if counts[stage] == 1 or attack == "builder_permission_repeated":
                 mark("builder_permission_denied", invocation=counts[stage])
@@ -116,6 +117,9 @@ def install(fake, configuration: dict, trace) -> None:
             directory = Path(recovery.get("diagnostic_directory", "missing-recovery-directory"))
             if not directory.is_dir() or not directory.resolve().is_relative_to(Path.cwd().resolve()):
                 raise RuntimeError("recovery did not provision a workspace-contained diagnostic directory")
+            policy = data.get('builder_artifact_policy') or {}
+            if not directory.is_relative_to(Path(policy.get('evidence_directory', 'missing-artifact-directory'))):
+                raise RuntimeError('recovery scratch path contradicts the Builder artifact policy')
             if partial.read_text() != "# retained partial implementation\n":
                 raise RuntimeError("partial work was lost before the corrected diagnostic")
             receipt = directory / "diagnostic.txt"

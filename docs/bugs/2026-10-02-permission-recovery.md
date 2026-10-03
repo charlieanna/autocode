@@ -14,7 +14,9 @@ not create a new incident. A second denial holds before another request, with
 the stopped attempts, partial edits and counters retained. An unchanged restart
 cannot bypass that hold. Existing allowances still apply after a source change.
 Separate runs cannot share scratch files, and symlinked directory ancestors
-are refused. No permission policy or completion gate is expanded.
+are refused. The Builder artifact policy names the same directory as the
+recovery handoff, so its ordinary instructions do not contradict recovery.
+No permission policy or completion gate is expanded.
 
 Reproduce the offline regression and its controls:
 
@@ -36,12 +38,14 @@ passed a separately executed check, preserved source and returned a valid
 report with `task_complete: false`. These are native diagnostic probes, not
 three complete live builds; recurrence and restart are proved by CLI tests.
 
-Final evidence is ignored under `.scenario-runs/permission-recovery-live/2df4ddda95/`.
+Final evidence is ignored under `.scenario-runs/permission-recovery-live/4a5e567c6e/`.
 Initial harness attempts and report followups are retained under `ac36318a0a/`
 as invalid qualification attempts: the initial prompt omitted schema injection,
 and the followup supplied paths relative to the launcher's directory. An
 intermediate qualification (`c0dd46e270/`) also passed after evaluating MiMo's
-valid relative receipt from its workspace. The final qualification supplied
-the schema, resolved relative references correctly, and exercised the final
-run-scoped directory layout; all three passed directly. Previous receipts
-and results remain unchanged.
+valid relative receipt from its workspace. Run-scoped paths were qualified in
+`2df4ddda95/`. Review then caught conflicting Builder artifact instructions;
+the strengthened CLI test failed until the two paths were aligned. Final native
+qualification replayed both actual policy fields together, supplied the schema,
+and resolved relative references from the fixture workspace. All three passed
+directly. Previous receipts and results remain unchanged.
