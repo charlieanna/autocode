@@ -327,11 +327,6 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         settings['planning_flow'] = 'v2'
     if adaptive.new_run_setting(getattr(args, 'adaptive_planning', None), joint, settings.get('planning_flow') == 'v2'):
         settings['adaptive_planning'] = True
-    # MiMo routes reason silently for minutes between events (#298).
-    if getattr(args, "max_idle_seconds", None) is None and any(
-            "mimo-" in str(role.get("model", "")) or "xiaomi-token-plan" in str(role.get("model", ""))
-            for role in settings.get("roles", {}).values()):
-        settings["limits"]["idle_timeout_seconds"] = max(settings["limits"]["idle_timeout_seconds"], 900)
     if getattr(args,'unlimited_iterations',False):
         settings['limits']['iteration_ceiling']=None
     return task_preflight.configure(state, output_policy.configure(state, autopilot.stuck.configure(settings, args), args), args)
