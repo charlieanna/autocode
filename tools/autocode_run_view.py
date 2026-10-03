@@ -226,6 +226,14 @@ def needs(state: dict) -> dict | None:
     status = state.get("status", "")
     if status in COMPLETE:
         return None
+    failure = state.get('job_failure') or {}
+    if status in ('PAUSED_JOB_FAILURE', 'PAUSED_STAGE_ABANDONED') and failure:
+        return {'kind': 'retry_job', 'reason': failure['reason'], 'stage': failure['stage'],
+                'attempt_id': failure['attempt_id'], 'job_retry_token': failure['job_retry_token'],
+                'archive': failure['archive'], 'source_identity': failure['source_identity'],
+                'write_diagnosis': deepcopy(failure['write_diagnosis']),
+                'unrestored': list(failure['unrestored']),
+                'action': '--resume-paused --retry-failed-stage --job-retry-token TOKEN'}
     if status == "WAITING_FOR_DEPENDENCY":
         return {"kind": "dependency", "reason": state.get("stop_reason"),
                 "producer_run": (state.get("dependency_wait") or {}).get("producer_run")}
