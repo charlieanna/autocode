@@ -276,7 +276,11 @@ class JudgeFinalVerdictTests(unittest.TestCase):
                 if hang:
                     candidate += "import time\ntime.sleep(60)\n"
                 (self.project / "convert.py").write_text(candidate)
-                with patch.object(trial, "GRADING_SUBPROCESS_TIMEOUT", 0.3):
+                # Only the hung fixture needs an accelerated deadline. The
+                # successful fixture must retain the normal grading budget:
+                # interpreter scheduling under suite load can exceed 0.3s.
+                timeout = 0.3 if hang else trial.GRADING_SUBPROCESS_TIMEOUT
+                with patch.object(trial, "GRADING_SUBPROCESS_TIMEOUT", timeout):
                     verdict = trial.judge_final_verdict(self.project, self.run_dir, self.frozen)
                 self.assertEqual(hang, verdict["timed_out"])
                 pid = int(pidfile.read_text())

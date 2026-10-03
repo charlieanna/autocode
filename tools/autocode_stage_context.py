@@ -48,7 +48,8 @@ def context_packet(state, stage, state_path):
                 execution_engine=planning.engine_for(state["settings"], planning.role_for(state, stage)))
     if stage == 'terra':
         base['builder_artifact_policy'] = {
-            'evidence_directory': str(Path(state_path).parent / 'evidence'),
+            'evidence_directory': (state.get('recovery_context') or {}).get('diagnostic_directory')
+                or str(Path(state_path).parent / 'evidence'),
             'instruction': 'Source writes must stay within current_task.affected_paths. '
                 'Shell commands start in workspace; use relative source paths there. '
                 'When a file tool requires an absolute path, derive it from the exact workspace '
