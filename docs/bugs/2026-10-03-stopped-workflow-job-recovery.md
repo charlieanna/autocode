@@ -11,28 +11,33 @@ resume and stale tokens do not launch providers. Original dirty/untracked bytes
 and modes are captured before admission; restoration uses the immutable stopped
 witness. Later user edits and missing/corrupt captures block the old retry.
 
-Verification on application commit `13bbdd03a1635bdbd1e2d38a2ff7deba6d9f1788`:
+Verification on application commit `a0c18e558b7dcc9198f7c38487dd8adb8fc59d89`:
 
-- All 24 new public TaskRun regressions pass; the changed gate passes 988 tests.
+- All 25 new public TaskRun regressions pass; the changed gate passes 989 tests.
 - On unchanged master `0a36c1e8`, the same selected behavior tests produce nine
   assertion failures, while the valid-review success control still passes.
 - The full fake catalogue records 53 passes, one live-only skip and one
   `NOT_EXERCISED` case. Its missing Resolver coverage is not claimed as proof.
-- The scenario harness passes 172 tests. A separate immutable checkout runs
-  the complete suite; no full-suite pass is claimed while it is pending.
+- The scenario harness passes 172 tests. Before the final transport-binding
+  correction, the complete suite ran 2,901 tests: one unchanged grader process-
+  cleanup assertion failed. Its 39-test module and focused reruns pass; no
+  full-suite PASS is claimed. The final correction passes the changed gate,
+  complete fake catalogue and fresh native checks.
 
 Native OpenCode checks use a synthetic integer-review fixture, one original
-provider stage each, with a 180-second stage cap and unchanged source:
+provider stage each, with unchanged source. GLM/OpenAI caps are 180 seconds;
+MiMo has an explicit 45-second cap:
 
 | Model | Observed result |
 | --- | --- |
-| GLM-5.3 | External-directory failure; paused as Reviewer with exact retry |
-| MiMo-v2.6-pro | Actual 180-second timeout; paused as Reviewer with exact retry |
+| GLM-5.3 | Schema-valid review; `TASK_COMPLETE` |
+| MiMo-v2.6-pro | Actual 45-second timeout; paused as Reviewer with exact retry |
 | GPT-6 Sol | Schema-valid review; `TASK_COMPLETE` |
 
-All three delivered real model activity. Neither partial review is an approval.
-On the actual paused GLM run, plain resume and a mismatched token add zero model
-calls. Hash-bound runtime manifests and raw receipts remain in the ignored
+All three delivered real model activity. The partial MiMo review is not an approval.
+On the actual paused MiMo run, plain resume and a mismatched token add zero model
+calls. A saved joint-transport change fails before the correction and is refused
+before another provider call after it. Hash-bound runtime manifests and raw receipts remain in the ignored
 `.scenario-runs/issue-277-autocode/` directory.
 
 AutoCode's GLM Builder attempt timed out with an incomplete patch. Its OpenAI
