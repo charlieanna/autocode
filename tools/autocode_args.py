@@ -39,6 +39,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         help="Explicitly retry a stopped Builder after inspecting its retained work; requires --resume-paused")
     parser.add_argument("--figma-manifest", type=Path,
                         help="New run: immutable multi-file/frame/state inventory with exported Figma references; any saved engine")
+    parser.add_argument("--task-preflight", type=Path,
+                        help="Operator prerequisite manifest for planning/build/validation; repair only at its reconciled pause with --resume-paused")
     parser.add_argument("--figma-file", help="Figma Design URL to implement using the connected Codex plugin")
     parser.add_argument("--ui-run", type=Path, help="Accepted autocode-ui run to implement")
     parser.add_argument("--figma-review", choices=["automatic", "human"], help="Visual review policy for new Figma runs (default: automatic)")

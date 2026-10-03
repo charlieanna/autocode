@@ -73,8 +73,15 @@ def load_manifest(manifest_path):
         return [], [f"manifest {manifest_path}: unreadable or invalid JSON: {error}"]
     if not isinstance(document, dict) or not isinstance(document.get("inputs"), list):
         return [], [f"manifest {manifest_path}: expected an object with an 'inputs' list"]
+    return validate_inputs(document["inputs"])
+
+
+def validate_inputs(raw_inputs):
+    """Validate an already-read input inventory without another file read."""
+    if not isinstance(raw_inputs, list):
+        return [], ["manifest inputs must be a list"]
     entries, errors, seen = [], [], set()
-    for index, raw in enumerate(document["inputs"]):
+    for index, raw in enumerate(raw_inputs):
         entry, error = _normalize_entry(raw, index)
         if error:
             errors.append(error)

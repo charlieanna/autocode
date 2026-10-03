@@ -19,6 +19,7 @@ from pathlib import Path
 
 try:
     from . import autocode_figma as figma, autocode_design_manifest as design_manifest
+    from . import autocode_task_preflight as task_preflight
     from . import autocode_goals as goals, autocode_protected_oracles as protected_oracles
     from . import autocode_interventions as interventions
     from . import autocode_milestones as milestones
@@ -35,6 +36,7 @@ try:
     from . import autocode_workflows as workflows
 except ImportError:
     import autocode_figma as figma, autocode_design_manifest as design_manifest
+    import autocode_task_preflight as task_preflight
     import autocode_goals as goals, autocode_protected_oracles as protected_oracles
     import autocode_interventions as interventions
     import autocode_milestones as milestones
@@ -53,6 +55,11 @@ except ImportError:
 
 def resolve(runner, args, parser):
     """Return (workspace, run_dir, state_path, state), or an exit code when the invocation ends here."""
+    if getattr(args, "task_preflight", None):
+        try:
+            args._task_preflight_input = task_preflight.load(args.task_preflight)
+        except (OSError, ValueError) as error:
+            parser.error(f"Invalid task preflight: {error}")
     if getattr(args, "figma_manifest", None):
         if args.run_dir:
             parser.error("--figma-manifest is a new-run input; saved references are immutable")
