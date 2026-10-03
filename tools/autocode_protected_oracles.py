@@ -20,8 +20,21 @@ def path_in(root, name):
     if not name or relative.is_absolute() or '..' in relative.parts or str(relative) != name:
         raise ValueError('Protected test paths must be portable repository-relative paths')
     path = Path(root) / name
-    if any(parent.is_symlink() for parent in [path, *path.parents] if parent != Path(root).parent):
-        raise ValueError(f'Protected test must not follow a symlink: {name}')
+    # Check for symlinks in the path
+    for parent in [path, *path.parents]:
+        if parent != Path(root).parent and parent.is_symlink():
+            # Allow existing symlinks that point within the repository
+            try:
+                resolved = parent.resolve()
+                repo_root = Path(root).resolve()
+                if not resolved.is_relative_to(repo_root):
+                    raise ValueError(f'Protected test symlink points outside repository: {name}')
+                # Verify the symlink is not dangling
+                if not resolved.exists():
+                    raise ValueError(f'Protected test symlink is dangling: {name}')
+            except (ValueError, OSError) as e:
+                raise ValueError(f'Protected test symlink error ({name}): {e}')
+    # Verify final target is within repository
     if not path.resolve().is_relative_to(Path(root).resolve()) or not path.is_file():
         raise ValueError(f'Protected test is missing: {name}')
     return path

@@ -327,6 +327,14 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         settings['planning_flow'] = 'v2'
     if adaptive.new_run_setting(getattr(args, 'adaptive_planning', None), joint, settings.get('planning_flow') == 'v2'):
         settings['adaptive_planning'] = True
+    # Adaptive idle timeout for long-thinking models (MiMo, reasoning models, etc.)
+    if getattr(args, "max_idle_seconds", None) is None:  # Only auto-adjust if not explicitly set
+        for role_config in settings.get("roles", {}).values():
+            model = role_config.get("model", "")
+            if any(pattern in model for pattern in ("mimo-", "xiaomi-token-plan", "reasoning")):
+                settings["limits"]["idle_timeout_seconds"] = max(
+                    settings["limits"].get("idle_timeout_seconds", 300), 900)
+                break
     if getattr(args,'unlimited_iterations',False):
         settings['limits']['iteration_ceiling']=None
     return task_preflight.configure(state, output_policy.configure(state, autopilot.stuck.configure(settings, args), args), args)
