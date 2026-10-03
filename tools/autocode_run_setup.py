@@ -19,14 +19,14 @@ from pathlib import Path
 
 try:
     from . import autocode_figma as figma, autocode_design_manifest as design_manifest
-    from . import autocode_goals as goals
+    from . import autocode_goals as goals, autocode_protected_oracles as protected_oracles
     from . import autocode_interventions as interventions
     from . import autocode_milestones as milestones
     from . import model_catalogue
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_registry as registry
-    from . import autocode_regression as regression
+    from . import autocode_regression as regression, autocode_verify as verify
     from . import autocode_resolver_human as resolver_human
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_status_command as status_command
@@ -35,14 +35,14 @@ try:
     from . import autocode_workflows as workflows
 except ImportError:
     import autocode_figma as figma, autocode_design_manifest as design_manifest
-    import autocode_goals as goals
+    import autocode_goals as goals, autocode_protected_oracles as protected_oracles
     import autocode_interventions as interventions
     import autocode_milestones as milestones
     import model_catalogue
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
     import autocode_registry as registry
-    import autocode_regression as regression
+    import autocode_regression as regression, autocode_verify as verify
     import autocode_resolver_human as resolver_human
     import autocode_retired_token_budget as retired_token_budget
     import autocode_status_command as status_command
@@ -152,6 +152,11 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
                 "repair": state.pop("pending_report_repair")})
             runner.write_json(state_path, state)
     settings = runner.configure(args, state)
+    settings = protected_oracles.reconcile(state, settings, args, workspace, run_dir,
+        is_test_path=verify.is_test_path,
+        discover_command=lambda: (verify.detect_framework(workspace,
+                                  python=verify.python_for(state.get("project_workspace") or workspace)) or
+                                  verify.Framework("unknown", None)).suite)
     if args.run_dir and args.autoresolver_managed_limits:
         origins = settings.setdefault('budget_origins', {})
         for kind in runner.BUDGET_ARGUMENTS:
