@@ -98,6 +98,9 @@ class AllRoleSubprocessTests(unittest.TestCase):
 
     def test_selected_roles_survive_approval_implementation_validation_and_resume(self):
         self.prepare('rework')
+        # This test must exercise the selected Resolver model as well as the other roles.
+        # Complete first repairs can now bypass it; an incomplete plan still needs diagnosis.
+        self.env['AUTOCODE_FIXTURE_INCOMPLETE_REWORK'] = '1'
         models = {'glm':'openai/gpt-5.6-sol','astra':'zai-coding-plan/glm-5.3',
                   'terra':'openai/gpt-5.6-terra','sol':'openai/gpt-6-astra',
                   'completion':'openai/gpt-5.6-sol'}
@@ -129,6 +132,7 @@ class AllRoleSubprocessTests(unittest.TestCase):
                              len([row for row in after_stage['stages'] if row['stage'] != 'resolver']))
         final = self.saved()[1]
         self.assertEqual('COMPLETE', final['phase'])
+        self.assertFalse(final.get('direct_rework_assignments'))
         for stage in final['stages']:
             if stage.get('runner_owned'):
                 self.assertIn(stage['stage'], ('orchestrator', 'resolver'))

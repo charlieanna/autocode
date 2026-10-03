@@ -144,6 +144,20 @@ running now, or null), `tokens`, `cost_usd` (`reported`, `estimated`, `complete`
 and `by_role` (see [Cost reporting](cost-reporting.md#every-task-continuously)). Unknown cost is
 not zero: `complete` is false while a stage has none or is running.
 
+`direct_rework_assignments` records a repair assigned directly from a Completion
+Owner's accepted REWORK report. Each entry binds the original and assigned tasks,
+contract, source, report and evidence hashes, and the ordinary retry charged by
+the runner. It is assignment provenance, not a Resolver diagnosis or completion
+proof. The list is empty for runs that have never used this path.
+
+Direct assignment is limited to the first ordinary repair of a single serial
+milestone, with an independent Validator's executed failure and a complete task
+within the same approved scope. Ambiguous or incomplete tasks, repeated failures,
+parallel/integrated work and recovery cases retain the Resolver path. Pending
+human decisions remain intact and hold the handoff before either route. Modified
+sealed evidence pauses before dispatch. Every assigned repair still requires
+fresh verification and independent completion acceptance.
+
 `workflow` is the kind of job AutoCode recognized from the request, decided by
 the first stage of every new run (`recognize_workflow`): one of `build`,
 `bugfix`, `review`, `design` or `discuss` (see `scenarios/README.md`,

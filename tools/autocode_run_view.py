@@ -62,6 +62,8 @@ def view(state: dict) -> dict:
         "usage": autocode_usage.summary(state),
         "request_context": request_usage.view(state),
         "output_transport": output_policy.view(state),
+        # Runner-owned assignment provenance, never a model diagnosis or completion proof.
+        "direct_rework_assignments": deepcopy(state.get("direct_rework_assignments", [])),
     }
     design = design_coverage.projection(state)
     if design is not None:

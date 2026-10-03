@@ -1,0 +1,11 @@
+title = "Bounded Completion rework skips redundant diagnosis, not verification"
+category = "feature"
+
+[fake]
+check = "python3 -m unittest test_greet.py"
+fault = "completion_rework_direct"
+
+[run]
+requires_stages = ["terra", "sol", "astra_review"]
+timeout_minutes = 5
+max_steps = 20
