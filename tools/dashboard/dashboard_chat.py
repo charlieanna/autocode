@@ -95,6 +95,19 @@ class ConversationMixin:
             return self._conversation_store
 
     def conversation_create(self, data):
+        text = data.get('text')
+        if data.get('empty') is True and (not isinstance(text, str) or not text.strip()):
+            # Pre-send creation: activating a New conversation control opens a
+            # saved empty conversation carrying the validated project scope
+            # before any message exists. The first send continues this record.
+            workspace = None
+            raw = data.get('project') or data.get('workspace')
+            if isinstance(raw, str) and raw.strip():
+                workspace = self.selected_workspace(raw)
+                if not workspace:
+                    raise ValueError('Select an existing Git project for the new conversation')
+            return self.conversations.create_empty(str(workspace) if workspace else None,
+                                                   request_id=data.get('request_id'))
         models = data.get('models', {})
         if not isinstance(models, dict):
             raise ValueError('Models must be an object')
@@ -102,7 +115,17 @@ class ConversationMixin:
         efforts = self.joint_efforts(models)
         settings = {key + '_model': value for key, value in chosen.items()}
         settings.update({key + '_reasoning_effort': value for key, value in efforts.items()})
-        return self.conversations.create(data.get('text'), models=settings, request_id=data.get('request_id'))
+        # Creation-time project scoping: the saved record starts inside the
+        # chosen project without launching a task handoff. Attaching a project
+        # to an existing conversation stays a separate explicit action.
+        workspace = None
+        raw = data.get('project') or data.get('workspace')
+        if isinstance(raw, str) and raw.strip():
+            workspace = self.selected_workspace(raw)
+            if not workspace:
+                raise ValueError('Select an existing Git project for the new conversation')
+        return self.conversations.create(text, models=settings, request_id=data.get('request_id'),
+                                         workspace=str(workspace) if workspace else None)
 
     def _attachment_state(self, doc):
         attachment = object_value(doc.get('attachment'))

@@ -19,12 +19,18 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
    browser('open',fixture.scenarios[state]);
    browser('wait','--fn','typeof latestRun!=="undefined" && latestRun!==null && !taskReadError');
    evaluate('()=>{applyTheme("light");return true}');
-   const snapshot=evaluate(`()=>{const rect=id=>{const r=document.querySelector(id).getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height,b:r.bottom,right:r.right};};return {width:innerWidth,height:innerHeight,tab:currentTab,chat:rect('#interview'),composer:rect('#change-text'),rail:rect('#goal'),approve:document.querySelector('#inline-task-action').innerText,overflow:document.documentElement.scrollWidth>innerWidth,conversationId:document.querySelector('#conversation').dataset.conversationId};}`);
-   assert.equal(snapshot.width,width);assert.equal(snapshot.height,height);assert.equal(snapshot.tab,'interview');assert.equal(snapshot.overflow,false,label+' '+state+' horizontal overflow');
+   // At phone widths the approved M3 layout reaches the artifact pane through
+   // the details drawer; the pane overlays the chat instead of stacking under
+   // a capped transcript. Open it for the pane measurement, then close it so
+   // the screenshot captures the chat-first narrow layout.
+   if(width<760){browser('click','#details-drawer-toggle');browser('wait','--fn','document.querySelector(".app-shell").classList.contains("details-open")');}
+   const snapshot=evaluate(`()=>{const rect=id=>{const r=document.querySelector(id).getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height,b:r.bottom,right:r.right};};return {width:innerWidth,height:innerHeight,tab:currentTab,chat:rect('#interview'),composer:rect('#change-text'),pane:rect('#context-pane'),approve:document.querySelector('#inline-task-action').innerText,overflow:document.documentElement.scrollWidth>innerWidth,conversationId:document.querySelector('#conversation').dataset.conversationId};}`);
+   if(width<760)browser('click','#details-drawer-close');
+   assert.equal(snapshot.width,width);assert.equal(snapshot.height,height);assert.equal(snapshot.tab,'now');assert.equal(snapshot.overflow,false,label+' '+state+' horizontal overflow');
    assert.ok(snapshot.chat.h>=100,label+' '+state+' chat retains useful height');assert.ok(snapshot.composer.h>=44,label+' '+state+' composer touch size');
    assert.ok(snapshot.composer.right<=width+1&&snapshot.composer.b<=height,label+' '+state+' composer stays in viewport');
    if(state==='plan')assert.match(snapshot.approve,/Approve & build revision 7/);
-   if(width>=1200)assert.ok(snapshot.rail.w>0,'Desktop plan stays beside chat');else assert.equal(snapshot.rail.w,0,'Compact view uses Plan tab');
+   assert.ok(snapshot.pane.w>0,label+' '+state+' artifact pane stays reachable beside chat');
    const image=path.join(evidence,label+'-'+state+'.png');browser('screenshot',image);results.push({label,state,...snapshot,image});
   }
  }

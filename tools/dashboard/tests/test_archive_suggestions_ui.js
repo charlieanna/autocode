@@ -16,7 +16,7 @@ const context=vm.createContext({
   $:()=>host,
   n:element,
   card:(_,className)=>({...element('div'),className}),
-  button:(label,onclick)=>({label,onclick}),
+  button:(label,onclick)=>({label,onclick,dataset:{}}),
   stored:(key,fallback)=>saved.get(key)??fallback,
   persist:(key,value)=>saved.set(key,value),
   taskTitle:run=>run.task,

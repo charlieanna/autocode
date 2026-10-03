@@ -73,7 +73,8 @@ def plan_contract(*, approval_status='approved', origin='astra_finalize'):
         'hash': 'fixture-plan-revision-7',
         'origin': origin,
         'approval_status': approval_status,
-        'approval_event': {'at': FIXTURE_NOW, 'actor': 'Fixture reviewer'},
+        'approval_event': {'at': FIXTURE_NOW, 'actor': 'Fixture reviewer',
+                           'kind': 'goal_approval', 'token': 'r7:fixture-plan-revision-7'},
         'body': {
             'intended_outcome': 'Repair runtime monitoring, approval receipts, and interrupted-task recovery.',
             'requirements': ['Keep runtime truth and saved activity distinct.',
@@ -299,6 +300,24 @@ def scenario_states(workspace):
     # the original mutation.
     states['flow-model-uncertain'] = copy.deepcopy(unavailable_model)
     states['flow-model-uncertain']['_fixture_model_confirm_mode'] = 'uncertain'
+    # Isolated running conversation with a saved transcript for the M3
+    # workspace drawer and keyboard cases (AC19/AC20). The flow- prefix keeps
+    # it out of the mixed Workspace inventory the pinned matrices drive.
+    m3_chat = base_state(workspace, 'Drawer-safe running build', status='RUNNING')
+    m3_chat['_fixture_monitor']['live'] = {'state': 'alive', 'label': 'Worker verified alive', 'pid': 2430, 'elapsed': '00:04:05'}
+    m3_chat['_fixture_monitor']['objective'] = 'Keep the chat transcript and the unsent draft intact while the project and details drawers open and close.'
+    m3_chat['progress_messages'] = [
+        {'role': 'assistant', 'speaker': 'Builder', 'status': 'received',
+         'text': 'Navigation is complete. I’m adding the context panel.',
+         'created_at': '2026-09-22T12:20:00Z'},
+        {'role': 'assistant', 'speaker': 'Builder', 'status': 'received',
+         'text': 'The pane switches now keep this chat visible.',
+         'created_at': '2026-09-22T12:24:00Z'},
+        {'role': 'assistant', 'speaker': 'Validator', 'status': 'received',
+         'text': 'Persistence checks passed. Mobile and browser checks are next.',
+         'created_at': '2026-09-22T12:28:00Z'},
+    ]
+    states['flow-m3-chat'] = m3_chat
     return states
 
 
@@ -463,7 +482,11 @@ def main():
                     if token != state.get('displayed_goal') or data.get('confirmation') != token:
                         raise ValueError('Displayed fixture plan revision changed before approval')
                     state['goal_contract']['approval_status'] = 'approved'
-                    state['goal_contract']['approval_event'] = {'at': FIXTURE_NOW, 'actor': 'Fixture developer'}
+                    # The real runner stamps the exact sealed token into the
+                    # saved approval event (autocode_goal_lifecycle.approve).
+                    state['goal_contract']['approval_event'] = {
+                        'at': FIXTURE_NOW, 'actor': 'Fixture developer',
+                        'kind': 'goal_approval', 'token': token}
                     state.setdefault('user_events', []).append({'kind': 'goal_approval', 'token': token, 'at': FIXTURE_NOW, 'actor': 'Fixture developer'})
                     state['resolver']['human_escalations'][public['request_id']]['status'] = 'consumed'
                     state.pop(resolver_human.PUBLIC)

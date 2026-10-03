@@ -1,8 +1,8 @@
 /* Local dashboard: render saved runner data; only explicit actions advance work. */
 let chosen = null, seq = 0, init = false, focusVersion = 0;
-let currentView = 'inbox', currentTab = 'interview', taskFilter = 'all', projectFilter = '', searchText = '';
-let evidenceRequest = 0, evidenceRun = '', previewRun = '', scrollThreadToEnd = false;
-let taskReturn = {view:'inbox',filter:'all',project:''};
+let currentView = 'tasks', currentTab = 'now', taskFilter = 'all', projectFilter = '', searchText = '';
+let evidenceRequest = 0, evidenceRun = '', previewRun = '', scrollThreadToEnd = false, pendingThreadAnchorKey = '';
+let taskReturn = {view:'tasks',filter:'all',project:''};
 const evidenceCache = new Map();
 let latestData = null, latestRun = null, actionProblem = '', newTaskPending = null, pendingShortRun = '', pendingShortProject = null;
 let taskReadError = '', taskReadAt = null;
@@ -48,7 +48,7 @@ function projectKeyForPath(path,data=latestData) {
 }
 function unavailableShortRun() {
   dashboardNotice('This saved task link is unavailable or ambiguous. Choose the task from All work.');
-  setView('inbox');
+  setView('tasks');
 }
 function restorePendingShortRun(data) {
   if(!pendingShortRun)return false;
@@ -59,12 +59,17 @@ function restorePendingShortRun(data) {
 document.addEventListener('focusin', () => focusVersion++);
 function stored(key, fallback='') { try { return localStorage.getItem('autocode:'+key) ?? fallback; } catch { return fallback; } }
 function persist(key, value) { try { localStorage.setItem('autocode:'+key,value); } catch {} }
+// The active project scopes new conversations before anything is submitted;
+// sidebar groups expand or collapse per project and filter by conversation title.
+let activeProject = stored('active-project','');
+let conversationSearch = '';
+let newTaskProject = '';
 function newRequestId() { return crypto.randomUUID(); }
 function readSavedRequest(key) {try{return JSON.parse(stored(key,'null'));}catch{return null;}}
 function savedRequest(key,payload) {const previous=readSavedRequest(key),signature=JSON.stringify(payload);if(previous?.signature===signature)return previous;const request={id:newRequestId(),signature,payload};persist(key,JSON.stringify(request));return request;}
 function rememberSelection(value) { persist('selection',value); history.replaceState(null,'','#'+value); }
 function conversationStatus(doc) { return doc.attachment?.status==='linked'?'Attached':doc.attachment?.status==='starting'?'Connecting project':doc.status==='thinking'?'Thinking…':doc.status==='error'?'Needs attention':'Planning'; }
-function conversationPayload(text, models, request_id) { return {text:text.trim(),models,request_id}; }
+function conversationPayload(text, models, request_id, workspace) { const payload = {text:text.trim(),models,request_id}; if(workspace)payload.workspace=workspace; return payload; }
 function resolverResponseFields(run) {
   const envelope=run.human_escalation;
   return run.human_request_authorized===true&&typeof envelope?.request_id==='string'&&envelope.request_id&&typeof envelope.request_token==='string'&&envelope.request_token?{resolver_request:envelope.request_id,resolver_token:envelope.request_token}:{};
@@ -397,6 +402,9 @@ function projectTitle(workspace) {
   const current=candidates.find(run=>run.monitor?.live?.state==='alive')||candidates[0];
   return current?taskTitle(current):basename(workspace);
 }
+// The project's own name (its folder), used for sidebar group headers and the
+// scope shown on new-conversation controls before anything is submitted.
+function projectLabel(workspace) { return basename(workspace); }
 
 function taskStarted(run) {
   const explicit=Date.parse(run.created_at);
@@ -433,7 +441,11 @@ function renderArchiveSuggestions(runs) {
   for(const {run,kind} of candidates){
     const row=card('','archive-suggestion-row'),copy=card('','archive-suggestion-copy');
     copy.append(n('strong',taskTitle(run)),n('span',projectTitle(run.workspace)+' · '+kind));
-    row.append(copy,button('Review archive',()=>reviewTaskArchive(run),'text-button'),button('Dismiss',()=>{const next=archiveSuggestionDismissed();next[run.run]=true;persist('archive-suggestions-dismissed',JSON.stringify(next));renderArchiveSuggestions(runs);},'text-button'));
+    // Stable focus keys keep keyboard focus on the same control across the
+    // polling re-render of this section.
+    const review=button('Review archive',()=>reviewTaskArchive(run),'text-button'),dismiss=button('Dismiss',()=>{const next=archiveSuggestionDismissed();next[run.run]=true;persist('archive-suggestions-dismissed',JSON.stringify(next));renderArchiveSuggestions(runs);},'text-button');
+    review.dataset.focusKey='archive-review:'+run.run;dismiss.dataset.focusKey='archive-dismiss:'+run.run;
+    row.append(copy,review,dismiss);
     host.append(row);
   }
 }
@@ -464,6 +476,7 @@ function statusInfo(run) {
     return info('stopped','','Ready to continue','Open to continue','The task is at a saved checkpoint. Open it to continue when you are ready.');
   }
   if(status==='PAUSED_INVALID_OUTPUT'&&/discovery|glm_revise|astra_challenge|astra_finalize/.test(run.active_stage?.stage||run.stage||''))return info('stopped','failed','Planning needs retry','Retry planning',(run.stop_reason?run.stop_reason+' · ':'')+(String(run.stop_reason||'').includes('actual saved feedback event')?'The planning draft cited user feedback that has no matching saved feedback event. The draft was rejected. Retry planning to generate a fresh draft; final plan approval is still required.':'The planning draft failed validation and was rejected. Retry planning to generate a fresh draft; final plan approval is still required.'));
+  if(status==='PAUSED_INTERVENTION'&&run.interventions?.stop_intent)return info('stopped','attention','Stopped','Inspect details','Stopped at your request after a saved step. Saved work, history and receipts are kept; this conversation launches no further stages.','execution');
   if(status==='PAUSED_INTERVENTION')return info('stopped','attention','Paused','Resume task',String(run.stop_reason||'').includes('feedback was applied')?'Your feedback has been applied. Resume to update the plan.':'Paused at a saved step. Resume when you’re ready.');
   if(/INVALID_OUTPUT|REPORT_REPAIR|PERMISSION_RECONCILIATION|ORCHESTRATOR_|FAILED/.test(status))return info('stopped','failed','Internally blocked','Inspect failure',run.stop_reason||'An internal step failed. Inspect the saved failure, correct the cause, then retry.');
   if(status==='BLOCKED_HUMAN'&&(questions.length||request.decision_needed))return info('attention','attention','Decision needed','View decision',request.decision_needed||questions[0].question);
@@ -493,6 +506,7 @@ function runtimeLabel(run) {
   if(info.label==='Decision needed')return 'Waiting on you · Decision needed';
   if(info.label==='Interrupted')return 'Interrupted · saved work preserved';
   if(info.label==='Paused')return 'Paused · '+(String(run.stop_reason||'').includes('feedback')?'Feedback applied':'checkpoint preserved');
+  if(info.label==='Stopped')return 'Stopped · no further stages run';
   if(info.label==='Completed')return 'Completed · recorded evidence';
   return info.label;
 }
@@ -811,10 +825,11 @@ function monitorFact(label,value,key,preview=value) {
   return item;
 }
 function monitorPanel(run) {
-  const facts=stateFacts(run),info=statusInfo(run),monitor=run.monitor||{},live=monitor.live||{},host=card('','monitor-panel task-state-hero');
+  const facts=stateFacts(run),info=statusInfo(run),host=card('','monitor-panel task-state-hero work-facts');
   host.dataset.taskStateHero='true';
-  const running=info.group==='running'&&live.state==='alive',reported=info.group==='running'&&!running;
-  // The hero must carry readable runtime truth itself. A short, task-specific
+  // Compact saved-facts section (422:1613 verification block). The state chip
+  // and current step lead the Now-working card; every remaining saved fact
+  // stays readable here without enlarging that lead. A short, task-specific
   // blocker preview protects the mobile fold; the complete question/reason is
   // rendered in the adjacent decision or recovery detail rather than hidden
   // inside this fact's textContent.
@@ -824,10 +839,7 @@ function monitorPanel(run) {
     // Conversation; this is deliberately a truthful, task-specific preview.
     ?'Answer '+run.questions.length+' '+(run.questions.length===1?'question':'questions')+' · first unresolved: '+operationalPreview(facts.blocker,48)
     :operationalPreview(facts.blocker,136);
-  const hero=card('','monitor-hero '+info.group),main=card('','monitor-state');
-  const state=n('p',facts.state);state.className='monitor-status-chip '+info.group;state.dataset.taskFact='state';state.dataset.taskFactVisible='state';state.dataset.taskFactFull='state';
-  const step=n('h2',facts.step);step.dataset.taskFact='step';step.dataset.taskFactVisible='step';step.dataset.taskFactFull='step';
-  main.append(state,step);
+  host.append(Object.assign(n('p','SAVED STATUS'),{className:'monitor-kicker'}));
   const freshness=monitorFact('FRESHNESS',facts.freshness,'freshness',freshnessPreview(run,facts.freshness));freshness.classList.add('monitor-freshness');
   const operations=card('','monitor-fact-grid monitor-operational-facts');
   const objectivePreview=operationalPreview(facts.objective,112);
@@ -837,7 +849,7 @@ function monitorPanel(run) {
     monitorFact('RESPONSIBLE ROLE',facts.role,'role'),
     freshness
   );
-  hero.append(main,operations);host.append(hero);
+  host.append(operations);
   if(objectivePreview!==facts.objective){
     const detail=disclosure('Read complete objective','objective:'+run.run,[n('p',facts.objective)],run.run);
     detail.className='monitor-objective-detail';detail.dataset.taskFactDetail='objective';host.append(detail);
@@ -856,7 +868,21 @@ function metricPanel(metric){
 function renderTaskOverview(run) {
   const host=$('#task-overview');host.replaceChildren(n('h2','Recent saved steps'),n('p','Stage exits are not task-completion verdicts. Full evidence remains in Checks.'));
   for(const step of run.monitor?.history||[]){const row=card('','monitor-event');row.append(n('span',stageName({...run,stage:step.stage})+' · iteration '+(step.iteration??'?')),n('span',executionLabel(step.execution)),n('small',(step.rejected?'Rejected':step.interrupted?'Interrupted':step.timed_out?'Timed out':stageSucceeded(step)?'Finished':'Recorded')+' · '+(step.finished_at||'Time not recorded')));host.append(row);}
-  if(run.interventions)host.append(disclosure('Saved controls & delivery history','runtime-controls',[renderDocument(run.interventions)],run.run));host.hidden=currentTab!=='overview';
+  if(run.interventions)host.append(disclosure('Saved controls & delivery history','runtime-controls',[renderDocument(run.interventions)],run.run));
+  // The reviewer findings, contract receipts, verification summaries and saved
+  // change disclosures are operational history: they stay inspectable here in
+  // History instead of displacing the continuous chat transcript (422-1495).
+  renderWorkflowTimeline(host,run);
+  const checkpoints=renderSessionCheckpoints(run,sessionCheckpoints(run),false);if(checkpoints)host.append(checkpoints);
+  if(run.monitor?.checkpoints?.rows?.length)host.append(executionCheckpoints(run.monitor.checkpoints));
+  if(run.monitor?.orchestration_batch)host.append(orchestrationPanel(run.monitor.orchestration_batch));
+  const assignment=run.astra_plan?.current_assignment;
+  if(assignment)host.append(disclosure('Assignment scope & checks','current-assignment:'+assignment.id,[renderDocument(assignment)],run.run));
+  const context=card('','current-context'),plan=card('','');plan.append(n('h3','Current plan'),n('p',run.goal?.revision!=null?'Revision '+run.goal.revision+' · '+(run.goal.approval_status==='approved'?'Approved':statusInfo(run).label==='Approve plan'?'Ready for review':'Draft'):'No plan revision saved'),button('Read current plan →',()=>activateTab('plan'),'text-button'));context.append(plan);
+  const checkpoint=card('',''),latest=[...(run.monitor?.history||[])].sort((a,b)=>Date.parse(b.finished_at)-Date.parse(a.finished_at))[0];checkpoint.append(n('h3','Last saved step'));
+  if(latest){checkpoint.append(n('p',stageName({...run,stage:latest.stage})+' · iteration '+(latest.iteration??'?')),n('p',(latest.rejected?'Output rejected':latest.interrupted?'Interrupted':latest.timed_out?'Timed out':stageSucceeded(latest)?'Step finished':'Step stopped')+' · '+new Date(latest.finished_at).toLocaleString()));}else checkpoint.append(n('p','No completed step recorded.'));
+  checkpoint.append(button('View history →',()=>activateTab('overview'),'text-button'));context.append(checkpoint);host.append(context);
+  host.hidden=currentTab!=='overview';
 }
 function markMonitorStale(){document.querySelectorAll('.monitor-panel').forEach(panel=>{
   panel.classList.add('monitor-stale');
@@ -883,70 +909,158 @@ function setView(view) {
   $('#focus-toggle').hidden=view!=='task-detail';
   $('#focus-toggle').textContent=stored('focus')==='1'?'Show navigation':'Focus view';
   $('#focus-toggle').setAttribute('aria-pressed',String(stored('focus')==='1'));
-  if(['tasks','inbox','conversations','settings','new-task','archived'].includes(view))rememberSelection(view==='new-task'?'new':view==='tasks'?taskSelection():view);
-  for (const id of ['inbox','tasks','new-task','task-detail','settings','conversations','draft-conversation','archived']) $('#'+id).hidden = id !== view;
-  $('#breadcrumb-title').textContent = view==='inbox'?'Needs you':view==='archived'?'Archived':view === 'tasks' ? taskScopeTitle() : view === 'new-task' ? 'New conversation' : view === 'settings' ? 'Settings' : ['conversations','draft-conversation'].includes(view)?'Conversation':projectTitle(chosen?.workspace);
+  $('#details-drawer-toggle').hidden=view!=='task-detail';
+  if(view!=='task-detail')closeDetailsDrawer();
+  if(['tasks','conversations','settings','new-task','archived'].includes(view))rememberSelection(view==='new-task'?'new':view==='tasks'?taskSelection():view);
+  for (const id of ['tasks','new-task','task-detail','settings','conversations','draft-conversation','archived']) $('#'+id).hidden = id !== view;
+  $('#breadcrumb-title').textContent = view==='archived'?'Archived':view === 'tasks' ? taskScopeTitle() : view === 'new-task' ? 'New conversation' : view === 'settings' ? 'Settings' : ['conversations','draft-conversation'].includes(view)?'Conversation':projectTitle(chosen?.workspace);
   closeNavigation();
   if(view!=='task-detail')stopPreview();
   document.querySelectorAll('[data-view]').forEach(element => element.classList.toggle('selected',element.dataset.view === (view==='draft-conversation'?'conversations':view) && (view!=='tasks'||(!projectFilter&&taskFilter==='all'))));
 }
+const WORKSPACE_PANES = ['now', 'plan', 'preview', 'changes', 'execution', 'overview'];
 function activateTab(tab) {
   if(latestRun?.task_archived){showArchivedRun(latestRun);return;}
+  // The chat column and its composer are part of the conversation view in
+  // every pane. 'interview' stays as the alias callers use to surface chat
+  // without changing which artifact pane is open.
+  if(tab==='interview')tab=WORKSPACE_PANES.includes(currentTab)?currentTab:'now';
   const changed=currentTab!==tab;currentTab = tab;
-  $('#task-overview').hidden=tab!=='overview'||!latestRun||latestRun.project_removed;
+  const paneTitle=$('#details-pane-title');if(paneTitle)paneTitle.textContent=({now:'Work',plan:'Your plan',preview:'Preview',changes:'Changes',execution:'Checks',overview:'History'})[tab]||'Work';
+  $('#task-overview').hidden=tab!=='overview'||!latestRun||!!latestRun?.project_removed;
   $('#detail-grid').hidden=!!latestRun?.project_removed;
-  for (const id of ['now','interview','plan','execution','changes','preview']) $('#'+id).hidden = id !== tab;
-  $('#live-controls').hidden=tab!=='interview'||!latestRun||latestRun.project_removed||latestRun.task_archived;
-  $('#goal').hidden = tab!=='interview'||!latestRun||latestRun.project_removed;
-  $('#task-detail').classList.toggle('conversation-active',tab==='interview');
+  for (const id of ['now','plan','execution','changes','preview']) $('#'+id).hidden = id !== tab;
+  $('#live-controls').hidden=!latestRun||!!latestRun?.project_removed||!!latestRun?.task_archived;
+  $('#goal').hidden = true;
+  $('#task-detail').classList.add('conversation-active');
   if(tab!=='preview')stopPreview();
   if(tab==='changes'&&chosen?.run&&evidenceRun!==chosen.run)loadChanges();
-  if(tab==='preview'&&chosen?.run&&previewRun!==chosen.run){previewRun=chosen.run;$('#preview-url').value=stored('preview:'+chosen.run);$('#preview-error').textContent='';}
+  if(tab==='preview'){
+    if(chosen?.run&&previewRun!==chosen.run){previewRun=chosen.run;$('#preview-url').value=stored('preview:'+chosen.run);$('#preview-error').textContent='';}
+    renderPreviewState();
+  }
   if(latestRun)renderPrimaryAction(latestRun);
-  if(changed&&tab==='interview'&&scrollThreadToEnd)settleThreadScroll();
+  if(changed)settleThreadScroll();
   document.querySelectorAll('[data-tab]').forEach(element => { const selected=element.dataset.tab===tab;element.classList.toggle('selected',selected);element.setAttribute('aria-selected',String(selected));element.setAttribute('tabindex',selected?'0':'-1'); });
   if(taskReadError)disableStaleControls();
 }
-function openRun(run, tab = 'interview') {
+function openRun(run, tab = 'now') {
   $('#archive-task').disabled=true;$('#delete-task').disabled=true;
   if (!run.run || run.error) return;
-  if(currentView!=='task-detail')taskReturn=currentView==='inbox'?{view:'inbox'}:currentView==='tasks'?{view:'tasks',filter:taskFilter,project:projectFilter}:{view:'tasks',filter:'all',project:''};
+  if(currentView!=='task-detail')taskReturn=currentView==='tasks'?{view:'tasks',filter:taskFilter,project:projectFilter}:{view:'tasks',filter:'all',project:''};
   const changed = chosen?.run !== run.run;
   if(changed&&typeof cancelApprovalReceipts==='function')cancelApprovalReceipts();
-  if(changed){$('#task-overview').hidden=true;$('#now').dataset.rendered='';$('#now').replaceChildren(n('p','Loading current state…'));scrollThreadToEnd=true;stopPreview();evidenceRun='';evidenceRequest++;$('#changes-content').replaceChildren();$('#thread-checkpoint').replaceChildren();$('#task-objective').textContent='';$('#conversation').dataset.rendered='';}
+  if(changed){$('#task-overview').hidden=true;$('#now').dataset.rendered='';$('#now').replaceChildren(n('p','Loading current state…'));scrollThreadToEnd=true;pendingThreadAnchorKey='task-scroll:'+run.run;stopPreview();evidenceRun='';evidenceRequest++;$('#changes-content').replaceChildren();$('#thread-checkpoint').replaceChildren();$('#task-objective').textContent='';$('#conversation').dataset.rendered='';}
   chosen = {workspace:run.workspace,run:run.run}; activeConversation = null; latestRun = null; seq++;
+  if(run.workspace&&run.workspace!==activeProject){activeProject=run.workspace;persist('active-project',activeProject);}
   taskReadError='';taskReadAt=null;$('#task-load-notice').hidden=true;
   rememberSelection(runSelection(run));
   renderTaskProjectActions(run.workspace);$('#task-removed-banner').hidden=true;$('#detail-grid').hidden=false;
-  if (changed) { $('#conversation').replaceChildren(); $('#brief-current').replaceChildren(); $('#plan-full').replaceChildren(); $('#goal').replaceChildren(); $('#live-controls').hidden=true; $('#task-attention').hidden=true; $('#continue-run').disabled=true; $('#pause-run').disabled=true; $('#task-project').textContent=projectTitle(run.workspace); $('#task-title').textContent=taskTitle(run); $('#task-subtitle').textContent='Loading current task state…'; $('#task-models').textContent=''; $('#task-status').replaceChildren(); }
-  $('#task-back').textContent='← '+(taskReturn.view==='inbox'?'Needs you':taskReturn.project?projectTitle(taskReturn.project):'All work');
-  setView('task-detail'); activateTab(tab); refresh(); window.scrollTo({top:0});
+  if (changed) { $('#conversation').replaceChildren(); $('#brief-current').replaceChildren(); $('#plan-full').replaceChildren(); $('#goal').replaceChildren(); $('#live-controls').hidden=true; $('#task-attention').hidden=true; $('#continue-run').disabled=true; $('#pause-run').disabled=true; $('#stop-run').disabled=true; $('#task-project').textContent=projectTitle(run.workspace); $('#task-title').textContent=taskTitle(run); $('#task-subtitle').textContent='Loading current task state…'; $('#task-models').textContent=''; $('#task-status').replaceChildren(); }
+  $('#task-back').textContent='← '+(taskReturn.project?projectTitle(taskReturn.project):'All work');
+  setView('task-detail'); activateTab(tab); refresh(); window.scrollTo({top:0}); syncNewTaskScope();
 }
 function filterTasks(filter, project = projectFilter) { taskFilter = filter; projectFilter = project; setView('tasks'); if (latestData) renderTasks(latestData); }
-$('#task-back').onclick=()=>taskReturn.view==='inbox'?setView('inbox'):filterTasks(taskReturn.filter,taskReturn.project);
-function showNewTask() { chosen=null; activeConversation=null; seq++; setView('new-task');rememberSelection('new');$('#new-goal').focus(); }
-document.querySelectorAll('[data-new-task]').forEach(element => element.onclick = showNewTask);
+$('#task-back').onclick=()=>filterTasks(taskReturn.filter||'all',taskReturn.project||'');
+function showNewTask(scope) {
+  const project=typeof scope==='string'?scope:activeProject;
+  newTaskProject=project||'';activeProject=project||'';persist('active-project',activeProject);
+  chosen=null; activeConversation=null; seq++; setView('new-task');rememberSelection('new');syncNewTaskScope();$('#new-goal').focus();
+}
+async function startProjectConversation(scope) {
+  // Activating a New conversation control opens a saved, empty, scoped
+  // conversation immediately: the header and composer show the project before
+  // any message is sent, and the first send continues that saved record.
+  const project=(typeof scope==='string'?scope:activeProject)||'';
+  newTaskProject=project;activeProject=project;persist('active-project',activeProject);syncNewTaskScope();
+  const request=savedRequest('create-request',{empty:true,workspace:project});
+  try{
+    const body={empty:true,request_id:request.id};
+    if(project)body.workspace=project;
+    const doc=await api('/api/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    persist('create-request','');newTaskProject='';
+    openConversation(doc);
+  }catch(problem){
+    dashboardNotice(problem.message);
+    showNewTask(project);
+  }
+}
+document.querySelectorAll('[data-new-task]').forEach(element => element.onclick = () => showNewTask());
 document.querySelectorAll('[data-view]').forEach(element => element.onclick = () => { if(element.dataset.view === 'tasks') filterTasks('all',''); else setView(element.dataset.view); });
 document.querySelectorAll('[data-tab]').forEach(element => element.onclick = () => activateTab(element.dataset.tab));
-$('#brand-home').onclick = event => { event.preventDefault(); setView('inbox'); };
-function navigationFocusables(){return [...$('#primary-navigation').querySelectorAll('a[href],button:not([disabled]),[tabindex]:not([tabindex="-1"])')].filter(element=>!element.hidden);}
+$('#brand-home').onclick = event => { event.preventDefault(); setView('tasks'); };
+$('#conversation-search').oninput = event => { conversationSearch = event.target.value; if (latestData) renderProjectGroups(latestData); };
+// A drawer control joins the focus order only when it is actually rendered:
+// no hidden or disabled ancestor, so rows inside a collapsed project group
+// (their group rows container is hidden) never act as the wrap boundary.
+// A control the stylesheet does not paint (the mobile project sheet hides its
+// desktop-only utility rows) cannot take focus either, so it must not bound
+// the keyboard wrap.
+function navigationFocusables(){return [...$('#primary-navigation').querySelectorAll('a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')].filter(element=>!element.hidden&&!element.disabled&&drawerControlRendered(element)&&drawerControlPainted(element));}
+function drawerControlPainted(element){
+  if(typeof getComputedStyle!=='function')return true;
+  const style=getComputedStyle(element),rect=element.getBoundingClientRect();
+  return style.display!=='none'&&style.visibility!=='hidden'&&rect.width>0&&rect.height>0;
+}
+// The closed navigation drawer is off-canvas at phone widths; keep its
+// controls out of the keyboard order until the drawer is opened.
+function syncNavigationInert(){
+  if(typeof matchMedia!=='function')return;
+  $('#primary-navigation').inert=matchMedia('(max-width: 759px)').matches&&!$('.app-shell').classList.contains('nav-open');
+}
 function openNavigation(){
   const shell=$('.app-shell');if(shell.classList.contains('nav-open'))return;
   shell.classList.add('nav-open');$('#nav-toggle').setAttribute('aria-expanded','true');$('#drawer-scrim').hidden=false;
-  $('.main-area').inert=true;$('.topbar').inert=true;const focusable=navigationFocusables();(focusable[0]||$('#primary-navigation')).focus();
+  $('.main-area').inert=true;$('.topbar').inert=true;$('#primary-navigation').inert=false;const focusable=navigationFocusables();(focusable[0]||$('#primary-navigation')).focus();
 }
 function closeNavigation(){
   const shell=$('.app-shell');if(!shell.classList.contains('nav-open'))return;
   shell.classList.remove('nav-open');$('#nav-toggle').setAttribute('aria-expanded','false');$('.main-area').inert=false;$('.topbar').inert=false;$('#drawer-scrim').hidden=true;
+  syncNavigationInert();
   if(matchMedia('(max-width: 759px)').matches)$('#nav-toggle').focus();
+}
+// The details drawer lifts the artifact pane over the chat at phone widths.
+// The chat transcript and its composer stay mounted underneath; closing the
+// drawer returns focus to its control.
+// A drawer control joins the focus order only when it is actually rendered:
+// no hidden or disabled ancestor, and inside a <details> only when that
+// details is open or the control is its own summary.
+function drawerControlRendered(element){
+  for(let node=element;node;node=node.parentElement){
+    if(node.hidden||node.disabled)return false;
+    if(node.tagName==='DETAILS'&&node!==element&&!node.open){
+      let child=element,parent=element.parentElement;
+      while(parent&&parent!==node){child=parent;parent=parent.parentElement;}
+      if(child.tagName!=='SUMMARY')return false;
+    }
+  }
+  return true;
+}
+function detailsDrawerFocusables(){return [...$('#context-pane').querySelectorAll('button:not([disabled]),[role=tab]:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex="0"]')].filter(element=>!element.hidden&&!element.disabled&&drawerControlRendered(element));}
+function openDetailsDrawer(){
+  const shell=$('.app-shell'),toggle=$('#details-drawer-toggle');
+  if(toggle.hidden||shell.classList.contains('details-open'))return;
+  shell.classList.add('details-open');toggle.setAttribute('aria-expanded','true');$('#details-scrim').hidden=false;
+  $('.conversation-column').inert=true;$('#details-drawer-close').focus();
+}
+function closeDetailsDrawer(){
+  const shell=$('.app-shell');if(!shell.classList.contains('details-open'))return;
+  shell.classList.remove('details-open');$('#details-drawer-toggle').setAttribute('aria-expanded','false');$('#details-scrim').hidden=true;
+  $('.conversation-column').inert=false;
+  $('#details-drawer-toggle').focus();
 }
 $('#nav-toggle').onclick=()=>$('.app-shell').classList.contains('nav-open')?closeNavigation():openNavigation();
 $('#drawer-close').onclick=closeNavigation;
 $('#drawer-scrim').onclick=closeNavigation;
-addEventListener('resize',()=>{if(!matchMedia('(max-width: 759px)').matches)closeNavigation();});
+$('#details-drawer-toggle').onclick=()=>$('.app-shell').classList.contains('details-open')?closeDetailsDrawer():openDetailsDrawer();
+$('#details-drawer-close').onclick=closeDetailsDrawer;
+$('#details-scrim').onclick=closeDetailsDrawer;
+addEventListener('resize',()=>{const narrow=typeof matchMedia==='function'&&matchMedia('(max-width: 759px)').matches;if(!narrow)closeDetailsDrawer();closeNavigation();syncNavigationInert();});
+syncNavigationInert();
 document.addEventListener('keydown',event=>{
-  if(event.key==='Escape'){closeNavigation();document.querySelectorAll('.context-menu[open]').forEach(menu=>menu.open=false);return;}
+  if(event.key==='Escape'){closeNavigation();closeDetailsDrawer();document.querySelectorAll('.context-menu[open]').forEach(menu=>menu.open=false);return;}
   if(event.key==='Tab'&&$('.app-shell').classList.contains('nav-open')){const focusable=navigationFocusables();if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}
+  if(event.key==='Tab'&&$('.app-shell').classList.contains('details-open')){const focusable=detailsDrawerFocusables();if(!focusable.length)return;const first=focusable[0],last=focusable.at(-1);if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}
 });
 $('.detail-tabs').addEventListener('keydown',event=>{
   if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
@@ -970,11 +1084,40 @@ for(const [input,form] of [['#change-text','#change-form'],['#draft-text','#draf
   $(input).addEventListener('input',()=>resizeComposer($(input)));
   if(typeof ResizeObserver!=='undefined'){let measured='';const observer=new ResizeObserver(()=>{const element=$(input),key=element.clientWidth+':'+getComputedStyle(element).fontSize;if(key!==measured){measured=key;resizeComposer(element);}});observer.observe($(input));}
 }
-function updateDraftScroll(){const scroll=$('#draft-scroll');$('#draft-latest').hidden=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90;}
+function updateDraftScroll(){const scroll=$('#draft-scroll');$('#draft-latest').hidden=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90;rememberThreadAnchor(scroll,activeConversation?'conversation-scroll:'+activeConversation:'');}
 function scrollDraftToEnd(){const scroll=$('#draft-scroll');scroll.scrollTop=scroll.scrollHeight;updateDraftScroll();}
 $('#draft-scroll').addEventListener('scroll',updateDraftScroll);
 new ResizeObserver(updateDraftScroll).observe($('#draft-scroll'));
 $('#draft-latest').onclick=scrollDraftToEnd;
+// Per-conversation scroll anchors: the transcript remembers which message
+// sits at the top of its viewport, so an ordinary reload (or returning to the
+// conversation) restores the reading position instead of jumping to the end.
+function messageAnchorKey(message) {
+  if(message?.id)return 'id:'+message.id;
+  return 'txt:'+(message?.role||'')+':'+(messageTime(message)||0)+':'+String(message?.text||'').slice(0,48);
+}
+function threadAnchorMessages(scroller){return [...scroller.querySelectorAll('[data-message-key]')];}
+function rememberThreadAnchor(scroller,key) {
+  if(!key)return;
+  const messages=threadAnchorMessages(scroller);
+  if(!messages.length)return;
+  const mark=(scroller.scrollTop||0)+2;
+  let anchor=messages[0];
+  for(const element of messages){if((element.offsetTop||0)<=mark)anchor=element;else break;}
+  persist(key,String(anchor.dataset.messageKey||''));
+}
+function restoreThreadAnchor(scroller,key) {
+  let anchor='';
+  try{anchor=stored(key,'');}catch{return false;}
+  if(!anchor)return false;
+  const messages=threadAnchorMessages(scroller);
+  if(!messages.length)return false;
+  const target=messages.find(element=>element.dataset.messageKey===anchor);
+  if(!target)return false;
+  scroller.scrollTop=Math.max(0,target.offsetTop||0);
+  return true;
+}
+$('#interview').addEventListener('scroll',()=>{if(chosen?.run)rememberThreadAnchor($('#interview'),'task-scroll:'+chosen.run);});
 function syncWorkspaces(list) {
   const select = $('#workspaces'), keep = select.value;
   if (select.dataset.options === JSON.stringify(list)) return;
@@ -1063,18 +1206,138 @@ function emptyState(title, text, action) {
   if (action) host.append(button('Start a conversation',showNewTask,'primary')); return host;
 }
 function unattachedConversations(data){return (data.conversations||[]).filter(doc=>doc.attachment?.status!=='linked');}
-function renderInbox(data){
-  const runs=(data.runs||[]).filter(run=>run.run&&!run.error),waiting=runs.filter(run=>statusInfo(run).group==='attention'),paused=runs.filter(run=>statusInfo(run).group==='stopped');
-  const failed=unattachedConversations(data).filter(doc=>doc.status==='error'||['failed','uncertain'].includes(doc.attachment?.status));
-  $('#inbox-count').textContent=waiting.length+failed.length;
-  const host=$('#inbox-list');host.replaceChildren();
-  const addRun=(parent,run)=>{const info=statusInfo(run),row=focusKey(button('',()=>openRun(run),'inbox-item'),'inbox:'+run.run);
-    row.append(Object.assign(n('div',projectTitle(run.workspace)+' · '+taskTitle(run)),{className:'inbox-meta'}),n('h3',info.label==='Approve plan'?'Ready to approve the plan':info.label==='Review output'?'Review the finished work':concise(info.reason,190)),n('p',info.label==='Approve plan'?concise(run.goal?.body?.intended_outcome||info.reason,240):run.questions?.length>1?(run.questions.length-1)+' more '+(run.questions.length===2?'question':'questions')+' in this conversation.':info.label==='Answer needed'?'Your answer is saved for the controller. Plan approval remains separate.':info.label),Object.assign(n('span',info.action+' →'),{className:'next-action'}));parent.append(row);};
-  for(const run of waiting)addRun(host,run);
-  for(const doc of failed){const row=focusKey(button('',()=>openConversation(doc.id),'inbox-item'),'inbox-chat:'+doc.id);row.append(Object.assign(n('div',doc.title||'Planning conversation'),{className:'inbox-meta'}),n('h3','This conversation needs a retry'),n('p',concise(doc.error||doc.attachment?.error||'The last reply could not finish.',220)),Object.assign(n('span','Open conversation →'),{className:'next-action'}));host.append(row);}
-  if(!waiting.length&&!failed.length)host.append(emptyState('You’re all caught up.','No questions or approvals are waiting for you.'));
-  if(paused.length){const list=card('','inbox-section');for(const run of paused)addRun(list,run);host.append(disclosure(paused.length+' paused '+(paused.length===1?'task':'tasks')+' to revisit','inbox-paused',[list],'inbox'));}
-  const running=runs.filter(run=>statusInfo(run).group==='running').length,foot=$('#inbox-running');foot.replaceChildren(n('span',running?running+' '+(running===1?'task is':'tasks are')+' in progress.':'Ready for your next idea.'),button('View all work →',()=>filterTasks('all',''),'text-button'));
+/* Project-grouped sidebar workspace: each project's conversations render as
+   indented rows inside an expandable group; project-free conversations stay
+   visible in a "No project" group without being attached to any project. */
+function conversationWorkspace(doc) {
+  const attachment=doc?.attachment;
+  return attachment?.project_workspace||attachment?.workspace||doc?.project_workspace||'';
+}
+function runConversationAttention(run) {
+  const info=statusInfo(run);
+  if(info.group!=='attention')return '';
+  return ['Approve plan','Review output'].includes(info.label)?'Approval requested':'Awaiting your reply';
+}
+function docConversationAttention(doc) {
+  // Amber attention means saved human input is pending. The list summary
+  // carries the store-verified intake projection; a delivery error or an
+  // autonomous recovery is not a human request, so without that saved
+  // projection an unattached conversation row never carries the marker
+  // (R8/R17). Run rows derive theirs from saved escalation state.
+  const request=doc&&doc.human_request;
+  return request&&typeof request==='object'&&request.kind==='intake'
+    &&typeof request.decision_needed==='string'&&!!request.decision_needed.trim()
+    ?'Awaiting your reply':'';
+}
+function projectGroupStates() {
+  try { const saved=JSON.parse(stored('project-groups','{}'));return saved&&typeof saved==='object'&&!Array.isArray(saved)?saved:{}; }
+  catch { return {}; }
+}
+function projectGroupOpen(path) { const states=projectGroupStates(),key=path||'__no_project__';return key in states?states[key]!==false:true; }
+function toggleProjectGroup(path) {
+  const states=projectGroupStates(),key=path||'__no_project__';
+  states[key]=!projectGroupOpen(path);persist('project-groups',JSON.stringify(states));
+  if(latestData)renderProjectGroups(latestData);
+}
+function activeProjectTitle() {
+  if(!activeProject)return '';
+  if(latestData){
+    const known=[...new Set([...(latestData.workspaces||[]),...(latestData.runs||[]).map(run=>run.workspace).filter(Boolean)])];
+    if(!known.includes(activeProject))return '';
+  }
+  return projectLabel(activeProject);
+}
+function syncNewTaskScope() {
+  const title=activeProjectTitle(),text=title?'New conversation in '+title:'New conversation';
+  const label=$('#new-task-scope-label');if(label)label.textContent=text;
+  const control=$('[data-new-task]');if(control)control.setAttribute('aria-label',text);
+  const scope=$('#create-scope');
+  if(scope){const scoped=newTaskProject?projectLabel(newTaskProject):'';scope.hidden=!scoped;scope.textContent=scoped?'New conversation in '+scoped:'';}
+}
+function sidebarConversationRow(row) {
+  const element=card('','conversation-nav-row'+(row.selected?' selected':''));
+  element.setAttribute('role','button');element.tabIndex=0;element.dataset.conversationKey=row.key;
+  focusKey(element,'conversation-row:'+row.key);
+  element.setAttribute('aria-label',row.title+(row.attention?' · '+row.attention:''));
+  element.append(Object.assign(n('span',row.title),{className:'conversation-nav-title'}));
+  const marks=card('','conversation-row-marks');
+  if(row.attention){
+    const marker=card('!','attention-marker');
+    marker.title=row.attention;marker.setAttribute('aria-label',row.attention);marker.setAttribute('role','img');marker.tabIndex=0;
+    focusKey(marker,'conversation-marker:'+row.key);
+    marks.append(marker);
+  }
+  if(row.complete){
+    const tick=card('✓','complete-tick');
+    tick.title='Completed';tick.setAttribute('aria-label','Completed');tick.setAttribute('role','img');tick.tabIndex=0;
+    focusKey(tick,'conversation-tick:'+row.key);
+    marks.append(tick);
+  }
+  element.append(marks);
+  element.onclick=row.open;
+  element.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();row.open();}};
+  return element;
+}
+function projectGroupNode(path,rows,query) {
+  const group=card('','project-group');group.dataset.project=path||'';
+  const open=query?true:projectGroupOpen(path);
+  const header=card('','project-group-header');
+  const name=path?projectLabel(path):'No project';
+  const toggle=focusKey(button('',()=>toggleProjectGroup(path),'project-group-toggle'),'project-group:'+(path||'__no_project__'));
+  toggle.setAttribute('aria-expanded',String(open));
+  toggle.setAttribute('aria-label',name+' conversations, '+(open?'collapse':'expand'));
+  toggle.append(Object.assign(n('span',''),{className:'project-group-chevron'}),Object.assign(n('span',name),{className:'project-group-name'}),Object.assign(n('span',String(rows.length)),{className:'nav-count'}));
+  const scope=path?'New conversation in '+name:'New conversation without a project';
+  const create=focusKey(button('＋',()=>startProjectConversation(path||''),'project-group-new'),'project-new:'+(path||'__no_project__'));
+  create.title=scope;create.setAttribute('aria-label',scope);
+  header.append(toggle,create);
+  const list=card('','project-group-rows');
+  for(const row of rows)list.append(sidebarConversationRow(row));
+  list.hidden=!open;
+  group.append(header,list);
+  return group;
+}
+function sidebarConversationRows(data,projects) {
+  const runs=(data.runs||[]).filter(run=>run.run&&!run.error&&!expiredTemporaryEntry(run)&&!removedProject(run.workspace));
+  const linked=new Map();
+  for(const doc of data.conversations||[])if(doc.attachment?.status==='linked'&&doc.attachment.run)linked.set(doc.attachment.run,doc);
+  const rows=[];
+  for(const run of runs){
+    const doc=linked.get(run.run);
+    rows.push({key:'run:'+run.run,workspace:run.workspace,title:taskTitle(run),
+               attention:runConversationAttention(run),complete:statusInfo(run).group==='complete',
+               selected:chosen?.run===run.run||(doc&&doc.id===activeConversation),open:()=>openRun(run)});
+  }
+  for(const doc of data.conversations||[]){
+    if(doc.archived_at)continue;
+    if(doc.attachment?.status==='linked'&&runs.some(run=>run.run===doc.attachment.run))continue;
+    const workspace=conversationWorkspace(doc);
+    if(workspace&&removedProject(workspace))continue;
+    if(workspace&&!projects.includes(workspace)&&!(data.runs||[]).some(run=>run.workspace===workspace))continue;
+    rows.push({key:'doc:'+doc.id,workspace,title:doc.title||'Untitled conversation',
+               attention:docConversationAttention(doc),complete:false,
+               selected:activeConversation===doc.id,open:()=>openConversation(doc.id)});
+  }
+  return rows;
+}
+function renderProjectGroups(data) {
+  const host=$('#projects');if(!host)return;
+  const scroll=host.scrollTop;
+  const projects=dashboardProjects(data);
+  const rows=sidebarConversationRows(data,projects);
+  const query=conversationSearch.trim().toLowerCase();
+  const matches=row=>!query||String(row.title||'').toLowerCase().includes(query);
+  const groupPaths=[...new Set([...projects,...rows.map(row=>row.workspace).filter(Boolean)])];
+  const rendered=[];
+  for(const path of groupPaths){
+    const members=rows.filter(row=>row.workspace===path).filter(matches);
+    if(query&&!members.length)continue;
+    rendered.push(projectGroupNode(path,members,query));
+  }
+  const free=rows.filter(row=>!row.workspace).filter(matches);
+  if(free.length)rendered.push(projectGroupNode('',free,query));
+  host.replaceChildren(...rendered);
+  host.scrollTop=scroll;
 }
 function renderTasks(data) {
   const runs=data.runs||[],actual=runs.filter(run=>run.run),projects=dashboardProjects(data);
@@ -1082,13 +1345,7 @@ function renderTasks(data) {
   const countFor=list=>Object.fromEntries(taskGroups().map(([key])=>[key,list.filter(run=>statusInfo(run).group===key).length]));
   const current=projectCurrentRuns(actual).filter(run=>!expiredTemporaryEntry(run)),counts=countFor(current);
   $('#all-count').textContent=current.length+unattachedConversations(data).length;$('#project-count').textContent=projects.length;
-  const projectsHost=$('#projects'),scroll=projectsHost.scrollTop;projectsHost.replaceChildren();
-  for(const path of projects) {
-    const tasks=actual.filter(run=>run.workspace===path),summary=projectRunSummary(tasks);
-    const row=button('',()=>filterTasks('all',path)),label=projectSummaryLabel(summary);
-    row.title=path+' · '+label;row.setAttribute('aria-label',projectTitle(path)+', '+label);focusKey(row,'project:'+path);row.classList.toggle('selected',currentView==='tasks'&&projectFilter===path);
-    row.append(card('','project-dot'),n('span',projectTitle(path)),Object.assign(n('span',String(summary.current)),{className:'nav-count'}));projectsHost.append(row);
-  }projectsHost.scrollTop=scroll;
+  renderProjectGroups(data);
   const selector=$('#project-filter'),signature=JSON.stringify(projects);
   if(selector.dataset.options!==signature){selector.replaceChildren(Object.assign(n('option','All projects'),{value:''}));for(const path of projects)selector.append(Object.assign(n('option',projects.filter(other=>projectTitle(other)===projectTitle(path)).length>1?path:projectTitle(path)),{value:path,title:path}));selector.dataset.options=signature;}selector.value=projectFilter;
   document.querySelectorAll('[data-view="tasks"]').forEach(element=>element.classList.toggle('selected',currentView==='tasks'&&!projectFilter&&taskFilter==='all'));
@@ -1098,7 +1355,7 @@ function renderTasks(data) {
   $('#workspace-description').textContent=projectFilter?'Active work and saved history in this project.':'From the first idea to the finished change.';
   const scope=runs.filter(run=>!projectFilter||run.workspace===projectFilter),projectSummary=projectRunSummary(scope),currentProjectRuns=projectFilter?projectCurrentRuns(scope):scope.filter(run=>!isPreviewRun(run)),defaultScope=currentProjectRuns.filter(run=>!isPreviewRun(run)&&!expiredTemporaryEntry(run)),savedHistory=scope.filter(run=>expiredTemporaryEntry(run)||isPreviewRun(run)||(projectFilter&&!defaultScope.includes(run))),visibleCounts=countFor(defaultScope.filter(run=>run.run)),summary=$('#workspace-summary');visibleCounts.other=savedHistory.filter(run=>run.run).length;summary.replaceChildren();
   renderProjectOverview(scope);
-  for(const [key,label] of workspaceFilterDefinitions){const count=visibleCounts[key]||0,item=button('',()=>filterTasks(key),'summary-filter');item.dataset.workspaceFilter=key;item.setAttribute('aria-label',label+' '+count);item.setAttribute('aria-pressed',String(taskFilter===key));item.append(n('span',label),n('strong',String(count)));summary.append(item);}
+  for(const [key,label] of workspaceFilterDefinitions){const count=visibleCounts[key]||0,item=button('',()=>filterTasks(key),'summary-filter');item.dataset.workspaceFilter=key;focusKey(item,'workspace-filter:'+key);item.setAttribute('aria-label',label+' '+count);item.setAttribute('aria-pressed',String(taskFilter===key));item.append(n('span',label),n('strong',String(count)));summary.append(item);}
   const query=searchText.toLowerCase(),filtered=(taskFilter==='other'?savedHistory:defaultScope).filter(run=>(taskFilter==='all'||taskFilter==='other'||statusInfo(run).group===taskFilter)&&(!query||[run.task,run.workspace,run.status,statusInfo(run).reason,statusInfo(run).label].some(value=>String(value||'').toLowerCase().includes(query))));
   const visibleTaskCount=filtered.filter(run=>run.run).length;
   $('#task-scope-note').textContent=(taskFilter==='all'&&projectFilter?projectSummaryLabel(projectSummary)+(projectSummary.previews?' · dry runs hidden':''):taskFilter==='all'?'Active work and saved history':taskGroups().find(group=>group[0]===taskFilter)?.[1]||'All statuses')+' · '+(projectFilter?projectTitle(projectFilter):'All projects')+' · '+visibleTaskCount+' '+(visibleTaskCount===1?'task':'tasks')+(query?' matching your search':'');
@@ -1131,6 +1388,7 @@ function renderTasks(data) {
   }
   if(projectFilter&&removedProject(projectFilter)){host.append(emptyState('This project was removed.','Restore it to show its tasks and linked conversations again. Files and history stay on disk.'));}
   else if(!host.childElementCount)host.append(emptyState(actual.length?'No tasks match this view.':'Make room for your next idea.',actual.length?'Try a different status, project, or search.':'Start a conversation with the requirements planner. Your terminal tasks will appear here too.',!actual.length));
+  syncNewTaskScope();
 }
 function renderRoots(roots) {
   const host=$('#watch-roots');host.replaceChildren();
@@ -1144,12 +1402,12 @@ $('#create').onsubmit=async event=>{
   const models={};
   for(const role of ['glm','plan_reviewer','astra','terra','sol','completion'])if($('#'+role+'-model').dataset.userSelected==='true'&&$('#'+role+'-model').value)models[role+'_model']=$('#'+role+'-model').value;
   for(const role of ['plan_reviewer','astra','terra','sol','completion'])if($('#'+role+'-reasoning-effort').dataset.userSelected==='true')models[role+'_reasoning_effort']=$('#'+role+'-reasoning-effort').value;
-  const signature=JSON.stringify({text,models});
-  if(!conversationRequest||conversationRequest.signature!==signature)conversationRequest=savedRequest('create-request',{text,models});
+  const signature=JSON.stringify({text,models,workspace:newTaskProject});
+  if(!conversationRequest||conversationRequest.signature!==signature)conversationRequest=savedRequest('create-request',{text,models,workspace:newTaskProject});
   creatingConversation=true;$('#create-submit').disabled=true;$('#create-submit').textContent='Starting conversation…';error.hidden=true;
   try {
-    const doc=await api('/api/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(conversationPayload(text,models,conversationRequest.id))});
-    if($('#new-goal').value.trim()===text){$('#new-goal').value='';persist('new-idea','');}conversationRequest=null;persist('create-request','');openConversation(doc);
+    const doc=await api('/api/conversations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(conversationPayload(text,models,conversationRequest.id,newTaskProject))});
+    if($('#new-goal').value.trim()===text){$('#new-goal').value='';persist('new-idea','');}conversationRequest=null;persist('create-request','');newTaskProject='';openConversation(doc);
   } catch(problem) {error.textContent=problem.message;error.hidden=false;}
   finally {creatingConversation=false;$('#create-submit').disabled=!modelCatalogue.usable;$('#create-submit').textContent='Start conversation ↗';}
 };
@@ -1223,6 +1481,7 @@ function messageBody(text) {
 }
 function appendMessage(host,message) {
   const row=card('','chat-message '+(message.role==='user'?'learner':'assistant'));
+  row.dataset.messageKey=messageAnchorKey(message);
   const name=message.speaker||(message.role==='user'?'You':'Requirements planner'),speaker=message.role==='user'?'You':roleDisplayName(name);
   const text=message.text||'',body=message.role==='user'?n('p',text):messageBody(text);
   const at=messageTime(message),stamp=at?new Date(at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';
@@ -1237,6 +1496,9 @@ function appendMessage(host,message) {
 }
 function renderDraftConversation(doc) {
   if(doc.id!==activeConversation)return;latestConversation=doc;
+  const scoped=conversationWorkspace(doc);
+  if(!doc.attachment?.run&&scoped!==activeProject){activeProject=scoped;persist('active-project',activeProject);}
+  if(!doc.attachment?.run)syncNewTaskScope();
   if(!doc.archived_at&&!doc.task_archived&&!doc.project_removed&&doc.attachment?.status==='linked'&&doc.attachment.run){
     const draft=stored('conversation-draft:'+doc.id),target=stored('task-draft:'+doc.attachment.run);
     if(draft&&!target){persist('task-draft:'+doc.attachment.run,draft);changeDrafts.set(doc.attachment.run,draft);}
@@ -1248,9 +1510,11 @@ function renderDraftConversation(doc) {
   renderQuietPlanPreview(doc);
   $('#draft-title').textContent=concise(doc.title||'Your idea',86);$('#draft-status').textContent=doc.project_removed?'Project removed':conversationStatus(doc);
   const route=doc.configured_routes?.requirements_gatherer||doc.configured_routes?.gatherer||doc.configured_routes?.glm;const model=route?.model||doc.models?.glm_model||doc.models?.glm||'saved requirements model';
-  $('#draft-subtitle').textContent=doc.attachment?.workspace?'Connecting '+basename(doc.attachment.workspace):'Planning model: '+model+'. Bring in a project when you’re ready.';$('#draft-subtitle').title=model;
+  $('#draft-subtitle').textContent=doc.attachment?.workspace?'Connecting '+basename(doc.attachment.workspace):scoped&&!doc.attachment?'Project '+projectLabel(scoped)+' · Planning model: '+model+'. This conversation starts inside that project.':'Planning model: '+model+'. Bring in a project when you’re ready.';
+  $('#draft-subtitle').title=model;
+  $('#draft-text').placeholder=scoped&&!doc.attachment?'Message requirements planner in '+projectLabel(scoped)+'…':'Message requirements planner…';
   const host=$('#draft-messages'),signature=JSON.stringify([doc.messages||[],doc.status,conversationPending.has(doc.id)]);
-  if(host.dataset.rendered!==signature){const scroll=$('#draft-scroll'),near=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90||!host.dataset.rendered,position=scroll.scrollTop;host.replaceChildren();renderMessageHistory(host,doc.messages||[],doc.id);if(doc.status==='thinking'||conversationPending.has(doc.id)){const thinking=card('','chat-thinking');thinking.setAttribute('role','status');thinking.append(n('span','Requirements planner'),n('span',doc.status==='thinking'?'Thinking through your reply…':'Sending your message…'));host.append(thinking);}host.dataset.rendered=signature;requestAnimationFrame(()=>{if(near)scrollDraftToEnd();else{scroll.scrollTop=position;updateDraftScroll();}});}
+  if(host.dataset.rendered!==signature){const scroll=$('#draft-scroll'),first=!host.dataset.rendered,near=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90,position=scroll.scrollTop;host.replaceChildren();renderMessageHistory(host,doc.messages||[],doc.id);if(doc.status==='thinking'||conversationPending.has(doc.id)){const thinking=card('','chat-thinking');thinking.setAttribute('role','status');thinking.append(n('span','Requirements planner'),n('span',doc.status==='thinking'?'Thinking through your reply…':'Sending your message…'));host.append(thinking);}host.dataset.rendered=signature;requestAnimationFrame(()=>{if(first&&restoreThreadAnchor(scroll,'conversation-scroll:'+doc.id))updateDraftScroll();else if(first||near)scrollDraftToEnd();else{scroll.scrollTop=position;updateDraftScroll();}});}
   const pending=conversationPending.has(doc.id),thinking=doc.status==='thinking',linked=doc.attachment?.status==='linked',attaching=doc.attachment?.status==='starting';
   $('#draft-send').disabled=draftSendBlocked(doc,pending,$('#draft-text').value);$('#draft-send').textContent=pending?'Sending…':'Send ↑';
   $('#draft-delivery').textContent=thinking?'You can draft your next message while the requirements planner replies.':doc.status==='error'?'Retry the saved message to continue.':doc.attachment?'Connecting the project…':'Enter to send · Shift + Enter for a new line';
@@ -1273,7 +1537,7 @@ async function sendDraftMessage(doc,retry) {
   if(conversationArchiveBlocked(doc)||doc.task_archived||taskArchiveBlocked(doc.attachment?.run)||doc.project_removed||projectBlocked(doc.attachment?.workspace)||conversationPending.has(doc.id)||conversationDeliveryBlocked(doc)||doc.status==='thinking')return;
   const text=$('#draft-text').value.trim(),request=retry||{text,request_id:savedRequest('conversation-request:'+doc.id,{text}).id};if(!request.text)return;
   conversationPending.add(doc.id);conversationRetries.delete(doc.id);seq++;renderDraftConversation(doc);
-  try{const saved=await api('/api/conversation/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:doc.id,text:request.text,request_id:request.request_id})});persist('conversation-request:'+doc.id,'');if($('#draft-text').dataset.conversation===doc.id&&$('#draft-text').value.trim()===request.text){$('#draft-text').value='';persist('conversation-draft:'+doc.id,'');}renderDraftConversation(saved);if(activeConversation===doc.id)requestAnimationFrame(()=>{scrollDraftToEnd();$('#draft-text').focus();});}
+  try{const saved=await api('/api/conversation/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:doc.id,text:request.text,request_id:request.request_id})});persist('conversation-request:'+doc.id,'');persist('conversation-scroll:'+doc.id,'');if($('#draft-text').dataset.conversation===doc.id&&$('#draft-text').value.trim()===request.text){$('#draft-text').value='';persist('conversation-draft:'+doc.id,'');}renderDraftConversation(saved);if(activeConversation===doc.id)requestAnimationFrame(()=>{scrollDraftToEnd();$('#draft-text').focus();});}
   catch(error){conversationRetries.set(doc.id,{...request,error:error.message});}
   finally{conversationPending.delete(doc.id);if(activeConversation===doc.id)renderDraftConversation(latestConversation||doc);refresh();}
 }
@@ -1351,7 +1615,19 @@ function taskMessages(run){
   const seen=new Set(),messages=[...journal,...(run.draft_messages||[]),...answers,...(run.progress_messages||[]),...receipts.map(entry=>({role:'user',speaker:'You',...entry}))].filter(entry=>{const key=entry.id?entry.id+':'+entry.role:null;if(!key)return true;if(seen.has(key))return false;seen.add(key);return true;});
   return orderedMessages(messages);
 }
-function settleThreadScroll(){if(scrollThreadToEnd&&currentTab==='interview'){scrollThreadToEnd=false;requestAnimationFrame(()=>{if(currentTab==='interview')$('#interview').scrollTop=$('#interview').scrollHeight;});}}
+function settleThreadScroll(){
+  if(currentView!=='task-detail')return;
+  const thread=$('#interview');
+  if(pendingThreadAnchorKey){
+    // A freshly opened conversation first restores its saved scroll anchor;
+    // the end-scroll fallback only applies when no anchor survives.
+    if(!threadAnchorMessages(thread).length)return;
+    const key=pendingThreadAnchorKey;pendingThreadAnchorKey='';scrollThreadToEnd=false;
+    requestAnimationFrame(()=>{if(currentView==='task-detail'&&!restoreThreadAnchor(thread,key))thread.scrollTop=thread.scrollHeight;});
+    return;
+  }
+  if(scrollThreadToEnd){scrollThreadToEnd=false;requestAnimationFrame(()=>{if(currentView==='task-detail')thread.scrollTop=thread.scrollHeight;});}
+}
 function answerSafetyPanel(count) {
   const panel=card('','answer-safety');
   panel.append(Object.assign(n('p',count>1?'Answer '+count+' questions':'Answer needed'),{className:'monitor-kicker'}),n('p','Planning continues only if the controller returns to Running with no pending request.'),n('p','This does not approve a plan or start implementation.'));
@@ -1442,7 +1718,7 @@ function revealChangeStage(run,stageIndex) {
   };
   reveal();
 }
-function renderSessionCheckpoints(run,checkpoints) {
+function renderSessionCheckpoints(run,checkpoints,allowRestore=true) {
   if(!checkpoints.length)return null;
   const host=card('','session-checkpoints');
   host.setAttribute('aria-label','Session checkpoints');
@@ -1460,7 +1736,7 @@ function renderSessionCheckpoints(run,checkpoints) {
     detail.hidden=true;
     detail.append(checkpointAnswers(run,cp,cp===latest));
     if(cp.stageIndex!=null&&cp.hasDiff){const open=button('Open saved changes →',()=>revealChangeStage(run,cp.stageIndex),'text-button');open.dataset.staleSafe='true';detail.append(open);}
-    if(cp.kind!=='plan'&&cp.kind!=='final'&&run.status!=='TASK_COMPLETE'&&!taskActionBusy(run)){
+    if(allowRestore&&cp.kind!=='plan'&&cp.kind!=='final'&&run.status!=='TASK_COMPLETE'&&!taskActionBusy(run)){
       const restore=button('Restore to here',()=>requestCheckpointRestore(run,cp,restore),'text-button checkpoint-restore');
       restore.dataset.staleSafe='true';
       restore.title='Drafts a restore request in the composer below. Sending chat never approves a plan or starts work on its own.';
@@ -1545,12 +1821,21 @@ function lifecycleCard(event,context={}){
 
 const approveBuildState=new Map(),approvalReceiptWaiters=new Map();
 function approvalReceiptState(run,token,receipt){
-  if(run.state_error||run.goal_token!==token||run.conversation?.plan_gate?.pending_product_change)return {state:'failed',reason:'The plan changed or could not be verified. Review the current revision before building.'};
+  if(run.state_error||(run.goal_token&&run.goal_token!==token)||run.conversation?.plan_gate?.pending_product_change)return {state:'failed',reason:'The plan changed or could not be verified. Review the current revision before building.'};
   const action=(run.actions||[]).find(row=>row.id===receipt.id)||receipt;
   if(['failed','launch_failed','uncertain'].includes(action.status)||action.status==='finished'&&action.exit_status!=null&&action.exit_status!==0)return {state:'failed',reason:'Approval did not finish successfully. No build was started.'};
-  if(action.status==='finished'&&run.goal?.approval_status==='approved'&&run.goal?.approval_event&&(!run.goal.approval_event.token||run.goal.approval_event.token===token))return {state:'approved'};
+  if(action.status==='finished'&&approvedGoalToken(run)===token)return {state:'approved'};
   if(action.status==='finished')return {state:'failed',reason:'The approval command finished without an approval for this revision. No build was started.'};
   return {state:'pending'};
+}
+function approvedGoalToken(run){
+  const goal=run?.goal,revision=goal?.revision,hash=goal?.hash,approval=goal?.approval_event;
+  if(goal?.approval_status!=='approved'||!Number.isInteger(revision)||revision<1||typeof hash!=='string'||!hash||!approval||typeof approval!=='object')return '';
+  const token=`r${revision}:${hash}`;
+  // The saved approval event must itself carry exactly the sealed token (the
+  // runner records it on every approval and requires it at admission); a
+  // tokenless event is no approval to start a build from.
+  return approval.token===token?token:'';
 }
 function settleApprovalReceipt(run){const waiter=approvalReceiptWaiters.get(run.run);if(waiter)waiter.check(run);}
 function cancelApprovalReceipts(message='Build start cancelled when you left this task. Any recorded approval remains saved.'){
@@ -1631,16 +1916,45 @@ async function approveAndBuild(run){
   }catch(error){dashboardNotice(error.message);}
   finally{approveBuildState.delete(run.run);await refresh();}
 }
+function focusChatAction(key){
+  // Panes stay read-only: this focus path surfaces the matching chat control
+  // without submitting anything from the pane itself.
+  activateTab('interview');
+  const control=[...document.querySelectorAll('[data-focus-key]')].find(element=>element.dataset.focusKey===key);
+  if(control){control.scrollIntoView({block:'center',behavior:'smooth'});control.focus();}
+}
 function renderInlineTaskAction(run){
+  // #inline-task-action lives inside the #interview transcript scroller in
+  // dashboard.html: human approvals are actionable only in the continuous
+  // chat transcript (saved feedback intervention
+  // intervention-figma-chat-plan-alignment-20260930-2113), never beside the
+  // composer or inside an artifact pane.
   const host=$('#inline-task-action');if(!host)return;host.replaceChildren();
   if(run.conversation?.plan_gate?.pending_product_change){host.append(n('strong','Requirement change saved'),n('p','The Planner and Architect must review a new revision before another build can start.'));host.hidden=false;return;}
   const ready=statusInfo(run).label==='Approve plan',approved=run.goal?.approval_status==='approved',busy=taskActionBusy(run)||approveBuildState.has(run.run)||taskReadError;
-  if(ready){
+  if(ready&&run.goal_token){
     host.append(n('strong','Plan ready · revision '+run.goal.revision),n('p','Independent plan review accepted this revision. Review the plan, then approve and build.'));
-    const actions=card('','lifecycle-actions');const approve=button('Approve & build revision '+run.goal.revision,()=>approveAndBuild(run),'primary');approve.disabled=busy||(run.questions||[]).length>0;
-    actions.append(button('View plan',()=>activateTab('plan')),approve);host.append(actions);
+    const actions=card('','lifecycle-actions');
+    const request=button('Request changes',()=>{$('#change-text').focus();$('#change-text').scrollIntoView({block:'center',behavior:'smooth'});});
+    const approve=focusKey(button('Approve plan revision '+run.goal.revision,()=>submitTaskAction(run,'approve_goal',{token:run.goal_token,confirmation:run.goal_token}),'primary'),'approve:'+run.run+':'+run.goal_token);
+    approve.disabled=busy||(run.questions||[]).length>0;
+    const combined=button('Approve & build revision '+run.goal.revision,()=>approveAndBuild(run),'primary');combined.disabled=approve.disabled;
+    actions.append(button('View plan',()=>activateTab('plan')),request,approve,combined);host.append(actions);
   }else if(approved&&primaryAction(run,busy).kind==='continue'){
     host.append(n('strong','Approved contract · revision '+run.goal.revision));const start=button(primaryAction(run,busy).label,()=>submitTaskAction(run,'continue'),'primary');start.disabled=busy;host.append(start);
+  }
+  if(statusInfo(run).label==='Review output'&&run.review_token&&run.review_criteria?.length&&run.human_request_authorized===true){
+    const eligible=(run.review_criteria||[]).filter(criterion=>run.human_escalation?.request?.criteria?.includes(criterion.id));
+    if(eligible.length){
+      host.append(n('strong','Review requested · '+eligible.length+' '+(eligible.length===1?'item':'items')),n('p','Approve each requested item here in the conversation. Your approval applies to this saved result only.'));
+      const actions=card('','lifecycle-actions');
+      for(const criterion of eligible){
+        const reviewed=run.human_reviews?.[criterion.id]?.token===run.review_token;
+        const approve=focusKey(button(reviewed?'Approved · '+criterion.id:'Approve '+criterion.id,()=>submitTaskAction(run,'approve_review',{id:criterion.id,token:run.review_token})),'review:'+run.run+':'+criterion.id);
+        approve.disabled=reviewed||taskActionBusy(run);actions.append(approve);
+      }
+      host.append(actions);
+    }
   }
   const message=approveBuildStatusLine(run);if(message)host.append(Object.assign(n('p',message),{role:'status'}));
   host.hidden=!host.childElementCount;
@@ -1686,9 +2000,13 @@ function renderConversation(run) {
   if(root.dataset.rendered===signature)return;const scroll=$('#interview');scrollThreadToEnd=scrollThreadToEnd||scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90;root.dataset.rendered=signature;root.replaceChildren();
   root.dataset.conversationId=run.conversation?.id||run.conversation_id||'';
   renderMessageHistory(root,taskMessages(run),run.run);
-  renderWorkflowTimeline(root,run);
-  const timeline=renderSessionCheckpoints(run,checkpoints);
-  if(timeline)root.append(timeline);
+  if(checkpoints.length&&run.status!=='TASK_COMPLETE'&&!taskActionBusy(run)){
+    const choices=card('','checkpoint-restore-choices');
+    for(const cp of checkpoints.filter(cp=>cp.kind!=='plan'&&cp.kind!=='final')){
+      const restore=button('Restore · '+cp.label,()=>requestCheckpointRestore(run,cp,restore),'text-button checkpoint-restore');restore.dataset.staleSafe='true';choices.append(restore);
+    }
+    if(choices.children.length){const picker=disclosure('Restore a saved checkpoint','checkpoint-restore-picker',[choices],run.run);picker.className='checkpoint-history';root.append(picker);}
+  }
   if(statusInfo(run).label==='Answer needed'){
     const questions=run.questions||[];
     for(const question of questions)renderQuestion(root,question,run);
@@ -1717,7 +2035,11 @@ function planDocumentSection(title,entries,ordered=false) {
   section.append(list);return section;
 }
 function renderBrief(run) {
-  const host=$('#brief-current');host.replaceChildren();if(!run.goal?.body)return;
+  const host=$('#brief-current');host.replaceChildren();if(!run.goal?.body){
+    const empty=card('','brief-card');
+    empty.append(n('h3','No saved plan yet'),n('p','No plan has been saved for “'+taskTitle(run)+'” yet. Reviewed plans and their revisions appear here.'));
+    host.append(empty);return;
+  }
   if(String(run.goal.origin||'').startsWith('migration_draft')&&!run.goal.body.acceptance_criteria?.length){
     const placeholder=card('','brief-card');placeholder.append(n('h3','Plan not ready yet'),n('p','Your discussion is saved in Conversation. A validated planning draft has not been produced yet.'));
     if(statusInfo(run).label==='Planning needs retry')placeholder.append(n('p','Retry planning to generate a fresh draft. You will review the final plan before implementation.'));
@@ -1727,7 +2049,8 @@ function renderBrief(run) {
   const ready=statusInfo(run).label==='Approve plan',revision=run.goal.revision??'?';
   const reviewer=run.goal.approval_event?.actor||run.goal.reviewer||'Plan reviewer',origin=run.goal.origin||brief.origin||'Saved task plan';
   const stamped=run.goal.approval_event?.at||run.goal.updated_at||run.updated_at||run.created_at;
-  heading.append(n('h2','Plan revision '+revision),Object.assign(n('span',approved?'Approved':ready?'Ready for your review':'Draft'),{className:'badge '+(approved?'complete':'attention')}),Object.assign(n('p','Origin: '+origin+' · Reviewer: '+reviewer+' · State: '+(approved?'Approved':ready?'Ready':'Draft')+' · '+(stamped?new Date(stamped).toLocaleString():'Timestamp unavailable')),{className:'plan-provenance'}));
+  heading.append(Object.assign(n('p','Plan revision '+revision+' · '+(approved?'Reviewed & approved':ready?'Ready for your review':'Draft')),{className:'plan-revision-label'}),n('h2',brief.intended_outcome||taskTitle(run)));
+  const provenance=Object.assign(n('p','Origin: '+origin+' · Reviewer: '+reviewer+' · State: '+(approved?'Approved':ready?'Ready':'Draft')+' · '+(stamped?new Date(stamped).toLocaleString():'Timestamp unavailable')),{className:'plan-provenance'});
   const body=card('','brief-body plan-document-body');
   body.append(planDocumentSection('Intended outcome',[brief.intended_outcome||'No intended outcome recorded.']));
   body.append(planDocumentSection('Requirements',brief.requirements||brief.required_behaviors||brief.acceptance_criteria));
@@ -1741,34 +2064,35 @@ function renderBrief(run) {
   body.append(disclosure('Technical details','raw-brief:'+run.goal_token,[n('pre',JSON.stringify({revision:run.goal.revision,token:run.goal_token,source:run.goal},null,2))],run.run));box.append(heading);
   if(!approved&&!ready)box.append(Object.assign(n('p','This is a draft. The next action is shown in Now; approval becomes available when the current planning step is ready.'),{className:'field-note plan-note'}));
   if(run.goal_token&&(approved||ready)&&!run.conversation?.plan_gate?.pending_product_change){
+    // Human approvals happen only in the chat transcript (saved feedback
+    // intervention-figma-chat-plan-alignment-20260930-2113). The Plan pane
+    // keeps read-only saved status plus a focus path to the chat action.
     const area=card('','brief-approval');
     area.append(n('p','Approval records this revision. Starting work is a separate action.'));
-    const actions=card('','plan-actions');
-    if(approved){
-      area.append(n('p','✓ Revision '+revision+' is confirmed. The approval receipt remains part of this saved plan.'));
-      const action=primaryAction(run,taskActionBusy(run));
-      if(action.kind==='continue'){
-        const start=focusKey(button(action.label,()=>submitTaskAction(run,'continue'),'primary'),'start:'+run.run+':'+run.goal_token);
-        start.disabled=taskActionBusy(run);actions.append(start);
-      }
-    }else{
-      const request=button('Request changes',()=>{activateTab('interview');$('#change-text').focus();$('#change-text').scrollIntoView({block:'center',behavior:'smooth'});});
-      const approve=focusKey(button('Approve plan revision '+revision,()=>submitTaskAction(run,'approve_goal',{token:run.goal_token,confirmation:run.goal_token}),'primary'),'approve:'+run.run+':'+run.goal_token);
-      approve.disabled=(run.questions||[]).length>0||taskActionBusy(run)||approveBuildState.has(run.run);
-      const combined=button('Approve & build revision '+revision,()=>approveAndBuild(run),'primary');combined.disabled=approve.disabled;actions.append(request,approve,combined);
+    if(approved)area.append(n('p','✓ Revision '+revision+' is confirmed. The approval receipt remains part of this saved plan. Approval and every further action happen in the conversation transcript.'));
+    else{
+      area.append(n('p','Revision '+revision+' is ready for your review. The revision-bound approval controls are in the conversation transcript.'));
+      area.append(focusKey(button('Review in conversation →',()=>focusChatAction('approve:'+run.run+':'+run.goal_token)),'brief-focus-approve:'+run.run+':'+run.goal_token));
     }
-    if(actions.childElementCount)area.append(actions);box.append(area);
+    body.append(area);
   }
-  box.append(body);
+  const checklist=workChecklistPanel(run);checklist.classList.add('plan-checklist');
+  const current=card('','plan-current-task'),facts=stateFacts(run);current.append(n('h3','Current task'),n('p',facts.objective),n('p',facts.step));
+  box.append(checklist,current,disclosure('Saved plan details','saved-plan-details:'+run.goal_token,[provenance,body],run.run));
   if(run.astra_plan?.current_plan?.length){const strategy=card('','current-strategy');strategy.append(n('h3','Current execution approach'),n('p','The team’s latest work sequence within this task. This is separate from the plan approval above.'),planList(run.astra_plan.current_plan));box.append(strategy);}host.append(box);
 }
 function output(parent,actions) {for(const action of actions||[]){const status=action.exit_status===2?'needs attention':action.status;parent.append(disclosure(action.label+' · '+status,'action:'+action.id,[n('pre','Exit: '+(action.exit_status??'pending')+'\nstdout:\n'+(action.stdout||'')+'\nstderr:\n'+(action.stderr||''))],'actions'));}}
 function renderExecution(run){
   const host=$('#execution_view');host.replaceChildren(n('h2','Checks & evidence'));
+  if(!(run.criteria||[]).length&&!run.validation?.source_revision)host.append(emptyState('No checks recorded yet.','No verification evidence has been saved for “'+taskTitle(run)+'”. Checks appear here after the Validator runs.'));
   if(run.review_token&&run.review_criteria?.length){
+    // Review approvals happen only in the chat transcript: the Checks pane
+    // keeps read-only saved status plus a focus path to the chat controls.
     const review=card('','requested-reviews'),pending=run.review_criteria.filter(criterion=>run.human_reviews?.[criterion.id]?.token!==run.review_token),current=statusInfo(run).label==='Review output';
-    review.append(n('h3',current?'Your review · '+pending.length+' remaining':!pending.length?'Your review is recorded':'Saved review request'),n('p',current?'Inspect the evidence below before approving each item. Your approval applies to this result only.':!pending.length?'All items are approved for this saved result. The next action appears above.':'This request is historical. Current state determines when review is available.'));
-    for(const criterion of run.review_criteria){const box=card('','review-card'),reviewed=run.human_reviews?.[criterion.id]?.token===run.review_token;box.append(n('p',criterion.id+' · '+criterion.criterion));if(current&&run.human_request_authorized===true&&run.human_escalation?.request?.criteria?.includes(criterion.id)){const approve=focusKey(button(reviewed?'Approved · '+criterion.id:'Approve '+criterion.id,()=>submitTaskAction(run,'approve_review',{id:criterion.id,token:run.review_token})),'review:'+run.run+':'+criterion.id);approve.disabled=reviewed||taskActionBusy(run);box.append(approve);}review.append(box);}review.append(disclosure('Review identity','review-token',[n('code',run.review_token)],run.run));host.append(review);
+    review.append(n('h3',current?'Your review · '+pending.length+' remaining':!pending.length?'Your review is recorded':'Saved review request'),n('p',current?'Inspect the evidence below, then approve each item in the conversation transcript. Your approval applies to this result only.':!pending.length?'All items are approved for this saved result. The next action appears in the conversation.':'This request is historical. Current state determines when review is available.'));
+    for(const criterion of run.review_criteria){const box=card('','review-card'),reviewed=run.human_reviews?.[criterion.id]?.token===run.review_token;box.append(n('p',criterion.id+' · '+criterion.criterion),n('p',reviewed?'Approved for this saved result.':'Waiting for your approval in the conversation transcript.'));review.append(box);}
+    if(current&&run.human_request_authorized===true&&pending.length)review.append(button('Review in conversation →',()=>focusChatAction('review:'+run.run+':'+pending[0].id)));
+    review.append(disclosure('Review identity','review-token',[n('code',run.review_token)],run.run));host.append(review);
   }
   host.append(disclosure('Activity, findings & Builder batches','monitor-details',[monitorDetailsPanel(run)],run.run));
   const stats=card('','execution-summary');for(const [key,label]of [['pass','criteria passed'],['fail','need attention'],['unknown','not yet verified']]){const item=n('span',label);item.prepend(n('strong',run.counts?.[key]||0));stats.append(item);}host.append(stats);
@@ -1790,7 +2114,7 @@ async function loadChanges(force=false){
   try{const base='/api/evidence?workspace='+encodeURIComponent(run.workspace)+'&run='+encodeURIComponent(run.run),key=run.run;
     if(force)for(const id of evidenceCache.keys())if(id.startsWith(key+'\0'))evidenceCache.delete(id);
     const data=await api(base);if(ticket!==evidenceRequest||chosen?.run!==run.run)return;host.replaceChildren();
-    if(!data.stages?.length){host.append(emptyState('No saved changes yet.','Code diffs appear when an implementation step finishes.'));return;}
+    if(!data.stages?.length){host.append(emptyState('No saved changes yet.','No code snapshots have been saved for “'+taskTitle(latestRun&&latestRun.run===run.run?latestRun:run)+'”. Diffs appear when an implementation step finishes.'));return;}
     for(const stage of [...data.stages].reverse()){
       const body=card('','diff-content'),item=disclosure(human(stage.stage||'Step')+' · '+(stage.finished_at?new Date(stage.finished_at).toLocaleString():'Saved snapshot')+(stage.rejected?' · rejected output':stage.interrupted?' · interrupted':''),'diff-stage:'+stage.index,[body],run.run);item.className='diff-stage';let loading=false,loaded=false;const remember=item.ontoggle;
       const read=async()=>{if(!item.open||loading||loaded)return;loading=true;body.replaceChildren(n('p','Loading snapshot…'));try{
@@ -1812,6 +2136,13 @@ function localPreviewUrl(raw,dashboardUrl){
   return value.href;
 }
 function stopPreview(){$('#preview-content').replaceChildren();}
+function renderPreviewState(){
+  const note=$('#preview-empty-note');if(!note)return;
+  const saved=chosen?.run?stored('preview:'+chosen.run):'';
+  const title=taskTitle(latestRun&&chosen&&latestRun.run===chosen.run?latestRun:chosen||{});
+  note.textContent=saved?'Saved preview address for “'+title+'”: '+saved
+    :'No preview address is saved for “'+title+'” yet. Enter the app’s local development address below.';
+}
 $('#refresh-changes').onclick=()=>loadChanges(true);
 $('#preview-form').onsubmit=event=>{event.preventDefault();if(!chosen?.run)return;try{const url=localPreviewUrl($('#preview-url').value.trim(),location.href),host=$('#preview-content');persist('preview:'+chosen.run,url);$('#preview-error').textContent='';host.replaceChildren();const toolbar=card('','preview-toolbar'),link=n('a','Open in a new tab ↗');link.href=url;link.target='_blank';link.rel='noopener noreferrer';toolbar.append(n('p','If the app cannot be embedded, open it in a new tab.'),link);const frame=n('iframe','');frame.className='preview-frame';frame.title='Local app preview';frame.setAttribute('sandbox','allow-scripts allow-forms allow-same-origin');frame.referrerPolicy='no-referrer';frame.src=url;host.append(toolbar,frame);}catch(error){$('#preview-error').textContent=error.message;}};
 
@@ -1824,6 +2155,10 @@ function primaryAction(run,busy=false){
   const info=statusInfo(run);
   if(run.status==='TASK_COMPLETE')return {kind:'checks',label:'Review checks'};
   if(run.interventions?.mode==='unavailable'||run.error||run.state_error)return {kind:'none',label:'Unavailable',disabled:true};
+  // An applied durable stop is terminal: Continue, Resume, Start building and
+  // Finish task stay suppressed while the stop receipt stands. Every other
+  // stopped-group resume path below keeps working when no stop stands.
+  if(run.interventions?.stop_intent)return {kind:'checks',label:'Stopped'};
   if(info.group==='running')return {kind:'pause',label:'Pause after current step'};
   if(busy)return {kind:'none',label:'Working…',disabled:true};
   if(['Awaiting AutoResolver','AutoResolver paused'].includes(info.label))return {kind:'checks',label:'Inspect details'};
@@ -1857,7 +2192,7 @@ function taskDecision(run,busy=false){
   if(['Awaiting AutoResolver','AutoResolver paused'].includes(info.label))return result(info.label,info.reason,'Inspect the saved plan, reports, and evidence. No answer or approval is currently requested.');
   if(operationalRequest(run))return result('AutoResolver needs information',info.reason,'Provide corrective information in Conversation or choose Leave paused. Neither response continues execution, approves goals, changes permissions, or resets budgets.',true);
   if(info.label==='Answer needed')return result('Answer '+run.questions.length+' '+(run.questions.length===1?'question':'questions'),run.questions[0].question||info.reason,'Choose '+action.label+' above, or Conversation → Your reply → Send answer. Planning continues only when the controller returns to Running without a pending request. Plan approval is separate.',true);
-  if(info.label==='Approve plan')return result('Approve plan revision '+revision,run.goal?.body?.intended_outcome||info.reason,'Review the Current plan tab, then choose Approve plan revision '+revision+'. This records approval; Start building or Resume task is the next action.',true);
+  if(info.label==='Approve plan')return result('Approve plan revision '+revision,run.goal?.body?.intended_outcome||info.reason,'Review the Plan pane, then approve revision '+revision+' in the conversation transcript. This records approval; Start building or Resume task is the next action.',true);
   if(info.label==='Review output')return result('Review the finished work',info.reason,'Open Checks, inspect the evidence and approve each requested item. Then choose Finish task to run the final completion check.',true);
   if(info.group==='attention')return result('Your decision is needed',info.reason,'Open Conversation and reply to the current request. Your reply does not approve a new plan revision.',true);
   if(action.kind==='recover')return result('Review the interrupted attempt',info.reason,'Choose Review recovery above, inspect the saved attempt, then Recover saved work. Resume is a separate action.',true);
@@ -1883,33 +2218,166 @@ function taskPosition(run){
   if(Number.isFinite(run.iteration))parts.push('Iteration '+run.iteration+(run.monitor?.limits_known&&run.monitor.iteration_limit!=null?' of '+run.monitor.iteration_limit:''));
   return parts.join('  /  ');
 }
+function stageRoleKey(record) {
+  const route=record?.route_role||record?.role;
+  if(route)return String(route);
+  const stage=String(record?.stage||'').replace(/_report_repair$/,'');
+  return ({requirements_gather:'requirements',astra_discovery:'glm',glm_revise:'glm',astra_challenge:'plan_reviewer',astra_finalize:'plan_reviewer',astra_plan:'astra',astra_review:'completion',astra_checkpoint:'completion',astra_resolve:'resolver'})[stage]||stage.split('_')[0];
+}
+function workRoleAttributions(run) {
+  // Actual role/model attributions come only from recorded executions: the
+  // launches saved with finished stages and the active execution. The real
+  // dashboard_monitor.snapshot projection carries settings.roles in
+  // monitor.roles even before any stage runs, so a configured future route
+  // must never be presented here; configured routes stay in the separately
+  // labeled configured view (Stages & models).
+  const monitor=run.monitor||{};
+  const history=Array.isArray(monitor.stage_history)&&monitor.stage_history.length?monitor.stage_history:run.stages||[];
+  const lines=[];
+  const add=(role,execution)=>{
+    if(!execution||execution.kind!=='model'||!execution.model)return;
+    const effort=execution.reasoning_effort;
+    const line=roleDisplayName(role)+' · '+[execution.model,effort?effort+' reasoning':null].filter(Boolean).join(' · ');
+    if(!lines.includes(line))lines.push(line);
+  };
+  for(const record of history)add(record?.route_role||record?.role||stageRoleKey(record),record?.execution);
+  if(monitor.active_execution)add(monitor.active_role||run.active_stage?.route_role||run.active_stage?.role||stageRoleKey(run.active_stage||{}),monitor.active_execution);
+  return lines;
+}
+function workSummaryPanel(run) {
+  const info=statusInfo(run),facts=stateFacts(run),host=card('','work-summary monitor-panel');
+  host.append(Object.assign(n('p','NOW WORKING'),{className:'monitor-kicker'}),n('h2',taskTitle(run)||'Untitled task'));
+  // 448:635 compact card: one saved-status line (state chip plus current
+  // step) under the title, then the actual role/model attributions.
+  const status=card('','monitor-state work-status');
+  const state=n('p',facts.state);state.className='monitor-status-chip '+info.group;state.dataset.taskFact='state';state.dataset.taskFactVisible='state';state.dataset.taskFactFull='state';
+  const step=n('h2',facts.step);step.dataset.taskFact='step';step.dataset.taskFactVisible='step';step.dataset.taskFactFull='step';
+  status.append(state,step);
+  host.append(status);
+  const roles=card('','work-roles');
+  const lines=workRoleAttributions(run);
+  if(lines.length)for(const line of lines)roles.append(n('p',line));
+  else roles.append(n('p','No saved role and model attributions yet.'));
+  host.append(roles);
+  return host;
+}
+// The requirements lifecycle state: the saved open questions as a read-only
+// summary in Work that points into the conversation, where every answer
+// control lives. Work never carries the answer controls itself.
+// Each Work row points at its own chat question card: select that question
+// in the composer's target control, reveal its card in the transcript, and
+// hand focus to the composer. The answer itself stays a chat action.
+function questionCardById(id){
+  const scope=$('#conversation');
+  if(!scope||typeof scope.querySelectorAll!=='function')return null;
+  for(const element of scope.querySelectorAll('[data-question-card]'))if(String(element.dataset.questionCard)===String(id))return element;
+  return null;
+}
+function focusQuestionCard(run,question){
+  const id=String(question?.id??'');
+  const target=$('#question-target');
+  if(id&&target&&String(target.value||'')!==id){target.value=id;if(typeof target.onchange==='function')target.onchange();}
+  const cardElement=questionCardById(id);
+  if(cardElement){cardElement.classList.add('selected-question');cardElement.scrollIntoView({block:'center'});}
+  const input=$('#change-text');
+  if(input){input.focus();input.scrollIntoView({block:'nearest'});}
+}
+function workQuestionsPanel(run) {
+  const questions=(run.questions||[]);
+  const host=card('','work-questions monitor-panel');
+  host.append(Object.assign(n('p','WAITING FOR YOUR REPLY'),{className:'monitor-kicker'}),
+              n('h3','Answer '+questions.length+' open '+(questions.length===1?'question':'questions')+' in the conversation'));
+  const list=card('','work-question-rows');
+  for(const question of questions){
+    const row=card('','work-question-row');
+    row.dataset.questionId=String(question?.id??'');
+    row.append(n('p',String(question?.question||'').trim()||'Saved open question'));
+    row.append(Object.assign(n('p','Open · waiting for you in the conversation'),{className:'monitor-caption work-question-status'}));
+    row.append(button('Open in conversation →',()=>focusQuestionCard(run,question),'text-button work-question-link'));
+    list.append(row);
+  }
+  host.append(list,Object.assign(n('p','This summary reads the saved questions; nothing is answered here.'),{className:'monitor-caption'}));
+  return host;
+}
+// The recovery lifecycle state: an autonomous technical recovery explains
+// itself from the saved record and asks for nothing.
+function workRecoveryPanel(run) {
+  const host=card('','work-recovery monitor-panel');
+  host.append(Object.assign(n('p','TECHNICAL RECOVERY IN PROGRESS'),{className:'monitor-kicker'}),
+              n('h3','Recovering automatically'),
+              n('p',stateFacts(run).objective),
+              Object.assign(n('p','No action is needed from you. Recovery runs on its own; only a real question or approval would ask for input here.'),{className:'monitor-caption'}));
+  return host;
+}
+function workRequirementRows(run) {
+  const results=new Map((Array.isArray(run.validation?.criterion_results)?run.validation.criterion_results:[]).filter(row=>row&&typeof row==='object').map(row=>[String(row.id),String(row.status||'').toLowerCase()]));
+  return (run.criteria||[]).map(criterion=>{
+    const status=results.get(String((criterion||{}).id??''))||'unknown';
+    const state=['pass','verified'].includes(status)?'checked':['fail','blocked'].includes(status)?'failed':'unchecked';
+    return {criterion,state};
+  });
+}
+function workChecklistPanel(run) {
+  const host=card('','work-checklist monitor-panel'),rows=workRequirementRows(run),counts=card('','work-checklist-counts');
+  host.append(n('h3','Live checklist'),counts);
+  if(!rows.length){
+    counts.append(n('p','No requirements have been saved for this work yet.'));
+    host.append(Object.assign(n('p','Rows and counts here read only from the saved acceptance checklist.'),{className:'monitor-caption'}));
+    return host;
+  }
+  const checked=rows.filter(row=>row.state==='checked').length,failed=rows.filter(row=>row.state==='failed').length,unchecked=rows.length-checked-failed;
+  counts.append(n('p',[checked+' checked',failed?failed+' failed':null,unchecked+' unchecked'].filter(Boolean).join(' · ')));
+  const list=card('','work-checklist-rows');
+  for(const row of rows){
+    const item=card('','work-check-row '+row.state);
+    item.append(Object.assign(n('span',row.state==='checked'?'✓':row.state==='failed'?'!':'○'),{className:'work-check-icon'}),n('p',planEntryText(row.criterion)));
+    list.append(item);
+  }
+  host.append(list,Object.assign(n('p','Rows and counts here read only from the saved acceptance checklist.'),{className:'monitor-caption'}));
+  return host;
+}
 function renderTaskNow(run){
   const host=$('#now'),decision=taskDecision(run,taskActionBusy(run)),phase=taskPhase(run),assignment=run.astra_plan?.current_assignment;
-  const signature=JSON.stringify([run.run,run.status,run.stage,run.iteration,run.goal_token,run.goal?.approval_status,run.questions,run.user_request,run.stop_reason,run.monitor,assignment,decision]);
+  const signature=JSON.stringify([run.run,run.task,run.display_title,run.status,run.stage,run.iteration,run.goal_token,run.goal?.approval_status,run.questions,run.user_request,run.stop_reason,run.monitor,run.criteria,run.validation,assignment,decision]);
   if(host.dataset.rendered===signature)return;host.dataset.rendered=signature;host.replaceChildren();
   const path=n('ol','');path.className='task-path';path.setAttribute('aria-label','Workflow stage');
   const stages=[['planning','Plan'],['approval','Your approval'],...(hasOrchestration(run)?[['orchestration','Orchestrator']]:[]),['implementation','Build'],['review','Review'],['complete','Complete']];
   if(hasOrchestration(run))path.classList.add('with-orchestration');
   const currentStage=stages.findIndex(([key])=>key===phase);
   for(const [index,[key,label]]of stages.entries()){const item=n('li',label);if(index<currentStage)item.className='done';if(key===phase){item.className='current';item.setAttribute('aria-current','step');}path.append(item);}
+  // Chat-first Work hierarchy (422:1613): the compact Now-working lead card
+  // carries the saved status line (state chip, current step) and the actual
+  // role attributions. The live checklist follows integrated directly below
+  // — no second bordered card displaces it — and the remaining operational
+  // facts render in their own compact Work section after the stage path.
+  // Milestone checkpoints, Builder batches, the assignment scope and the
+  // current-plan/last-step context render in History instead of stacking
+  // ahead of the summary.
+  const lead=workSummaryPanel(run);
+  host.append(lead);
+  if(run.status==='RUNNING'&&(run.active_stage?.stage||run.stage)==='astra_resolve')host.append(workRecoveryPanel(run));
+  host.append(workChecklistPanel(run));
+  // The remaining saved facts follow the integrated checklist in their own
+  // compact section — the reference's verification block (448:667) — so they
+  // stay inside the unscrolled fold while the lead stays small. Every human
+  // decision summary and its chat pointer render after them.
   host.append(monitorPanel(run));
   if(decision.required){const decisionCard=card('','decision-card needs-decision');decisionCard.append(Object.assign(n('p','YOUR NEXT ACTION'),{className:'eyebrow'}),n('h2',decision.title),n('p',decision.description),Object.assign(n('p',decision.after),{className:'decision-after'}));host.append(decisionCard);}
-  if(statusInfo(run).label==='Answer needed')host.append(answerSafetyPanel((run.questions||[]).length));
+  if(statusInfo(run).label==='Answer needed')host.append(answerSafetyPanel((run.questions||[]).length),workQuestionsPanel(run));
   host.append(path);
-  if(run.monitor?.checkpoints?.rows?.length)host.append(executionCheckpoints(run.monitor.checkpoints));
-  if(run.monitor?.orchestration_batch)host.append(orchestrationPanel(run.monitor.orchestration_batch));
+  // Configured routes stay inspectable in Work, clearly after the summary and
+  // checklist, never as actual attributions inside the summary itself.
   host.append(workflowModelsPanel(run));
-  if(assignment)host.append(disclosure('Assignment scope & checks','current-assignment:'+assignment.id,[renderDocument(assignment)],run.run));
-  const context=card('','current-context'),plan=card('','');plan.append(n('h3','Current plan'),n('p',run.goal?.revision!=null?'Revision '+run.goal.revision+' · '+(run.goal.approval_status==='approved'?'Approved':decision.action.kind==='plan'?'Ready for review':'Draft'):'No plan revision saved'),button('Read current plan →',()=>activateTab('plan'),'text-button'));context.append(plan);
-  const checkpoint=card('',''),latest=[...(run.monitor?.history||[])].sort((a,b)=>Date.parse(b.finished_at)-Date.parse(a.finished_at))[0];checkpoint.append(n('h3','Last saved step'));
-  if(latest){checkpoint.append(n('p',stageName({...run,stage:latest.stage})+' · iteration '+(latest.iteration??'?')),n('p',(latest.rejected?'Output rejected':latest.interrupted?'Interrupted':latest.timed_out?'Timed out':stageSucceeded(latest)?'Step finished':'Step stopped')+' · '+new Date(latest.finished_at).toLocaleString()));}else checkpoint.append(n('p','No completed step recorded.'));
-  checkpoint.append(button('View history →',()=>activateTab('overview'),'text-button'));context.append(checkpoint);host.append(context);
 }
 function renderPrimaryAction(run){
   $('#task-subtitle').textContent=taskSentence(run,taskActionBusy(run));
-  const action=primaryAction(run,taskActionBusy(run)),control=$('#continue-run'),pause=$('#pause-run');
+  const action=primaryAction(run,taskActionBusy(run)),control=$('#continue-run'),pause=$('#pause-run'),stopControl=$('#stop-run');
   const blocked=run.task_archived||taskArchiveBlocked(run.run)||run.project_removed||projectBlocked(run.workspace),modelBlocked=typeof unresolvedModelReplacement==='function'&&unresolvedModelReplacement(run)&&action.kind==='continue';
-  pause.hidden=action.kind!=='pause'||blocked;control.hidden=action.kind==='pause'||blocked||currentTab==='plan'||(currentTab==='interview'&&action.kind==='plan')||(action.kind==='checks'&&currentTab==='execution');
+  pause.hidden=action.kind!=='pause'||blocked;control.hidden=action.kind==='pause'||blocked||currentTab==='plan'||(action.kind==='checks'&&currentTab==='execution');
+  const stopStanding=!!run.interventions?.stop_intent,stopRequested=(run.interventions?.entries||[]).some(entry=>entry.kind==='stop'&&['queued','requested'].includes(entry.status))||stopStanding;
+  stopControl.hidden=(action.kind!=='pause'&&!stopStanding)||blocked;stopControl.disabled=stopRequested||sendingRequests.has(requestKey(run.run,'stop'))||blocked||run.interventions?.stop_capable!==true;stopControl.title=run.interventions?.stop_capable===true?'Finish and save the current step, then stop':'This runner does not support Stop; Pause remains available';
+  stopControl.textContent=stopStanding?'Stopped':stopRequested?'Stop requested':sendingRequests.has(requestKey(run.run,'stop'))?'Requesting stop…':'Stop';
+  stopControl.onclick=()=>sendChange(run,'stop');
   const pauseRequested=run.interventions?.pause_intent&&!run.interventions.pause_intent.acknowledged_at||(run.interventions?.entries||[]).some(entry=>entry.kind==='pause'&&['queued','requested'].includes(entry.status));
   pause.textContent=pauseRequested?'Pause requested':sendingRequests.has(requestKey(run.run,'pause'))?'Requesting pause…':'Pause after current step';pause.disabled=!!pauseRequested||sendingRequests.has(requestKey(run.run,'pause'))||blocked;
   pause.classList.toggle('primary',!pause.hidden);control.classList.toggle('primary',!control.hidden);
@@ -1923,12 +2391,15 @@ function renderPrimaryAction(run){
   };
   $('#continue').disabled=action.kind!=='continue'||control.disabled;$('#continue').onclick=()=>{if(!$('#continue').disabled)submitTaskAction(run,'continue');};
   const boundary=$('#task-safe-boundary'),isRunning=action.kind==='pause';
-  boundary.hidden=!isRunning;boundary.textContent=isRunning?'Pause waits for the current safe step to finish; no saved checkpoint is discarded.':'';
+  boundary.hidden=!isRunning;boundary.textContent=isRunning?'Pause and Stop wait for the current safe step to finish; no saved checkpoint is discarded.':'';
 }
 async function submitTaskAction(run,action,extra={}){
   const current=latestRun?.run===run.run?latestRun:run;
   if(action==='continue'&&(extra.expected_goal_token||primaryAction(run).label==='Start building')){
-    const token=extra.expected_goal_token||run.goal_token;
+    const token=extra.expected_goal_token||approvedGoalToken(run);
+    if(!token||token!==approvedGoalToken(run)||(run.goal_token&&run.goal_token!==token)){
+      dashboardNotice('The approved plan changed. Reload before building.');return;
+    }
     extra={...extra,token,confirmation:token,expected_goal_token:token};
   }
   if(action==='continue'&&extra.expected_goal_token&&current.conversation?.plan_gate?.pending_product_change){dashboardNotice('A requirement change is awaiting a new reviewed plan.');return;}
@@ -1939,9 +2410,9 @@ async function submitTaskAction(run,action,extra={}){
       ||(action==='approve_goal'&&(statusInfo(current).label!=='Approve plan'||response.token!==current.goal_token||response.confirmation!==current.goal_token))
       ||(action==='approve_review'&&(statusInfo(current).label!=='Review output'||response.token!==current.review_token||!current.human_escalation.request?.criteria?.includes(response.id)))
       ||(['answer','delegate'].includes(action)&&!(current.questions||[]).some(question=>String(question.id)===String(response.id))))) {dashboardNotice('The AutoResolver request changed. Refresh and review the current request before responding.');return;}
-  taskActionPending.add(run.run);seq++;renderLiveControls(run);renderBrief(run);renderExecution(run);renderTaskNow(run);
+  taskActionPending.add(run.run);seq++;renderLiveControls(run);renderBrief(run);renderExecution(run);renderTaskNow(run);renderInlineTaskAction(run);
   try{return await post('/api/action',{workspace:run.workspace,run:run.run,action,...response});}
-  finally{taskActionPending.delete(run.run);if(chosen?.run===run.run){renderLiveControls(latestRun||run);renderBrief(latestRun||run);renderExecution(latestRun||run);renderTaskNow(latestRun||run);}}
+  finally{taskActionPending.delete(run.run);if(chosen?.run===run.run){renderLiveControls(latestRun||run);renderBrief(latestRun||run);renderExecution(latestRun||run);renderTaskNow(latestRun||run);renderInlineTaskAction(latestRun||run);}}
 }
 function modelCatalogueSnapshot(){return typeof modelCatalogue==='object'&&modelCatalogue?modelCatalogue:{models:[],usable:false,loading:true,error:null};}
 function modelRouteCandidates(value){const saved=String(value||'');return [saved,/^[a-z0-9.-]+$/i.test(saved)?'openai/'+saved:''].filter(Boolean);}
@@ -2100,7 +2571,7 @@ async function sendChange(run,kind,retry){
   catch(error){uncertainRequests.set(request.id,{...request,run:run.run,status:'uncertain',error:error.message});}
   finally{sendingRequests.delete(key);if(chosen?.run===run.run)renderLiveControls(run);await refresh();}
 }
-function requestRow(entry,run){const row=card('','request-row');row.append(Object.assign(n('span',(entry.kind==='pause'?'Pause':'Change')+' · '+(entry.status==='delivered'?'delivered to legacy checkpoint':entry.status)),{className:'badge '+(['failed','uncertain'].includes(entry.status)?'failed':entry.status==='queued'||entry.status?.startsWith('submitting')?'attention':['applied','resumed','delivered'].includes(entry.status)?'complete':'')}));if(entry.text)row.append(n('p',entry.text));if(entry.error)row.append(Object.assign(n('p',entry.error),{className:'error'}));row.append(disclosure('Receipt','receipt:'+entry.id,[n('code',entry.id)],run.run));if(entry.status==='uncertain')row.append(n('p','Refresh status and reconcile this request ID before retrying to avoid a duplicate mutation.'));else if(entry.status==='failed'&&!entry.legacy&&entry.kind)row.append(button('Retry same request',()=>sendChange(run,entry.kind,entry)));return row;}
+function requestRow(entry,run){const row=card('','request-row');row.append(Object.assign(n('span',({pause:'Pause',stop:'Stop'}[entry.kind]||'Change')+' · '+(entry.status==='delivered'?'delivered to legacy checkpoint':entry.status)),{className:'badge '+(['failed','uncertain'].includes(entry.status)?'failed':entry.status==='queued'||entry.status?.startsWith('submitting')?'attention':['applied','resumed','delivered'].includes(entry.status)?'complete':'')}));if(entry.text)row.append(n('p',entry.text));if(entry.error)row.append(Object.assign(n('p',entry.error),{className:'error'}));row.append(disclosure('Receipt','receipt:'+entry.id,[n('code',entry.id)],run.run));if(entry.status==='uncertain')row.append(n('p','Refresh status and reconcile this request ID before retrying to avoid a duplicate mutation.'));else if(entry.status==='failed'&&!entry.legacy&&entry.kind)row.append(button('Retry same request',()=>sendChange(run,entry.kind,entry)));return row;}
 async function sendTaskChat(run,retry) {
   const current=latestRun?.run===run.run?latestRun:run;
   if(taskReadError||taskArchiveBlocked(run.run)||current.task_archived||projectBlocked(run.workspace)||current.project_removed||taskChatPending.has(run.run)||current.status==='TASK_COMPLETE'||current.interventions?.mode==='unavailable')return;
@@ -2121,14 +2592,17 @@ async function sendTaskChat(run,retry) {
     const payload=request.resolver_response?{workspace:run.workspace,run:run.run,action:'resolver_response',resolver_request:request.resolver_request,resolver_token:request.resolver_token,resolver_response:request.resolver_response,resolver_message:text}:{...chatPayload(current,text,request.question_id,request.request_id,request.delegate),...(request.retry?{retry:true}:{})};
     const response=await api(request.resolver_response?'/api/action':'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     if(['error','failed','uncertain','launch_failed'].includes(response.status))taskChatErrors.set(run.run,{...request,error:response.error||'This message needs attention.'});
-    else{persist('task-request:'+run.run,'');if(!request.delegate&&$('#change-text').dataset.run===run.run&&$('#change-text').value.trim()===request.text){$('#change-text').value='';changeDrafts.set(run.run,'');persist('task-draft:'+run.run,'');}}
+    else{persist('task-request:'+run.run,'');persist('task-scroll:'+run.run,'');if(!request.delegate&&$('#change-text').dataset.run===run.run&&$('#change-text').value.trim()===request.text){$('#change-text').value='';changeDrafts.set(run.run,'');persist('task-draft:'+run.run,'');}}
   } catch(error) {taskChatErrors.set(run.run,{...request,error:error.message});}
   finally {taskChatPending.delete(run.run);if(chosen?.run===run.run)renderLiveControls(latestRun||run);refresh();}
 }
 function renderLiveControls(run){
-  if(run.task_archived||taskArchiveBlocked(run.run)){$('#live-controls').hidden=true;for(const id of ['continue','continue-run','pause-run'])$('#'+id).disabled=true;return;}
-  if(run.project_removed||projectBlocked(run.workspace)){$('#live-controls').hidden=true;for(const id of ['continue','continue-run','pause-run'])$('#'+id).disabled=true;return;}
-  const data=run.interventions||{},input=$('#change-text');$('#live-controls').hidden=currentTab!=='interview';
+  if(run.task_archived||taskArchiveBlocked(run.run)){$('#live-controls').hidden=true;for(const id of ['continue','continue-run','pause-run','stop-run'])$('#'+id).disabled=true;return;}
+  if(run.project_removed||projectBlocked(run.workspace)){$('#live-controls').hidden=true;for(const id of ['continue','continue-run','pause-run','stop-run'])$('#'+id).disabled=true;return;}
+  const data=run.interventions||{},input=$('#change-text');
+  // The composer is part of the always-visible conversation column; archived
+  // and removed runs are the only states that hide it (handled above).
+  $('#live-controls').hidden=false;
   if(input.dataset.run!==run.run){input.dataset.run=run.run;input.value=changeDrafts.get(run.run)??stored('task-draft:'+run.run);}
   const pendingRequest=readSavedRequest('task-request:'+run.run),confirmed=(run.chat_messages||[]).find(message=>message.id===pendingRequest?.id&&message.status!=='error');
   if(confirmed&&!taskChatPending.has(run.run)){if(input.value.trim()===pendingRequest.payload?.text){input.value='';changeDrafts.set(run.run,'');persist('task-draft:'+run.run,'');}persist('task-request:'+run.run,'');}
@@ -2155,6 +2629,8 @@ function renderLiveControls(run){
   const error=taskChatErrors.get(run.run);if(error&&!chatIds.has(error.request_id)){const row=card('','conversation-problem');row.append(Object.assign(n('p',error.error),{className:'error'}),button('Retry same message',()=>sendTaskChat(run,{...error,retry:true})));host.append(row);}
   if(sending)host.append(Object.assign(n('p','Saving your message…'),{className:'field-note'}));
   if(data.pause_intent&&!data.pause_intent.acknowledged_at&&statusInfo(run).group==='running')host.append(Object.assign(n('p','Pause requested. The current step will finish first.'),{className:'field-note'}));
+  if(data.stop_intent)host.append(Object.assign(n('p','Stopped after the current step finished and saved. Work, history and receipts are kept; no further stages run for this conversation.'),{className:'field-note'}));
+  else if((data.entries||[]).some(entry=>entry.kind==='stop'&&['queued','requested'].includes(entry.status))&&statusInfo(run).group==='running')host.append(Object.assign(n('p','Stop requested. The current step will finish first; no further stages will run after it.'),{className:'field-note'}));
 }
 function disableStaleControls(){
   document.querySelectorAll('#task-detail button, #task-detail input, #task-detail textarea, #task-detail select').forEach(control=>{
@@ -2178,7 +2654,7 @@ function showRemovedRun(run) {
   $('#task-overview').hidden=true;
   latestRun=run;$('#task-title').textContent='Project removed';$('#task-project').textContent=projectTitle(run.workspace);$('#task-project').title=run.workspace;$('#task-subtitle').textContent='This task is hidden until you restore its project.';$('#task-models').textContent='';$('#task-model-settings').replaceChildren();$('#task-status').replaceChildren();
   for(const id of ['conversation','brief-current','goal','plan-full','execution_view','actions','task-attention'])$('#'+id).replaceChildren();
-  $('#task-attention').hidden=true;$('#detail-grid').hidden=true;$('#live-controls').hidden=true;for(const id of ['continue','continue-run','pause-run'])$('#'+id).disabled=true;
+  $('#task-attention').hidden=true;$('#detail-grid').hidden=true;$('#live-controls').hidden=true;for(const id of ['continue','continue-run','pause-run','stop-run'])$('#'+id).disabled=true;
   const host=$('#task-removed-banner');host.replaceChildren(n('h2','Restore '+projectTitle(run.workspace)+' to view this task'),n('p','Its files and history stay on disk. Running tasks keep going.'),Object.assign(n('p',run.workspace),{className:'project-path'}),projectActionButton(run.workspace,'restore','Restore project'));host.hidden=false;renderTaskProjectActions(run.workspace,true);
 }
 function showArchivedRun(run){
@@ -2187,7 +2663,7 @@ function showArchivedRun(run){
   $('#task-title').textContent='Task archived';$('#task-project').textContent=projectTitle(run.workspace);$('#task-project').title=run.workspace;
   $('#task-subtitle').textContent='Restore this task to view its history and controls.';$('#task-models').textContent='';$('#task-model-settings').replaceChildren();$('#task-status').replaceChildren();
   for(const id of ['task-overview','task-attention','detail-grid','live-controls'])$('#'+id).hidden=true;
-  for(const id of ['continue','continue-run','pause-run'])$('#'+id).disabled=true;
+  for(const id of ['continue','continue-run','pause-run','stop-run'])$('#'+id).disabled=true;
   const host=$('#task-removed-banner');host.replaceChildren(n('h2','This task is archived'),n('p','Its files and history are preserved. Archiving does not stop a running worker.'),archiveButton(run,'restore','Restore task'));host.hidden=false;
   renderTaskProjectActions(run.workspace);
 }
@@ -2230,7 +2706,7 @@ async function refreshOnce(){
   // must never prevent a fresh task response or invalidate one already shown.
   const listRead=(async()=>{
     try{
-      const data=await api('/api/runs');if(mine!==seq)return;latestData=data;setup(data);if(restorePendingShortRun(data)||restorePendingShortProject(data))return;const focus=captureControls();renderTasks(data);renderConversations(data);renderInbox(data);expireNotices();restoreFocus(focus);
+      const data=await api('/api/runs');if(mine!==seq)return;latestData=data;setup(data);if(restorePendingShortRun(data)||restorePendingShortProject(data))return;const focus=captureControls();renderTasks(data);renderConversations(data);expireNotices();restoreFocus(focus);
       if(!selected)$('#sync-state').replaceChildren(Object.assign(n('span',''),{className:'status-dot'}),document.createTextNode('Task list checked just now'));
     }catch(error){if(mine!==seq)return;if(!selected)$('#sync-state').textContent='Task list unavailable';dashboardNotice(actionProblem||error.message);}
   })();
@@ -2247,14 +2723,14 @@ async function refresh(){
   try{await refreshPromise;}finally{refreshPromise=null;refreshTimer=setTimeout(refresh,2000);}
 }
 function restoreSelection() {
-  const selection=location.hash.slice(1)||stored('selection','inbox'),params=new URLSearchParams(selection);
+  const selection=location.hash.slice(1)||stored('selection','tasks'),params=new URLSearchParams(selection);
   if(params.get('focus')==='1')persist('focus','1');
   if(params.get('conversation'))openConversation(params.get('conversation'));
   else if(params.get('run')&&!params.get('task')){
     const key=params.get('run'),matches=matchingShortRuns(key);
     if(matches.length===1){pendingShortRun='';openRun(matches[0]);}
     // Keep the compact hash intact until the first local registry snapshot
-    // arrives; setView('inbox') would overwrite it with #inbox.
+    // arrives; setView('tasks') would overwrite it with #tasks.
     else if(!latestData){pendingShortRun=key;}
     else unavailableShortRun();
   }
@@ -2265,7 +2741,7 @@ function restoreSelection() {
     if(compact){const path=projectPathForKey(project);if(path)filterTasks(validFilter,path);else if(!latestData)pendingShortProject={key:project,filter:validFilter};else unavailableShortProject();}
     else filterTasks(validFilter,project);
   }
-  else setView(['inbox','conversations','settings','archived'].includes(selection)?selection:selection==='new'?'new-task':'inbox');
+  else setView(['tasks','conversations','settings','archived'].includes(selection)?selection:selection==='new'?'new-task':'tasks');
 }
 $('#draft-plan-close').onclick=()=>$('#draft-plan-dialog').close();
 bindDialogBehavior($('#draft-plan-dialog'),()=>$('#draft-plan-dialog').close());

@@ -526,18 +526,18 @@ class LegacyConsole:
   if action=='set_model':return self.confirm_model_replacement(d,ws,run,v)
   if action=='continue':
    expected=d.get('expected_goal_token')
-   if expected is not None and (not isinstance(expected,str) or expected!=v.get('goal_token') or d.get('token')!=expected or d.get('confirmation')!=expected or obj(v.get('goal')).get('approval_status')!='approved'):raise ValueError('The approved plan changed. Reload before building.')
+   if expected is not None and (not isinstance(expected,str) or not expected or expected!=approved_goal_token(v) or v.get('goal_token') not in (None,'',expected) or d.get('token')!=expected or d.get('confirmation')!=expected or obj(obj(v.get('conversation')).get('plan_gate')).get('pending_product_change')):raise ValueError('The approved plan changed. Reload before building.')
    return self.enqueue(ws,run,'Continue',['--expected-goal-token',expected] if expected is not None else [])
   raise ValueError('Unknown action')
 try:
- from .dashboard_backend import RegistryInterventionMixin
+ from .dashboard_backend import RegistryInterventionMixin, approved_goal_token
  from .dashboard_chat import ConversationMixin
  from .dashboard_project_controls import ProjectRemovalMixin
  from .dashboard_tasks import TaskArchiveMixin
  from .dashboard_delete import PermanentDeleteMixin
  from .dashboard_evidence import stage_evidence
 except ImportError:  # Support running this file directly from a source checkout.
- from dashboard_backend import RegistryInterventionMixin
+ from dashboard_backend import RegistryInterventionMixin, approved_goal_token
  from dashboard_chat import ConversationMixin
  from dashboard_project_controls import ProjectRemovalMixin
  from dashboard_tasks import TaskArchiveMixin

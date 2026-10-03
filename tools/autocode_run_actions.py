@@ -29,6 +29,7 @@ try:
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_stop as stop
     from . import autocode_support as support
     from . import autocode_workflows as workflows
     from . import autocode_worktrees as worktrees
@@ -47,6 +48,7 @@ except ImportError:
     import autocode_planning_artifacts as planning_artifacts
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_stop as stop
     import autocode_support as support
     import autocode_workflows as workflows
     import autocode_worktrees as worktrees
@@ -54,6 +56,13 @@ except ImportError:
 
 def handle(runner, args, parser, state, state_path, run_dir, workspace):
     """Apply this invocation's action to the saved run; return an exit code to stop, or None to build."""
+    # An applied durable stop is terminal: no recovery, user action, answer,
+    # approval, feedback or resume may relaunch a stopped run or complete it.
+    if stop.applied_stop(state) is not None:
+        if stop.assert_stopped(state):
+            runner.write_json(state_path, state)
+        print(f"{state['status']}: {state['stop_reason']}")
+        return 2
     try:
         conversation_ingress.require_expected_goal(state, getattr(args, 'expected_goal_token', None),
                                                    token_for=goals.token, is_approved=goals.approved)
@@ -255,6 +264,14 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                   f"partial work archived; the Plan Reviewer will inspect before the next writer", flush=True)
         elif not (runner.automatically_recover_timed_out_stage(state, run_dir, workspace, error)
                   or runner.automatically_recover_external_directory_denial(state, run_dir, workspace, error)):
+            # Reconciliation above retained the crash-uncertain stage and its
+            # evidence without inventing completion. A stop recorded before the
+            # crash is still authoritative: consume and apply it exactly once at
+            # this saved boundary, before this invocation exits, so no manual
+            # recovery is needed to stop the run and no later stage is admitted.
+            if stop.pending_stop(run_dir) is not None and runner.consume_interventions(state, run_dir, workspace):
+                print(f"{state['status']}: {state['stop_reason']}")
+                return 2
             raise
     if state.get("uncertain_artifacts"):
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Legacy partial stage remains unresolved: " + state["uncertain_artifacts"])
@@ -413,7 +430,10 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             if state.get("pause_intent") and not state["pause_intent"].get("acknowledged_at"):
                 state["pause_intent"]["acknowledged_at"] = resumed_at
             for receipt in state.get("applied_interventions", []):
-                if isinstance(receipt, dict) and not receipt.get("resumed_at"):
+                # Pause receipts acknowledge their resume; a stop receipt is
+                # terminal and never receives a resumed_at stamp.
+                if (isinstance(receipt, dict) and not receipt.get("resumed_at")
+                        and not stop.is_stop_receipt(receipt)):
                     receipt["resumed_at"] = resumed_at
             state.update(status="RUNNING", phase="PLANNING" if planning.is_planning(state, state["next_stage"])
                          else "DISCOVERING" if state["next_stage"] == "astra_discovery" else "READY_TO_EXECUTE")

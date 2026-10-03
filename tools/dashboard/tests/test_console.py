@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0,str(Path(__file__).parents[1]))
 
 from agent_console import Console,Handler,LoopbackHTTPServer,ThreadingHTTPServer,configured_zai
-from test_pending_decisions import publish,resolver_human
+from tools.dashboard.tests.test_pending_decisions import publish,resolver_human
 
 class Tests(unittest.TestCase):
  def setUp(self):
@@ -308,7 +308,10 @@ class RuntimeWatchRootTests(unittest.TestCase):
   self.assertIn("function syncWorkspaces(list)",APP)
   self.assertIn("syncWorkspaces(data.workspaces || []);",APP)
   self.assertIn("if (keep && (list.includes(keep)||keep==='__custom__')) select.value=keep",APP)
-  self.assertIn("renderDocument(brief)",APP);self.assertIn("lines.join('\\n')",APP);self.assertIn("Approve plan",APP);self.assertIn("confirmation:run.goal_token",APP);self.assertIn("renderDocument(run.criteria||[])",APP);self.assertIn("Technical details",APP);self.assertIn("Autocode dashboard",INDEX);self.assertIn("No project needed yet.",INDEX);self.assertIn("Choose a project and review",INDEX);self.assertIn("conversationPayload(text,models,conversationRequest.id)",APP)
+  self.assertIn("renderDocument(brief)",APP);self.assertIn("lines.join('\\n')",APP);self.assertIn("Approve plan",APP);self.assertIn("confirmation:run.goal_token",APP);self.assertIn("renderDocument(run.criteria||[])",APP);self.assertIn("Technical details",APP);self.assertIn("Autocode dashboard",INDEX);self.assertIn("No project needed yet.",INDEX);self.assertIn("Choose a project and review",INDEX)
+  # M1 chat workspace: the create submit still routes through conversationPayload
+  # with the saved request id and now carries the authorized project scope field.
+  self.assertIn("conversationPayload(text,models,conversationRequest.id,newTaskProject)",APP)
  def test_literal_user_backslash_n_is_not_decoded_by_rendering(self):
   from agent_console import APP
   literal=r'first line\nsecond line';payload={'task':literal};self.assertEqual(literal,payload['task']);self.assertIn("element.textContent = text ?? ''",APP);self.assertNotIn("replaceAll('\\\\n'",APP)

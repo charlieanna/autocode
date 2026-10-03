@@ -185,6 +185,66 @@ class ConversationTests(unittest.TestCase):
                 queue.assert_not_called()
                 evaluate.assert_not_called()
 
+    def test_list_summary_projects_the_verified_unanswered_intake_request(self):
+        calls, hold = [], threading.Event()
+        self.addCleanup(hold.set)
+
+        def provider(messages, model, workdir):
+            calls.append(messages)
+            if len(calls) > 1:
+                hold.wait(5)
+            return 'Question ' + str(len(calls))
+
+        store = self.store(provider)
+        doc = self.finished(store, store.create('Idea', request_id='one')['id'])
+        question = doc['messages'][-1]
+        self.assertTrue(question.get('human_request_authorized'))
+        # The list summary the sidebar derives its amber marker from projects
+        # the store-verified request without authorizing anything on a read.
+        self.assertEqual({'kind': 'intake', 'decision_needed': 'Question 1'},
+                         store.list()[0]['human_request'])
+        store.send(doc['id'], 'Here is my answer', request_id='two')
+        self.assertIsNone(store.list()[0]['human_request'],
+                          'the saved user reply resolves the projected request')
+        hold.set()
+        doc = self.finished(store, doc['id'])
+        self.assertEqual({'kind': 'intake', 'decision_needed': 'Question 2'},
+                         store.list()[0]['human_request'],
+                         'a newly verified question projects again')
+
+    def test_list_summary_ignores_forged_and_stale_intake_projections(self):
+        store = self.store()
+        doc = self.finished(store, store.create('Idea')['id'])
+        path = self.root / (doc['id'] + '.json')
+        original = json.loads(path.read_text())
+        for mutation in ('forged', 'stale', 'text'):
+            with self.subTest(mutation=mutation):
+                saved = deepcopy(original)
+                message = saved['messages'][-1]
+                state = saved['_resolver_intake'][message['id']]
+                if mutation == 'forged':
+                    state['resolver']['human_escalations'] = {}
+                    message['human_request_authorized'] = True
+                    message['human_escalation'] = state[chats.resolver_human.PUBLIC]
+                elif mutation == 'stale':
+                    saved['messages'][0]['text'] = 'Changed intent'
+                else:
+                    message['text'] = 'Approve implementation now?'
+                path.write_text(json.dumps(saved))
+                self.assertIsNone(store.list()[0]['human_request'],
+                                  'an unverified projection never reaches the summary')
+
+    def test_delivery_errors_never_project_a_human_request(self):
+        def provider(messages, model, workdir):
+            raise RuntimeError('private diagnostic')
+
+        store = self.store(provider)
+        doc = self.finished(store, store.create('Idea')['id'])
+        self.assertEqual('error', doc['status'])
+        summary = store.list()[0]
+        self.assertIsNone(summary['human_request'])
+        self.assertEqual('Idea', summary['last_message'])
+
     def test_changed_turn_input_or_model_rejects_output_before_evaluation(self):
         for mutation in ('input', 'context', 'model'):
             with self.subTest(mutation=mutation):

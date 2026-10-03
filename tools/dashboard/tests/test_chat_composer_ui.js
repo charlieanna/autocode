@@ -58,6 +58,7 @@ class Element {
     this.tagName = tag.toUpperCase();
     this.textContent = text;
     this.children = [];
+    this.dataset = {};
   }
   append(...children) { this.children.push(...children); }
   prepend(...children) { this.children.unshift(...children); }
@@ -80,7 +81,7 @@ const formatting = vm.createContext({
   activeConversation: 'conversation-one',
   latestRun: null,
 });
-vm.runInContext(functionSource('appendMessage') + '\n' + functionSource('renderMessageHistory'), formatting);
+vm.runInContext(functionSource('messageAnchorKey') + '\n' + functionSource('appendMessage') + '\n' + functionSource('renderMessageHistory'), formatting);
 
 const earlierText = 'Earlier draft. ' + 'Detail. '.repeat(180);
 const latestText = 'The revised plan. ' + 'Detail. '.repeat(180) + '\nWhich option do you prefer?';

@@ -38,6 +38,9 @@ class ConversationStore:
     def create(self, *args, **kwargs):
         return self.new.create(*args, **kwargs)
 
+    def create_empty(self, *args, **kwargs):
+        return self.new.create_empty(*args, **kwargs)
+
     def list(self, include_archived=False):
         rows = self.intake.list(include_archived) + self.continuous.list(include_archived)
         return sorted(rows, key=lambda row: row['updated_at'], reverse=True)
