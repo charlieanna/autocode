@@ -29,6 +29,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import re
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -159,7 +160,10 @@ class PhaseGuard:
                                "build it with Phase.build_env()")
 
     def check(self, method: str, url: str) -> None:
-        host, port = _destination(url)
+        try:
+            host, port = _destination(url)
+        except ValueError:
+            self._refuse(method, url, "invalid destination")
         if not is_loopback_host(host):
             self._refuse(method, url, f"non-loopback destination {host}:{port}")
         if f"{host}:{port}" not in self.allowed:
@@ -192,7 +196,7 @@ class Phase:
 
     def __init__(self, sequence: "PhaseSequence", name: str, *, traffic_identity: str | None = None,
                  credential_root=None, share_credential_root_with: "Phase | None" = None,
-                 allowed_endpoints=()):
+                 allowed_endpoints=(), root_vars=None):
         self.sequence = sequence
         self.name = name
         self.traffic_identity = traffic_identity or f"synthetic-{name}"
@@ -202,6 +206,13 @@ class Phase:
         self.config_root = sequence.base / name / "config"
         self.state_root = sequence.base / name / "state"
         self.cache_root = sequence.base / name / "cache"
+        self.root_vars = dict(root_vars or {})
+        owned = {'credential_root', 'config_root', 'state_root', 'cache_root'}
+        for variable, root in self.root_vars.items():
+            if (not isinstance(variable, str) or not re.fullmatch(r'[A-Z][A-Z0-9_]*', variable)
+                    or variable in {'HOME', 'PATH', 'CODEX_HOME', 'PYTHONPATH', 'PYTHONHOME'}
+                    or variable.startswith(('PHASE_', 'OPENCODE_')) or not isinstance(root, str) or root not in owned):
+                raise ValueError('application root bindings must name an owned phase root and preserve provider inputs')
         roots = (self.credential_root, self.config_root, self.state_root, self.cache_root)
         if any(not _inside(root, sequence.base) for root in roots):
             raise ValueError('declared phase roots must stay inside the fresh sequence base')
@@ -220,8 +231,8 @@ class Phase:
     def build_env(self, **extra: str) -> dict:
         """The phase's subprocess environment: declared roots on top of the ambient one.
 
-        The ambient environment is copied as-is — including HOME, so the parent
-        model-provider OAuth home stays untouched — and the phase's declared
+        The sequence environment is copied — including its preserved HOME, so
+        the parent model-provider OAuth home stays untouched — and the phase's declared
         inputs are added on top. HOME is never set, removed or rewritten here.
         Extra values may add unrelated variables; HOME and the declared phase
         bindings cannot be overridden.
@@ -237,10 +248,11 @@ class Phase:
             "PHASE_ALLOWED_ENDPOINTS": json.dumps(self.allowed_endpoints),
             "PHASE_HARNESS_ROOT": str(HARNESS_ROOT),
         }
+        declared.update({variable: str(getattr(self, root)) for variable, root in self.root_vars.items()})
         conflicts = set(extra) & (set(declared) | {"HOME"})
         if conflicts:
             raise ValueError("phase-owned inputs cannot be overridden: " + ", ".join(sorted(conflicts)))
-        env = dict(os.environ)
+        env = dict(self.sequence._env)
         env.update(declared)
         env.update(extra)
         return env
@@ -269,11 +281,13 @@ class Phase:
         except PhaseEvidenceError as error:
             unexpected, evidence_error = None, str(error)
         return {"phase": self.name,
+                "environment_roots": {variable: str(getattr(self, root)) for variable, root in self.root_vars.items()},
                 "credential_root": str(self.credential_root),
                 "config_root": str(self.config_root),
                 "state_root": str(self.state_root),
                 "cache_root": str(self.cache_root),
                 "traffic_identity": self.traffic_identity,
+                "allowed_endpoints": list(self.allowed_endpoints),
                 "requests_log": str(self.requests_log),
                 "unexpected_requests": unexpected,
                 "evidence_error": evidence_error}
@@ -287,7 +301,18 @@ class PhaseSequence:
     prior evidence directories stay untouched.
     """
 
-    def __init__(self, name: str, base):
+    def __init__(self, name: str, base, *, env=None):
+        # Freeze before creating roots; never clear or alter the provider parent's
+        # environment. Explicit maps can omit account variables for acceptance.
+        ambient = dict(os.environ)
+        self._env = dict(ambient if env is None else env)
+        if env is not None:
+            if 'HOME' in self._env and self._env['HOME'] != ambient.get('HOME'):
+                raise ValueError('acceptance preparation must preserve the provider OAuth HOME')
+            if 'HOME' in ambient:
+                self._env['HOME'] = ambient['HOME']
+        if any(not isinstance(key, str) or not isinstance(value, str) for key, value in self._env.items()):
+            raise ValueError('phase environment entries must be strings')
         self.name = name
         self.base = Path(base).resolve()
         self.base.mkdir(parents=True, exist_ok=True)

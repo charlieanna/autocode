@@ -15,8 +15,15 @@ outside the phase's mutable state. State teardown preserves recorded refusals;
 a missing or corrupt ledger produces ERROR with unknown requests, never GREEN.
 
 Use `harness.phase_env.PhaseSequence` for new acceptance sequences. Its phases
-copy the ambient environment, preserve HOME and provider OAuth, and add their
-declared credential/config/state/cache roots.
+copy a frozen sequence environment, preserve HOME and provider OAuth, and add
+their declared credential/config/state/cache roots. Pass `env=prepared` to the
+sequence to omit ambient account variables without changing the parent process.
+Bind application inputs explicitly with `root_vars={"CLAUDE_CONFIG_DIR":
+"credential_root", "HEADROOM_CONFIG_DIR": "config_root",
+"HEADROOM_WORKSPACE_DIR": "state_root"}`; the generic `PHASE_*` variables alone
+do not isolate applications that never read them. Bindings are copied and
+validated before creating phase roots. Effective application roots and admitted
+endpoints are included in every phase record.
 Phase names must be distinct single path components; case variants and repeat
 names are rejected before they can reuse roots or refusal logs.
 Each sequence requires a fresh empty base and claims it exclusively. Reusing
@@ -28,10 +35,43 @@ The guard allows declared loopback destinations, checks redirect destinations,
 ignores ambient proxies, and records refusals before opening a socket. Existing
 oracle calls without `env` retain ambient inheritance.
 
-This opt-in synthetic regression does not qualify genuine Headroom/PyO3 startup
-or current-core integration. Those remain external gates, along with migrating
-other catalog sequences. The earlier V2 ERROR remains historical evidence;
-collection-time refusal is not a separately exercised control here.
+The catalog regression uses a standard-library consumer. A separate opt-in
+qualification exercises actual Headroom HTTPX, Uvicorn, Rust SDK startup and
+pytest TestClient lifespans against a frozen package/SDK copy and an existing
+qualified interpreter. It does not install dependencies or build a new SDK:
+
+```sh
+.venv/bin/python -B scenarios/headroom_phase_check.py \
+  --source /absolute/path/to/frozen-source \
+  --python /absolute/path/to/qualified/headroom/.venv/bin/python \
+  --out .scenario-runs/headroom-reference-new
+```
+
+The source directory must contain the declared `headroom/` package and a real
+`_core` shared library. Symlinked inputs are refused. Every output directory
+must be fresh. No private fixtures, bearer files or developer config should be
+part of the source copy. The stats phase writes a synthetic credential and
+uses an explicit in-memory usage-URL adapter to an owned loopback server.
+Compatibility retains the production default usage URL and receives empty
+credentials. Default sync/async HTTPX requests, DNS and socket connections are
+observed before I/O across imports, pytest collection, setup, call and teardown.
+Mock/ASGI transports remain local. These observers are acceptance diagnostics,
+not a sandbox for hostile application code.
+
+Run `--omit-application-binding` and `--share-credentials` with separate fresh
+outputs to prove the original and broken environments remain ERROR despite
+green pytest exits. `--inject-swallowed-step collection` (also `setup`, `call`
+and `teardown`) exercises a production client that catches a transport refusal;
+each must remain ERROR. `--policy path/to/phase_policy.json` accepts exactly
+boolean `isolate` and `bind` fields for candidate comparisons. A passing
+qualification exits zero; every negative control exits nonzero.
+
+Receipts bind the frozen source/SDK, evaluator helpers, candidate policy when
+supplied, effective phase roots, pytest cases, real server lifecycle and
+refusals. Parent environment and input/helper hashes must remain unchanged.
+Earlier V2 ERROR evidence is untouched; this qualification does not certify
+the original private #3913 candidate, the full PR #3863 overlay or other
+catalog sequences. See [the production qualification note](../docs/bugs/2026-10-02-headroom-phase-proof.md).
 
 Realistic engineering tasks for AutoCode, each with an independent **oracle**
 that judges the delivered project from the outside. The oracle, not AutoCode's
