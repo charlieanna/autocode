@@ -25,6 +25,23 @@ from . import test_subprocess
 
 
 class PlanningTests(unittest.TestCase):
+    def test_finalizer_context_requests_only_legal_obligation_lists(self):
+        state = self.state()
+        state.update(workspace="/fixture")
+        state["settings"]["roles"] = {"astra": {}}
+
+        prompt, _ = planning.context(state, "astra_finalize", Path("/fixture/state.json"))
+
+        self.assertIn("contract.initial_task", prompt)
+        self.assertIn("use [] for obligation_decisions", prompt)
+        self.assertNotIn("use [] for remediation_records and obligation_decisions", prompt)
+        self.assertNotIn("Planner may add a remediation_records entry", prompt)
+
+    def test_obligation_policy_keeps_existing_nonfinalization_instructions(self):
+        for stage in ("astra_discovery", "glm_revise", "astra_challenge"):
+            with self.subTest(stage=stage):
+                self.assertEqual(planning.OBLIGATION_POLICY, planning.obligation_policy(stage))
+
     def setUp(self):
         # Hermetic default-provider resolution: a contributor's own
         # ~/.config/autocode/config.toml or AUTOCODE_PROVIDER must never
