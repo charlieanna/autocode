@@ -188,39 +188,6 @@ def _covers(report, row_scope, all_criteria):
     return set(row_scope["criteria"]) <= reviewed
 
 
-def _related_finding_key(row):
-    """Extract a comparable key from a finding for grouping related findings."""
-    # Group by verification path, failure_signature, or normalized finding text
-    evidence = row.get("evidence", {})
-    if isinstance(evidence, dict):
-        if evidence.get("verification_path"):
-            return ("path", evidence.get("verification_path"))
-        if evidence.get("failure_signature"):
-            return ("signature", evidence.get("failure_signature"))
-    # Normalize finding text for comparison
-    finding_text = row.get("finding", "")
-    if finding_text:
-        normalized = s.digest(finding_text.lower().strip())
-        return ("text", normalized[:16])
-    return None
-
-
-def _auto_resolve_related(state, source, resolved_row, report, evidence):
-    """Auto-resolve other blocking findings for the same root cause."""
-    rows = ledger(state)
-    resolved_key = _related_finding_key(resolved_row)
-    if not resolved_key:
-        return
-    for row in rows:
-        if (row.get("source") == source and row.get("status") == "open"
-                and row.get("blocking", True) and row["id"] != resolved_row["id"]):
-            if _related_finding_key(row) == resolved_key:
-                row.update(status="resolved", resolved_at=s.now(), resolved_in=report,
-                          resolution_evidence=f"Auto-resolved: same root cause as {resolved_row['id']}; {evidence}")
-                row.pop("pending_resolution", None)
-                row.pop("not_rechecked_in", None)
-
-
 def _apply_dispositions(state, source, dispositions, record, scope, all_criteria, can_resolve, validation=None):
     rows = ledger(state)
     report = record.get("output")
@@ -265,9 +232,6 @@ def _apply_dispositions(state, source, dispositions, record, scope, all_criteria
         row.update(status=disposition, resolved_at=s.now(), resolved_in=report, resolution_evidence=evidence)
         row.pop("pending_resolution", None)
         row.pop("not_rechecked_in", None)
-        # Auto-resolve related findings for the same root cause
-        if disposition == "resolved":
-            _auto_resolve_related(state, source, row, report, evidence)
 
 
 def _record(state, source, reported, record, initial_scope=None):

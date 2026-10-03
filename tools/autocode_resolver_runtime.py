@@ -384,8 +384,7 @@ def record_operational_exhaustion(runner, state, run_dir, error):
     decision = (f'AutoResolver could not resolve {category} after {attempts} recorded operational recoveries. '
                 'Provide corrective information or leave the run paused.')
     options = ['Provide corrective information', 'Leave paused']
-    # Only recommend --grant-recovery for timeout-recovery pauses (not idle/iteration/time limits)
-    if error.status == 'PAUSED_TIMEOUT_RECOVERY' and category == 'operational_recovery':
+    if error.status == 'PAUSED_TIMEOUT_RECOVERY':
         decision += (' After fixing the cause, authorize more automatic recoveries with '
                      '--resume-paused --grant-recovery N.')
         options.append('Authorize more recoveries with --grant-recovery N')

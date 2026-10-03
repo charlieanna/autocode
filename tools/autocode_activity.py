@@ -203,11 +203,7 @@ class ActivityMonitor:
             self._text_items[key] = (len(value), self._digest(value))
         full_new = self._new("text:" + value.strip())
         suffix_new = self._new("text:" + suffix.strip()) if suffix.strip() != value.strip() else full_new
-        # Count any text growth as provider activity (covers streaming/reasoning)
-        if is_append and suffix.strip():
-            self._activity(now, provider=True)
-            self._report("text", f"[+{len(suffix)} chars]")
-        elif full_new and suffix_new and suffix.strip():
+        if full_new and suffix_new and suffix.strip():
             self._activity(now, provider=True)
             self._report("text", suffix)
 

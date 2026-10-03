@@ -975,7 +975,6 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
             if base["collection_errors"]:
                 error_msg = ("On the unfixed code the new tests only fail to import or collect ("
                             + ", ".join(base["collection_errors"][:5]) + "), so no test shows the bug. ")
-                # Check if this might be a seam issue (test imports symbols added by the fix)
                 error_msg += ("If the test references a package-level variable, hook, or injectable that the fix introduces, "
                              "either: (1) rewrite the test to observe production output (log lines, metrics) that only exist after the fix, "
                              "or (2) provide a base_patch that adds just the scaffolding needed for testing without the fix.")
