@@ -9,10 +9,12 @@ from urllib.parse import parse_qs,urlparse
 sys.dont_write_bytecode=True
 try:
  from .. import autocode_resolver_human as resolver_human
+ from ..autocode_role_names import CATALOGUE as ROLE_NAMES
 except ImportError:
  tools=str(Path(__file__).resolve().parents[1])
  if tools not in sys.path:sys.path.insert(0,tools)
  import autocode_resolver_human as resolver_human
+ from autocode_role_names import CATALOGUE as ROLE_NAMES
 CODEX_DEFAULT_MODELS={'astra':'gpt-5.6-sol','terra':'gpt-5.6-terra','sol':'gpt-5.6-sol','completion':'gpt-5.6-sol'}
 GLM_MODELS={'astra':'glm-5.3','terra':'glm-5.3-flash','sol':'glm-5.3','completion':'glm-5.3'}
 DEFAULT_REASONING_EFFORTS={'astra':'high','terra':'medium','sol':'high','completion':'medium'}
@@ -557,9 +559,9 @@ class Console(PermanentDeleteMixin, TaskArchiveMixin, ProjectRemovalMixin, Conve
           'conversation_routes':MANDATED_ROUTES}
 
 # Static presentation is kept separate from the read-only adapter and mutation API.
-INDEX = Path(__file__).with_name('dashboard.html').read_text()
+INDEX = re.sub(r'\{\{role:(\w+)\}\}',lambda match:ROLE_NAMES['roles'][match[1]],Path(__file__).with_name('dashboard.html').read_text())
 STYLE = Path(__file__).with_name('dashboard.css').read_text()
-APP = Path(__file__).with_name('dashboard_app.js').read_text()
+APP = 'globalThis.AUTOCODE_ROLE_NAMES = '+json.dumps(ROLE_NAMES)+';\n'+Path(__file__).with_name('dashboard_app.js').read_text()
 
 class LoopbackHTTPServer(ThreadingHTTPServer):
  def server_bind(self):

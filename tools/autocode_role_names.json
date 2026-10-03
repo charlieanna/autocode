@@ -1,0 +1,176 @@
+{
+  "roles": {
+    "requirements": "Requirements",
+    "planner": "Planner",
+    "plan_reviewer": "Plan Reviewer",
+    "builder": "Builder",
+    "validator": "Validator",
+    "completion": "Completion Owner",
+    "resolver": "AutoResolver",
+    "orchestrator": "Orchestrator",
+    "recognizer": "Job recognizer",
+    "reviewer": "Reviewer",
+    "investigator": "Investigator",
+    "architect": "Architect",
+    "analyst": "Analyst"
+  },
+  "aliases": {
+    "glm": "planner",
+    "astra": "planner",
+    "terra": "builder",
+    "sol": "validator",
+    "completion owner": "completion",
+    "plan reviewer": "plan_reviewer",
+    "requirements gatherer": "requirements",
+    "requirements planner": "requirements",
+    "autoresolver": "resolver"
+  },
+  "stages": {
+    "requirements_gather": {
+      "role": "Requirements",
+      "activity": "Gathering requirements"
+    },
+    "requirements": {
+      "role": "Requirements",
+      "activity": "Gathering requirements"
+    },
+    "requirements_planner": {
+      "role": "Requirements",
+      "activity": "Gathering requirements"
+    },
+    "astra_discovery": {
+      "role": "Planner",
+      "activity": "Planning"
+    },
+    "plan": {
+      "role": "Planner",
+      "activity": "Planning"
+    },
+    "glm_revise": {
+      "role": "Planner",
+      "activity": "Revising the plan"
+    },
+    "plan_revise": {
+      "role": "Planner",
+      "activity": "Revising the plan"
+    },
+    "requirements_revision": {
+      "role": "Planner",
+      "activity": "Revising the plan"
+    },
+    "astra_plan": {
+      "role": "Planner",
+      "activity": "Assigning implementation"
+    },
+    "astra_challenge": {
+      "role": "Plan Reviewer",
+      "activity": "Challenging the plan"
+    },
+    "plan_review": {
+      "role": "Plan Reviewer",
+      "activity": "Challenging the plan"
+    },
+    "plan_reviewer": {
+      "role": "Plan Reviewer",
+      "activity": "Challenging the plan"
+    },
+    "astra_finalize": {
+      "role": "Plan Reviewer",
+      "activity": "Finalizing the plan"
+    },
+    "plan_finalize": {
+      "role": "Plan Reviewer",
+      "activity": "Finalizing the plan"
+    },
+    "plan_finalizer": {
+      "role": "Plan Reviewer",
+      "activity": "Finalizing the plan"
+    },
+    "terra": {
+      "role": "Builder",
+      "activity": "Implementing"
+    },
+    "builder": {
+      "role": "Builder",
+      "activity": "Implementing"
+    },
+    "sol": {
+      "role": "Validator",
+      "activity": "Reviewing implementation"
+    },
+    "validator": {
+      "role": "Validator",
+      "activity": "Reviewing implementation"
+    },
+    "astra_review": {
+      "role": "Completion Owner",
+      "activity": "Deciding complete or rework"
+    },
+    "decision_owner": {
+      "role": "Completion Owner",
+      "activity": "Deciding complete or rework"
+    },
+    "astra_checkpoint": {
+      "role": "Completion Owner",
+      "activity": "Auditing results"
+    },
+    "astra_resolve": {
+      "role": "AutoResolver",
+      "activity": "Diagnosing a failure"
+    },
+    "astra_diagnose": {
+      "role": "AutoResolver",
+      "activity": "Diagnosing a failure"
+    },
+    "resolver": {
+      "role": "AutoResolver",
+      "activity": "Runner decision (no model call)"
+    },
+    "orchestrator": {
+      "role": "Orchestrator",
+      "activity": "Coordinating Builders"
+    },
+    "recognize_workflow": {
+      "role": "Job recognizer",
+      "activity": "Recognizing the job"
+    },
+    "review_change": {
+      "role": "Reviewer",
+      "activity": "Reviewing changes"
+    },
+    "investigate_bug": {
+      "role": "Investigator",
+      "activity": "Investigating"
+    },
+    "investigate_stuck": {
+      "role": "Investigator",
+      "activity": "Investigating"
+    },
+    "review_design": {
+      "role": "Architect",
+      "activity": "Checking the design"
+    },
+    "check_design": {
+      "role": "Architect",
+      "activity": "Checking the design"
+    },
+    "answer_question": {
+      "role": "Analyst",
+      "activity": "Answering the question"
+    }
+  },
+  "modes": {
+    "glm_first_v1": {
+      "astra_checkpoint": {
+        "role": "Validator / Completion Owner",
+        "activity": "Milestone validation and completion review"
+      }
+    },
+    "glm_final_audit_v2": {
+      "astra_checkpoint": {
+        "role": "Validator / Completion Owner",
+        "activity": "Final validation and completion audit"
+      }
+    }
+  }
+}

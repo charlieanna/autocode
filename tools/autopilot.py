@@ -935,7 +935,7 @@ def run(runtime, state, workspace, run_dir, args):
         write_json(state_path, current)
 
     def after_code_stage(current, stage, _record):
-        print(f"{autocode_status.role_name(stage)}: saved; next={autocode_status.role_name(current['next_stage']) or 'none'}; status={current['status']}", flush=True)
+        print(f"{autocode_status.role_name(stage, (current.get('settings', {}).get('workflow') or {}).get('mode'))}: saved; next={autocode_status.role_name(current['next_stage'], (current.get('settings', {}).get('workflow') or {}).get('mode')) or 'none'}; status={current['status']}", flush=True)
         if milestones.enabled(current):
             print(milestones.status_line(current), flush=True)
         try:

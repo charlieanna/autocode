@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const vm=require('node:vm');
+const vm=require('./dashboard_vm');
 
 const source=fs.readFileSync(path.join(__dirname,'..','dashboard_app.js'),'utf8');
 const script=source.slice(source.indexOf('/* Session checkpoints:'),source.indexOf('function renderConversation('));

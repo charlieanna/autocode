@@ -12,8 +12,10 @@ import uuid
 import weakref
 try:
     from .. import autocode_conversation as conversation_protocol
+    from ..autocode_role_names import role_label
 except ImportError:
     import autocode_conversation as conversation_protocol
+    from autocode_role_names import role_label
 
 
 try:
@@ -526,9 +528,9 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
             response = self._invoke_provider(conversation_id, turn_id, logical_turn, provider_messages,
                                              model, workdir, effort)
             if not isinstance(response, str) or not response.strip():
-                raise ConversationProviderError('The Requirements Gatherer returned no text. Your message is saved; retry when ready.')
+                raise ConversationProviderError('The ' + role_label('requirements') + ' returned no text. Your message is saved; retry when ready.')
             if len(response) > MAX_REPLY_CHARS:
-                raise ConversationProviderError('The Requirements Gatherer returned an oversized reply. Your message is saved; retry with a narrower request.')
+                raise ConversationProviderError('The ' + role_label('requirements') + ' returned an oversized reply. Your message is saved; retry with a narrower request.')
             self._capture_result(conversation_id, turn_id, logical_turn, response.strip())
             error, outcome = None, None
         except ConversationProviderError as exc:
@@ -536,7 +538,7 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
         except Exception:
             # Exceptions/CLI diagnostics may contain credentials. Display only
             # controlled messages; never persist provider output or environment.
-            error, outcome = 'The Requirements Gatherer could not reply. Your message is saved; check the provider connection and retry.', None
+            error, outcome = 'The ' + role_label('requirements') + ' could not reply. Your message is saved; check the provider connection and retry.', None
         with self._guard():
             doc = self._load(conversation_id)
             if doc.get('_active_turn') != turn_id:
@@ -581,7 +583,7 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
                         dispatch = self._capture_result_locked(doc, logical_turn, text, raw_events=details.get('raw_events'),
                                                                session_id=details.get('session_id'))
                 else:
-                    raise ConversationProviderError('Unknown Requirements Gatherer delivery event.')
+                    raise ConversationProviderError('Unknown ' + role_label('requirements') + ' delivery event.')
             except conversation_protocol.ConversationProtocolError:
                 pass
             else:
@@ -647,16 +649,16 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
         """Commit the Gatherer reply. Never grants plan-draft freshness (AC2)."""
         dispatch = dispatch if isinstance(dispatch, dict) else (doc.get('_dispatches') or {}).get(logical_turn)
         if not isinstance(dispatch, dict) or dispatch.get('state') not in ('RESULT_CAPTURED', 'REPLY_COMMITTED'):
-            raise ConversationProviderError('A completed Requirements Gatherer result is unavailable.')
+            raise ConversationProviderError('A completed ' + role_label('requirements') + ' result is unavailable.')
         result = dispatch.get('result') if isinstance(dispatch.get('result'), dict) else {}
         response = result.get('text')
         if not isinstance(response, str) or not response.strip() or result.get('sha256') != hashlib.sha256(response.encode('utf-8')).hexdigest():
-            raise ConversationProviderError('The saved Requirements Gatherer result failed validation.')
+            raise ConversationProviderError('The saved ' + role_label('requirements') + ' result failed validation.')
         reply = next((row for row in doc['messages']
                       if row.get('role') == 'assistant' and row.get('in_reply_to') == logical_turn), None)
         if reply is None:
             route = dispatch.get('route') if isinstance(dispatch.get('route'), dict) else {}
-            doc['messages'].append({'id': uuid.uuid4().hex, 'role': 'assistant', 'speaker': 'Requirements Gatherer',
+            doc['messages'].append({'id': uuid.uuid4().hex, 'role': 'assistant', 'speaker': role_label('requirements'),
                                     'text': response, 'created_at': _now(), 'status': 'received',
                                     'client_request_id': None,
                                     'logical_turn_id': 'reply-' + uuid.uuid4().hex, 'in_reply_to': logical_turn,

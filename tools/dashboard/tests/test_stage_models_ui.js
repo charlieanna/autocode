@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./dashboard_vm');
 const source = fs.readFileSync(path.join(__dirname, '../dashboard_app.js'), 'utf8');
 class Element {
   constructor(tag, text = '') { this.tag = tag; this.textContent = text; this.children = []; }
@@ -21,8 +21,8 @@ const run = {status: 'RUNNING', stage: 'terra', active_stage: {stage: 'terra', r
     stage_history: [{stage: 'astra_discovery', role: 'astra', finished_at: '2026-09-24T22:00:00Z', exit_code: 0, execution: {model: 'sol-at-launch'}},
       {stage: 'orchestrator', runner_owned: true, finished_at: '2026-09-24T22:01:00Z', execution: {kind: 'runner'}}]}};
 let panel = context.workflowModelsPanel(run), rendered = text(panel);
-for (const expected of ['Stages & models', 'Requirements Gatherer', 'Combined with discovery', 'no independent plan-review stage',
-  'Plan reviewer', 'Not enabled for this run', 'Orchestrator', 'Runner · No model call', 'Builder', 'Validator', 'Completion owner', 'Resolver',
+for (const expected of ['Stages & models', 'Requirements', 'Combined with discovery', 'no independent plan-review stage',
+  'Plan Reviewer', 'Not enabled for this run', 'Orchestrator', 'Runner · No model call', 'Builder', 'Validator', 'Completion Owner', 'AutoResolver',
   'Configured: terra-next · high reasoning', 'Launch: terra-executing · medium reasoning', 'Last launch: sol-at-launch', 'Conditional · not used yet']) {
   assert.ok(rendered.includes(expected), expected);
 }
@@ -43,7 +43,7 @@ assert.match(text(cards[1]), /Configured: planner-model/);
 assert.match(text(cards[2]), /Configured: reviewer-model.*Active now/);
 assert.equal(cards.filter(card => card.className.includes(' active')).length, 1);
 assert.ok(!text(panel).includes('no independent plan-review stage'));
-assert.equal(context.stageName({stage: 'requirements_gather'}), 'Requirements Gatherer · Gathering requirements');
-assert.equal(context.stageName({stage: 'astra_resolve'}), 'Resolver · Diagnosing a failure');
+assert.equal(context.stageName({stage: 'requirements_gather'}), 'Requirements · Gathering requirements');
+assert.equal(context.stageName({stage: 'astra_resolve'}), 'AutoResolver · Diagnosing a failure');
 assert.equal(context.executionLabel({kind: 'model'}), 'Model not recorded');
 console.log('Visible stage routes, missing roles, actual launches, and verified activity passed.');

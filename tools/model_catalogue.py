@@ -20,6 +20,11 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+try:
+    from .autocode_role_names import role_label
+except ImportError:
+    from autocode_role_names import role_label
+
 # User rule (2026-09-26): subscription models only — never free-tier or flash.
 FORBIDDEN_SUBSTRINGS = ("-free", "flash", "highspeed")
 # No credential is configured for mimo-token-plan/ on this machine.
@@ -202,13 +207,13 @@ PLANS = {"zai-coding-plan": ("Z.AI Coding Plan", "subscription"),
          "zai": ("Z.AI API", "pay per token"), "opencode": ("OpenCode Zen", "pay per token"),
          "kilo": ("Kilo Gateway", "pay per token")}
 # A run's roles in pipeline order: label, the flag that selects its model, the tier it wants.
-ROLES = {"requirements": ("Requirements Gatherer", "--requirements-model", "worker"),
-         "glm": ("Planner", "--glm-model", "worker"),
-         "terra": ("Builder", "--terra-model", "worker"),
-         "plan_reviewer": ("Plan Reviewer", "--plan-reviewer-model", "judge"),
-         "sol": ("Validator", "--sol-model", "judge"),
-         "completion": ("Completion Owner", "--completion-model", "judge"),
-         "astra": ("Resolver", "--astra-model", "resolver")}
+ROLES = {"requirements": (role_label("requirements"), "--requirements-model", "worker"),
+         "glm": (role_label("planner"), "--glm-model", "worker"),
+         "terra": (role_label("builder"), "--terra-model", "worker"),
+         "plan_reviewer": (role_label("plan_reviewer"), "--plan-reviewer-model", "judge"),
+         "sol": (role_label("validator"), "--sol-model", "judge"),
+         "completion": (role_label("completion"), "--completion-model", "judge"),
+         "astra": (role_label("resolver"), "--astra-model", "resolver")}
 # Producer and checker roles that must not share a model (autocode_dispatch._VERIFIER_PAIRS).
 CHECKS = (("glm", "plan_reviewer"), ("terra", "sol"), ("terra", "completion"))
 # Preference order: billing first (never nudge a subscription user onto per-token billing),

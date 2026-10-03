@@ -66,7 +66,7 @@ class StatusTests(unittest.TestCase):
         self.assertEqual('Validator', status.role_name('sol'))
         self.assertEqual('Completion Owner', status.role_name('astra_review'))
         self.assertEqual('', status.role_name(None))
-        self.assertEqual('Astra Diagnose', status.role_name('astra_diagnose'))
+        self.assertEqual('AutoResolver', status.role_name('astra_diagnose'))
 
     def test_running_stage_shows_the_launched_model(self):
         self.state['active_stage']['launch_route'] = {'model': 'gpt-x'}

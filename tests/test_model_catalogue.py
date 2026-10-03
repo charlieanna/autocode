@@ -147,7 +147,7 @@ class AdviseTest(unittest.TestCase):
         self.assertIn("Cannot use with OpenCode: openai/gpt-6-sol (Plan Reviewer, Validator, Completion Owner).", text)
         self.assertIn("Z.AI Coding Plan · subscription", text)
         self.assertIn("Kilo Gateway · pay per token", text)
-        self.assertRegex(text, r"zai-coding-plan/glm-5\.3 +cheap worker +default for Requirements Gatherer, Planner, Builder")
+        self.assertRegex(text, r"zai-coding-plan/glm-5\.3 +cheap worker +default for Requirements, Planner, Builder")
         self.assertIn("1 free, flash or MiMo route is not offered.", text)
         self.assertIn("--sol-model kilo/some-judge", text)
         self.assertIn("kilo/some-judge bills per token, not by subscription.", text)

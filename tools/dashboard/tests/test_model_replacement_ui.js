@@ -1,4 +1,4 @@
-const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('./dashboard_vm');
 
 const source=fs.readFileSync(path.join(__dirname,'../dashboard_app.js'),'utf8');
 class Element {
@@ -29,6 +29,7 @@ const context=vm.createContext({
   api:(_url,options)=>{requests.push(JSON.parse(options.body));return new Promise(resolve=>resolveRequest=resolve);},
   document:{},
 });
+vm.runInContext(source.slice(source.indexOf('function roleDisplayName('),source.indexOf('function planReady(')),context);
 vm.runInContext("let taskReadError='',modelCatalogue={models:['openai/new-model'],usable:true,loading:false,error:null},chosen={run:'/workspace/run'},latestRun=null,currentTab='now';const modelReplacementState=new Map(),taskChatPending=new Set(),sendingRequests=new Set();",context);
 vm.runInContext(source.slice(source.indexOf('function modelCatalogueSnapshot()'),source.indexOf('function renderTaskReasoning(')),context);
 vm.runInContext(source.slice(source.indexOf('function renderPrimaryAction('),source.indexOf('async function submitTaskAction(')),context);
@@ -76,7 +77,7 @@ host=$('#task-model-settings');let confirm=walk(host,node=>node.tag==='button'&&
   assert.equal($('#continue-run').disabled,true,'catalogue removal immediately blocks Continue');
   assert.equal($('#continue').disabled,true,'the alternate Continue action is blocked too');
   assert.equal($('#continue-run')['aria-describedby'],'task-model-gate');
-  assert.match($('#task-model-gate').textContent,/saved Plan review director model openai\/retired-model is unavailable/);
+  assert.match($('#task-model-gate').textContent,/saved Planner model openai\/retired-model is unavailable/);
   assert.equal(unsupported.model_settings.roles.astra,'openai/retired-model','refresh preserves the saved model');
   context.syncModelOptions({usable:true,models:[]});
   assert.equal($('#continue-run').disabled,true,'an empty catalogue retains the unavailable-model gate');

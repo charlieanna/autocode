@@ -10,12 +10,19 @@ mandatory models — each role can select any provider/model from `opencode mode
 
 | Role | Job |
 | --- | --- |
-| **Requirements Gatherer** | Read-only requirements handoff, no task DAG |
+| **Requirements** | Read-only requirements handoff, no task DAG |
 | **Planner** | Draft the task DAG and evidence-backed revision |
 | **Plan Reviewer** | Challenge the draft; owns final planning decisions |
 | **Builder** | Implement one bounded task |
 | **Validator** | Independent validation, separate session |
 | **Completion Owner** | Complete/rework decision, separate session |
+| **AutoResolver** | Diagnose and resolve a failed step |
+
+These names come from `tools/autocode_role_names.json`, shared by the terminal
+and browser. Internal IDs and saved routes remain compatible. Report-format
+repair keeps the original job's name. In the Builder-led review modes, the
+`astra_checkpoint` call performs both jobs and is labelled **Validator /
+Completion Owner**, independently of the model selected for that call.
 
 Model overrides use the role names: `--requirements-model`, `--glm-model`,
 `--plan-reviewer-model`, `--astra-model`, `--terra-model`, `--sol-model`,
@@ -32,7 +39,7 @@ family. GPT-6 Astra is reserved for the Resolver.
 
 | Role | Default model | Reasoning | Escalation ladder |
 | --- | --- | --- | --- |
-| Requirements Gatherer | `zai-coding-plan/glm-5.3` | medium | None |
+| Requirements | `zai-coding-plan/glm-5.3` | medium | None |
 | Planner | `zai-coding-plan/glm-5.3` | high | None |
 | Plan Reviewer | `openai/gpt-6-sol` | high | None |
 | Builder | `zai-coding-plan/glm-5.3` | medium | None; a stuck Builder gets one GPT-6 Sol XHigh attempt ([retry policy](#builder-retry-policy)) |

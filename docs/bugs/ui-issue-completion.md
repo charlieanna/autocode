@@ -205,3 +205,30 @@ and reported no live owned descendants. The broad Python/fake gates preceded
 the final JavaScript-only grouping repair; the focused JavaScript and question
 browser gates ran after it. This does not establish the full #16 guided trial
 or final Figma visual acceptance.
+
+## Shared role names
+
+The terminal, dashboard stage/model labels and packaged assets use one display
+catalogue. Internal stage IDs, saved state, model routes and pins are unchanged.
+All dispatched stage IDs and report-repair variants are covered. The two modes
+that combine validation and completion review say “Validator / Completion
+Owner” regardless of the model selected for that job. README and model docs
+use the same job names; historical stored messages are not rewritten.
+
+The first full gate ran 3,003 tests in 222 modules and found one obsolete
+“Requirements Gatherer” expectation in the model catalogue. The other modules,
+including the 14-case browser catalogue, passed. After correcting that display
+expectation, all 43 role/status/catalogue/architecture checks passed. The required
+changed-file gate selected the entire suite because package metadata changed:
+all 3,003 tests in 222 modules then passed, including the browser catalogue.
+All 54 fake scenarios passed; the live-only Investigator case was skipped.
+
+The dashboard Python gate ran 335 tests and found one old model-selector label
+expectation. Its corrected 16-test module passed, as did all 31 chat/HTTP tests
+including a new check that the actual served script and page use the shared
+catalogue. All 24 standalone Node checks passed. A built wheel was extracted
+and imported in isolated Python; it includes the catalogue and serves resolved
+page labels without installing anything. Final copy-only cleanup removed the
+remaining alternate role labels, followed by another passing 24-script Node
+gate. The full suite result preceded that final copy-only cleanup. These are
+functional naming checks, not Figma visual acceptance or overall backlog closure.

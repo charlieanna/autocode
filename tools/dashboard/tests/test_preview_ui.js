@@ -1,5 +1,5 @@
 // Preview preferences are scoped to the project; renders preserve a live iframe.
-const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('./dashboard_vm'),path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../dashboard_app.js'),'utf8'),storage=new Map(),ids=new Map();
 class Element{
  constructor(tag,text=''){this.tag=tag;this.textContent=text;this.children=[];this.dataset={};}

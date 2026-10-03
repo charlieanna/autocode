@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const vm = require('node:vm');
+const vm = require('./dashboard_vm');
 const {dashboardReadinessExpression, waitForReadiness} = require('./browser_readiness');
 
 function evaluateBrowserProbe(context) {

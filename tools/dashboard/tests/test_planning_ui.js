@@ -2,7 +2,7 @@
 // Exercise the shipped pure routing helpers without simulating browser state.
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
-const vm=require('node:vm');
+const vm=require('./dashboard_vm');
 const path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../dashboard_app.js'),'utf8');
 const projectedRun=require('./resolver_fixture');
@@ -12,38 +12,38 @@ vm.runInContext(helpers,context);
 const joint={model_settings:{joint_planning:true}};
 for(const stage of ['astra_discovery','astra_discovery_report_repair']) {
  assert.equal(context.stageName({...joint,stage}),'Planner · Planning');
- assert.equal(context.stageName({stage}),'Planner · Requirements & planning');
+ assert.equal(context.stageName({stage}),'Planner · Planning');
 }
 assert.equal(context.stageName({...joint,stage:'glm_revise_report_repair'}),'Planner · Revising the plan');
-assert.equal(context.stageName({...joint,stage:'astra_challenge'}),'Plan reviewer · Challenging the plan');
-assert.equal(context.stageName({...joint,stage:'astra_finalize'}),'Plan reviewer · Finalizing the plan');
-assert.equal(context.stageName({...joint,stage:'astra_review'}),'Completion owner · Deciding complete or rework');
+assert.equal(context.stageName({...joint,stage:'astra_challenge'}),'Plan Reviewer · Challenging the plan');
+assert.equal(context.stageName({...joint,stage:'astra_finalize'}),'Plan Reviewer · Finalizing the plan');
+assert.equal(context.stageName({...joint,stage:'astra_review'}),'Completion Owner · Deciding complete or rework');
 assert.equal(context.planReady({...joint,status:'WAITING_FOR_USER',goal:{origin:'glm_draft'}}),false);
 assert.equal(context.planReady({...joint,status:'AWAITING_GOAL_APPROVAL',goal:{origin:'glm_revise'}}),false);
 assert.equal(context.planReady({...joint,status:'AWAITING_GOAL_APPROVAL',goal:{origin:'astra_finalize'}}),true);
 const gocodeJoint={model_settings:{joint_planning:true,engine:'gocode'}};
 assert.equal(context.planningSpeaker({...joint,goal:{origin:'glm_draft'}}),'Planner');
-assert.equal(context.planningSpeaker({...joint,goal:{origin:'astra_finalize'}}),'Plan reviewer');
+assert.equal(context.planningSpeaker({...joint,goal:{origin:'astra_finalize'}}),'Plan Reviewer');
 assert.equal(context.planningSpeaker({}),'Planner');
-assert.equal(context.planningSpeaker({...gocodeJoint,goal:{origin:'glm_draft'}}),'GLM');
-assert.equal(context.planningSpeaker({...gocodeJoint,goal:{origin:'astra_finalize'}}),'Astra');
-assert.equal(context.planningSpeaker(gocodeJoint),'Astra');
+assert.equal(context.planningSpeaker({...gocodeJoint,goal:{origin:'glm_draft'}}),'Planner');
+assert.equal(context.planningSpeaker({...gocodeJoint,goal:{origin:'astra_finalize'}}),'Plan Reviewer');
+assert.equal(context.planningSpeaker(gocodeJoint),'Plan Reviewer');
 const approvedGocode={...gocodeJoint,goal:{approval_status:'approved'},monitor:{roles:{
   glm:{model:'gocode-anthropic/claude-opus-5'},
   terra:{model:'gocode-openai/gpt-5.6-terra'},
   sol:{model:'gocode-anthropic/claude-opus-5'}
 }}};
 assert.deepEqual(JSON.parse(JSON.stringify(context.workflowRoleConfig(approvedGocode,{role:'sol',active:true,verified:true}))),[
- ['glm','GLM','Draft & revise'],
- ['astra','Astra','Plan & direct'],
- ['terra','Terra','Implement'],
- ['sol','Sol','Review']
+ ['glm','Planner','Draft & revise'],
+ ['astra','Planner','Plan & direct'],
+ ['terra','Builder','Implement'],
+ ['sol','Validator','Review']
 ]);
 const approvedJoint={...joint,goal:{approval_status:'approved'}};
 assert.deepEqual(JSON.parse(JSON.stringify(context.workflowConfig(approvedJoint,{role:'sol'}))).map(item=>item[1]),
- ['Requirements Gatherer','Planner','Plan reviewer','Orchestrator','Builder','Validator','Completion owner','Resolver']);
+ ['Requirements','Planner','Plan Reviewer','Orchestrator','Builder','Validator','Completion Owner','AutoResolver']);
 assert.deepEqual(JSON.parse(JSON.stringify(context.workflowConfig({model_settings:{joint_planning:false}},{role:'sol'}))).map(item=>item[1]),
- ['Requirements Gatherer','Planner','Plan reviewer','Orchestrator','Builder','Validator','Completion owner','Resolver']);
+ ['Requirements','Planner','Plan Reviewer','Orchestrator','Builder','Validator','Completion Owner','AutoResolver']);
 const done=(stage,role,extra={})=>({stage,role,finished_at:'2026-09-22T10:00:00Z',exit_code:0,...extra});
 const idlePlanning={...joint,stages:[done('astra_discovery','glm'),done('astra_finalize','astra')]};
 assert.equal(context.completedPlanningStep(idlePlanning,'glm').stage,'astra_discovery');

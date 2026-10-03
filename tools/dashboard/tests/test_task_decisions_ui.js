@@ -1,6 +1,6 @@
 const transcript=require('./transcript_fixture');
 // Current checkpoint authority and chronological history, exercised with saved-state scenarios.
-const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('./dashboard_vm'),path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../dashboard_app.js'),'utf8');
 const projectedRun=require('./resolver_fixture');
 const context=vm.createContext({URL,URLSearchParams});
@@ -36,7 +36,7 @@ assert.equal(context.taskDecision({...approved,status:'TASK_COMPLETE'}).required
 const orchestration={...approved,stage:'orchestrator',stages:[],status:'RUNNING',
   monitor:{next_stage:'orchestrator',live:{state:'none'},orchestration:{enabled:true,max_parallel:2}}};
 assert.equal(context.stageName(orchestration),'Orchestrator · Coordinating Builders');
-assert.equal(context.stageName({stage:'resolver'}),'Resolver · Runner decision (no model call)');
+assert.equal(context.stageName({stage:'resolver'}),'AutoResolver · Runner decision (no model call)');
 assert.equal(context.taskPhase(orchestration),'orchestration');
 assert.equal(context.statusInfo(orchestration).label,'Ready to continue');
 const batch={id:'batch-1',status:'BUILDING',workers:[{milestone_id:'M1',status:'RUNNING',workspace:'/repo/builder-1',run_dir:'/repo/run/worker-1'},{milestone_id:'M2',status:'BUILT',workspace:'/repo/builder-2',run_dir:'/repo/run/worker-2'}]};

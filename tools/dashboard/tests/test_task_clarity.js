@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./dashboard_vm');
 const source = fs.readFileSync(path.join(__dirname, '../dashboard_app.js'), 'utf8');
 const projectedRun = require('./resolver_fixture');
 const context = vm.createContext({URLSearchParams});
@@ -28,7 +28,7 @@ assert.equal(classify(live).label, 'Running');
 assert.equal(context.taskOverviewState(live).verified, true);
 assert.equal(context.taskOverviewState(live).step, 'Current step · Builder · Implementing');
 assert.equal(context.taskOverviewState(live).objective, 'Finish validation');
-assert.equal(context.planningMode(live), 'Builder-led · Completion owner final audit');
+assert.equal(context.planningMode(live), 'Builder-led · Completion Owner final audit');
 const exited = {...live, monitor: {...live.monitor, live: {state: 'exited'}}};
 assert.equal(classify(exited).group, 'stopped');
 assert.equal(context.taskOverviewState(exited).active, false);
@@ -38,7 +38,7 @@ assert.equal(context.taskOverviewState(activity).verified, false);
 const savedPause={status:'PAUSED_INTERVENTION',stage:'astra_challenge',model_settings:{joint_planning:true},
   monitor:{next_stage:'astra_challenge',live:{state:'none'}},
   stages:[{stage:'astra_discovery',finished_at:'2026-09-21T19:09:12Z',exit_code:0}]};
-assert.equal(context.taskOverviewState(savedPause).step,'Next step · Plan reviewer · Challenging the plan');
+assert.equal(context.taskOverviewState(savedPause).step,'Next step · Plan Reviewer · Challenging the plan');
 assert.equal(context.taskOverviewState({...savedPause,monitor:{live:{state:'none'}}}).step,'Last completed step · Planner · Planning');
 assert.equal(context.taskOverviewState({...savedPause,monitor:{},stages:[]}).step,'No active step');
 assert.equal(context.taskOverviewState(exited).step,'Last reported active step · Builder · Implementing');

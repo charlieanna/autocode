@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./dashboard_vm');
 const source = fs.readFileSync(path.join(__dirname, '../dashboard_app.js'), 'utf8');
 
 function functionSource(name) {
@@ -67,7 +67,7 @@ const formatting = vm.createContext({
   n: (tag, text) => new Element(tag, text),
   card: (_, className) => Object.assign(new Element('div'), {className}),
   human: text => String(text),
-  roleDisplayName: text => ({GLM: 'Requirements planner', Astra: 'Plan reviewer', Terra: 'Builder', Sol: 'Validator', Planner: 'Planner', 'Plan Reviewer': 'Plan reviewer'})[String(text)] || String(text),
+  roleDisplayName: text => ({GLM: 'Requirements planner', Astra: 'Plan Reviewer', Terra: 'Builder', Sol: 'Validator', Planner: 'Planner', 'Plan Reviewer': 'Plan Reviewer'})[String(text)] || String(text),
   concise: (text, limit) => String(text).slice(0, limit),
   messageTime: () => 0,
   messageBody: text => Object.assign(new Element('div', text), {className: 'message-body'}),

@@ -1,6 +1,6 @@
 // Execute the shipped composer, cards, approval buttons and mutation routing.
 // No server or model calls: positive inputs use the real server projection.
-const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('./dashboard_vm');
 const projectedRun=require('./resolver_fixture');
 const source=fs.readFileSync(path.join(__dirname,'../dashboard_app.js'),'utf8');
 const range=(start,end)=>source.slice(source.indexOf(start),source.indexOf(end));

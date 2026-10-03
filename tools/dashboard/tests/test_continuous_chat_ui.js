@@ -1,5 +1,5 @@
 // Approval is two ordered, revision-bound requests; uncertain outcomes never start work.
-const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('./dashboard_vm'),path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../dashboard_app.js'),'utf8');
 const cleanup=vm.createContext({});vm.runInContext(source.slice(source.indexOf('function expiredTemporaryEntry('),source.indexOf('function dashboardProjects(')),cleanup);
 assert.equal(cleanup.expiredTemporaryEntry({workspace:'/tmp/old',error:'workspace_missing'}),false,'Error strings do not prove absence or stopped workers');

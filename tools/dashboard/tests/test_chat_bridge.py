@@ -657,6 +657,30 @@ class ChatHttpTests(ChatFixture, unittest.TestCase):
         finally:
             connection.close()
 
+    def test_http_role_catalogue_matches_terminal_and_resolves_page_labels(self):
+        from autocode_role_names import CATALOGUE
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=30)
+        try:
+            connection.request('GET', '/static/app.js')
+            response = connection.getresponse()
+            self.assertEqual(200, response.status)
+            script = response.read().decode()
+            prefix = 'globalThis.AUTOCODE_ROLE_NAMES = '
+            self.assertTrue(script.startswith(prefix))
+            actual = json.loads(script[len(prefix):].split(';\n', 1)[0])
+            self.assertEqual(CATALOGUE, actual)
+            connection.request('GET', '/')
+            response = connection.getresponse()
+            self.assertEqual(200, response.status)
+            page = response.read().decode()
+            self.assertNotIn('{{role:', page)
+            self.assertIn('Plan Reviewer <small>', page)
+            self.assertIn('Completion Owner <small>', page)
+        finally:
+            connection.close()
+        self.assertEqual([], self.commands())
+        self.assertEqual([], self.provider_calls)
+
     def test_task_http_projects_saved_transcript_without_clock_reordering_or_state_writes(self):
         from urllib.parse import urlencode
         self.make_run([{'id':'q1','question':'Which format?'}])

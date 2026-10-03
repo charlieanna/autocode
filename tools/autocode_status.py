@@ -7,21 +7,10 @@ try:
 except ImportError:
     import autocode_resolver_human as human
 
-ROLES = {'recognize_workflow': 'Job recognizer', 'review_change': 'Reviewer', 'investigate_bug': 'Investigator', 'review_design': 'Architect', 'answer_question': 'Analyst', 'check_design': 'Architect', 'investigate_stuck': 'Investigator', 'astra_resolve': 'Autoresolver', 'terra': 'Builder', 'sol': 'Validator', 'astra_review': 'Completion Owner',
-         'astra_checkpoint': 'Completion Owner', 'astra_discovery': 'Requirements Planner',
-         'astra_plan': 'Plan Reviewer', 'astra_challenge': 'Plan Reviewer',
-         'astra_finalize': 'Plan Reviewer', 'glm_revise': 'Requirements Planner', 'orchestrator': 'Orchestrator', 'builder': 'Builder', 'validator': 'Validator',
-         'decision_owner': 'Completion Owner', 'requirements_planner': 'Requirements Planner',
-         'requirements_revision': 'Requirements Planner', 'plan_reviewer': 'Plan Reviewer',
-         'plan_finalizer': 'Plan Reviewer'}
-
-
-def role_name(stage):
-    """Human role for a stage code name: 'terra' -> 'Builder'. Report repair stays the same role."""
-    if not stage:
-        return ''
-    stage = str(stage).removesuffix('_report_repair')
-    return ROLES.get(stage, stage.replace('_', ' ').title())
+try:
+    from .autocode_role_names import ROLES, role_name
+except ImportError:
+    from autocode_role_names import ROLES, role_name
 
 
 def _model(active):
@@ -44,7 +33,7 @@ def record(state, *, timestamp=None):
     check = state.get('active_runner_check') or {}
     active = state.get('active_stage') or check
     stage = active.get('stage') or state.get('next_stage') or ''
-    role = role_name(stage) or 'Runner'
+    role = role_name(stage, (state.get('settings', {}).get('workflow') or {}).get('mode')) or 'Runner'
     task = state.get('current_task') or {}
     activity = active.get('activity') or {}
     batch = state.get('orchestration_batch') or {}

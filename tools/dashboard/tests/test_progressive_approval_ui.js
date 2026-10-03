@@ -1,6 +1,6 @@
 // Run from the repository root: node tools/dashboard/tests/test_progressive_approval_ui.js
 // Execute shipped rendering and action routing; only DOM and network I/O are fake.
-const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('./dashboard_vm');
 const {execFileSync}=require('node:child_process');
 const projectedRun=require('./resolver_fixture');
 const root=path.resolve(__dirname,'../../..');

@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./dashboard_vm');
 const transcript = require('./transcript_fixture');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'dashboard_app.js'), 'utf8');
