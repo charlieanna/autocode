@@ -296,8 +296,9 @@ class RepairTests(unittest.TestCase):
 
         self.assertIn('original_report is also supplied, it is the immutable execution-history baseline', prompt)
         self.assertNotIn('clarification_context', data)
+        self.assertNotIn(runner.planning.PROGRESSIVE_POLICY, prompt)
 
-    def test_nonfinal_planning_repair_preserves_original_prompt_and_requirement_handoff(self):
+    def test_nonfinal_planning_repair_distinguishes_drafts_from_execution_history(self):
         before = copy.deepcopy(self.state)
         requirements = [{'id': 'R1', 'text': 'Build a planner', 'source_quote': 'Build a planner.'}]
         for stage, role in (('requirements_gather', 'requirements'),
@@ -317,8 +318,51 @@ class RepairTests(unittest.TestCase):
                 self.assertEqual(requirements if stage == 'requirements_gather' else None,
                                  data['previous_requirements'])
                 self.assertNotIn('Planning report repair:', prompt)
-                self.assertNotIn('original_report is historical planning context', prompt)
-                self.assertIn('original_report is also supplied, it is the immutable execution-history baseline', prompt)
+                self.assertIn('original_report is historical planning context', prompt)
+                self.assertNotIn('original_report is also supplied, it is the immutable execution-history baseline', prompt)
+
+    def test_planning_repair_repeats_semantic_rules_without_changing_the_saved_schema(self):
+        before = copy.deepcopy(self.state)
+        for stage in ('astra_discovery', 'glm_revise', 'astra_finalize'):
+            with self.subTest(stage=stage):
+                self.state = copy.deepcopy(before)
+                self.state['next_stage'] = stage
+                schema = self.run / f'{stage}.schema.json'
+                schema.write_text(json.dumps(runner.planning.SCHEMAS[stage]))
+                schema_bytes = schema.read_bytes()
+                error = 'progressive planning requires one whole-product milestone'
+                rejected = {'summary': 'Retain this rejected draft'}
+                self.queue(stage=stage, role='astra', schema=str(schema),
+                           error=ValueError(error), report=json.dumps(rejected))
+
+                request = self.repair_request()
+                prompt = request['prompt']
+                data = json.loads(prompt.split('CURRENT HANDOFF DATA\n', 1)[1])
+
+                self.assertIn(runner.planning.PROGRESSIVE_POLICY, prompt)
+                self.assertIn('exactly one whole-product milestone', prompt)
+                self.assertIn('retain the protected text and add a blocking decision', prompt)
+                if stage == 'glm_revise':
+                    self.assertIn('Each responses[].evidence_refs must be nonempty', prompt)
+                self.assertEqual(error, data['error'])
+                self.assertEqual(rejected, data['rejected_report']['content'])
+                self.assertEqual(schema_bytes, request['schema'].read_bytes())
+                self.assertFalse(request['allow_write'])
+                self.assertTrue(request['report_only'])
+
+    def test_planning_repair_respects_legacy_and_alternate_saved_schemas(self):
+        before = copy.deepcopy(self.state)
+        for fields in ({'contract': runner.goals.BODY_SCHEMA},
+                       {'progressive_proposal': runner.planning.PROGRESSIVE_PROPOSAL},
+                       {'accepted': {'type': 'boolean'}}):
+            with self.subTest(fields=list(fields)):
+                self.state = copy.deepcopy(before)
+                self.state['next_stage'] = 'glm_revise'
+                schema = self.run / 'saved.schema.json'
+                schema.write_text(json.dumps({'type': 'object', 'properties': fields}))
+                self.queue(stage='glm_revise', role='astra', schema=str(schema))
+                prompt = self.repair_request()['prompt']
+                self.assertNotIn(runner.planning.PROGRESSIVE_POLICY, prompt)
 
     def assert_repair_blocked(self, status='PAUSED_REPORT_REPAIR_INPUT'):
         attempts = self.state['pending_report_repair']['attempts']
@@ -1065,7 +1109,9 @@ class RepairTests(unittest.TestCase):
         pending = self.queue()
         pending['attempts'] = 1
         original_events = pending['original']['events']
-        repair = {'stage':'terra_report_repair','events':'repair-events','output':'repair-output'}
+        output = self.run / 'repair-output.json'
+        output.write_text('{}')
+        repair = {'stage':'terra_report_repair','events':'repair-events','output':str(output)}
         def apply(state, stage, value, record, workspace, run):
             self.assertEqual(original_events, record['events'])
             state['stages'].append(record); state['history'].append(record)

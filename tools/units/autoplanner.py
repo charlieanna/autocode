@@ -186,6 +186,20 @@ do not reopen answered questions or invent extra clarification cycles for report
 Keep existing test names and assertions. A planned case needs a separate new test if matching its id
 would otherwise require renaming an existing test; a guard must keep the original coverage as well.
 """
+REVISION_CONFLICT_RULE = """
+PROTECTED REVISION CONFLICTS: outside the narrow allowed draft proof/example corrections, a
+reviewer's requested behavior change still needs a saved user answer or feedback event, even in
+an unapproved model-written draft. Without that basis, retain the protected text and add a blocking decision
+to contract.open_blocking_questions, explaining the conflict and proposed correction in the response/summary.
+Set contract.initial_task.kind=none while blocked; do not claim the conflict is resolved or the plan ready.
+Do not use agent_proposed or original_request as authorization for a protected revision, or invent a user event.
+Allowed proof-only corrections do not require a new question.
+"""
+RESPONSE_EVIDENCE_RULE = """
+Each responses[].evidence_refs must be nonempty and cite evidence actually investigated for that response.
+Top-level code_refs does not satisfy this per-response requirement. Use existing source paths you read,
+explain their relevance in response, and never invent citations or cite not-yet-created implementation files.
+"""
 # A live review-then-fix plan (2026-09-29) marked "the diff touches only the two fixes" for human
 # review although its own verification method was "Validator reads git diff"; the run then
 # stopped for an approval nobody needed.
@@ -769,7 +783,7 @@ If a concern exposes an unknown real integration or a proposed reduction to mock
 scope, ask a blocking question. Do not settle it by adding an agent_proposed assumption
 that the requested real behavior will remain unverified. Testing mocks is not implementing
 the real requirement. Preserve the user's outcome until they explicitly change it.
-""",
+""" + RESPONSE_EVIDENCE_RULE,
     "astra_finalize": """You are the independent Plan Reviewer, making the final planning decision (final review stage).
 Settle EVERY concern by ID using the Planner's evidence-backed responses and source inspection as needed.
 Confirm that milestone dependencies are complete and acyclic, and that [] is used only
@@ -896,19 +910,33 @@ its empty form (version 0, empty strings and lists, no slices), which means no p
 it only when those slices and their boundaries can be stated from the requirements and repository
 evidence; never for a small or tightly coupled task, and never to paper over an ambiguous outcome
 (clarify that instead). The product outcome stays fixed: slices deliver it progressively.
+For a version 1 proposal, contract.milestones must contain exactly one whole-product milestone,
+not one milestone per slice and not an extra final-checkpoint milestone. That milestone has
+depends_on=[], all product acceptance criterion IDs, and affected_paths covering every slice's paths.
+Delivery order belongs in progressive_proposal.slices and their depends_on edges, not extra milestones.
+contract.initial_task executes only slices[0], using the whole-product milestone's ID but only the
+first slice's objective, paths, criteria and checks. One product milestone does not mean one long task.
 Every acceptance criterion ID must be planned on at least one slice or listed in outstanding_criteria;
 a revision may split, reorder or replace future slices but may never drop a criterion from that map.
 slices[0] is the first slice: the main user journey across the essential layers, with an observable
 useful result, bounded writable paths (paths), the product criteria it touches (criterion_ids) and
-nonempty checks. Later slices are marked tentative: true: not dispatchable until a reviewed slice
+nonempty checks and tentative: false. All later slices, including any whole-product verification
+slice, are marked tentative: true: not dispatchable until a reviewed slice
 revision promotes them. Investigation or setup work may be tasks inside a slice, but is never
 reported as delivery.
 A check is {id, method, relation, criterion_ids}: relation is contributes_to (the slice demonstrates
 part of the criterion; the criterion stays open) or fully_verify (this proof can establish the
-criterion). method must contain an explicit supported command the runner can replay at the
+criterion). In every slice, each check's criterion_ids must be a subset of that slice's criterion_ids;
+a full-suite command does not authorize references to criteria absent from the slice.
+method must contain an explicit supported command the runner can replay at the
 checkpoint, for example `python -m pytest tests/test_journey.py -q`; prose that merely describes
 verification is refused, and the command must use repository source or fixtures, never run/session
 state. The commands need not pass before the slice is built.
+initial_task.validation_plan must contain plain executable commands copied from slices[0].checks,
+not prose describing test preparation, implementation or inspection. For example, use
+"python3 -m unittest test_journey.Skeleton" as an entry, not "Add tests and capture ...".
+Every initial-task command must be covered by a reviewed first-slice check; future-slice commands
+are not authorized. A prose-only validation entry is refused before approval can activate a slice.
 The runner generates the plan-card disclosure from your proposal into constraints and
 technical_approach (the delegation, its limits and the slice sequence). Never write lines starting
 "Progressive delegation:", "Progressive slice:" or "Product criteria explicitly outstanding:";
@@ -917,6 +945,16 @@ agreed outcome, constraints and permissions; product changes, new permissions an
 decisions still return to the user, and every slice still gets independent plan review and
 verification.
 """
+
+
+def repair_rules(stage, schema):
+    """Repeat planning semantics only for fields allowed by the saved repair schema."""
+    fields = schema.get("properties", {})
+    if stage not in TRACE_STAGES or "contract" not in fields:
+        return ""
+    return (REVISION_CONFLICT_RULE
+            + (RESPONSE_EVIDENCE_RULE if "responses" in fields else "")
+            + (PROGRESSIVE_POLICY if "progressive_proposal" in fields else ""))
 
 
 def split_code_ref(root, ref):
@@ -1074,7 +1112,7 @@ def context(state, stage, state_path):
         packet["design_manifest"] = manifest_context
         figma_instruction += design_manifest.INSTRUCTION
     planning_policy = "" if stage == "requirements_gather" else (
-        goals.DECISION_PROVENANCE + goals.CONTRACT_REFERENCES + examples.RULE + s.MILESTONE_POLICY + EVIDENCE_FACTS
+        goals.DECISION_PROVENANCE + goals.CONTRACT_REFERENCES + examples.RULE + s.MILESTONE_POLICY + EVIDENCE_FACTS + REVISION_CONFLICT_RULE
         + ("" if stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE))
     progressive_policy = PROGRESSIVE_POLICY if stage in ("astra_discovery", "glm_revise", "astra_challenge",
                                                          "astra_finalize") else ""

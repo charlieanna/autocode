@@ -580,6 +580,7 @@ def accept_repaired_report(state, run_dir, workspace, value, repair_record):
         raise support.Paused('PAUSED_STALE_VALIDATION', 'Original report evidence or goal changed during repair')
     # Evidence checks use ORIGINAL tool events, not new commands from the repairer.
     try:
+        output_hash = support.file_hash(repair_record['output'])
         assert_repair_preserves_builder_history(original, value)
         # Only unchanged dispositions from the pinned fresh review may survive.
         original['preserved_finding_dispositions'] = preserved_dispositions(original,
@@ -599,7 +600,7 @@ def accept_repaired_report(state, run_dir, workspace, value, repair_record):
     state['history'][-1] = repair_record
     state.setdefault('report_repair_history', []).append({
         'original_output': pending['original']['output'], 'repair': repair_record,
-        'attempts': pending['attempts'], 'result': 'accepted', 'at': now()})
+        'output_hash': output_hash, 'attempts': pending['attempts'], 'result': 'accepted', 'at': now()})
     state.pop('pending_report_repair', None)
     if state['status'] == 'RUNNING':
         state['phase'] = 'PLANNING' if planning.is_planning(state, state['next_stage']) else 'EXECUTING'
@@ -666,9 +667,9 @@ def execute_report_repair(state, run_dir, workspace):
               'Its path is an archived, hash-pinned copy, not a request to reconstruct a missing file. '
               'Use archived_paths to update citations to artifacts that moved during archival; '
               'never invent a replacement for missing evidence. '
-              + (report_repair_context.baseline_instruction(original['stage']) if original['stage'] == 'astra_finalize' else
-                 'If original_report is also supplied, it is the immutable execution-history baseline; '
-                 'rejected_report is the latest failed repair and error applies to that draft. ')
+              + report_repair_context.baseline_instruction(original['stage'])
+              + planning.repair_rules(original['stage'],
+                                      support.read(Path(original['schema'])))
               + 'Correct format and evidence citations; preserve findings, failures and uncertainty. '
               'Missing evidence must remain NOT_VERIFIED, never invented PASS. '
               'For Builder reports, copy existing valid commands_run, results, changed_files, '
@@ -847,6 +848,7 @@ def reconcile_active(state, run_dir, workspace):
             raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Recovered response belongs to an unexpected session")
         if thread and not record.get('report_only'):
             state["sessions"][record.get("route_role", record["role"])] = thread
+            record["thread_id"] = thread
     record["metrics"] = support.event_metrics(record["events"])
     account_stage(state, record)
     if not record.get('before_ref'):
@@ -864,10 +866,6 @@ def reconcile_active(state, run_dir, workspace):
     write_json(base.with_suffix(".after.json"), after)
     record.update(after_ref=str(base.with_suffix(".after.json")), source_revision=after["revision"],
                   changed_files=support.changed_paths(before, after), recovered_at=now(), metrics=support.event_metrics(record["events"]))
-    if supports_sessions:
-        thread = format_correction.event_thread_id(Path(record["events"]))
-        if thread and not record.get('report_only'):
-            state["sessions"][record.get("route_role", record["role"])] = thread
     try:
         value = load_stage_report(record, workspace,
             (state.get('pending_report_repair') or {}).get('original') if record.get('report_only') else None, state=state)
