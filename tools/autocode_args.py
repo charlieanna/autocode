@@ -70,6 +70,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         help="Override independent plan-reviewer reasoning effort")
     parser.add_argument("--test-command", help="Shell command for the project's test suite (default: detected); "
                         "repair a saved command at a reconciled pause with --resume-paused")
+    parser.add_argument("--revise-protected-tests", type=Path,
+                        help="Explicit user revision JSON for the original test inventory and command; requires a reconciled validation pause")
     parser.add_argument("--regression-command", help="Shell command for new or changed regression tests (default: derived); "
                         "repair a saved command at a reconciled pause with --resume-paused")
     parser.add_argument("--max-iterations", type=int, help="Total iteration ceiling (new-run default: unlimited; resumes keep saved limits)")

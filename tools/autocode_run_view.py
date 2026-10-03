@@ -183,6 +183,8 @@ def evidence(state: dict) -> dict:
     return {
         "outcome": contract.get("intended_outcome"),
         "base_commit": state.get("base_commit"),
+        **({"protected_tests": deepcopy(state["settings"]["protected_tests"])}
+           if state.get("settings", {}).get("protected_tests") else {}),
         "acceptance": acceptance,
         "findings": [{key: row.get(key) for key in ("id", "status", "severity", "finding")}
                      for row in state.get("findings_ledger") or [] if isinstance(row, dict)],
@@ -193,7 +195,7 @@ def evidence(state: dict) -> dict:
         "test_cases": [{key: case.get(key) for key in ("id", "given", "when", "then")}
                        for case in investigation.get("test_cases") or [] if isinstance(case, dict)]
                       if investigation.get("outcome") == "reproduced" else [],
-        "check_replay": {"verdict": replay.get("verdict"), "source_revision": replay.get("source_revision"),
+        "check_replay": {"protected_tests": deepcopy(replay.get("protected_tests")), "verdict": replay.get("verdict"), "source_revision": replay.get("source_revision"),
                          "checks": [{key: row.get(key) for key in ("command", "exit_code", "timed_out", "output")}
                                     for row in replay.get("checks") or [] if isinstance(row, dict)]}
                         if isinstance(replay, dict) else None,

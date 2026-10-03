@@ -170,6 +170,11 @@ CONTRACT DELTA: contract_changes describes only changes from the current goal_co
 handoff, not cumulative history. A permission already incorporated into that revision is not a new change:
 retain its approved text, cite the saved authorization in the summary, and omit it from contract_changes.
 If no protected item changes against the current revision, return contract_changes=[].
+Use exact protected item identities: an acceptance criterion ID such as AC1, or the previous verbatim
+protected list/permission string. Do not use field labels such as "AC1 verification_method",
+"AC8 (new criterion added)", "technical_approach", "M1" or "initial_task" as contract_changes.item.
+Allowed draft proof corrections, new criteria and implementation proposal edits need no delta;
+return [] for them. This does not authorize changing existing behavior, permissions or approved proofs.
 SOURCE CITATIONS: code_refs contains existing repository source paths, optionally :line, never a runner
 state file, .autocode/ artifact, cache, or explanatory sentence. state_file is context to read, not source
 to cite. Read the workspace_inventory candidates; a citation repair changes citations, not requirements.
@@ -706,8 +711,8 @@ the real requirement. Preserve the user's outcome until they explicitly change i
 Settle EVERY concern by ID using the Planner's evidence-backed responses and source inspection as needed.
 Confirm that milestone dependencies are complete and acyclic, and that [] is used only
 for genuinely independent work. Do not schedule or launch milestones.
-Return the proposed final contract and concise decisions/rationales/tests. Include initial_task
-in the contract: objective, affected_paths, kind (implement or validate), milestone_id,
+Return the proposed final contract and concise decisions/rationales/tests. Include contract.initial_task
+inside contract, never at the report root: objective, affected_paths, kind (implement or validate), milestone_id,
 requirements, acceptance_criteria IDs, validation_plan. Its milestone must have depends_on [].
 Make it a substantial, coherent,
 executable milestone including related changes, tests, local fixes and evidence.
@@ -789,6 +794,24 @@ obligation, using its current remediation_hash; resolved=false in the first revi
 blocking concern citing the obligation id. At final review, any obligation still unresolved is
 asked as a decision question under its id, and initial_task.kind must be "none". Otherwise use
 [] for remediation_records and obligation_decisions.
+"""
+
+
+def obligation_policy(stage):
+    """Request only obligation fields this planning stage can return."""
+    if stage != "astra_finalize":
+        return OBLIGATION_POLICY
+    return """
+REJECTED ASSUMPTIONS. deferred_obligations lists assumptions the user rejected; never rely on a
+rejected assumption again, even reworded. An open obligation of kind human_decision must be asked
+as a kind="decision" question whose id is the obligation id; the plan stays clarification-only
+until the user answers it. Review the Planner's saved remediation proposals. Add one
+obligation_decisions entry {obligation_id, remediation_hash, resolved, rationale, evidence_refs}
+for every pending_review obligation, using its current remediation_hash and substantive evidence.
+Any obligation still unresolved is asked as a decision question under its id in
+contract.open_blocking_questions, and contract.initial_task.kind must be "none".
+When no obligations await review, use [] for obligation_decisions. Omit remediation_records;
+the finalization report does not propose remediations.
 """
 
 
@@ -996,7 +1019,7 @@ def context(state, stage, state_path):
     if stage != "requirements_gather":
         packet["deferred_obligations"] = state.get("deferred_obligations", [])
         packet["clarification_episode"] = state.get("clarification_episode")
-        clarification_policy += OBLIGATION_POLICY
+        clarification_policy += obligation_policy(stage)
     request = state.get("investigation_request")
     if request and request.get("stage") == stage:
         # Correctness must not depend on provider-session memory: the pass gets

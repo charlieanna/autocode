@@ -10,11 +10,11 @@ from pathlib import Path
 try:
     from .autocode_util import Paused, criteria_definition, file_hash
     from .autocode_progressive_completion import ready as progressive_ready
-    from . import autocode_design_coverage as design_coverage
+    from . import autocode_design_coverage as design_coverage, autocode_protected_oracles as protected_oracles
 except ImportError:
     from autocode_util import Paused, criteria_definition, file_hash
     from autocode_progressive_completion import ready as progressive_ready
-    import autocode_design_coverage as design_coverage
+    import autocode_design_coverage as design_coverage, autocode_protected_oracles as protected_oracles
 
 REFUSED = "Completion rejected: missing, stale, failed or unverified independent evidence"
 
@@ -42,6 +42,8 @@ def completion_ready(state, decision, current, *, require_human_reviews=True, re
     # Design coverage is an independent-validation obligation (sol / checkpoint).
     # The final-audit self-check probe passes require_independent=False and must
     # not demand design_results from the builder's self-assessment.
+    if require_independent and not protected_oracles.ready(state, current.get("revision")):
+        return False
     if require_independent and not design_coverage.ready(state):
         return False
     if not progressive_ready(state, current):
