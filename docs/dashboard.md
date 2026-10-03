@@ -35,6 +35,21 @@ Overlapping task-index polls share the same in-progress snapshot, and each
 snapshot reuses one watched-project discovery result instead of building a
 queue of duplicate scans.
 
+## Preview and saved screenshots
+
+Preview remembers a loopback app address per project in this browser. Open
+Preview from any conversation in that project to reuse it. Existing task-level
+addresses remain available. AutoCode starts no development server; start your
+app separately and enter its address once. A completed code-changing step
+refreshes the preview; ordinary status polling preserves the running frame.
+
+A Validator image reference appears in chat beside its requirement and recorded
+source revision. Open the image or follow its link to Checks. These are saved
+results, not new visual acceptance. When a recorded image fingerprint exists,
+the dashboard refuses changed bytes. Missing images, unsupported formats, stale
+report IDs, symlinks and paths outside the selected task/project are refused.
+No image card approves a requirement or starts a task.
+
 ## What you can do
 
 A task's **Now** view presents the runner's

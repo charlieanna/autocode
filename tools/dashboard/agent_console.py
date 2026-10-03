@@ -610,6 +610,17 @@ class Handler(BaseHTTPRequestHandler):
    return self.reply(200,(Path(__file__).parent/'assets/fonts'/name).read_bytes(),'font/woff2')
   if p.path=='/api/runs':return self.reply(200,self.console.dashboard_snapshot())
   if p.path=='/api/models':return self.reply(200,self.console.model_catalogue())
+  if p.path=='/api/screenshot':
+   try:
+    q=parse_qs(p.query);raw=q.get('workspace',[''])[0];selected=q.get('run',[''])[0]
+    if self.console.removed_project(raw) or self.console.archived_task(selected):return self.reply(404,{'error':'Restore this task and project to inspect its evidence'})
+    ws=self.console.workspace_for(raw);run=self.console.run_for(ws,selected)
+    if not run:return self.reply(404,{'error':'Task unavailable'})
+    try:from .dashboard_screenshots import read_image
+    except ImportError:from dashboard_screenshots import read_image
+    image,mime=read_image(self.console.task_view(ws,run),q.get('image',[''])[0],ws,run)
+    self.send_response(200);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(image)));self.send_header('Cache-Control','private, no-store');self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(image);return
+   except (ValueError,OSError):return self.reply(400,{'error':'Saved screenshot unavailable for this verification'})
   if p.path=='/api/evidence':
    q=parse_qs(p.query);raw=q.get('workspace',[''])[0];selected=q.get('run',[''])[0]
    if self.console.removed_project(raw) or self.console.archived_task(selected):return self.reply(404,{'error':'Restore this task and project to inspect its changes'})

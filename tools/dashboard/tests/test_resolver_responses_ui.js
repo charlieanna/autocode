@@ -51,6 +51,7 @@ function harness(storage=new Map()) {
     +range('function taskMessages(', 'function settleThreadScroll(')
     +range('function answerSafetyPanel(', '/* Session checkpoints:')
     +range('function focusChatAction(', 'function inlineSavedChanges(')
+    +range('function renderScreenshotEvidence(', 'function requestKey(')
     +range('function renderConversation(', 'async function copyText(')
     +range('function planEntryText(', 'function output(')
     // The reviewed Plan pane leads with the live checklist, so renderBrief

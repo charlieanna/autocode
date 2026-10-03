@@ -35,7 +35,7 @@ be reconciled with the approved Figma brief and subsequent user instructions.
 | #30 | Inline answer fields, saved drafts, grouped answer history, provenance and re-asked-token rejection implemented | Local gates passed; review pending. Suggestions remain explicit per question |
 | #31 | Exact-token approval, stale refusal, separate approval/build action | Real-browser approval/start regression passed; issue closure still requires acceptance review |
 | #33 | Recovery/AutoResolver cards and guarded actions | Exhaustive status/action mapping, repeated-failure summaries and plain wording |
-| #34 | Loopback preview and truthful empty state | Per-project persistence, requirement-linked screenshot cards, change refresh |
+| #34 | Per-project preview persistence, saved-code refresh and requirement-linked screenshot cards implemented | Local gates passed; review pending. App startup remains manual |
 | #35 | Checkpoint inspection, comparison and a drafted restore request | New-branch rollback semantics and evidence invalidation are not delivered by a draft request |
 | #36 | Existing project creation and model settings | First-run readiness checklist and provider setup guidance |
 | #60 | Scoped permanent-delete implementation and 12 safety tests exist | Audit current browser coverage and all preservation/discovery criteria; never delete real user data during verification |
@@ -120,3 +120,54 @@ All standalone Node tests passed. The final CI-equivalent browser gates for
 chat intent, Work and question cards passed with successful owned-worker cleanup.
 All 54 fake scenarios passed; one live-model-only Investigator case was skipped.
 These results verify this batch, not the remaining backlog or pixel identity.
+
+
+## Preview and evidence batch
+
+Project preview preferences are shared across conversations in that project,
+with legacy task preferences preserved. A saved code change refreshes the frame;
+polling keeps it intact. Screenshot cards cite the recorded requirement and
+source. The bounded image endpoint validates recorded fingerprints when available
+and refuses changed bytes, stale report selections, traversal, sibling task
+paths, symlinks, nonregular files and oversized/non-image payloads.
+
+Eight image projection/HTTP tests and the three-size real-browser preview matrix
+passed. The browser matrix verifies persisted addresses, sibling conversations,
+project isolation, recorded screenshot rendering, requirement navigation, and
+saved-code refresh without a provider or changes to real tasks. The full dashboard
+run executed 323 tests and exposed one empty-state regression: the conversation
+name was missing. It was restored, and all 15 existing pane acceptance checks
+passed unchanged. All standalone Node tests passed before that text repair; the
+focused preview check passed again afterward. The first mobile browser attempt
+tried to open an already-open drawer; the corrected test observes its open state
+and uses native pointer clicks. Original deadlines and failed receipts remain.
+The fresh full canonical gate passed 2,999 tests across 221 modules in 549 seconds,
+including all 14 browser catalogue cases with their original caps. All 54 fake
+scenarios passed; the live-model-only Investigator case was explicitly skipped.
+The preview browser matrix passed again after the empty-state repair, including
+owned-worker cleanup with no live descendants; its phone capture was inspected.
+
+An earlier full-suite run failed two progressive goal-change cases because the
+legacy-worker guard reported an active process. The unchanged seven-test module
+passed alone. A deterministic regression reproduced a concrete guard defect:
+the same relative run suffix in another workspace, or a longer sibling run name,
+was treated as this run. The guard now matches path boundaries. Same-run
+controllers, provider output paths and ambiguous bare relative legacy paths
+remain blocking. The legacy check was extracted into a lower-level module and
+the support-module size limit was reduced. All 100 guard, dispatch, progressive
+and architecture tests passed, followed by the full canonical and fake gates
+above. Historical failed receipts remain available; no unrelated process was
+stopped during diagnosis.
+
+The previously published progress/question-card commit `74a08e6a` also passed
+GitHub CI run 37152526823, including the scenario harness, dashboard Python,
+standalone Node and all three dedicated browser matrices.
+
+The complete dashboard Python gate was rerun after the empty-state fix: all 323
+passed. Final JavaScript review then added two focused regressions and repairs:
+failed steps cannot masquerade as a landed candidate for auto-refresh, and a
+browser that denies persistent storage still opens the explicitly entered URL
+for this session. Standalone Node checks and the real three-size browser matrix
+passed after those final changes, including reload after denied storage. The
+full canonical/fake results above preceded this final JavaScript-only repair;
+CI repeats the broader gates on the pushed revision.

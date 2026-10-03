@@ -936,7 +936,7 @@ function activateTab(tab) {
   if(tab!=='preview')stopPreview();
   if(tab==='changes'&&chosen?.run&&evidenceRun!==chosen.run)loadChanges();
   if(tab==='preview'){
-    if(chosen?.run&&previewRun!==chosen.run){previewRun=chosen.run;$('#preview-url').value=stored('preview:'+chosen.run);$('#preview-error').textContent='';}
+    if(chosen?.run&&previewRun!==chosen.run){previewRun=chosen.run;$('#preview-url').value=savedPreview(previewContext());$('#preview-error').textContent='';}
     renderPreviewState();
   }
   if(latestRun)renderPrimaryAction(latestRun);
@@ -2056,13 +2056,14 @@ function renderWorkflowTimeline(host,run){
 
 function renderConversation(run) {
   const checkpoints=sessionCheckpoints(run);
-  const root=$('#conversation'),signature=JSON.stringify([run.run,run.progress_messages,run.draft_messages,run.planning_messages,run.discovery_summary,run.answers,run.questions,run.chat_messages,run.user_request,run.human_request_authorized,run.human_escalation,run.status,run.goal?.approval_status,run.goal?.approval_event,run.completed_at,run.monitor?.findings_summary,run.monitor?.findings,run.monitor?.validation_verdict,run.validation?.source_revision,run.counts,taskChatPending.has(run.run),checkpoints,run.conversation,run.goal_token,run.validation,run.stages,run.active_stage]);
+  const root=$('#conversation'),signature=JSON.stringify([run.run,run.progress_messages,run.draft_messages,run.planning_messages,run.discovery_summary,run.answers,run.questions,run.chat_messages,run.user_request,run.human_request_authorized,run.human_escalation,run.status,run.goal?.approval_status,run.goal?.approval_event,run.completed_at,run.monitor?.findings_summary,run.monitor?.findings,run.monitor?.validation_verdict,run.validation?.source_revision,run.counts,taskChatPending.has(run.run),checkpoints,run.conversation,run.goal_token,run.validation,run.screenshots,run.stages,run.active_stage]);
   $('#conversation-heading').textContent='Conversation';
   $('#conversation-avatar').textContent=planningSpeaker(run).slice(0,1);
   $('#conversation-description').textContent=jointPlanning(run)?'The Requirements Gatherer captures the scope. The Planner drafts and revises. The independent Plan Reviewer challenges and finalizes.':'Shape the work, then let your team build.';
   if(root.dataset.rendered===signature)return;const scroll=$('#interview');scrollThreadToEnd=scrollThreadToEnd||scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90;root.dataset.rendered=signature;root.replaceChildren();
   root.dataset.conversationId=run.conversation?.id||run.conversation_id||'';
   renderMessageHistory(root,taskMessages(run),run.run);
+  renderScreenshotEvidence(root,run);
   if(checkpoints.length&&run.status!=='TASK_COMPLETE'&&!taskActionBusy(run)){
     const choices=card('','checkpoint-restore-choices');
     for(const cp of checkpoints.filter(cp=>cp.kind!=='plan'&&cp.kind!=='final')){
@@ -2207,16 +2208,50 @@ function localPreviewUrl(raw,dashboardUrl){
   if(!['http:','https:'].includes(value.protocol)||!local.includes(value.hostname)||value.username||value.password||value.port===dashboard.port)throw Error('Use a local app address on a different port, such as http://127.0.0.1:3000.');
   return value.href;
 }
-function stopPreview(){$('#preview-content').replaceChildren();}
+const sessionPreviewUrls=new Map();
+function previewContext(){return latestRun?.run===chosen?.run?latestRun:chosen||{};}
+function previewStorageKey(run){return 'preview-project:'+(run.project_workspace||run.workspace||('task:'+run.run));}
+function savedPreview(run){return sessionPreviewUrls.get(previewStorageKey(run))||stored(previewStorageKey(run))||stored('preview:'+run.run);}
+function previewChangeKey(run){
+  const stages=(run.stages||[]).filter(row=>['terra','orchestrator'].includes(row.stage)&&row.finished_at&&stageSucceeded(row)&&(row.changed_files||[]).length);
+  const last=stages.at(-1);return last?JSON.stringify([last.source_revision,last.diff_ref,last.finished_at]):'';
+}
+function stopPreview(){const host=$('#preview-content');host.replaceChildren();delete host.dataset.previewIdentity;}
+function mountPreview(run,url){
+  const host=$('#preview-content'),identity=JSON.stringify([previewStorageKey(run),url,previewChangeKey(run)]);
+  if(host.dataset.previewIdentity===identity&&host.querySelector('iframe'))return;
+  host.replaceChildren();host.dataset.previewIdentity=identity;
+  const toolbar=card('','preview-toolbar'),link=n('a','Open in a new tab ↗');link.href=url;link.target='_blank';link.rel='noopener noreferrer';
+  toolbar.append(n('p','If the app cannot be embedded, open it in a new tab.'),link);
+  const frame=n('iframe','');frame.className='preview-frame';frame.title='Local app preview';frame.setAttribute('sandbox','allow-scripts allow-forms allow-same-origin');frame.referrerPolicy='no-referrer';frame.src=url;host.append(toolbar,frame);
+}
 function renderPreviewState(){
   const note=$('#preview-empty-note');if(!note)return;
-  const saved=chosen?.run?stored('preview:'+chosen.run):'';
-  const title=taskTitle(latestRun&&chosen&&latestRun.run===chosen.run?latestRun:chosen||{});
-  note.textContent=saved?'Saved preview address for “'+title+'”: '+saved
-    :'No preview address is saved for “'+title+'” yet. Enter the app’s local development address below.';
+  const run=previewContext(),saved=savedPreview(run);
+  const title=taskTitle(run);
+  const persistent=stored(previewStorageKey(run))===saved||stored('preview:'+run.run)===saved;
+  note.textContent=saved?(persistent?'Saved for this project':'Open for this browser session only')+' · “'+title+'”: '+saved:'No app address is saved for this project yet · “'+title+'”. Start your app, then enter its local address below.';
+  if(!saved){stopPreview();return;}
+  try{mountPreview(run,localPreviewUrl(saved,location.href));}
+  catch(error){stopPreview();$('#preview-error').textContent=error.message;}
 }
 $('#refresh-changes').onclick=()=>loadChanges(true);
-$('#preview-form').onsubmit=event=>{event.preventDefault();if(!chosen?.run)return;try{const url=localPreviewUrl($('#preview-url').value.trim(),location.href),host=$('#preview-content');persist('preview:'+chosen.run,url);$('#preview-error').textContent='';host.replaceChildren();const toolbar=card('','preview-toolbar'),link=n('a','Open in a new tab ↗');link.href=url;link.target='_blank';link.rel='noopener noreferrer';toolbar.append(n('p','If the app cannot be embedded, open it in a new tab.'),link);const frame=n('iframe','');frame.className='preview-frame';frame.title='Local app preview';frame.setAttribute('sandbox','allow-scripts allow-forms allow-same-origin');frame.referrerPolicy='no-referrer';frame.src=url;host.append(toolbar,frame);}catch(error){$('#preview-error').textContent=error.message;}};
+$('#preview-form').onsubmit=event=>{
+  event.preventDefault();if(!chosen?.run)return;
+  try{const run=previewContext(),url=localPreviewUrl($('#preview-url').value.trim(),location.href);sessionPreviewUrls.set(previewStorageKey(run),url);persist(previewStorageKey(run),url);$('#preview-error').textContent='';stopPreview();renderPreviewState();}
+  catch(error){$('#preview-error').textContent=error.message;}
+};
+function renderScreenshotEvidence(host,run){
+  for(const shot of run.screenshots||[]){
+    const box=card('','screenshot-evidence'),url='/api/screenshot?'+new URLSearchParams({workspace:run.workspace,run:run.run,image:shot.id});
+    box.dataset.screenshotId=shot.id;
+    box.append(n('h3','Saved screenshot · '+shot.criterion_id),n('p',shot.label),Object.assign(n('p','Recorded result: '+shot.status+' · '+(shot.source_revision?'source '+shot.source_revision:'source not recorded')+'. '+(shot.hash_recorded?'The saved fingerprint is checked when the image opens.':'No image fingerprint was recorded.')+' Opening this image does not approve it.'),{className:'field-note'}));
+    const image=n('img','');image.src=url;image.alt=shot.criterion_id+' — '+shot.label;image.loading='lazy';image.decoding='async';
+    image.onerror=()=>{image.hidden=true;box.append(Object.assign(n('p','This saved image is unavailable. Refresh the task to inspect its current evidence.'),{className:'field-note'}));};
+    const link=n('a','Open saved screenshot');link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.className='text-button';
+    box.append(image,link,button('View requirement '+shot.criterion_id,()=>openWorkDetail('requirement',shot.criterion_id),'text-button'));host.append(box);
+  }
+}
 
 function requestKey(run,kind){return run+'\0'+kind;}
 function interruptedAttempt(run){

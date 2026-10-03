@@ -22,7 +22,7 @@ TANGLED = frozenset({
 # autocode.py. Lower these when a module shrinks.
 # 2026-10-01: the durable-intervention application policy (metadata, consume,
 # boundary effects) moved to autocode_stop, shrinking autocode.py further.
-MAX_LINES = {"autocode.py": 1491, "autocode_goals.py": 1375, "autocode_support.py": 679, "autopilot.py": 1176}
+MAX_LINES = {"autocode.py": 1491, "autocode_goals.py": 1375, "autocode_support.py": 517, "autopilot.py": 1176}
 
 
 def source_modules() -> dict[str, Path]:

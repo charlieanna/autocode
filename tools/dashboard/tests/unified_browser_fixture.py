@@ -366,10 +366,22 @@ def main():
         (workspace / '.git').mkdir(parents=True)
         runs_root = workspace / '.autocode' / 'runs'
         states = scenario_states(workspace)
+        preview_fixture = os.environ.get('AUTOCODE_PREVIEW_FIXTURE') == '1'
+        if preview_fixture:
+            for name in ('flow-preview-first', 'flow-preview-second'):
+                states[name] = copy.deepcopy(states['completed'])
+                states[name]['task'] = 'Inspect saved preview evidence'
         for name, state in states.items():
             run = runs_root / name
             run.mkdir(parents=True)
             state.update(run_dir=str(run), task_id='browser-fixture-' + name)
+            if preview_fixture and name.startswith('flow-preview-'):
+                import base64, hashlib
+                image = run / 'screen.png'
+                image.write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXioAAAAASUVORK5CYII='))
+                state['validation'] = {'source_revision':'fixture-screen-source',
+                    'evidence_hashes':{str(image):hashlib.sha256(image.read_bytes()).hexdigest()},
+                    'criterion_results':[{'id':'C1','status':'FAIL','evidence_refs':[str(image)]}]}
             if state['status'] in ('WAITING_FOR_USER', 'AWAITING_GOAL_APPROVAL'):
                 publish_human_request(state)
             (run / 'state.json').write_text(json.dumps(state), encoding='utf8')
@@ -699,7 +711,18 @@ def main():
                 self.actions.setdefault(str(run), []).append(action)
                 return action
 
-        console = FixtureConsole([workspace], root / 'no-runner', lambda: False,
+        watched = [workspace]
+        other_run = None
+        if preview_fixture:
+            other_workspace = root / 'Other project'
+            (other_workspace / '.git').mkdir(parents=True)
+            other_run = other_workspace / '.autocode/runs/flow-preview-other'
+            other_run.mkdir(parents=True)
+            other_state = copy.deepcopy(states['completed'])
+            other_state.update(workspace=str(other_workspace),run_dir=str(other_run),task_id='other-preview',task='Other project with no preview')
+            (other_run / 'state.json').write_text(json.dumps(other_state))
+            watched.append(other_workspace)
+        console = FixtureConsole(watched, root / 'no-runner', lambda: False,
                                  conversation_root=root / 'conversations', project_store_root=root / 'dashboard',
                                  catalogue_command=(sys.executable, str(catalogue)))
         server = LoopbackHTTPServer(('127.0.0.1', 0), Handler)
@@ -709,13 +732,30 @@ def main():
         scenario_urls = {'workspace': base_url + '#tasks'}
         for name in states:
             scenario_urls[name] = base_url + '#' + urlencode({'task': str(workspace), 'run': str(runs_root / name)})
-        print('FIXTURE=' + json.dumps({'base_url': base_url, 'scenarios': scenario_urls}, sort_keys=True), flush=True)
+        if other_run:
+            scenario_urls['flow-preview-other'] = base_url + '#' + urlencode({'task':str(other_run.parents[2]), 'run':str(other_run)})
+        preview_server = None
+        preview_url = None
+        if preview_fixture:
+            from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+            import threading
+            class DemoHandler(BaseHTTPRequestHandler):
+                def log_message(self, *args): pass
+                def do_GET(self):
+                    body=b'<html><body style="font-family:sans-serif;background:#edf3ff;padding:24px"><h1>Preview fixture</h1><p>A separately running local application.</p></body></html>'
+                    self.send_response(200);self.send_header('Content-Type','text/html');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+            preview_server=ThreadingHTTPServer(('127.0.0.1',0),DemoHandler)
+            threading.Thread(target=preview_server.serve_forever,daemon=True).start()
+            preview_url='http://127.0.0.1:'+str(preview_server.server_port)+'/'
+        print('FIXTURE=' + json.dumps({'base_url': base_url, 'scenarios': scenario_urls, 'preview_url':preview_url}, sort_keys=True), flush=True)
         try:
             server.serve_forever()
         except KeyboardInterrupt:
             pass
         finally:
             server.server_close()
+            if preview_server:
+                preview_server.shutdown();preview_server.server_close()
             console.pool.shutdown(wait=True)
             if console._conversation_store is not None:
                 console._conversation_store.close()
