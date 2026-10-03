@@ -962,6 +962,10 @@ def accept_completion(state: dict[str, Any], workspace: Path) -> None:
              "acceptance_criteria": [{**c, "status": "verified", "evidence": "Current Validator criterion evidence"}
                                      for c in state["acceptance_criteria"]]}
     if not completion_gate.completion_ready(state, probe, current):
+        # Check if failure is due to stale validation
+        val = state.get("validation", {})
+        if val.get("source_revision") and val.get("source_revision") != current["revision"]:
+            raise ValueError("Validation is stale (tree changed during review). Resume with --resume-paused to re-validate on current code.")
         raise ValueError("Completion acceptance requires current passing independent evidence for every criterion")
     if goals.missing_human_reviews(state):
         raise ValueError("Completion acceptance requires every required human review to be recorded")

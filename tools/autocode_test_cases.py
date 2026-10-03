@@ -193,7 +193,9 @@ TESTS NAMED IN THE PLAN: every acceptance criterion of your milestone whose veri
 "test:" is a concrete example you must write as its own test, named with that criterion's id (C2 ->
 test_c2_<what it checks>) and asserting exactly the criterion's example. Before the Validator runs, the runner
 runs these tests itself, with those of milestones already accepted: each must pass with the change and must
-not have passed before the run began. A criterion whose verification_method starts with "guard:" is behavior
+not have passed before the run began. Do not write tests that import package-level variables, hooks, or helpers
+that the fix introduces; instead, observe production behavior that exists only after the fix (log lines, metrics,
+error text, or filesystem state). A criterion whose verification_method starts with "guard:" is behavior
 that already works and must keep working: write its test the same way (C4 -> test_c4_...); it must pass both
 before and after the change, so put it where it imports only code that exists before the change. Criteria without "test:" or "guard:" are checked by the Validator as usual.
 Keep existing test names and assertions intact. Add a new case test when needed; do not rename or remove an
