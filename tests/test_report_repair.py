@@ -258,6 +258,16 @@ class RepairTests(unittest.TestCase):
         self.assertNotIn('Fix an existing test race.', data['source_texts'])
         self.assertIn('current Builder task and approved contract are inherited obligations', prompt)
 
+    def test_planner_repair_receives_the_requirements_its_trace_must_cover(self):
+        # Without the rows a repair of a trace with a missing requirement_id guessed "R1" (2026-10-02).
+        self.state['requirements_handoff'] = {'report': {'requirements': [
+            {'id': 'R1', 'text': 'Print a greeting', 'source_quote': 'Print a greeting'}]}, 'output': 'r.json'}
+        self.state['settings']['roles']['glm'] = {'model': 'planner-model'}
+        self.state['next_stage'] = 'astra_discovery'
+        self.queue(ValueError('$.requirement_trace[0]: missing requirement_id'), stage='astra_discovery', role='glm')
+        data = json.loads(self.repair_request()['prompt'].split('CURRENT HANDOFF DATA\n', 1)[1])
+        self.assertEqual(['R1'], [row['requirement_id'] for row in data['requirement_trace_rows']])
+
     def test_finalizer_repair_receives_current_concerns_and_saved_human_context(self):
         self.state.update(next_stage='astra_finalize', requirements_handoff={'report': {
             'requirements': [{'id': 'R1', 'source_quote': 'Reject blank names'}], 'open_questions': []}},

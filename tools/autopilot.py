@@ -289,6 +289,8 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
     support.validate_schema(checked, planning_unit.schema_for(state, stage))
     if stage == planning_unit.RECOGNIZE:
         return planning_unit.recognize(state, value, record)
+    if stage == "astra_discovery" and planning_unit.rerun_requirements(state, value):
+        return  # the draft is discarded before any of its checks: Requirements runs next
     value, deferred = clarification.clarify_discoverable(
         state, stage, value, record, investigation_stages=planning_unit.INVESTIGATION_STAGES,
         check_code_refs=_check_code_refs)
@@ -323,19 +325,7 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
             and any("depends_on" not in row for row in value["contract"].get("milestones", []))):
         raise ValueError("Every planned milestone must declare depends_on (use [] for independent work)")
     if stage == "astra_discovery":
-        handoff = state.get("requirements_handoff")
-        if handoff:
-            pending = {question["id"] for question in handoff["report"]["open_questions"]}
-            preserved = {question["id"] for question in value["contract"]["open_blocking_questions"]}
-            # A fact settled from the workspace stays settled while the handoff
-            # that asked it is unchanged; answering another question renews the
-            # episode but not the handoff. A refreshed handoff must settle it again.
-            current = goals.handoff_ref(state)
-            resolved = {row["question_id"] for row in state.get("machine_resolutions", [])
-                        if row.get("requirements_handoff") == current}
-            missing = pending - preserved - set(state.get("answers", {})) - resolved
-            if missing:
-                raise ValueError("Planner dropped unresolved requirements questions: " + ", ".join(sorted(missing)))
+        clarification.check_handoff_questions(state, value)
         _bind_plan(state, value, "glm_draft", record)
         if human.internal_questions(state):
             state["discovery_summary"] = value["summary"]
