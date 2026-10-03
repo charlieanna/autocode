@@ -40,7 +40,20 @@ report plumbing, not image judgment; a fresh receipt never supplies visual PASS.
 The real browser checks require the explicit local Playwright opt-in documented
 in the guide and are skipped in an ordinary environment without it.
 
-No live model or Figma calls were used. This resolves evidence freshness, not
-the broader inventory and visual fidelity work in #250/#251. The protocol trusts
-the project's declared fixture, build command and local tools; it is not a
-cryptographic attestation against fabricated acquisition records.
+Those initial checks used no live models. A subsequent live OpenCode run exercised
+Builder capture and independent visual inspection for both supplied viewports.
+The current captures were accepted as fresh and the historical captures were
+retained and rejected. Local fault injection into copies of the real review
+report also rejected stale and missing capture evidence.
+
+**End-to-end qualification remains incomplete; PR #291 stays a draft.** The
+workflow retained a regression-proof failure: the custom Node runner supplied
+no parsed per-test results for its named criteria, even with an explicit targeted
+command. This separate compatibility gap is tracked in [#295](https://github.com/charlieanna/autocode/issues/295).
+No criteria or proof gates were weakened and no task completion was awarded.
+The live fixture used synthetic exported references, not a remote Figma file.
+
+This change addresses evidence freshness; the broader inventory and fidelity
+work in #250/#251 remains separate. The protocol trusts the project's declared
+fixture, build command and local tools; it is not a cryptographic attestation
+against fabricated acquisition records.
