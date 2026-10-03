@@ -46,12 +46,26 @@ The current captures were accepted as fresh and the historical captures were
 retained and rejected. Local fault injection into copies of the real review
 report also rejected stale and missing capture evidence.
 
-**End-to-end qualification remains incomplete; PR #291 stays a draft.** The
-workflow retained a regression-proof failure: the custom Node runner supplied
-no parsed per-test results for its named criteria, even with an explicit targeted
-command. This separate compatibility gap is tracked in [#295](https://github.com/charlieanna/autocode/issues/295).
-No criteria or proof gates were weakened and no task completion was awarded.
-The live fixture used synthetic exported references, not a remote Figma file.
+**The recovered live workflow reached `TASK_COMPLETE` on 2026-10-03**, using
+runtime commit `ac909357`. Its independent Validator passed all ten criteria and
+both visual cases after reading both current PNGs and both references. The runner
+proved seven named tests fail on the original source and pass on the candidate;
+independent command replay and protected-test checks also passed. The Completion
+Owner accepted the result with no unresolved findings.
+
+Getting there required the [Node named-proof adapter](2026-10-03-node-named-proof.md)
+for [#295](https://github.com/charlieanna/autocode/issues/295) and a
+[retained-work handoff fix](2026-10-03-retained-repair-assignment.md). The campaign
+included model escalation, a timeout and explicit finite retries; this is a
+recovered-run result, not evidence of first-attempt reliability. The criteria,
+protected tests and proof gates were preserved.
+
+Local fault injection into copies of the final live PASS report rejected each
+historical viewport capture, a missing receipt and an extra historical image
+citation alongside fresh captures. An independent browser comparison found zero
+differing pixels at both supplied viewports and passed interaction, keyboard and
+breakpoint checks. The live fixture used synthetic exported references, not a
+remote Figma file. Raw reports and evidence remain outside the repository.
 
 This change addresses evidence freshness; the broader inventory and fidelity
 work in #250/#251 remains separate. The protocol trusts the project's declared

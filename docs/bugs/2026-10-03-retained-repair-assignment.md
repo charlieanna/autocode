@@ -16,4 +16,9 @@ The CLI regression injects an initial review rejection, creates a repair task,
 and has its Builder preserve the candidate. The valid candidate must reach a
 second Validator and complete; a broken candidate must remain incomplete.
 Pure tests cover contract, milestone, scope, source and missing-snapshot guards.
-Live qualification is still pending.
+
+The unchanged live candidate reached a fresh Validator after this fix. AutoCode
+recorded the older assignment as its source, ran new regression proof, obtained
+independent PASS for all ten criteria, and reached `TASK_COMPLETE` on 2026-10-03.
+The old implementation fails the same CLI regression at completion; the repaired
+implementation passes, while its broken-candidate control stays incomplete.
