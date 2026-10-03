@@ -15,6 +15,7 @@ import copy
 import sys
 
 try:
+    from . import autocode_job_failure as job_failure
     from . import autopilot
     from . import autocode_dependency as dependency
     from . import autocode_conversation_ingress as conversation_ingress
@@ -34,6 +35,7 @@ try:
     from . import autocode_workflows as workflows
     from . import autocode_worktrees as worktrees
 except ImportError:
+    import autocode_job_failure as job_failure
     import autopilot
     import autocode_dependency as dependency
     import autocode_conversation_ingress as conversation_ingress
@@ -79,6 +81,19 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                                          lambda: support.snapshot(workspace)["revision"])
     if dependency_result is not None:
         return dependency_result
+    if not args.abandon_stage and job_failure.recover(runner, state, run_dir, workspace):
+        if not args.retry_failed_stage:
+            print(state['stop_reason'])
+            return 2
+    if state.get('job_failure') and (state.get('status') in ('PAUSED_JOB_FAILURE', 'PAUSED_STAGE_ABANDONED') or args.job_retry_token):
+        if not (args.resume_paused and args.retry_failed_stage):
+            print(state.get('stop_reason', 'Inspect the retained workflow-job attempt before retrying.'))
+            return 2
+        try:
+            job_failure.authorize(runner, state, run_dir, workspace, args.job_retry_token)
+        except ValueError as error:
+            print(f'Input rejected: {error}', file=sys.stderr)
+            return 2
     explicit_run_seconds = getattr(args, "max_seconds", None)
     explicit_slice_seconds = getattr(args, "max_milestone_seconds", None)
     if explicit_run_seconds is not None or explicit_slice_seconds is not None:
@@ -234,7 +249,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                     return 2
             else:
                 authorization = None
-                if args.retry_failed_stage:
+                if args.retry_failed_stage and state.get("job_failure"):
+                    pass  # exact job authorization was validated before generic recovery
+                elif args.retry_failed_stage:
                     try:
                         authorization = runner.authorize_failure_retry(state, run_dir, workspace)
                         print("Failure retry authorized for the recorded repeated failure; "
@@ -264,6 +281,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     except runner.ReportRepairQueued:
         pass  # Durable pending repair is dispatched below, not original work.
     except support.Paused as error:
+        if job_failure.recover(runner, state, run_dir, workspace, error):
+            print(state["stop_reason"])
+            return 2
         capacity_recovered = runner.automatically_recover_capacity_stage(state, run_dir, workspace, error)
         if capacity_recovered:
             recovery = state["recovery_context"]

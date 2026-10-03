@@ -217,3 +217,14 @@ if it exits with an error, reconcile the reported cause and restart it against t
 run. A failed/incomplete producer cannot release the consumer.
 
 `TaskRun.grant_recovery(N)` explicitly grants a positive number of additional recoveries after the operator inspects saved work and fixes the cause. It preserves recovery history and uses the CLI checkpoint guards. `resume_paused()` and operational guidance do not grant an allowance.
+
+### Failed workflow jobs
+
+A stopped Reviewer, Architect, Analyst or Investigator publishes
+`needs.kind = "retry_job"`, retaining its owning stage and archived transcript.
+Inspect `needs.archive`, `needs.reason` and `needs.write_diagnosis`; then call
+`run.retry_job(view["needs"]["job_retry_token"])` for one fresh attempt under the
+saved source, route and limits. The CLI equivalent is
+`--resume-paused --retry-failed-stage --job-retry-token TOKEN`. A plain resume
+keeps the pause. Stale source/configuration, a token for a different attempt,
+or unresolved restoration is rejected before any model request.

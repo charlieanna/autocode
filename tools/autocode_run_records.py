@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from . import autocode_job_failure as job_failure
     from . import autopilot
     from . import autocode_goals as goals
     from . import autocode_goal_lifecycle as lifecycle
@@ -28,6 +29,7 @@ try:
     from . import autocode_workflow as workflow
     from . import autocode_progressive_state as progressive, autocode_output_policy as output_policy
 except ImportError:
+    import autocode_job_failure as job_failure
     import autopilot
     import autocode_goals as goals
     import autocode_goal_lifecycle as lifecycle
@@ -324,7 +326,7 @@ def archive_rejected_stage(state, run_dir, record, reason):
     archived.mkdir(parents=True, exist_ok=True)
     originals = []
     archived_paths = {}
-    for suffix in (".json", ".jsonl", ".reported.json", ".response.txt", ".prompt.md", ".before.json", ".after.json", ".diff", ".tools.json", ".opencode.json"):
+    for suffix in (".json", ".jsonl", ".reported.json", ".response.txt", ".prompt.md", ".before.json", ".after.json", ".diff", ".tools.json", ".opencode.json", ".source.json", ".witness.json"):
         artifact = base.with_name(base.name + suffix)
         if artifact.exists():
             # Keep originals until the caller durably saves the archive pointers.
@@ -335,6 +337,10 @@ def archive_rejected_stage(state, run_dir, record, reason):
     for key in ("output", "events", "reported_output", "response_text", "prompt", "before_ref", "after_ref", "diff_ref", "tool_evidence", "permission_config"):
         if record.get(key) and Path(record[key]).parent == base.parent:
             record[key] = str(archived / Path(record[key]).name)
+    for key in ('capture', 'witness'):
+        capture = record.get('job_source') or {}
+        if capture.get(key) in archived_paths:
+            capture[key] = archived_paths[capture[key]]
     record['archived_paths'] = archived_paths
     record["rejected"] = True
     record["rejection_reason"] = str(reason)
@@ -386,6 +392,8 @@ def timeout_recovery_route(state, record):
     reviewer would fail the next admission with PAUSED_GOAL_UNAPPROVED.
     """
     stage, role = record["stage"], record["role"]
+    if job_failure.owner(record):
+        return stage, "PAUSED_OR_BLOCKED"
     if planning.is_planning(state, stage):
         return stage, "PLANNING"
     if stage == "astra_discovery":
