@@ -1219,3 +1219,10 @@ a,.next-action,.workflow-active,.task-path li.done,.model-state.mutable,button.t
   .sidebar .local-status{display:none}
   .sidebar .sync-state{display:none}
 }
+
+/* Tablet font metrics can wrap the waiting summary onto an extra line.
+   Keep readable fact sizes and leave room above the pane's bottom edge. */
+@media(min-width:760px) and (max-width:1050px){
+  #task-detail .context-pane .context-pane-content{padding-top:2px}
+  #task-detail .work-summary{padding:8px 12px}
+}
