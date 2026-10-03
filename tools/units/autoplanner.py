@@ -209,13 +209,14 @@ HUMAN REVIEW: an acceptance criterion's human_review is """ + HUMAN_REVIEW_NOTE 
 # IDs as a short list (requirement_trace_rows) and this rule; the runner's check is unchanged.
 REQUIREMENT_TRACE_RULE = """
 REQUIREMENT TRACE: requirement_trace_rows in the handoff data lists every requirement from the requirements
-handoff. requirement_trace must contain exactly one row for each of those requirement_id values, no more and no
-fewer; an empty requirement_trace is refused. disposition is covered, excluded or superseded. For covered, evidence
-is an acceptance criterion ID of this contract (for example "AC3", or "AC3 checks this"), or a required_behaviors
-entry copied exactly; a paraphrase is refused. For excluded, evidence is a scope_exclusions entry copied exactly and
-backed by a saved user answer; for superseded, it cites the saved answer or feedback event ID. While the draft has
-open_blocking_questions and no criteria yet, a covered row may say what it waits on (for example "pending Q1"); the
-next draft, after the answer, must cite criteria.
+handoff, and any feedback on a plan the user was shown that no Requirements report has read yet (its
+requirement_id is the feedback event ID). requirement_trace must contain exactly one row for each of those
+requirement_id values, no more and no fewer; an empty requirement_trace is refused. disposition is covered,
+excluded or superseded. For covered, evidence is an acceptance criterion ID of this contract (for example "AC3",
+or "AC3 checks this"), or a required_behaviors entry copied exactly; a paraphrase is refused. For excluded,
+evidence is a scope_exclusions entry copied exactly and backed by a saved user answer; for superseded, it cites
+the saved answer or feedback event ID. While the draft has open_blocking_questions and no criteria yet, a covered
+row may say what it waits on (for example "pending Q1"); the next draft, after the answer, must cite criteria.
 """
 TRACE_STAGES = ("astra_discovery", "glm_revise", "astra_finalize")
 
@@ -237,9 +238,71 @@ def trace_rows(state, stage):
     if stage not in (*TRACE_STAGES, "astra_challenge"):
         return []
     handoff = (state.get("requirements_handoff") or {}).get("report") or {}
+    # Feedback on a shown plan that no Requirements report has read yet is traced like a requirement.
     return [{"requirement_id": row["id"], "requirement": row.get("text", ""),
              "source_quote": row.get("source_quote", "")}
-            for row in handoff.get("requirements") or [] if isinstance(row, dict) and row.get("id")]
+            for row in (handoff.get("requirements") or []) + adaptive.feedback_requirements(state)
+            if isinstance(row, dict) and row.get("id")]
+
+
+# A late question (the final review returned an unresolved concern to the user, usually permission to change
+# a protected criterion) restarts planning after the answer, and the next review saw only the new draft:
+# 11 of 31 answer-driven re-drafts in live runs (2026-09-28..10-01) reviewed a whole plan again from scratch.
+REREVIEW_RULE = """
+RE-REVIEW AFTER THE USER'S ANSWERS. Your previous review of this plan ended with questions to the user.
+previous_review holds your earlier concerns, your final decisions on them, and each question with the user's
+answer. Check that this draft applies those answers exactly as given. A concern you resolved before stays
+resolved unless an answer or this draft reopens it; do not raise it again. Mark a concern blocking only for what
+the answers changed or for what is still wrong in this draft.
+"""
+
+
+def previous_review(state):
+    """The last planning cycle's review when it ended in questions the user has since answered, so the next
+    review checks the answers instead of reviewing the plan from scratch; None otherwise."""
+    history = state.get("planning_history") or []
+    reports = ((history[-1] if history else None) or {}).get("reports") or {}
+    last = next((reports[stage]["report"] for stage in ("astra_finalize", "glm_revise")
+                 if (reports.get(stage) or {}).get("report")), {})
+    questions = (last.get("contract") or {}).get("open_blocking_questions") or []
+    answers = state.get("answers") or {}
+    if not questions or any(question.get("id") not in answers for question in questions):
+        return None
+    concerns = ((reports.get("astra_challenge") or {}).get("report") or {}).get("concerns") or []
+    return {"concerns": [{key: row.get(key) for key in ("id", "concern", "blocking")} for row in concerns],
+            "decisions": [{key: row.get(key) for key in ("concern_id", "decision", "resolved")}
+                          for row in last.get("decisions") or []],
+            "answered_questions": [{"id": question["id"], "question": question.get("question", ""),
+                                    "answer": answers[question["id"]].get("text", "")} for question in questions]}
+
+
+def fill_trace_id(state, stage, value):
+    """Name the one requirement_trace row a Planner report left without requirement_id, when exactly one
+    requirement it must trace is missing from the trace: that row can only be for it, so no report repair is
+    spent on the missing field (GLM 5.3 left it out when tracing feedback, 2026-10-02; 16 repairs to date).
+    When nothing must be traced, rows without an ID are dropped. Anything ambiguous is left for the schema
+    and trace checks to refuse, and a named row's evidence is still checked."""
+    if not adaptive.enabled(state):
+        return value
+    trace = value.get("requirement_trace") if stage in TRACE_STAGES else None
+    if not isinstance(trace, list) or not all(isinstance(row, dict) for row in trace):
+        return value
+    unnamed = [index for index, row in enumerate(trace) if "requirement_id" not in row]
+    expected = trace_rows(state, stage)
+    if unnamed and not expected:
+        return {**value, "requirement_trace": [row for row in trace if "requirement_id" in row]}
+    ids = [row["requirement_id"] for row in expected]
+    assigned = [row["requirement_id"] for row in trace if "requirement_id" in row]
+    if (len(set(ids)) != len(ids) or len(trace) != len(ids)
+            or any(not isinstance(rid, str) or rid not in ids for rid in assigned)
+            or len(set(assigned)) != len(assigned)):
+        return value
+    untraced = [rid for rid in ids if rid not in assigned]
+    if len(unnamed) != 1 or len(untraced) != 1:
+        return value
+    trace = [dict(row) for row in trace]
+    trace[unnamed[0]]["requirement_id"] = untraced[0]
+    return {**value, "requirement_trace": trace}
 
 
 # The first stage of every new run: which kind of job this is (autocode_workflows).
@@ -983,6 +1046,9 @@ def context(state, stage, state_path):
     rows = trace_rows(state, stage)
     if rows:
         packet["requirement_trace_rows"] = rows
+    earlier = previous_review(state) if stage == "astra_challenge" else None
+    if earlier:
+        packet["previous_review"] = earlier
     if state["settings"].get("figma_file"):
         packet["figma_file"] = state["settings"]["figma_file"]
     packet['user_events'] = state.get('user_events', [])
@@ -1038,7 +1104,7 @@ def context(state, stage, state_path):
         design_rule += acceptance_policy.DOMAIN
     if rows and stage in TRACE_STAGES:
         design_rule += REQUIREMENT_TRACE_RULE
-    design_rule += adaptive.prompt_rule(state, stage)
+    design_rule += adaptive.prompt_rule(state, stage) + (REREVIEW_RULE if earlier else "")
     prompt = (PROMPTS[stage] + JOB_TYPE_POLICY + design_rule + recovery_instruction + figma_instruction + planning_policy + clarification_policy + progressive_policy + s.COMMON
               + "\nWork read-only; return the report, the runner saves it.\nCURRENT HANDOFF DATA\n"
               + json.dumps(packet, indent=2))
@@ -1126,6 +1192,17 @@ def after_challenge(state, value, record):
     planning["final_token"] = goals.token(state["goal_contract"])
     planning["adaptive"].update(approved_at=f"astra_challenge#{planning['adaptive']['challenges']}",
                                 final_stage="astra_challenge")
+
+
+def rerun_requirements(state, value):
+    """Whether the Planner sent feedback on the shown plan back to Requirements instead of revising the plan
+    (adaptive planning). Its draft is discarded and the Requirements stage, which reads every saved feedback,
+    runs next; the pipeline then continues in full, as it would without adaptive planning."""
+    reason = adaptive.requirements_rerun(state, value)
+    if reason:
+        state.update(status="RUNNING", phase="DISCOVERING", next_stage="requirements_gather",
+                     discovery_summary="Planner: " + reason)
+    return bool(reason)
 
 
 def after_revise(state):

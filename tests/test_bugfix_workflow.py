@@ -130,6 +130,24 @@ class ProvenanceDefaults(unittest.TestCase):
         self.assertEqual({"intended_outcome": "x", "task_kind": "build"}, value["contract"])
         self.assertEqual(["contract.task_kind"], record["defaulted_fields"])
 
+    def test_a_report_field_written_inside_the_contract_is_moved_up(self):
+        # Live today-pipeline Planner draft, 2026-10-02: contract_changes inside the contract.
+        properties = {"contract": {"type": "object", "properties": {"intended_outcome": {"type": "string"}}},
+                      "contract_changes": {"type": "array"}, "code_refs": {"type": "array"}}
+        record = self.record("astra_discovery", properties)
+        change = {"item": "AC2", "change": "reworded", "basis": "user_answer", "answer_id": "Q1", "replacement": "x"}
+        value = autocode.default_missing_provenance(
+            {"contract": {"intended_outcome": "x", "contract_changes": [change]}, "code_refs": ["a.py:1"]}, record)
+        self.assertEqual({"intended_outcome": "x"}, value["contract"])
+        self.assertEqual([change], value["contract_changes"])
+        self.assertEqual(["contract_changes"], record["hoisted_fields"])
+        record = self.record("astra_discovery", properties)
+        kept = autocode.default_missing_provenance(
+            {"contract": {"intended_outcome": "x", "contract_changes": [change]}, "contract_changes": [change],
+             "code_refs": []}, record)
+        self.assertIn("contract_changes", kept["contract"], "a report that has its own list is left to the schema")
+        self.assertNotIn("hoisted_fields", record)
+
     def test_the_resolver_accepts_a_bug_fix_contract(self):
         import autocode_resolver as resolver
         from goal_fixtures import body

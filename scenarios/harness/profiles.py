@@ -54,7 +54,7 @@ PROFILES = {
         "provider": "opencode",
         "models": {
             "requirements": "zai-coding-plan/glm-5.3", "planner": "zai-coding-plan/glm-5.3",
-            "reviewer": "openai/gpt-6-astra", "builder": "openai/gpt-6-sol",
+            "reviewer": "openai/gpt-6-sol", "builder": "openai/gpt-6-sol",
             "validator": "zai-coding-plan/glm-5.3", "completion": "zai-coding-plan/glm-5.3",
             "resolver": "openai/gpt-6-astra",
         },

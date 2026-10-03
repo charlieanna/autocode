@@ -15,13 +15,13 @@ try:
                                             revision_guard, saved_user_basis as _saved_user_basis)
     from .autocode_requirement_cues import cue_sentences, scan_texts, source_texts
     from .autocode_trace_coverage import coverage_errors
-    from . import autocode_util as s, autocode_workflows as workflows
+    from . import autocode_util as s, autocode_workflows as workflows, autocode_adaptive_planning as adaptive
 except ImportError:
     from autocode_contract_revision import (PLANNER_ORIGINS, PROTECTED_LISTS as _PROTECTED_LISTS,
                                            revision_guard, saved_user_basis as _saved_user_basis)
     from autocode_requirement_cues import cue_sentences, scan_texts, source_texts
     from autocode_trace_coverage import coverage_errors
-    import autocode_util as s, autocode_workflows as workflows
+    import autocode_util as s, autocode_workflows as workflows, autocode_adaptive_planning as adaptive
 
 # The state keys under which a Resolver proposal waits for the user and the request shown to them.
 # autocode_resolver_human owns those records and re-exports these as PRIVATE and PUBLIC; they are
@@ -337,7 +337,7 @@ def check_requirement_handoff(state, report):
 
 def check_requirement_trace(state, report, contract, *, coverage=True):
     handoff = (state.get("requirements_handoff") or {}).get("report") or {}
-    requirements = handoff.get("requirements") or []
+    requirements = (handoff.get("requirements") or []) + adaptive.feedback_requirements(state)
     if not requirements:
         return
     trace = report.get("requirement_trace")
@@ -349,7 +349,7 @@ def check_requirement_trace(state, report, contract, *, coverage=True):
             raise ValueError("requirement_trace entries need requirement_id, disposition and evidence")
         rid = row.get("requirement_id")
         if rid in by_id or rid not in {r["id"] for r in requirements}:
-            raise ValueError("requirement_trace must contain each known requirement exactly once")
+            raise ValueError("requirement_trace must hold each of these exactly once: " + ", ".join(r["id"] for r in requirements))
         by_id[rid] = row
     missing = [row["id"] for row in requirements if row["id"] not in by_id]
     if missing:
@@ -558,13 +558,13 @@ def feedback(state, text):
     contract = state.get("goal_contract")
     event = {"kind": "brief_feedback", "id": "feedback-" + uuid.uuid4().hex[:12], "actor": "user_cli", "at": s.now(),
              "text": text.strip(), "contract_token": token(contract) if contract else state.get("requirements_artifact_token", ""),
-             "starts_episode": True}
+             "starts_episode": True, **adaptive.feedback_marker(state)}
     state.setdefault("user_events", []).append(event)
     state.setdefault("brief_feedback", []).append(event)
     start_clarification_episode(state, event["id"])
-    # A new user clarification restarts requirements discovery. The old
-    # report-only repair is bound to the preceding task/contract sources and
-    # must remain as evidence rather than consuming this episode's allowance.
+    # A new user clarification restarts requirements discovery (in an adaptive run, feedback on a shown
+    # plan restarts at the Planner instead). The old report-only repair is bound to the preceding
+    # task/contract sources and must remain as evidence rather than consuming this episode's allowance.
     pending = state.pop("pending_report_repair", None)
     if pending:
         state.setdefault("report_repair_archive", []).append({
@@ -573,9 +573,9 @@ def feedback(state, text):
     if contract:
         contract.update(approval_status="draft", approval_event=None)
         invalidate(state, "Brief feedback requires a refreshed draft and explicit approval")
-    first_stage = ("requirements" if state.get("settings", {}).get("planning_flow") == "v2" else
-                   "requirements_gather" if "requirements" in state.get("settings", {}).get("roles", {}) else "astra_discovery")
-    state.update(status="RUNNING", phase="DISCOVERING", next_stage=first_stage, pending_questions=[])
+    default = ("requirements" if state.get("settings", {}).get("planning_flow") == "v2" else
+               "requirements_gather" if "requirements" in state.get("settings", {}).get("roles", {}) else "astra_discovery")
+    state.update(status="RUNNING", phase="DISCOVERING", next_stage=adaptive.feedback_stage(event, default), pending_questions=[])
 
 
 def apply_intervention_feedback(state, receipt, applied_receipt):
