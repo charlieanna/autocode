@@ -16,6 +16,11 @@ finalize. With it, each decision is made by the first stage that has the evidenc
 - Size, from the draft itself, computed here rather than asked of a model: its
   milestones and the files they touch. A large plan gets one more review call than
   the default allowance.
+- Feedback on a shown plan, from the run's own status. Feedback sent while a complete
+  plan waits for approval goes to the Planner, which revises that plan, instead of
+  restarting from Requirements. The runner checks the revision covers the feedback
+  (it becomes a traced requirement), and the Planner can send feedback that changes
+  what is being built back to the Requirements stage.
 
 Nothing is skipped that a later gate would not cover: the user still approves every
 build plan, and the Validator and Completion Owner still judge the work.
@@ -32,6 +37,10 @@ State keys written by callers from these decisions:
         (final_stage: which review is the final planning evidence), review_notes here (for
         autocode_goal_lifecycle.render), and plan_compare.summarize via state.json. The status
         view (autocode_run_view) does not show either key yet.
+    revises_plan, on a brief_feedback event: {"requirements_handoff": the output path of the
+        requirements handoff the feedback was given against, or ""}, saved by
+        autocode_goals.feedback from feedback_marker. Read by feedback_requirements here, which
+        autocode_goals.check_requirement_trace and units.autoplanner.trace_rows use.
 """
 from __future__ import annotations
 
@@ -80,6 +89,38 @@ revised plan: judge whether the Planner's responses settled your earlier concern
 or what the revision introduced.
 """
 
+# Feedback on a shown plan. The rows are requirement_trace_rows whose requirement_id is a feedback event ID.
+FEEDBACK_RULE = """
+FEEDBACK ON THE PLAN THE USER SAW. The user was shown goal_contract for approval and asked for a change instead:
+the requirement_trace_rows whose requirement_id is a feedback event ID quote what they said. No Requirements stage
+ran for it. Revise goal_contract to apply that feedback: start from it, change only what the feedback needs, and
+keep every other requirement, criterion and milestone as it is. Record each protected item you change or remove
+in contract_changes with basis user_feedback and that feedback ID as answer_id. Trace each feedback row like any
+requirement: covered by the acceptance criterion or required_behaviors entry that now delivers it. Where the feedback
+contradicts part of the shown plan, change that item and record it in contract_changes; leave conflict_resolutions
+empty, since they settle only conflicts a Requirements report recorded. Ask a blocking question only for a choice the
+feedback leaves open.
+"""
+
+RERUN_RULE = """
+If the feedback changes what is being built, so that the requirements must be gathered again (a different
+product, user or outcome, not an added or changed behavior), do not revise: set requirements_rerun to one sentence
+saying why. The runner then discards this draft and runs the Requirements stage. Otherwise leave it empty.
+"""
+
+FEEDBACK_TRACE_RULE = """
+FEEDBACK ROWS. requirement_trace_rows whose requirement_id is a feedback event ID are the user's feedback on a plan
+they were shown. Trace them like any requirement: covered by an acceptance criterion or required_behaviors entry.
+"""
+
+FEEDBACK_REVIEW_RULE = """
+FEEDBACK REVISION. This draft revises a plan the user was shown, to apply their feedback: the
+requirement_trace_rows whose requirement_id is a feedback event ID. Check that each is applied as the user said
+it, without reading more into it, and that nothing they asked for earlier was lost. A feedback row the plan does
+not deliver is a blocking concern.
+"""
+FEEDBACK = "revises_plan"
+
 
 def enabled(state: dict) -> bool:
     return bool((state.get("settings") or {}).get(SETTING))
@@ -114,24 +155,74 @@ def entry_stage(state: dict, value: dict, then: str, planner_stage: str) -> str:
 
 
 def report_schema(state: dict, stage: str, base: dict, planning_body: dict) -> dict:
-    """A Planner report schema whose contract carries initial_task in adaptive runs."""
+    """A Planner report schema whose contract carries initial_task in adaptive runs. A draft that revises
+    the shown plan from feedback may also send it back to Requirements (requirements_rerun, optional)."""
     if not enabled(state) or stage not in ("astra_discovery", "glm_revise"):
         return base
     schema = copy.deepcopy(base)
     schema["properties"]["contract"] = copy.deepcopy(planning_body)
+    if stage == "astra_discovery" and can_rerun(state):
+        schema["properties"]["requirements_rerun"] = {"type": "string"}
     return schema
 
 
 def prompt_rule(state: dict, stage: str) -> str:
     if not enabled(state):
         return ""
+    feedback = bool(feedback_requirements(state))
     if stage == "astra_discovery":
-        return PLANNER_RULE + ("" if state.get("requirements_handoff") else NO_REQUIREMENTS_RULE)
+        return (PLANNER_RULE + ("" if state.get("requirements_handoff") else NO_REQUIREMENTS_RULE)
+                + (FEEDBACK_RULE if feedback else "") + (RERUN_RULE if can_rerun(state) else ""))
     if stage == "glm_revise":
-        return PLANNER_RULE
+        return PLANNER_RULE + (FEEDBACK_TRACE_RULE if feedback else "")
     if stage == "astra_challenge":
-        return REVIEW_RULE
+        return REVIEW_RULE + (FEEDBACK_REVIEW_RULE if feedback else "")
+    if stage == "astra_finalize":
+        return FEEDBACK_TRACE_RULE if feedback else ""
     return ""
+
+
+def _handoff(state: dict) -> str:
+    """The current requirements handoff, by its report's output path; "" when Requirements has not run."""
+    return str((state.get("requirements_handoff") or {}).get("output") or "")
+
+
+def feedback_marker(state: dict) -> dict:
+    """What to save on a brief_feedback event given now: {FEEDBACK: ...} when it revises the plan the user was
+    shown (an adaptive run, on the default joint-planning flow, waiting for approval of a complete plan), else {}.
+    Feedback while questions are open, or queued during execution, keeps the full pipeline."""
+    settings = state.get("settings") or {}
+    if (enabled(state) and settings.get("joint_planning") and settings.get("planning_flow") != "v2"
+            and state.get("status") == "AWAITING_GOAL_APPROVAL" and (state.get("goal_contract") or {}).get("body")):
+        return {FEEDBACK: {"requirements_handoff": _handoff(state)}}
+    return {}
+
+
+def feedback_stage(event: dict, default: str) -> str:
+    """The first stage after a brief_feedback event: the Planner when the feedback revises the shown plan."""
+    return "astra_discovery" if event.get(FEEDBACK) else default
+
+
+def feedback_requirements(state: dict) -> list[dict]:
+    """Feedback the Planner must trace as requirements, as requirements-handoff rows quoting the user: each
+    feedback that revised a shown plan and that no Requirements report has read since (a later one takes it in)."""
+    current = _handoff(state)
+    return [{"id": event["id"], "text": event.get("text", ""), "source_quote": event.get("text", "")}
+            for event in state.get("brief_feedback") or []
+            if isinstance(event, dict) and event.get("id") and isinstance(event.get(FEEDBACK), dict)
+            and event[FEEDBACK].get("requirements_handoff") == current]
+
+
+def can_rerun(state: dict) -> bool:
+    """Whether a Planner draft may send the feedback it revises from back to Requirements: only while there is
+    such feedback and the run has a Requirements stage to send it to."""
+    return bool(feedback_requirements(state)) and "requirements" in ((state.get("settings") or {}).get("roles") or {})
+
+
+def requirements_rerun(state: dict, value: dict) -> str:
+    """The Planner's reason to gather requirements again instead of revising the shown plan; "" to revise."""
+    reason = str(value.get("requirements_rerun") or "").strip() if enabled(state) else ""
+    return reason if reason and can_rerun(state) else ""
 
 
 def plan_size(body: dict) -> dict:

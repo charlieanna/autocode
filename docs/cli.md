@@ -49,7 +49,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--chat` | Interactive chat mode (default in a terminal). |
 | `--no-chat` | One command per turn (default for non-interactive). |
 | `--answer 'Q1=…'` | Answer a requirements question (repeatable). Requires the current `--resolver-token` shown by AutoResolver. |
-| `--feedback '…'` | Send a correction; returns to discovery and requires fresh approval. |
+| `--feedback '…'` | Send a correction; returns to discovery and requires fresh approval. With `--adaptive-planning`, feedback on a plan shown for approval goes to the Planner, which revises it. |
 | `--follow-up '…'` | Say the next thing to a finished run ("Fix them." after a review): the run recognizes the new job and continues in the same run directory. |
 | `--delegate Q1` | Accept a question's proposed default. Requires the current `--resolver-token` shown by AutoResolver. |
 | `--delegate-all --review-token 'r3:<hash>'` | Delegate every pending question marked `delegable` with a proposed default, on the exact displayed revision. Refuses the whole call if any question lacks a default, is not delegable, has a protected or missing category (cost, quota, permission, external side effect, requested outcome), or asks about a rejected assumption. Never approves; invalidates any existing approval. |

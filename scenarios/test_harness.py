@@ -856,23 +856,34 @@ class PlanCompareTests(unittest.TestCase):
         self.assertTrue(all(case.brief for case in cases))
 
     def test_each_adaptive_path_reaches_plan_approval_with_fewer_calls(self):
-        wanted = {"tiny-greeting": ["recognize_workflow", "astra_discovery", "astra_challenge"],
-                  "vague-refunds": ["recognize_workflow", "requirements_gather", "astra_discovery", "astra_challenge"],
-                  "diamond-four-milestones": ["recognize_workflow", "astra_discovery", "astra_challenge",
-                                              "glm_revise", "astra_challenge"]}
+        # Per case: the adaptive run's stages up to the first plan, then after the feedback on it.
+        plan, review, revise = "astra_discovery", "astra_challenge", "glm_revise"
+        wanted = {"tiny-greeting": (["recognize_workflow", plan, review], [plan, review]),
+                  "vague-refunds": (["recognize_workflow", "requirements_gather", plan, review], [plan, review]),
+                  "diamond-four-milestones": (["recognize_workflow", plan, review, revise, review],
+                                              [plan, review, revise, review]),
+                  # The Planner sends feedback that changes the product back to Requirements.
+                  "vague-reading-list": (["recognize_workflow", "requirements_gather", plan, review, revise,
+                                          "astra_finalize"],
+                                         [plan, "requirements_gather", plan, review, revise, "astra_finalize"])}
         cases = [case for case in plan_compare.load() if case.id in wanted]
         with tempfile.TemporaryDirectory(prefix="plan-compare-test-") as out:
             records = plan_compare.run(cases, Path(out), jobs=4, fake=True, profile=None,
-                                       autocode=run.default_autocode(), timeout_minutes=5, max_steps=20)
-            self.assertTrue((Path(out) / "blind" / "key.json").is_file())
-        for case_id, stages in wanted.items():
+                                       autocode=run.default_autocode(), timeout_minutes=5, max_steps=30)
+            self.assertIn("## Feedback on the first plan", (Path(out) / "blind" / "tiny-greeting.md").read_text())
+        for case_id, (first, after) in wanted.items():
             with self.subTest(case=case_id):
                 today, adaptive = records[(case_id, "today")], records[(case_id, "adaptive")]
                 self.assertEqual(("approve_plan", "approve_plan"), (today["ended"], adaptive["ended"]),
                                  today["error"] or adaptive["error"])
-                self.assertEqual(stages, adaptive["model_stages"])
+                self.assertEqual(first, adaptive["model_stages"])
                 self.assertEqual(6, today["model_calls"], today["model_stages"])
                 self.assertTrue(adaptive["final_plan"])
+                self.assertEqual(after, adaptive["feedback_round"]["model_stages"])
+                self.assertEqual(case_id == "vague-reading-list", bool(adaptive["feedback_round"]["requirements_rerun"]))
+                self.assertEqual(["requirements_gather", plan, review, revise, "astra_finalize"],
+                                 today["feedback_round"]["model_stages"], "today restarts from Requirements")
+                self.assertTrue(today["feedback_round"]["final_plan"] and adaptive["feedback_round"]["final_plan"])
 
 
 class ApiCostTests(unittest.TestCase):

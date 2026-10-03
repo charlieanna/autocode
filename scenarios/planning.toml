@@ -9,47 +9,61 @@
 # scripted model says in fake mode, so every adaptive path runs offline:
 #   clarity         the recognizer's answer (default "clear")
 #   blocking_review 1 makes the first plan review blocking, so the revise path runs
+#   requirements_rerun 1 makes the Planner send the feedback back to Requirements
+#
+# `feedback` is sent instead of approving the first plan; the run then goes on to the next
+# plan shown for approval, and the comparison reports that feedback round separately. One
+# case changes what is being built, so a Planner revising the plan should send it back to
+# Requirements.
 
 [[case]]
 id = "tiny-greeting"
 seed = "greenfield-greeting-cli"
+feedback = "Also accept an optional --shout flag before the name that prints the greeting in upper case, exiting 0; everything else stays as planned."
 expect = { clarity = "clear", size = "small" }
 
 [[case]]
 id = "small-json-flag"
 seed = "feature-timesheet-by-project"
 brief = "Add a --json option to `python3 -m timesheet report` that prints the same rows as a JSON array of objects with keys week and hours, instead of the text table. Without the option the output is unchanged. Add tests for both."
+feedback = "In the JSON output, give hours as a number rounded to two decimals, not a string."
 expect = { clarity = "clear", size = "small" }
 
 [[case]]
 id = "feature-by-project"
 seed = "feature-timesheet-by-project"
+feedback = "Also print a blank line between weeks in the --by-project output, before each new week after the first."
 expect = { clarity = "clear", size = "small" }
 
 [[case]]
 id = "extend-record-query"
 seed = "ladder-07-stable-record-query"
+feedback = "Also allow sort_by=\"status\", compared as a case-sensitive string, with the same stability and missing-value rules as name."
 expect = { clarity = "clear", size = "small" }
 fake = { blocking_review = 1 }
 
 [[case]]
 id = "tenant-http-api"
 seed = "ladder-16-tenant-http-api"
+feedback = "Also add GET /health, which returns 200 with {\"ok\": true} and does not require the X-Tenant header."
 expect = { clarity = "clear", size = "medium" }
 
 [[case]]
 id = "transactional-outbox"
 seed = "ladder-19-transactional-outbox"
+feedback = "Also add published_count(), which returns how many events have been acknowledged so far."
 expect = { clarity = "clear", size = "medium" }
 
 [[case]]
 id = "deployment-planner"
 seed = "ladder-24-deployment-config-plan"
+feedback = "Also reject service names that contain whitespace, with ValueError."
 expect = { clarity = "clear", size = "large" }
 
 [[case]]
 id = "diamond-four-milestones"
 seed = "parallel-diamond"
+feedback = "Also make check() include the node name it was called with in the string it returns."
 expect = { clarity = "clear", size = "large" }
 fake = { blocking_review = 1 }
 
@@ -57,6 +71,7 @@ fake = { blocking_review = 1 }
 id = "vague-timesheet-useful"
 seed = "feature-timesheet-by-project"
 brief = "Project managers say the timesheet report is not very useful to them. Make it more useful for them."
+feedback = "What they want most is hours per project for each week; keep the existing report output exactly as it is."
 expect = { clarity = "vague" }
 fake = { clarity = "vague" }
 
@@ -64,6 +79,7 @@ fake = { clarity = "vague" }
 id = "vague-refunds"
 seed = "feature-refund-window"
 brief = "Customers keep asking us for refunds and we handle them by hand. Add refund support to the shop."
+feedback = "Also refuse any single refund of less than 100 cents, with the reason \"minimum refund is 100 cents\"."
 expect = { clarity = "vague" }
 fake = { clarity = "vague" }
 
@@ -71,5 +87,6 @@ fake = { clarity = "vague" }
 id = "vague-reading-list"
 seed = "greenfield-greeting-cli"
 brief = "I want a little command-line tool to keep track of the books I am reading."
+feedback = "Actually, make it a small local web page I open in the browser instead of a command-line tool."
 expect = { clarity = "vague" }
-fake = { clarity = "vague", blocking_review = 1 }
+fake = { clarity = "vague", blocking_review = 1, requirements_rerun = 1 }
