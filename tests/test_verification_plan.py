@@ -52,6 +52,20 @@ class CommandsTests(unittest.TestCase):
         self.assertEqual(["python3 -m unittest -v"], plan.commands(
             "Run `python3 -m unittest -v` and confirm it exits successfully."))
 
+    def test_declared_zero_exits_keep_the_original_required_commands(self):
+        self.assertEqual(["go test ./a", "go test ./b"], plan.commands(
+            "Run `go test ./a` and `go test ./b` and confirm exit codes 0/0."))
+
+    def test_exit_expectations_with_ambiguous_assignments_are_refused(self):
+        for method in (
+            "Run `go test ./a` and `go test ./b` and confirm exit code 2.",
+            "Run `go test ./a` and inspect `README.md` then confirm exit code 2.",
+            "Run `go test ./a` and confirm exit code 256.",
+            "Run `go test ./a` and confirm exit code -1.",
+        ):
+            with self.subTest(method=method), self.assertRaisesRegex(ValueError, "one status.*per executable command"):
+                plan.commands(method)
+
     def test_later_milestone_commands_are_not_forced_on_the_current_task(self):
         state = {"goal_contract": {"body": {"acceptance_criteria": [
             {"id": "C1", "verification_method": "go test ./first"},

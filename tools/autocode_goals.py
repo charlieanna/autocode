@@ -126,80 +126,16 @@ unrelated refactors, and keep review concerns to whether the plan fixes the root
 proves it. Before completion the runner itself runs the new or changed tests against the
 original code (they must fail) and the fixed code (they must pass), then the project suite.
 """
-USER_REQUEST = obj({"kind": {"type": "string", "enum": [
-    "none", "clarification", "contradiction", "infeasible", "permission", "goal_change", "blocker"]},
-    "discovered": STRING, "impact": STRING, "decision_needed": STRING,
-    "options": STRINGS, "proposed_delta": STRING})
+try:
+    from .autocode_role_schema import USER_REQUEST, role_schema
+except ImportError:
+    from autocode_role_schema import USER_REQUEST, role_schema
 
 
-def role_schema(legacy, role):
-    schema = copy.deepcopy(legacy)
-    schema["properties"].update(contract_revision={"type": "integer"}, contract_hash=STRING, task_id=STRING,
-                                user_request=USER_REQUEST, deferred_backlog=STRINGS)
-    schema["required"] += ["contract_revision", "contract_hash", "task_id", "user_request", "deferred_backlog"]
-    if role == "astra":
-        schema["properties"]["status"]["enum"] = ["CONTINUE", "REWORK", "BLOCKED", "COMPLETE"]
-        schema["properties"]["next_task"] = obj({
-            "kind": {"type": "string", "enum": ["implement", "validate", "none"]},
-            "milestone_id": STRING, "requirements": STRINGS,
-            "acceptance_criteria": STRINGS, "validation_plan": STRINGS,
-        })
-        # Optional: the ledger IDs this task addresses (default: every open finding).
-        schema["properties"]["next_task"]["properties"]["findings"] = STRINGS
-        # Optional structured reviewer findings; prose in requirements is not tracked.
-        schema["properties"]["findings"] = {"type": "array", "items": {
-            "type": "object", "additionalProperties": False, "required": ["severity", "finding", "evidence"],
-            "properties": {"id": STRING,
-                           "severity": {"type": "string", "enum": ["critical", "high", "medium", "low"]},
-                           "finding": STRING, "evidence": STRING, "blocking": {"type": "boolean"}}}}
-        schema["properties"]["finding_dispositions"] = {"type": "array", "items": {
-            "type": "object", "additionalProperties": False, "required": ["id", "disposition", "evidence"],
-            "properties": {"id": STRING, "disposition": {"type": "string", "enum": ["resolved", "retracted"]},
-                           "evidence": STRING}}}
-        schema["properties"]["agreed_limitations"] = STRINGS
-        schema["required"] += ["next_task", "agreed_limitations"]
-    if role == "terra":
-        for key in ("addressed_requirements", "untested_behavior", "recommended_checks"):
-            schema["properties"][key] = STRINGS
-            schema["required"].append(key)
-    if role == "sol":
-        findings = schema["properties"]["findings"]["items"]
-        findings["properties"]["id"] = STRING
-        findings["properties"]["blocking"] = {"type": "boolean"}
-        findings["required"].append("blocking")
-        for key, field in {"reproduction_steps": STRINGS, "expected": STRING, "actual": STRING,
-                           "why_it_matters": STRING, "suggested_correction": STRING}.items():
-            findings["properties"][key] = field
-            findings["required"].append(key)
-        schema["properties"]["criterion_results"]["items"]["properties"]["status"]["enum"] = [
-            "PASS", "FAIL", "NOT_VERIFIED"]
-        schema["properties"]["end_to_end_result"] = obj({
-            "status": {"type": "string", "enum": ["PASS", "FAIL", "NOT_VERIFIED"]},
-            "summary": STRING, "evidence_refs": STRINGS,
-        })
-        schema["properties"]["finding_dispositions"] = {"type": "array", "items": {
-            "type": "object", "additionalProperties": False, "required": ["id", "disposition", "evidence"],
-            "properties": {"id": STRING, "disposition": {"type": "string", "enum": ["resolved", "retracted"]},
-                           "evidence": STRING}}}
-        schema["required"].append("end_to_end_result")
-    return schema
-
-
-def token(contract):
-    return f"r{contract['revision']}:{contract['hash']}"
-
-
-def sealed(contract):
-    return contract.get("hash") == s.digest({k: contract[k] for k in ("task_id", "revision", "body")})
-
-
-def approved(state):
-    contract = state.get("goal_contract", {})
-    approval = contract.get("approval_event") or {}
-    return bool(contract and sealed(contract) and contract.get("approval_status") == "approved"
-                and approval.get("token") == token(contract) and workflows.approval_actor_ok(contract.get("origin"), approval)
-                and approval in state.get("user_events", [])
-                and not contract["body"]["open_blocking_questions"])
+try:
+    from .autocode_contract_identity import token, sealed, approved
+except ImportError:
+    from autocode_contract_identity import token, sealed, approved
 
 
 def validate_requirements_body(state, body):

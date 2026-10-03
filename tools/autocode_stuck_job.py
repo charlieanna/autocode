@@ -52,9 +52,11 @@ from pathlib import Path
 
 try:
     from . import autocode_stray_writes as stray_writes
+    from . import autocode_progressive_state as progressive
     from .autocode_test_cases import run_probes
 except ImportError:
     import autocode_stray_writes as stray_writes
+    import autocode_progressive_state as progressive
     from autocode_test_cases import run_probes
 
 STAGE = "investigate_stuck"
@@ -167,6 +169,8 @@ def intercept(state: dict, status: str, reason: str) -> bool:
     investigated, or the run's investigation budget is spent.
     """
     stuck = state.get("next_stage")
+    if progressive.retained_review_budget_pause(state, status):
+        return False
     if (not enabled(state) or status not in STATUSES or state.get("active_stage")
             or not isinstance(stuck, str) or not stuck or stuck in NEVER):
         return False

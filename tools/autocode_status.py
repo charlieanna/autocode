@@ -16,6 +16,27 @@ ROLES = {'recognize_workflow': 'Job recognizer', 'review_change': 'Reviewer', 'i
          'plan_finalizer': 'Plan Reviewer'}
 
 
+def role_name(stage):
+    """Human role for a stage code name: 'terra' -> 'Builder'. Report repair stays the same role."""
+    if not stage:
+        return ''
+    stage = str(stage).removesuffix('_report_repair')
+    return ROLES.get(stage, stage.replace('_', ' ').title())
+
+
+def _model(active):
+    route = active.get('launch_route') or {}
+    if route.get('model'):
+        return str(route['model'])
+    command = active.get('command')
+    if not isinstance(command, list):
+        return None
+    for flag in ('--model', '-m'):
+        if flag in command and command.index(flag) + 1 < len(command):
+            return str(command[command.index(flag) + 1])
+    return None
+
+
 def record(state, *, timestamp=None):
     if not all(key in state for key in ('task', 'workspace', 'status')):
         return None
@@ -23,7 +44,7 @@ def record(state, *, timestamp=None):
     check = state.get('active_runner_check') or {}
     active = state.get('active_stage') or check
     stage = active.get('stage') or state.get('next_stage') or ''
-    role = ROLES.get(stage.removesuffix('_report_repair'), stage.replace('_', ' ').title() or 'Runner')
+    role = role_name(stage) or 'Runner'
     task = state.get('current_task') or {}
     activity = active.get('activity') or {}
     batch = state.get('orchestration_batch') or {}
@@ -72,7 +93,10 @@ def record(state, *, timestamp=None):
         role = 'Runner'
         text = check['summary'] + '. This check runs locally before the Validator; no model is active.'
     else:
+        shown = _model(active) if active else None
         text = f'{role}{" started" if active else " queued"}: ' + (task.get('objective') or 'Working on the task.')
+        if shown:
+            text += f' [{shown}]'
         if activity:
             text += f' Activity: {activity.get("activity", "waiting for provider").replace("_", " ")}.'
             if activity.get('elapsed_seconds') is not None:

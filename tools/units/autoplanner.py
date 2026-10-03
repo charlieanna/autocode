@@ -13,6 +13,7 @@ try:
     from .. import autocode_stage_context as stage_context, autocode_acceptance_policy as acceptance_policy
     from .. import autocode_bug_job as bug_job, autocode_workflows as workflows, autocode_test_cases as test_cases
     from .. import autocode_follow_up as follow_up, autocode_adaptive_planning as adaptive, autocode_draft_examples as examples
+    from .. import autocode_progressive_state as progressive
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
     import autocode_test_cases as test_cases
@@ -25,6 +26,7 @@ except ImportError:
     import autocode_workflows as workflows
     import autocode_adaptive_planning as adaptive
     import autocode_draft_examples as examples
+    import autocode_progressive_state as progressive
 
 STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
 # A build that implements an approved design (autocode_design_check_job) skips requirements
@@ -168,6 +170,11 @@ CONTRACT DELTA: contract_changes describes only changes from the current goal_co
 handoff, not cumulative history. A permission already incorporated into that revision is not a new change:
 retain its approved text, cite the saved authorization in the summary, and omit it from contract_changes.
 If no protected item changes against the current revision, return contract_changes=[].
+Use exact protected item identities: an acceptance criterion ID such as AC1, or the previous verbatim
+protected list/permission string. Do not use field labels such as "AC1 verification_method",
+"AC8 (new criterion added)", "technical_approach", "M1" or "initial_task" as contract_changes.item.
+Allowed draft proof corrections, new criteria and implementation proposal edits need no delta;
+return [] for them. This does not authorize changing existing behavior, permissions or approved proofs.
 SOURCE CITATIONS: code_refs contains existing repository source paths, optionally :line, never a runner
 state file, .autocode/ artifact, cache, or explanatory sentence. state_file is context to read, not source
 to cite. Read the workspace_inventory candidates; a citation repair changes citations, not requirements.
@@ -261,7 +268,10 @@ CONFLICT_RESOLUTION = obj({"requirement_ids": SS,
 CHANGE = obj({"item": S, "change": {"type": "string", "enum": ["removed", "reworded", "permission_changed"]},
               "basis": {"type": "string", "enum": ["user_answer", "user_feedback", "agent_proposed"]},
               "answer_id": S, "replacement": S})
-CHANGE["properties"]["example_correction"] = examples.RECEIPT_SCHEMA
+# Only a draft example correction carries a receipt. Generation schemas require every field, so a change
+# that is not one says null; as a plain object field GLM 5.3's null failed every report declaring a
+# contract change (2026-10-02). Readers treat anything but an object as no correction.
+CHANGE["properties"]["example_correction"] = {**examples.RECEIPT_SCHEMA, "type": ["object", "null"]}
 TRACE = obj({"requirement_id": S, "disposition": {"type": "string", "enum": ["covered", "excluded", "superseded"]},
              "evidence": S})
 # New reports use the structured form; this is also the generation schema, so
@@ -368,6 +378,21 @@ for _stage in ("astra_discovery", "glm_revise"):
     SCHEMAS[_stage]["properties"]["remediation_records"] = {"type": "array", "items": REMEDIATION}
 for _stage in ("astra_challenge", "astra_finalize"):
     SCHEMAS[_stage]["properties"]["obligation_decisions"] = {"type": "array", "items": OBLIGATION_DECISION}
+# Optional progressive proposal for goals that only succeed as several useful
+# end-to-end slices. The runner validates it, generates the plan-card disclosure
+# from it and seals it at ordinary approval; a report without one keeps the
+# ordinary path. Old saved reports remain valid.
+PROGRESSIVE_CHECK = obj({"id": S, "method": S,
+                         "relation": {"type": "string", "enum": ["contributes_to", "fully_verify"]},
+                         "criterion_ids": SS})
+PROGRESSIVE_SLICE = obj({"id": S, "intended_result": S, "criterion_ids": SS, "paths": SS, "depends_on": SS,
+                         "checks": {"type": "array", "items": PROGRESSIVE_CHECK},
+                         "tentative": {"type": "boolean"}})
+PROGRESSIVE_PROPOSAL = obj({"version": {"type": "integer"}, "needed_because": S, "shared_decisions": SS,
+                            "outstanding_criteria": SS, "done_slices": SS,
+                            "slices": {"type": "array", "items": PROGRESSIVE_SLICE}})
+for _stage in ("astra_discovery", "glm_revise", "astra_finalize", "plan", "plan_revise", "plan_finalize"):
+    SCHEMAS[_stage]["properties"]["progressive_proposal"] = PROGRESSIVE_PROPOSAL
 
 
 # The job type travels requirements -> contract -> approval. Every planning stage still runs;
@@ -507,6 +532,7 @@ def set_review_call_limit(state, limit):
     if limit == previous and state['planning'].get('review_call_limit_origin') == 'user_explicit':
         return
     state["planning"]["review_call_limit"] = limit
+    progressive.set_explicit_limits(state, review_calls=limit)
     state['planning']['review_call_limit_origin'] = 'user_explicit'
     if limit == 0:
         state['settings']['planning_review_call_limit'] = 0
@@ -537,6 +563,8 @@ def refund_unreported(state, planning):
 
 def charge(state, stage, record=None, workspace=None):
     if stage not in ("astra_challenge", "astra_finalize", "plan_review", "plan_finalize"):
+        return
+    if progressive.charge_review(state, stage, record):
         return
     planning = state["planning"]
     refund_unreported(state, planning)
@@ -683,8 +711,8 @@ the real requirement. Preserve the user's outcome until they explicitly change i
 Settle EVERY concern by ID using the Planner's evidence-backed responses and source inspection as needed.
 Confirm that milestone dependencies are complete and acyclic, and that [] is used only
 for genuinely independent work. Do not schedule or launch milestones.
-Return the proposed final contract and concise decisions/rationales/tests. Include initial_task
-in the contract: objective, affected_paths, kind (implement or validate), milestone_id,
+Return the proposed final contract and concise decisions/rationales/tests. Include contract.initial_task
+inside contract, never at the report root: objective, affected_paths, kind (implement or validate), milestone_id,
 requirements, acceptance_criteria IDs, validation_plan. Its milestone must have depends_on [].
 Make it a substantial, coherent,
 executable milestone including related changes, tests, local fixes and evidence.
@@ -766,6 +794,65 @@ obligation, using its current remediation_hash; resolved=false in the first revi
 blocking concern citing the obligation id. At final review, any obligation still unresolved is
 asked as a decision question under its id, and initial_task.kind must be "none". Otherwise use
 [] for remediation_records and obligation_decisions.
+"""
+
+
+def obligation_policy(stage):
+    """Request only obligation fields this planning stage can return."""
+    if stage != "astra_finalize":
+        return OBLIGATION_POLICY
+    return """
+REJECTED ASSUMPTIONS. deferred_obligations lists assumptions the user rejected; never rely on a
+rejected assumption again, even reworded. An open obligation of kind human_decision must be asked
+as a kind="decision" question whose id is the obligation id; the plan stays clarification-only
+until the user answers it. Review the Planner's saved remediation proposals. Add one
+obligation_decisions entry {obligation_id, remediation_hash, resolved, rationale, evidence_refs}
+for every pending_review obligation, using its current remediation_hash and substantive evidence.
+Any obligation still unresolved is asked as a decision question under its id in
+contract.open_blocking_questions, and contract.initial_task.kind must be "none".
+When no obligations await review, use [] for obligation_decisions. Omit remediation_records;
+the finalization report does not propose remediations.
+"""
+
+
+PROGRESSIVE_POLICY = """
+When revising a previously approved progressive product goal, retain prior check obligations by
+default. A removal requires an exact visible scope_exclusions string:
+'Progressive check retirement: ' + canonical JSON {check_id,check_hash,removes}, with sorted keys
+and separators (',',':'). check_hash is the old check definition identity; removes must name an
+exact old required behavior or criterion text removed from the revised product. Never retire an
+unrelated check, infer removal from changed IDs, or claim a model approval. Ordinary independent
+review and explicit user approval of the new goal token are required before retirement takes effect.
+The runner mirrors the exact scope_exclusions retirement declaration into visible constraints
+before independent review and user approval; retain that exact line, never a conflicting mirror.
+PROGRESSIVE PLANNING (optional). When the goal only succeeds as several genuinely useful end-to-end
+slices, propose a progressive plan instead of one long build: progressive_proposal
+{version: 1, needed_because, shared_decisions, outstanding_criteria, done_slices, slices}. The report
+schema always includes progressive_proposal; when the goal does not need progressive planning return
+its empty form (version 0, empty strings and lists, no slices), which means no proposal. Propose
+it only when those slices and their boundaries can be stated from the requirements and repository
+evidence; never for a small or tightly coupled task, and never to paper over an ambiguous outcome
+(clarify that instead). The product outcome stays fixed: slices deliver it progressively.
+Every acceptance criterion ID must be planned on at least one slice or listed in outstanding_criteria;
+a revision may split, reorder or replace future slices but may never drop a criterion from that map.
+slices[0] is the first slice: the main user journey across the essential layers, with an observable
+useful result, bounded writable paths (paths), the product criteria it touches (criterion_ids) and
+nonempty checks. Later slices are marked tentative: true: not dispatchable until a reviewed slice
+revision promotes them. Investigation or setup work may be tasks inside a slice, but is never
+reported as delivery.
+A check is {id, method, relation, criterion_ids}: relation is contributes_to (the slice demonstrates
+part of the criterion; the criterion stays open) or fully_verify (this proof can establish the
+criterion). method must contain an explicit supported command the runner can replay at the
+checkpoint, for example `python -m pytest tests/test_journey.py -q`; prose that merely describes
+verification is refused, and the command must use repository source or fixtures, never run/session
+state. The commands need not pass before the slice is built.
+The runner generates the plan-card disclosure from your proposal into constraints and
+technical_approach (the delegation, its limits and the slice sequence). Never write lines starting
+"Progressive delegation:", "Progressive slice:" or "Product criteria explicitly outstanding:";
+mismatched hand-written disclosure is refused. Initial approval delegates continuation within the
+agreed outcome, constraints and permissions; product changes, new permissions and unresolved product
+decisions still return to the user, and every slice still gets independent plan review and
+verification.
 """
 
 
@@ -912,13 +999,19 @@ def context(state, stage, state_path):
     if stage in ("requirements_gather", "astra_discovery"):
         packet['workspace_inventory'] = workspace_inventory(state['workspace'], state['task'])
     try:
-        from .. import autocode_figma as figma
+        from .. import autocode_figma as figma, autocode_design_manifest as design_manifest
     except ImportError:
-        import autocode_figma as figma
+        import autocode_figma as figma, autocode_design_manifest as design_manifest
     figma_instruction = figma.instructions(state["settings"])
+    manifest_context = design_manifest.context(state["settings"])
+    if manifest_context:
+        packet["design_manifest"] = manifest_context
+        figma_instruction += design_manifest.INSTRUCTION
     planning_policy = "" if stage == "requirements_gather" else (
         goals.DECISION_PROVENANCE + goals.CONTRACT_REFERENCES + examples.RULE + s.MILESTONE_POLICY + EVIDENCE_FACTS
         + ("" if stage in ("astra_challenge", "plan_review") else CONTRACT_FIELDS_RULE))
+    progressive_policy = PROGRESSIVE_POLICY if stage in ("astra_discovery", "glm_revise", "astra_challenge",
+                                                         "astra_finalize") else ""
     if stage != "requirements_gather":
         packet["capture_command"] = capture_command()
     clarification_policy = ("" if stage == "astra_challenge" else QUESTION_POLICY) + (
@@ -926,7 +1019,7 @@ def context(state, stage, state_path):
     if stage != "requirements_gather":
         packet["deferred_obligations"] = state.get("deferred_obligations", [])
         packet["clarification_episode"] = state.get("clarification_episode")
-        clarification_policy += OBLIGATION_POLICY
+        clarification_policy += obligation_policy(stage)
     request = state.get("investigation_request")
     if request and request.get("stage") == stage:
         # Correctness must not depend on provider-session memory: the pass gets
@@ -946,7 +1039,7 @@ def context(state, stage, state_path):
     if rows and stage in TRACE_STAGES:
         design_rule += REQUIREMENT_TRACE_RULE
     design_rule += adaptive.prompt_rule(state, stage)
-    prompt = (PROMPTS[stage] + JOB_TYPE_POLICY + design_rule + recovery_instruction + figma_instruction + planning_policy + clarification_policy + s.COMMON
+    prompt = (PROMPTS[stage] + JOB_TYPE_POLICY + design_rule + recovery_instruction + figma_instruction + planning_policy + clarification_policy + progressive_policy + s.COMMON
               + "\nWork read-only; return the report, the runner saves it.\nCURRENT HANDOFF DATA\n"
               + json.dumps(packet, indent=2))
     return prompt, {"estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
@@ -955,6 +1048,27 @@ def context(state, stage, state_path):
 
 def prepare(state, stage, state_path, schema_dir):
     from .common import ModelRequest
+    if progressive.revision_pending(state):
+        transition = progressive.view(state)["transition"]
+        schema = (obj({"summary": S, "progressive_proposal": PROGRESSIVE_PROPOSAL,
+                       "initial_task": goals.PLANNING_BODY_SCHEMA["properties"]["initial_task"]})
+                  if transition["phase"] == "detail" else obj({"summary": S, "accepted": {"type": "boolean"},
+                      "product_changes": {"type": "boolean"}, "permission_changes": {"type": "boolean"},
+                      "unresolved_product_decisions": {"type": "boolean"}}))
+        packet = {"goal_contract": state["goal_contract"], "progressive": progressive.context(state),
+                  "progressive_revision": copy.deepcopy(transition), "previous_plan": progressive.view(state)["plan"],
+                  "stage": stage, "task": state["task"], "workspace": state["workspace"],
+                  "current_task": state.get("current_task"), "saved_answers": state.get("answers", {})}
+        prompt = ("Detail/review the next useful slice within the unchanged approved product contract. "
+                  "Do not implement or replace the contract. Retain done_slices and cumulative obligations. "
+                  "The Planner returns a concrete first slice plus its initial_task; the independent Reviewer "
+                  "must inspect the exact persisted candidate and accept only in-bounds technical changes. "
+                  "Product/permission changes or unresolved product decisions cannot be automatically activated.\nCURRENT HANDOFF DATA\n"
+                  + json.dumps(packet, indent=2))
+        role = role_for(state, stage)
+        return ModelRequest(role, route_for(state, stage, role), prompt,
+            {"estimated_prompt_tokens": (len(prompt.encode()) + 3) // 4,
+             "soft_budget_tokens": state["settings"].get("context_soft_tokens", 10000)}, schema, False)
     if stage == RECOGNIZE:
         state["phase"] = "DISCOVERING"
         role = role_for(state, stage)
@@ -997,7 +1111,10 @@ def after_challenge(state, value, record):
             planning["review_call_limit"] = adaptive.review_limit(planning["adaptive"]["size"], review_call_limit(state))
         planning["adaptive"]["review_limit"] = review_call_limit(state)
     planning["adaptive"]["challenges"] += 1
-    if adaptive.blocking(value["concerns"]) or not adaptive.approvable(contract["body"]):
+    if (adaptive.blocking(value["concerns"]) or not adaptive.approvable(contract["body"])
+            or progressive.view(state).get("candidate")):
+        # A progressive delegation is authorized by an accepted revision and final
+        # independent review. A challenge cannot supply that approval evidence.
         state["next_stage"] = "glm_revise"
         return
     try:
@@ -1013,7 +1130,7 @@ def after_challenge(state, value, record):
 
 def after_revise(state):
     """After a revision: the final review, or in an adaptive run another first-style review while budget allows."""
-    if not adaptive.enabled(state):
+    if not adaptive.enabled(state) or progressive.view(state).get("candidate"):
         return "astra_finalize"
     planning = state["planning"]
     return adaptive.after_revise(review_call_limit(state), planning["astra_calls"],

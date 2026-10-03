@@ -27,6 +27,7 @@ try:
     from . import autocode_milestones as milestones
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
+    from . import autocode_progressive_state as progressive
     from . import autocode_resolver_human as resolver_human
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_support as support
@@ -45,6 +46,7 @@ except ImportError:
     import autocode_milestones as milestones
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
+    import autocode_progressive_state as progressive
     import autocode_resolver_human as resolver_human
     import autocode_resolver_runtime as resolver_runtime
     import autocode_support as support
@@ -67,6 +69,11 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                                          lambda: support.snapshot(workspace)["revision"])
     if dependency_result is not None:
         return dependency_result
+    explicit_run_seconds = getattr(args, "max_seconds", None)
+    explicit_slice_seconds = getattr(args, "max_milestone_seconds", None)
+    if explicit_run_seconds is not None or explicit_slice_seconds is not None:
+        progressive.set_explicit_limits(state, run_seconds=explicit_run_seconds,
+                                        slice_seconds=explicit_slice_seconds)
     decision_action = any((args.answer, args.delegate, args.approve_goal, args.edit_goal,
                            args.approve_review, args.reconcile_review, args.feedback is not None, args.follow_up is not None,
                            args.show_goal, args.accept_completion, args.resolver_response,
@@ -195,7 +202,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             if state.get("recovery_context") is None:
                 state["recovery_context"] = {}
             # Reset milestone budget counters when raising the limit
-            if args.max_milestone_seconds is not None:
+            if args.max_milestone_seconds is not None and not (state.get("progressive") or {}).get("budget"):
                 for row in state.get("milestone_progress", {}).values():
                     if isinstance(row, dict):
                         row["seconds"] = 0

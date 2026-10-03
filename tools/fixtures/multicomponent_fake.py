@@ -13,6 +13,7 @@ for real, once per component's own worktree.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -112,6 +113,16 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
         path = Path(spec["file"])
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(spec["content"])
+        if spec.get("reaccept_ui_run"):
+            # Simulate an external UI workflow accepting a replacement design
+            # while this component is building against the previous acceptance.
+            directory = Path(spec["reaccept_ui_run"])
+            handoff = json.loads((directory / "handoff.json").read_text())
+            ref = handoff["artifacts"]["brief"]
+            brief = directory / ref["path"]
+            brief.write_text("Accepted replacement alpha layout during implementation.")
+            ref["sha256"] = hashlib.sha256(brief.read_bytes()).hexdigest()
+            (directory / "handoff.json").write_text(json.dumps(handoff))
         code = run_check(spec)
         return {**common, "summary": "Wrote the component's file", "changed_files": [spec["file"]],
                 "commands_run": [spec["check"]], "results": [f"exit {code}"], "remaining_risks": [],
@@ -186,7 +197,15 @@ def main() -> int:
     if data.get("report_repair"):
         stage = original.get("stage", stage)
     component_id = component_id_for(prompt, data)
-    report = report_for(stage, component_id, MANIFEST[component_id], data)
+    spec = MANIFEST[component_id]
+    if spec.get("observations"):
+        # Optional external fixture output: assert what the real CLI sent to the
+        # provider without peeking into the task run's private state.json.
+        directory = Path(spec["observations"])
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / f"{component_id}-{stage}-{uuid.uuid4().hex}.json").write_text(json.dumps(
+            {"component_id": component_id, "stage": stage, "prompt": prompt}))
+    report = report_for(stage, component_id, spec, data)
     if "--output-schema" in sys.argv:
         complete(report, json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text()))
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(report))

@@ -175,19 +175,24 @@ class UnitEvidenceCase(kit.CatalogueCase):
                    support.implementation_evidence_paths(["event:c2"], events))
         self.finish(summary="EVIDENCE_REJECTED: only completed command executions are admissible")
 
-    def test_evd06_fallback_requires_a_unique_match(self):
-        """EVD-06. New: unique executed-command fallback accepted, ambiguous rejected."""
+    def test_evd06_fallback_binds_to_the_latest_run(self):
+        """EVD-06. A fallback binds to the latest run of the command; it never picks a convenient earlier success."""
         unique = self.events_file([self.command_event("a1", "ruby tests.rb", 0)])
         check = {"command": "ruby tests.rb", "exit_code": 0, "evidence_ref": "event:conv-guess"}
         support.verify_checks([check], self.root, unique)
         self.check("unique_match_normalized_to_real_event", "event:a1", check["evidence_ref"])
         self.check("unique_match_exit_filled", 0, check["exit_code"])
-        ambiguous = self.events_file([self.command_event("a1", "ruby tests.rb", 0),
-                                      self.command_event("a2", "ruby tests.rb", 0)])
-        self.expect_raises("ambiguous_match_rejected", ValueError, support.verify_checks,
+        repeated = self.events_file([self.command_event("a1", "ruby tests.rb", 0),
+                                     self.command_event("a2", "ruby tests.rb", 0)])
+        latest = {"command": "ruby tests.rb", "exit_code": None, "evidence_ref": "event:"}
+        support.verify_checks([latest], self.root, repeated)
+        self.check("repeated_command_binds_latest_run", "event:a2", latest["evidence_ref"])
+        regressed = self.events_file([self.command_event("a1", "ruby tests.rb", 0),
+                                      self.command_event("a2", "ruby tests.rb", 1)])
+        self.expect_raises("earlier_success_not_picked", ValueError, support.verify_checks,
                            [{"command": "ruby tests.rb", "exit_code": 0, "evidence_ref": "event:conv-guess"}],
-                           self.root, ambiguous)
-        self.finish(summary="UNIQUE_ACCEPTED_AMBIGUOUS_REJECTED: fallback never picks a convenient success")
+                           self.root, regressed)
+        self.finish(summary="LATEST_RUN_BINDS: fallback never picks a convenient success")
 
     def test_evd07_reported_exit_contradiction_rejected(self):
         """EVD-07. Existing: partial (contradiction in test_autocode.test_check_must_match...)."""

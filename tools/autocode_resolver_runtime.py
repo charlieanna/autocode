@@ -15,12 +15,14 @@ try:
     from . import autocode_resolver as policy, autocode_support as support
     from . import autocode_goals as goals, autocode_failures as failures
     from . import autocode_resolver_human as human
+    from . import autocode_progressive_state as progressive
 except ImportError:
     import autocode_resolver as policy
     import autocode_support as support
     import autocode_goals as goals
     import autocode_failures as failures
     import autocode_resolver_human as human
+    import autocode_progressive_state as progressive
 
 
 REVIEW_STAGES = ('astra_challenge', 'astra_finalize')
@@ -336,6 +338,8 @@ def observe_operational_recovery(runner, state, run_dir, workspace, recovery):
 
 def record_operational_exhaustion(runner, state, run_dir, error):
     """Retain exhaustion and stage a resolver-owned, request-only escalation."""
+    if progressive.retained_review_budget_pause(state, error.status):
+        return False
     if (error.status not in ('PAUSED_RESOLVER_OPERATIONAL', 'PAUSED_TIMEOUT_RECOVERY',
                              'PAUSED_PROVIDER_CAPACITY', 'PAUSED_PLANNING_BUDGET', 'PAUSED_RATE_LIMIT',
                              'PAUSED_TIME_LIMIT', 'PAUSED_ITERATION_LIMIT', 'PAUSED_BUDGET',

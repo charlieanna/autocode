@@ -1,0 +1,8 @@
+title = "Reviewed split of tentative S2 shares its original allowance and cumulative proof"
+category = "feature"
+[fake]
+check = "python3 -m unittest test_journey"
+fault = "progressive_split"
+[run]
+max_steps = 60
+requires_stages = ["glm_revise", "astra_finalize", "terra", "sol"]

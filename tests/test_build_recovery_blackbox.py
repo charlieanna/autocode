@@ -258,7 +258,7 @@ class RecoveryBlackbox(unittest.TestCase):
             self.assertTrue(all(r['status']=='not_verified' for r in checkpoints['rows'] if r['id'].startswith('criterion:')))
             status=self.invoke('autocode_build',['--run-dir',str(self.run),'--status'])
             self.assertIn('terra',status.stdout)
-            event_files=list(self.run.glob('iterations/*/terra-*.jsonl'))
+            event_files=list(self.run.glob('iterations/*/builder-*.jsonl'))+list(self.run.glob('iterations/*/terra-*.jsonl'))
             self.assertTrue(event_files)
             self.assertEqual(21,sum('checkpoint-screens/' in line for p in event_files for line in p.read_text().splitlines()))
             self.assertEqual(21,len(list((self.project/'screens').glob('s*.txt'))))

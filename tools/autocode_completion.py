@@ -9,8 +9,12 @@ from pathlib import Path
 
 try:
     from .autocode_util import Paused, criteria_definition, file_hash
+    from .autocode_progressive_completion import ready as progressive_ready
+    from . import autocode_design_coverage as design_coverage, autocode_protected_oracles as protected_oracles
 except ImportError:
     from autocode_util import Paused, criteria_definition, file_hash
+    from autocode_progressive_completion import ready as progressive_ready
+    import autocode_design_coverage as design_coverage, autocode_protected_oracles as protected_oracles
 
 REFUSED = "Completion rejected: missing, stale, failed or unverified independent evidence"
 
@@ -21,6 +25,9 @@ def rejection(state) -> str:
     A live ladder-20 run (Claude models, 2026-09-30) reached the plain refusal twice: the last
     milestone's validation left out the accepted milestone's criteria, and the Completion Owner
     could not tell what was missing or how to ask for it."""
+    if not design_coverage.ready(state):
+        missing = ", ".join(design_coverage.gaps(state)) or "changed or unbound design evidence"
+        return f"{REFUSED}. Design coverage needs fresh independent evidence for: {missing}."
     results = {row["id"]: row.get("status") for row in (state.get("validation") or {}).get("criterion_results", [])}
     gaps = [row["id"] for row in state.get("acceptance_criteria", []) if results.get(row["id"]) != "PASS"]
     if not gaps:
@@ -32,6 +39,15 @@ def rejection(state) -> str:
 
 
 def completion_ready(state, decision, current, *, require_human_reviews=True, require_independent=True):
+    # Design coverage is an independent-validation obligation (sol / checkpoint).
+    # The final-audit self-check probe passes require_independent=False and must
+    # not demand design_results from the builder's self-assessment.
+    if require_independent and not protected_oracles.ready(state, current.get("revision")):
+        return False
+    if require_independent and not design_coverage.ready(state):
+        return False
+    if not progressive_ready(state, current):
+        return False
     human_only_gap = False
     if (require_independent and state.get('settings', {}).get('milestone_checkpoints', {}).get('enabled')
             and state.get('validation', {}).get('reviewer_role') != 'sol'):

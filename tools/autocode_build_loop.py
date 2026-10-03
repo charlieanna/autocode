@@ -16,6 +16,7 @@ try:
     from . import autocode_interventions as interventions
     from . import autocode_milestones as milestones
     from . import autocode_planning as planning
+    from . import autocode_progressive_state as progressive
     from . import autocode_regression as regression, autocode_provider_recovery as provider_recovery
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_support as support
@@ -28,6 +29,7 @@ except ImportError:
     import autocode_interventions as interventions
     import autocode_milestones as milestones
     import autocode_planning as planning
+    import autocode_progressive_state as progressive
     import autocode_regression as regression, autocode_provider_recovery as provider_recovery
     import autocode_resolver_runtime as resolver_runtime
     import autocode_support as support
@@ -101,6 +103,7 @@ def run(runner, args, state, state_path, run_dir, workspace):
             return runner.orchestrator.SKIP
 
     def dispatch_code_stage(current, stage):
+        progressive.guard_dispatch(current, stage)
         # Admission parity with autopilot.dispatch_unit: a paused Builder
         # retry lane blocks the serial writer launch here as well.
         if stage == "terra":

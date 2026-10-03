@@ -10,10 +10,16 @@ state and imports nothing from the runner.
 """
 from __future__ import annotations
 
+from copy import deepcopy
+
 try:
-    from . import autocode_usage
+    from . import autocode_usage, autocode_design_coverage as design_coverage
+    from . import autocode_contract_identity as contract_identity
+    from . import autocode_progressive_plan as progressive_rules
 except ImportError:
-    import autocode_usage
+    import autocode_usage, autocode_design_coverage as design_coverage
+    import autocode_contract_identity as contract_identity
+    import autocode_progressive_plan as progressive_rules
 
 SCHEMA = 1
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -25,7 +31,7 @@ QUESTION_FIELDS = ("id", "question", "why", "options", "proposed_default")
 def view(state: dict) -> dict:
     status = state.get("status", "")
     task = state.get("current_task") or {}
-    return {
+    result = {
         "runner_check": {key: state["active_runner_check"].get(key) for key in
                          ("stage", "summary", "started_at", "updated_at", "command", "output")}
                         if state.get("active_runner_check") else None,
@@ -52,6 +58,97 @@ def view(state: dict) -> dict:
         # Tokens and cost so far, by role (autocode_usage.summary): reported, estimated and unknown kept apart.
         "usage": autocode_usage.summary(state),
     }
+    design = design_coverage.projection(state)
+    if design is not None:
+        result["design"] = design
+    projection = progressive(state)
+    if projection is not None:
+        result["progressive"] = projection
+    return result
+
+
+def progressive(state: dict) -> dict | None:
+    """Read-only, additive projection of the version-one progressive ledger.
+
+    Plan/candidate envelopes contain {proposal, plan_hash}; active contains
+    {definition, plan_hash, artifact, review}. The history list contains
+    demonstrated checkpoints, never current product proof. budget, when
+    present, is the budget policy ledger and is copied without invented limits.
+    Status describes saved activation, not permission to dispatch: this reader
+    does not authenticate artifact files, source snapshots or replay receipts.
+    Until a current-proof reader is defined by the evidence owner, no saved
+    boolean, prior PASS, empty future map or COMPLETE status establishes proof.
+    """
+    record = state.get("progressive")
+    record = record if isinstance(record, dict) else {}
+    contract = state.get("goal_contract") or {}
+    body = contract.get("body") or {}
+    disclosure = [line for field in ("constraints", "technical_approach")
+                  for line in body.get(field) or [] if isinstance(line, str) and line.startswith(
+                      (progressive_rules.DISCLOSURE_DELEGATION, progressive_rules.DISCLOSURE_SLICE,
+                       progressive_rules.DISCLOSURE_OUTSTANDING))]
+    if not record and not disclosure:
+        return None
+
+    candidate = record.get("candidate")
+    candidate = candidate if isinstance(candidate, dict) else {}
+    plan = record.get("plan")
+    plan = plan if isinstance(plan, dict) else {}
+    proposal = candidate.get("proposal") or plan.get("proposal") or {}
+    proposal = proposal if isinstance(proposal, dict) else {}
+    active = record.get("active")
+    active = active if isinstance(active, dict) else {}
+    definition = active.get("definition")
+    definition = definition if isinstance(definition, dict) else None
+    approved = False
+    reason = None
+    try:
+        progressive_rules.require_delegation(
+            record, contract_token=contract_identity.token(contract), contract_body=body,
+            contract_approved=contract_identity.approved(state),
+            contract_sealed=contract_identity.sealed(contract))
+        approved = True
+    except (ValueError, TypeError, KeyError, AttributeError) as error:
+        reason = str(error)
+    if record.get("suspended") or (record.get("delegation") and not approved):
+        status = "suspended"
+    elif not approved:
+        status = "proposed" if candidate else "unapproved"
+    elif (definition and definition.get("tentative") is False and active.get("plan_hash")
+          and active.get("plan_hash") == plan.get("plan_hash")
+          and definition == ((plan.get("proposal") or {}).get("slices") or [None])[0]
+          and active.get("artifact") and active.get("review")):
+        status = "active"
+    else:
+        status = "needs_activation"
+
+    slices = [row for row in proposal.get("slices") or [] if isinstance(row, dict)]
+    criteria = [{"id": row.get("id"), "criterion": row.get("criterion") or row.get("text")}
+                for row in body.get("acceptance_criteria") or [] if isinstance(row, dict)]
+    result = {
+        "status": status,
+        "delegation_approved": approved,
+        "authority_issue": reason,
+        "disclosure": disclosure,
+        "plan_hash": plan.get("plan_hash") or candidate.get("plan_hash"),
+        "demonstrated_slices": record.get("history") or [],
+        "checkpoints": record.get("history") or [],
+        "retirements": record.get("retirements") or [],
+        "active_slice": definition,
+        "tentative_next_work": [row for row in slices if row.get("tentative") is True],
+        "required_checks": record.get("required_checks") or [],
+        # Every product criterion remains unproven here, including those mapped
+        # to a green slice. The narrower map deferrals remain separately visible.
+        "outstanding_product_criteria": criteria,
+        "outstanding_criteria": record.get("outstanding_criteria", proposal.get("outstanding_criteria", [])),
+        "current_whole_product_proof": {
+            "verified": False, "status": "not_established",
+            "reason": "Historical slice/checkpoint evidence is not authenticated current whole-product proof.",
+        },
+    }
+    if "budget" in record:
+        result["allowance_usage"] = record["budget"]
+    return deepcopy(result)
 
 
 def evidence(state: dict) -> dict:
@@ -86,6 +183,8 @@ def evidence(state: dict) -> dict:
     return {
         "outcome": contract.get("intended_outcome"),
         "base_commit": state.get("base_commit"),
+        **({"protected_tests": deepcopy(state["settings"]["protected_tests"])}
+           if state.get("settings", {}).get("protected_tests") else {}),
         "acceptance": acceptance,
         "findings": [{key: row.get(key) for key in ("id", "status", "severity", "finding")}
                      for row in state.get("findings_ledger") or [] if isinstance(row, dict)],
@@ -96,7 +195,7 @@ def evidence(state: dict) -> dict:
         "test_cases": [{key: case.get(key) for key in ("id", "given", "when", "then")}
                        for case in investigation.get("test_cases") or [] if isinstance(case, dict)]
                       if investigation.get("outcome") == "reproduced" else [],
-        "check_replay": {"verdict": replay.get("verdict"), "source_revision": replay.get("source_revision"),
+        "check_replay": {"protected_tests": deepcopy(replay.get("protected_tests")), "verdict": replay.get("verdict"), "source_revision": replay.get("source_revision"),
                          "checks": [{key: row.get(key) for key in ("command", "exit_code", "timed_out", "output")}
                                     for row in replay.get("checks") or [] if isinstance(row, dict)]}
                         if isinstance(replay, dict) else None,

@@ -1,0 +1,8 @@
+title = "Progressive recommendations regress earlier persistence then receive honest rework"
+category = "feature"
+[fake]
+check = "python3 -m unittest test_journey"
+fault = "progressive_regression"
+[run]
+max_steps = 60
+requires_stages = ["astra_resolve"]

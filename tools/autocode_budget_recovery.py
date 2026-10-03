@@ -176,6 +176,10 @@ def recover(state, *, kind, now) -> bool:
     """
     if not isinstance(state, dict) or not isinstance(kind, str) or kind not in _CEILINGS:
         return False
+    progressive = state.get("progressive") or {}
+    if kind == "max_seconds" and (progressive.get("delegation") or progressive.get("budget")):
+        # Progressive continuation does not delegate aggregate spending increases.
+        return False
     clock = _timestamp(now)
     settings = state.get("settings")
     resolver = state.get("resolver", {})

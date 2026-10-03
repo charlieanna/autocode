@@ -1,10 +1,14 @@
 """Review report identities and ID-only decoding; no controller dependencies."""
 import copy
+try:
+    from . import autocode_design_coverage as design_coverage
+except ImportError:
+    import autocode_design_coverage as design_coverage
 
 
 def review_generation_schema(schema, state, stage):
     """Constrain runner-owned identity at generation, not by accepting bad reports."""
-    result = copy.deepcopy(schema)
+    result = design_coverage.extend_schema(copy.deepcopy(schema), state, stage)
     if stage not in ("sol", "astra_review", "astra_checkpoint"):
         return result
     props = result.get("properties", {})
@@ -41,6 +45,8 @@ def review_validation_schema(schema, state, record, value):
     literal exactly. This also accepts ID-only responses against older saved schemas.
     """
     stage = record.get("original_stage") or record.get("stage")
+    if state and stage in ("sol", "astra_checkpoint"):
+        design_coverage.report_refs(state, value.get("validation", value))
     criteria = (state or {}).get("acceptance_criteria") or []
     if stage not in COMPLETION_STAGES or not criteria or "acceptance_criteria" not in schema.get("properties", {}):
         return schema

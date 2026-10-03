@@ -8,6 +8,7 @@ import unittest
 
 import autocode_goals as goals, autopilot
 import autocode_goal_lifecycle as lifecycle
+import autocode_planning_clarification as clarification
 from units import autoplanner as planner
 from goal_fixtures import body
 
@@ -273,7 +274,8 @@ class ApprovalGateTests(ObligationCase):
     def test_legacy_run_without_obligations_is_unaffected(self):
         self.assertEqual([], goals.open_obligations(self.state))
         before = copy.deepcopy(self.state)
-        autopilot._apply_obligations(self.state, "astra_challenge", self.challenge())
+        clarification.apply_obligations(self.state, "astra_challenge", self.challenge(),
+                                        check_code_refs=autopilot._check_code_refs)
         self.assertEqual(before, self.state)
 
 

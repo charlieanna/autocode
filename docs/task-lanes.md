@@ -73,15 +73,63 @@ uncommitted for review, the same way a single AutoCode task leaves its own
 work. Extra flags for the underlying task runs (models, reasoning effort,
 provider) go after `--options`, shell-quoted.
 
+### A component with a Figma design
+
+Design the screen before starting the component build. In `components.json`,
+give that component a `ui_run` pointing to a completed, accepted AutoCode UI
+run. Relative paths resolve from the architecture directory, not from the
+component worktree:
+
+```json
+[
+  {
+    "id": "web",
+    "description": "Team dashboard using the accepted screen design",
+    "requirements": ["R1"],
+    "depends_on": ["api"],
+    "publishes_contracts": [],
+    "consumes_contracts": ["team"],
+    "ui_run": "../.autocode-ui/runs/ACCEPTED-RUN"
+  },
+  {
+    "id": "api",
+    "description": "Team API",
+    "requirements": ["R2"],
+    "depends_on": [],
+    "publishes_contracts": ["team"],
+    "consumes_contracts": []
+  }
+]
+```
+
+The UI run may live outside the repository. Its accepted handoff and artifacts
+are validated before any component starts. The component receives its ownership
+and contract brief plus the accepted UI brief through the ordinary `--ui-run`
+build path. It still owns only `components/web/`, and plan approval and independent
+implementation review remain required.
+
+Alternatively, use `"figma_file": "https://www.figma.com/design/FILEKEY/Project"`
+to supply an existing Figma reference. That URL alone does not establish an
+accepted design run. Choose one field per component. Components without either
+field keep their ordinary text brief.
+
+Figma implementation requires the existing native Codex Figma workflow, ChatGPT
+login and the connected Figma plugin; use `--engine codex` for this build.
+Explicit OpenCode or GoCode engines are rejected before components start. See
+[Figma design and implementation](figma.md) for setup and visual verification.
+Implementation and review inspect the live file because it can change remotely.
+This command consumes an existing design; it does not create a design run.
+
 Progress is saved in `.autocode-components/manifest.json` as each component
 starts and stops. Running the same command again continues the build:
 finished components are left alone, and a component that stopped for input
 picks up from where it stopped, in the same worktree and run. You can answer or
 approve that component's own run directly first, or pass `--auto-approve` the
-second time. If `components.json` or a contract changed since the saved build,
-the command refuses to resume, because the saved components were built against
-the old contracts; remove `.autocode-components/` to rebuild from scratch. A
-worktree the manifest does not record is refused too, rather than guessed at.
+second time. If `components.json`, a contract or an accepted UI handoff changed
+since the saved build, the command refuses to resume, because the saved components
+were built against the old contracts or designs; remove `.autocode-components/`
+to rebuild from scratch. A worktree the manifest does not record is refused too,
+rather than guessed at.
 
 When the work is one requirement that must be split, built in parallel and
 combined, use a [program](program.md) instead of lanes: workstreams declare

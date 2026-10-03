@@ -37,6 +37,26 @@ def fixture(kind="iteration_ceiling"):
 
 
 class BudgetRecoveryTests(unittest.TestCase):
+    def test_progressive_aggregate_increase_requires_explicit_authority(self):
+        for origin in ("runner_default", "resolver_delegated"):
+            with self.subTest(origin=origin):
+                state = fixture("max_seconds")
+                state["settings"]["limits"]["max_seconds"] = 43200
+                state["settings"]["budget_origins"]["max_seconds"] = origin
+                state["active_seconds"] = 43200
+                state["progressive"] = {"version": 1, "delegation": {"contract_token": "r1:goal"}}
+                self.denied(state, "max_seconds")
+
+    def test_progressive_candidate_does_not_change_ordinary_budget_policy(self):
+        state = fixture("max_seconds")
+        state["progressive"] = {"version": 1, "candidate": {"plan_hash": "unapproved"}}
+        self.assertTrue(recover(state, kind="max_seconds", now=NOW))
+
+    def test_suspended_progressive_budget_still_requires_explicit_aggregate_increase(self):
+        state = fixture("max_seconds")
+        state["progressive"] = {"version": 1, "budget": {"run_seconds": 600}, "delegation": None}
+        self.denied(state, "max_seconds")
+
     def denied(self, state, kind="iteration_ceiling", now=NOW):
         before = json.dumps(state, sort_keys=True)
         self.assertFalse(recover(state, kind=kind, now=now))

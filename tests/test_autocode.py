@@ -855,7 +855,7 @@ class RetrofitTest(unittest.TestCase):
         # v3 deliberately requires an actual displayed-revision user approval.
         approve_fixture(self.state, goals)
         local={"auth_mode":"fixture"}
-        self.settings.update(transport_identity=local,limits={"iteration_ceiling":18,"max_seconds":None,
+        self.state["settings"].update(transport_identity=local,limits={"iteration_ceiling":18,"max_seconds":None,
             "no_progress_batches":3,"automatic_retries":0})
         self.state["workspace"]=str(self.root.resolve())
         s.atomic_json(self.run/"state.json",self.state)
@@ -897,12 +897,12 @@ class RetrofitTest(unittest.TestCase):
         # callback must honour builder_policy.guard like autopilot.dispatch_unit.
         approve_fixture(self.state, goals)
         local = {"auth_mode": "fixture"}
-        self.settings.update(transport_identity=local, builder_retry=dict(builder_policy.DEFAULTS),
+        self.state["settings"].update(transport_identity=local, builder_retry=dict(builder_policy.DEFAULTS),
                              limits={"iteration_ceiling": 18, "max_seconds": None, "no_progress_batches": 3, "automatic_retries": 0})
         self.state["workspace"] = str(self.root.resolve())
         lane = builder_policy.key(self.state)
         self.state["builder_retry_key"] = lane
-        self.state["builder_retries"] = {lane: {"initial_route": copy.deepcopy(self.settings["roles"]["terra"]),
+        self.state["builder_retries"] = {lane: {"initial_route": copy.deepcopy(self.state["settings"]["roles"]["terra"]),
                                                  "failures": ["review-1", "review-2", "review-3"], "action": "pause"}}
         s.atomic_json(self.run / "state.json", self.state)
         argv = ["autocode.py", "--workspace", str(self.root.resolve()), "--run-dir", str(self.run.resolve())]
