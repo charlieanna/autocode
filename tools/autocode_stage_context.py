@@ -66,6 +66,12 @@ def context_packet(state, stage, state_path):
     manifest_context = design_manifest.context(state["settings"])
     if manifest_context:
         base["design_manifest"] = manifest_context
+    prerequisites = state['settings'].get('task_preflight', {}).get('body', {})
+    if prerequisites.get('design'):
+        base['design_readiness'] = prerequisites['design']
+        base['design_readiness_instruction'] = ('Read every context_parts file in order: concatenated bytes are the complete '
+            'verbatim decoded design context, validated against the raw reference. Use the declared canvas/fonts. '
+            'Prerequisite readiness establishes access/setup only, never visual fidelity or acceptance.')
     figma_file = state["settings"].get("figma_file")
     if figma_file:
         base["figma_file"] = figma_file

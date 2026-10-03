@@ -7,6 +7,7 @@ Use in --task-preflight argv; every invocation uses the selected test interprete
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 from pathlib import Path
 import subprocess
@@ -27,10 +28,19 @@ def collect(mode, args):
     # is addressed by its absolute immutable-runtime path.
     sys.path.insert(0, str(Path.cwd()))
     loader = unittest.TestLoader()
-    if mode == "named":
-        suite = loader.loadTestsFromNames(args.named)
-    else:
-        suite = loader.discover(args.discover, pattern=args.pattern, top_level_dir=args.top_level)
+    def hook(value):
+        module, function = value.split(':', 1)
+        getattr(importlib.import_module(module), function)()
+    try:
+        if args.setup:
+            hook(args.setup)
+        if mode == "named":
+            suite = loader.loadTestsFromNames(args.named)
+        else:
+            suite = loader.discover(args.discover, pattern=args.pattern, top_level_dir=args.top_level)
+    finally:
+        if args.teardown:
+            hook(args.teardown)
     identities = sorted(test.id() for test in leaves(suite))
     errors = list(loader.errors)
     if not identities:
@@ -48,14 +58,19 @@ def main(argv=None):
     parser.add_argument("--pattern", default="test_*.py")
     parser.add_argument("--top-level")
     parser.add_argument("--expected-ids", type=Path, help="JSON object mapping named/discovery to exact sorted identities")
+    parser.add_argument("--exclusions", type=Path, help="JSON mapping excluded discovery IDs to explicit reasons; never removes collected IDs")
+    parser.add_argument("--setup", help="Approved module:function setup hook, run independently in each collection interpreter")
+    parser.add_argument("--teardown", help="Approved module:function cleanup hook (required with --setup)")
     parser.add_argument("--mode", choices=("named", "discovery"), help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if not args.named and not args.discover:
         parser.error("Declare --named and/or --discover")
+    if bool(args.setup) != bool(args.teardown) or any(':' not in value for value in (args.setup, args.teardown) if value):
+        parser.error('Setup and teardown must be declared together as module:function')
     if args.mode:
         try:
             row = collect(args.mode, args)
-        except (ImportError, OSError, ValueError) as error:
+        except Exception as error:
             row = {"mode": args.mode, "status": "NOT_READY", "identities": [], "errors": [str(error)], "tests_executed": False}
         print("AUTOCODE_COLLECTION=" + json.dumps(row))
         return 0 if row["status"] == "COLLECTION_READY" else 1
@@ -79,9 +94,13 @@ def main(argv=None):
             if expected[row["mode"]] != row["identities"]:
                 row["errors"].append("Collection differs from the approved identity inventory")
                 row["status"] = "NOT_READY"
+    exclusions = json.loads(args.exclusions.read_text()) if args.exclusions else {}
+    discovered = next((set(row['identities']) for row in rows if row['mode'] == 'discovery'), set())
+    if not isinstance(exclusions, dict) or any(not isinstance(reason, str) or not reason.strip() or name not in discovered for name, reason in exclusions.items()):
+        parser.error('Every exclusion must identify a collected discovery test and a nonempty reason')
     ready = all(row["status"] == "COLLECTION_READY" for row in rows)
     print(json.dumps({"kind": "prerequisite", "status": "READY" if ready else "BLOCKED", "collections": rows,
-                      "tests_executed": False}, indent=2))
+                      "tests_executed": False, "exclusions": exclusions, "setup_teardown_checked": bool(args.setup)}, indent=2))
     return 0 if ready else 1
 
 

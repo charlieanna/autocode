@@ -24,14 +24,14 @@ import copy
 import uuid
 try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
-    from . import autocode_gocode as gocode, autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_planning_metadata as planning_metadata, model_catalogue
+    from . import autocode_gocode as gocode, autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_task_preflight as task_preflight
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log
 except ImportError:
     import autocode_dependency as dependency, autocode_status_command as status_command, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     import autocode_regression as regression, autocode_format_correction as format_correction, autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_event_log as event_log
     import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
-    import autocode_providers, autocode_opencode as opencode, autocode_gocode as gocode, autocode_run_view as run_view
+    import autocode_providers, autocode_opencode as opencode, autocode_gocode as gocode, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_task_preflight as task_preflight
     import autocode_process as processes, autocode_registry as registry, autocode_planning as planning
     import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue
 
@@ -349,38 +349,22 @@ def run_role(
     stage_timeout = limits.get("stage_timeout_seconds")
     idle_timeout = limits.get("idle_timeout_seconds", 300)
     tool_timeout = limits.get("tool_timeout_seconds", 1800)
-    child_options = {"start_new_session": True, "env": agent_env.scrubbed(os.environ)}
+    command, child_environment, overrides, worker_context = provider_launch.prepare(
+        engine=engine, adapter=opencode, role=role, route_role=route_role, workspace=workspace,
+        run_dir=run_dir, session=session, model=model, effort=effort, allow_write=allow_write,
+        planning=joint_stage or report_only, report=output, schema=schema, prompt_file=prompt_file,
+        sandbox=sandbox, transport_args=transport_args, chatgpt=planning.enabled(state), provider=route.get('provider'))
+    child_options = {"start_new_session": True, "env": child_environment}
     if engine == "opencode":
-        command, env, overrides = opencode.launch(
-            route_role, workspace, run_dir, session, model, effort, allow_write,
-            planning=joint_stage or report_only, report=output, schema=schema,
-            prompt_file=prompt_file, sandbox=sandbox)
-        if env:
-            child_options["env"] = agent_env.scrubbed(env)
         prompt = opencode.prompt_for_schema(prompt, read_json(schema), events)
         if not configured_tool:
             write_json(base.with_suffix(".opencode.json"), overrides)
-    elif engine == "gocode":
-        command = gocode.launch(role=role, workspace=workspace, session=session, model=model,
-                                effort=effort, sandbox=sandbox, schema=schema, output=output)
-    else:
-        command = ["codex", "exec", "-C", str(workspace), "--sandbox", sandbox, *transport_args]
-        if planning.enabled(state):
-            command += ["-c", 'forced_login_method="chatgpt"']
-        if effort:
-            command += ["-c", f'model_reasoning_effort="{effort}"']
-        provider = route.get("provider")
-        if provider:
-            command += ["-c", f'model_provider="{provider}"']
-        if session:
-            command += ["resume", session]
-        command += ["-", "--json", "--output-schema", str(schema), "-o", str(output)]
-        if model:
-            command.extend(["--model", model])
+    child_options["env"].update(output_policy.environment(state["settings"], workspace, events))
+    if not dry_run:
+        task_preflight.guard(state, workspace, run_dir, worker=worker_context, persist=write_json)
     if report_only and len(prompt.encode('utf-8')) > REPAIR_HANDOFF_BYTES:
         raise support.Paused('PAUSED_REPORT_REPAIR_INPUT',
                              f'Provider-decorated repair prompt exceeds {REPAIR_HANDOFF_BYTES} bytes; no request was launched')
-    child_options["env"].update(output_policy.environment(state["settings"], workspace, events))
     prompt_file.write_text(prompt)
 
     record = {"role": role, "stage": stage, "iteration": iteration, "started_at": now(), "command": command,

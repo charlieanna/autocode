@@ -68,7 +68,7 @@ def view(state: dict) -> dict:
     if state.get("task_preflight"):
         result["task_preflight"] = {key: deepcopy(state["task_preflight"].get(key)) for key in
             ("kind", "execution_context", "execution_identity", "phase", "status", "checked_at", "manifest_hash", "binding",
-             "errors", "receipt", "receipt_sha256")}
+             "errors", "receipt", "receipt_sha256", "checks", "design")}
     projection = progressive(state)
     if projection is not None:
         result["progressive"] = projection
