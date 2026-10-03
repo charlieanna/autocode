@@ -31,8 +31,8 @@ be reconciled with the approved Figma brief and subsequent user instructions.
 | Issue | Observed implementation | Work still requiring proof or implementation |
 | --- | --- | --- |
 | #27 / #28 | Persistent chat, project/conversation sidebar, Work/artifact pane, narrow-screen drawers | Audit every shell acceptance case and final design fidelity |
-| #29 | Work checklist reads saved criteria; state and next step are visible | Complete milestone/task progress and linked problem/requirement details |
-| #30 | Current-token question targeting, per-question default delegation, partial-answer tests | Audit grouped answer history, re-asked questions and bulk suggestions |
+| #29 | Saved progress strip, milestone states, requirement/problem detail links implemented | Local gates passed; review pending. Old or absent proof stays unknown |
+| #30 | Inline answer fields, saved drafts, grouped answer history, provenance and re-asked-token rejection implemented | Local gates passed; review pending. Suggestions remain explicit per question |
 | #31 | Exact-token approval, stale refusal, separate approval/build action | Real-browser approval/start regression passed; issue closure still requires acceptance review |
 | #33 | Recovery/AutoResolver cards and guarded actions | Exhaustive status/action mapping, repeated-failure summaries and plain wording |
 | #34 | Loopback preview and truthful empty state | Per-project persistence, requirement-linked screenshot cards, change refresh |
@@ -81,3 +81,42 @@ UI issue is complete or that the rendered app is pixel-identical to Figma.
 The final two regressions also establish that a failed correction cannot be
 retried against a newer plan and a newly opened question cannot consume a
 pending confirmation before delivery is allowed. Both failed before repair.
+
+
+## Next repair batch: saved progress and question cards
+
+- **#29:** project task counts only from the supported CLI status and matching
+  contract acceptance. Preserve unknown completion for legacy plans or absent
+  receipts. Requirement results retain failed and unchecked counts separately.
+  Linked requirement/problem detail rows preserve focus during polling. The
+  expanded list scrolls into view on phones; saved status stays above long lists.
+- **#30:** add explicit per-question text submission without classifying literal
+  answers as controls. Retain main-composer drafts independently. Group accepted
+  answer history with typed/delegated provenance; keep failed sends visible and
+  re-asked questions distinct. Existing current-request token checks remain the
+  authority boundary. No answer approves a plan.
+
+Focused evidence: all 315 dashboard Python tests and standalone Node tests
+passed. The Work matrix passed nine state/viewport combinations. The question
+matrix passed partial answers, accepting every suggestion, reload, independent
+draft preservation and a stale/re-asked request at three viewport sizes.
+Both browser matrices use the real HTTP adapter and page with disposable tasks;
+the fixture supplies the external runner responses and never invokes a model.
+
+The broader run exposed real layout and refresh-focus regressions, which were
+fixed. The Plan-pane checks caught an unintended
+expansion of that pane; new task/problem links are now scoped to Work, preserving
+the original Plan-pane assertions and layout. The question test initially clicked
+composer text covering an off-screen button; it now scrolls the real target into
+view and verifies the hit target before a pointer click. Failed receipts are
+retained locally.
+
+The full canonical selection ran 2,998 tests in 221 modules. Its only failed
+module was the dashboard catalogue, which had cached the old JavaScript
+function-signature assertion before that test was corrected. A fresh complete
+14-case catalogue then passed in 333 seconds with its original deadlines. The
+corrected test exercises the Work link and compact read-only Plan behavior.
+All standalone Node tests passed. The final CI-equivalent browser gates for
+chat intent, Work and question cards passed with successful owned-worker cleanup.
+All 54 fake scenarios passed; one live-model-only Investigator case was skipped.
+These results verify this batch, not the remaining backlog or pixel identity.

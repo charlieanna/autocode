@@ -10,6 +10,43 @@ from test_chat_bridge import ChatFixture
 
 
 class ChatIntentTests(ChatFixture, unittest.TestCase):
+    def test_question_card_answer_preserves_words_that_look_like_controls(self):
+        self.make_run([{'id': 'q1', 'question': 'What should the button say?'},
+                       {'id': 'q2', 'question': 'Where should it go?'}])
+        row = self.chat('Continue?', question_id='q1', explicit_answer=True)
+        self.settled()
+        self.assertEqual('answer', row['kind'])
+        self.assertIn('--answer', self.commands()[0])
+        self.assertIn('q1=Continue?', self.commands()[0])
+        self.assertEqual('Continue?', self.read_state()['answers']['q1'])
+        self.assertEqual(['q2'], [q['id'] for q in self.read_state()['pending_questions']])
+        self.assertNotIn('continued', self.read_state())
+
+    def test_explicit_answer_without_current_question_refuses_any_effect(self):
+        self.make_run([{'id': 'q1', 'question': 'Where?'}])
+        before = (self.run / 'state.json').read_bytes()
+        with self.assertRaisesRegex(ValueError, 'target one current question'):
+            self.chat('Stop', explicit_answer=True)
+        with self.assertRaises(ValueError):
+            self.chat('Stop', question_id='q1', explicit_answer=True,
+                      resolver_token='old-token')
+        self.assertEqual([], self.commands())
+        self.assertEqual(before, (self.run / 'state.json').read_bytes())
+
+    def test_old_card_cannot_answer_reasked_question(self):
+        from tools.dashboard.tests.test_pending_decisions import publish
+        self.make_run([{'id': 'q1', 'question': 'Which format?'}])
+        old = dict(self.read_state()['resolver_human_request'])
+        self.state['pending_questions'] = [{'id': 'q1', 'question': 'Which format after the correction?'}]
+        publish(self.state)
+        self.save_state()
+        before = (self.run / 'state.json').read_bytes()
+        with self.assertRaises(ValueError):
+            self.chat('JSON', question_id='q1', explicit_answer=True,
+                      resolver_request=old['request_id'], resolver_token=old['request_token'])
+        self.assertEqual(before, (self.run / 'state.json').read_bytes())
+        self.assertEqual([], self.commands())
+
     def test_questions_and_typed_controls_never_mutate_runner_state(self):
         self.make_run()
         before = (self.run / "state.json").read_bytes()

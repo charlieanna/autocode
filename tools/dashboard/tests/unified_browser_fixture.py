@@ -17,6 +17,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_console import Console, Handler, LoopbackHTTPServer, ThreadingHTTPServer, resolver_human
+from dashboard_work_summary import project as work_summary, progress_from_status
 
 
 
@@ -322,6 +323,26 @@ def scenario_states(workspace):
         intent = copy.deepcopy(states['recovery'])
         intent['task'] = 'Inspect chat intent before changing a plan'
         states['flow-chat-intent-' + viewport] = intent
+    for viewport in ('desktop','tablet','mobile'):
+        for mode in ('partial','suggested'):
+            answer_cards=copy.deepcopy(pending_answer)
+            answer_cards['pending_questions']=[
+                {'id':'card-1','question':'What should the action button say?', 'proposed_default':'Continue', 'why':'Keep the action clear', 'options':[]},
+                {'id':'card-2','question':'Where should delivery stay?', 'proposed_default':'Local workspace', 'why':'Preserve the project scope', 'options':[]}]
+            states['flow-answer-cards-'+mode+'-'+viewport]=answer_cards
+    for name, source in [('running', 'running'), ('waiting', 'pending-answer'), ('complete', 'completed')]:
+        work = copy.deepcopy(states[source])
+        work['task'] = 'Saved task progress · ' + name
+        work['goal_contract']['body']['milestones'] = [
+            {'id': 'M1', 'objective': 'Build the form'}, {'id': 'M2', 'objective': 'Check delivery'}]
+        work['current_task']['milestone_id'] = 'M2'
+        work['_fixture_accepted'] = ['M1', 'M2'] if name == 'complete' else ['M1']
+        work.setdefault('validation', {})['criterion_results'] = [{'id': 'C1', 'status': 'PASS'}, {'id': 'C2', 'status': 'FAIL'}]
+        work['_fixture_monitor']['findings'] = [{'id': 'F7', 'finding': 'Error message is hidden', 'source': 'sol', 'severity': 'major', 'times_reported': 2}]
+        if name == 'complete':
+            work['validation']['criterion_results'] = [{'id': 'C' + str(i), 'status': 'PASS'} for i in range(1, 7)]
+            work['_fixture_monitor']['findings'] = []
+        states['flow-work-progress-' + name] = work
     return states
 
 
@@ -380,7 +401,12 @@ def main():
                 state = json.loads((run / 'state.json').read_text(encoding='utf8'))
                 configured = state.get('_fixture_interventions', {})
                 return {'mode': configured.get('mode', 'legacy'), 'capable': False, 'entries': configured.get('entries', []),
-                        'attempt_id': state.get('_fixture_attempt'), 'blocked_conditions': [], 'pause_intent': None}
+                        'attempt_id': state.get('_fixture_attempt'), 'blocked_conditions': [], 'pause_intent': None,
+                        'work_progress': progress_from_status({
+                            'status': state['status'], 'contract_token': f"r{state['goal_contract']['revision']}:{state['goal_contract']['hash']}",
+                            'active_stage': state.get('active_stage'), 'current_task': state.get('current_task'),
+                            'milestone_checkpoint': {'accepted_milestones': state['_fixture_accepted']}})
+                            if '_fixture_accepted' in state else {}}
 
             def _fixture_monitor(self, run):
                 state = json.loads((run / 'state.json').read_text(encoding='utf8'))
@@ -460,6 +486,7 @@ def main():
                     self._save_state(run, state)
                 view = super().task_view(workspace, run)
                 view['monitor'] = self._fixture_monitor(run)
+                view['work_summary'] = work_summary(view)
                 return view
 
             def intervene(self, workspace, run, kind, text, ident):
@@ -571,10 +598,14 @@ def main():
                     # the separately required successful receipt path.
                     if not Path(run).name.startswith('flow-answer-'):
                         raise ValueError('Fixture delivery could not be confirmed; preserve the draft before retrying.')
-                    answer_index = extra.index('--answer') if '--answer' in extra else -1
-                    if answer_index < 0 or answer_index + 1 >= len(extra):
-                        raise ValueError('Fixture answer is missing its explicit question value')
-                    question_id, text = extra[answer_index + 1].split('=', 1)
+                    delegated = '--delegate' in extra
+                    if delegated:
+                        question_id, text = extra[extra.index('--delegate') + 1], None
+                    else:
+                        answer_index = extra.index('--answer') if '--answer' in extra else -1
+                        if answer_index < 0 or answer_index + 1 >= len(extra):
+                            raise ValueError('Fixture answer is missing its explicit question value')
+                        question_id, text = extra[answer_index + 1].split('=', 1)
                     state = self._state(run)
                     public = resolver_human.current(state)
                     if public is None or '--resolver-token' not in extra:
@@ -586,7 +617,12 @@ def main():
                     if question_id not in {str(question.get('id')) for question in pending}:
                         raise ValueError('Fixture question is no longer pending')
                     question = next(question for question in pending if str(question.get('id')) == question_id)
-                    answer = {'text': text, 'question': copy.deepcopy(question), 'actor': 'user_cli', 'at': FIXTURE_NOW,
+                    if delegated:
+                        text = question.get('proposed_default')
+                        if not text:
+                            raise ValueError('This question has no suggested answer')
+                    answer = {'text': text, 'kind': 'delegated' if delegated else 'answer', 'question_id': question_id,
+                              'question': copy.deepcopy(question), 'actor': 'user_cli', 'at': FIXTURE_NOW,
                               'resolver_request': public['request_id'], 'resolver_token': public['request_token']}
                     state.setdefault('answers', {})[question_id] = answer
                     state.setdefault('user_events', []).append(copy.deepcopy(answer))

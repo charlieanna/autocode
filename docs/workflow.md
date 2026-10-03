@@ -604,9 +604,10 @@ version. The rules are evaluated in this order:
 
 | Context or text | Saved kind | Effect |
 | --- | --- | --- |
+| Reply sent with **Send this answer** inside a current question card | Answer | Saves the literal text, including words such as “Continue?”. |
 | A standalone control phrase such as “stop”, “pause after this step”, or “continue” | Control | Explains the composer buttons; executes no control. |
 | A question, a status request, or a question-word prefix | Question | Replies from saved status. It does not change the plan, queue feedback, or start a worker. |
-| Other reply explicitly linked to a current question card | Answer | Uses the existing answer/delegate operation and current request token. A typed “yes” here is only an answer, never plan approval. |
+| Other reply explicitly linked to a current question by the composer | Answer | Uses the existing answer/delegate operation and current request token. A typed “yes” here is only an answer, never plan approval. |
 | Unscoped “yes”, “approve”, “go ahead”, or equivalent approval wording | Approval guidance | Points to the exact reviewed-plan approval card; does not approve or start work. |
 | Other prose, including “actually use SMS instead” and ambiguous instructions | Proposed change | Saves the text and displays a confirmation card. Nothing is submitted to the runner yet. |
 
@@ -622,3 +623,20 @@ delivery retains the receipt and requires the existing explicit retry/reconcilia
 path. Historical feedback already submitted before these rules keeps its original
 authority on retry. Pre-task planning conversations remain draft discussions and
 cannot approve or control a task.
+
+
+### Question cards and saved progress
+
+Each pending question has its own answer field and suggested-answer button in
+chat. Drafts survive refresh and reload. A draft from an earlier request is
+labelled for review; submitting always requires the current request identity.
+Accepted adjacent answers collapse into a history summary that distinguishes
+written answers from accepted defaults. Failed deliveries stay visible. Re-asked
+question IDs begin a separate history group. Suggestions are accepted one at a
+time; there is no implicit bulk acceptance or plan approval.
+
+The task header links to Work with saved milestone acceptance, requirement
+results and open problems. Unknown and prior-plan results stay unchecked.
+Requirement and problem links open their read-only details in Checks. On narrow
+screens the checklist opens in the existing details drawer. None of these reads
+can approve a plan, answer a question or continue a run.
