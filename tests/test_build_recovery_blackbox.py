@@ -10,6 +10,7 @@ import time
 import unittest
 
 from . import test_build_blackbox as bb
+import autocode_builder_policy as builder_policy
 
 
 class RecoveryBlackbox(unittest.TestCase):
@@ -129,6 +130,139 @@ class RecoveryBlackbox(unittest.TestCase):
         self.assertEqual(3, len(self.events()))
         self.assertTrue(list(self.project.glob('.autocode/builders/*/*/server/health.py')))
         self.assertNotIn('autocode', self.state()['unit_handoffs'])
+
+    def parent_edit_preserved(self, name):
+        self.seed()
+        self.fault('parent_edit_before_collection')
+        self.env['BUILD_AUDIT_PARENT_EDIT'] = name
+        self.build(2)
+        self.assertTrue((self.root / 'fault-parent_edit_before_collection').is_file(),
+                        (self.root / f'cli-{self.counter}.json').read_text())
+        self.assertEqual('User-authored content must survive\n', (self.project / name).read_text())
+        self.assertTrue(list(self.project.glob('.autocode/builders/*/*/server/health.py')))
+        self.assertNotIn('autocode', self.state().get('unit_handoffs', {}))
+        before = self.events()
+        self.build(2, extra=['--resume-paused'])
+        self.assertEqual(before, self.events(), 'Drift recovery must not replay successful Builders')
+        self.assertEqual('User-authored content must survive\n', (self.project / name).read_text())
+        backup = self.root / 'user-preserved.txt'
+        (self.project / name).rename(backup)  # The operator, not the runner, reconciles the parent edit.
+        self.build(extra=['--resume-paused'])
+        self.candidate()
+        self.assertEqual(before, self.events())
+        self.assertEqual('User-authored content must survive\n', backup.read_text())
+
+    def test_new_user_file_at_builder_output_path_is_preserved(self):
+        self.parent_edit_preserved('server/health.py')
+
+    def test_new_user_file_under_builder_owned_directory_is_preserved(self):
+        self.parent_edit_preserved('server/user-notes.txt')
+
+    def deferred_retirement_crash(self, fault):
+        spec = bb.independent()
+        spec['contract']['milestones'][2]['depends_on'] = ['M1', 'M2']
+        strong = builder_policy.DEFAULTS['strong_model']
+        self.seed(spec, checker=strong)
+        self.env.update(BUILD_AUDIT_FAULT='escalate_success', BUILD_AUDIT_FAULT_MILESTONES='M1,M2')
+        self.fault(fault)
+        self.invoke('autocode_build', ['--run-dir', str(self.run), '--no-chat'], 97)
+        before = self.events()
+        self.assertEqual(['gpt-6-luna'] * 4, [event['model'] for event in before])
+        self.assertNotIn('autocode', self.state().get('unit_handoffs', {}))
+        return before
+
+    def deferred_retirement_recovery(self, fault):
+        before = self.deferred_retirement_crash(fault)
+        strong = builder_policy.DEFAULTS['strong_model']
+        self.build(extra=['--resume-paused'])
+        self.candidate()
+        self.assertEqual(before, self.events()[:len(before)])
+        self.assertEqual(['gpt-6-luna', 'gpt-6-luna', strong],
+                         [event['model'] for event in self.events() if event['milestone'] == 'M1'])
+        self.assertEqual(['gpt-6-luna'] * 2,
+                         [event['model'] for event in self.events() if event['milestone'] == 'M2'])
+        history = self.state()['orchestration_history']
+        self.assertEqual(1, len(history))
+        for row in history[0]['workers']:
+            self.assertTrue((Path(row['run_dir']) / 'state.json').is_file())
+            self.assertFalse((Path(row['workspace']) / '.git').exists())
+        after = self.events()
+        self.build()
+        self.assertEqual(after, self.events())
+        self.assertEqual(history, self.state()['orchestration_history'])
+        self.invoke('autoreview', ['--run-dir', str(self.run), '--no-chat'])
+        self.build()
+        self.candidate()
+        for milestone in ('M1', 'M2'):
+            self.assertEqual(['gpt-6-luna', 'gpt-6-luna', strong],
+                             [event['model'] for event in self.events() if event['milestone'] == milestone])
+
+    def test_all_deferred_batch_resumes_during_worktree_retirement(self):
+        self.deferred_retirement_recovery('during_retirement')
+
+    def test_all_deferred_batch_resumes_after_worktree_retirement(self):
+        self.deferred_retirement_recovery('after_retirement')
+
+    def test_deferred_retirement_preserves_parent_edits_on_resume(self):
+        before = self.deferred_retirement_crash('during_retirement')
+        edit = self.project / 'user.txt'
+        edit.write_text('Keep the parent edit\n')
+        self.build(2, extra=['--resume-paused'])
+        self.assertEqual('Keep the parent edit\n', edit.read_text())
+        self.assertEqual(before, self.events())
+        edit.rename(self.root / 'preserved-parent-edit.txt')
+        self.build(extra=['--resume-paused'])
+        self.candidate()
+
+    def test_deferred_retirement_preserves_surviving_checkout_edits(self):
+        before = self.deferred_retirement_crash('during_retirement')
+        row = next(row for row in self.state()['orchestration_batch']['workers']
+                   if (Path(row['workspace']) / '.git').exists())
+        edit = Path(row['workspace']) / 'user.txt'
+        edit.write_text('Keep the worker edit\n')
+        self.build(2, extra=['--resume-paused'])
+        self.assertEqual('Keep the worker edit\n', edit.read_text())
+        self.assertEqual(before, self.events())
+        edit.rename(self.root / 'preserved-worker-edit.txt')
+        self.build(extra=['--resume-paused'])
+        self.candidate()
+
+    def test_revised_plan_preserves_edits_then_supersedes_deferred_batch(self):
+        before = self.deferred_retirement_crash('during_retirement')
+        old = self.state()['orchestration_batch']
+        row = next(row for row in old['workers'] if (Path(row['workspace']) / '.git').exists())
+        edit = Path(row['workspace']) / 'user.txt'
+        edit.write_text('Keep the worker edit across plan replacement\n')
+        revised = dict(self.spec['contract'])
+        revised['constraints'] = [*revised['constraints'], 'Keep the health response compatible']
+        path = self.root / 'revision-two.json'
+        path.write_text(json.dumps(revised))
+        self.env.pop('BUILD_AUDIT_FAULT')
+        self.env.pop('BUILD_AUDIT_FAULT_MILESTONES')
+        self.invoke('autoplanner', ['--run-dir', str(self.run), '--edit-goal', str(path), '--no-chat'])
+        self.invoke('autoplanner', ['--run-dir', str(self.run), '--approve-goal', self.state()['displayed_goal'], '--no-chat'])
+        self.original_contract = self.state()['goal_contract']
+        self.build(2)
+        self.assertEqual('Keep the worker edit across plan replacement\n', edit.read_text())
+        self.assertEqual(before, self.events())
+        edit.rename(self.root / 'preserved-worker-edit.txt')
+        self.build(extra=['--resume-paused'])
+        self.candidate()
+        self.assertEqual(['SUPERSEDED', 'INTEGRATED'], [batch['status'] for batch in self.state()['orchestration_history']])
+        self.assertEqual(['gpt-6-luna'] * 2, [event['model'] for event in self.events()[len(before):]])
+        for row in old['workers']:
+            self.assertTrue((Path(row['run_dir']) / 'state.json').is_file())
+
+    def test_integrated_batch_resumes_during_worktree_retirement(self):
+        self.seed()
+        self.fault('during_retirement')
+        self.invoke('autocode_build', ['--run-dir', str(self.run), '--no-chat'], 97)
+        before = self.events()
+        self.build(extra=['--resume-paused'])
+        self.candidate()
+        self.assertEqual(before, self.events())
+        for row in self.state()['orchestration_history'][0]['workers']:
+            self.assertTrue((Path(row['run_dir']) / 'state.json').is_file())
 
     def test_17_behavioral_drift_five_retries_fails_three_retry_contract(self):
         spec = bb.plan([([], 'Set MAX_RETRIES to exactly 3', ['retry.py'])],
