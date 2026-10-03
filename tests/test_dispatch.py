@@ -409,9 +409,7 @@ class DispatchCliTests(unittest.TestCase):
 
 
 class StrayWriteTests(unittest.TestCase):
-    """A Builder that writes into the parent workspace instead of its worktree (a live
-    parallel-diamond run, 2026-09-29): the stray copy must not stop integration, and anything
-    that is not a stray copy still must."""
+    """Parent writes cannot be attributed to Builders by path ownership alone."""
     setUp = test_goals.GoalTests.setUp
     prepare = DispatchTests.prepare
 
@@ -422,37 +420,35 @@ class StrayWriteTests(unittest.TestCase):
             d.run_workers(self.state, self.run, batch)
         return batch
 
-    def test_a_stray_copy_of_a_builders_own_file_is_removed_and_integration_proceeds(self):
+    def test_a_stray_parent_write_is_preserved_and_blocks_integration(self):
         batch = self.batch(AUTOCODE_BUILDER_STRAY="M2")
+        with self.assertRaisesRegex(s.Paused, "Parent source changed"):
+            d.collect(self.state, self.root, self.run, batch)
         self.assertEqual("stray M2\n", (self.root / "pkg/b.txt").read_text())
-        d.collect(self.state, self.root, self.run, batch)
-        self.assertEqual({"M2": ["pkg/b.txt"]}, batch["stray_builder_writes"])
-        self.assertFalse((self.root / "pkg").exists())
-        d.integrate(self.state, self.root, self.run, batch)
-        self.assertEqual("M1\n", (self.root / "a.txt").read_text())
-        self.assertEqual("M2\n", (self.root / "pkg/b.txt").read_text())
-        self.assertEqual("sol", self.state["next_stage"])
+        self.assertFalse((self.root / "a.txt").exists())
+        self.assertEqual("M2\n", (Path(batch["workers"][1]["workspace"]) / "pkg/b.txt").read_text())
 
     def test_anything_else_in_the_parent_still_stops_integration(self):
         batch = self.batch()
         d.collect(self.state, self.root, self.run, batch)
-        self.assertNotIn("stray_builder_writes", batch)
         for name, text in (("manual.txt", "user edit"), ("greet.py", "changed existing file")):
             with self.subTest(name=name):
                 before = (self.root / name).read_text() if (self.root / name).exists() else None
                 (self.root / name).write_text(text)
-                self.assertIsNone(d.stray_builder_writes(self.root, batch))
                 with self.assertRaisesRegex(s.Paused, "workspace changed"):
                     d.integrate(self.state, self.root, self.run, batch)
                 if before is None:
                     (self.root / name).unlink()
                 else:
                     (self.root / name).write_text(before)
-        # A stray file with a stray unowned neighbour: not this batch's to clean up.
+        # Even exact copies of the expected result are not proof that this batch applied its patch.
+        (self.root / "a.txt").write_text("M1\n")
         (self.root / "pkg").mkdir()
-        (self.root / "pkg/b.txt").write_text("stray M2\n")
-        (self.root / "notes.txt").write_text("stray\n")
-        self.assertIsNone(d.stray_builder_writes(self.root, batch))
+        (self.root / "pkg/b.txt").write_text("M2\n")
+        with self.assertRaisesRegex(s.Paused, "workspace changed"):
+            d.integrate(self.state, self.root, self.run, batch)
+        self.assertEqual("M1\n", (self.root / "a.txt").read_text())
+        self.assertEqual("M2\n", (self.root / "pkg/b.txt").read_text())
 
     def test_the_builder_is_told_its_worktree_and_the_shared_root(self):
         self.prepare()

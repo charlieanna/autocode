@@ -366,72 +366,29 @@ def account_workers(state, run_dir, batch):
     autocode_status.persist(run_dir / "state.json", state)
 
 
+def check_deferred_checkout(batch, row):
+    current = s.snapshot(Path(row["workspace"]))
+    if (current["head"] != batch["base_commit"]
+            or current["files"] != {p: v for p, v in batch["baseline"]["files"].items() if v != "deleted"}):
+        raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", f"Builder {row['milestone_id']} deferred its stronger attempt "
+                       f"but its checkout changed; inspect {row['workspace']}")
+
+
 def deferred_worker(batch, row):
     """A worker that left its stronger attempt to the parent: same assignment, untouched checkout."""
     child = s.read(Path(row["run_dir"]) / "state.json")
     if child["goal_contract"]["hash"] != batch["contract_hash"] or child["current_task"] != row["task"]:
         raise s.Paused("PAUSED_ORCHESTRATOR_WORKER", "Builder changed its assignment or requested a user decision")
-    current = s.snapshot(Path(row["workspace"]))
-    if (current["head"] != batch["base_commit"]
-            or current["files"] != {p: v for p, v in batch["baseline"]["files"].items() if v != "deleted"}):
-        raise s.Paused("PAUSED_ORCHESTRATOR_WORKER", f"Builder {row['milestone_id']} deferred its stronger attempt "
-                       f"but its checkout changed; inspect {row['workspace']}")
+    check_deferred_checkout(batch, row)
     return child
 
 
-def stray_builder_writes(workspace, batch):
-    """Files a Builder wrote into the parent workspace instead of its worktree, by worker.
-
-    A worker's worktree lives under the parent (.autocode/builders/<batch>/<n>), so a Builder that
-    resolves paths against the shared root, or runs `cd <parent> && ...`, writes into the parent. The
-    provider's snapshot of the worktree never sees that write, so the attempt is rejected for having
-    changed nothing, and the retry writes into the worktree properly. The stray copy stays in the parent,
-    where integration later finds the baseline changed and refuses (a live parallel-diamond run,
-    2026-09-29). A parent-tree delta since the batch baseline is stray when every path is new, and
-    inside one worker's declared milestone paths; anything else is not this batch's to touch.
-    Returns {milestone_id: [paths]} or None when the delta has a path no worker owns."""
-    baseline = batch["baseline"]["files"]
-    current = s.snapshot(workspace)["files"]
-    added = [name for name, value in current.items() if name not in baseline or baseline[name] == "deleted"]
-    changed = [name for name in current.keys() | baseline.keys() if name not in added
-               and current.get(name) != baseline.get(name)]
-    if changed:
-        return None
-    stray = {}
-    for name in added:
-        owner = [row for row in batch["workers"] if any(contains(p, name) for p in row["task"]["affected_paths"])]
-        if len(owner) != 1:
-            return None
-        stray.setdefault(owner[0]["milestone_id"], []).append(name)
-    return stray
-
-
-def remove_stray_builder_writes(state, workspace, run_dir, batch):
-    """Put the parent back to the batch baseline when the only changes are Builders' stray writes.
-
-    Each stray file is removed (its accepted version lives in the worker's worktree and patch) and
-    recorded on the batch, so the run's record shows the Builder misbehaved. A delta that is not
-    only stray writes is left alone for integrate's own drift check."""
-    if s.snapshot(workspace) == batch["baseline"]:
-        return
-    stray = stray_builder_writes(workspace, batch)
-    if not stray:
-        return
-    for milestone_id, names in stray.items():
-        for name in names:
-            path = workspace / name
-            if path.is_file() and not path.is_symlink():
-                path.unlink()
-                parent = path.parent
-                while parent != workspace and parent.is_dir() and not any(parent.iterdir()):
-                    parent.rmdir()
-                    parent = parent.parent
-    batch["stray_builder_writes"] = stray
-    print("orchestrator: removed files Builders wrote into the parent workspace instead of their worktrees: "
-          + "; ".join(f"{mid}: {', '.join(names)}" for mid, names in stray.items()), flush=True)
-    if s.snapshot(workspace) != batch["baseline"]:
-        raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Integration workspace changed; Builder branches and patch retained")
-    autocode_status.persist(run_dir / "state.json", state)
+def retire_deferred(batch, workspace):
+    # A crash can leave live checkouts alongside relocated records; validate source without child state.
+    for row in batch["workers"]:
+        if (Path(row["workspace"]) / ".git").exists():
+            check_deferred_checkout(batch, row)
+    worktrees.retire_builders(batch, workspace)
 
 
 def collect(state, workspace, run_dir, batch):
@@ -486,20 +443,19 @@ def collect(state, workspace, run_dir, batch):
         row.update(status="BUILT", result=str(result_path), result_hash=s.file_hash(result_path),
                    commit=commit, changed_files=paths, implementation=child["implementation"],
                    stages=child["stages"])
+    # Path ownership cannot tell a stray Builder write from a concurrent user edit.
+    if s.snapshot(workspace) != batch["baseline"]:
+        raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Parent source changed during the build; parent files and Builder worktrees retained")
     # Deferred members are left out of the patch; the parent builds each one serially later.
     for row, child in deferred:
         builder_policy.adopt(state, child)
         row["status"] = builder_policy.SERIAL
     batch["deferred"] = [row["milestone_id"] for row, _ in deferred]
     if len(deferred) == len(batch["workers"]):
-        worktrees.retire_builders(batch, workspace)
-        batch.update(status="DEFERRED", finished_at=s.now())
-        state.setdefault("orchestration_history", []).append(copy.deepcopy(batch))
-        state.pop("orchestration_batch")
-        state["next_stage"] = "terra"
+        # Dispatch replays retirement from this journal without rereading removed worker checkouts.
+        batch["status"] = "DEFERRING"
         autocode_status.persist(run_dir / "state.json", state)
         return
-    remove_stray_builder_writes(state, workspace, run_dir, batch)
     expected["revision"] = s.digest({"head": expected["head"], "files": expected["files"]})
     batch.update(expected=expected, changed_files=sorted(changed))
     patch_file = Path(batch["directory"]) / "combined.patch"
@@ -524,7 +480,7 @@ def integrate(state, workspace, run_dir, batch):
                 batch["status"] = "INTEGRATING"
                 autocode_status.persist(run_dir / "state.json", state)
                 git(workspace, "apply", "--binary", "-", data=patch)
-    elif current != batch["expected"]:
+    elif batch["status"] != "INTEGRATING" or current != batch["expected"]:
         raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Integration workspace changed; Builder branches and patch retained")
     current = s.snapshot(workspace)
     if current != batch["expected"]:
@@ -574,7 +530,9 @@ def dispatch(state, workspace, run_dir):
             if (Path(row["workspace"]) / ".git").exists():
                 with s.workspace_lock(Path(row["workspace"])):
                     pass
-        if batch["status"] != "PREPARING":
+        if batch["status"] == "DEFERRING":
+            retire_deferred(batch, workspace)
+        elif batch["status"] != "PREPARING":
             account_workers(state, run_dir, batch)
         batch.update(superseded_status=batch["status"], status="SUPERSEDED", finished_at=s.now())
         state.setdefault("orchestration_history", []).append(copy.deepcopy(batch))
@@ -601,7 +559,15 @@ def dispatch(state, workspace, run_dir):
             run_workers(state, run_dir, batch)
             # A saved RUNNING worker is never replayed; collect only terminal evidence.
             collect(state, workspace, run_dir, batch)
-        if batch["status"] != "DEFERRED":
+        if batch["status"] == "DEFERRING":
+            if s.snapshot(workspace) != batch["baseline"]:
+                raise s.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Parent source changed before serial fallback; Builder records retained")
+            retire_deferred(batch, workspace)
+            batch.update(status="DEFERRED", finished_at=s.now())
+            state.setdefault("orchestration_history", []).append(copy.deepcopy(batch))
+            state.pop("orchestration_batch")
+            state["next_stage"] = "terra"
+        else:
             integrate(state, workspace, run_dir, batch)
     record = {"stage": "orchestrator", "role": "orchestrator", "iteration": state["iteration"],
               "finished_at": s.now(), "runner_owned": True, "batch_id": batch["id"] if batch else None,
