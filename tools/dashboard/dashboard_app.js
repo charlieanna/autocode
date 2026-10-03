@@ -956,7 +956,7 @@ function openRun(run, tab = 'now') {
   taskReadError='';taskReadAt=null;$('#task-load-notice').hidden=true;
   rememberSelection(runSelection(run));
   renderTaskProjectActions(run.workspace);$('#task-removed-banner').hidden=true;$('#detail-grid').hidden=false;
-  if (changed) { $('#conversation').replaceChildren(); $('#brief-current').replaceChildren(); $('#plan-full').replaceChildren(); $('#goal').replaceChildren(); $('#live-controls').hidden=true; $('#task-attention').hidden=true; $('#continue-run').disabled=true; $('#pause-run').disabled=true; $('#stop-run').disabled=true; $('#task-project').textContent=projectTitle(run.workspace); $('#task-title').textContent=taskTitle(run); $('#task-subtitle').textContent='Loading current task state…'; $('#task-models').textContent=''; $('#task-status').replaceChildren(); }
+  if (changed) { $('#conversation').replaceChildren(); $('#brief-current').replaceChildren(); $('#plan-full').replaceChildren(); $('#goal').replaceChildren(); $('#live-controls').hidden=true; $('#task-attention').hidden=true; $('#continue-run').disabled=true; $('#pause-run').disabled=true; $('#stop-run').disabled=true; $('#task-project').textContent=projectTitle(run.workspace); $('#task-title').textContent=taskTitle(run); $('#task-subtitle').textContent='Loading current task state…'; $('#task-models').textContent=''; $('#task-status').replaceChildren();$('#task-progress-summary').hidden=true; }
   $('#task-back').textContent='← '+(taskReturn.project?projectTitle(taskReturn.project):'All work');
   setView('task-detail'); activateTab(tab); refresh(); window.scrollTo({top:0}); syncNewTaskScope();
 }
@@ -1591,6 +1591,29 @@ function renderAstraPlan(run) {
   if(run.planning_messages?.length||run.discovery_summary)full.append(disclosure('Internal planning reports (not human requests)','internal-planning',[renderDocument(run.planning_messages?.length?run.planning_messages:run.discovery_summary)],run.run));
 }
 function waitingMessage(request){const lines=[];for(const [label,key]of [['Decision needed','decision_needed'],['Question','question'],['Discovered','discovered'],['Impact','impact'],['Options','options'],['Proposed change','proposed_delta']]){let value=request[key];if(Array.isArray(value))value=value.join(' · ');if(typeof value==='string'&&value.trim())lines.push(label+': '+value);}return lines.length?lines.join('\n'):'AutoResolver is waiting for your input. Details are unavailable in the saved state.';}
+function questionDraftKey(run,id){return 'question-draft:'+run.run+':'+id;}
+function renderQuestionAnswer(element,question,run){
+  const id=String(question.id),fields=resolverResponseFields(run),key=questionDraftKey(run,id),saved=readSavedRequest(key);
+  const form=n('form','');form.className='question-answer-form';
+  const label=n('label','Your answer'),input=focusKey(n('textarea',''),'question:'+run.run+':'+id+':answer');
+  input.id='question-answer-'+encodeURIComponent(id);input.rows=2;input.maxLength=16000;input.value=saved?.text||'';label.htmlFor=input.id;
+  const send=focusKey(button('Send this answer',()=>submit()),'question:'+run.run+':'+id+':send');send.className='question-answer-submit';
+  const disabled=()=>!!taskReadError||taskActionBusy(run)||taskChatPending.has(run.run);
+  input.disabled=disabled();send.disabled=disabled()||!input.value.trim();
+  input.oninput=()=>{persist(key,JSON.stringify({text:input.value,request_token:fields.resolver_token}));send.disabled=disabled()||!input.value.trim();};
+  async function submit(){
+    if(disabled()||!input.value.trim())return;
+    const payload={question_id:id,text:input.value.trim(),explicit_answer:true,...fields},request=savedRequest('question-request:'+run.run+':'+id,payload);
+    send.disabled=true;input.disabled=true;
+    const result=await sendTaskChat(run,{...request.payload,request_id:request.id});
+    input.disabled=disabled();send.disabled=disabled()||!input.value.trim();
+    if(result&&!['error','failed','uncertain','launch_failed'].includes(result.status))persist(key,'');
+  }
+  form.onsubmit=event=>{event.preventDefault();submit();};
+  form.append(label,input,send);
+  if(saved?.text&&saved.request_token!==fields.resolver_token)form.append(Object.assign(n('p','Saved draft from an earlier request. Review it before sending.'),{className:'field-note'}));
+  element.append(form);
+}
 function renderQuestion(host,question,run) {
   if(!resolverReplyCurrent(run,resolverResponseFields(run),['clarification','permission','goal_change','operational_exhaustion','blocker'])||!(run.human_escalation.questions||[]).some(current=>String(current.id)===String(question.id)&&current.question===question.question))return;
   const id=String(question.id),element=card('','chat-message pending');element.dataset.questionCard=id;
@@ -1600,18 +1623,55 @@ function renderQuestion(host,question,run) {
   if(Array.isArray(question.options)&&question.options.length)context.append(n('span','Options: '+question.options.map(option=>typeof option==='string'?option:option.label||JSON.stringify(option)).join(' · ')));
   element.append(context);
   if(question.proposed_default&&!operationalRequest(run)){const delegate=focusKey(button('Accept suggested answer',()=>sendTaskChat(run,{question_id:id,delegate:true,text:'',request_id:newRequestId(),...resolverResponseFields(run)})),'question:'+run.run+':'+id+':delegate');delegate.disabled=taskActionBusy(run)||taskChatPending.has(run.run);element.append(delegate);}
+  if(!operationalRequest(run))renderQuestionAnswer(element,question,run);
   host.append(element);
 }
+function renderChatIntent(row,entry,identity) {
+  if(!entry.kind||entry.kind==='answer')return;
+  const detail=card('','chat-intent');
+  detail.append(Object.assign(n('p','AutoCode · '+({proposed_change:'Proposed plan change',correction:'Confirmed plan change',question:'Saved status',control:'Control guidance',approval:'Approval guidance',answer:'Answer'}[entry.kind]||entry.kind)),{className:'speaker'}));
+  if(entry.reply)detail.append(n('p',entry.reply));
+  const confirmation=entry.confirmation;
+  if(confirmation?.status==='pending'&&latestRun?.run===identity){
+    const current=latestRun;
+    const stale=confirmation.goal_token!==(current.goal_token??null);
+    if(stale)detail.append(Object.assign(n('p','The plan changed. Send a new message to review the current plan.'),{className:'field-note'}));
+    else for(const [decision,label]of [['confirm','Yes, change the plan'],['question','No, keep as a question']]){
+      const control=button(label,()=>sendTaskChat(latestRun,{...entry,request_id:entry.client_request_id||entry.id,text:entry.submitted_text??entry.text,decision,decision_token:confirmation.token}),'text-button');
+      control.disabled=!!taskReadError||taskChatPending.has(identity)||taskActionBusy(current)||!!operationalRequest(current)||statusInfo(current).label==='Answer needed';
+      detail.append(control);
+    }
+  }
+  row.append(detail);
+}
+function answerHistoryItems(messages){
+  const result=[];
+  for(const entry of messages){
+    const answered=entry.role==='user'&&entry.question_id&&['received','applied','resumed','delivered'].includes(entry.status);
+    const previous=result.at(-1);
+    if(answered&&previous?.answers&&!previous.answers.some(row=>row.question_id===entry.question_id))previous.answers.push(entry);
+    else result.push(answered?{answers:[entry]}:entry);
+  }
+  return result;
+}
 function renderMessageHistory(host,messages,identity){
-  const split=Math.max(0,messages.length-4),older=card('','earlier-content');
+  const items=answerHistoryItems(messages),split=Math.max(0,items.length-4),older=card('','earlier-content');
   const latestAssistant=messages.findLast(entry=>entry.role!=='user');
-  const render=(parent,entry)=>{const row=appendMessage(parent,{...entry,expanded:entry===latestAssistant||entry===messages.at(-1),text:entry.text||(entry.delegate?'Accepted suggested answer':'Saved answer')});if(entry.question_text)row.prepend(Object.assign(n('p','In reply to: '+entry.question_text),{className:'reply-context'}));if(entry.error)row.append(Object.assign(n('p',entry.error),{className:'error'}));if(entry.role==='user'&&entry.status==='error'&&latestRun?.run===identity)row.append(button('Retry same message',()=>sendTaskChat(latestRun,{...entry,request_id:entry.id,retry:true})));};
-  for(const entry of messages.slice(0,split))render(older,entry);
+  const render=(parent,entry)=>{const row=appendMessage(parent,{...entry,expanded:entry===latestAssistant||entry===messages.at(-1),text:entry.text||(entry.delegate?'Accepted suggested answer':'Saved answer')});if(entry.kind)renderChatIntent(row,entry,identity);if(entry.question_text)row.prepend(Object.assign(n('p','In reply to: '+entry.question_text),{className:'reply-context'}));if(entry.error)row.append(Object.assign(n('p',entry.error),{className:'error'}));if(entry.role==='user'&&entry.status==='error'&&latestRun?.run===identity)row.append(button('Retry same message',()=>sendTaskChat(latestRun,{...entry,request_id:entry.id,retry:true})));};
+  const renderItem=(parent,item)=>{
+    if(!item.answers)return render(parent,item);
+    const entries=item.answers,body=card('','answer-history-content'),suggested=entries.filter(entry=>entry.delegate).length;
+    for(const entry of entries){render(body,entry);body.append(Object.assign(n('p',entry.delegate?'You accepted the suggested answer':'You wrote this answer'),{className:'answer-provenance field-note'}));}
+    const label='You answered '+entries.length+' '+(entries.length===1?'question':'questions')+' · '+suggested+' used the suggestion';
+    const group=disclosure(label,'answer-history:'+entries[0].id,[body],identity);group.className='answer-history';parent.append(group);
+  };
+  for(const entry of items.slice(0,split))renderItem(older,entry);
   if(split){const history=disclosure('Earlier conversation · '+split+' messages','earlier-messages',[older],identity);history.className='earlier-messages';host.append(history);}
-  for(const entry of messages.slice(split))render(host,entry);
+  for(const entry of items.slice(split))renderItem(host,entry);
 }
 function taskMessages(run){
-  const journal=run.conversation?.messages||[],journalRequests=new Set(journal.map(entry=>entry.client_request_id||entry.request_id).filter(Boolean));
+  const receiptById=new Map((run.chat_messages||[]).map(entry=>[entry.id,entry]));
+  const journal=(run.conversation?.messages||[]).map(entry=>({...entry,...(receiptById.get(entry.client_request_id)||{}),id:entry.id,client_request_id:entry.client_request_id})),journalRequests=new Set(journal.map(entry=>entry.client_request_id||entry.request_id).filter(Boolean));
   const receipts=(run.chat_messages||[]).filter(entry=>!journalRequests.has(entry.id)&&!journalRequests.has(entry.request_id));
   const answered=new Set((run.chat_messages||[]).filter(entry=>entry.question_id).map(entry=>String(entry.question_id)));
   const answers=Object.entries(run.answers||{}).filter(([id])=>!answered.has(id)).map(([id,answer])=>({role:'user',speaker:'You',id,created_at:answer.at||answer.created_at,question_text:answer.question?.question,text:answer.text||answer.answer||'Saved answer',status:'saved'}));
@@ -2105,11 +2165,13 @@ function renderExecution(run){
     review.append(disclosure('Review identity','review-token',[n('code',run.review_token)],run.run));host.append(review);
   }
   host.append(disclosure('Activity, findings & Builder batches','monitor-details',[monitorDetailsPanel(run)],run.run));
-  const stats=card('','execution-summary');for(const [key,label]of [['pass','criteria passed'],['fail','need attention'],['unknown','not yet verified']]){const item=n('span',label);item.prepend(n('strong',run.counts?.[key]||0));stats.append(item);}host.append(stats);
+  const currentCounts=run.work_summary?{pass:run.work_summary.counts.checked,fail:run.work_summary.counts.failed,unknown:run.work_summary.counts.unchecked}:run.counts;
+  const stats=card('','execution-summary');for(const [key,label]of [['pass','criteria passed'],['fail','need attention'],['unknown','not yet verified']]){const item=n('span',label);item.prepend(n('strong',currentCounts?.[key]||0));stats.append(item);}host.append(stats);
   const validation=run.validation||{},results=new Map((Array.isArray(validation.criterion_results)?validation.criterion_results:[]).filter(row=>row&&typeof row==='object').map(row=>[row.id,row]));
-  host.append(Object.assign(n('p',validation.source_revision?'Saved verification · source '+String(validation.source_revision).slice(0,18):'No verification report has been saved yet.'),{className:'field-note'}));
+  host.append(Object.assign(n('p',validation.source_revision?'Saved verification · source '+String(validation.source_revision).slice(0,18):results.size?'Saved verification · source not recorded':'No verification report has been saved yet.'),{className:'field-note'}));
   if(validation.contract_hash&&run.goal?.hash&&validation.contract_hash!==run.goal.hash)host.append(Object.assign(n('p','This report belongs to an earlier plan revision. Current work still needs verification.'),{className:'error'}));
-  for(const criterion of run.criteria||[]){const row=card('','check-row'),result=results.get(criterion.id)||{},status=String(result.status||'Unverified').toLowerCase();row.append(Object.assign(n('span',human(status)),{className:'badge '+(status==='pass'?'complete':status==='fail'?'failed':'')}),n('strong',criterion.criterion||criterion.description||criterion.id));if(result.evidence_refs?.length)row.append(disclosure('Evidence · '+result.evidence_refs.length,'evidence:'+criterion.id,[renderDocument(result)],run.run));else row.append(n('p',criterion.verification_method||'Evidence will appear after verification.'));host.append(row);}
+  for(const criterion of run.criteria||[]){const row=card('','check-row'),result=results.get(criterion.id)||{},status=run.work_summary?.verification_stale?'unverified':String(result.status||'Unverified').toLowerCase();row.dataset.workDetail='requirement';row.dataset.workId=String(criterion.id);row.tabIndex=-1;focusKey(row,'work-requirement:'+run.run+':'+criterion.id);row.append(Object.assign(n('span',human(status)),{className:'badge '+(status==='pass'?'complete':status==='fail'?'failed':'')}),n('strong',criterion.criterion||criterion.description||criterion.id));if(result.evidence_refs?.length)row.append(disclosure('Evidence · '+result.evidence_refs.length,'evidence:'+criterion.id,[renderDocument(result)],run.run));else row.append(n('p',criterion.verification_method||'Evidence will appear after verification.'));host.append(row);}
+  for(const problem of run.work_summary?.problems||[]){const row=card('','problem-detail');row.dataset.workDetail='problem';row.dataset.workId=String(problem.id);row.tabIndex=-1;focusKey(row,'work-problem:'+run.run+':'+problem.id);row.append(n('h3',problem.label),n('p',[problem.id,problem.severity,problem.source?'Reported by '+roleDisplayName(problem.source):null,problem.times_reported>1?'Reported '+problem.times_reported+' times':null].filter(Boolean).join(' · ')));host.append(row);}
   if(validation.checks?.length)host.append(disclosure('Executed checks ('+validation.checks.length+')','executed-checks',[renderDocument(validation.checks)],run.run));
   if(validation.end_to_end_result)host.append(disclosure('End-to-end result','e2e-check',[renderDocument(validation.end_to_end_result)],run.run));
   if(validation.findings?.length)host.append(disclosure('Review findings ('+validation.findings.length+')','review-findings',[renderDocument(validation.findings)],run.run));
@@ -2320,16 +2382,40 @@ function workRecoveryPanel(run) {
   return host;
 }
 function workRequirementRows(run) {
+  if(run.work_summary?.requirements)return run.work_summary.requirements.map(row=>({criterion:{id:row.id,criterion:row.label},state:row.state}));
+  const stale=run.validation?.contract_hash&&run.goal?.hash&&run.validation.contract_hash!==run.goal.hash;
   const results=new Map((Array.isArray(run.validation?.criterion_results)?run.validation.criterion_results:[]).filter(row=>row&&typeof row==='object').map(row=>[String(row.id),String(row.status||'').toLowerCase()]));
   return (run.criteria||[]).map(criterion=>{
-    const status=results.get(String((criterion||{}).id??''))||'unknown';
+    const status=stale?'unknown':results.get(String((criterion||{}).id??''))||'unknown';
     const state=['pass','verified'].includes(status)?'checked':['fail','blocked'].includes(status)?'failed':'unchecked';
     return {criterion,state};
   });
 }
-function workChecklistPanel(run) {
+function openWorkDetail(kind,id){
+  activateTab('execution');
+  if(matchMedia('(max-width:759px)').matches)openDetailsDrawer();
+  const target=[...document.querySelectorAll('#execution_view [data-work-detail]')].find(node=>node.dataset.workDetail===kind&&node.dataset.workId===String(id));
+  if(target){target.scrollIntoView({block:'center'});target.focus();}
+}
+function appendWorkTasks(host,run){
+  const summary=run.work_summary;if(!summary)return;
+  const list=n('ol','');list.className='work-task-rows';
+  for(const task of summary.tasks){const item=n('li','');item.dataset.taskState=task.state;item.append(n('span',({done:'✓',working:'●',waiting:'○',unknown:'?'}[task.state]||'?')+' '+task.label),n('small',({done:'Done · recorded acceptance',working:'Working · saved active step',waiting:'Waiting',unknown:'Completion not yet verified'}[task.state]||'Unknown')));list.append(item);}
+  const tasks=disclosure(summary.task_label,'work-task-list',[list],run.run);tasks.classList.add('work-task-list');host.append(tasks);
+  if(summary.verification_stale)host.append(Object.assign(n('p','The saved checks belong to an earlier plan; these requirements need verification again.'),{className:'field-note'}));
+  if(summary.problems.length){const problems=n('div','');for(const problem of summary.problems)problems.append(button(problem.label,()=>openWorkDetail('problem',problem.id),'text-button work-detail-link'));host.append(disclosure('Open problems · '+summary.problems.length,'work-problem-list',[problems],run.run));}
+}
+function renderTaskProgress(run){
+  const control=$('#task-progress-summary'),summary=run.work_summary;
+  control.hidden=!summary||!!run.task_archived||!!run.project_removed;
+  if(control.hidden)return;
+  control.textContent=statusInfo(run).label+' · '+summary.line;control.title=control.textContent;
+  control.onclick=()=>{activateTab('now');if(matchMedia('(max-width:759px)').matches)openDetailsDrawer();const list=$('#now .work-task-list');if(list){list.open=true;const summary=list.querySelector('summary');summary?.focus();requestAnimationFrame(()=>{if(summary?.isConnected&&document.activeElement===summary)summary.scrollIntoView({block:'start'});});}};
+}
+function workChecklistPanel(run,linked=false) {
   const host=card('','work-checklist monitor-panel'),rows=workRequirementRows(run),counts=card('','work-checklist-counts');
   host.append(n('h3','Live checklist'),counts);
+  if(linked)appendWorkTasks(host,run);
   if(!rows.length){
     counts.append(n('p','No requirements have been saved for this work yet.'));
     host.append(Object.assign(n('p','Rows and counts here read only from the saved acceptance checklist.'),{className:'monitor-caption'}));
@@ -2340,15 +2426,16 @@ function workChecklistPanel(run) {
   const list=card('','work-checklist-rows');
   for(const row of rows){
     const item=card('','work-check-row '+row.state);
-    item.append(Object.assign(n('span',row.state==='checked'?'✓':row.state==='failed'?'!':'○'),{className:'work-check-icon'}),n('p',planEntryText(row.criterion)));
+    item.append(Object.assign(n('span',row.state==='checked'?'✓':row.state==='failed'?'!':'○'),{className:'work-check-icon'}),(()=>{const copy=n('p','');if(linked)copy.append(button(planEntryText(row.criterion),()=>openWorkDetail('requirement',row.criterion.id),'text-button work-detail-link'));else copy.textContent=planEntryText(row.criterion);return copy;})());
     list.append(item);
   }
   host.append(list,Object.assign(n('p','Rows and counts here read only from the saved acceptance checklist.'),{className:'monitor-caption'}));
   return host;
 }
 function renderTaskNow(run){
+  renderTaskProgress(run);
   const host=$('#now'),decision=taskDecision(run,taskActionBusy(run)),phase=taskPhase(run),assignment=run.astra_plan?.current_assignment;
-  const signature=JSON.stringify([run.run,run.task,run.display_title,run.status,run.stage,run.iteration,run.goal_token,run.goal?.approval_status,run.questions,run.user_request,run.stop_reason,run.monitor,run.criteria,run.validation,assignment,decision]);
+  const signature=JSON.stringify([run.run,run.task,run.display_title,run.status,run.stage,run.iteration,run.goal_token,run.goal?.approval_status,run.questions,run.user_request,run.stop_reason,run.monitor,run.criteria,run.validation,run.work_summary,assignment,decision]);
   if(host.dataset.rendered===signature)return;host.dataset.rendered=signature;host.replaceChildren();
   const path=n('ol','');path.className='task-path';path.setAttribute('aria-label','Workflow stage');
   const stages=[['planning','Plan'],['approval','Your approval'],...(hasOrchestration(run)?[['orchestration','Orchestrator']]:[]),['implementation','Build'],['review','Review'],['complete','Complete']];
@@ -2366,7 +2453,7 @@ function renderTaskNow(run){
   const lead=workSummaryPanel(run);
   host.append(lead);
   if(run.status==='RUNNING'&&(run.active_stage?.stage||run.stage)==='astra_resolve')host.append(workRecoveryPanel(run));
-  host.append(workChecklistPanel(run));
+  host.append(workChecklistPanel(run,true));
   // The remaining saved facts follow the integrated checklist in their own
   // compact section — the reference's verification block (448:667) — so they
   // stay inside the unscrolled fold while the lead stays small. Every human
@@ -2582,12 +2669,16 @@ async function sendChange(run,kind,retry){
   finally{sendingRequests.delete(key);if(chosen?.run===run.run)renderLiveControls(run);await refresh();}
 }
 function requestRow(entry,run){const row=card('','request-row');row.append(Object.assign(n('span',({pause:'Pause',stop:'Stop'}[entry.kind]||'Change')+' · '+(entry.status==='delivered'?'delivered to legacy checkpoint':entry.status)),{className:'badge '+(['failed','uncertain'].includes(entry.status)?'failed':entry.status==='queued'||entry.status?.startsWith('submitting')?'attention':['applied','resumed','delivered'].includes(entry.status)?'complete':'')}));if(entry.text)row.append(n('p',entry.text));if(entry.error)row.append(Object.assign(n('p',entry.error),{className:'error'}));row.append(disclosure('Receipt','receipt:'+entry.id,[n('code',entry.id)],run.run));if(entry.status==='uncertain')row.append(n('p','Refresh status and reconcile this request ID before retrying to avoid a duplicate mutation.'));else if(entry.status==='failed'&&!entry.legacy&&entry.kind)row.append(button('Retry same request',()=>sendChange(run,entry.kind,entry)));return row;}
+function isReadOnlyChatText(text){
+  const words=String(text||'').trim().toLowerCase().replace(/[.!?]+$/,'');
+  return /^(?:please )?(?:stop|pause|resume|continue)(?: (?:now|the task|after (?:this|the current) step))?$/.test(words)||String(text||'').includes('?')||/^(?:how|why|what|when|where|is|are|did|does|can|could|would)\b/.test(words)||['status','status update','progress','update'].includes(words);
+}
 async function sendTaskChat(run,retry) {
   const current=latestRun?.run===run.run?latestRun:run;
   if(taskReadError||taskArchiveBlocked(run.run)||current.task_archived||projectBlocked(run.workspace)||current.project_removed||taskChatPending.has(run.run)||current.status==='TASK_COMPLETE'||current.interventions?.mode==='unavailable')return;
   const questions=statusInfo(run).label==='Answer needed'?run.questions||[]:[],operational=operationalRequest(run),question_id=questions.length?$('#question-target').value||String(questions[0].id):null;
   let request=retry;
-  if(!request){const text=$('#change-text').value.trim();if(!text)return;const prior=readSavedRequest('task-request:'+run.run),payload={text,question_id,...(operational?{resolver_response:'provide_information'}:{}),...(question_id||operational?resolverResponseFields(run):{})},saved=prior?.payload?.text===text?prior:savedRequest('task-request:'+run.run,payload);request={...saved.payload,request_id:saved.id};}
+  if(!request){const text=$('#change-text').value.trim();if(!text)return;const prior=readSavedRequest('task-request:'+run.run),passive=isReadOnlyChatText(text),payload={text,question_id:passive?null:question_id,...(!passive&&operational?{resolver_response:'provide_information'}:{}),...(!passive&&(question_id||operational)?resolverResponseFields(run):{})},saved=prior?.payload?.text===text?prior:savedRequest('task-request:'+run.run,payload);request={...saved.payload,request_id:saved.id};}
   if(!request.text&&!request.delegate)return;
   const responding=!!(request.question_id||request.delegate||request.resolver_response||request.resolver_request||request.resolver_token);
   if(responding&&taskActionBusy(current))return;
@@ -2597,12 +2688,13 @@ async function sendTaskChat(run,retry) {
     if(responding&&(!resolverReplyCurrent(current,request,scopes)
         ||(request.resolver_response&&(request.resolver_response!=='provide_information'||request.delegate||request.question_id))
         ||(!request.resolver_response&&(!(current.questions||[]).some(question=>String(question.id)===String(request.question_id))||statusInfo(current).label!=='Answer needed'))))throw Error('This saved reply belongs to an outdated AutoResolver request. Review the current request and edit your draft before sending a new reply.');
-    if(!responding&&(operationalRequest(current)||statusInfo(current).label==='Answer needed'))throw Error('A new AutoResolver request is pending. Review it before sending this saved message.');
+    if(!responding&&!isReadOnlyChatText(request.text)&&(operationalRequest(current)||statusInfo(current).label==='Answer needed'))throw Error('A new AutoResolver request is pending. Review it before sending this saved message.');
     const text=request.submitted_text??request.text;
-    const payload=request.resolver_response?{workspace:run.workspace,run:run.run,action:'resolver_response',resolver_request:request.resolver_request,resolver_token:request.resolver_token,resolver_response:request.resolver_response,resolver_message:text}:{...chatPayload(current,text,request.question_id,request.request_id,request.delegate),...(request.retry?{retry:true}:{})};
+    const payload=request.resolver_response?{workspace:run.workspace,run:run.run,action:'resolver_response',resolver_request:request.resolver_request,resolver_token:request.resolver_token,resolver_response:request.resolver_response,resolver_message:text}:{...chatPayload(current,text,request.question_id,request.request_id,request.delegate),...(request.retry?{retry:true}:{}),...(request.explicit_answer?{explicit_answer:true}:{}),...(request.decision?{decision:request.decision,decision_token:request.decision_token}:{})};
     const response=await api(request.resolver_response?'/api/action':'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     if(['error','failed','uncertain','launch_failed'].includes(response.status))taskChatErrors.set(run.run,{...request,error:response.error||'This message needs attention.'});
-    else{persist('task-request:'+run.run,'');persist('task-scroll:'+run.run,'');if(!request.delegate&&$('#change-text').dataset.run===run.run&&$('#change-text').value.trim()===request.text){$('#change-text').value='';changeDrafts.set(run.run,'');persist('task-draft:'+run.run,'');}}
+    else{persist('task-scroll:'+run.run,'');if(!request.delegate&&!request.explicit_answer){persist('task-request:'+run.run,'');if($('#change-text').dataset.run===run.run&&$('#change-text').value.trim()===request.text){$('#change-text').value='';changeDrafts.set(run.run,'');persist('task-draft:'+run.run,'');}}}
+    return response;
   } catch(error) {taskChatErrors.set(run.run,{...request,error:error.message});}
   finally {taskChatPending.delete(run.run);if(chosen?.run===run.run)renderLiveControls(latestRun||run);refresh();}
 }
@@ -2629,7 +2721,7 @@ function renderLiveControls(run){
   input.oninput=()=>{changeDrafts.set(input.dataset.run,input.value);persist('task-draft:'+input.dataset.run,input.value);$('#send-change').disabled=sendBlocked||!!taskReadError||!input.value.trim();};
   requestAnimationFrame(()=>resizeComposer(input));
   $('#change-form').onsubmit=event=>{event.preventDefault();sendTaskChat(run);};renderPrimaryAction(run);renderTaskAttention(run);
-  $('#task-delivery').textContent=sending?'Saving your message…':operational?'Information is saved for AutoResolver. The task stays paused.':questions.length?'Planning continues only if the controller returns to Running with no pending request.':run.status==='TASK_COMPLETE'?'This task is complete. Start a new conversation for more work.':'Messages are saved when sent and applied at the next safe step';
+  $('#task-delivery').textContent=sending?'Saving your message…':operational?'Information is saved for AutoResolver. The task stays paused.':questions.length?'Planning continues only if the controller returns to Running with no pending request.':run.status==='TASK_COMPLETE'?'This task is complete. Start a new conversation for more work.':'Questions use saved status. Plan changes need confirmation before being applied.';
   $('#live-mode').textContent=operational?'This does not approve goals, change permissions, reset budgets, or continue execution.':questions.length?'This does not approve a plan or start implementation.':unavailable?'Live controls are unavailable.':statusInfo(run).group==='stopped'&&!busy?'Messages stay saved while this task is paused.':'';
   $('#live-error').textContent=data.error||'';
   const host=$('#change-history');host.replaceChildren();const entries=data.entries||data.requests||[],chatIds=new Set((run.chat_messages||[]).map(entry=>entry.id));
@@ -2662,7 +2754,7 @@ function showRemovedRun(run) {
   stopPreview();evidenceRequest++;evidenceRun='';
   $('#archive-task').disabled=true;$('#delete-task').disabled=true;
   $('#task-overview').hidden=true;
-  latestRun=run;$('#task-title').textContent='Project removed';$('#task-project').textContent=projectTitle(run.workspace);$('#task-project').title=run.workspace;$('#task-subtitle').textContent='This task is hidden until you restore its project.';$('#task-models').textContent='';$('#task-model-settings').replaceChildren();$('#task-status').replaceChildren();
+  latestRun=run;$('#task-title').textContent='Project removed';$('#task-project').textContent=projectTitle(run.workspace);$('#task-project').title=run.workspace;$('#task-subtitle').textContent='This task is hidden until you restore its project.';$('#task-models').textContent='';$('#task-model-settings').replaceChildren();$('#task-status').replaceChildren();$('#task-progress-summary').hidden=true;
   for(const id of ['conversation','brief-current','goal','plan-full','execution_view','actions','task-attention'])$('#'+id).replaceChildren();
   $('#task-attention').hidden=true;$('#detail-grid').hidden=true;$('#live-controls').hidden=true;for(const id of ['continue','continue-run','pause-run','stop-run'])$('#'+id).disabled=true;
   const host=$('#task-removed-banner');host.replaceChildren(n('h2','Restore '+projectTitle(run.workspace)+' to view this task'),n('p','Its files and history stay on disk. Running tasks keep going.'),Object.assign(n('p',run.workspace),{className:'project-path'}),projectActionButton(run.workspace,'restore','Restore project'));host.hidden=false;renderTaskProjectActions(run.workspace,true);
@@ -2671,7 +2763,7 @@ function showArchivedRun(run){
   stopPreview();evidenceRequest++;evidenceRun='';
   latestRun=run;$('#archive-task').disabled=true;$('#delete-task').disabled=true;
   $('#task-title').textContent='Task archived';$('#task-project').textContent=projectTitle(run.workspace);$('#task-project').title=run.workspace;
-  $('#task-subtitle').textContent='Restore this task to view its history and controls.';$('#task-models').textContent='';$('#task-model-settings').replaceChildren();$('#task-status').replaceChildren();
+  $('#task-subtitle').textContent='Restore this task to view its history and controls.';$('#task-models').textContent='';$('#task-model-settings').replaceChildren();$('#task-status').replaceChildren();$('#task-progress-summary').hidden=true;
   for(const id of ['task-overview','task-attention','detail-grid','live-controls'])$('#'+id).hidden=true;
   for(const id of ['continue','continue-run','pause-run','stop-run'])$('#'+id).disabled=true;
   const host=$('#task-removed-banner');host.replaceChildren(n('h2','This task is archived'),n('p','Its files and history are preserved. Archiving does not stop a running worker.'),archiveButton(run,'restore','Restore task'));host.hidden=false;

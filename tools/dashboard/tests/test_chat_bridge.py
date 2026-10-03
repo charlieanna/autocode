@@ -179,6 +179,12 @@ class ChatFixture:
         return self.console.chat({'workspace': str(self.workspace), 'run': str(self.run),
                                   'request_id': 'message-request', 'text': text, **fields, **extra})
 
+    def confirmed_chat(self, text='Please retain the history', **extra):
+        row = self.chat(text, **extra)
+        if row.get('confirmation', {}).get('status') == 'pending':
+            return self.chat(text, **extra, decision='confirm', decision_token=row['confirmation']['token'])
+        return row
+
 
 class ChatBridgeTests(ChatFixture, unittest.TestCase):
     def test_saved_progress_is_exposed_without_launching_runner(self):
@@ -508,17 +514,17 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         self.assertTrue(view['questions'])
         with patch.object(self.console, 'intervene', return_value={'id': 'feedback', 'status': 'applied'}) as intervention, \
                 patch.object(self.console, 'enqueue') as enqueue:
-            row = self.chat('Please change the requested output before I accept it', request_id='review-feedback')
+            row = self.confirmed_chat('Please change the requested output before I accept it', request_id='review-feedback')
         self.assertEqual('received', row['status'])
         self.assertEqual('feedback', intervention.call_args.args[2])
         enqueue.assert_not_called()
 
     def test_feedback_has_durable_receipt_survives_reload_and_replays_once(self):
         self.make_run()
-        first = self.chat()
+        first = self.confirmed_chat()
         self.assertEqual('received', first['status'])
         self.assertTrue(first['receipt']['durable'])
-        self.chat()
+        self.confirmed_chat()
         inbox = json.loads((self.root / 'inbox.json').read_text())
         self.assertEqual(1, len(inbox))
         restored = self.make_console()
@@ -532,7 +538,7 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
     def test_uncertain_feedback_is_not_reported_received(self):
         self.make_run()
         (self.root / 'bad-receipt').touch()
-        result = self.chat()
+        result = self.confirmed_chat()
         self.assertEqual('error', result['status'])
         self.assertIn('uncertain', result['error'].lower())
         self.assertFalse(result['receipt']['durable'])
@@ -541,21 +547,25 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         self.make_run()
         marker = self.root / 'bad-receipt'
         marker.touch()
-        failed = self.chat()
+        failed = self.confirmed_chat()
         marker.unlink()
-        self.assertEqual(failed, self.chat())
+        self.assertEqual(failed, self.confirmed_chat())
         self.assertFalse((self.root / 'inbox.json').exists())
-        retry = self.chat(retry=True)
+        retry = self.confirmed_chat(retry=True)
         self.assertEqual('received', retry['status'])
         self.assertTrue(retry['receipt']['durable'])
         self.assertEqual(failed['id'], retry['receipt']['id'])
-        self.chat(retry=True)
+        self.confirmed_chat(retry=True)
         self.assertEqual(1, len(json.loads((self.root / 'inbox.json').read_text())))
         self.assertEqual(1, len(self.console._chat_rows(self.run)))
 
     def test_two_dashboards_replaying_same_message_submit_only_once(self):
         self.make_run()
         other = self.make_console()
+        data = {'workspace': str(self.workspace), 'run': str(self.run), 'text': 'Keep the same history',
+                'request_id': 'concurrent-replay'}
+        proposal = self.console.chat(data)
+        data.update(decision='confirm', decision_token=proposal['confirmation']['token'])
         entered, release, second_started = threading.Event(), threading.Event(), threading.Event()
         submitted = []
         # The waits below are finite hang detectors, not speed assumptions: chat()
@@ -571,8 +581,6 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
                     raise AssertionError('fixture release timed out')
                 return original(*args, **kwargs)
             console.intervene = held_submit
-        data = {'workspace': str(self.workspace), 'run': str(self.run), 'text': 'Keep the same history',
-                'request_id': 'concurrent-replay'}
         def replay():
             second_started.set()
             return other.chat(data)
@@ -691,6 +699,10 @@ class ChatHttpTests(ChatFixture, unittest.TestCase):
         self.assertEqual(400, code)
         self.assertIn('no longer pending', result['error'])
         code, result = self.request('POST', '/api/chat', data)
+        self.assertEqual(202, code)
+        self.assertEqual('awaiting_confirmation', result['status'])
+        code, result = self.request('POST', '/api/chat', {
+            **data, 'decision': 'confirm', 'decision_token': result['confirmation']['token']})
         self.assertEqual(202, code)
         self.assertTrue(result['receipt']['durable'])
 

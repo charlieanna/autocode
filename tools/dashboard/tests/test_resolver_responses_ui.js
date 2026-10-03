@@ -59,7 +59,7 @@ function harness(storage=new Map()) {
     +range('function renderExecution(', 'async function loadChanges(')
     +range('function requestKey(', 'function taskSentence(')
     +range('async function submitTaskAction(', 'function modelCatalogueSnapshot(')
-    +range('async function sendTaskChat(', 'function disableStaleControls('),c);
+    +range('function isReadOnlyChatText(', 'function disableStaleControls('),c);
   function show(run,draft='A useful update'){
     c.latestRun=run;c.chosen={run:run.run,workspace:run.workspace};
     $('#change-text').dataset.run=run.run;$('#change-text').value=draft;

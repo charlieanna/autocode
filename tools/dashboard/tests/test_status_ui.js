@@ -41,9 +41,25 @@ assert.match(text(failed),/Unavailable/);assert.doesNotMatch(text(failed),/0 \/ 
 // integrated checklist and facts section are appended as siblings below, per
 // the accepted repair of findings F-fe93caa915/F-7555536361.
 const taskNowSource=source.slice(source.indexOf('function renderTaskNow('),source.indexOf('function renderPrimaryAction('));
-assert.match(taskNowSource,/host\.append\(workChecklistPanel\(run\)\)/);
+assert.match(taskNowSource,/host\.append\(workChecklistPanel\(run,true\)\)/);
 assert.match(taskNowSource,/host\.append\(monitorPanel\(run\)\)/);
 assert.doesNotMatch(taskNowSource,/lead\.append\(monitorPanel\(run\)\)/);
+// Both panes retain the checklist, but only Work offers detail navigation.
+context.workRequirementRows=()=>[{state:'unchecked',criterion:{id:'R1',criterion:'Keep messages readable'}}];
+context.planEntryText=row=>row.criterion;
+context.button=(label,click)=>Object.assign(new Element('button',label),{onclick:click});
+context.appendWorkTasks=host=>host.append(new Element('details','Saved tasks'));
+const navigated=[];context.openWorkDetail=(kind,id)=>navigated.push([kind,id]);
+vm.runInContext(source.slice(source.indexOf('function workChecklistPanel('),source.indexOf('function renderTaskNow(')),context);
+const descend=element=>[element,...element.children.flatMap(descend)];
+const planChecklist=context.workChecklistPanel({});
+assert.match(text(planChecklist),/Keep messages readable/);
+assert.equal(descend(planChecklist).filter(row=>row.tag==='button'||row.tag==='details').length,0,'Plan checklist stays read-only and compact');
+const workChecklist=context.workChecklistPanel({},true),links=descend(workChecklist).filter(row=>row.tag==='button');
+assert.equal(links.length,1);links[0].onclick();
+assert.deepEqual(navigated,[['requirement','R1']]);
+assert.equal(descend(workChecklist).filter(row=>row.tag==='details').length,1,'Work includes the saved task list');
+
 assert.match(source,/if\(!selected\).*Task list checked just now/);
 const chip=new Element('p','Running · worker verified'),step=new Element('h2','Validator · Reviewing');
 const nextHeading=new Element('strong','Let the current step finish');

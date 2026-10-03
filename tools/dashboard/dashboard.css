@@ -1226,3 +1226,47 @@ a,.next-action,.workflow-active,.task-path li.done,.model-state.mutable,button.t
   #task-detail .context-pane .context-pane-content{padding-top:2px}
   #task-detail .work-summary{padding:8px 12px}
 }
+
+/* Task input classification and explicit plan-change decisions stay in chat. */
+#task-detail #interview .chat-intent{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;padding:12px;border:1px solid var(--border-subtle);border-radius:10px;background:var(--surface-default);color:var(--text-primary)}
+#task-detail #interview .chat-intent>p{flex-basis:100%;margin:0}
+#task-detail #interview .chat-intent button{min-height:44px;min-width:44px;padding:10px 12px;white-space:normal;text-align:left}
+
+/* Saved counts stay available without expanding the transcript header. */
+#task-progress-summary{display:block;width:100%;max-width:100%;min-width:0;min-height:44px;padding:4px 8px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;color:var(--text-secondary);background:var(--surface-default);border:1px solid var(--border-subtle);border-radius:8px}
+#task-progress-summary[hidden]{display:none}
+#task-detail .work-task-list{margin:8px 0}
+#task-detail .work-task-list>summary{min-height:44px;display:flex;align-items:center;cursor:pointer}
+#task-detail .work-task-rows{padding-left:20px;margin:8px 0}
+#task-detail .work-task-rows li{padding:6px 0;overflow-wrap:anywhere}
+#task-detail .work-task-rows small{display:block;color:var(--text-secondary)}
+#task-detail .work-detail-link{min-height:44px;padding:4px 0;text-align:left;white-space:normal;overflow-wrap:anywhere}
+#task-detail .problem-detail{border:1px solid var(--border-subtle);border-radius:8px;padding:12px;margin-block:8px}
+
+/* Status and blockers stay above arbitrarily long task and requirement lists. */
+#task-detail .task-now-view{display:flex;flex-direction:column;gap:8px}
+#task-detail .task-now-view>.work-summary{order:0}
+#task-detail .task-now-view>.work-facts{order:1}
+#task-detail .task-now-view>.work-recovery{order:2}
+#task-detail .task-now-view>.work-checklist{order:3}
+#task-detail .task-now-view>.answer-safety{order:4}
+#task-detail .task-now-view>.decision-card{order:5}
+#task-detail .task-now-view>.work-questions{order:6}
+#task-detail .task-now-view>.task-path{order:7}
+#task-detail .task-now-view>.workflow-models-panel{order:8}
+#task-detail .work-checklist>details{grid-column:1/-1}
+
+/* The task title is already visible above the pane. On tablets, avoid
+   repeating it so the saved worker status and blockers remain in view. */
+@media(min-width:760px) and (max-width:1050px){
+  #task-detail .task-now-view>.work-summary>h2{display:none}
+}
+
+.question-answer-form{display:grid;gap:8px;margin-top:14px}
+.question-answer-form label{font-size:12px;font-weight:600;margin:0}
+.question-answer-form textarea{width:100%;min-height:72px;max-height:180px;resize:vertical;font:inherit;padding:10px 12px;border:1px solid var(--border-control);border-radius:8px;background:var(--surface-default);color:var(--text-primary)}
+.question-answer-form .question-answer-submit{justify-self:start;min-height:44px;margin:0}
+.answer-history{margin-block:12px;border-block:1px solid var(--border-subtle);padding-block:8px}
+.answer-history>summary{min-height:44px;display:flex;align-items:center;font-size:12px;color:var(--text-secondary);cursor:pointer}
+.answer-history-content{padding-block:12px}
+.answer-history .answer-provenance{margin:0 0 16px;text-align:right;font-size:11px}

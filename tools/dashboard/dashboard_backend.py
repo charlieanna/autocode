@@ -16,6 +16,12 @@ except ImportError:  # Support direct execution from this source directory.
     from dashboard_monitor import process_table as monitor_process_table, snapshot as monitor_snapshot
 
 
+try:
+    from .dashboard_work_summary import progress_from_status
+except ImportError:
+    from dashboard_work_summary import progress_from_status
+
+
 def mapping(value):
     return value if isinstance(value, dict) else {}
 
@@ -319,7 +325,8 @@ class RegistryInterventionMixin:
                  'entries': sorted(local.values(), key=lambda x: (x['order'] if type(x.get('order')) is int else 10**15,
                                                                  x.get('submitted_at') if isinstance(x.get('submitted_at'), str) else '')),
                  'blocked_conditions': blocked, 'pause_intent': interventions.get('pause_intent'),
-                 'stop_intent': interventions.get('stop_intent')}
+                 'stop_intent': interventions.get('stop_intent'),
+                 'work_progress': progress_from_status(data if not error else {})}
         if capable and (error or inspect_error):
             value['mode'] = 'unavailable'
         self.status_cache[key] = {'at': time.monotonic(), 'value': value}
