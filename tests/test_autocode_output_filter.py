@@ -21,3 +21,12 @@ class FilterTests(unittest.TestCase):
         text = 'test_ok (tests.A) ... ok\n' * 20 + details + 'Ran 22 tests in 0.01s\n\nFAILED (failures=2)\n'
         shown = compact_output(text, command=['python', '-m', 'unittest'], exit_code=1)['content']
         self.assertIn(details, shown)
+
+    def test_unicode_message_separator_does_not_shift_exact_omission_ranges(self):
+        passing = ''.join(f'test_{n} (suite.Case) ... ok\n' for n in range(3))
+        text = 'note\u2028same physical line\n' + passing + '\nRan 3 tests in 0.001s\n\nOK\n'
+        shown = compact_output(text, command=['python', '-m', 'unittest'], exit_code=0)
+        omitted = shown['omitted_sections'][0]
+        original = text.encode().splitlines(keepends=True)
+        self.assertEqual(b''.join(original[omitted['start_line']-1:omitted['end_line']]), passing.encode())
+        self.assertIn('note\u2028same physical line\n', shown['content'])
