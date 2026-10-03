@@ -167,5 +167,23 @@ class DropSlowTests(unittest.TestCase):
         self.assertEqual([], sorted(set(slow) - set(run_suite.test_modules({}))))
 
 
+class HarnessClassesTests(unittest.TestCase):
+    def test_the_classes_cover_every_harness_test(self):
+        loader = unittest.defaultTestLoader
+        whole = {test.id() for test in run_suite.iter_tests(loader.loadTestsFromName(run_suite.HARNESS))}
+        classes = run_suite.harness_classes()
+        self.assertGreater(len(classes), 1)
+        split = {test.id() for name in classes for test in run_suite.iter_tests(loader.loadTestsFromName(name))}
+        self.assertEqual(whole, split)
+
+    def test_a_harness_that_fails_to_load_runs_whole(self):
+        original = run_suite.HARNESS
+        run_suite.HARNESS = "scenarios.no_such_harness"
+        try:
+            self.assertEqual(["scenarios.no_such_harness"], run_suite.harness_classes())
+        finally:
+            run_suite.HARNESS = original
+
+
 if __name__ == "__main__":
     unittest.main()
