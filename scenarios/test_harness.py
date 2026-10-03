@@ -1110,7 +1110,7 @@ class AdaptiveCompletionTests(unittest.TestCase):
         self.assertIn("requirements_gather", result["metrics"]["model_stage_names"])
 
     def test_negative_exit_plan_probes_complete_in_both_planning_modes(self):
-        for flags in ((), ("--adaptive-planning",)):
+        for flags in (("--no-adaptive-planning",), ("--adaptive-planning",)):
             with self.subTest(flags=flags), tempfile.TemporaryDirectory(prefix="negative-plan-test-") as tmp:
                 args = argparse.Namespace(fake=True, profile=None, fake_solution="reference", out=Path(tmp),
                                           autocode=None, max_steps=None, timeout_minutes=5)

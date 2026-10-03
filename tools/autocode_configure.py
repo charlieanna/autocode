@@ -23,12 +23,14 @@ try:
     from . import autocode_budget_recovery as budget_recovery, autocode_verification_config as verification_config
     from . import autocode_retired_token_budget as retired_token_budget, autocode_design_manifest as design_manifest
     from . import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
+    from . import autocode_task_preflight as task_preflight
 except ImportError:
     import autocode_support as support, autocode_goals as goals, autocode_providers
     import autocode_opencode, autocode_gocode as gocode, autocode_figma as figma
     import autocode_budget_recovery as budget_recovery, autocode_verification_config as verification_config
     import autocode_retired_token_budget as retired_token_budget, autocode_design_manifest as design_manifest
     import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
+    import autocode_task_preflight as task_preflight
 
 DEFAULT_ROLE_MODELS = {
     "astra": "gpt-5.6-sol",
@@ -75,8 +77,8 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
     started = bool(state.get("settings") or state.get("sessions") or state.get("history"))
     if started and getattr(args, 'builder_strong_model', None):
         raise ValueError('--builder-strong-model is a new-run policy; existing runs keep their persisted budget and route')
-    if started and adaptive.resume_refused(state.get('settings') or {}, getattr(args, 'adaptive_planning', False)):
-        raise ValueError('--adaptive-planning is a new-run policy; start a new run to use it')
+    if started and adaptive.resume_refused(state.get('settings') or {}, getattr(args, 'adaptive_planning', None)):
+        raise ValueError('Adaptive planning is a new-run policy; a saved run keeps its planning flow')
     manifest_input = None
     if getattr(args, "figma_manifest", None):
         if started:
@@ -258,7 +260,8 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
                 raise ValueError("Start a new run to enable milestone orchestration")
             settings["orchestration"]["max_parallel"] = args.max_parallel_builders
         settings = autopilot.stuck.configure(settings, args)
-        return verification_config.configure_resume(state, settings, args)
+        settings = verification_config.configure_resume(state, settings, args)
+        return task_preflight.configure(state, settings, args)
     if engine == "opencode":
         local = opencode.local_settings(state["workspace"])
     elif engine == "gocode":
@@ -335,13 +338,11 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         planner_routes.configure_runner_profile(settings, args)
     if getattr(args, 'planning_v2', False):
         settings['planning_flow'] = 'v2'
-    if getattr(args, 'adaptive_planning', False):
-        if not joint or settings.get('planning_flow') == 'v2':
-            raise ValueError("--adaptive-planning needs joint planning and the default planning flow")
+    if adaptive.new_run_setting(getattr(args, 'adaptive_planning', None), joint, settings.get('planning_flow') == 'v2'):
         settings['adaptive_planning'] = True
     if getattr(args,'unlimited_iterations',False):
         settings['limits']['iteration_ceiling']=None
-    return autopilot.stuck.configure(settings, args)
+    return task_preflight.configure(state, autopilot.stuck.configure(settings, args), args)
 
 
 def _provider_model(role, requested, mod=None):

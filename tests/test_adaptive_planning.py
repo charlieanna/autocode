@@ -56,6 +56,29 @@ class NewRunsOnly(unittest.TestCase):
         self.assertFalse(adaptive.resume_refused({"adaptive_planning": True}, True))
         self.assertFalse(adaptive.resume_refused({"engine": "opencode"}, False))
 
+    def test_new_runs_plan_adaptively_by_default_where_they_can(self):
+        self.assertTrue(adaptive.new_run_setting(None, joint=True, v2=False))
+        self.assertFalse(adaptive.new_run_setting(None, joint=False, v2=False), "no joint planning: fixed flow")
+        self.assertFalse(adaptive.new_run_setting(None, joint=True, v2=True), "planning-v2: fixed flow")
+        self.assertFalse(adaptive.new_run_setting(False, joint=True, v2=False), "--no-adaptive-planning opts out")
+        self.assertTrue(adaptive.new_run_setting(True, joint=True, v2=False))
+        for joint, v2 in ((False, False), (True, True)):
+            with self.subTest(joint=joint, v2=v2), self.assertRaisesRegex(ValueError, "needs joint planning"):
+                adaptive.new_run_setting(True, joint=joint, v2=v2)
+
+    def test_a_saved_run_keeps_its_planning_flow(self):
+        self.assertTrue(adaptive.resume_refused({"adaptive_planning": True}, False), "--no on an adaptive run")
+        self.assertFalse(adaptive.resume_refused({"adaptive_planning": True}, None))
+        self.assertFalse(adaptive.resume_refused({"engine": "opencode"}, None), "no flag changes nothing")
+
+    def test_the_cli_flag_has_three_states(self):
+        import autocode_args
+        import autocode_opencode as opencode
+        parser = autocode_args.build_parser(None, opencode.DEFAULT_MODELS)
+        self.assertIsNone(parser.parse_args(["task"]).adaptive_planning)
+        self.assertTrue(parser.parse_args(["task", "--adaptive-planning"]).adaptive_planning)
+        self.assertFalse(parser.parse_args(["task", "--no-adaptive-planning"]).adaptive_planning)
+
     def test_configure_refuses_before_touching_the_saved_run(self):
         import argparse
         import autocode_configure as configure

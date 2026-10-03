@@ -48,6 +48,12 @@ instead of `options`: `TaskRun.start(workspace, brief, options=("--engine", "cod
 start_options=("--ui-run", str(design_run)))`. They are passed once; later advances
 and reattachment use the saved design settings.
 
+Operator-declared prerequisites can be supplied once with `--task-preflight`
+in `start_options`. A failed prerequisite pauses before paid dispatch and is
+visible in the additive `task_preflight` status field. See
+[task-preflight.md](task-preflight.md) for phase selection, copied input checks,
+receipt reuse and supported correction; readiness does not replace proof.
+
 ## Commands
 
 All commands take `--workspace WORKSPACE`; commands on an existing run add

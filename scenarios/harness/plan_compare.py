@@ -29,7 +29,8 @@ from .driver import DriveError, Driver, fake_setup, live_setup, metrics
 from .project import materialize
 
 TABLE = Path(__file__).resolve().parent.parent / "planning.toml"
-VARIANTS = {"today": [], "adaptive": ["--adaptive-planning"]}
+# Adaptive planning is the default for new runs; the fixed pipeline is now the opt-out.
+VARIANTS = {"today": ["--no-adaptive-planning"], "adaptive": ["--adaptive-planning"]}
 REVIEW_STAGES = ("astra_challenge", "astra_finalize")
 
 
