@@ -112,7 +112,7 @@ class PrerequisiteExecutionTests(PreflightFixture):
             with self.assertRaisesRegex(util.Paused, "mode"):
                 preflight.guard(state, self.workspace, self.run_dir)
             self.assertEqual(6, execute.call_count)
-            self.assertTrue(all(call.kwargs["timeout"] is None for call in execute.call_args_list))
+            self.assertTrue(all(call.kwargs["timeout"] == 120 for call in execute.call_args_list))
         self.assertEqual(settings["roles"], state["settings"]["roles"])
         self.assertEqual(settings["limits"], state["settings"]["limits"])
 

@@ -23,7 +23,6 @@ try:
     from . import autocode_support as support
     from . import autocode_workflow as workflow
     from . import autocode_workflows as workflows
-    from . import autocode_task_preflight as task_preflight
 except ImportError:
     import autopilot
     import autocode_checkout_lock as checkout_lock
@@ -38,7 +37,6 @@ except ImportError:
     import autocode_support as support
     import autocode_workflow as workflow
     import autocode_workflows as workflows
-    import autocode_task_preflight as task_preflight
 
 
 def run(runner, args, state, state_path, run_dir, workspace):
@@ -96,7 +94,6 @@ def run(runner, args, state, state_path, run_dir, workspace):
             current.setdefault("configuration_changes", []).append({"at": runner.now(),
                 "reason": "Expanded OpenCode configuration identity; all previously recorded inputs match"})
             current["settings"]["transport_identity"] = current_settings
-        task_preflight.guard(current, workspace, run_dir, persist=runner.write_json)
         if current.get('pending_report_repair'):
             try:
                 runner.execute_report_repair(current, run_dir, workspace)

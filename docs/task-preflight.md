@@ -12,7 +12,11 @@ works at the project root but fails in the runner's nested copy. The runner
 does not guess a collection command from an arbitrary test command or execute
 a whole failing acceptance suite as a prerequisite.
 
-## Manifest
+## Basic command manifest (version 1)
+
+Use [version 2](task-preflight-v2.md) for actual worker execution, browser
+readiness, readable Figma exports and proof eligibility. Version 1 remains a
+runner-environment command contract.
 
 ```json
 {
@@ -79,6 +83,10 @@ state to satisfy this check. `runtime_files` identifies external capability
 files whose current contents/metadata must invalidate receipt reuse. This does
 not copy them or approve their use by a provider.
 
+A zero model/tool limit no longer makes a version 1 prerequisite unbounded:
+it uses a separate 120-second prerequisite timeout. No model route or stage
+budget changes. Version 2 declares a positive finite timeout per check.
+
 ## Collection helper
 
 `autocode_preflight_unittest.py` loads named modules and/or discovery in separate
@@ -89,6 +97,11 @@ operator-approved identity list for each selected mode, for example
 `{"named": ["tests.test_example.Example.test_a"], "discovery": [...]}`. Hash-bind
 that inventory through `inputs`; retain the canonical suite's declared scope
 and exclusions. This helper neither chooses a smaller suite nor runs methods.
+`--exclusions exclusions.json` audits collected discovery IDs mapped to nonempty
+reasons without removing their identities. Paired
+`--setup module:function --teardown module:function` hooks check the approved
+fixture lifecycle independently in each collection interpreter. Hook failures
+are setup errors; collection still never executes test methods.
 
 Output says `COLLECTION_READY` and `tests_executed: false`. Collection and all
 other prerequisite receipts cannot establish test PASS, fail-to-pass proof,
@@ -121,13 +134,11 @@ boundary, with no active/uncertain stage or runner check. The CLI saves the old
 and new manifests in a user event; historical failure receipts remain. It does
 not install dependencies, alter pins/caps, approve a plan or weaken test gates.
 
-## Limits of this first implementation
+## Scope of readiness
 
-These commands run under the controller's **runner test environment**, not a
-Codex/OpenCode tool sandbox. Actual provider permission/capability attestation
-remains a separate requirement in issue #252; `READY` must not imply that it was
-performed. The existing Figma manifest still authenticates declared exports.
-Remote Figma access, readable context/alpha semantics, deterministic browser
-state readiness and protected-test/fail-to-pass eligibility need appropriate
-explicit probes or further domain checks. They are not inferred from a zero
-exit status, a binary on PATH, a passing collection or a reference hash.
+Version 1 checks run in the runner test environment. Version 2 explicitly
+selects runner or worker execution; its status distinguishes
+`worker_permissions_checked` from native `provider_sandbox_attested`.
+The status view includes per-check receipts and design provenance. Readiness
+is never inferred from a login, a binary on PATH or a collected test name.
+It does not establish visual fidelity, race-free tests or candidate correctness.

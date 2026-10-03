@@ -25,7 +25,7 @@ TANGLED = frozenset({
 
 # Line counts on 2026-09-28, after merging master at 24617cc and moving subcommand dispatch out of
 # autocode.py. Lower these when a module shrinks.
-MAX_LINES = {"autocode.py": 1431, "autocode_goals.py": 1208, "autocode_support.py": 616, "autopilot.py": 972}
+MAX_LINES = {"autocode.py": 1415, "autocode_goals.py": 1208, "autocode_support.py": 616, "autopilot.py": 972}
 
 
 def source_modules() -> dict[str, Path]:
