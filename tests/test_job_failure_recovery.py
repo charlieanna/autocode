@@ -65,6 +65,15 @@ import autocode
 try:import autocode_job_source as source
 except ImportError:source=None
 mode=os.environ['JOB_MODE']
+# Model a provider's saved joint-transport configuration at the normal settings
+# boundary, never by editing a checkpoint or replacing the controller.
+if os.environ.get('JOB_TRANSPORT'):
+ configure=autocode.configure
+ def selected_transport(*args,**kwargs):
+  selected=configure(*args,**kwargs)
+  selected['transport_identities']={'codex':{'fixture':os.environ['JOB_TRANSPORT']}}
+  return selected
+ autocode.configure=selected_transport
 import autocode_provider_recovery as provider_recovery
 startup=provider_recovery.recover_startup
 def no_wait(*args,**kwargs):
@@ -236,6 +245,13 @@ class JobFailureTaskRunTests(unittest.TestCase):
                 changed=TaskRun(self.workspace,run.run_dir,command=run.command,options=flags,env=run.env,timeout=60)
                 with self.assertRaisesRegex(TaskRunError,'configuration|limits'):changed.retry_job(token)
                 self.assertEqual(1,self.count())
+
+    def test_saved_joint_transport_change_invalidates_retry(self):
+        self.env['JOB_TRANSPORT']='original'
+        run=self.start();token=self.paused(run)['job_retry_token']
+        run.env.update(JOB_TRANSPORT='changed',JOB_MODE='success')
+        with self.assertRaisesRegex(TaskRunError,'configuration|limits'):run.retry_job(token)
+        self.assertEqual(1,self.count())
 
     def test_non_executable_mode_change_invalidates_retry(self):
         run=self.start();token=self.paused(run)['job_retry_token']

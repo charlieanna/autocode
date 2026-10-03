@@ -30,7 +30,7 @@ def owner(record):
 def configuration(state):
     settings = state.get('settings') or {}
     return copy.deepcopy({k: settings.get(k) for k in ('engine', 'provider', 'roles', 'limits',
-                         'transport_identity', 'headroom', 'output_transport', 'test_command', 'regression_command')})
+                         'transport_identity', 'transport_identities', 'headroom', 'output_transport', 'test_command', 'regression_command')})
 
 
 def _reason(runtime, record, error):
