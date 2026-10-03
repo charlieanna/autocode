@@ -72,6 +72,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--pause-after-stage` | Stop at the next saved boundary. |
 | `--retry-builder M2` | With `--resume-paused`, authorize one retry of the exhausted current serial milestone or stopped parallel members. Keeps failure history, model routes and verification gates; all workers must be stopped. |
 | `--abandon-stage '001/terra-01'` | Archive a stopped attempt, keep partial edits and logs. |
+| `--retry-report ATTEMPT_ID` | With `--resume-paused`, request fresh Validator evidence after an exhausted rejected report with an exact attempt ID; saved source and evidence pins must still match. |
 | `--accept-transport-change` | Resume a transport-change pause after route checks. |
 | `--max-parallel-builders N` | Concurrency limit for independent milestone Builders. |
 | `--milestone-checkpoints` / `--request-milestone-checkpoints` | Enable milestone checkpoints (idle boundary / queued). |
@@ -92,7 +93,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--engine opencode\|codex` | Engine for the run. OpenCode is the default; other tools join as providers (see [Providers](providers.md)). |
 | `--provider <name>` | External tool registered via TOML (see [Providers](providers.md#add-a-tool)). |
 | `--joint-planning` | Add joint Requirements Planner / Plan Reviewer work. |
-| `--adaptive-planning` | New runs: plan as deep as the job needs. A clear build request skips the Requirements stage, and a Plan Reviewer with no blocking concern approves the draft. See [Adaptive planning](adaptive-planning.md). |
+| `--adaptive-planning` / `--no-adaptive-planning` | New runs plan as deep as the job needs by default (joint planning on the default flow): a clear build request skips the Requirements stage, and a Plan Reviewer with no blocking concern approves the draft. `--no-adaptive-planning` keeps the fixed sequence; `--adaptive-planning` insists. See [Adaptive planning](adaptive-planning.md). |
 | `--builder-strong-model MODEL` | Stronger model for the Builder's second attempt. |
 | `--requirements-model`, `--glm-model`, `--plan-reviewer-model` | Planning-role model overrides (bare GPT names). |
 | `--astra-model`, `--terra-model`, `--sol-model`, `--completion-model` | Execution-role model overrides (`provider/model` IDs). |

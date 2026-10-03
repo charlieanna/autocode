@@ -269,7 +269,7 @@ def check_cases(proof, cases):
     failures = []
     missing = [case for case in restore if not proof["case_tests"][case["id"]]]
     failures += [
-        f"Test case {test_cases.case_text(case)} has no test named {test_cases.case_test_name(case['id'])} "
+        f"Test case {test_cases.case_text(case)} has no test named {test_cases.case_test_name(case['id'], case.get('test_name'))} "
         "that passes with the change and did not pass without it" for case in missing]
     # A preserve case (a plan's guard:) whose test could not even import on the original code is not
     # shown to fail there: it counts, with a note that its before-state is unproven.
@@ -287,7 +287,7 @@ def check_cases(proof, cases):
     untested = [case for case in preserve
                 if not proof["case_tests"][case["id"]] and case not in mistagged]
     failures += [
-        f"Preserve case {test_cases.case_text(case)} has no test named {test_cases.case_test_name(case['id'])} "
+        f"Preserve case {test_cases.case_text(case)} has no test named {test_cases.case_test_name(case['id'], case.get('test_name'))} "
         "that passes both with the change and on the original code" for case in untested]
     failures += [
         f"Preserve case {test_cases.case_text(case)} has a test that fails on the original code, so it "

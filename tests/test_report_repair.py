@@ -766,6 +766,35 @@ class RepairTests(unittest.TestCase):
         self.assertEqual('report_retry_after_format_fix', self.state['user_events'][-1]['kind'])
         self.assertTrue(self.state['report_repair_archive'])
 
+    def test_exact_evidence_mismatch_can_request_fresh_sol_validation(self):
+        self.state['next_stage'] = 'sol'
+        error = ValueError('Check is not supported by an exact executed Validator event')
+        self.queue(role='sol', stage='sol', error=error)
+        self.state['pending_report_repair']['attempts'] = 1
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.reject_repair(6, error)
+        self.state = support.read(self.run / 'state.json')
+        self.state['pending_report_repair']['attempts'] = 2
+        with self.assertRaises(support.Paused):
+            self.reject_repair(7, error)
+        self.state = support.read(self.run / 'state.json')
+        selected = runner.attempt_id(self.state['stages'][-1])
+        original_schema = Path(self.state['pending_report_repair']['original']['schema'])
+        copied_schema = self.run / 'same-validator-schema.json'
+        copied_schema.write_text('{"not": "the validator schema"}')
+        self.state['stages'][-1]['schema'] = str(copied_schema)
+        with self.assertRaises(ValueError):
+            runner.retry_format_failed_report(self.state, self.run, self.root, selected)
+        copied_schema.write_bytes(original_schema.read_bytes())
+        self.state['stages'].append({'stage': 'investigate_stuck_report_repair',
+                                     'original_stage': 'investigate_stuck',
+                                     'report_only': True, 'rejected': True,
+                                     'output': str(self.run / 'investigate_stuck_report_repair-02.json')})
+        runner.retry_format_failed_report(self.state, self.run, self.root, selected)
+        self.assertEqual('sol', self.state['next_stage'])
+        self.assertNotIn('pending_report_repair', self.state)
+        self.assertEqual('report_retry_after_format_fix', self.state['user_events'][-1]['kind'])
+
     def test_terminal_error_is_durably_queued_without_replaying_implementation(self):
         sessions = copy.deepcopy(self.state['sessions'])
         pending = self.queue()

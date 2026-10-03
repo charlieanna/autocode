@@ -74,8 +74,8 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
     started = bool(state.get("settings") or state.get("sessions") or state.get("history"))
     if started and getattr(args, 'builder_strong_model', None):
         raise ValueError('--builder-strong-model is a new-run policy; existing runs keep their persisted budget and route')
-    if started and adaptive.resume_refused(state.get('settings') or {}, getattr(args, 'adaptive_planning', False)):
-        raise ValueError('--adaptive-planning is a new-run policy; start a new run to use it')
+    if started and adaptive.resume_refused(state.get('settings') or {}, getattr(args, 'adaptive_planning', None)):
+        raise ValueError('Adaptive planning is a new-run policy; a saved run keeps its planning flow')
     manifest_input = None
     if getattr(args, "figma_manifest", None):
         if started:
@@ -322,9 +322,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         planner_routes.configure_runner_profile(settings, args)
     if getattr(args, 'planning_v2', False):
         settings['planning_flow'] = 'v2'
-    if getattr(args, 'adaptive_planning', False):
-        if not joint or settings.get('planning_flow') == 'v2':
-            raise ValueError("--adaptive-planning needs joint planning and the default planning flow")
+    if adaptive.new_run_setting(getattr(args, 'adaptive_planning', None), joint, settings.get('planning_flow') == 'v2'):
         settings['adaptive_planning'] = True
     if getattr(args,'unlimited_iterations',False):
         settings['limits']['iteration_ceiling']=None

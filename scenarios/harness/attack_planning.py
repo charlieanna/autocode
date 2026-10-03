@@ -5,8 +5,22 @@ from pathlib import Path
 def install(fake, config, trace):
     original = fake.report_for
     repaired = Path(config["root"]) / "planner-scaffolding-fixed"
+    if config["case"] in ("recover_planning_metadata", "metadata_with_proof_downgrade"):
+        complete = fake.complete
+
+        def keep_trace_omissions(value, schema):
+            missing = [row for row in value.get("requirement_trace", [])
+                       if "requirement_id" not in row] if isinstance(value, dict) else []
+            complete(value, schema)
+            for row in missing:
+                row.pop("requirement_id", None)
+            return value
+
+        fake.complete = keep_trace_omissions
 
     def report(stage, data):
+        if config["case"] in ("recover_planning_metadata", "metadata_with_proof_downgrade"):
+            return planning_metadata(fake, original, stage, data, trace, config)
         if config["case"] == "remember_citation_after_clarification":
             return citation_after_clarification(fake, original, stage, data, trace)
         if config["case"] in ("repair_draft_example", "reject_draft_example_input_change"):
@@ -25,6 +39,36 @@ def install(fake, config, trace):
         return value
 
     fake.report_for = report
+
+
+def planning_metadata(fake, original, stage, data, trace, config):
+    """Replay the live omissions and mislabeled additions at the provider boundary."""
+    value = original(stage, data)
+    if data.get("report_repair"):
+        trace("metadata_rejection", stage=stage, error=data.get("error", ""))
+    if stage == "astra_discovery":
+        omitted = value["requirement_trace"][0].pop("requirement_id", None)
+        trace("omitted_trace_id", stage=stage, omitted=omitted)
+        if config["case"] == "metadata_with_proof_downgrade":
+            value["contract"]["acceptance_criteria"][0]["verification_method"] = "test: test_c1_greeting"
+    if stage in ("glm_revise", "astra_finalize"):
+        body = value["contract"]
+        row = next((r for r in body["acceptance_criteria"] if r["id"] == "C2"), None)
+        if row is None:
+            row = dict(body["acceptance_criteria"][0], id="C2")
+            body["acceptance_criteria"].append(row)
+        if "C2" not in body["milestones"][0]["acceptance_criteria"]:
+            body["milestones"][0]["acceptance_criteria"].append("C2")
+        if body.get("initial_task") and "C2" not in body["initial_task"]["acceptance_criteria"]:
+            body["initial_task"]["acceptance_criteria"].append("C2")
+        # Additions are valid but do not describe a change to a previous item.
+        previous_ids = {r["id"] for r in data.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])}
+        value["contract_changes"] = []
+        if "C2" not in previous_ids:
+            value["contract_changes"] = [{"item": "C2", "change": "reworded",
+                "basis": "agent_proposed", "answer_id": "", "replacement": "C2 added by the Reviewer"}]
+            trace("mislabeled_addition", stage=stage, criterion=row)
+    return value
 
 
 def citation_after_clarification(fake, original, stage, data, trace):
