@@ -11,7 +11,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        # Ubuntu only since 2026-10-03: on GitHub's macOS runners the scenario harness took
+        # 19 minutes against 4 on Ubuntu (each loopback request through the phase guard
+        # stalled about 36 s there, not on a local Mac). macOS is covered by local runs.
+        # Keep the one-entry matrix: branch protection requires "suite (ubuntu-latest)".
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
