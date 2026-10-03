@@ -22,6 +22,7 @@ try:
     from .dashboard_monitor import snapshot
     from .dashboard_metrics import project_metrics
     from . import dashboard_chat_intent as chat_intent
+    from .dashboard_transcript import project as transcript
     from .dashboard_screenshots import project as screenshot_evidence
     from .dashboard_work_summary import project as work_summary
 except ImportError:  # Direct source launch, as well as the installed entry point.
@@ -29,6 +30,7 @@ except ImportError:  # Direct source launch, as well as the installed entry poin
     from dashboard_monitor import snapshot
     from dashboard_metrics import project_metrics
     import dashboard_chat_intent as chat_intent
+    from dashboard_transcript import project as transcript
     from dashboard_screenshots import project as screenshot_evidence
     from dashboard_work_summary import project as work_summary
 
@@ -541,6 +543,7 @@ class ConversationMixin:
             view = self.view(workspace, run)
         view['work_summary'] = work_summary(view)
         view['screenshots'] = screenshot_evidence(view)
+        view['transcript'] = transcript(view)
         actions = self.action_log(workspace, run)
         if view.get('startup_action'):
             actions = [view.pop('startup_action'), *actions]

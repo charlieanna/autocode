@@ -68,6 +68,20 @@ class ChatIntentTests(ChatFixture, unittest.TestCase):
         self.assertTrue(all(row["classification_rule"] == "context-first-v1" for row in restored))
         self.assertFalse((self.root / "inbox.json").exists())
 
+    def test_why_not_done_cites_unchecked_requirements_and_open_findings_read_only(self):
+        from dashboard_chat_intent import status_reply
+        from copy import deepcopy
+        view={'status':'PAUSED_REPEATED_FAILURE', 'criteria':[{'id':'R1','criterion':'Saving survives restart'},
+            {'id':'R2','criterion':'Errors stay visible'}],
+            'validation':{'criterion_results':[{'id':'R2','status':'FAIL'}]},
+            'monitor':{'findings':[{'id':'F1','finding':'Saved edits disappear after restart'}]}}
+        before=deepcopy(view)
+        reply=status_reply(view)
+        self.assertIn('R1: Saving survives restart (unchecked)',reply)
+        self.assertIn('R2: Errors stay visible (failed)',reply)
+        self.assertIn('F1: Saved edits disappear after restart',reply)
+        self.assertEqual(before,view)
+
     def test_status_and_control_do_not_answer_an_open_question(self):
         self.make_run([{"id": "q1", "question": "Which platform?"}])
         before = (self.run / "state.json").read_bytes()

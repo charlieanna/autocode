@@ -171,3 +171,37 @@ for this session. Standalone Node checks and the real three-size browser matrix
 passed after those final changes, including reload after denied storage. The
 full canonical/fake results above preceded this final JavaScript-only repair;
 CI repeats the broader gates on the pushed revision.
+
+
+## Server transcript batch
+
+The task page now consumes one server projection over the existing journal,
+answers, progress and delivery receipts. Stable source IDs and causal reply
+links preserve durable order when clocks disagree. Receipt merging retains the
+original request ID for confirmation and retry; failed sends and re-asked
+questions remain distinct. Legacy answers without recorded provenance are
+labelled explicitly and are not folded into newly delivered answer groups.
+Status questions cite unchecked requirements and open findings from saved
+records. The projection is display-only and has no runner imports or writes.
+Current approval/question controls and checkpoint inspection remain separate
+from the transcript; no new execution authority is introduced.
+
+All 335 dashboard Python tests passed, including ten pure projection cases and
+an actual HTTP repeat/no-state-write check for completed, waiting and rework
+states. The canonical changed selection passed its four architecture tests;
+that selection does not cover dashboard modules, so it is not presented as a
+substitute for the explicit dashboard gate. All 54 fake scenarios passed; the
+live-only Investigator case was skipped.
+
+Real-browser testing caught an incorrect grouping of an old legacy answer with
+two new replies. A focused JavaScript regression failed before its repair.
+The unchanged question-card browser assertions then passed at desktop, tablet
+and phone sizes, including partial/suggested answers, reload and re-asked tokens.
+The phone capture was inspected. The chat-intent browser test also passed at
+all three sizes after its pointer helper was corrected to scroll the target
+into view and verify it is hit-testable. Deadlines and assertions were retained;
+failed receipts remain local. Both supervised browser runs reaped their roots
+and reported no live owned descendants. The broad Python/fake gates preceded
+the final JavaScript-only grouping repair; the focused JavaScript and question
+browser gates ran after it. This does not establish the full #16 guided trial
+or final Figma visual acceptance.

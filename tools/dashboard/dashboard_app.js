@@ -1647,9 +1647,9 @@ function renderChatIntent(row,entry,identity) {
 function answerHistoryItems(messages){
   const result=[];
   for(const entry of messages){
-    const answered=entry.role==='user'&&entry.question_id&&['received','applied','resumed','delivered'].includes(entry.status);
+    const answered=entry.role==='user'&&entry.question_id&&entry.provenance!=='unrecorded'&&['received','applied','resumed','delivered'].includes(entry.status);
     const previous=result.at(-1);
-    if(answered&&previous?.answers&&!previous.answers.some(row=>row.question_id===entry.question_id))previous.answers.push(entry);
+    if(answered&&previous?.answers&&previous.answers.at(-1).display_source===entry.display_source&&!previous.answers.some(row=>row.question_id===entry.question_id))previous.answers.push(entry);
     else result.push(answered?{answers:[entry]}:entry);
   }
   return result;
@@ -1657,11 +1657,11 @@ function answerHistoryItems(messages){
 function renderMessageHistory(host,messages,identity){
   const items=answerHistoryItems(messages),split=Math.max(0,items.length-4),older=card('','earlier-content');
   const latestAssistant=messages.findLast(entry=>entry.role!=='user');
-  const render=(parent,entry)=>{const row=appendMessage(parent,{...entry,expanded:entry===latestAssistant||entry===messages.at(-1),text:entry.text||(entry.delegate?'Accepted suggested answer':'Saved answer')});if(entry.kind)renderChatIntent(row,entry,identity);if(entry.question_text)row.prepend(Object.assign(n('p','In reply to: '+entry.question_text),{className:'reply-context'}));if(entry.error)row.append(Object.assign(n('p',entry.error),{className:'error'}));if(entry.role==='user'&&entry.status==='error'&&latestRun?.run===identity)row.append(button('Retry same message',()=>sendTaskChat(latestRun,{...entry,request_id:entry.id,retry:true})));};
+  const render=(parent,entry)=>{const row=appendMessage(parent,{...entry,expanded:entry===latestAssistant||entry===messages.at(-1),text:entry.text||(entry.delegate?'Accepted suggested answer':'Saved answer')});if(entry.role==='user'&&entry.kind)renderChatIntent(row,entry,identity);if(entry.provenance==='unrecorded')row.append(Object.assign(n('p','Saved answer · origin not recorded'),{className:'answer-provenance field-note'}));if(entry.question_text)row.prepend(Object.assign(n('p','In reply to: '+entry.question_text),{className:'reply-context'}));if(entry.error)row.append(Object.assign(n('p',entry.error),{className:'error'}));if(entry.role==='user'&&entry.status==='error'&&latestRun?.run===identity)row.append(button('Retry same message',()=>sendTaskChat(latestRun,{...entry,request_id:entry.client_request_id||entry.request_id||entry.id,retry:true})));};
   const renderItem=(parent,item)=>{
     if(!item.answers)return render(parent,item);
     const entries=item.answers,body=card('','answer-history-content'),suggested=entries.filter(entry=>entry.delegate).length;
-    for(const entry of entries){render(body,entry);body.append(Object.assign(n('p',entry.delegate?'You accepted the suggested answer':'You wrote this answer'),{className:'answer-provenance field-note'}));}
+    for(const entry of entries){render(body,entry);body.append(Object.assign(n('p',entry.delegate?'You accepted the suggested answer':entry.provenance==='unrecorded'?'Saved answer · origin not recorded':'You wrote this answer'),{className:'answer-provenance field-note'}));}
     const label='You answered '+entries.length+' '+(entries.length===1?'question':'questions')+' · '+suggested+' used the suggestion';
     const group=disclosure(label,'answer-history:'+entries[0].id,[body],identity);group.className='answer-history';parent.append(group);
   };
@@ -1669,15 +1669,7 @@ function renderMessageHistory(host,messages,identity){
   if(split){const history=disclosure('Earlier conversation · '+split+' messages','earlier-messages',[older],identity);history.className='earlier-messages';host.append(history);}
   for(const entry of items.slice(split))renderItem(host,entry);
 }
-function taskMessages(run){
-  const receiptById=new Map((run.chat_messages||[]).map(entry=>[entry.id,entry]));
-  const journal=(run.conversation?.messages||[]).map(entry=>({...entry,...(receiptById.get(entry.client_request_id)||{}),id:entry.id,client_request_id:entry.client_request_id})),journalRequests=new Set(journal.map(entry=>entry.client_request_id||entry.request_id).filter(Boolean));
-  const receipts=(run.chat_messages||[]).filter(entry=>!journalRequests.has(entry.id)&&!journalRequests.has(entry.request_id));
-  const answered=new Set((run.chat_messages||[]).filter(entry=>entry.question_id).map(entry=>String(entry.question_id)));
-  const answers=Object.entries(run.answers||{}).filter(([id])=>!answered.has(id)).map(([id,answer])=>({role:'user',speaker:'You',id,created_at:answer.at||answer.created_at,question_text:answer.question?.question,text:answer.text||answer.answer||'Saved answer',status:'saved'}));
-  const seen=new Set(),messages=[...journal,...(run.draft_messages||[]),...answers,...(run.progress_messages||[]),...receipts.map(entry=>({role:'user',speaker:'You',...entry}))].filter(entry=>{const key=entry.id?entry.id+':'+entry.role:null;if(!key)return true;if(seen.has(key))return false;seen.add(key);return true;});
-  return orderedMessages(messages);
-}
+function taskMessages(run){return Array.isArray(run.transcript?.messages)?run.transcript.messages:[];}
 function settleThreadScroll(){
   if(currentView!=='task-detail')return;
   const thread=$('#interview');
@@ -2056,12 +2048,13 @@ function renderWorkflowTimeline(host,run){
 
 function renderConversation(run) {
   const checkpoints=sessionCheckpoints(run);
-  const root=$('#conversation'),signature=JSON.stringify([run.run,run.progress_messages,run.draft_messages,run.planning_messages,run.discovery_summary,run.answers,run.questions,run.chat_messages,run.user_request,run.human_request_authorized,run.human_escalation,run.status,run.goal?.approval_status,run.goal?.approval_event,run.completed_at,run.monitor?.findings_summary,run.monitor?.findings,run.monitor?.validation_verdict,run.validation?.source_revision,run.counts,taskChatPending.has(run.run),checkpoints,run.conversation,run.goal_token,run.validation,run.screenshots,run.stages,run.active_stage]);
+  const root=$('#conversation'),signature=JSON.stringify([run.run,run.transcript,run.progress_messages,run.draft_messages,run.planning_messages,run.discovery_summary,run.answers,run.questions,run.chat_messages,run.user_request,run.human_request_authorized,run.human_escalation,run.status,run.goal?.approval_status,run.goal?.approval_event,run.completed_at,run.monitor?.findings_summary,run.monitor?.findings,run.monitor?.validation_verdict,run.validation?.source_revision,run.counts,taskChatPending.has(run.run),checkpoints,run.conversation,run.goal_token,run.validation,run.screenshots,run.stages,run.active_stage]);
   $('#conversation-heading').textContent='Conversation';
   $('#conversation-avatar').textContent=planningSpeaker(run).slice(0,1);
   $('#conversation-description').textContent=jointPlanning(run)?'The Requirements Gatherer captures the scope. The Planner drafts and revises. The independent Plan Reviewer challenges and finalizes.':'Shape the work, then let your team build.';
   if(root.dataset.rendered===signature)return;const scroll=$('#interview');scrollThreadToEnd=scrollThreadToEnd||scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90;root.dataset.rendered=signature;root.replaceChildren();
   root.dataset.conversationId=run.conversation?.id||run.conversation_id||'';
+  if(run.transcript?.warning)root.append(Object.assign(n('p',run.transcript.warning),{className:'field-note'}));
   renderMessageHistory(root,taskMessages(run),run.run);
   renderScreenshotEvidence(root,run);
   if(checkpoints.length&&run.status!=='TASK_COMPLETE'&&!taskActionBusy(run)){

@@ -1,3 +1,4 @@
+const transcript=require('./transcript_fixture');
 // Current checkpoint authority and chronological history, exercised with saved-state scenarios.
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../dashboard_app.js'),'utf8');
@@ -80,7 +81,7 @@ context.renderTaskNow(approved);
 workflow=now.children.find(row=>row.tag==='ol');
 assert.equal(workflow.children.length,5);
 assert.equal(workflow.children.find(row=>row['aria-current']==='step').textContent,'Build');
-const messages=context.taskMessages({draft_messages:[{text:'Initial idea',created_at:'2026-09-19T01:00:00Z'}],planning_messages:[{text:'Draft',created_at:'2026-09-19T02:00:00Z'},{text:'Revision',created_at:'2026-09-19T04:00:00Z'}],answers:{q1:{text:'Saved answer',at:'2026-09-19T03:00:00Z',question:{question:'Which scope?'}},q2:{text:'Duplicate receipt',at:'2026-09-19T05:00:00Z'}},chat_messages:[{text:'Latest answer',question_id:'q2',created_at:'2026-09-19T05:00:00Z'}]});
+const messages=context.taskMessages({transcript:transcript({draft_messages:[{text:'Initial idea',created_at:'2026-09-19T01:00:00Z'}],planning_messages:[{text:'Draft',created_at:'2026-09-19T02:00:00Z'},{text:'Revision',created_at:'2026-09-19T04:00:00Z'}],answers:{q1:{text:'Saved answer',at:'2026-09-19T03:00:00Z',question:{question:'Which scope?'}},q2:{text:'Latest answer',at:'2026-09-19T05:00:00Z'}},chat_messages:[{text:'Latest answer',question_id:'q2',status:'received',created_at:'2026-09-19T05:00:00Z'}]})});
 assert.deepEqual(Array.from(messages,m=>m.text),['Initial idea','Saved answer','Latest answer']);
 assert.equal(messages[1].question_text,'Which scope?');
 assert.equal(messages.some(message=>message.planning_history),false,'Internal planning drafts are inspected separately, not published as questions');
@@ -91,10 +92,10 @@ assert.match(source,/Recover saved work/);
 assert.match(source,/Resume separately/);
 console.log('Current approval authority, resume decisions, workflow phase, model identity, and conversation ordering passed.');
 
-const progress=context.taskMessages({planning_messages:[{text:'Plan',created_at:'2026-09-19T01:00:00Z'}],progress_messages:[{id:'progress-1',role:'assistant',speaker:'Builder',text:'Fix routing',created_at:'2026-09-19T02:00:00Z'},{id:'progress-2',role:'assistant',speaker:'Validator',text:'Blocked: test failed',created_at:'2026-09-19T03:00:00Z'}]});
+const progress=context.taskMessages({transcript:transcript({planning_messages:[{text:'Plan',created_at:'2026-09-19T01:00:00Z'}],progress_messages:[{id:'progress-1',role:'assistant',speaker:'Builder',text:'Fix routing',created_at:'2026-09-19T02:00:00Z'},{id:'progress-2',role:'assistant',speaker:'Validator',text:'Blocked: test failed',created_at:'2026-09-19T03:00:00Z'}]})});
 assert.deepEqual(Array.from(progress,m=>m.text),['Fix routing','Blocked: test failed']);
 assert.equal(progress[1].speaker,'Validator');
-assert.match(source.slice(source.indexOf('function renderConversation('),source.indexOf('function renderConversation(')+500),/progress_messages/);
+assert.match(source.slice(source.indexOf('function renderConversation('),source.indexOf('function renderConversation(')+500),/transcript/);
 
 const failedReport={...approved,status:'PAUSED_REPORT_REPAIR_LIMIT',stop_reason:'Bounded report-only repair attempts exhausted',questions:[{id:'old',question:'Old approval?'}]};
 assert.equal(context.taskDecision(failedReport).required,false);

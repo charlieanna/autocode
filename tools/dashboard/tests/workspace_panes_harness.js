@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const transcript = require('./transcript_fixture');
 
 const source = fs.readFileSync(path.join(__dirname, '..', 'dashboard_app.js'), 'utf8');
 const page = fs.readFileSync(path.join(__dirname, '..', 'dashboard.html'), 'utf8');
@@ -158,7 +159,7 @@ const fetch = async (url, options = {}) => {
     const runPath = query.get('run') || '';
     const base = (serverState.data.runs || []).find(row => row.run === runPath)
       || {workspace: query.get('workspace') || '', run: runPath, task: 'Missing task'};
-    return {ok: true, json: async () => JSON.parse(JSON.stringify(base))};
+    return {ok: true, json: async () => ({...JSON.parse(JSON.stringify(base)),transcript:transcript(base)})};
   }
   if (url.startsWith('/api/evidence?')) {
     const query = new URLSearchParams(url.slice('/api/evidence?'.length));

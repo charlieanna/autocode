@@ -657,6 +657,31 @@ class ChatHttpTests(ChatFixture, unittest.TestCase):
         finally:
             connection.close()
 
+    def test_task_http_projects_saved_transcript_without_clock_reordering_or_state_writes(self):
+        from urllib.parse import urlencode
+        self.make_run([{'id':'q1','question':'Which format?'}])
+        route='/api/run?'+urlencode({'workspace':str(self.workspace),'run':str(self.run)})
+        for status, texts in (
+            ('TASK_COMPLETE', ['Builder finished', 'Checks passed', 'Task complete']),
+            ('WAITING_FOR_USER', ['Planning started', 'A format is needed']),
+            ('PAUSED_REPEATED_FAILURE', ['Checks failed', 'Saved work needs repair']),
+        ):
+            with self.subTest(status=status):
+                self.state['status']=status
+                self.state['progress_messages']=[{'id':f'progress-{index}', 'role':'assistant',
+                    'text':text, 'created_at':30-index} for index,text in enumerate(texts)]
+                self.save_state()
+                before=(self.run/'state.json').read_bytes()
+                code, first=self.request('GET',route)
+                self.assertEqual(200,code)
+                code, second=self.request('GET',route)
+                self.assertEqual(200,code)
+                self.assertEqual(texts,[row['text'] for row in first['transcript']['messages']])
+                self.assertEqual(first['transcript'],second['transcript'])
+                self.assertEqual(before,(self.run/'state.json').read_bytes())
+        self.assertEqual([],self.commands())
+        self.assertEqual([],self.provider_calls)
+
     def test_http_chat_round_trip_is_persistent_without_project(self):
         status, started = self.request('POST', '/api/conversations', {'text': 'Draft a review journal', 'request_id': 'http-start'})
         self.assertEqual(202, status)

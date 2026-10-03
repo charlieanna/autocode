@@ -124,3 +124,11 @@ formatting.renderMessageHistory(answerHistory,[
 assert.equal(answerHistory.children[0].label,'You answered 2 questions · 1 used the suggestion');
 assert.equal(answerHistory.children[1].label,'You answered 1 question · 0 used the suggestion');
 assert.notEqual(answerHistory.children[2].tagName,'DETAILS','Failed delivery remains visible outside accepted answer history');
+
+// Unknown legacy provenance is not merged into a newly confirmed answer group.
+const mixedAnswers=formatting.answerHistoryItems([
+ {id:'old',role:'user',question_id:'old',status:'received',provenance:'unrecorded',display_source:'answer'},
+ {id:'new1',role:'user',question_id:'q1',status:'received',display_source:'receipt'},
+ {id:'new2',role:'user',question_id:'q2',status:'received',display_source:'receipt'}]);
+assert.equal(mixedAnswers[0].id,'old');
+assert.equal(mixedAnswers[1].answers.length,2);
