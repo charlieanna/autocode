@@ -101,6 +101,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         help="Override reasoning effort for the completion owner only")
     parser.add_argument("--pin-model-role", action="append", choices=tuple(DEFAULT_ROLE_MODELS), default=[],
                         help="Keep this role's selected model and reasoning effort instead of escalating it automatically")
+    parser.add_argument("--tool-output-mode", choices=("raw", "conservative"), help="Display mode for AutoCode capture/output tools; saved across resume")
     parser.add_argument("--headroom", choices=["off","on"], default=None,
                         help="Off by default; on fails closed until compatibility is verified")
     parser.add_argument("--dry-run", action="store_true")

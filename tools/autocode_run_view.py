@@ -13,10 +13,12 @@ from __future__ import annotations
 from copy import deepcopy
 
 try:
+    from . import autocode_output_policy as output_policy, autocode_request_usage as request_usage
     from . import autocode_usage, autocode_design_coverage as design_coverage
     from . import autocode_contract_identity as contract_identity
     from . import autocode_progressive_plan as progressive_rules
 except ImportError:
+    import autocode_output_policy as output_policy, autocode_request_usage as request_usage
     import autocode_usage, autocode_design_coverage as design_coverage
     import autocode_contract_identity as contract_identity
     import autocode_progressive_plan as progressive_rules
@@ -57,6 +59,8 @@ def view(state: dict) -> dict:
         "evidence": evidence(state),
         # Tokens and cost so far, by role (autocode_usage.summary): reported, estimated and unknown kept apart.
         "usage": autocode_usage.summary(state),
+        "request_context": request_usage.view(state),
+        "output_transport": output_policy.view(state),
     }
     design = design_coverage.projection(state)
     if design is not None:

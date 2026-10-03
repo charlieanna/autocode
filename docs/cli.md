@@ -158,3 +158,11 @@ analyze the work read-only. Keep that directory outside the target workspace.
 - **2** — user input, pause, or error. Inspect `--status`; do not rely on the exit code alone.
 
 See also: [Install](install.md) · [Workflow](workflow.md) · [Execution](execution.md)
+
+## Exact tool output
+
+Use `--tool-output-mode raw|conservative` for AutoCode capture/file-read display.
+`autocode output read FILE` returns exact sections with retained originals;
+`autocode output retrieve SHA256 --raw` recovers exact bytes. See
+[exact output transport](exact-output.md) for options, recovery and measurement
+limits. Native provider tools keep their existing behavior.

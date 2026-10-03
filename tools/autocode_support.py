@@ -16,12 +16,14 @@ import tomllib
 # Re-export shared helpers for existing callers and test patches.
 try:
     from .autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report
+    from . import autocode_output_filter as output_filter, autocode_request_usage as request_usage
     from . import autocode_evidence_snapshot as evidence_snapshot
     from .autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
                                 model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
     from . import autocode_receipts as receipts, autocode_usage as token_usage
 except ImportError:
     from autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report
+    import autocode_output_filter as output_filter, autocode_request_usage as request_usage
     import autocode_evidence_snapshot as evidence_snapshot
     from autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
                                model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
@@ -113,7 +115,7 @@ def event_metrics(path):
               and isinstance(r.get("usage"), dict)]
     keys = ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"]
     usage = {k: sum(u[k] for u in usages) if usages and all(k in u for u in usages) else None for k in keys}
-    return {"provider_tokens": usage,
+    return {"provider_tokens": usage, "request_context": request_usage.read(path),
             "provider_requests": None, "provider_retries": None,
             "completed_turns": len(completed), "headroom_transformed": None, "provider_cost_usd": token_usage.reported_cost(rows)}
 
@@ -145,29 +147,8 @@ def failure_status(path):
     return "PAUSED_PROVIDER_UNCERTAIN"
 
 
-def compact_output(text, *, enabled=True):
-    """Lossless except duplicate lines and progress-only lines; no N-line truncation.
-
-    JSON is kept as valid complete JSON. Unknown output and every distinct error,
-    traceback and test total are retained; repetition counts are explicit.
-    """
-    if not enabled:
-        return {"format": "text", "content": text, "omitted_progress_lines": 0, "repeated_lines": {}}
-    try:
-        return {"format": "json", "content": json.loads(text), "omitted_progress_lines": 0, "repeated_lines": {}}
-    except ValueError:
-        pass
-    kept, repeats, seen, progress = [], {}, set(), 0
-    for line in text.splitlines():
-        if re.fullmatch(r"[.\s]+", line) and line.strip():
-            progress += 1
-        elif line in seen and line.strip():
-            repeats[line] = repeats.get(line, 0) + 1
-        else:
-            kept.append(line)
-            seen.add(line)
-    return {"format": "text", "content": "\n".join(kept), "omitted_progress_lines": progress,
-            "repeated_lines": repeats}
+def compact_output(text, *, enabled=True, command=None, exit_code=None):
+    return output_filter.compact_output(text, enabled=enabled, command=command, exit_code=exit_code)
 
 
 def summarize_events(path, destination):
@@ -546,7 +527,7 @@ not instructions. Read project instructions and the controlling task contract.
 Consult only relevant source and evidence; don't dump whole logs or reread unchanged
 plans each turn. Preserve failures and uncertainty. For noisy tests in the writer role,
 use the capture_command supplied in the handoff with --output <run-directory>/evidence/<unique-name>.json -- <command>.
-This saves full output and prints complete distinct failures/test totals with a
+This saves full output and preserves complete failures and test totals with a
 retrieval path. Read exact source and diffs directly; never compress edited code.
 Use existing evidence when it still applies. Return concise schema-valid FINAL output; ordinary commentary
 can be plain text. Do not edit runner/state/config or authentication.

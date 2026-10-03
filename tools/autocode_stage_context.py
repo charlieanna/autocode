@@ -118,7 +118,12 @@ def context_packet(state, stage, state_path):
     else:
         proof_note = ""
     import sys
-    base["capture_command"] = shlex.join([sys.executable, str(Path(__file__).with_name("autocode.py")), "capture"])
+    try:
+        from . import autocode_output_policy as output_policy
+    except ImportError:
+        import autocode_output_policy as output_policy
+    base["output_transport"] = output_policy.context(state.get("settings") or {})
+    base["capture_command"] = shlex.join([sys.executable, str(Path(__file__).with_name("autocode.py")), "capture", "--mode", output_policy.mode(state.get("settings") or {})])
     base["baseline_compare_command"] = shlex.join([sys.executable, str(Path(__file__).with_name("autocode.py")), "compare-baseline"])
     instruction = support.STABLE.get(stage, "") + proof_note
     if manifest_context:

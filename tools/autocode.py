@@ -49,6 +49,7 @@ try:
     from . import autocode_progressive_state as progressive_state
     from . import autocode_findings as findings_ledger
     from . import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
+    from . import autocode_output_policy as output_policy
     from .autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
@@ -79,6 +80,7 @@ except ImportError:
     import autocode_progressive_state as progressive_state
     import autocode_findings as findings_ledger
     import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
+    import autocode_output_policy as output_policy
     from autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
@@ -378,6 +380,7 @@ def run_role(
     if report_only and len(prompt.encode('utf-8')) > REPAIR_HANDOFF_BYTES:
         raise support.Paused('PAUSED_REPORT_REPAIR_INPUT',
                              f'Provider-decorated repair prompt exceeds {REPAIR_HANDOFF_BYTES} bytes; no request was launched')
+    child_options["env"].update(output_policy.environment(state["settings"], workspace, events))
     prompt_file.write_text(prompt)
 
     record = {"role": role, "stage": stage, "iteration": iteration, "started_at": now(), "command": command,
@@ -946,47 +949,11 @@ def reconcile_active(state, run_dir, workspace):
 
 
 def capture_command(argv):
-    parser = argparse.ArgumentParser(description="Capture complete tool evidence with deterministic compact output")
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--no-compress", action="store_true")
-    parser.add_argument("command", nargs=argparse.REMAINDER)
-    args = parser.parse_args(argv)
-    command = args.command[1:] if args.command[:1] == ["--"] else args.command
-    if not command:
-        parser.error("command required")
-    capture_context = None
-    if os.environ.get('AUTOCODE_CAPTURE_CONTEXT'):
-        try:
-            capture_context = json.loads(os.environ['AUTOCODE_CAPTURE_CONTEXT'])
-        except ValueError:
-            parser.error('invalid runner capture context')
-        if not isinstance(capture_context, dict) or any(
-                not isinstance(capture_context.get(key), str) or not capture_context[key]
-                for key in ('attempt', 'nonce', 'source_revision')):
-            parser.error('invalid runner capture context')
-    path = args.output.resolve()
-    root = Path.cwd().resolve()
-    if not path.is_relative_to(root / ".autocode"):
-        parser.error("evidence output must be under this project's .autocode directory")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    raw = path.with_suffix(".log")
-    if path.exists() or raw.exists():
-        parser.error("use a unique evidence filename; existing evidence is immutable")
-    started = time.monotonic()
-    with raw.open("x") as handle:
-        result = subprocess.run(command, stdout=handle, stderr=subprocess.STDOUT, text=True)
-    full = raw.read_text(errors="replace")
     try:
-        compact = support.compact_output(full, enabled=not args.no_compress)
-    except Exception as error:
-        compact = {"format": "text", "content": full, "compression_error": type(error).__name__, "fallback": "complete_original"}
-    receipt = {"command": command, "command_text": shlex.join(command), "exit_code": result.returncode, "duration_seconds": time.monotonic()-started,
-               "full_output": str(raw), "full_output_sha256": support.file_hash(raw), "summary": compact}
-    if capture_context:
-        receipt['capture_context'] = capture_context
-    write_json(path, receipt)
-    print(json.dumps(receipt))
-    return result.returncode
+        from . import autocode_capture_command
+    except ImportError:
+        import autocode_capture_command
+    return autocode_capture_command.cli(argv, formatter=support.compact_output)
 
 
 def configure(args, state):
