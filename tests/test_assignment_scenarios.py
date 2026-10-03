@@ -145,10 +145,7 @@ class AssignmentScenarios(unittest.TestCase):
         with self.assertRaisesRegex(s.Paused, self.REJECTED):
             self.build()
         self.parent_untouched()
-        # Since #218 (PR #232): the out-of-scope edit of a committed-clean file is restored
-        # from Git in the worker tree, so the rejection cannot block every retry on it.
-        self.assertTrue(all((tree / "tests/test_greeting.py").read_text() == TEST_SOURCE
-                            for tree in self.worker_trees()))
+        self.assertTrue(all((tree / "tests/test_greeting.py").read_text() == TEST_SOURCE for tree in self.worker_trees()))
 
     def test_config_edits_outside_allowed_paths_are_rejected(self):
         self.seed()
@@ -341,9 +338,10 @@ class AssignmentScenarios(unittest.TestCase):
         self.assertNotIn("implementation", self.state)
         self.assertNotIn("tests/test_greeting.py", self.state.get("changed_files", []))
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
-        # Since #218 (PR #232): the escaped edit of a committed-clean file is restored
-        # from Git, never promoted and never able to block the retry.
+        # The rejected stage records its delta; clean committed source is restored.
         self.assertEqual(TEST_SOURCE, (self.root / "tests/test_greeting.py").read_text())
+        self.assertEqual(WELCOME, (self.root / "src/greeting.py").read_text())
+        self.assertIn("restored pre-existing files", str(caught.exception))
 
     def test_serial_assignment_accepts_edits_inside_its_paths(self):
         self.seed()
@@ -362,9 +360,8 @@ class AssignmentScenarios(unittest.TestCase):
         self.assertEqual(WELCOME, (self.root / "src/greeting.py").read_text())
         self.assertNotEqual("TASK_COMPLETE", self.state["status"])
 
-    # A retry is gated on everything the assignment has changed so far, not only on
-    # its own edits. Otherwise an out-of-scope edit that a rejected attempt left in
-    # the tree for inspection would ride along with the next attempt to validation.
+    # A rejected attempt restores provably clean files. A retry still checks the
+    # whole assignment, so unprovably clean changes cannot ride into validation.
     def serial_attempt(self, scenario):
         """One Builder attempt through Autopilot's own stage path, as a run makes it."""
         if not hasattr(self, "environment"):
@@ -384,29 +381,43 @@ class AssignmentScenarios(unittest.TestCase):
         self.state["settings"]["orchestration"]["enabled"] = False
         self.assertRegex(self.serial_attempt(first), "outside the assigned paths")
 
-    def test_serial_retry_without_edits_cannot_carry_an_earlier_escape(self):
-        # Since #218 (PR #232): the first refusal restores the provable escape, so the
-        # retry proceeds from the starting tree and cannot profit from the violation.
+    def test_serial_retry_without_edits_proceeds_after_clean_escape_is_restored(self):
         self.serial_greeting("escape_tests")
         self.assertEqual(TEST_SOURCE, (self.root / "tests/test_greeting.py").read_text())
-        self.assertIsNone(self.serial_attempt("correct"))
+        self.assertIsNone(self.serial_attempt("no_change"))
+        self.assertEqual(["src/greeting.py"], self.state["changed_files"])
         self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual(TEST_SOURCE, (self.root / "tests/test_greeting.py").read_text())
+        self.assertNotEqual("TASK_COMPLETE", self.state["status"])
 
-    def test_serial_retry_with_in_scope_edits_cannot_carry_an_earlier_escape(self):
-        # The restored escape does not block a retry that carries its own in-scope edit.
+    def test_serial_retry_with_in_scope_edits_proceeds_after_clean_escape_is_restored(self):
         self.serial_greeting("escape_tests")
         (self.root / "src/greeting.py").write_text(HELLO)
         self.assertIsNone(self.serial_attempt("correct"))
+        self.assertEqual(["src/greeting.py"], self.state["changed_files"])
         self.assertEqual("sol", self.state["next_stage"])
         self.assertEqual(TEST_SOURCE, (self.root / "tests/test_greeting.py").read_text())
 
-    def test_serial_retry_cannot_carry_an_earlier_deletion(self):
-        # The out-of-scope deletion of a committed file is restored at its own refusal,
-        # so the retry cannot inherit a missing file it never owned.
+    def test_serial_retry_proceeds_after_deleted_committed_file_is_restored(self):
         self.serial_greeting("delete_unrelated")
         self.assertEqual(NOTE, (self.root / "notes/unrelated.txt").read_text())
         self.assertIsNone(self.serial_attempt("correct"))
+        self.assertEqual(["src/greeting.py"], self.state["changed_files"])
         self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual(NOTE, (self.root / "notes/unrelated.txt").read_text())
+
+    def test_serial_retry_stays_blocked_when_escape_was_not_provably_clean_at_start(self):
+        self.seed()
+        (self.root / "tests/test_greeting.py").write_text(TEST_SOURCE + "# user work before assignment\n")
+        self.greeting_contract()
+        self.state["settings"]["orchestration"]["enabled"] = False
+        self.assertRegex(self.serial_attempt("escape_tests"), "edits retained for inspection.*tests/test_greeting.py")
+        retained = (self.root / "tests/test_greeting.py").read_text()
+        self.assertNotEqual(TEST_SOURCE, retained)
+        self.assertRegex(self.serial_attempt("correct"), "outside the assigned paths.*tests/test_greeting.py")
+        self.assertEqual(retained, (self.root / "tests/test_greeting.py").read_text())
+        self.assertNotIn("implementation", self.state)
+        self.assertNotEqual("sol", self.state["next_stage"])
 
     def test_serial_retry_proceeds_once_the_escape_is_restored(self):
         self.serial_greeting("escape_tests")
