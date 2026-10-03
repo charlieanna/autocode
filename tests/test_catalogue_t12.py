@@ -71,6 +71,11 @@ class DashboardCase(kit.CatalogueCase):
                         kind="browser" if name in REAL_BROWSER_SUITES else "node_vm",
                         returncode=completed.returncode, stdout=completed.stdout, stderr=completed.stderr)
         ok = completed.returncode == 0
+        if not ok:
+            # CI retains the unittest log, but not the disposable catalogue bundle.
+            # Show the underlying browser assertion instead of only its Boolean verdict.
+            print(f"Dashboard suite {name!r} exited {completed.returncode}:\n"
+                  f"{completed.stdout}\n{completed.stderr}", file=sys.stderr)
         self.check(f"[{name}] browser_suite_passes", True, ok)
         return ok
 
