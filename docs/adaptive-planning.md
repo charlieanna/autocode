@@ -27,6 +27,7 @@ has the evidence for it:
 | Does the request need requirements gathering? | Job recognizer | The request text: does it say what to build and how to tell it is done, with no product choice left open? | `clear` build requests go straight to the Planner; `vague` ones keep the Requirements stage. When unsure the recognizer says `vague`. |
 | Is the plan finished? | Plan Reviewer | Its own concerns, each marked blocking or not | No blocking concern: an ordinary Planner draft goes to you, with the non-blocking concerns as notes. Otherwise the Planner revises. Progressive delegations keep revision and final independent review, which supply their approval authority. |
 | How many review rounds? | The runner | The draft's declared milestones and the files they touch (`plan_size`) | A large plan (3+ milestones or 10+ files) gets 3 review calls instead of 2, so a revision is reviewed again before the final decision. |
+| Does feedback on a plan need requirements gathering? | The runner, then the Planner | The run's status: a complete plan waiting for your approval | The Planner revises the plan you were shown, then the Plan Reviewer reviews it. The Planner can send feedback that changes what is being built back to Requirements. See [below](#feedback-on-a-plan-you-were-shown). |
 
 For this to work, the Planner's draft includes its `initial_task` (the first
 Builder task). In the fixed sequence only the final review writes one.
@@ -49,16 +50,61 @@ What does not change:
 
 Where it lives: `tools/autocode_adaptive_planning.py` holds the decisions as pure
 functions. `units/autoplanner.py` (`schema_for`, `after_challenge`,
-`after_revise`) and `autocode_workflows.apply` apply them. State:
-`workflow.clarity`, and `planning.adaptive` (`size`, `signals`, `review_limit`,
-`challenges`, `approved_at`, `final_stage`).
+`after_revise`, `rerun_requirements`), `autocode_workflows.apply` and
+`autocode_goals.feedback` apply them. State: `workflow.clarity`,
+`planning.adaptive` (`size`, `signals`, `review_limit`, `challenges`,
+`approved_at`, `final_stage`), and `revises_plan` on a feedback event.
+
+## Feedback on a plan you were shown
+
+Without adaptive planning, feedback on a plan (`--feedback`, or typing a change
+in chat) restarts planning from the top, however small the change:
+
+```
+your feedback → requirements → plan → review → revise → final review → your approval
+```
+
+In an adaptive run, feedback sent while a complete plan waits for your approval
+goes to the Planner, which revises the plan you saw:
+
+```
+your feedback → plan (revises the plan you saw) → review → your approval
+```
+
+The review works as for any adaptive draft: with no blocking concern the plan
+comes back to you; otherwise it is revised and reviewed again. Feedback at any
+other point (while questions are open, or queued during a build) still restarts
+from Requirements.
+
+Requirements is skipped because its job was done for the request you already
+planned; your feedback changes that plan. Three checks keep the shortcut safe:
+
+1. **The runner checks the revision delivers your feedback.** Your feedback
+   becomes a requirement the Planner must trace, like the ones the Requirements
+   stage writes: covered by an acceptance criterion or required behavior of the
+   new plan, or the draft is rejected. This needs no model call. It stays a
+   traced requirement until a Requirements report takes it in.
+2. **The Planner can send it back.** If your feedback changes what is being built
+   (a different product, user or outcome, not an added or changed behavior), the
+   Planner says so instead of revising (`requirements_rerun`), and the runner
+   discards that draft and runs the Requirements stage. "Make it a web page
+   instead of a command-line tool" is the example in the comparison corpus.
+3. **The Plan Reviewer still reviews the revision**, and is told to check that
+   your feedback is applied as you said it and that nothing you asked for earlier
+   was lost. The runner's existing guard already refuses a revision that drops or
+   rewords a protected item (a criterion, behavior or exclusion) without citing
+   your feedback.
+
+You still approve the revised plan.
 
 ## Comparing it with today's pipeline
 
 `scenarios/run.py plan-compare` plans each request in `scenarios/planning.toml`
 twice, once with today's pipeline and once with `--adaptive-planning`. Each run
 starts in a fresh copy of the request's seed and stops when AutoCode shows the
-plan for approval. Nothing is built. The driver answers questions with
+plan for approval. A request with `feedback` then sends that feedback instead of
+approving, and stops at the next plan shown for approval; the feedback round is
+reported in its own columns. Nothing is built. The driver answers questions with
 AutoCode's proposed default, the same way for both variants.
 
 ```sh
@@ -73,6 +119,65 @@ concerns, questions, tokens, model time and plan shape per request and variant),
 request's two final plans side by side as Plan A and Plan B, with the key in
 `blind/key.json`, so plan quality can be judged without knowing which variant
 wrote which.
+
+## Results: live comparison with feedback, 2026-10-02
+
+Each of the 11 requests in `planning.toml` was planned once per pipeline on the
+default routes (Requirements and Planner on GLM 5.3, Plan Reviewer on GPT-6 Sol).
+After the first plan, each run got the request's `feedback` instead of an approval
+and went on to the next plan shown for approval. The code under test was the
+feedback path above plus the re-review context for answered questions
+(`feat/rereview-after-answers`). Evidence:
+`.scenario-runs/20261002T091307Z-plan-compare-default-ac6a8qs0` (not committed;
+`blind/verdicts-before-key.md` holds the verdicts written before the key was opened).
+
+| | Today | Adaptive | Change |
+| --- | --- | --- | --- |
+| **First plan:** plans reached | 11/11 | 11/11 | |
+| model calls | 112 | 95 | −15% |
+| questions to the user | 26 | 16 | −38% |
+| **Feedback round:** new plans reached | 9/11 | 9/11 | |
+| model calls | 85 | 50 | −41% |
+| plan-review calls | 26 | 15 | −42% |
+| tokens in / out | 5.45M / 1.05M | 4.50M / 0.63M | −17% / −40% |
+| model time | 267 min | 157 min | −41% |
+
+The first-plan numbers repeat the 2026-09-30 comparison (−15% calls, −37%
+questions). Four adaptive feedback rounds took two calls: the Planner revised the
+plan and the Plan Reviewer approved it at once.
+
+**Plan quality after the feedback was the same.** Judged blind on whether the
+feedback was applied as stated and the rest of the plan kept: adaptive better in
+3 pairs (deployment-planner, tenant-http-api, transactional-outbox), today's
+pipeline in 3 (small-json-flag, vague-reading-list, vague-timesheet-useful), 5
+ties. Both pipelines sometimes added criteria nobody asked for.
+
+**Where the adaptive path fell short:**
+
+- `vague-reading-list` ("make it a web page instead of a command-line tool"):
+  the Planner produced no output for 300 seconds three times and the run stopped
+  for a person, so the send-back to Requirements was never exercised live. A large
+  change can exceed the idle limit before the Planner writes anything.
+- `vague-timesheet-useful`: the revision appended a section to the default report
+  although the feedback said to keep that output exactly as it is, and the Plan
+  Reviewer did not object.
+- Planner slips on the feedback path, each costing a report repair: a
+  `conflict_resolutions` entry for a feedback-versus-plan conflict (2 runs; the
+  Planner rule now says to use `contract_changes` instead), a blank feedback
+  `answer_id` on an assumption (2 runs), and contract changes named by list
+  instead of by item.
+
+Today's pipeline missed a new plan twice: `deployment-planner` (both pipelines
+stopped for a person) and `transactional-outbox` (an AutoResolver blocker,
+"Planning recovery scope or inputs changed").
+
+Earlier attempts at this comparison, stopped and restarted, found four Planner
+slips, each fixed on this branch or an accompanying one: a trace row without its
+`requirement_id` (now named by the runner when only one requirement can be meant;
+this branch), `example_correction: null` refused by the schema
+(`fix/example-correction-null`), a declared change whose item was wrapped in its
+list name (`fix/contract-change-item-refs`), and report fields written inside the
+contract (`feat/rereview-after-answers`).
 
 ## Results: live comparison, 2026-09-30
 

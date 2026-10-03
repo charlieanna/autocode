@@ -276,7 +276,9 @@ returns a report, whether or not the runner then accepts that report. An attempt
 times out or whose provider fails returns no review, so it is given back before the next
 attempt; the repeated-failure limit, not this allowance, stops a review that keeps failing.
 Bounded recovery does not otherwise extend the allowance. Unresolved final decisions return
-to you as blocking questions. If the
+to you as blocking questions. Once you answer them, planning starts a new cycle, and its first
+review receives the previous review's concerns, its decisions and your answers
+(`previous_review`), so it checks your answers instead of reviewing the plan from scratch. If the
 budget is exhausted, the run pauses at `PAUSED_PLANNING_BUDGET`. After inspecting a
 reconciled checkpoint, an operator can permit one more attempt without discarding the
 accepted challenge and revision (for example, increase a total allowance of 2 to 3):
@@ -302,7 +304,8 @@ that the workspace has not changed since that review. If the check fails, approv
 planning restarts with a new cycle. Planning restarts at most twice for the same reason since your
 last input. After that, the run pauses at `PAUSED_APPROVAL_DEFERRED` with the reason, instead of
 spending review calls on cycles that end the same way. `--resume-paused` runs one more cycle;
-`--feedback` restarts from requirements and renews the allowance.
+`--feedback` restarts from requirements (in an adaptive run, from the Planner when a plan is shown
+for approval) and renews the allowance.
 
 The default workflow uses OpenCode for every role. The Plan Reviewer, Builder, Validator,
 and Completion Owner use OpenCode's current ChatGPT OAuth connection; the Requirements Gatherer
@@ -553,7 +556,9 @@ autocode --workspace /path/to/project --run-dir /path/to/run --no-chat
 ```
 
 `--answer` is repeatable. `--feedback TEXT` saves a correction and returns to Requirements
-discovery on the next invocation; a revised brief always needs fresh approval.
+discovery on the next invocation; a revised brief always needs fresh approval. In an
+`--adaptive-planning` run, feedback on a plan shown for approval goes to the Planner instead,
+which revises that plan ([Adaptive planning](adaptive-planning.md#feedback-on-a-plan-you-were-shown)).
 `--delegate Q1` explicitly accepts that question's proposed
 default. Saved answers are included in subsequent interviews; an answered question
 ID cannot be requested again. Answers do not approve the task. The approval token

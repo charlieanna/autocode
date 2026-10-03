@@ -87,7 +87,7 @@ $PY scenarios/run.py route --fake                 # which workflow AutoCode reco
 $PY scenarios/run.py compare --fake               # AutoCode vs a plain agent on the same oracles (scripted; no spend)
 $PY scenarios/run.py stats                        # per scenario and mode: runs, passes, pass streak, time, model stages
 $PY scenarios/run.py build-compare greenfield-greeting-cli greenfield-todo-cli feature-timesheet-by-project parallel-diamond --fake --repeats 2 --jobs 4
-$PY -m unittest scenarios/test_harness.py         # the harness's own tests, including all catalog controls
+$PY tools/run_suite.py --scenario-harness         # the harness's own tests, including all catalog controls, in parallel
 ```
 
 Results land in `.scenario-runs/<time>-<id>-<mode>/`: `result.json` (verdict,
@@ -304,11 +304,13 @@ live comparison with matched models and a recorded profile.
 `plan-compare` plans each build request in `planning.toml` twice: once with
 today's fixed AutoPlanner sequence (`--no-adaptive-planning`) and once with `--adaptive-planning`
 ([docs/adaptive-planning.md](../docs/adaptive-planning.md)). It stops each run
-at the plan the user is asked to approve, so nothing is built. It reports
-stages, review calls and blocking concerns, questions, tokens and model time
-side by side. Under `blind/` it writes each request's two plans as Plan A and
-Plan B, with the key kept separately, for judging plan quality without knowing
-which variant wrote which.
+at the plan the user is asked to approve, so nothing is built. A request with
+`feedback` sends it instead of approving that plan, and stops at the next plan
+shown for approval. It reports stages, review calls and blocking concerns,
+questions, tokens and model time side by side, with the feedback round in its
+own columns. Under `blind/` it writes each request's two plans as Plan A and
+Plan B (before and after the feedback, when there is one), with the key kept
+separately, for judging plan quality without knowing which variant wrote which.
 
 ```sh
 $PY scenarios/run.py plan-compare --fake                   # every adaptive path, scripted, seconds

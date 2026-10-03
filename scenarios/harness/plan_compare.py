@@ -2,10 +2,12 @@
 
 ``scenarios/planning.toml`` lists the requests. Each is planned once per variant,
 in a fresh copy of its seed, and driven like a user would (questions answered with
-AutoCode's proposed default) until AutoCode shows the plan for approval. Nothing is
-built. The comparison reports, per request and variant, which stages ran, the
-review calls and blocking concerns, the questions asked, tokens and model time,
-and the plan's shape. It also writes each pair of final plans side by side under
+AutoCode's proposed default) until AutoCode shows the plan for approval. A request
+with ``feedback`` then gets that feedback instead of an approval, and is driven to
+the next plan shown for approval. Nothing is built. The comparison reports, per
+request and variant, which stages ran, the review calls and blocking concerns, the
+questions asked, tokens and model time, and the plan's shape; the feedback round is
+reported separately. It also writes each pair of final plans side by side under
 neutral labels (``blind/``, key in ``blind/key.json``) so a reader can judge plan
 quality without knowing which variant wrote which.
 
@@ -39,18 +41,20 @@ class Case:
     brief: str
     expect: dict
     fake: dict
+    feedback: str = ""
 
 
 def load(path: Path = TABLE) -> list[Case]:
     table = tomllib.loads(path.read_text())
     cases = []
     for row in table.get("case") or []:
-        unknown = set(row) - {"id", "seed", "brief", "expect", "fake"}
+        unknown = set(row) - {"id", "seed", "brief", "expect", "fake", "feedback"}
         if unknown or not row.get("id") or not row.get("seed"):
             raise ValueError(f"{path}: case {row.get('id')!r} needs id and seed; unknown keys {sorted(unknown)}")
         seed = catalog.load(row["seed"])
         cases.append(Case(row["id"], seed, (row.get("brief") or seed.brief).strip(),
-                          dict(row.get("expect") or {}), dict(row.get("fake") or {})))
+                          dict(row.get("expect") or {}), dict(row.get("fake") or {}),
+                          str(row.get("feedback") or "").strip()))
     if len({case.id for case in cases}) != len(cases):
         raise ValueError(f"{path}: case ids must be unique")
     return cases
@@ -58,7 +62,8 @@ def load(path: Path = TABLE) -> list[Case]:
 
 def plan_one(case: Case, variant: str, out: Path, *, fake: bool, profile: str | None, autocode: list[str],
              timeout_minutes: int, max_steps: int) -> dict:
-    """Plan one request with one variant, stopping at the plan the user is asked to approve."""
+    """Plan one request with one variant, stopping at the plan the user is asked to approve; with feedback,
+    send it at that point and stop at the next plan shown for approval."""
     root = out / f"{case.id}-{variant}"
     root.mkdir(parents=True)
     project = materialize(case.seed.seed, root / "project")
@@ -67,11 +72,12 @@ def plan_one(case: Case, variant: str, out: Path, *, fake: bool, profile: str | 
         flags, env = fake_setup(stand_in, root, case.seed.reference)
         env["SCENARIO_FAKE_CLARITY"] = case.fake.get("clarity", "clear")
         env["SCENARIO_FAKE_BLOCKING_REVIEW"] = str(case.fake.get("blocking_review", 0))
+        env["SCENARIO_FAKE_REQUIREMENTS_RERUN"] = str(case.fake.get("requirements_rerun", 0))
     else:
         flags, env = live_setup(profile)
     driver = Driver(project, root, [*flags, *VARIANTS[variant]], env, autocode=autocode,
                     max_steps=max_steps, timeout_seconds=60 * timeout_minutes)
-    started, error, view = time.monotonic(), "", {}
+    started, error, view, first = time.monotonic(), "", {}, {}
     try:
         driver.call("start", task=case.brief)
         runs = project / ".autocode" / "runs"
@@ -80,13 +86,20 @@ def plan_one(case: Case, variant: str, out: Path, *, fake: bool, profile: str | 
             raise DriveError("the first CLI call did not create a run")
         driver.run_dir = found[-1].parent
         view = driver.until_stopped(say_at="needs:approve_plan")
+        if case.feedback and (view.get("needs") or {}).get("kind") == "approve_plan":
+            first = driver.state()
+            driver.call("feedback", "--feedback", case.feedback, action=True)
+            view = driver.until_stopped(say_at="needs:approve_plan")
     except DriveError as failure:
         error = str(failure)
     wall = round(time.monotonic() - started, 1)
     state = driver.state()
     if state:
         (root / "state.json").write_text(json.dumps(state, indent=2))
-    record = summarize(state, driver.run_dir)
+    # The first plan's numbers stay comparable with runs that sent no feedback; the feedback round is apart.
+    record = summarize(first or state, driver.run_dir)
+    record.update(feedback=case.feedback if first else "",
+                  feedback_round=feedback_round(state, first) if first else None)
     record.update(case=case.id, variant=variant, wall_seconds=wall, error=error, evidence=str(root),
                   ended=(view.get("needs") or {}).get("kind") or state.get("status"),
                   answers=driver.answers, cli_calls=len(driver.steps))
@@ -138,6 +151,19 @@ def summarize(state: dict, run_dir: Path | None) -> dict:
     }
 
 
+def feedback_round(state: dict, first: dict) -> dict:
+    """What the feedback cost and produced: the stages that ran after it, and the plan shown next."""
+    later = {**state, "stages": (state.get("stages") or [])[len(first.get("stages") or []):]}
+    measured = summarize(later, None)
+    reruns = [_report(row).get("requirements_rerun") for row in later["stages"] if row.get("stage") == "astra_discovery"]
+    # A new final plan, not the one shown before the feedback (its token outlives the restart until replaced).
+    token = (state.get("planning") or {}).get("final_token")
+    return {**{key: measured[key] for key in ("model_stages", "model_calls", "report_repairs",
+                                             "review_calls", "reviews", "tokens", "model_seconds", "plan", "contract")},
+            "final_plan": bool(token) and token != (first.get("planning") or {}).get("final_token"),
+            "requirements_rerun": next((reason for reason in reruns if reason), "")}
+
+
 def render_plan(body: dict) -> str:
     """A final plan as a reader sees it: outcome, requirements, milestones, criteria, first task."""
     if not body:
@@ -182,8 +208,15 @@ def write_blind(out: Path, cases: list[Case], records: dict) -> None:
             pair.reverse()
         key[case.id] = {"A": pair[0]["variant"], "B": pair[1]["variant"]}
         text = [f"# {case.id}", "", "## Request", "", case.brief, ""]
-        for label, record in zip("AB", pair):
-            text += [f"## Plan {label}", "", render_plan(record["contract"])]
+        if all(record.get("feedback_round") for record in pair):
+            # Judge the plan each variant showed after the feedback, against the plan it showed before.
+            text += ["## Feedback on the first plan", "", case.feedback, ""]
+            for label, record in zip("AB", pair):
+                text += [f"## Plan {label}", "", "### Before the feedback", "", render_plan(record["contract"]),
+                         "### After the feedback", "", render_plan(record["feedback_round"]["contract"])]
+        else:
+            for label, record in zip("AB", pair):
+                text += [f"## Plan {label}", "", render_plan(record["contract"])]
         (blind / f"{case.id}.md").write_text("\n".join(text))
     (blind / "key.json").write_text(json.dumps(key, indent=2))
 
@@ -191,8 +224,8 @@ def write_blind(out: Path, cases: list[Case], records: dict) -> None:
 def table(cases: list[Case], records: dict) -> str:
     """The comparison as Markdown: one row per request and variant, then totals per variant."""
     lines = ["| Request | Variant | Ended | Clarity | Size | Model calls | Stages | Reviews (blocking) | "
-             "Questions | Tokens in/out | Model min | Milestones | Criteria |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "Questions | Tokens in/out | Model min | Milestones | Criteria | After feedback |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for case in cases:
         for variant in VARIANTS:
             row = records.get((case.id, variant))
@@ -204,9 +237,11 @@ def table(cases: list[Case], records: dict) -> str:
                 f"| {case.id} | {variant} | {row['ended']}{' ⚠ ' + row['error'][:60] if row['error'] else ''} | "
                 f"{row['clarity'] or '–'} | {(row['adaptive'] or {}).get('size', '–')} | {row['model_calls']} | {stages} | "
                 f"{reviews or '–'} | {len(row['answers'])} | {row['tokens']['input']:,}/{row['tokens']['output']:,} | "
-                f"{row['model_seconds'] / 60:.1f} | {row['plan']['milestones']} | {row['plan']['acceptance_criteria']} |")
-    lines += ["", "| Variant | Plans reached | Model calls | Review calls | Questions | Tokens in | Tokens out | Model min |",
-              "|---|---|---|---|---|---|---|---|"]
+                f"{row['model_seconds'] / 60:.1f} | {row['plan']['milestones']} | {row['plan']['acceptance_criteria']} | "
+                f"{after_feedback(row.get('feedback_round'))} |")
+    lines += ["", "| Variant | Plans reached | Model calls | Review calls | Questions | Tokens in | Tokens out | Model min | "
+              "Feedback: plans reached | calls | review calls | tokens in | tokens out | model min |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for variant in VARIANTS:
         rows = [records[(case.id, variant)] for case in cases if (case.id, variant) in records]
         if rows:
@@ -214,8 +249,26 @@ def table(cases: list[Case], records: dict) -> str:
                          f"{sum(r['model_calls'] for r in rows)} | {sum(r['review_calls'] for r in rows)} | "
                          f"{sum(len(r['answers']) for r in rows)} | {sum(r['tokens']['input'] for r in rows):,} | "
                          f"{sum(r['tokens']['output'] for r in rows):,} | "
-                         f"{sum(r['model_seconds'] for r in rows) / 60:.1f} |")
+                         f"{sum(r['model_seconds'] for r in rows) / 60:.1f} | " + feedback_totals(rows))
     return "\n".join(lines) + "\n"
+
+
+def after_feedback(round_: dict | None) -> str:
+    """The feedback round in one cell: calls, the stages that ran, and a Planner's send-back to Requirements."""
+    if not round_:
+        return "–"
+    stages = " → ".join(short(name) for name in round_["model_stages"])
+    return (f"{round_['model_calls']} calls: {stages}" + ("" if round_["final_plan"] else " (no plan)")
+            + (" (sent back to requirements)" if round_["requirements_rerun"] else ""))
+
+
+def feedback_totals(rows: list[dict]) -> str:
+    rounds = [row["feedback_round"] for row in rows if row.get("feedback_round")]
+    if not rounds:
+        return "– | – | – | – | – | – |"
+    return (f"{sum(r['final_plan'] for r in rounds)}/{len(rounds)} | {sum(r['model_calls'] for r in rounds)} | "
+            f"{sum(r['review_calls'] for r in rounds)} | {sum(r['tokens']['input'] for r in rounds):,} | "
+            f"{sum(r['tokens']['output'] for r in rounds):,} | {sum(r['model_seconds'] for r in rounds) / 60:.1f} |")
 
 
 SHORT = {"recognize_workflow": "recognize", "requirements_gather": "requirements", "astra_discovery": "plan",

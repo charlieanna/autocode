@@ -11,7 +11,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        # Ubuntu only since 2026-10-03: on GitHub's macOS runners the scenario harness took
+        # 19 minutes against 4 on Ubuntu (each loopback request through the phase guard
+        # stalled about 36 s there, not on a local Mac). macOS is covered by local runs.
+        # Keep the one-entry matrix: branch protection requires "suite (ubuntu-latest)".
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -51,8 +55,9 @@ jobs:
 
       - name: Run the scenario harness
         # scenarios/ is outside tests/: its catalog checks and scripted end-to-end runs
-        # (scenarios/README.md) would otherwise never run in CI.
-        run: python3 -m unittest scenarios/test_harness.py -v
+        # (scenarios/README.md) would otherwise never run in CI. Each test class runs in its own
+        # interpreter, one per CPU at a time; run serially it took about 3.5 minutes.
+        run: python3 tools/run_suite.py --scenario-harness --verbosity 2
         env:
           PYTHONDONTWRITEBYTECODE: "1"
 
