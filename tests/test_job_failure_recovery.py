@@ -130,6 +130,9 @@ class JobFailureTaskRunTests(unittest.TestCase):
         (cls.seed/'calc.py').write_text(ORIGINAL)
         (cls.seed/'pr-double.patch').write_text('diff --git a/calc.py b/calc.py\n--- a/calc.py\n+++ b/calc.py\n@@ -1,2 +1,2 @@\n def double(n):\n-    return n * 2\n+    return n + n\n')
         subprocess.run(['git','init','-q',str(cls.seed)],check=True)
+        # A copied seed must stay immutable while each case copies its objects.
+        subprocess.run(['git','-C',str(cls.seed),'config','maintenance.auto','false'],check=True)
+        subprocess.run(['git','-C',str(cls.seed),'config','gc.auto','0'],check=True)
         subprocess.run(['git','-C',str(cls.seed),'add','-A'],check=True)
         subprocess.run(['git','-C',str(cls.seed),'-c','user.name=Fixture','-c','user.email=f@example.test','commit','-qm','seed'],check=True)
 

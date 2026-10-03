@@ -23,6 +23,9 @@ Verification on application commit `a0c18e558b7dcc9198f7c38487dd8adb8fc59d89`:
   cleanup assertion failed. Its 39-test module and focused reruns pass; no
   full-suite PASS is claimed. The final correction passes the changed gate,
   complete fake catalogue and fresh native checks.
+- Ubuntu CI exposed automatic Git maintenance racing the copied seed. Only
+  that disposable seed disables automatic maintenance; all 25 regressions and
+  the 989-test changed gate pass again. No assertion or application code changed.
 
 Native OpenCode checks use a synthetic integer-review fixture, one original
 provider stage each, with unchanged source. GLM/OpenAI caps are 180 seconds;
