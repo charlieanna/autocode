@@ -88,7 +88,7 @@ class ConfigureModuleImportTests(unittest.TestCase):
 class ConfigureModuleSurfaceTests(unittest.TestCase):
     def test_c2_configure_module_exports_and_compat_surface(self):
         require_extraction()
-        for name in ("configure", "configure_joint", "configure_codex_joint", "configure_gocode_joint",
+        for name in ("configure", "configure_joint", "configure_codex_joint",
                      "migrate_opencode_roles", "_provider_model", "budget_origins", "check_subscription",
                      "BUDGET_ARGUMENTS", "DEFAULT_ROLE_MODELS", "DEFAULT_ENGINE"):
             self.assertTrue(hasattr(autocode_configure, name), name)

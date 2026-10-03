@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import os
 try:
-    from . import autocode_agent_env as agent_env, autocode_gocode as gocode
+    from . import autocode_agent_env as agent_env
 except ImportError:
-    import autocode_agent_env as agent_env, autocode_gocode as gocode
+    import autocode_agent_env as agent_env
 
 
 def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
@@ -19,10 +19,7 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
             prompt_file=prompt_file, sandbox=sandbox)
         if child:
             environment = agent_env.scrubbed(child)
-    elif engine == "gocode":
-        command = gocode.launch(role=role, workspace=workspace, session=session, model=model,
-                               effort=effort, sandbox=sandbox, schema=schema, output=report)
-    else:
+    elif engine == "codex":
         command = ["codex", "exec", "-C", str(workspace), "--sandbox", sandbox, *transport_args]
         if chatgpt:
             command += ["-c", 'forced_login_method="chatgpt"']
@@ -35,6 +32,9 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
         command += ["-", "--json", "--output-schema", str(schema), "-o", str(report)]
         if model:
             command += ["--model", model]
+    else:
+        raise RuntimeError(f"engine {engine!r} is not bundled in this checkout; providers live in "
+                           "~/.config/autocode/providers/ and run with --provider")
     worker = {"engine": engine, "provider": getattr(adapter, "NAME", "opencode") if engine == "opencode" else provider or engine,
               "configured": bool(getattr(adapter, "CONFIGURED", False)), "role": route_role,
               "sandbox": sandbox, "planning": planning, "model": model,

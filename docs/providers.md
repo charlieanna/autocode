@@ -61,7 +61,7 @@ kept. Each stage record lists the withheld names (never values) under
 `withheld_env`. The rules are in `tools/autocode_agent_env.py`.
 
 Providers sign in from their own stored logins (OpenCode, Codex and Kilo auth
-files, GoCode's credential bundle), so the default routes need none of these. If
+files), so the default routes need none of these. If
 your provider or your project's tests genuinely need one, name it:
 
 ```sh
@@ -138,17 +138,19 @@ if that file is absent, the bundled example at `tools/providers/configs/<name>.t
 Configs inside a project are not loaded.
 
 ```toml
-name = "gocode"
-command = ["sh", "-c", "eval \"$(gocode env --shell bash)\" && exec codex exec -C \"$1\" --sandbox \"$2\" --model \"$3\" -c model_reasoning_effort=\"$4\" --output-schema \"$5\" -o \"$6\" -", "gocode", "{workspace}", "{sandbox}", "{model}", "{effort}", "{schema}", "{report}"]
-prompt = "stdin"                      # or "file" (uses {prompt_file})
-models_command = ["gocode", "models"] # optional; or a static list: models = [...]
-version_command = ["gocode", "--version"]
+name = "kilocode"
+command = ["kilo", "run", "--dir", "{workspace}", "--model", "{model}", "--variant", "{effort}", "--format", "json"]
+prompt = "stdin"                        # or "file" (uses {prompt_file})
+output = "opencode_events"              # or "report_file"; see below
+resume = ["--session", "{session}"]     # optional; enables saved sessions
+models_command = ["kilo", "models"]     # optional; or a static list: models = [...]
+version_command = ["kilo", "--version"]
 
 [roles]
-astra = { model = "openai/gpt-6-astra", effort = "high" }
-terra = { model = "zai-coding-plan/glm-5.3", effort = "medium" }
-sol = { model = "openai/gpt-6-sol", effort = "high" }
-completion = { model = "openai/gpt-6-sol", effort = "medium" }
+astra = { model = "openai/gpt-5.6-sol", effort = "high" }
+terra = { model = "openai/gpt-5.6-terra", effort = "medium" }
+sol = { model = "openai/gpt-5.6-sol", effort = "high" }
+completion = { model = "openai/gpt-5.6-sol", effort = "medium" }
 glm = { model = "zai-coding-plan/glm-5.3", effort = "medium" }
 plan_reviewer = { model = "openai/gpt-6-sol", effort = "high" }
 ```

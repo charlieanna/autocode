@@ -44,8 +44,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--figma-file", help="Figma Design URL to implement using the connected Codex plugin")
     parser.add_argument("--ui-run", type=Path, help="Accepted autocode-ui run to implement")
     parser.add_argument("--figma-review", choices=["automatic", "human"], help="Visual review policy for new Figma runs (default: automatic)")
-    parser.add_argument("--engine", choices=["codex", "gocode", "opencode"],
-                        help="Select Codex, GoCode, or OpenCode; resumes keep the saved engine")
+    parser.add_argument("--engine", choices=["codex", "opencode"],
+                        help="Select Codex or OpenCode; resumes keep the saved engine")
     parser.add_argument("--provider", default=None,
                         help="Tool that runs each role for a new run. Default: AUTOCODE_PROVIDER, then default_provider in "
                              "~/.config/autocode/config.toml, then opencode. Other names load ~/.config/autocode/providers/<name>.toml")

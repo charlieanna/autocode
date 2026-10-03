@@ -29,10 +29,10 @@ were archived at tag `archive/pre-restructure-2026-09-26`
 
 ## Architecture rules
 
-1. **Do not grow the big modules.** `autocode.py`, `autocode_goals.py`,
-   `autocode_support.py` and `autopilot.py` have line limits recorded in
-   `tests/test_architecture.py`. New behavior goes in a new module with one
-   purpose. Lower the recorded limit when you shrink one.
+1. **Keep modules focused.** `autocode.py`, `autocode_goals.py`,
+   `autocode_support.py` and `autopilot.py` already carry broad responsibilities.
+   New behavior goes in a module with one purpose at the appropriate layer.
+   Review responsibilities and dependency direction.
 2. **Do not join an import cycle.** 12 modules are in one (listed in
    `tests/test_architecture.py`): milestones, findings, the goal lifecycle,
    workflow, the planning unit and the stage context around them, and two
@@ -61,7 +61,7 @@ were archived at tag `archive/pre-restructure-2026-09-26`
    is that separate layer. Progressive planning inside one existing run is
    not: it uses that run's existing controller and cycle-free policy helpers,
    with `autocode_progressive_state` owning the progressive record, never a second controller,
-   cross-run private-state access, larger capped modules or new import
+   cross-run private-state access, broader controller responsibilities or new import
    cycles.
 6. **The status view is a contract.** Add fields to `autocode_run_view.view`;
    never rename or remove one.
