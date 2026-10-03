@@ -51,7 +51,12 @@ class OriginalOracleTests(unittest.TestCase):
                     self.execute()
                 receipts = list((self.run / 'replays').glob('protected-tests/*/receipt.json'))
                 latest = json.loads(max(receipts, key=lambda path:path.stat().st_mtime).read_text())
-                self.assertEqual(5 if name == 'renamed' and sys.version_info >= (3, 14) else 0, latest['candidate']['exit_code'])
+                if name == 'renamed':
+                    # Zero-test discovery exits 5 on current 3.12 patch releases too.
+                    self.assertIn(latest['candidate']['exit_code'], (0, 5))
+                    self.assertIn('Ran 0 tests', latest['candidate']['tail'])
+                else:
+                    self.assertEqual(0, latest['candidate']['exit_code'])
                 self.assertEqual(1, latest['original']['exit_code'])
                 self.assertIn('20 != 40', latest['original']['tail'])
                 self.assertEqual(original_hash, latest['binding_hash'])
