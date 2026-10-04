@@ -671,3 +671,23 @@ Fresh unchanged-source gates passed all 407 dashboard Python tests, all ten CI
 browser flows, four architecture tests and the full fake catalog (54 PASS,
 one NOT_EXERCISED Resolver route, one skipped live-model Investigator).
 Submitted-head Linux CI remains the separate final delivery gate.
+
+
+### Current-master conflict and quota recovery (2026-10-04)
+
+Master `83271dcd` and this branch carried equivalent package/top-level import
+fixes for `units.common`; the merge retains the already tested module-level
+import. No runner policy or import layering changed in that resolution.
+
+Independent integration review then found that master’s new quota-stop
+`needs.abandon_stage` advice was absent from the chat recovery card. A public
+status reproduction and the dashboard command test failed before the fix. The
+projection now offers the existing abandonment action only when that public
+need matches the exact saved attempt. Pending human decisions, missing source,
+explicit Stop, and report-repair precedence remain intact; Resume stays separate.
+
+Regression coverage includes absent/mismatched attempts, public view-to-command
+mapping, forged client arguments, and desktop/tablet/phone quota recovery with
+work, settings, contract, failure history and prior stages preserved. Browser
+fixtures supply the execution seam; they do not claim live-provider recovery.
+The runner still enforces its existing exact-attempt and process-liveness gates.

@@ -94,6 +94,75 @@ class RecoveryViewTests(unittest.TestCase):
         state['active_stage'] = {}
         self.assertEqual(['inspect', 'feedback'], [row['kind'] for row in self.card(state)['actions']])
 
+    def test_quota_pause_offers_exact_inspected_abandonment_before_separate_resume(self):
+        state = self.state('PAUSED_BUDGET', stop_reason='Quota restored; inspect the uncertain attempt.',
+                           active_stage={'iteration': 4, 'stage': 'terra',
+                                         'output': '/run/iterations/004/builder-02.json'},
+                           failure_history={'quota': {'count': 1, 'attempts': ['004/builder-02']}})
+        before = copy.deepcopy(state)
+        view = run_view.view(state)
+        self.assertEqual('004/builder-02', view['needs']['abandon_stage'])
+        actions = view['recovery']['actions']
+        selected = next(row for row in actions if row['kind'] == 'abandon')
+        self.assertEqual(view['needs']['abandon_stage'], selected['attempt_id'])
+        self.assertIn('Resume is a separate action', selected['effect'])
+        self.assertNotIn('resume', [row['kind'] for row in actions])
+        self.assertEqual(before, state)
+
+    def test_quota_abandonment_requires_matching_public_need_and_saved_attempt(self):
+        state = self.state('PAUSED_BUDGET', active_stage={
+            'iteration': 4, 'stage': 'terra', 'output': '/run/iterations/004/builder-02.json'})
+        for need in ({'kind': 'resume'}, {'kind': 'resume', 'abandon_stage': ''},
+                     {'kind': 'resume', 'abandon_stage': '004/builder-03'},
+                     {'kind': 'resume', 'abandon_stage': '003/builder-02'}):
+            with self.subTest(need=need):
+                self.assertEqual(['inspect', 'feedback'],
+                                 [row['kind'] for row in recovery.project(state, need)['actions']])
+        for active in ({}, {'iteration': 4}, {'output': '/run/builder-02.json'}):
+            with self.subTest(active=active):
+                changed = {**state, 'active_stage': active}
+                self.assertNotIn('abandon_stage', run_view.view(changed)['needs'])
+                self.assertNotIn('abandon', [row['kind'] for row in self.card(changed)['actions']])
+                self.assertNotIn('abandon', [row['kind'] for row in recovery.project(
+                    changed, {'kind': 'resume', 'abandon_stage': '004/builder-02'})['actions']])
+
+    def test_quota_recovery_preserves_decision_source_stop_and_report_precedence(self):
+        active = {'iteration': 4, 'stage': 'terra', 'output': '/run/iterations/004/builder-02.json'}
+        cases = [
+            ('answer', self.state('PAUSED_BUDGET', active_stage=active,
+                                  pending_questions=[{'id': 'q', 'question': 'Which scope?'}])),
+            ('review', self.state('PAUSED_BUDGET', active_stage=active,
+                                  pending_questions=[{'id': 'review', 'review_criteria': ['C1'],
+                                                      'review_token': 'review-token'}])),
+            ('approve_plan', self.state('AWAITING_GOAL_APPROVAL', active_stage=active,
+                                        displayed_goal='r1:approved')),
+            ('recover_source', self.state('PAUSED_JOB_FAILURE', active_stage=active,
+                job_failure={'reason': 'Source identity unavailable', 'stage': 'investigate_bug',
+                             'attempt_id': '004/builder-02', 'job_retry_token': 'old-token',
+                             'archive': '/run/archive', 'source_identity': None,
+                             'write_diagnosis': {}, 'unrestored': ['original source capture']})),
+        ]
+        for kind, state in cases:
+            with self.subTest(kind=kind):
+                before = copy.deepcopy(state)
+                view = run_view.view(state)
+                self.assertEqual(kind, view['needs']['kind'])
+                self.assertNotIn('abandon', [row['kind'] for row in view['recovery']['actions']])
+                # A stale extra hint never overrides the current request kind.
+                need = {**view['needs'], 'abandon_stage': '004/builder-02'}
+                self.assertNotIn('abandon', [row['kind'] for row in recovery.project(state, need)['actions']])
+                self.assertEqual(before, state)
+        stopped = self.state('PAUSED_INTERVENTION', active_stage=active,
+                             applied_interventions=[{'id': 'stop', 'kind': 'stop'}])
+        self.assertEqual(['inspect', 'new_conversation'], [row['kind'] for row in self.card(stopped)['actions']])
+        report = self.state('PAUSED_REPEATED_FAILURE', active_stage=active,
+            pending_report_repair={'error': 'Check is not supported by an exact executed Validator event',
+                                   'attempts': 2, 'latest_rejected': {'iteration': 4, 'output': '/run/validator-01.json'}})
+        view = run_view.view(report)
+        self.assertEqual('004/builder-02', view['needs']['abandon_stage'])
+        self.assertEqual('004/validator-01', view['needs']['retry_report_attempt'])
+        self.assertEqual(['inspect', 'retry_report', 'feedback'], [row['kind'] for row in view['recovery']['actions']])
+
     def test_saved_internal_question_does_not_claim_human_authority_or_answer_it(self):
         state = self.state('WAITING_FOR_USER', pending_questions=[{'id': 'q', 'question': 'Which format?'}])
         card = self.card(state)

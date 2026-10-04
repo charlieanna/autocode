@@ -69,6 +69,42 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
   click(inspect);assertPollingKeepsActionReachable(button('resume'),viewport);click(button('resume'));wait('latestRun.status==="RUNNING"');
   assert.equal(data('()=>latestRun.actions.at(-1).command.includes("--resume-paused")'),true);
 
+  open('quota');
+  const quotaFile=path.join(data('()=>latestRun.run'),'state.json'),quotaBytes=fs.readFileSync(quotaFile),quotaBefore=JSON.parse(quotaBytes);
+  assert.ok(quotaFile.startsWith(path.join(evidence,'fixture')+path.sep));
+  assert.equal(data('()=>latestRun.status'),'PAUSED_BUDGET');
+  assert.deepEqual(data('()=>latestRun.interventions.recovery.actions.map(row=>row.kind)'),['inspect','abandon','feedback']);
+  assert.equal(data('()=>document.querySelector('+JSON.stringify(button('abandon'))+').disabled'),true);
+  assert.equal(data('()=>!!document.querySelector('+JSON.stringify(button('resume'))+')'),false,'Quota recovery cannot offer plain Resume');
+  const quotaToken=data('()=>latestRun.interventions.recovery.token');
+  click(inspect);refresh();assertIdentity('quota');
+  assertPollingKeepsActionReachable(button('abandon'),viewport);
+  assert.deepEqual(fs.readFileSync(quotaFile),quotaBytes,'Quota inspection and polling retain the stopped attempt');
+  browser('screenshot',path.join(evidence,viewport+'-quota-inspected.png'));
+  click(button('abandon'));wait('latestRun.status==="PAUSED_STAGE_ABANDONED"&&!!document.querySelector('+JSON.stringify(button('resume'))+')');
+  const quotaCommand=data('()=>latestRun.actions.at(-1).command');
+  assert.deepEqual(quotaCommand.slice(-5),['--no-chat','--expected-recovery-token',quotaToken,'--abandon-stage','031/builder-02']);
+  assert.equal(quotaCommand.includes('--resume-paused'),false);
+  const quotaRecovered=JSON.parse(fs.readFileSync(quotaFile));
+  assert.equal(quotaRecovered.active_stage,undefined);
+  assert.deepEqual(quotaRecovered.settings,quotaBefore.settings);
+  assert.deepEqual(quotaRecovered.goal_contract,quotaBefore.goal_contract);
+  assert.deepEqual(quotaRecovered.failure_history,quotaBefore.failure_history);
+  assert.equal(quotaRecovered.iteration,quotaBefore.iteration);
+  assert.deepEqual(quotaRecovered.stages.slice(0,-1),quotaBefore.stages);
+  assert.equal(quotaRecovered.stages.at(-1).abandoned,true);
+  assert.equal(quotaRecovered.stages.at(-1).attempt_id,'031/builder-02');
+  assert.deepEqual(fs.readFileSync(kept),originalWork);
+  assert.equal(data('()=>document.querySelector('+JSON.stringify(button('resume'))+').disabled'),true,'Quota abandonment requires a fresh inspection before Resume');
+  assert.notEqual(data('()=>latestRun.interventions.recovery.token'),quotaToken);
+  browser('screenshot',path.join(evidence,viewport+'-quota-retained.png'));
+  click(inspect);assertPollingKeepsActionReachable(button('resume'),viewport);click(button('resume'));wait('latestRun.status==="RUNNING"');
+  const quotaResume=data('()=>latestRun.actions.at(-1).command'),quotaResumed=JSON.parse(fs.readFileSync(quotaFile));
+  assert.equal(quotaResume.includes('--resume-paused'),true);
+  assert.equal(quotaResume.includes('--abandon-stage'),false);
+  for(const field of ['settings','goal_contract','failure_history','stages'])assert.deepEqual(quotaResumed[field],quotaRecovered[field]);
+  assert.deepEqual(fs.readFileSync(kept),originalWork);
+
   open('unknown');assert.deepEqual(data('()=>[...document.querySelectorAll("#task-attention [data-recovery-action]")].map(e=>e.dataset.recoveryAction)'),['inspect','feedback']);
   browser('fill','#change-text','Keep this unsent corrective draft');click(button('feedback'));
   assert.equal(data('()=>document.querySelector("#change-text").value'),'Keep this unsent corrective draft');
@@ -101,7 +137,7 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
   open('stopped');assert.deepEqual(data('()=>[...document.querySelectorAll("#task-attention [data-recovery-action]")].map(e=>e.dataset.recoveryAction)'),['inspect','new_conversation']);
   assert.equal(data('()=>document.documentElement.scrollWidth>innerWidth'),false);
   assert.deepEqual(fs.readFileSync(kept),originalWork);
-  results.push({viewport,geometry,builder_command:sent,recovery_command:recovered});
+  results.push({viewport,geometry,builder_command:sent,recovery_command:recovered,quota_command:quotaCommand,quota_resume:quotaResume});
  }
  fs.writeFileSync(path.join(evidence,'manifest.json'),JSON.stringify(results,null,2));
  console.log('Exact recovery, separate resume, stale refusal and preserved work passed in three browser sizes. '+evidence);

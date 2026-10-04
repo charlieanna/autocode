@@ -37,6 +37,33 @@ class RecoveryActionTests(unittest.TestCase):
         self.check('abandon', ['--abandon-stage', '004/builder-02'], attempt_id='004/builder-02')
         self.assertNotIn('--resume-paused', self.console.action_log(self.workspace, self.run)[0]['command'])
 
+    def test_quota_card_from_public_view_maps_only_the_saved_attempt(self):
+        import autocode_run_view as run_view
+        self.state.update(status='PAUSED_BUDGET', stop_reason='Quota restored; inspect the uncertain attempt.',
+            active_stage={'iteration': 4, 'stage': 'terra', 'output': str(self.run / 'builder-02.json')},
+            settings={'roles': {'terra': {'model': 'p/builder', 'reasoning_effort': 'high', 'model_pinned': True}},
+                      'limits': {'iteration_ceiling': 0}},
+            goal_contract={'revision': 1, 'hash': 'approved'},
+            failure_history={'quota': {'count': 1, 'attempts': ['004/builder-02']}},
+            stages=[{'stage': 'astra_plan', 'iteration': 3, 'finished_at': 'earlier'}])
+        self.write_state()
+        public = run_view.view(self.state)
+        self.status.update(status=self.state['status'], active_stage=self.state['active_stage'], view=public)
+        self.save('status.json', self.status)
+        before = (self.run / 'state.json').read_bytes()
+        card = self.console.view(self.workspace, self.run)['interventions']['recovery']
+        self.assertEqual(public['recovery'], card)
+        self.assertEqual(['inspect', 'abandon', 'feedback'], [row['kind'] for row in card['actions']])
+        self.assertEqual('004/builder-02', public['needs']['abandon_stage'])
+        result = self.action('recover_pause', recovery_token=card['token'], recovery_action='abandon',
+                             attempt_id='999/injected', args=['--resume-paused', '--approve-goal', 'injected'])
+        expected = ['--no-chat', '--expected-recovery-token', card['token'], '--abandon-stage', '004/builder-02']
+        self.assertEqual(expected, result['command'][-len(expected):])
+        self.assertNotIn('--resume-paused', result['command'])
+        self.assertNotIn('--approve-goal', result['command'])
+        self.assertNotIn('999/injected', result['command'])
+        self.assertEqual(before, (self.run / 'state.json').read_bytes())
+
     def test_builder_button_names_only_current_members(self):
         self.check('retry_builder', ['--resume-paused', '--retry-builder', 'M1', '--retry-builder', 'M2'], milestone_ids=['M1','M2'])
 

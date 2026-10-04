@@ -30,7 +30,7 @@ def main():
         runs = workspace / '.autocode/runs'
         names = []
         for viewport in ('desktop','tablet','mobile'):
-            for kind in ('builder','interruption','unknown','stopped','internal','stale','source'):
+            for kind in ('builder','interruption','quota','unknown','stopped','internal','stale','source'):
                 name = kind+'-'+viewport
                 names.append(name)
                 run = runs / name
@@ -50,6 +50,13 @@ def main():
                 elif kind == 'interruption':
                     state['status'] = 'PAUSED_PROVIDER_UNCERTAIN'
                     state['active_stage'] = {'iteration':31,'stage':'terra','output':str(run/'builder-01.json'),'started_at':FIXTURE_NOW}
+                elif kind == 'quota':
+                    state['status'] = 'PAUSED_BUDGET'
+                    state['stop_reason'] = 'Quota restored; inspect and set aside the uncertain attempt before resuming.'
+                    state['active_stage'] = {'iteration':31,'stage':'terra','output':str(run/'builder-02.json'),'started_at':FIXTURE_NOW}
+                    state['settings']['roles']['terra']['model_pinned'] = True
+                    state['failure_history'] = {'quota': {'identity': {'stage':'terra','artifact_hash':'partial-source'},
+                        'count':1,'attempts':['031/builder-02'],'last_error':'Provider quota exhausted','last_seen':FIXTURE_NOW}}
                 elif kind == 'unknown':
                     state['status'] = 'PAUSED_FUTURE_REASON'
                     state['stop_reason'] = 'A newly introduced pause needs inspection.'
@@ -103,9 +110,14 @@ def main():
                     raise ValueError('This fixture accepts only inspected recovery actions')
                 recovery.require_token(state, extra[extra.index('--expected-recovery-token')+1])
                 if '--abandon-stage' in extra:
+                    active = state.get('active_stage') or {}
+                    attempt = f"{active['iteration']:03d}/{Path(active['output']).stem}"
+                    if extra[extra.index('--abandon-stage')+1] != attempt or '--resume-paused' in extra:
+                        raise ValueError('Recover only the exact saved attempt; Resume is separate')
                     state.pop('active_stage', None)
-                    state['status'] = 'PAUSED_INTERVENTION'
-                    state['stages'].append({'stage':'terra','iteration':31,'finished_at':FIXTURE_NOW,'abandoned':True})
+                    state['status'] = 'PAUSED_STAGE_ABANDONED' if run.name.startswith('quota-') else 'PAUSED_INTERVENTION'
+                    state['stages'].append({'stage':active['stage'],'iteration':active['iteration'],
+                                            'finished_at':FIXTURE_NOW,'abandoned':True,'attempt_id':attempt})
                 elif '--retry-builder' in extra:
                     state['iteration'] += 1
                     state['builder_retries'][recovery.builder_policy.key(state)]['failures'].append('retained-new-failure')

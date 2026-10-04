@@ -192,6 +192,13 @@ class RunViewTests(unittest.TestCase):
                          run_view.needs({"status": "PAUSED_BUDGET", "stop_reason": "quota"}))
         self.assertEqual("resume", run_view.needs({"status": "PLAN_REWORK_REQUIRED"})["kind"])
 
+    def test_quota_pause_names_the_abandon_step_with_the_attempt_id(self):
+        need = run_view.needs({
+            "status": "PAUSED_BUDGET", "stop_reason": "quota restored; set the attempt aside",
+            "active_stage": {"iteration": 1, "output": "/run/terra-01.json", "stage": "terra"}})
+        self.assertEqual("001/terra-01", need["abandon_stage"])
+        self.assertIn("--abandon-stage 001/terra-01 then --resume-paused", need["action"])
+
     def test_rejected_validator_report_exposes_exact_retry_attempt(self):
         state = {"status": "PAUSED_REPEATED_FAILURE", "stop_reason": "report rejected",
                  "settings": {"report_repair": {"max_attempts": 2}},

@@ -177,9 +177,15 @@ def project(state, need=None):
         actions.append(_action('feedback', 'Explain what should change', 'Draft corrective information in chat after inspecting the archived attempt and current source. This does not authorize a retry.'))
         return result
     active = _dict(state.get('active_stage'))
+    attempt = (f"{active['iteration']:03d}/{PurePath(active['output']).stem}"
+               if isinstance(active.get('iteration'), int) and active.get('output') else None)
     uncertain = status in ('PAUSED_PROVIDER_UNCERTAIN', 'PAUSED_UNCERTAIN_STAGE')
-    if uncertain and isinstance(active.get('iteration'), int) and active.get('output'):
-        attempt = f"{active['iteration']:03d}/{PurePath(active['output']).stem}"
+    # The public status also prescribes abandonment after quota/limit stops.
+    # Bind that advice to this exact saved attempt; pending decisions and the
+    # more specific report-repair path must keep their existing precedence.
+    prescribed = (need.get('kind') == 'resume' and attempt is not None
+                  and need.get('abandon_stage') == attempt and not need.get('retry_report_attempt'))
+    if attempt is not None and (uncertain or prescribed):
         actions.append(_action('abandon', 'Recover saved work', 'Reconcile this exact interrupted attempt and keep its partial work. Resume is a separate action.', attempt_id=attempt))
     elif need.get('kind') == 'retry_job' and need.get('job_retry_token'):
         actions.append(_action('retry_job', 'Retry the inspected step', 'Allow one fresh attempt at this recorded failure. Existing scope, model settings and verification gates still apply.', job_retry_token=need['job_retry_token']))

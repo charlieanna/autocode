@@ -409,7 +409,7 @@ def run_role(
         return {"status": "DRY_RUN"}, record
 
     if engine == "opencode" and not configured_tool:
-        readonly_events.prepare_opencode_snapshots(workspace)
+        readonly_events.prepare_opencode_snapshots(workspace, record=record, env=child_options["env"])
     before = support.snapshot(workspace)
     if record['output_mode'] == 'report_file':
         record['capture_context'] = {'attempt': str(output), 'nonce': uuid.uuid4().hex,
