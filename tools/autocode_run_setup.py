@@ -97,7 +97,10 @@ def resolve(runner, args, parser):
         workspace = task_workspaces.resume_workspace(workspace, state)
     else:
         if not args.task:
-            parser.error("task is required unless --run-dir is supplied")
+            # Reached only when a new-run input (--in-place, --figma-file, ...) turned off finding a saved run.
+            parser.error('a task is needed to start a run, for example: autocode "Build a greeting CLI". '
+                         "To continue a saved run, run autocode without new-run options from its project "
+                         "or task worktree, or name it with --run-dir")
         task = args.task
         if not (workspace / ".git").exists():
             if args.dry_run or args.status:

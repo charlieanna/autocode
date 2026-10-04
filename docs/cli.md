@@ -10,6 +10,8 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | Command | What it does |
 | --- | --- |
 | `autocode "Your rough idea"` | The normal entry point. Runs the full plan → approve → build → validate → complete loop (or stops at the next required checkpoint). |
+| `autocode resume` | Continue the unfinished run of this project or task worktree (see [Which run a command acts on](#which-run-a-command-acts-on)). Never starts a new task. Plain `autocode` with no task does the same. |
+| `autocode status` | The same as `autocode --status`: read-only status of that run. Both words are commands wherever they stand among the options; a task whose whole text is `resume` or `status` goes after `--` (`autocode -- status`). |
 | `autopilot` | Deterministic workflow controller. Same loop as `autocode`, and the controller behind the dashboard and macOS app. |
 | `autoplanner` | Planning only. Stops before any Builder starts. |
 | `autocode-build` | Implementation only, from a saved run directory. |
@@ -35,12 +37,36 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 
 | Flag | Meaning |
 | --- | --- |
-| `--workspace /path` | Committed Git workspace to work in. Defaults to the current directory. |
-| `--run-dir /path` | Resume a specific saved run. Always pair with the same `--workspace`. |
+| `--workspace /path` | Committed Git workspace to work in. Defaults to the current directory. Without a task or `--run-dir`, where AutoCode looks for the run to act on. |
+| `--run-dir /path` | Act on this saved run, from any directory. Without `--workspace`, the run's own checkout is used. |
 | `--in-place` | Start a new task in the selected checkout instead of a fresh worktree. Only one run's agents work in a checkout at a time; a second run exits with status 2 and changes nothing (see [Task lanes](task-lanes.md#multiple-tasks-in-one-project)). |
 | `--workflow build\|bugfix\|review\|design\|discuss` | Name the kind of job instead of having the recognizer read it from the request. Also accepted by a saved run whose recognizer has not run yet. A run whose job is already decided keeps it: start a new run to change it (see [Workflow](workflow.md)). |
 | `--status` | Read-only status, including `milestone_checkpoint`, `interventions`, `active_stage.activity`. |
 | `--dry-run` | Read-only preview; never emits an accepted handoff. |
+
+### Which run a command acts on
+
+A command with no task and no `--run-dir` acts on a saved run found from the
+`--workspace` directory: the run directory you are in; otherwise the runs of the task
+worktree you are in; otherwise the project's in-place runs and the runs of all its task
+worktrees. It names the run on stderr (`Using the saved run RUN (STATUS, ...)`) and goes on
+as if you had passed `--run-dir RUN`.
+
+| Command | Run it takes |
+| --- | --- |
+| `autocode`, `autocode resume`, `--resume-paused` and its `--retry-*` companions, `--unit` | The only unfinished run. A finished run (`TASK_COMPLETE`, or stopped) is never relaunched this way, and a run that `autocode program` or `autocode tasks` drives is left to that command. |
+| `--status`, `--dry-run`, `autocode status` | The only unfinished run; with none, the latest finished one. |
+| `--show-goal`, `--answer`, `--approve-goal`, `--feedback` and the other user actions | The only unfinished run, preferring one no program or task flow drives. These save the run, so they never pick a finished one. |
+| `--follow-up` | The most recently completed run, preferring one no program or task flow drives. |
+
+With several unfinished runs the command changes nothing, exits 2 and lists them with the
+`--run-dir` command for each. With no run it says where it looked; with only finished
+runs, a bare `autocode` names the latest one instead of relaunching it. Inside a run
+directory whose `state.json` is missing or cannot be used, or one `autocode clean-worktrees`
+archived, it refuses rather than pick another run.
+A task, or a new-run option (`--in-place`, `--figma-file`, `--figma-manifest`,
+`--figma-review`, `--ui-run`, `--builder-strong-model`, `--conversation-handoff`), starts
+a new run instead; `autocode resume` never does.
 
 ### Conversation and approval
 

@@ -163,6 +163,12 @@ class CliTests(unittest.TestCase):
         run_dir = next(tree.glob(".autocode/runs/*"))
         status = json.loads(run("--workspace", str(flow.project), "--run-dir", str(run_dir), "--status").stdout)
         self.assertEqual("TASK_COMPLETE", status["status"])
+        # From the project without --run-dir: the only run, finished, shown read-only.
+        bare = subprocess.run([*flow.entry, "--status"], cwd=flow.project, env=env, text=True,
+                              capture_output=True, timeout=60)
+        self.assertEqual(0, bare.returncode, bare.stderr)
+        self.assertEqual(status, json.loads(bare.stdout))
+        self.assertIn(f"Using the saved run {run_dir.resolve()} (TASK_COMPLETE, the latest finished run)", bare.stderr)
         self.assertTrue(status["completion_current"])
         branch = status["task_branch"]
         self.assertIn("greet.py", git(flow.project, "ls-tree", "--name-only", branch))

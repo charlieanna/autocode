@@ -410,7 +410,12 @@ class RetrofitTest(unittest.TestCase):
         self.assertFalse(completion_gate.completion_ready(self.state, self.decision("TASK_COMPLETE"), s.snapshot(self.root)))
 
     def test_completion_acceptance_is_an_exclusive_existing_run_action(self):
-        for args in (["--accept-completion"], ["--accept-completion", "--show-goal", "--run-dir", str(self.run)]):
+        # An empty folder: without --run-dir the CLI looks for a saved run where it starts,
+        # and must never find one in a developer's checkout.
+        empty = tempfile.TemporaryDirectory()
+        self.addCleanup(empty.cleanup)
+        for args in (["--accept-completion", "--workspace", empty.name],
+                     ["--accept-completion", "--show-goal", "--run-dir", str(self.run)]):
             with patch.object(sys, "argv", ["autocode", *args]), contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit) as caught:
                     runner.main()
