@@ -70,7 +70,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Grant N recoveries after resolving the cause | `autocode --resume-paused --grant-recovery N --no-chat [options]` | 0 complete, 2 stopped for input |
 | Accept a changed OpenCode transport | `autocode --resume-paused --accept-transport-change --no-chat [options]` | 0 complete, 2 stopped for input |
 | Answer | `autocode --answer QUESTION_ID=TEXT [--resolver-token TOKEN]` | 0 saved, 2 rejected |
-| Respond to an operational AutoResolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT` | 0 saved, 2 rejected |
+| Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT` | 0 saved, 2 rejected |
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
 | Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
 | Plan feedback | `autocode --feedback TEXT` | 0 saved, 2 rejected |
@@ -89,7 +89,7 @@ it so a mistyped flag is not mistaken for a pause. A rejection also exits 2,
 starting `Input rejected:`, and startup can exit 2 before any run exists;
 `TaskRun.start` raises with the tail of the CLI's output so a startup failure
 is never mistaken for a pause.
-`TaskRun.respond_operational()` uses the separate AutoResolver response command;
+`TaskRun.respond_operational()` uses the separate Resolver response command;
 an operational request cannot be answered with `TaskRun.answer()`.
 `TaskRun.accept_transport_change()` uses the explicit transport-change command
 after a person inspects the new route and the saved run reports
@@ -172,7 +172,7 @@ the runner. It is assignment provenance, not a Resolver diagnosis or completion
 proof. The list is empty for runs that have never used this path.
 
 Direct assignment is limited to the first ordinary repair of a single serial
-milestone, with an independent Validator's executed failure and a complete task
+milestone, with an independent Tester's executed failure and a complete task
 within the same approved scope. Ambiguous or incomplete tasks, repeated failures,
 parallel/integrated work and recovery cases retain the Resolver path. Pending
 human decisions remain intact and hold the handoff before either route. Modified
@@ -193,13 +193,13 @@ run is waiting for:
 | `kind` | Waiting for | Extra fields | Answer with |
 | --- | --- | --- | --- |
 | `approve_plan` | approval of the plan AutoCode displayed | `token` | Approve the plan |
-| `answer` | answers to clarifying questions or a decision | `questions` (id, question, why, options, proposed_default), `request_kind`; for a question AutoResolver published, also `resolver_request_id`, `resolver_token` and `resolver_scope` | Answer, once per question (with `--resolver-token` when given) |
+| `answer` | answers to clarifying questions or a decision | `questions` (id, question, why, options, proposed_default), `request_kind`; for a question Resolver published, also `resolver_request_id`, `resolver_token` and `resolver_scope` | Answer, once per question (with `--resolver-token` when given) |
 | `review` | a person to accept specific acceptance criteria | `criteria`, `token`, `question` | Approve a review, per criterion |
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `resume` | a person to inspect a pause and resolve its cause | `reason` | Resume a pause, once resolved |
 | `continue` | nothing; the run can simply proceed | | Continue |
 
-A `resolver_scope` of `operational_exhaustion` or `blocker` means AutoResolver
+A `resolver_scope` of `operational_exhaustion` or `blocker` means Resolver
 stopped the run because it could not continue safely (for example, the
 run time limit was reached). That question is for a person who has looked at
 the run; a caller must not answer it with a proposed default.
@@ -210,7 +210,7 @@ harness does for test runs.
 
 ## Runner checks in status
 
-`view.runner_check` describes a local check in progress before the Validator:
+`view.runner_check` describes a local check in progress before the Tester:
 its `stage`, plain-language `summary`, `started_at`, `updated_at`, `command` and
 `output` path. It is `null` when no such check is active. These checks do not
 consume a model turn. A resumed run saves its running state before the first
@@ -238,7 +238,7 @@ Run `python tools/autocode_dependencies.py --workspace CONSUMER --run-dir RUN --
 to supervise this binding. The worker uses `TaskRun.status`, never another run's
 private state. The additive `view.delivery` exists only for runner-verified current
 completion, with the source snapshot, approved contract and independently recorded
-Validator/completion review pins. The worker waits without model calls, copies only
+Tester/completion review pins. The worker waits without model calls, copies only
 the declared regular files into an atomic evidence bundle, checks the producer again,
 then calls `--receive-dependency MANIFEST` and continues the consumer. It never imports
 source into the consumer itself or accepts the consumer's integration result.

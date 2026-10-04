@@ -19,6 +19,11 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+try:
+    from . import autocode_roles as roles
+except ImportError:
+    import autocode_roles as roles
+
 # Ladder entry points when both families are present (docs/models.md).
 PREFERRED = {
     "requirements": ("zai-coding-plan/glm-5.3", "medium"),
@@ -184,14 +189,15 @@ PLANS = {"zai-coding-plan": ("Z.AI Coding Plan", "subscription"),
          "github-copilot": ("GitHub Copilot", "subscription"),
          "zai": ("Z.AI API", "pay per token"), "opencode": ("OpenCode Zen", "pay per token"),
          "kilo": ("Kilo Gateway", "pay per token")}
-# A run's roles in pipeline order: label, the flag that selects its model, the tier it wants.
-ROLES = {"requirements": ("Requirements Gatherer", "--requirements-model", "worker"),
-         "glm": ("Planner", "--glm-model", "worker"),
-         "terra": ("Builder", "--terra-model", "worker"),
-         "plan_reviewer": ("Plan Reviewer", "--plan-reviewer-model", "judge"),
-         "sol": ("Validator", "--sol-model", "judge"),
-         "completion": ("Completion Owner", "--completion-model", "judge"),
-         "astra": ("Resolver", "--astra-model", "resolver")}
+# A run's roles in pipeline order: screen name (autocode_roles), the flag that
+# selects its model, the tier it wants. Labels are not a second name table.
+ROLES = {"requirements": (roles.SCREEN["requirements"], "--requirements-model", "worker"),
+         "glm": (roles.SCREEN["planner"], "--glm-model", "worker"),
+         "terra": (roles.SCREEN["builder"], "--terra-model", "worker"),
+         "plan_reviewer": (roles.SCREEN["plan_reviewer"], "--plan-reviewer-model", "judge"),
+         "sol": (roles.SCREEN["tester"], "--sol-model", "judge"),
+         "completion": (roles.SCREEN["completion"], "--completion-model", "judge"),
+         "astra": (roles.SCREEN["resolver"], "--astra-model", "resolver")}
 # Producer and checker roles that must not share a model (autocode_dispatch._VERIFIER_PAIRS).
 CHECKS = (("glm", "plan_reviewer"), ("terra", "sol"), ("terra", "completion"))
 # Preference order: billing first (never nudge a subscription user onto per-token billing),

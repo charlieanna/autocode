@@ -445,8 +445,8 @@ def run_role(
             for prepared in (prompt_file, events, base.with_suffix(".before.json"), base.with_suffix(".opencode.json")):
                 prepared.unlink(missing_ok=True)
             raise
-        print(f"{autocode_status.role_name(stage)}: started; model={model or 'default'}; log={events}", flush=True)
-        activity = ActivityMonitor(events, idle_seconds=idle_timeout, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage), model))
+        print(f"{autocode_status.role_name(stage, state)}: started; model={model or 'default'}; log={events}", flush=True)
+        activity = ActivityMonitor(events, idle_seconds=idle_timeout, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage, state), model))
         activity_label = None
         last_activity_print = 0
         def activity_checkpoint(snapshot):
@@ -458,7 +458,7 @@ def run_role(
             label = (snapshot.get("activity"), snapshot.get("detail"))
             current = time.monotonic()
             if label != activity_label or current - last_activity_print >= 60:
-                print(f"{autocode_status.role_name(stage)}: {snapshot.get('activity', 'waiting_for_provider')}; model={model or 'default'}; "
+                print(f"{autocode_status.role_name(stage, state)}: {snapshot.get('activity', 'waiting_for_provider')}; model={model or 'default'}; "
                       f"elapsed={record['activity']['elapsed_seconds']:g}s; "
                       f"idle={snapshot.get('idle_seconds', 0):g}s/{idle_timeout or 'off'}; "
                       f"tool={snapshot.get('tool_elapsed_seconds', 0) or 0:g}s/{tool_timeout or 'off'}; "
