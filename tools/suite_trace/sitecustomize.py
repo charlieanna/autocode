@@ -23,7 +23,7 @@ _ROOT = os.path.dirname(os.path.dirname(_HERE)) + os.sep
 def _install(out: str) -> None:
     paths: dict = {}
     seen: set = set()
-    record = {"pid": None, "file": None}
+    record = []
 
     def repository_path(filename: str) -> str:
         if filename.startswith("<"):
@@ -34,29 +34,31 @@ def _install(out: str) -> None:
         relative = path[len(_ROOT):].replace(os.sep, "/")
         return "" if relative.startswith(".") or "/." in relative else relative
 
-    def profile(frame, event, arg):
-        if event != "call":
-            return
+    def trace(frame, event, arg):
+        # A global trace function is called only when a frame starts; returning None skips its lines.
+        # It runs on every call, so a file already recorded returns after two lookups.
         code = frame.f_code
         path = paths.get(code.co_filename)
         if path is None:
             path = paths[code.co_filename] = repository_path(code.co_filename)
-        if not path or code.co_name == "<module>":
+        if not path or path in seen or code.co_name == "<module>":
             return
         caller = frame.f_back
         if caller is not None and caller.f_code.co_name == "<module>" and caller.f_globals.get("__name__") != "__main__":
             return  # called while its caller's module was being imported
-        pid = os.getpid()
-        if record["pid"] != pid:  # the first call, or the first in a forked child: start its own record
-            record["pid"], record["file"] = pid, open(os.path.join(out, f"{pid}.txt"), "a")
-            seen.clear()
-        if path not in seen:
-            seen.add(path)
-            record["file"].write(path + "\n")
-            record["file"].flush()
+        seen.add(path)
+        if not record:
+            record.append(open(os.path.join(out, f"{os.getpid()}.txt"), "a"))
+        record[0].write(path + "\n")
+        record[0].flush()
 
-    sys.setprofile(profile)
-    threading.setprofile(profile)
+    def forked() -> None:  # a forked child keeps running Python: give it its own record
+        seen.clear()
+        record.clear()
+
+    os.register_at_fork(after_in_child=forked)
+    sys.settrace(trace)
+    threading.settrace(trace)
 
 
 def _chain() -> None:

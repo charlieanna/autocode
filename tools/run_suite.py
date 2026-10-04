@@ -42,11 +42,12 @@ that module used to skip it and the break first showed on master (#232, #242,
 test recorded as running a changed file. --record-map PATH (default
 .suite-map.json) runs the tests with tools/suite_trace/ on PYTHONPATH, which
 records in each test's processes, CLI subprocesses included, the repository
-files whose functions ran, then writes {test module: [files]} to PATH. Master's
-CI records it on every full run and caches it; a pull request's CI restores
-the newest one. A test missing from the map is selected by the rules above
-only. A file the map lists that a change has since stopped using only selects
-a test too many.
+files whose functions ran, then writes {test module: [files]} to PATH. The
+nightly workflow .github/workflows/test-map.yml records it and caches it; a
+pull request's CI restores the newest one. Tracing slows tests by about a
+third, which is why master's own run does not record. A test missing from the
+map is selected by the rules above only. A file the map lists that a change
+has since stopped using only selects a test too many.
 
 --changed also leaves out the slow end-to-end modules listed, with their CI
 time, in tests/suite_slow.json (over 10 s each: they start the CLI, Git and fake

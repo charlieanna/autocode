@@ -216,7 +216,7 @@ class TraceHookTests(unittest.TestCase):
     def test_does_nothing_without_a_trace_directory(self):
         env = {key: value for key, value in os.environ.items() if key != "AUTOCODE_SUITE_TRACE"}
         env["PYTHONPATH"] = str(run_suite.TRACE_HOOK)
-        completed = subprocess.run([sys.executable, "-c", "import sys; print(sys.getprofile())"], env=env,
+        completed = subprocess.run([sys.executable, "-c", "import sys; print(sys.gettrace())"], env=env,
                                    capture_output=True, text=True, check=True)
         self.assertEqual("None", completed.stdout.strip())
 

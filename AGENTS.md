@@ -126,8 +126,8 @@ process). `--changed` picks the tests for the files changed since
 module, the tests that import it directly, and the tests the test map records
 running a changed file (the script's docstring has the rules). The map is what
 catches a CLI-level test: it imports the harness, not the module it drives.
-Master's CI records it (`--record-map`) and caches it; a pull request's CI
-restores it. Locally, `--record-map` writes `.suite-map.json`, and without one
+A nightly workflow (`test-map.yml`) records it (`--record-map`) and caches
+it; a pull request's CI restores it. Locally, `--record-map` writes `.suite-map.json`, and without one
 `--changed` selects by imports and names only. It leaves out the slow
 end-to-end modules in `tests/suite_slow.json` (over 10 s each in CI, about
 three quarters of the suite's time) unless the module itself changed;

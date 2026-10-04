@@ -1,0 +1,55 @@
+name: test map
+
+# Records which repository files each test module runs (tools/run_suite.py --record-map) and
+# caches it for tests.yml, whose pull-request gate restores it so --changed also selects the
+# CLI-level tests that drive a changed module. Tracing slows tests by about a third (CPython
+# 3.11's trace mode), so this runs nightly on its own instead of inside master's gate, and it
+# gates nothing: a test that fails here only records what it ran before failing.
+on:
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+  pull_request:
+    # A change to the recorder records a map on the pull request too, without saving it.
+    paths:
+      - .github/workflows/test-map.yml
+      - tools/suite_trace/**
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history, as in tests.yml: one test replays a historical commit.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dashboard browser test dependencies
+        run: |
+          npm install --global agent-browser@0.25.3
+          agent-browser install --with-deps
+
+      - name: Install package and runtime dependencies
+        run: python3 -m pip install -e '.[visual]'
+
+      - name: Record the test map
+        run: |
+          python3 tools/run_suite.py --record-map || echo "::warning::Some tests failed while recording; the map has what they ran."
+          test -s .suite-map.json
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+
+      - name: Save the test map
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: .suite-map.json
+          key: suite-map-${{ github.sha }}-${{ github.run_id }}
