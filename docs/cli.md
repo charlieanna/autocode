@@ -80,7 +80,7 @@ a new run instead; `autocode resume` never does.
 | `--delegate Q1` | Accept a question's proposed default. Requires the current `--resolver-token` shown by Resolver. |
 | `--delegate-all --review-token 'r3:<hash>'` | Delegate every pending question marked `delegable` with a proposed default, on the exact displayed revision. Refuses the whole call if any question lacks a default, is not delegable, has a protected or missing category (cost, quota, permission, external side effect, requested outcome), or asks about a rejected assumption. Never approves; invalidates any existing approval. |
 | `--reject-assumption A1 --review-token 'r3:<hash>'` | Reject a structured assumption from the displayed requirements handoff (repeatable). A stale token, or a handoff refreshed since display, is refused. Never approves; invalidates any existing approval. |
-| `--show-goal` | Display the current contract/revision. |
+| `--show-goal` | Display the current contract/revision. At the approval stop it also says what approving authorizes, what the token locks, the limits in effect and the exact approve command. |
 | `--approve-goal 'r3:<hash>'` | Approve the exact displayed revision. |
 | `--edit-goal body.json` | Load a full contract body as a new draft revision. |
 | `--approve-review C1 --review-token '…'` | Record a human-review decision for criterion `C1`. |
