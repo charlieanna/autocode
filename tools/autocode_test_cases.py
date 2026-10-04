@@ -201,7 +201,25 @@ existing test to make its name match a planned case id. The regression proof rej
 """ + NAMED_PROOF_NOTE
 
 
+# Issue #299: a seam the fix adds cannot compile on the unfixed code, and a log line the fix adds proves nothing.
+BUGFIX_TEST_NOTE = """
+BUG FIX TESTS: each regression test must build and run on the unfixed code and fail there because of the bug.
+Do not make a test import or reference anything the fix adds (a new function, package variable, hook or
+injectable seam): on the unfixed code such a test only fails to compile or import, which is not a
+reproduction, and adding the seam with the fix does not change that. Drive the real failure path through
+public APIs that exist before the fix (for example a real file, directory or input that makes the failing
+operation fail) and assert the behavior itself: the returned error, the result, the saved state. A log line
+or message alone does not prove the behavior.
+"""
+
+
+def bugfix(state: dict) -> bool:
+    """The approved contract is a bug fix, whose tests must run and fail on the unfixed code (autocode_regression)."""
+    return ((state.get("goal_contract") or {}).get("body") or {}).get("task_kind") == "bugfix"
+
+
 def builder_note(state: dict) -> str:
+    fix_note = BUGFIX_TEST_NOTE if bugfix(state) else ""
     if contract_cases(state):
-        return BUILDER_NOTE
-    return NAMED_PROOF_NOTE if (state.get("investigation") or {}).get("test_cases") else ""
+        return BUILDER_NOTE + fix_note
+    return (NAMED_PROOF_NOTE if (state.get("investigation") or {}).get("test_cases") else "") + fix_note

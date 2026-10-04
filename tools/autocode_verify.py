@@ -41,12 +41,13 @@ try:
     from . import autocode_util as util, autocode_agent_env as agent_env
     from . import autocode_test_environment as test_env
     from . import autocode_investigation_workspace as investigation_workspace
-    from . import autocode_node_tests as node_tests
+    from . import autocode_node_tests as node_tests, autocode_proof_seam as proof_seam
 except ImportError:
     import autocode_util as util, autocode_agent_env as agent_env
     import autocode_test_environment as test_env
     import autocode_investigation_workspace as investigation_workspace
     import autocode_node_tests as node_tests
+    import autocode_proof_seam as proof_seam
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
 # Directories that hold tests wherever they appear, and ones that do only at the repository root:
@@ -854,7 +855,8 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
             _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons,
                               new_behavior=new_behavior, known_failures=lambda: _pre_existing(
                                   framework, commands, changes, runnable_tests, workspace, base, run_dir, checks,
-                                  timeout=timeout, dependencies_from=dependencies_from, base_patch=base_patch))
+                                  timeout=timeout, dependencies_from=dependencies_from, base_patch=base_patch),
+                              seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt))
         elif "base_with_tests" in trees and commands["suite"]:
             # No targeted command: the whole suite proves the flip when base was green.
             if base_suite is None or base_suite["health"] != "passing":
@@ -907,13 +909,14 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
 
 
 def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons, *, known_failures,
-                      new_behavior=False):
+                      new_behavior=False, seam_names=None):
     """Judge the targeted runs of the changed test files.
 
     With per-test results, the proof is a named test that ran and failed on base
     and ran and passed on the candidate. A module that fails to import on base
     (for example because the test imports a name the fix adds) is not a test that
-    ran. A test in the same files that already fails on the pristine base (for
+    ran; ``seam_names(on_base)`` names such added names so the failure can say so.
+    A test in the same files that already fails on the pristine base (for
     example one needing a network) neither blocks the fix nor counts as proof.
     Without per-test results, exit codes decide and the change needs review.
     """
@@ -968,17 +971,22 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         # Passing tests that never ran on the original code (their module did not import there): a
         # guard's test there is not shown to fail before, only not shown to pass (check_cases).
         proof["not_run_on_base"] = sorted(passed - set(base["passed"]) - set(base["failed"]))
+        seam = seam_names(on_base) if seam_names and base["collection_errors"] and not new_behavior else []
         if not flipped and new_behavior:
             fail.append("No new or changed test passes with the change and did not pass without it, "
                         "so the tests do not show the new behavior")
         elif not flipped:
-            if base["collection_errors"]:
+            if seam:
+                fail.append(proof_seam.reason(base["collection_errors"], seam))
+            elif base["collection_errors"]:
                 fail.append("On the unfixed code the new tests only fail to import or collect ("
                             + ", ".join(base["collection_errors"][:5]) + "), so no test shows the bug. "
                             "Write the regression test against behavior that exists before the fix.")
             else:
                 fail.append("No test fails on the unfixed base code and passes with the fix, "
                             "so the tests do not reproduce the bug")
+        elif seam:
+            notes.append(proof_seam.note(base["collection_errors"], seam))
         return
     # Exit codes only: honest, but weaker, so a person or the Reviewer must read the change.
     review_reasons.append("the regression proof rests on exit codes, not named tests")
@@ -990,6 +998,22 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         fail.append("The regression tests also pass on the unfixed base code, so they do not reproduce the bug")
     elif on_base["timed_out"]:
         notes.append("The regression tests timed out on the base code; counted as a failure on base")
+
+
+def _seam_names(workspace, base, changes, receipt):
+    """Names the unfixed run reports missing that the candidate's source change adds and its tests use."""
+    added, test_words = set(), set()
+    for path, status in changes.items():
+        file = Path(workspace) / path
+        if status == "deleted" or not is_code_path(path) or not file.is_file() or file.is_symlink():
+            continue
+        after = _read(file)
+        if is_test_path(path):
+            test_words |= proof_seam.words(after)
+        else:
+            before = "" if status == "added" else _git(workspace, "show", f"{base}:{path}", check=False)
+            added |= proof_seam.added_names(path, before, after)
+    return proof_seam.used(_read(receipt.get("output") or ""), added, test_words)
 
 
 def _pre_existing(framework, commands, changes, runnable_tests, workspace, base, run_dir, checks, *,
