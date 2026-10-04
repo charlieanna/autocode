@@ -13,6 +13,9 @@ INFORM_ADVICE = (
     "After fixing the cause, send the AutoResolver request corrective information "
     "with --resolver-request ID --resolver-token TOKEN --resolver-response "
     "provide_information --resolver-message TEXT, then --resume-paused.")
+ABANDON_THEN_RESUME = (
+    "Set the uncertain attempt aside with --abandon-stage {attempt}, then --resume-paused. "
+    "A plain resume will hold; do not replay the failed attempt automatically.")
 BOUND_ADVICE = {
     'PAUSED_TIME_LIMIT': (
         "After fixing the cause, raise the bound and continue in the same command with "
@@ -26,12 +29,20 @@ BOUND_ADVICE = {
 }
 
 
-def advice(*, allow_grant, pause_status=None):
+def abandon_advice(attempt: str) -> str:
+    return ABANDON_THEN_RESUME.format(attempt=attempt)
+
+
+def advice(*, allow_grant, pause_status=None, attempt=None):
     """The recovery-exhaustion next step. Never names a command the CLI will refuse."""
     if allow_grant:
         return GRANT_ADVICE
     if pause_status in BOUND_ADVICE:
-        return BOUND_ADVICE[pause_status]
+        text = BOUND_ADVICE[pause_status]
+        return text if not attempt else f"{text} {abandon_advice(attempt)}"
+    if attempt:
+        # #340: after provide_information a plain resume holds; the working step is abandon.
+        return (INFORM_ADVICE + " " + abandon_advice(attempt))
     return INFORM_ADVICE
 
 
