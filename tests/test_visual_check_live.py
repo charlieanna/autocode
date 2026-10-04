@@ -260,6 +260,7 @@ class LiveQualificationTests(unittest.TestCase):
 
                 self.run_cli.side_effect = process
                 with mock.patch.object(attempt, "runtime_files", return_value={"runtime": "hash"}), \
+                        mock.patch.object(live.importlib.metadata, "version", return_value="mocked-version"), \
                         mock.patch.object(attempt, "git", return_value="seed"), mock.patch.object(attempt, "commit_fixture"), \
                         mock.patch.object(attempt, "compare", return_value={"changed_pixels": 12}) as compare, \
                         mock.patch.object(attempt, "cli") as cli:
