@@ -42,6 +42,7 @@ try:
     from . import autocode_test_environment as test_env
     from . import autocode_investigation_workspace as investigation_workspace
     from . import autocode_node_tests as node_tests, autocode_proof_seam as proof_seam
+    from . import autocode_vitest_tests as vitest_tests
     from . import autocode_scratch_overlay as scratch_overlay
     from . import autocode_test_setup as test_setup
 except ImportError:
@@ -49,6 +50,7 @@ except ImportError:
     import autocode_test_environment as test_env
     import autocode_investigation_workspace as investigation_workspace
     import autocode_node_tests as node_tests
+    import autocode_vitest_tests as vitest_tests
     import autocode_scratch_overlay as scratch_overlay
     import autocode_proof_seam as proof_seam
     import autocode_test_setup as test_setup
@@ -193,7 +195,7 @@ class Framework:
 
     @property
     def per_test(self):
-        return self.name in ("pytest", "unittest", "go", "node")
+        return self.name in ("pytest", "unittest", "go", "node", "vitest")
 
     def targeted(self, test_paths):
         files = sorted(test_paths)
@@ -352,9 +354,11 @@ def _go_test(command):
     return command.startswith("go test ") and not re.search(r"[;&|<>`$()]", command)
 
 
-def _with_results(framework, command, xml_path):
+def _with_results(framework, command, xml_path, tree=None):
     if node_tests.command_words(command):
         return node_tests.instrument(command, xml_path)
+    if vitest_tests.command_words(command, tree):
+        return vitest_tests.instrument(command, xml_path, tree)
     if framework and framework.name == "pytest" and " -m pytest" in command:
         return f"{command} --junitxml={shlex.quote(str(xml_path))}"
     if framework and framework.name == "go" and _go_test(command) and " -json" not in command:
@@ -364,9 +368,11 @@ def _with_results(framework, command, xml_path):
     return command
 
 
-def expects_results(framework, command):
+def expects_results(framework, command, tree=None):
     """True when this command, run by the runner, must yield per-test results."""
     if node_tests.command_words(command):
+        return True
+    if vitest_tests.command_words(command, tree):
         return True
     if not framework or not framework.per_test or not command:
         return False
@@ -428,7 +434,9 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
     """
     if str(xml_path).endswith(".node.jsonl"):
         return node_tests.results(xml_path)
-    if not framework or not framework.per_test or framework.name == "node":
+    if str(xml_path).endswith(".vitest.json"):
+        return vitest_tests.results(xml_path, tree)
+    if not framework or not framework.per_test or framework.name in ("node", "vitest"):
         return None
     if framework.name == "go":
         output = receipt.get("output")
@@ -706,13 +714,14 @@ def select_commands(framework, test_paths, *, suite_command=None, regression_com
 
 
 def run_suite(framework, command, tree, evidence_dir, label, *, timeout):
-    extension = "node.jsonl" if node_tests.command_words(command) else "junit.xml"
+    extension = ("node.jsonl" if node_tests.command_words(command) else
+                 "vitest.json" if vitest_tests.command_words(command, tree) else "junit.xml")
     xml = Path(evidence_dir) / f"{label}.{extension}"
     xml.unlink(missing_ok=True)  # never parse a previous run's results
-    receipt = run_command(_with_results(framework, command, xml), tree, Path(evidence_dir) / f"{label}.log",
+    receipt = run_command(_with_results(framework, command, xml, tree), tree, Path(evidence_dir) / f"{label}.log",
                           timeout=timeout)
     receipt["results"] = per_test_results(framework, receipt, xml, tree=tree)
-    receipt["results_expected"] = expects_results(framework, command)
+    receipt["results_expected"] = expects_results(framework, command, tree)
     return receipt
 
 
