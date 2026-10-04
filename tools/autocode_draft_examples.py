@@ -129,7 +129,8 @@ def corrections(state, before, after, changes, user_basis):
     reports = (state.get("planning") or {}).get("reports") or {}
     review = (reports.get("astra_challenge") or reports.get("plan_review") or {}).get("report") or {}
     sources = [state.get(key) for key in ("task", "answers", "brief_feedback", "user_events", "approved_design")]
-    sources += [r.get("source_quote", "") for r in (state.get("requirements_handoff") or {}).get("requirements", [])]
+    handoff = (state.get("requirements_handoff") or {}).get("report") or {}
+    sources += [r.get("source_quote", "") for r in handoff.get("requirements", [])]
     found = set()
     for change in changes:
         if not isinstance(change, dict):
