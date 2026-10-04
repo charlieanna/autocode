@@ -22,6 +22,7 @@ try:
     from . import autocode_figma as figma, autocode_design_manifest as design_manifest
     from . import autocode_task_preflight as task_preflight
     from . import autocode_goals as goals, autocode_protected_oracles as protected_oracles
+    from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_interventions as interventions
     from . import autocode_milestones as milestones
     from . import model_catalogue
@@ -39,6 +40,7 @@ except ImportError:
     import autocode_figma as figma, autocode_design_manifest as design_manifest
     import autocode_task_preflight as task_preflight
     import autocode_goals as goals, autocode_protected_oracles as protected_oracles
+    import autocode_goal_lifecycle as lifecycle
     import autocode_interventions as interventions
     import autocode_milestones as milestones
     import model_catalogue
@@ -87,6 +89,10 @@ def resolve(runner, args, parser):
         run_dir = args.run_dir.resolve()
         state_path = run_dir / "state.json"
         state = runner.read_json(state_path)
+        try:
+            lifecycle.require_supported_checkpoint(state)
+        except support.Paused as error:
+            parser.error(error.args[1] if len(error.args) > 1 else str(error))
         task = state["task"]
         workspace = task_workspaces.resume_workspace(workspace, state)
     else:
