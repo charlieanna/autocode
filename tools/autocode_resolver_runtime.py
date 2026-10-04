@@ -340,7 +340,8 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
     """Retain exhaustion and stage a resolver-owned, request-only escalation.
 
     ``request`` replaces the generic question only for a stop the runner diagnosed itself
-    (autocode_validation_rounds); it is runner-composed, never model output.
+    (autocode_validation_rounds). The runner composes it from its own records, which may quote
+    saved rejection reasons; no model proposes or edits it.
     """
     if progressive.retained_review_budget_pause(state, error.status):
         return False

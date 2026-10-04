@@ -170,13 +170,17 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertIn(f"{blocking[0]} (Validator): the Validator's latest accepted report did not recheck it",
                       question["why"])
         self.assertIn(blocking[0], view["stop_reason"])
-        # Neither resuming nor answering launches another round or closes the finding.
-        driver.call("resume", "--resume-paused")
-        driver.call("respond", "--resolver-request", need["resolver_request_id"],
-                    "--resolver-token", need["resolver_token"], "--resolver-response", "leave_paused", action=True)
+        # Resuming launches no further round and closes nothing.
         driver.call("resume", "--resume-paused")
         self.assertEqual(stages, [row["stage"] for row in self.trace()])
         self.assertFalse(driver.view()["done"])
+        self.assertEqual(["open"], [row["status"] for row in driver.state()["findings_ledger"]
+                                    if row["id"] == blocking[0]])
+        # The way on the question names: goal feedback is accepted while it is asked, and the run continues.
+        self.assertIn("Answering keeps the run paused and launches no Validator; to continue instead, revise the "
+                      "goal with --feedback", question["question"])
+        driver.call("feedback", "--feedback", "Recheck the open finding against the approved goal", action=True)
+        self.assertEqual("RUNNING", driver.view()["status"])
         self.assertEqual(["open"], [row["status"] for row in driver.state()["findings_ledger"]
                                     if row["id"] == blocking[0]])
 
