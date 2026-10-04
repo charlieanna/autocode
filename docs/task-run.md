@@ -28,10 +28,14 @@ while not view["done"]:
     if need["kind"] == "approve_plan":
         view = run.approve_plan(need["token"])
     elif need["kind"] == "answer":
-        for question in need["questions"]:
-            # Decision questions may have no default; choose among their options.
-            view = run.answer(question["id"], question["proposed_default"] or question["options"][0],
-                              resolver_token=need.get("resolver_token"))
+        if need.get("resolver_scope") in ("blocker", "operational_exhaustion"):
+            break  # Inspect recovery guidance; this needs respond_operational(), not answer().
+        # Answer one displayed question, then let the loop use the returned view.
+        question = need["questions"][0]
+        print(question["question"])
+        print("Options:", ", ".join(question["options"] or []))
+        answer = input("Your answer: ")
+        view = run.answer(question["id"], answer, resolver_token=need.get("resolver_token"))
     elif need["kind"] == "continue":
         view = run.advance_until_input()
     else:
@@ -43,6 +47,12 @@ owns the workspace, typically a worktree it created, so start one run per
 workspace at a time. `options` (engine and model flags) are passed whenever the
 run starts or advances. Any rejected command raises `TaskRunError` with
 AutoCode's message.
+
+`answer()` needs the `resolver_token` from the status view that displayed the
+question. A successful answer returns an updated view with a new request token
+for any remaining questions. Handle that view before answering again: reusing
+the first token for a whole question list is rejected as stale. Do not silently
+fetch a new token to retry an old answer; inspect the current question first.
 
 Inputs fixed when a run starts, such as `--ui-run`, belong in `start_options`
 instead of `options`: `TaskRun.start(workspace, brief, options=("--engine", "codex"),
