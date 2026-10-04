@@ -75,7 +75,8 @@ def reason(collection_errors, names) -> str:
             "public APIs (for example a real file, directory or input that makes the failing operation fail) and "
             "assert the behavior itself, such as the returned error, the result or the saved state. A log line "
             "or message alone does not prove the behavior. If no existing API can reach that path, report that "
-            "this bug needs a separately approved instrumentation-only base patch; the runner adds none. A test "
+            "this bug needs an instrumentation-only base patch, which the operator supplies with --base-patch "
+            "PATH; the runner adds none itself. A test "
             f"that fails on the unfixed code only because {seam} is missing there is not a reproduction, even if "
             f"it reaches {seam} at run time.")
 
