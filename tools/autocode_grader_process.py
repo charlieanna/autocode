@@ -7,6 +7,7 @@ recorded. The shared supervisor handles birth checks, termination and reaping.
 from __future__ import annotations
 
 import os
+import signal
 import time
 
 import psutil
@@ -66,6 +67,20 @@ def _capture_group(tree, child, root):
     for pid, row in processes.process_table(candidates).items():
         if row['group'] == child.pid:
             tree.known[pid] = processes.identity(row)
+
+
+def running(child):
+    """Observe a caller-owned, unreaped child without consuming its identity."""
+    return _leader(child)['state'] != psutil.STATUS_ZOMBIE
+
+
+def terminate(child):
+    """Signal only the unreaped direct child; callers must not poll/wait it."""
+    _leader(child)  # An unreaped direct child's PID cannot have been reassigned.
+    try:
+        os.kill(child.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
 
 
 def wait(child, timeout):

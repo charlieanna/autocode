@@ -47,7 +47,7 @@ def approved_state():
 class ProgressiveRunViewTests(unittest.TestCase):
     def test_ordinary_view_is_unchanged(self):
         state = {"status": "RUNNING", "phase": "build"}
-        expected = {"runner_check": None, "dependency": None, "schema": 1, "status": "RUNNING",
+        expected = {"runner_check": None, "dependency": None, "schema": 2, "status": "RUNNING",
                     "done": False, "needs": {"kind": "continue"}, "phase": "build",
                     "next_stage": None, "iteration": None, "stop_reason": None,
                     "current_task": None, "workflow": None, "workflow_source": None,

@@ -102,6 +102,29 @@ class ProtectedOracleCLI(unittest.TestCase):
         self.assertEqual(ORIGINAL, (Path(binding['root'])/'test_layout.py').read_text())
         self.assertEqual('user_cli', [event for event in final['user_events'] if event['kind']=='protected_tests_revised'][0]['actor'])
 
+    def test_existing_internal_test_link_starts_and_replays_without_flattening(self):
+        shared = self.project / 'shared'
+        shared.mkdir()
+        (self.project / 'test_layout.py').rename(shared / 'oracle.py')
+        (self.project / 'test_layout.py').symlink_to('shared/oracle.py')
+        subprocess.run(['git', '-C', str(self.project), 'add', '.'], check=True)
+        subprocess.run(['git', '-C', str(self.project), '-c', 'user.name=Fixture',
+                        '-c', 'user.email=f@example.test', 'commit', '-qm', 'existing internal test link'], check=True)
+        extra = ORIGINAL + '\n    def test_positive_height(self):\n        self.assertGreater(height(), 0)\n'
+        self.builder_writes({'greet.py': fixture.references.BUGFIX_REFERENCE['greet.py'],
+                             'layout.py': 'def height():\n    return 40\n',
+                             'test_layout.py': extra, 'shared/oracle.py': extra})
+        run, approved = self.draft()
+        self.launch(['--run-dir', str(run), '--approve-goal', approved['displayed_goal']], 0)
+        self.launch(['--run-dir', str(run), '--no-chat'], 0)
+        final = self.saved()[1]
+        self.assertEqual('TASK_COMPLETE', final['status'])
+        retained = Path(final['settings']['protected_tests']['root'])
+        self.assertTrue((retained / 'test_layout.py').is_symlink())
+        self.assertEqual(ORIGINAL, (retained / 'shared/oracle.py').read_text())
+        self.assertTrue((self.project / 'test_layout.py').is_symlink())
+        self.assertEqual('PASS', final['validation']['check_replay']['protected_tests']['verdict'])
+
     def test_real_fix_with_added_coverage_completes(self):
         extra = ORIGINAL + '\n    def test_positive_height(self):\n        self.assertGreater(height(), 0)\n'
         run, final, _ = self.execute(extra, height=40)

@@ -103,7 +103,7 @@ meaning must change.
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "status": "AWAITING_GOAL_APPROVAL",
   "done": false,
   "needs": {"kind": "approve_plan", "token": "..."},
@@ -196,6 +196,8 @@ run is waiting for:
 | `answer` | answers to clarifying questions or a decision | `questions` (id, question, why, options, proposed_default), `request_kind`; for a question Resolver published, also `resolver_request_id`, `resolver_token` and `resolver_scope` | Answer, once per question (with `--resolver-token` when given) |
 | `review` | a person to accept specific acceptance criteria | `criteria`, `token`, `question` | Approve a review, per criterion |
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
+| `recover_source` | an attempt without a saved original source identity | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |
+| `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint` | Exact retry after restoring original source |
 | `resume` | a person to inspect a pause and resolve its cause | `reason` | Resume a pause, once resolved |
 | `continue` | nothing; the run can simply proceed | | Continue |
 
@@ -263,3 +265,16 @@ saved source, route and limits. The CLI equivalent is
 `--resume-paused --retry-failed-stage --job-retry-token TOKEN`. A plain resume
 keeps the pause. Stale source/configuration, a token for a different attempt,
 or unresolved restoration is rejected before any model request.
+
+A missing or corrupt capture file does not prevent retry if the current source
+exactly matches the identity saved before the attempt, including file modes and
+Git HEAD. After manual restoration, the same token can be used; the old
+`unrestored`/`write_diagnosis` fields remain historical evidence and the CLI
+rechecks the full identity. It does not reconstruct an original identity from
+the current checkout.
+
+In status schema 2, an older attempt that never recorded its original identity
+exposes `needs.kind = "recover_source"` and `action = null`, with
+`recovery_hint`. Its token, archive and diagnosis remain available for inspection,
+but cannot authorize an exact retry. Inspect the retained work and current changes
+before starting a new run. No automatic restart or budget reset occurs.

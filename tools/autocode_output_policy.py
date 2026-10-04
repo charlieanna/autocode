@@ -2,6 +2,8 @@
 
 configure alone writes settings.output_transport; launch/context read it.
 account alone saves stage.metrics.output_transport; view reads those saved metrics.
+environment binds AUTOCODE_OUTPUT_WORKSPACE to this run; output_store reads it
+so nested investigation commands retain bytes and measurements in the same store.
 """
 from pathlib import Path
 import shlex
@@ -36,7 +38,9 @@ def configure(state, settings, args):
 
 
 def environment(settings, workspace, attempt):
+    workspace = Path(workspace).resolve()
     return {'AUTOCODE_OUTPUT_MODE': mode(settings),
+            'AUTOCODE_OUTPUT_WORKSPACE': str(workspace),
             'AUTOCODE_OUTPUT_STORE': str(Path(workspace) / '.autocode/output'),
             'AUTOCODE_OUTPUT_ATTEMPT': str(attempt)}
 
