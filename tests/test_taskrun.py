@@ -35,7 +35,8 @@ class RunViewTests(unittest.TestCase):
                          set(run_view.view({"status": "RUNNING"})))
 
     def test_evidence_is_empty_before_planning(self):
-        self.assertEqual({"outcome": None, "base_commit": None, "acceptance": [], "findings": [],
+        self.assertEqual({"outcome": None, "base_commit": None, "acceptance": [],
+                          "validator_source_revision": None, "findings": [],
                           "regression_proof": None, "test_cases": [], "check_replay": None},
                          run_view.evidence({"status": "RUNNING"}))
 
@@ -67,7 +68,8 @@ class RunViewTests(unittest.TestCase):
                      {"id": "AC1", "criterion": "Parses dates"}, {"id": "AC2", "criterion": "Documents it"}]}},
                  "last_decision": {"report": {"acceptance_criteria": [
                      {"id": "AC1", "status": "passed", "evidence": "pytest -k dates: 3 passed"}]}},
-                 "validation": {"criterion_results": [{"id": "AC1", "status": "FAIL"}]},
+                 "validation": {"source_revision": "r7",
+                                "criterion_results": [{"id": "AC1", "status": "FAIL"}]},
                  "human_reviews": {"AC2": {"token": "r1"}},
                  "findings_ledger": [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo",
                                       "times_reported": 2}],
@@ -76,6 +78,7 @@ class RunViewTests(unittest.TestCase):
                                       "checks": {"large": "output"}}}
         evidence = run_view.evidence(state)
         self.assertEqual(("Fix it", "abc"), (evidence["outcome"], evidence["base_commit"]))
+        self.assertEqual("r7", evidence["validator_source_revision"])
         # validator_status keeps a Validator FAIL distinct from a criterion that was
         # never checked (None), independent of the decision report's own outcome.
         self.assertEqual([{"id": "AC1", "criterion": "Parses dates", "status": "passed",

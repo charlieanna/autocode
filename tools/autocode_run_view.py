@@ -168,9 +168,14 @@ def evidence(state: dict) -> dict:
     outcome           the approved contract's intended outcome, or None
     base_commit       the revision the run started from
     acceptance        one row per criterion: its latest recorded outcome and evidence;
-                      validator_status is the Validator's own result for that criterion
-                      (FAIL, PASS or NOT_VERIFIED), None when it has not been checked —
-                      a failed criterion must be distinguishable from an unchecked one
+                      validator_status is the latest saved validation's result for that
+                      criterion (FAIL, PASS or NOT_VERIFIED), None when that validation
+                      has no row — a failed criterion must be distinguishable from an
+                      unchecked one
+    validator_source_revision  the source revision that validation checked, or None.
+                      The view does not read the workspace: after rework, validator_status
+                      still reports that validation until a newer one replaces it. Compare
+                      this revision to the workspace before treating the status as current.
     findings          the findings ledger: id, status, severity, finding
     regression_proof  for bug fixes, the runner's own fail-before/pass-after proof, else None;
                       case_tests maps each English test case to the tests that prove it
@@ -204,6 +209,7 @@ def evidence(state: dict) -> dict:
         **({"protected_tests": deepcopy(state["settings"]["protected_tests"])}
            if state.get("settings", {}).get("protected_tests") else {}),
         "acceptance": acceptance,
+        "validator_source_revision": validation.get("source_revision"),
         "findings": [{key: row.get(key) for key in ("id", "status", "severity", "finding")}
                      for row in state.get("findings_ledger") or [] if isinstance(row, dict)],
         "regression_proof": {key: proof.get(key) for key in
