@@ -117,7 +117,9 @@ meaning must change.
   "evidence": {
     "outcome": "...",
     "base_commit": "...",
-    "acceptance": [{"id": "AC1", "criterion": "...", "status": "passed", "evidence": "...", "human_reviewed": false}],
+    "acceptance": [{"id": "AC1", "criterion": "...", "status": "passed", "evidence": "...",
+                    "validator_status": "PASS", "human_reviewed": false}],
+    "validator_source_revision": "...",
     "findings": [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "..."}],
     "regression_proof": null
   }
@@ -131,13 +133,22 @@ acceptance criterion with its latest recorded outcome and evidence, the
 findings ledger, and, for bug fixes, the runner's own fail-before/pass-after
 regression proof (`verdict`, `fail_to_pass`, `failures`, `unverified`,
 `commands`, `source_revision`, and `case_tests`: each English test case's
-proving tests; `null` otherwise). `test_cases` lists a reproduced bug's
-regression tests in plain English (`id`, `given`, `when`, `then`; empty
-otherwise; see [Bug fixes](workflow.md#bug-fixes)). `check_replay` is the
-current validation's checks as the runner itself re-ran them in a clean copy:
-`verdict`, `source_revision` and one row per command (`command`, `exit_code`,
-`timed_out`, `output`); `null` before a PASS validation and for validations
-that predate it (see [Execution](execution.md#the-runner-re-runs-the-validators-checks)).
+proving tests; `null` otherwise). Each acceptance row also carries
+`validator_status`: the latest saved validation's result for that criterion
+(`FAIL`, `PASS` or `NOT_VERIFIED`), or `null` when that validation has no row
+for it. A failed criterion must be distinguishable from an unchecked one; the
+decision report's own `status` is a separate field and a separate vocabulary
+(`verified` / not). `validator_source_revision` is the source revision that
+validation checked, or `null` before one. The view does not read the
+workspace: after rework, `validator_status` still reports that validation
+until a newer one replaces it, so compare `validator_source_revision` to the
+workspace before treating the status as current. `test_cases` lists a
+reproduced bug's regression tests in plain English (`id`, `given`, `when`,
+`then`; empty otherwise; see [Bug fixes](workflow.md#bug-fixes)). `check_replay`
+is the current validation's checks as the runner itself re-ran them in a clean
+copy: `verdict`, `source_revision` and one row per command (`command`,
+`exit_code`, `timed_out`, `output`); `null` before a PASS validation and for
+validations that predate it (see [Execution](execution.md#the-runner-re-runs-the-validators-checks)).
 
 `usage` is the run's tokens and cost so far: `stages` (finished), `active_stage` (the stage
 running now, or null), `tokens`, `cost_usd` (`reported`, `estimated`, `complete`), `unknown_stages`

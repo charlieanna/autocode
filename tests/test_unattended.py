@@ -118,6 +118,8 @@ class AnalyzeTests(unittest.TestCase):
                     {"id": "C1", "criterion": "Prints a greeting", "verification_method": "run app.py"}]}},
                 "last_decision": {"acceptance_criteria": [
                     {"id": "C1", "criterion": "Prints a greeting", "status": "verified", "evidence": "ran it"}]},
+                "validation": {"source_revision": "abc",
+                               "criterion_results": [{"id": "C1", "status": "PASS"}]},
                 "human_reviews": {"C1": {"actor": "user_cli", "criterion": "C1"}},
                 "findings_ledger": [{"id": "F1", "status": "resolved", "severity": "high", "source": "validator",
                                      "finding": "Missing comma"}],
@@ -133,7 +135,8 @@ class AnalyzeTests(unittest.TestCase):
                 rc = unattended.run(["--analyze", "--run-dir", str(run_dir), "--out", str(out_dir)])
             report = out.getvalue()
             self.assertEqual(rc, 0)
-            for expected in ("TASK_COMPLETE", "Greets the world", "**C1** [verified, human-reviewed]: Prints a greeting",
+            for expected in ("TASK_COMPLETE", "Greets the world",
+                             "**C1** [verified, validator: PASS, human-reviewed]: Prints a greeting",
                              "Verification: run app.py", "Evidence: ran it", "F1 [resolved, high, validator",
                              "| terra |", "`terra-01.json`", "app.py", "Untracked files (new, not committed): `new.py`", "Builder change",
                              "| sol | 2 | 35.0 | 1000/100 |", "| **total** | 3 | 35.0 | 1000/100 |",
