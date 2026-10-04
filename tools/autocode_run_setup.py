@@ -31,6 +31,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_status_command as status_command
+    from . import autocode_recovery_view as recovery_view
     from . import autocode_support as support
     from . import autocode_workspaces as task_workspaces
     from . import autocode_workflows as workflows
@@ -48,6 +49,7 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_retired_token_budget as retired_token_budget
     import autocode_status_command as status_command
+    import autocode_recovery_view as recovery_view
     import autocode_support as support
     import autocode_workspaces as task_workspaces
     import autocode_workflows as workflows
@@ -148,6 +150,10 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         state = runner.read_json(state_path)
         if state["workspace"] != str(workspace):
             parser.error("workspace differs from the locked checkpoint")
+        try:
+            recovery_view.require_token(state, getattr(args, 'expected_recovery_token', None))
+        except ValueError as error:
+            parser.error(str(error))
         recovery = state.get("recovery_context") or {}
         archived = (state.get("stages") or [{}])[-1]
         if (args.resume_paused and not state.get("active_stage")

@@ -2256,6 +2256,7 @@ function primaryAction(run,busy=false){
   if(info.label==='Review output')return {kind:'checks',label:'Review output'};
   if(info.label==='Ready to finish')return {kind:'continue',label:'Finish task'};
   if(info.group==='attention')return {kind:'answer',label:'Reply'};
+  if(run.interventions?.recovery?.version===1&&info.group==='stopped')return {kind:'recover',label:'Review recovery'};
   if(info.label==='Planning needs retry')return {kind:'continue',label:'Retry planning'};
   if(info.label==='Internally blocked'||info.label==='Worker unverified')return {kind:'checks',label:info.action};
   if(info.group==='stopped')return {kind:'continue',label:run.goal?.approval_status==='approved'?(!run.monitor?.orchestration_batch&&!run.stages?.some(stage=>['terra','orchestrator'].includes(stage.stage))?'Start building':'Resume task'):'Resume planning'};
@@ -2283,6 +2284,7 @@ function taskDecision(run,busy=false){
   if(info.label==='Approve plan')return result('Approve plan revision '+revision,run.goal?.body?.intended_outcome||info.reason,'Review the Plan pane, then approve revision '+revision+' in the conversation transcript. This records approval; Start building or Resume task is the next action.',true);
   if(info.label==='Review output')return result('Review the finished work',info.reason,'Open Checks, inspect the evidence and approve each requested item. Then choose Finish task to run the final completion check.',true);
   if(info.group==='attention')return result('Your decision is needed',info.reason,'Open Conversation and reply to the current request. Your reply does not approve a new plan revision.',true);
+  if(action.kind==='recover'&&run.interventions?.recovery?.version===1)return result(run.interventions.recovery.title,run.interventions.recovery.what_happened,'Inspect the saved checkpoint in chat and choose its specific next action.',true);
   if(action.kind==='recover')return result('Review the interrupted attempt',info.reason,'Choose Review recovery above, inspect the saved attempt, then Recover saved work. Resume is a separate action.',true);
   if(info.label==='Planning needs retry')return result('Retry the planning step',info.reason,'Retry planning requests a new draft. You will review the final plan before approving it.');
   if(info.label==='Internally blocked')return result('Internal failure needs repair',info.reason,'Inspect the saved failure in Checks, correct its cause, then retry the saved step. No approval is requested.');
@@ -2517,6 +2519,7 @@ async function submitTaskAction(run,action,extra={}){
   }
   if(action==='continue'&&extra.expected_goal_token&&current.conversation?.plan_gate?.pending_product_change){dashboardNotice('A requirement change is awaiting a new reviewed plan.');return;}
   if(taskReadError||taskArchiveBlocked(run.run)||current.task_archived||projectBlocked(run.workspace)||current.project_removed||taskActionBusy(current)||taskChatPending.has(run.run)||(action==='continue'&&typeof unresolvedModelReplacement==='function'&&unresolvedModelReplacement(current)))return;
+  if(action==='recover_pause'&&(!extra.recovery_token||current.interventions?.recovery?.token!==extra.recovery_token)){dashboardNotice('The saved pause changed. Refresh and inspect the current recovery card.');return;}
   const scopes={approve_goal:['goal_approval'],approve_review:['human_review'],answer:['clarification','permission','goal_change'],delegate:['clarification','permission','goal_change'],resolver_response:['operational_exhaustion','blocker']}[action];
   const response=scopes?{...resolverResponseFields(run),...extra}:extra;
   if(scopes&&(!resolverReplyCurrent(current,response,scopes)
@@ -2641,9 +2644,65 @@ $('#task-reasoning-form').onsubmit=async event=>{
   try{await post('/api/action',payload);status.textContent='Reasoning change queued. It will apply to the next model step.';await refresh();}
   catch(error){status.textContent=error.message;status.className='error';button.disabled=false;}
 };
+function renderRecoveryCard(host,run,recovery){
+  host.hidden=false;host.dataset.recoveryToken=recovery.token;
+  // The saved projection describes a checkpoint, not human authority. Use the
+  // existing current-request gate before presenting it as something to answer.
+  const requestInfo=recovery.category==='request'?statusInfo(run):null;
+  host.append(n('h3',requestInfo?.label||recovery.title),n('h4','What happened'),n('p',requestInfo?.reason||recovery.what_happened),n('h4','What is retained'),n('p',recovery.retained));
+  const groups=recovery.failure_groups||[];
+  if(groups.length){
+    const history=n('div','');history.append(n('p','Recorded failures are grouped below. Earlier attempts remain in History.'));
+    for(const group of groups.slice(0,5)){
+      const row=n('p',(group.role||'Step')+' · '+group.count+' recorded attempt(s)'+(group.source_revision?' · source '+String(group.source_revision).slice(0,12):'')+'. '+(group.last_reason||'No per-attempt explanation was recorded.'));
+      history.append(row);
+    }
+    if(groups.length>5)history.append(n('p',(groups.length-5)+' earlier failure group(s) remain in History.'));
+    host.append(disclosure('Repeated failures','recovery-failures:'+recovery.token,[history],run.run));
+  }
+  const details=[];
+  if(recovery.saved_reason)details.push(n('p',recovery.saved_reason));
+  details.push(renderDocument(recovery.context||{}));
+  const inspection=disclosure(recovery.token?'Inspect this saved pause':'Inspect this saved checkpoint','recovery-card:'+recovery.token,details,run.run);
+  inspection.dataset.recoveryInspection='true';
+  host.append(inspection,n('h4','What you can do'));
+  const note=n('p',recovery.token?'Inspect this saved pause before running a recovery action. Each action keeps the existing approval and verification gates.':'Inspect the retained work and worker status. These actions do not start a new worker.');
+  note.id='recovery-card-inspection';note.className='field-note';host.append(note);
+  const actions=card('','lifecycle-actions'),mutations=[];
+  for(const item of recovery.actions||[]){
+    if(item.kind==='decision'&&requestInfo?.group!=='attention')continue;
+    const execute=['resume','abandon','retry_builder','retry_job','retry_report','retry_failed_stage'].includes(item.kind);
+    const control=focusKey(button(item.label,()=>{
+      if(execute){
+        const current=latestRun?.run===run.run?latestRun:run;
+        if(!inspection.open||current.interventions?.recovery?.token!==recovery.token){dashboardNotice('The saved pause changed. Refresh and inspect the current recovery card.');return;}
+        return submitTaskAction(run,'recover_pause',{recovery_token:recovery.token,recovery_action:item.id});
+      }
+      if(item.kind==='inspect'){activateTab('now');return;}
+      if(item.kind==='new_conversation'){return startProjectConversation(run.workspace);}
+      activateTab('interview');
+      if(item.kind==='decision'){
+        const request=[...document.querySelectorAll('[data-question-card]')].find(row=>!row.hidden)||$('#inline-task-action');
+        if(request&&!request.hidden){request.scrollIntoView({block:'center'});request.querySelector('button,input,textarea')?.focus();return;}
+      }
+      $('#change-text').focus();$('#change-text').scrollIntoView({block:'nearest'});
+    }), 'recovery:'+run.run+':'+item.id);
+    control.title=item.effect;control.dataset.recoveryAction=item.id;
+    const group=card('','recovery-choice'),effect=n('p',item.effect);effect.className='field-note';
+    effect.id='recovery-effect-'+String(item.id).replace(/[^a-z0-9_-]/gi,'-');
+    control.setAttribute('aria-describedby',effect.id+(execute?' '+note.id:''));
+    if(execute)mutations.push(control);
+    group.append(control,effect);actions.append(group);
+  }
+  const update=()=>{for(const control of mutations)control.disabled=!inspection.open||!!taskReadError||taskActionBusy(run)||run.interventions?.mode==='unavailable'||!!(typeof unresolvedModelReplacement==='function'&&unresolvedModelReplacement(run));};
+  inspection.addEventListener('toggle',update);update();host.append(actions);
+}
+
 function renderTaskAttention(run){
   const host=$('#task-attention');host.replaceChildren();
   const next=statusInfo(run);
+  const recovery=run.interventions?.recovery;
+  if(recovery?.version===1&&recovery.status===run.status&&!taskActionBusy(run)){renderRecoveryCard(host,run,recovery);return;}
   if(['running','complete','attention'].includes(next.group)||taskActionBusy(run)){host.hidden=true;return;}
   host.append(n('h3',next.label),n('p',next.reason));
   const attempt=interruptedAttempt(run),paused=/PAUSED|BLOCKED|FAILED/.test(run.status||'');

@@ -95,6 +95,24 @@ an operational request cannot be answered with `TaskRun.answer()`.
 after a person inspects the new route and the saved run reports
 `PAUSED_TRANSPORT_CHANGED`.
 
+## Exact stopped-run recovery
+
+The additive `view.recovery` projection describes a saved pause: what happened,
+what is retained, recorded failure groups and specific next actions. Its `token`
+binds the run, task, scope, settings, attempts and failure history. It does not
+grant approval, increase limits or confirm that a human request is authorized.
+Current AutoResolver request and approval gates remain authoritative. Running
+and complete tasks have no recovery card. Unknown pause types retain inspection
+and corrective feedback rather than offering a guessed execution command.
+
+A caller displaying this card can append `--expected-recovery-token TOKEN` to
+an existing `--resume-paused` or `--abandon-stage` command. The runner rechecks
+the token under its run lock before applying settings or writing the checkpoint.
+If the pause changed, it refuses: refresh and inspect the new card. Existing
+CLI callers can omit the flag; all ordinary liveness, scope and approval gates
+still apply. Abandoning an interrupted attempt preserves partial work and does
+not resume automatically. Stop remains terminal for that conversation.
+
 ## Status view
 
 Produced by `tools/autocode_run_view.py` from the saved state. Fields may be

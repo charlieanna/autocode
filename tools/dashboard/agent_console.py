@@ -533,6 +533,7 @@ class LegacyConsole:
   raise ValueError('Unknown action')
 try:
  from .dashboard_backend import RegistryInterventionMixin, approved_goal_token
+ from .dashboard_recovery import RecoveryActionsMixin
  from .dashboard_chat import ConversationMixin
  from .dashboard_project_controls import ProjectRemovalMixin
  from .dashboard_tasks import TaskArchiveMixin
@@ -540,13 +541,14 @@ try:
  from .dashboard_evidence import stage_evidence
 except ImportError:  # Support running this file directly from a source checkout.
  from dashboard_backend import RegistryInterventionMixin, approved_goal_token
+ from dashboard_recovery import RecoveryActionsMixin
  from dashboard_chat import ConversationMixin
  from dashboard_project_controls import ProjectRemovalMixin
  from dashboard_tasks import TaskArchiveMixin
  from dashboard_delete import PermanentDeleteMixin
  from dashboard_evidence import stage_evidence
 
-class Console(PermanentDeleteMixin, TaskArchiveMixin, ProjectRemovalMixin, ConversationMixin, RegistryInterventionMixin, LegacyConsole):
+class Console(PermanentDeleteMixin, TaskArchiveMixin, ProjectRemovalMixin, ConversationMixin, RecoveryActionsMixin, RegistryInterventionMixin, LegacyConsole):
  def model_catalogue(self,refresh=False):
   result=self.catalogue.fetch(refresh=refresh)
   try:

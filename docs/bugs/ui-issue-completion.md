@@ -232,3 +232,40 @@ page labels without installing anything. Final copy-only cleanup removed the
 remaining alternate role labels, followed by another passing 24-script Node
 gate. The full suite result preceded that final copy-only cleanup. These are
 functional naming checks, not Figma visual acceptance or overall backlog closure.
+
+## Recovery cards (#33), verification still in progress
+
+Stopped tasks now expose a three-part chat card from the additive public
+`recovery` view. Specific existing CLI actions are constructed on the server,
+bound to the inspected stopped checkpoint, and checked again under the run lock.
+Retry preserves the contract, saved routes, limits and failure history. Abandon
+and Resume remain separate. Repeated failures retain their source identities.
+An internal unpublished question does not become human authority. Unknown stops
+still offer inspection and feedback; a deliberate Stop offers a new conversation.
+Supported status that finds an absent worker behind a saved RUNNING state offers
+inspection without inventing a paused state, execution token or another worker.
+
+Focused projection, adapter and real-CLI recovery tests passed. All 345 dashboard
+Python tests, 25 standalone Node checks, 54 fake scenarios (one live-only skip)
+and 173 scenario-harness cases passed. Recovery and question-card browser
+matrices passed at desktop, tablet and phone sizes. The final absent-worker
+follow-up passed 19 Python tests and the recovery browser matrix; its phone
+capture was inspected and the supervisor confirmed no live owned descendants.
+A subsequent wording-only change calls an absent-worker checkpoint a checkpoint,
+not a saved pause; its renderer regression passed.
+
+The first required full changed-file gate ran 3,013 tests in 223 modules and
+failed two modules: an exact status-field expectation omitted the additive
+`recovery` field, and a scenario cleanup raised EPERM. The field expectation was
+corrected. Its 29-test module and the unchanged 41-test scenario-oracle module
+passed separately and in the second full gate. The cleanup cause is unresolved;
+its historical failure has not been hidden or turned into cleanup success.
+
+The second full gate ran the same 3,013 tests/223 modules in 2,236 seconds and
+failed 18 modules. Diagnostics show existing subprocess/browser deadlines and
+one missed intermediate worker-activity assertion. Host load exceeded 200 on
+10 logical CPUs during that run. This is a failed gate, not proof of a clean
+revision. Lower-concurrency failure rechecks and final integrated regression
+remain required. No deadlines or assertions were relaxed and no unrelated
+workers were interrupted. These receipts do not close #33, the remaining UI
+backlog, or final Figma visual acceptance.
