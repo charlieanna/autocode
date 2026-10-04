@@ -243,7 +243,7 @@ class PermanentDeleteMixin:
         include_branch = data.get('include_branch', False)
         if type(include_worktree) is not bool or type(include_branch) is not bool or include_branch and not include_worktree:
             raise ValueError('Branch deletion requires its exclusively owned worktree scope')
-        with stopped_locks(workspace, run):
+        with self.workspace_commands.hold(workspace), stopped_locks(workspace, run):
             status = self._deletion_stopped(workspace, run)
             managed, reason = None, None
             try:
@@ -323,7 +323,7 @@ class PermanentDeleteMixin:
             target = workspace if preview['include_worktree'] else run
             try:
                 if target.exists():
-                    with stopped_locks(workspace, run):
+                    with self.workspace_commands.hold(workspace), stopped_locks(workspace, run):
                         status = self._deletion_stopped(workspace, run)
                         actual = inventory(target)
                         original = preview['fingerprint']

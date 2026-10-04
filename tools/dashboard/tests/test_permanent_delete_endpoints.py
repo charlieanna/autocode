@@ -1,8 +1,12 @@
 """Destructive endpoints exercised only against disposable directories and real Git worktrees."""
 import fcntl
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 import http.client
 import json
 import os
+import queue
+import socket
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,12 +15,14 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
+from urllib.parse import urlencode
 
 TOOLS = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(TOOLS / 'dashboard'), str(TOOLS)]
 from agent_console import Console, Handler, LoopbackHTTPServer
 import autocode_registry as registry
 from dashboard_delete import git
+from dashboard_command_gate import WorkspaceCommandGate
 from autocode_workspaces import create as create_worktree
 from autocode_worktrees import deliver
 
@@ -314,6 +320,95 @@ class PermanentDeleteTests(unittest.TestCase):
         self.save_status()
         code, _ = self.post('delete-preview', {'workspace': str(self.workspace), 'run': str(self.run)})
         self.assertEqual(400, code)
+
+    def test_owned_status_poll_finishes_before_preview_or_deletion(self):
+        # Hold a real status subprocess using a socket, not a timing delay.
+        # The observer orders the competing HTTP request at the gate boundary.
+        self.delivered()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        original_runner = self.fake.read_text()
+        listener = socket.socket()
+        self.addCleanup(listener.close)
+        listener.bind(('127.0.0.1', 0))
+        listener.listen()
+        listener.settimeout(10)
+        for operation in ('delete-preview', 'delete'):
+            marker = self.root / 'hold-poll-once'
+            marker.write_text('hold one owned reader')
+            block = ("import os,socket\nmarker=Path(" + repr(str(marker)) + ")\n"
+                     "if '--status' in sys.argv:\n"
+                     " try:marker.unlink()\n except FileNotFoundError:pass\n else:\n"
+                     "  with socket.create_connection(('127.0.0.1'," + str(listener.getsockname()[1]) + "),timeout=10) as held:\n"
+                     "   held.sendall(b'ready')\n   assert held.recv(1)==b'x'\n")
+            self.fake.write_text(original_runner.replace('from autocode_registry import cli\n',
+                                                         'from autocode_registry import cli\n' + block))
+            events, armed = queue.Queue(), threading.Event()
+            class ObservedGate(WorkspaceCommandGate):
+                @contextmanager
+                def hold(gate, workspace):
+                    if armed.is_set():
+                        events.put('gate entered')
+                    with super().hold(workspace):
+                        yield
+            self.console.workspace_commands = ObservedGate()
+            self.console.status_cache.clear()
+            def poll(workspace=None, run=None):
+                connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=15)
+                try:
+                    connection.request('GET', '/api/run?' + urlencode({'workspace': str(workspace or self.workspace), 'run': str(run or self.run)}))
+                    response = connection.getresponse()
+                    return response.status, json.loads(response.read())
+                finally:
+                    connection.close()
+            data = ({'workspace': str(self.workspace), 'run': str(self.run), 'include_worktree': True, 'include_branch': True}
+                    if operation == 'delete-preview' else
+                    {'preview_id': preview['preview_id'], 'confirmation': preview['confirmation']})
+            with ThreadPoolExecutor(2) as pool:
+                read = pool.submit(poll)
+                held, _ = listener.accept()
+                with held:
+                    self.assertEqual(b'ready', held.recv(5))
+                    other = pool.submit(poll, self.project, self.project / '.autocode/runs/selected')
+                    self.assertEqual(200, other.result(timeout=10)[0], 'An unrelated workspace can still be inspected')
+                    armed.set()
+                    mutation = pool.submit(self.post, operation, data)
+                    mutation.add_done_callback(events.put)
+                    try:
+                        first = events.get(timeout=10)
+                        if first != 'gate entered':
+                            first = first.result()
+                        self.assertEqual('gate entered', first, 'An owned dashboard read must not cause a worker refusal')
+                        self.assertFalse(read.done(), 'The controlled reader is still active')
+                        self.assertFalse(mutation.done(), 'Deletion waits for the active dashboard reader')
+                    finally:
+                        held.sendall(b'x')
+                    self.assertEqual(200, read.result(timeout=15)[0])
+                    code, result = mutation.result(timeout=15)
+                self.assertEqual(202, code, result)
+                if operation == 'delete-preview':
+                    self.assertTrue(self.workspace.exists())
+                    preview = result
+                else:
+                    self.assertEqual('deleted', result['status'])
+                    self.assertFalse(self.workspace.exists())
+                    self.assertTrue((self.project / 'keep.txt').exists())
+                    self.assertTrue((self.project / '.autocode/runs/selected/output.txt').exists())
+
+    def test_external_live_process_still_blocks_preview_and_deletion(self):
+        preview = self.preview()
+        process = subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.buffer.read(1)', str(self.run)],
+                                   stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            for operation, data in (
+                ('delete-preview', {'workspace': str(self.workspace), 'run': str(self.run)}),
+                ('delete', {'preview_id': preview['preview_id'], 'confirmation': preview['confirmation']}),
+            ):
+                code, result = self.post(operation, data)
+                self.assertEqual(400, code, result)
+                self.assertIn('live process', result['error'])
+                self.assertTrue(self.run.exists())
+        finally:
+            process.communicate(b'x', timeout=5)
 
     def test_writer_lock_rejects_even_when_saved_status_is_stopped(self):
         handle = (self.run / 'writer.lock').open('a+')

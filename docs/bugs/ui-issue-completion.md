@@ -645,3 +645,29 @@ live-model Investigator; source remained unchanged during both gates. Original
 failures and browser evidence remain local. The disposable Linux container was
 removed after exporting its evidence; user projects and unrelated containers
 were preserved.
+
+## CI repair: deletion versus dashboard polling (2026-10-04)
+
+CI run 37194243063 passed core, harness, dashboard and visual gates, then
+refused tablet deletion because a live process referenced its workspace. A
+controlled public HTTP reproduction held the dashboard's own real status
+subprocess open: exact confirmed deletion returned the same HTTP 400 while
+preserving all files. This was a coordination bug, not grounds to weaken the
+external-process guard.
+
+Workspace-scoped dashboard JSON commands now share a reentrant gate with
+deletion preview and the stopped-check/removal section. Existing reads finish
+before those sections; another workspace remains independently inspectable.
+Registry-wide reads stay independent. The gate is local to this dashboard
+process, while writer locks, live-worker checks, external-process refusal,
+exact confirmation, content fingerprints and Git ownership guards remain
+unchanged. A same-workspace request can wait behind an existing command.
+
+The public HTTP regression failed before the repair and passed afterward. It
+controls the overlap with a socket rather than a sleep, covers both preview
+and confirmed deletion, and proves that a separate live process still blocks
+both operations. Independent review accepted the lock ordering and regression.
+Fresh unchanged-source gates passed all 407 dashboard Python tests, all ten CI
+browser flows, four architecture tests and the full fake catalog (54 PASS,
+one NOT_EXERCISED Resolver route, one skipped live-model Investigator).
+Submitted-head Linux CI remains the separate final delivery gate.
