@@ -207,7 +207,8 @@ class LedgerTests(unittest.TestCase):
         report = {"verdict": "PASS", "checks_run": ["c"], "findings": [], "unverified_criteria": [],
                   "checks": [{"command": "c", "exit_code": 0, "evidence_ref": "event:check"}],
                   "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["event:check"]}],
-                  "end_to_end_result": {"status": "PASS", "summary": "s", "evidence_refs": ["event:check"]},
+                  "end_to_end_result": {"status": "PASS", "summary": "s", "evidence_refs": ["event:check"],
+                                        "technical_result": None, "pending_human_criteria": []},
                   "finding_dispositions": [{"id": "F-abc", "disposition": "resolved", "evidence": "event:check"}],
                   "contract_revision": 1, "contract_hash": "h", "task_id": "t", "deferred_backlog": [],
                   "user_request": {"kind": "none", "discovered": "", "impact": "", "decision_needed": "", "options": [], "proposed_delta": ""}}

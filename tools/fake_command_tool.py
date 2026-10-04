@@ -220,7 +220,7 @@ elif stage == "sol":
     result = {**common, "verdict": "PASS" if passed else "FAIL", "findings": [], "checks_run": [command],
               "unverified_criteria": [], "checks": [{"command": command, "exit_code": 0 if passed else 1, "evidence_ref": str(evidence)}],
               "end_to_end_result": {"status": "PASS" if passed else "FAIL", "summary": "Executed the greeting CLI",
-                                    "evidence_refs": [str(evidence)]},
+                                    "evidence_refs": [str(evidence)], "technical_result": None, "pending_human_criteria": []},
               "criterion_results": [{"id": "C1", "status": "PASS" if passed else "FAIL", "evidence_refs": [str(evidence)]}],
               "finding_dispositions": []}
 else:

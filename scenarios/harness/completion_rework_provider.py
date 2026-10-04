@@ -55,7 +55,7 @@ def report_for(stage, data, common, config, run_check, requirements):
                   "criterion_results": [{"id": row["id"], "status": status, "evidence_refs": ["check:1"]}
                                         for row in body["acceptance_criteria"]],
                   "end_to_end_result": {"status": status, "summary": f"Real greeting tests exited {code}",
-                                        "evidence_refs": ["check:1"]}}
+                                        "evidence_refs": ["check:1"], "technical_result": None, "pending_human_criteria": []}}
     else:
         recheck = validation_only and not any(row["stage"] == "astra_resolve" for row in previous)
         failed = data["validation"]["verdict"] == "FAIL" or recheck

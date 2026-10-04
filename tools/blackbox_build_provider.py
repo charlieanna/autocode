@@ -182,7 +182,8 @@ def main():
             findings=[], finding_dispositions=[], unverified_criteria=[cid for cid, status in statuses.items() if status != 'PASS'],
             criterion_results=[dict(id=cid, status=status, evidence_refs=['event:' + cid] if cid in owned else []) for cid, status in statuses.items()],
             end_to_end_result=dict(status='PASS' if all(v == 'PASS' for v in statuses.values()) else 'NOT_VERIFIED',
-                summary='Executed handwritten product checks', evidence_refs=['event:' + cid for cid in owned]))
+                summary='Executed handwritten product checks', evidence_refs=['event:' + cid for cid in owned],
+                technical_result=None, pending_human_criteria=[]))
         if task.get('milestone_ids'):
             result['milestone_results'] = [dict(milestone_id=m, status='PASS' if passed else 'FAIL',
                 summary='Executed check', evidence_refs=['event:' + cid for cid in owned]) for m in task['milestone_ids']]

@@ -29,7 +29,10 @@ def resolve(report: dict) -> dict:
 
     rows = [*(report.get("criterion_results") or []), *(report.get("milestone_results") or [])]
     if isinstance(report.get("end_to_end_result"), dict):
-        rows.append(report["end_to_end_result"])
+        flow = report["end_to_end_result"]
+        rows.append(flow)
+        if isinstance(flow.get("technical_result"), dict):
+            rows.append(flow["technical_result"])
     for row in rows:
         if isinstance(row, dict) and isinstance(row.get("evidence_refs"), list):
             row["evidence_refs"] = [swap(ref) for ref in row["evidence_refs"]]
