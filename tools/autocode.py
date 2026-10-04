@@ -322,7 +322,7 @@ def run_role(
         except ValueError as error:
             raise support.Paused('PAUSED_INVALID_PREDECESSOR', str(error)) from error
     if not dry_run:
-        processes.process_table()  # fail before creating an active request
+        processes.preflight()  # fail before creating an active request
     if report_only:
         stage += '_report_repair'
     if stage == 'astra_diagnose' and not dry_run:

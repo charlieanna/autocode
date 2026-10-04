@@ -72,6 +72,14 @@ def process_table(pids=None):
     return table
 
 
+def preflight():
+    """Check enumeration and native metadata without inspecting unrelated PIDs."""
+    process_ids()
+    pid = os.getpid()
+    if pid not in process_table({pid}):
+        raise ProcessError("Cannot inspect controller process; refusing an unsafe provider launch")
+
+
 def identity(row):
     return {key: row[key] for key in ("pid", "started", "group", "birth_time", "birth_identity") if key in row}
 
