@@ -57,6 +57,11 @@ except ImportError:
     import autocode_workspaces as task_workspaces
     import autocode_workflows as workflows
 
+# Recovery actions that answer or act on the published operational request themselves; a settings change
+# that comes with one leaves that request for the action to check.
+OTHER_RECOVERY = ('retry_failed_stage', 'retry_report', 'retry_builder', 'abandon_stage', 'diagnose_failed_stage',
+                  'resolver_response')  # and --grant-recovery
+
 
 def resolve(runner, args, parser):
     """Return (workspace, run_dir, state_path, state), or an exit code when the invocation ends here."""
@@ -240,6 +245,13 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             if settings.get('budget_origins', {}).get(kind) == 'resolver_delegated':
                 if resolver_human.supersede_operational(state, 'User delegated this finite harness limit to bounded AutoResolver recovery'):
                     state['_authorized_bound_change'] = {'pause_status': paused_for, 'at': runner.now()}
+        # Any other settings write changes the binding of the published operational request, and the
+        # writer boundary would rebuild the stranded request as a legacy blocker for AutoResolver to
+        # adjudicate with model calls: an unrelated --max-stage-seconds got past an exhausted time cap
+        # (#379). Return the run to the pause itself; the stage-boundary guards re-check every bound.
+        if (published.get('scope') == 'operational_exhaustion' and paused_for
+                and args.grant_recovery is None and not any(getattr(args, name, None) for name in OTHER_RECOVERY)):
+            resolver_human.supersede_operational(state, 'Settings changed without changing the exhausted bound')
         previous_settings = state["settings"]
         enabling_joint = settings.get("joint_planning") and not previous_settings.get("joint_planning")
         if enabling_joint:

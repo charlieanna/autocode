@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import venv
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -144,6 +145,15 @@ class VerificationCommandGuards(unittest.TestCase):
 
 
 class VerificationProofCache(unittest.TestCase):
+    def setUp(self):
+        runtime = tempfile.TemporaryDirectory(prefix='verification-proof-runtime-')
+        self.addCleanup(runtime.cleanup)
+        root = Path(runtime.name)
+        venv.EnvBuilder(with_pip=False).create(root)
+        # These stdlib fixtures do not depend on the editable controller checkout
+        # or the transient Git repositories other test modules create inside it.
+        self.python = str(root / 'bin' / 'python')
+
     def test_operator_patch_mutation_invalidates_a_cached_complete_proof(self):
         import difflib
         import autocode_base_patch as base_patch
@@ -161,7 +171,7 @@ class VerificationProofCache(unittest.TestCase):
         pinned = base_patch.pin(patch, project.root, project.base)
         project.write({**REFERENCE, 'greet.py': marker + REFERENCE['greet.py']})
         state = {'goal_contract': {'body': {'task_kind': 'bugfix'}}, 'base_commit': project.base,
-                 'settings': {'regression': {'python': sys.executable, 'test_timeout': 15, 'base_patch': pinned}}}
+                 'settings': {'regression': {'python': self.python, 'test_timeout': 15, 'base_patch': pinned}}}
         identity = {'source_revision': verify.util.snapshot(project.root)['revision'], 'reuse_supported': True}
         with mock.patch.object(verify, 'execution_identity', return_value=identity):
             first = regression.prove(state, project.root, project.evidence)
@@ -184,7 +194,7 @@ class VerificationProofCache(unittest.TestCase):
         self.addCleanup(project.close)
         project.write(REFERENCE)
         state = {'goal_contract': {'body': {'task_kind': 'bugfix'}}, 'base_commit': project.base,
-                 'settings': {'regression': {'python': sys.executable, 'test_timeout': 15}}}
+                 'settings': {'regression': {'python': self.python, 'test_timeout': 15}}}
         first = regression.prove(state, project.root, project.evidence)
         self.assertEqual('PASS', first['verdict'], first)
         self.assertTrue(regression.complete(state, first['source_revision']))
@@ -216,12 +226,12 @@ class VerificationProofCache(unittest.TestCase):
             base = subprocess.check_output(['git', '-C', str(project), 'rev-parse', 'HEAD'], text=True).strip()
             bugfix.references.write(bugfix.references.BUGFIX_REFERENCE, project)
             state = {'goal_contract': {'body': {'task_kind': 'bugfix'}},
-                     'base_commit': base, 'settings': {'regression': {'test_timeout': 15}}}
+                     'base_commit': base, 'settings': {'regression': {'python': self.python, 'test_timeout': 15}}}
             original_options = copy.deepcopy(state['settings'])
             run = project / '.autocode' / 'runs' / 'fixture'
-            python = shlex.quote(sys.executable)
-            working = verify.Framework('unittest', f'{python} -m unittest discover -v', python=sys.executable)
-            failing = verify.Framework('unittest', f'{python} -c "raise SystemExit(7)"', python=sys.executable)
+            python = shlex.quote(self.python)
+            working = verify.Framework('unittest', f'{python} -m unittest discover -v', python=self.python)
+            failing = verify.Framework('unittest', f'{python} -c "raise SystemExit(7)"', python=self.python)
             with mock.patch.object(verify, 'detect_framework', return_value=working):
                 first = regression.prove(state, project, run)
             self.assertEqual('PASS', first['verdict'], first)

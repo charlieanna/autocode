@@ -443,24 +443,6 @@ can be plain text. Do not edit runner/state/config or authentication.
 """
 
 
-# Bug-fix runs: the runner has already executed the regression proof (autocode_regression).
-# The reviewers use it instead of re-running the same tests, and never override it.
-REGRESSION_PROOF_NOTES = {
-    "passed": {
-        "validator": "\nREGRESSION PROOF: regression_proof records that the runner already ran the new or changed "
-                     "tests (failing on the original code, passing now) and the project suite; case_tests names the test for each English test case (the diagnosis's, or the plan's criteria marked test:): read each one and report FAIL if it does not assert exactly the case's given, when and then. Do not re-run the "
-                     "whole suite. Run the regression command once as your own executed check, then spend your "
-                     "effort on what those tests do not cover in the acceptance criteria. To close a finding the proof settles, cite regression_proof's verdict and source_revision as the evidence.\n",
-        "owner": "\nREGRESSION PROOF: regression_proof and the Validator's report are executed evidence for this "
-                 "exact source. Do not re-run tests to re-establish them; decide from the recorded evidence.\n"},
-    "open": {
-        "validator": "\nREGRESSION PROOF: regression_proof is not PASS for this source. The fix is not proven; "
-                     "report FAIL and cite its failures or unverified reasons as findings.\n",
-        "owner": "\nREGRESSION PROOF: regression_proof is not PASS, so the runner will refuse completion. Do not "
-                 "request COMPLETE; return REWORK whose findings are the proof's failures or unverified reasons.\n"},
-}
-
-
 def migrate_v1(state, run_dir, workspace, settings, schemas):
     """Reconcile saved role finals, including a completed role missing from history.
 

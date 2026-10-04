@@ -803,7 +803,7 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
                         editable_sources[str(target)] = schedule.tree_identity(target, excluded={
                             ".git", ".autocode", ".autocode-ui", ".scenario-runs", ".venv", "venv",
                             "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".DS_Store"})
-            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.CalledProcessError):
                 unbound_editables.append(str(metadata))
     full = full and not unbound_editables
     dependency_roots = test_env.dependency_roots(dependencies_from or workspace) if full else []

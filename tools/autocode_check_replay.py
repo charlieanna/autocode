@@ -151,7 +151,7 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
                     # execution still receives a fresh after-context check.
                     current_identity=lambda: identity(refresh=True))
             else:
-                receipt = scratch_run(workspace, out / uuid.uuid4().hex / f"check-{len(seen) + 1:02d}",
+                receipt = scratch_run(workspace, out / f"check-{len(seen) + 1:02d}",
                                       command=command, timeout=timeout)
             seen[key] = {"command": command, "exit_code": receipt.get("exit_code"),
                              "timed_out": bool(receipt.get("timed_out")), "output": receipt.get("output"),

@@ -163,8 +163,9 @@ def run(runner, args, state, state_path, run_dir, workspace):
             capacity_recovered = runner.automatically_recover_capacity_stage(current, run_dir, workspace, error)
             if capacity_recovered:
                 recovery = current["recovery_context"]
+                inspector = runner.autocode_status.role_name(recovery["next_stage"], current)
                 print(f"{stage}: provider capacity recovery {recovery['retry_number']}/"
-                      f"{runner.MAX_AUTOMATIC_CAPACITY_RECOVERIES}; partial work archived for Plan Reviewer inspection", flush=True)
+                      f"{runner.MAX_AUTOMATIC_CAPACITY_RECOVERIES}; partial work archived for {inspector} inspection", flush=True)
                 return runner.orchestrator.SKIP
             if (runner.automatically_recover_timed_out_stage(current, run_dir, workspace, error)
                     or runner.automatically_recover_external_directory_denial(current, run_dir, workspace, error)):

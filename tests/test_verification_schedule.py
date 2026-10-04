@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -290,6 +291,49 @@ class ExecutionIdentityTests(unittest.TestCase):
         self.assertFalse(result["cache_binding_complete"])
         self.assertFalse(result["reuse_supported"])
         self.assertEqual(1, len(result["unbound_editables"]))
+
+    def test_unreadable_controller_editable_source_keeps_valid_checks_fresh(self):
+        project = Project({"app.py": "VALUE = 1\n",
+                           "test_app.py": "import unittest\nfrom app import VALUE\nclass Case(unittest.TestCase):\n"
+                           "    def test_c1(self):\n        self.assertEqual(1, VALUE)\n",
+                           ".gitignore": ".venv\n"})
+        self.addCleanup(project.close)
+        controller = Path(verify.__file__).resolve().parent.parent
+        site = f".venv/lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages"
+        metadata = project.root / site / "autocode_cli-1.dist-info/direct_url.json"
+        project.write({".venv/pyvenv.cfg": "include-system-site-packages = false\n", ".venv/bin/.keep": "",
+                       str(metadata.relative_to(project.root)): json.dumps({
+                           "dir_info": {"editable": True}, "url": controller.as_uri()})})
+        python = project.root / ".venv/bin/python"
+        python.symlink_to(sys._base_executable)
+        command = f"{python} -m unittest -v test_app"
+        snapshot = util.snapshot
+
+        def unreadable_controller(path):
+            if Path(path).resolve() == controller:
+                raise subprocess.CalledProcessError(128, ["git", "rev-parse", "HEAD"],
+                                                    stderr="nested test repository has no HEAD")
+            return snapshot(path)
+
+        with mock.patch.object(util, "snapshot", side_effect=unreadable_controller) as collect:
+            result = verify.execution_identity(project.root, command=command)
+        collect.assert_has_calls([mock.call(project.root), mock.call(controller)])
+        self.assertEqual(snapshot(project.root)["revision"], result["source_revision"])
+        self.assertEqual({}, result["editable_sources"])
+        self.assertEqual([str(metadata)], result["unbound_editables"])
+        self.assertFalse(result["cache_binding_complete"])
+        self.assertFalse(result["reuse_supported"])
+        self.assertIsNone(result["dependencies"])
+        self.assertEqual("fresh_execution_only", result["cache_policy"])
+
+        framework = verify.command_framework(command)
+        def execute(out):
+            return verify.run_suite(framework, command, project.root, out, "fresh-check", timeout=30)
+        checks = [schedule.run(project.evidence, result, execute, reuse_allowed=result["reuse_supported"],
+                               reason="unbound_editable", current_identity=lambda: result) for _ in range(2)]
+        self.assertTrue(all(schedule.reusable(check) for check in checks), checks)
+        self.assertEqual(["execute", "execute"], [check["scheduling"]["action"] for check in checks])
+        self.assertNotEqual(checks[0]["output"], checks[1]["output"])
 
     def test_venv_inheriting_global_packages_does_not_claim_isolated_cache_identity(self):
         project = Project({"app.py": "x = 1\n", ".gitignore": ".venv\n"})

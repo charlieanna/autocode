@@ -57,7 +57,7 @@ try:
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)
-    from .autocode_report_source import (REPAIR_REPORT_BYTES, original_report_for_repair,
+    from .autocode_report_source import (REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)
     from .autocode_report_findings import preserved_dispositions
     from .autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,
@@ -91,7 +91,7 @@ except ImportError:
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)
-    from autocode_report_source import (REPAIR_REPORT_BYTES, original_report_for_repair,
+    from autocode_report_source import (REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)
     from autocode_report_findings import preserved_dispositions
     from autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,
@@ -668,7 +668,9 @@ def execute_report_repair(state, run_dir, workspace):
         indices = [i for i, row in enumerate(stages) if row.get('events') == original.get('events')]
         if len(indices) != 1:
             raise support.Paused('PAUSED_STALE_VALIDATION', 'Cannot identify the original stage for report-repair recovery')
-        later = [row for row in stages[indices[0] + 1:] if row.get('report_only')]
+        # A repair timeout the runner archived holds no report (#377); pair the error with the earlier one.
+        later = [row for row in stages[indices[0] + 1:] if row.get('report_only')
+                 and not recovered_timeout_attempt(row, stage_completed(state, row))]
         if later:
             latest = later[-1]
             if (not latest.get('rejected') or latest.get('iteration') != original.get('iteration')

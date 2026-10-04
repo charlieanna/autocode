@@ -28,10 +28,12 @@ while not view["done"]:
     if need["kind"] == "approve_plan":
         view = run.approve_plan(need["token"])
     elif need["kind"] == "answer":
-        for question in need["questions"]:
-            # Decision questions may have no default; choose among their options.
-            view = run.answer(question["id"], question["proposed_default"] or question["options"][0],
-                              resolver_token=need.get("resolver_token"))
+        # One question per pass: an answer consumes the request, and the questions
+        # left come back in the returned view under a new resolver_token.
+        question = need["questions"][0]
+        # Decision questions may have no default; choose among their options.
+        view = run.answer(question["id"], question["proposed_default"] or question["options"][0],
+                          resolver_token=need.get("resolver_token"))
     elif need["kind"] == "continue":
         view = run.advance_until_input()
     else:
@@ -69,7 +71,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Resume a pause | `autocode --resume-paused --no-chat [options]` | 0 complete, 2 stopped for input |
 | Grant N recoveries after resolving the cause | `autocode --resume-paused --grant-recovery N --no-chat [options]` | 0 complete, 2 stopped for input |
 | Accept a changed OpenCode transport | `autocode --resume-paused --accept-transport-change --no-chat [options]` | 0 complete, 2 stopped for input |
-| Answer | `autocode --answer QUESTION_ID=TEXT [--resolver-token TOKEN]` | 0 saved, 2 rejected |
+| Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN` (`--answer` repeatable) | 0 saved, 2 rejected |
 | Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT` | 0 saved, 2 rejected |
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
 | Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
@@ -91,6 +93,13 @@ starting `Input rejected:`, and startup can exit 2 before any run exists;
 is never mistaken for a pause.
 `TaskRun.respond_operational()` uses the separate Resolver response command;
 an operational request cannot be answered with `TaskRun.answer()`.
+Each answer consumes the Resolver request whose token it carries, and the
+questions still open come back under a new `resolver_token`, so a token read
+before an earlier answer is rejected. Without `resolver_token`,
+`TaskRun.answer()` reads the status view and uses the current request's token
+after checking that the request lists the question. When a person chose the
+answer, pass the token of the view they saw, so it cannot apply to a request
+they never saw.
 `TaskRun.accept_transport_change()` uses the explicit transport-change command
 after a person inspects the new route and the saved run reports
 `PAUSED_TRANSPORT_CHANGED`.
@@ -270,7 +279,7 @@ run is waiting for:
 | `kind` | Waiting for | Extra fields | Answer with |
 | --- | --- | --- | --- |
 | `approve_plan` | approval of the plan AutoCode displayed | `token` | Approve the plan |
-| `answer` | answers to clarifying questions or a decision | `questions` (id, question, why, options, proposed_default), `request_kind`; for a question Resolver published, also `resolver_request_id`, `resolver_token` and `resolver_scope` | Answer, once per question (with `--resolver-token` when given) |
+| `answer` | answers to clarifying questions or a decision | `questions` (id, question, why, options, proposed_default), `request_kind`; for a question Resolver published, also `resolver_request_id`, `resolver_token` and `resolver_scope` | Answer, with the current `resolver_token`; the questions left return under a new one |
 | `review` | a person to accept specific acceptance criteria | `criteria`, `token`, `question` | Approve a review, per criterion |
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `recover_source` | an attempt without a saved original source identity | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |
