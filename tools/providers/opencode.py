@@ -20,6 +20,12 @@ except ImportError:  # Script-style execution from tools/ remains supported.
     from providers import env_prep
 
 
+try:
+    from .. import autocode_tool_handoff as tool_handoff
+except ImportError:
+    import autocode_tool_handoff as tool_handoff
+
+
 DEFAULT_MODELS = {
     # Planning path (Z.ai): Requirements medium → Planner high.
     "requirements": "zai-coding-plan/glm-5.3",
@@ -274,6 +280,7 @@ def launch(role, workspace, run_dir, session, model, effort, allow_write, *, pla
 
 
 def prompt_for_schema(prompt, schema, events):
+    prompt = tool_handoff.with_capture_command(prompt)
     instructions = ("\nOPENCODE OUTPUT CONTRACT\n"
         "Return your final report as exactly one JSON object matching the following schema. "
         "Do not wrap it in explanation. OpenCode's --format json emits transport events; "

@@ -114,9 +114,15 @@ def authorize(runtime, state, run_dir, workspace, token):
         raise ValueError('Exact job retry requires a paused failed workflow job')
     if not token or token != failure.get('job_retry_token'):
         raise ValueError('Job retry token does not match the current failed attempt')
-    if failure.get('unrestored') or not failure.get('source_identity'):
-        raise ValueError('Unrestored source blocks job retry: ' + ', '.join(failure.get('unrestored') or []))
-    if util.digest(source.identity(workspace)) != failure['source_identity']:
+    if not failure.get('source_identity'):
+        raise ValueError('Exact retry is unavailable: this attempt has no saved original source identity. '
+                         'Inspect the archived attempt and current changes before starting a new run.')
+    # The restoration diagnosis describes the failed attempt. Missing capture
+    # files or a later exact manual restoration must not make it a permanent
+    # veto: recheck the saved full identity, then check it again at admission.
+    if not source.matches_original(workspace, failure['source_identity']):
+        if failure.get('unrestored'):
+            raise ValueError('Unrestored source blocks job retry: ' + ', '.join(failure['unrestored']))
         raise ValueError('Source changed since the failed attempt; retry is stale')
     if configuration(state) != failure['configuration']:
         raise ValueError('Provider configuration or limits changed; retry is stale')

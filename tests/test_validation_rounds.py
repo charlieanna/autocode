@@ -116,6 +116,19 @@ class ValidationRounds(unittest.TestCase):
         self.assertEqual([None] * 4, results[:4])
         self.assertIsNotNone(results[4])
 
+    def test_the_stop_names_its_findings_and_a_settled_duplicate_but_closes_nothing(self):
+        state = self.state()
+        state["findings_ledger"] = [{"id": "F-0", "source": "astra", "status": "resolved",
+                                     "finding": "Regression proof has no fail-to-pass test", "evidence": "proof-01"}]
+        blocking = self.blocking("F-1", not_rechecked_in="v.json", finding="Regression proof has no fail-to-pass test",
+                                 evidence="proof-01")
+        stop = self.rounds(state, ("task-1", "v0"), ("task-2", "v1"), ("task-3", "v2"), blocking=blocking)[2]
+        self.assertEqual(["F-1"], stop["request"]["finding_ids"])
+        self.assertIn("F-1 has the same finding or evidence as resolved F-0; if it is the same problem, close it with "
+                      "--close-finding F-1 --close-reason TEXT", stop["request"]["impact"])
+        self.assertIn("close it with --close-finding ID --close-reason TEXT", stop["request"]["decision_needed"])
+        self.assertEqual("open", blocking[0]["status"])
+
     def test_first_validation_of_new_source_or_without_blockers_is_not_validation_only(self):
         state = self.state()
         self.assertIsNone(rounds.admit(state, [], "rev"))

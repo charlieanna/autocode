@@ -97,12 +97,16 @@ if mode not in ('success','terminal','abandon','exit42','capacity','rate','exter
   activity.timeout={'kind':'stage','reason':f'Stage exceeded its {seconds}-second hard runtime limit (injected clock)'}
   return code,True
  autocode.processes.wait_for_stage=deadline
-if source and mode in ('later','missing','corrupt','replace_error','staging_error','nocapture'):
+if source and mode in ('later','missing','corrupt','replace_error','staging_error','lost_manifest','lost_witness','corrupt_manifest','nocapture'):
  real=source.stopped
  def witness(workspace,base,record):
   real(workspace,base,record)
   if mode=='nocapture':record.pop('job_source',None)
   if mode=='later':(Path(workspace)/'calc.py').write_text('def double(n):\n    return n - 2\n')
+  if mode in ('lost_manifest','lost_witness','corrupt_manifest'):
+   artifact=Path(record['job_source']['witness' if mode=='lost_witness' else 'capture'])
+   if mode=='corrupt_manifest':artifact.write_text('not the original manifest')
+   else:artifact.unlink()
   if mode in ('missing','corrupt'):
    capture=json.loads(Path(record['job_source']['capture']).read_text())
    blob=Path(capture['blobs']['notes.txt'])
@@ -331,6 +335,55 @@ class JobFailureTaskRunTests(unittest.TestCase):
                 self.assertIn('notes.txt',need['unrestored'])
                 with self.assertRaisesRegex(TaskRunError,'Unrestored'):run.retry_job(need['job_retry_token'])
                 self.assertEqual(1,self.count());self.calls.unlink();(self.workspace/'notes.txt').write_text('memo\n')
+
+    def test_unchanged_source_retries_when_capture_artifact_is_unavailable(self):
+        for mode in ('lost_manifest', 'lost_witness', 'corrupt_manifest'):
+            with self.subTest(mode=mode):
+                self.calls.unlink(missing_ok=True)
+                run = self.start(mode); need = self.paused(run)
+                self.assertEqual([], need['unrestored'])
+                self.assertTrue(need['write_diagnosis']['original_identity_verified'])
+                archive = Path(need['archive'])
+                self.assertTrue(list(archive.glob('*.jsonl')))
+                run.env['JOB_MODE'] = 'success'
+                view = run.retry_job(need['job_retry_token'])
+                self.assertTrue(view['done'], view); self.assertEqual(2, self.count())
+                self.assertEqual(ORIGINAL, (self.workspace/'calc.py').read_text())
+                self.assertEqual('memo\n', (self.workspace/'notes.txt').read_text())
+                self.calls.unlink()
+
+    def test_exact_manual_restoration_unblocks_a_retained_failure(self):
+        run = self.start('missing'); need = self.paused(run)
+        self.assertEqual(['notes.txt'], need['unrestored'])
+        self.assertEqual('changed\n', (self.workspace/'notes.txt').read_text())
+        with self.assertRaisesRegex(TaskRunError, 'Unrestored'):
+            run.retry_job(need['job_retry_token'])
+        (self.workspace/'notes.txt').write_text('memo\n')
+        run.env['JOB_MODE'] = 'success'
+        view = run.retry_job(need['job_retry_token'])
+        self.assertTrue(view['done'], view); self.assertEqual(2, self.count())
+        self.assertTrue(list(Path(need['archive']).glob('*.jsonl')))
+
+    def test_missing_manifest_does_not_waive_mode_source_token_or_config_checks(self):
+        run = self.start('lost_manifest'); need = self.paused(run)
+        run.env['JOB_MODE'] = 'success'
+        original_mode = stat.S_IMODE((self.workspace/'calc.py').stat().st_mode)
+        for contents, mode in ((BROKEN, original_mode), (ORIGINAL, 0o600)):
+            (self.workspace/'calc.py').write_text(contents)
+            (self.workspace/'calc.py').chmod(mode)
+            with self.assertRaisesRegex(TaskRunError, 'Source changed'):
+                run.retry_job(need['job_retry_token'])
+            self.assertEqual(1, self.count())
+            self.assertEqual(contents, (self.workspace/'calc.py').read_text())
+        (self.workspace/'calc.py').chmod(original_mode)
+        with self.assertRaisesRegex(TaskRunError, 'token'):
+            run.retry_job('jr:wrong')
+        changed = TaskRun(self.workspace, run.run_dir, command=run.command,
+                         options=('--max-stage-seconds', '901'), env=run.env, timeout=60)
+        with self.assertRaisesRegex(TaskRunError, 'configuration|limits'):
+            changed.retry_job(need['job_retry_token'])
+        self.assertEqual(1, self.count())
+        # The changed-settings rejection is not a successful retry or a budget grant.
 
     def test_ac27_deleted_dirty_tracked_and_untracked_originals_return(self):
         (self.workspace/'calc.py').write_text(DIRTY);(self.workspace/'notes.txt').chmod(0o600)

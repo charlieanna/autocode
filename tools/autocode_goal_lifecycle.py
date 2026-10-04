@@ -19,6 +19,8 @@ from pathlib import Path
 import re
 import uuid
 
+SUPPORTED_VERSION = 3
+
 try:
     from . import autocode_util as s, autocode_workflows as workflows, autocode_milestones as checkpoints
     from . import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
@@ -208,9 +210,27 @@ def install_draft(state, body, *, origin, allow_legacy=False, changes=None, reco
                             else "astra_discovery") if questions else "astra_plan")
 
 
+def require_supported_checkpoint(state):
+    """Refuse a checkpoint this runner cannot safely interpret (#338).
+
+    ``version`` is the state format. A number above SUPPORTED_VERSION was written
+    by a newer AutoCode; migrating or resuming it here can invent a launch. The
+    registry already classifies those as ``checkpoint_unsupported``.
+    """
+    version = state.get("version", 2)
+    if type(version) is not int or isinstance(version, bool) or version < 1:
+        raise s.Paused("PAUSED_UNSUPPORTED_CHECKPOINT",
+                       f"Checkpoint version {version!r} is malformed; expected a positive integer")
+    if version > SUPPORTED_VERSION:
+        raise s.Paused("PAUSED_UNSUPPORTED_CHECKPOINT",
+                       f"Checkpoint version {version} is from a newer AutoCode than this runner "
+                       f"(supports up to {SUPPORTED_VERSION}); upgrade AutoCode or use a matching checkpoint")
+
+
 def migrate(state, *, fresh=False):
     """Call only at a saved, idle boundary. Preserve artifacts and execution history.
     A fresh run (``fresh``) first recognizes what kind of job the request is."""
+    require_supported_checkpoint(state)
     if state.get("active_stage") or state.get("uncertain_artifacts"):
         raise s.Paused("PAUSED_UNCERTAIN_STAGE", "Reconcile the prior request before goal migration")
     if state.get("version", 2) >= 3:
