@@ -127,6 +127,11 @@ code and passes after the fix. One milestone is usually enough; do not add featu
 unrelated refactors, and keep review concerns to whether the plan fixes the root cause and
 proves it. Before completion the runner itself runs the new or changed tests against the
 original code (they must fail) and the fixed code (they must pass), then the project suite.
+A bugfix regression test must build and run on the original code and fail there because of the
+bug: do not plan it around a hook, package variable or other seam the fix adds (on the original
+code it cannot compile or import, which proves nothing). Plan it to drive the real failure path
+through public APIs that exist before the fix and to assert the behavior (the returned error, the
+result, the saved state); a log line or message alone does not prove the behavior.
 """
 try:
     from .autocode_role_schema import USER_REQUEST, role_schema

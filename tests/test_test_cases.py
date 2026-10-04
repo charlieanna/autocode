@@ -92,6 +92,20 @@ class ContractCasesTests(unittest.TestCase):
         self.assertEqual([], test_cases.contract_cases({}))
         self.assertEqual("", test_cases.builder_note({}))
 
+    def test_a_bug_fix_builder_is_told_to_test_through_code_that_exists_before_the_fix(self):
+        # Issue #299: tests using a seam the fix added could not build on the unfixed code.
+        def note(kind, criteria=(EXAMPLE,)):
+            body = {"task_kind": kind, "milestones": [{"id": "M1"}], "acceptance_criteria": list(criteria)}
+            return " ".join(test_cases.builder_note({"goal_contract": {"body": body}}).split())
+        for criteria in ((EXAMPLE,), ()):
+            with self.subTest(criteria=criteria):
+                fix = note("bugfix", criteria)
+                self.assertIn("Do not make a test import or reference anything the fix adds", fix)
+                self.assertIn("Drive the real failure path through public APIs that exist before the fix", fix)
+                self.assertIn("A log line or message alone does not prove the behavior", fix)
+        self.assertIn("TESTS NAMED IN THE PLAN", note("bugfix"))
+        self.assertNotIn("BUG FIX TESTS", note("build"))
+
     def test_the_proof_is_required_only_when_the_plan_names_tests(self):
         project = type("Committed", (), {"base": "b"})()
         self.assertTrue(regression.required(feature_state(project, [ORDINARY, EXAMPLE])))
@@ -367,7 +381,9 @@ class PromptTests(unittest.TestCase):
         state = approved_small_fix()
         schemas = Path(test_cases.__file__).with_name("autocode-schemas")
         state_path = Path(state["workspace"]) / "state.json"
-        self.assertNotIn("TESTS NAMED IN THE PLAN", common.execution_request(state, "terra", state_path, schemas).prompt)
+        prompt = common.execution_request(state, "terra", state_path, schemas).prompt
+        self.assertNotIn("TESTS NAMED IN THE PLAN", prompt)
+        self.assertIn("BUG FIX TESTS", prompt.split("\nCURRENT HANDOFF DATA\n")[0])
         with patch.object(test_cases, "contract_cases", return_value=[{"id": "C2", "text": "x"}]):
             prompt = common.execution_request(state, "terra", state_path, schemas).prompt
         self.assertIn("TESTS NAMED IN THE PLAN", prompt.split("\nCURRENT HANDOFF DATA\n")[0])
