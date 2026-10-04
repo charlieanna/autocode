@@ -593,3 +593,30 @@ project labels and recovery-role evidence. The four-file transfer was verified
 byte-for-byte across all 1,428 manifest paths, so the accepted candidate captures
 bind the submitted implementation. All execution receipts report unchanged
 source. CI for the submitted commit remains a separate verification gate.
+
+## CI repair: classic scrollbar space (2026-10-04)
+
+Submitted-head CI run 37189968053 found three failures. Two were stale tests
+after the master integration: the standalone CLI test assumed only Builder
+could write, although judges now write operational evidence under source guards;
+the publication test hand-built a namespace that omitted a new CLI option.
+The first now checks the explicit stage policy, and the second uses the real
+argument parser. The two complete modules passed all 34 tests locally.
+
+The third was an actual tablet layout bug. Linux scrollbar gutters reduced the
+Work pane's available space: the waiting freshness value ended at y774 past its
+y756 clipping edge. A new browser regression reserves only missing classic
+scrollbar space and reproduced that exact failure locally. Tablet-only spacing
+now leaves the value fully visible at y750. Fact text sizes, 44px controls and
+existing visibility assertions are preserved; desktop and phone rules stay intact.
+
+Fresh unchanged-source gates passed: 38 cases across three changed modules,
+all 14 dashboard catalogue cases including the complete 21-screen matrix and
+the new scrollbar regression, all 27 standalone Node scripts, and native
+workspace captures (12 primary states plus one supplementary viewport).
+Independent review inspected the repaired tablet and native desktop/phone
+images and found no material blocker. The repeated full fake catalog returned
+54 PASS, one NOT_EXERCISED Resolver route and one live-model SKIPPED case.
+Rendered forced-colors behavior remains unverified; no live-model qualification
+is claimed. Failed receipts and screenshots remain local. The subsequent PR CI
+run separately qualifies the submitted repair on Linux.

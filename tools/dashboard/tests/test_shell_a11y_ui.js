@@ -98,6 +98,7 @@ function sourceSnapshot() {
   const files = [
     'tools/dashboard/dashboard.html',
     'tools/dashboard/dashboard.css',
+    'tools/dashboard/dashboard_reference_layout.css',
     'tools/dashboard/dashboard_app.js',
     'tools/dashboard/agent_console.py',
     'tools/dashboard/tests/test_console.py',
@@ -263,6 +264,33 @@ function taskFoldMetrics() {
     'const primary=[...new Set([...document.querySelectorAll("#task-detail button.primary,#task-detail [data-primary-action=true]")])].filter(element=>displayed(element)&&element.id!=="send-change").map(element=>{const rect=box(element),parentElement=(()=>{let p=element.parentElement;while(p&&getComputedStyle(p).display==="contents")p=p.parentElement;return p;})();const parent=box(parentElement);return {label:clean(element.textContent),id:element.id,primary:element.classList.contains("primary")||element.dataset.primaryAction==="true",fullyVisible:rect.left>=0&&rect.right<=innerWidth&&rect.top>=0&&rect.bottom<=innerHeight,box:rect,parent};});' +
     'return {facts:required.map(inspect),primaryActions:primary,viewport:{width:innerWidth,height:innerHeight}};' +
   '}');
+}
+
+function verifyTabletScrollbarSpace(info) {
+  const viewport = viewports.find(item => item.name === 'tablet');
+  openScenario(info, 'waiting', viewport);
+  // macOS overlay scrollbars consume no layout space. Reserve only the
+  // missing portion of a 10px classic scrollbar gutter so the same wrapping
+  // failure is exercised locally and on Linux, without doubling its gutters.
+  const gutters = data(`()=>{
+    const pane=document.querySelector('.context-pane-content'),tabs=document.querySelector('.detail-tabs');
+    const ps=getComputedStyle(pane),ts=getComputedStyle(tabs);
+    const vertical=pane.offsetWidth-pane.clientWidth-parseFloat(ps.borderLeftWidth)-parseFloat(ps.borderRightWidth);
+    const horizontal=tabs.offsetHeight-tabs.clientHeight-parseFloat(ts.borderTopWidth)-parseFloat(ts.borderBottomWidth);
+    const reserveVertical=Math.max(0,10-vertical),reserveHorizontal=Math.max(0,10-horizontal);
+    pane.style.paddingRight=(parseFloat(ps.paddingRight)+reserveVertical)+'px';
+    tabs.style.paddingBottom=(parseFloat(ts.paddingBottom)+reserveHorizontal)+'px';
+    return {native_vertical:vertical,native_horizontal:horizontal,reserved_vertical:reserveVertical,reserved_horizontal:reserveHorizontal};
+  }`);
+  const fold = taskFoldMetrics();
+  for (const fact of fold.facts) {
+    assert.ok(fact.present && fact.visible && fact.fullyVisible && !fact.textOverflow,
+      'waiting tablet with classic scrollbar space keeps every fact inside its clipping ancestors: ' + JSON.stringify(fact));
+  }
+  assert.deepEqual(scenarioMetrics().targets.undersized, [], 'classic scrollbar space preserves 44px tablet targets');
+  const screenshot = path.join(shellEvidenceRoot, 'waiting-tablet-classic-scrollbars.png');
+  browser('screenshot', screenshot);
+  return {gutters, fold, screenshot:path.relative(root,screenshot)};
 }
 
 function completionRecordMetrics() {
@@ -694,6 +722,8 @@ function assertM2Scenario(name, viewport) {
       normalTextMeasurements.push(assertNormalTextContrast('.next-action', theme, 'workspace next action'));
     }
 
+    const scrollbarGutterCheck = verifyTabletScrollbarSpace(info);
+
     for (const viewport of viewports) {
       for (const name of scenarios) {
         openScenario(info, name, viewport);
@@ -994,6 +1024,7 @@ function assertM2Scenario(name, viewport) {
       normal_text_contrast_measurements: normalTextMeasurements,
       m2_interactions: m2Interactions,
       representative_flows: representativeFlows,
+      scrollbar_gutter_check: scrollbarGutterCheck,
       completion_timestamp_checks: completionTimestampChecks,
       completion_timestamp_fallbacks: completionTimestampFallbacks,
       browser_sessions: browserSessionAudits,

@@ -36,6 +36,15 @@
  #task-detail .work-current{padding:12px 14px;gap:4px}
  #task-detail .work-current>h2{font-size:14px;line-height:20px}
 }
+/* Classic scrollbars consume space on Linux that overlay scrollbars do not.
+   Leave room for wrapped saved facts on tablets without shrinking their text
+   or the 44px controls. Desktop and phone reference layouts stay unchanged. */
+@media(min-width:760px) and (max-width:1199px){
+ #task-detail .work-summary{gap:4px}
+ #task-detail .work-current{padding-block:8px}
+ #task-detail .work-facts{padding-block:4px}
+ #task-detail .task-now-view{gap:4px}
+}
 @media(max-width:759px){
  .task-progress-line{align-items:flex-start;flex-direction:column;gap:0}
  .task-progress-line #task-status{max-width:100%}

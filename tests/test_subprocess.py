@@ -436,7 +436,10 @@ class SubprocessFlow(unittest.TestCase):
                 self.assertNotIn('command', record)
                 continue
             command = record["command"]
-            expected = "workspace-write" if record["role"] == "terra" else "read-only"
+            # Judges may write operational evidence; their source changes are
+            # rejected by the independent post-stage snapshot guard.
+            writable_stages = {"terra", "sol", "astra_review", "astra_checkpoint"}
+            expected = "workspace-write" if record["stage"] in writable_stages else "read-only"
             self.assertEqual(expected, command[command.index("--sandbox") + 1])
             self.assertEqual(expected_models[record["role"]], command[command.index("--model") + 1])
             self.assertNotIn("--last", command)
