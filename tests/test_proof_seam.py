@@ -12,6 +12,7 @@ from __future__ import annotations
 import shutil
 import tempfile
 import unittest
+import sys
 from pathlib import Path
 
 import autocode_proof_seam as proof_seam
@@ -116,22 +117,71 @@ class PythonSeamProofTests(unittest.TestCase):
         self.assertIn("A log line or message alone does not prove the behavior", reason)
         self.assertIn("instrumentation-only base patch", reason)
         self.assertNotIn("Write the regression test against behavior that exists before the fix", reason)
-        # The gate does not reject every test that uses the seam (see the run-time case below), so the
-        # reason must not promise that it does.
+        # Genuine application errors remain eligible even when a changed name appears in the trace.
         self.assertNotIn("cannot pass this proof", reason)
         self.assertIn("only because replace_file is missing there is not a reproduction, even if it reaches "
                       "replace_file at run time", reason)
 
-    def test_a_test_that_reaches_the_seam_only_at_run_time_is_flagged_for_the_validator(self):
-        # The proof cannot tell this error from a genuine AttributeError reproduction, so the verdict is
-        # unchanged, but the Validator and the Completion Owner are told to check why the test fails before.
+    def test_runtime_mock_preparation_is_not_a_reproduction(self):
         proof = self.prove({"store.py": FIXED_STORE, "test_store.py": RUNTIME_SEAM_TEST})
+        self.assertEqual(verify.FAIL, proof["verdict"])
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertTrue(any("test_t1_rename_failure_is_raised" in reason and "prepare its mock" in reason
+                            and "replace_file" in reason for reason in proof["failures"]), proof)
+
+    def test_broken_product_cannot_pass_by_testing_an_unused_mock(self):
+        broken = STORE.replace("import os", "import os\nreplace_file = os.rename")
+        mock_only = TESTS + '''
+    def test_t1_rename_failure_is_raised(self):
+        with mock.patch.object(store, "replace_file", side_effect=OSError("injected")) as spy:
+            with self.assertRaises(OSError):
+                store.replace_file("unused", "unused")
+        spy.assert_called_once()
+'''
+        proof = self.prove({"store.py": broken, "test_store.py": mock_only})
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertEqual([], proof["fail_to_pass"])
+
+    def test_runtime_import_is_not_a_bug_reproduction(self):
+        runtime_import = SEAM_TEST.replace("from store import replace_file\n", "").replace(
+            "        with mock.patch.object", "        from store import replace_file\n        with mock.patch.object")
+        proof = self.prove({"store.py": FIXED_STORE, "test_store.py": runtime_import})
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertTrue(any("could not import its dependency" in reason for reason in proof["failures"]), proof)
+
+    def test_genuine_product_attribute_error_still_proves_a_fix(self):
+        seed = {"store.py": "def read():\n    return None.missing\n", "test_store.py": "import unittest\n"}
+        tests = "import store\nimport unittest\nclass ReadTests(unittest.TestCase):\n" \
+                "    def test_t1_rename_failure_is_raised(self):\n        self.assertEqual(1, store.read())\n"
+        proof = self.prove({"store.py": "def read():\n    return 1\n", "test_store.py": tests}, seed)
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(["test_store.ReadTests.test_t1_rename_failure_is_raised"], proof["fail_to_pass"])
+
+    def test_public_attribute_assertion_without_product_trace_is_still_proof(self):
+        seed = {"store.py": "class Value:\n    pass\n", "test_store.py": "import unittest\n"}
+        tests = "import store\nimport unittest\nclass ReadTests(unittest.TestCase):\n" \
+                "    def test_t1_rename_failure_is_raised(self):\n        self.assertEqual(1, store.Value().value)\n"
+        proof = self.prove({"store.py": "class Value:\n    value = 1\n", "test_store.py": tests}, seed)
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+
+    def test_runtime_setup_failure_cannot_borrow_another_cases_behavior_proof(self):
+        # One setup-only T1 and one actual behavior test cannot satisfy T1.
+        tests = RUNTIME_SEAM_TEST + "    def test_other" + BEHAVIOR_TEST.split("    def test_t1", 1)[1]
+        proof = self.prove({"store.py": FIXED_STORE, "test_store.py": tests})
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertEqual(["test_store.SaveTests.test_other_rename_failure_is_raised"], proof["fail_to_pass"])
+        self.assertTrue(any("T1" in reason for reason in proof["failures"]), proof)
+        self.assertTrue(any("test_t1_rename_failure_is_raised" in note and "prepare its mock" in note
+                            for note in proof["notes"]), proof)
+
+    def test_feature_proof_still_allows_a_new_mockable_api(self):
+        project = Project({"store.py": STORE, "test_store.py": TESTS})
+        self.addCleanup(project.close)
+        project.write({"store.py": FIXED_STORE, "test_store.py": RUNTIME_SEAM_TEST})
+        proof = project.verify(new_behavior=True)
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
         self.assertEqual(["test_store.SaveTests.test_t1_rename_failure_is_raised"], proof["fail_to_pass"])
-        reason = next((reason for reason in proof["review_reasons"] if "replace_file" in reason), None)
-        self.assertIsNotNone(reason, proof["review_reasons"])
-        self.assertIn("the unfixed code's run reports replace_file missing, which only the fix adds", reason)
-        self.assertIn("test_store.SaveTests.test_t1_rename_failure_is_raised", reason)
-        self.assertIn("fails there because of the bug, not only because replace_file is missing", reason)
 
     def test_a_test_that_reads_the_seam_while_loading_is_unverified_and_names_it(self):
         # An AttributeError while loading the module stops unittest before it reports any test.
@@ -169,6 +219,24 @@ class PythonSeamProofTests(unittest.TestCase):
         self.assertTrue(any("Write the regression test against behavior that exists before the fix" in failure
                             for failure in proof["failures"]), proof["failures"])
         self.assertFalse(any("which only the fix adds" in failure for failure in proof["failures"]))
+
+
+@unittest.skipUnless(verify._python_can_import(sys.executable, "pytest"), "pytest is not installed")
+class PytestSeamProofTests(unittest.TestCase):
+    def test_real_junit_missing_mock_target_is_not_proof(self):
+        project = Project({"store.py": STORE, "test_store.py": TESTS,
+                           "pytest.ini": "[pytest]\naddopts = --confcutdir=.\n"})
+        self.addCleanup(project.close)
+        project.write({"store.py": FIXED_STORE, "test_store.py": RUNTIME_SEAM_TEST})
+        framework = verify.detect_framework(project.root, python=sys.executable)
+        baseline = verify.baseline(project.root, project.base, project.evidence, framework=framework,
+                                   suite_command=framework.suite, timeout=30)
+        proof = verify.verify(project.root, project.base, project.evidence, framework=framework,
+                              base_suite=baseline, timeout=30)
+        self.assertEqual("pytest", framework.name)
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertEqual([], proof["fail_to_pass"])
+        self.assertTrue(any("prepare its mock" in reason for reason in proof["failures"]), proof)
 
 
 GO_STORE = '''package store
