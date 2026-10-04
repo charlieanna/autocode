@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import uuid
 from pathlib import Path
 
 try:
@@ -44,6 +45,9 @@ test that asserts the error. Never cite a check that exits non-zero in a PASS.
 The clean copy is the repository's source only: no ignored files and no .autocode/. A check that reads run files
 (state.json, regression/proof-*/verification.json) cannot pass there. regression_proof in your handoff is the
 runner's own executed evidence: cite its verdict and source_revision directly, never a command that reads it.
+Replay uses a clean Git worktree: .git may be a file or a directory. Exclude .git in either form
+from product-file inventories; filtering only directory names leaves its worktree pointer file behind.
+Git metadata is not a delivered product file. Keep the actual source-file and behavioral assertions intact.
 The runner also executes explicit commands from the approved verification methods and current_task.validation_plan;
 another successful command cannot replace them. Empty Python test bodies cannot establish behavioral coverage.
 An explicit planned exit-code expectation is replayed as an assertion: a usage-error probe expected to exit 2
@@ -66,7 +70,11 @@ TAIL_CHARS = 600
 def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_SECONDS, approved_state=None,
            required_commands=None, progressive_context=None) -> dict:
     """Re-run each distinct check command; return the result or raise ValueError on the first that fails."""
-    out = Path(run_dir) / "check-replay" / Path(record.get("output") or "validation").stem
+    # Report stems repeat across iterations, repairs and retries of one attempt.
+    # Allocate before any scratch/protected-test writes so old citations stay intact.
+    stem = Path(record.get("output") or "validation").stem
+    out = Path(run_dir) / "check-replay" / f"{stem}-{uuid.uuid4().hex}"
+    out.mkdir(parents=True, exist_ok=False)
     protected = protected_oracles.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout)
     checks = list(checks)
     prescribed = verification_plan.approved_commands(approved_state or {}, progressive_context=progressive_context)
@@ -95,7 +103,6 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
     failed = [row for row in rows if row["error"] or row["timed_out"] or row["exit_code"] != 0]
     result = {"verdict": FAIL if failed else PASS, "checks": rows, "source_revision": record.get("source_revision"),
               "protected_tests": protected, "timeout_seconds": timeout, "replayed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
-    out.mkdir(parents=True, exist_ok=True)
     (out / "replay.json").write_text(json.dumps(result, indent=2) + "\n")
     if failed:
         row = failed[0]

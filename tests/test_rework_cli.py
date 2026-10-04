@@ -184,6 +184,22 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertEqual(["open"], [row["status"] for row in driver.state()["findings_ledger"]
                                     if row["id"] == blocking[0]])
 
+    def test_closing_the_stalled_finding_as_a_user_decision_lets_the_run_complete(self):
+        # Issue #300: the finding no reviewer report can close is closed by the user, by name and with a reason.
+        driver = self.driver("bookkeeping")
+        view = driver.drive(self.scenario.brief)
+        self.assertEqual("operational_exhaustion", view["needs"].get("resolver_scope"), view)
+        [finding] = [row["id"] for row in driver.state()["findings_ledger"] if row["status"] == "open" and row["blocking"]]
+        driver.call("close", "--close-finding", finding, "--close-reason",
+                    "Duplicate of the regression-gate finding the user already settled", action=True)
+        self.assertEqual("RUNNING", driver.view()["status"])
+        view = driver.until_stopped(None)
+        self.assertTrue(view["done"], view)
+        [row] = [row for row in driver.state()["findings_ledger"] if row["id"] == finding]
+        self.assertEqual(("resolved", "user"), (row["status"], row["resolved_by"]))
+        [event] = [event for event in driver.state()["user_events"] if event.get("kind") == "findings_closed"]
+        self.assertEqual([finding], event["ids"])
+
     def test_validator_closing_its_own_finding_on_the_one_revalidation_completes(self):
         driver = self.driver("bookkeeping_late")
         view = driver.drive(self.scenario.brief)

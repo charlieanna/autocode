@@ -19,6 +19,8 @@ from pathlib import Path
 import re
 import uuid
 
+SUPPORTED_VERSION = 3
+
 try:
     from . import autocode_util as s, autocode_workflows as workflows, autocode_milestones as checkpoints
     from . import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
@@ -208,9 +210,27 @@ def install_draft(state, body, *, origin, allow_legacy=False, changes=None, reco
                             else "astra_discovery") if questions else "astra_plan")
 
 
+def require_supported_checkpoint(state):
+    """Refuse a checkpoint this runner cannot safely interpret (#338).
+
+    ``version`` is the state format. A number above SUPPORTED_VERSION was written
+    by a newer AutoCode; migrating or resuming it here can invent a launch. The
+    registry already classifies those as ``checkpoint_unsupported``.
+    """
+    version = state.get("version", 2)
+    if type(version) is not int or isinstance(version, bool) or version < 1:
+        raise s.Paused("PAUSED_UNSUPPORTED_CHECKPOINT",
+                       f"Checkpoint version {version!r} is malformed; expected a positive integer")
+    if version > SUPPORTED_VERSION:
+        raise s.Paused("PAUSED_UNSUPPORTED_CHECKPOINT",
+                       f"Checkpoint version {version} is from a newer AutoCode than this runner "
+                       f"(supports up to {SUPPORTED_VERSION}); upgrade AutoCode or use a matching checkpoint")
+
+
 def migrate(state, *, fresh=False):
     """Call only at a saved, idle boundary. Preserve artifacts and execution history.
     A fresh run (``fresh``) first recognizes what kind of job the request is."""
+    require_supported_checkpoint(state)
     if state.get("active_stage") or state.get("uncertain_artifacts"):
         raise s.Paused("PAUSED_UNCERTAIN_STAGE", "Reconcile the prior request before goal migration")
     if state.get("version", 2) >= 3:
@@ -436,7 +456,7 @@ def _approve(state, selected):
             from . import autocode_dispatch as dispatch
         except ImportError:
             import autocode_dispatch as dispatch
-        state.update(next_action=decision["next_objective"], affected_paths=decision["affected_paths"],
+        state.update(next_action=decision["next_objective"],
                      next_stage="sol" if kind == "validate" else
                                 "terra" if progressive_state.enabled(state) else dispatch.build_stage(state))
         record_decision(state, decision)
@@ -553,13 +573,13 @@ def assign_task(state, decision, current):
     if milestones and (spec["milestone_id"] not in milestones or
             not set(ids) <= allowed):
         raise ValueError("Task must belong to an approved milestone and its acceptance criteria")
-    # The named milestone's contract-declared paths are authoritative ownership:
-    # merge them into the task so a planner that names only part of the scope
-    # cannot make the builder's contract-legal work look out-of-scope.
+    # A review's affected paths may describe the completed milestone, not the next
+    # task. Approved ownership permits its new outputs, never the previous owner's.
     task_paths = list(decision.get("affected_paths", []))
     if task_paths and milestones and spec["milestone_id"] not in previous_batch and not progressive_state.enabled(state):
         owned = milestones.get(spec["milestone_id"], {}).get("affected_paths", [])
-        task_paths = list(dict.fromkeys(task_paths + owned))
+        if owned:
+            task_paths = list(dict.fromkeys(owned))
     progressive_state.guard_assignment(state, spec, task_paths)
     verification_plan.require_scaffolding(state.get("workspace"), task_paths, spec["validation_plan"])
     recovery = state.get("recovery_context") or {}
@@ -576,14 +596,14 @@ def assign_task(state, decision, current):
                            if failed_limit in recorded_limits else recorded_limits)
         same_limits = all(limits.get(key, defaults.get(key)) == value
                           for key, value in compared_limits.items())
-        candidate = {**spec, "objective": decision["next_objective"], "affected_paths": decision["affected_paths"]}
+        candidate = {**spec, "objective": decision["next_objective"], "affected_paths": task_paths}
         if same_limits and checkpoints.approach(candidate) == checkpoints.approach(previous_task):
             raise ValueError("The timed-out task needs a changed execution plan before another writer; "
                              "the task and timeout limits are unchanged. Preserve completed work and "
                              "split the remaining work or address the diagnosed stall.")
     if checkpoints.enabled(state):
         checkpoints.carryforward.before_assignment(state, spec, decision)
-    checkpoints.before_assignment(state, decision, current)
+    checkpoints.before_assignment(state, {**decision, "affected_paths": task_paths}, current)
     # After before_assignment, so a milestone accepted while advancing counts.
     checkpoints.require_prerequisites(state, spec["milestone_id"])
     if state.get("current_task"):
@@ -603,4 +623,5 @@ def assign_task(state, decision, current):
     if checkpoints.enabled(state):
         checkpoints.progress(state)["rejected_advances"] = 0
         state.pop("milestone_blocker", None)
+    state["affected_paths"] = list(task_paths)
     return spec["kind"]

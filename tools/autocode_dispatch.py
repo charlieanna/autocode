@@ -186,16 +186,20 @@ def snapshot_commit(workspace, directory):
 
 
 def task_for(state, milestone, baseline):
-    criteria = {c["id"]: c for c in state["goal_contract"]["body"]["acceptance_criteria"]}
-    return {"id": "task-" + uuid.uuid4().hex[:12], "kind": "implement",
-            "milestone_id": milestone["id"], "objective": milestone["objective"],
-            "affected_paths": milestone["affected_paths"],
-            "requirements": [criteria[c]["criterion"] for c in milestone["acceptance_criteria"]],
-            "validation_plan": [criteria[c]["verification_method"] for c in milestone["acceptance_criteria"]],
-            "acceptance_criteria": milestone["acceptance_criteria"],
-            "contract_revision": state["goal_contract"]["revision"],
-            "contract_hash": state["goal_contract"]["hash"], "assigned_at": s.now(),
-            "source_revision": baseline["revision"], "decision": "CONTINUE"}
+    if milestone["id"] == state["current_task"]["milestone_id"]:
+        # select() checked ownership and coverage; preserve the reviewed handoff.
+        task = copy.deepcopy(state["current_task"])
+    else:
+        criteria = {c["id"]: c for c in state["goal_contract"]["body"]["acceptance_criteria"]}
+        task = {"kind": "implement", "milestone_id": milestone["id"], "objective": milestone["objective"],
+                "affected_paths": milestone["affected_paths"],
+                "requirements": [criteria[c]["criterion"] for c in milestone["acceptance_criteria"]],
+                "validation_plan": [criteria[c]["verification_method"] for c in milestone["acceptance_criteria"]],
+                "acceptance_criteria": milestone["acceptance_criteria"]}
+    task.update(id="task-" + uuid.uuid4().hex[:12], contract_revision=state["goal_contract"]["revision"],
+                contract_hash=state["goal_contract"]["hash"], assigned_at=s.now(),
+                source_revision=baseline["revision"], decision="CONTINUE")
+    return task
 
 
 def prepare(state, workspace, run_dir, selected):

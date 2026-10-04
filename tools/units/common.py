@@ -6,9 +6,10 @@ try:
     from .. import autocode_stage_context as stage_context
     from .. import autocode_test_examples as test_examples, autocode_test_cases as test_cases
     from .. import autocode_assignment as assignment, autocode_check_replay as check_replay
-    from .. import autocode_bug_job as bug_job
+    from .. import autocode_bug_job as bug_job, autocode_stage_access as stage_access
 except ImportError:
     import autocode_bug_job as bug_job
+    import autocode_stage_access as stage_access
     import autocode_assignment as assignment
     import autocode_check_replay as check_replay
     import autocode_test_examples as test_examples
@@ -31,6 +32,15 @@ class ModelRequest:
 
 
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+def launch_sandbox(stage, allow_write):
+    """The OS sandbox for a stage launch; source integrity is checked after the stage.
+
+    workspace-write for the Builder and write-enabled jobs; read-only for planning;
+    workspace-write for judging stages that must write operational evidence under
+    .autocode/ (their source contract stays enforced by the after-stage snapshot,
+    not the sandbox)."""
+    return "workspace-write" if allow_write or stage in stage_access.JUDGING_STAGES else "read-only"
 
 
 def capped_route(route, cap="medium"):

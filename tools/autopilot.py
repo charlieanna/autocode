@@ -167,8 +167,12 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
     schema_path = run_dir / "schemas" / f"v3-{stage}.json"
     runtime.write_json(schema_path, runtime.support.model_output_schema(request.schema))
     try:
+        try:
+            from .units import common as units_common
+        except ImportError:
+            from units import common as units_common
         value, record = runtime.run_role(role=request.role, prompt=request.prompt,
-            sandbox="workspace-write" if request.allow_write else "read-only",
+            sandbox=units_common.launch_sandbox(stage, request.allow_write),
             workspace=workspace, run_dir=run_dir, state=state, schema=schema_path,
             model=state["settings"]["roles"][request.route_role]["model"],
             allow_write=request.allow_write, dry_run=False)

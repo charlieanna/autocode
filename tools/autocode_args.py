@@ -3,19 +3,37 @@
 parse() builds the parser, parses the arguments, records which budget flags were given explicitly,
 and stops with a usage error (exit 2) on an invalid combination. autocode._main_body keeps the
 returned parser for the later errors that depend on the saved run.
+
+An invocation that names no run and starts none (no task, no new-run input) acts on the saved run
+autocode_run_finder chooses from the --workspace directory: ``autocode --status``, ``autocode``,
+``autocode resume`` and the user actions work from the project or a task worktree. ``autocode
+status`` is ``autocode --status``. --run-dir without --workspace selects the run's own checkout
+(a user's run; a parallel Builder's run keeps the usual workspace errors).
 """
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import shlex
 import sys
 
 try:
-    from . import autocode_workflows as workflows, autopilot
+    from . import autocode_workflows as workflows, autopilot, autocode_run_finder as run_finder
     from .autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
 except ImportError:
-    import autocode_workflows as workflows, autopilot
+    import autocode_workflows as workflows, autopilot, autocode_run_finder as run_finder
     from autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
+
+# Inputs that only start a new run: with one of them and no task, nothing is looked up.
+NEW_RUN_INPUTS = ("ui_run", "figma_file", "figma_manifest", "figma_review", "in_place",
+                  "builder_strong_model", "conversation_handoff")
+# The user actions that only read the run: they return before the run lock and save nothing, so
+# with no unfinished run they may show a finished one. --show-goal is not one: it takes the lock,
+# migrates and saves the run. --follow-up has its own rule (autocode_run_finder).
+READ_ACTIONS = ("--status", "--dry-run")
+# `autocode resume` and `autocode status`: commands, never a one-word task (`autocode -- status` is one).
+COMMAND_WORDS = ("resume", "status")
+COMMAND_MARK = "\0command-word"
 
 
 def build_parser(unit, default_models) -> argparse.ArgumentParser:
@@ -75,6 +93,11 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         "repair a saved command at a reconciled pause with --resume-paused")
     parser.add_argument("--revise-protected-tests", type=Path,
                         help="Explicit user revision JSON for the original test inventory and command; requires a reconciled validation pause")
+    parser.add_argument("--base-patch", type=Path,
+                        help="Bug fixes: a patch that adds only instrumentation (a hook or variable the fix adds) to the "
+                        "original code, so a regression test using it can run and fail there; hash-pinned, no test "
+                        "files, must be contained in the final change; on a saved run use --resume-paused at a "
+                        "stop before the Validator")
     parser.add_argument("--regression-command", help="Shell command for new or changed regression tests (default: derived); "
                         "repair a saved command at a reconciled pause with --resume-paused")
     parser.add_argument("--max-iterations", type=int, help="Total iteration ceiling (new-run default: unlimited; resumes keep saved limits)")
@@ -179,6 +202,10 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--approve-review", action="append", default=[], metavar="CRITERION_ID")
     parser.add_argument("--reconcile-review", metavar="CRITERION_ID=ANSWER_ID",
                         help="Bind an authenticated legacy acceptance to current validated evidence without a new approval")
+    parser.add_argument("--close-finding", action="append", default=[], metavar="FINDING_ID",
+                        help="Close an open reviewer finding as your own decision (repeatable), for example a "
+                        "duplicate of a problem already settled; needs --close-reason; launches no agent")
+    parser.add_argument("--close-reason", metavar="TEXT", help="Why the findings named by --close-finding no longer apply")
     parser.add_argument("--accept-completion", action="store_true",
                         help="Operator-accept completion after the runner itself verifies every gate; use when the model's completion report cannot be produced")
     parser.add_argument("--review-token", help="Exact displayed contract/artifact/validation token; "
@@ -186,15 +213,55 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     return parser
 
 
+def user_actions(args) -> dict[str, bool]:
+    """Each user action flag and whether this invocation gives it; at most one may be given."""
+    return {"--status": bool(args.status), "--dry-run": bool(args.dry_run),
+            "--migrate-only": bool(args.migrate_only), "--show-goal": bool(args.show_goal),
+            "--answer/--delegate": bool(args.answer or args.delegate), "--delegate-all": bool(args.delegate_all),
+            "--reject-assumption": bool(args.reject_assumption),
+            "--approve-goal": bool(args.approve_goal), "--edit-goal": bool(args.edit_goal),
+            "--approve-review": bool(args.approve_review), "--reconcile-review": bool(args.reconcile_review),
+            "--feedback": args.feedback is not None, "--follow-up": args.follow_up is not None,
+            "--accept-completion": bool(args.accept_completion), "--abandon-stage": args.abandon_stage is not None,
+            "--close-finding": bool(args.close_finding),
+            "--request-milestone-checkpoints": bool(args.request_milestone_checkpoints),
+            "--planning-review-call-limit": args.planning_review_call_limit is not None,
+            "--bind-dependency": bool(args.bind_dependency), "--receive-dependency": bool(args.receive_dependency)}
+
+
 def parse(unit, argv, default_models):
     """Parse argv (sys.argv[1:]) and return (args, parser); an invalid combination exits via parser.error."""
+    argv = list(argv)
+    # `autocode resume` continues a saved run and never starts one; `autocode status` is --status.
+    resume_only = argv[:1] == ["resume"]
+    if resume_only:
+        argv = argv[1:]
+    elif argv[:1] == ["status"]:
+        argv = ["--status", *argv[1:]]
     parser = build_parser(unit, default_models)
     args = parser.parse_args(argv)
-    args._explicit_budget_flags = set()
+    # The word may also follow options (`autocode --no-chat resume`); argparse then reads it as
+    # the task. After `--` it stays task text.
+    words = argv[:argv.index("--")] if "--" in argv else argv
+    if args.task in COMMAND_WORDS and args.task in words:
+        # The same word may also be an option's value (--feedback resume): mark each occurrence in
+        # turn until argparse reads the mark as the task. A word in place of a word parses alike.
+        at = next(index for index, word in enumerate(words) if word == args.task
+                  and parser.parse_args([*argv[:index], COMMAND_MARK, *argv[index + 1:]]).task == COMMAND_MARK)
+        resume_only = resume_only or args.task == "resume"
+        argv = argv[:at] + (["--status"] if args.task == "status" else []) + argv[at + 1:]
+        args = parser.parse_args(argv)
+    explicit, rest = set(), []
     budget_flags = {flag for flags in BUDGET_ARGUMENTS.values() for flag in flags}
-    for argument in argv:
+    skip_value = False
+    for index, argument in enumerate(argv):
         if argument == '--':
+            rest += argv[index:]
             break
+        if skip_value:
+            skip_value = False
+            continue
+        dest = None
         if argument.startswith('--'):
             option = argument.split('=', 1)[0]
             # Preserve argparse's supported unambiguous abbreviations too.
@@ -202,39 +269,49 @@ def parse(unit, argv, default_models):
             matched = ({exact.dest} if exact else {action.dest for name, action in parser._option_string_actions.items()
                                                   if name.startswith(option)})
             if len(matched) == 1:
-                args._explicit_budget_flags.update(matched & budget_flags)
+                (dest,) = matched
+                explicit.add(dest)
+        if dest in ('workspace', 'run_dir', 'unit'):
+            # Left out of the flags a refusal repeats: its commands name the run and the unit themselves.
+            skip_value = '=' not in argument
+            continue
+        rest.append(argument)
+    args._explicit_budget_flags = explicit & budget_flags
+    if unit and args.unit != unit:
+        parser.error(f"This entry point runs only {unit}")
+    notice = _find_run(parser, args, explicit, resume_only, shlex.join(rest))
     if args.max_parallel_builders is not None and args.max_parallel_builders < 1:
         parser.error('--max-parallel-builders must be positive')
-    if args.retry_builder and (not args.run_dir or not args.resume_paused):
-        parser.error('--retry-builder requires --run-dir and --resume-paused')
+    if args.retry_builder:
+        _requires_resume(parser, args, '--retry-builder')
     if args.unlimited_iterations and (args.max_iterations is not None or args.legacy_iteration_ceiling is not None):
         parser.error('--unlimited-iterations cannot be combined with an explicit iteration ceiling')
-    if args.accept_transport_change and (not args.run_dir or not args.resume_paused):
-        parser.error("--accept-transport-change requires --run-dir and --resume-paused")
-    if args.retry_report and (not args.run_dir or not args.resume_paused):
-        parser.error("--retry-report requires --run-dir and --resume-paused")
+    if args.accept_transport_change:
+        _requires_resume(parser, args, "--accept-transport-change")
+    if args.retry_report:
+        _requires_resume(parser, args, "--retry-report")
     if args.job_retry_token and not (args.retry_failed_stage and args.resume_paused and args.run_dir):
-        parser.error("--job-retry-token requires --run-dir --resume-paused --retry-failed-stage")
-    if args.retry_failed_stage and (not args.run_dir or not args.resume_paused):
-        parser.error("--retry-failed-stage requires --run-dir and --resume-paused")
-    if args.diagnose_failed_stage and (not args.run_dir or not args.resume_paused):
-        parser.error("--diagnose-failed-stage requires --run-dir and --resume-paused")
+        parser.error("--job-retry-token requires --run-dir --resume-paused --retry-failed-stage" if not args.run_dir
+                     else "--job-retry-token requires --resume-paused --retry-failed-stage")
+    if args.retry_failed_stage:
+        _requires_resume(parser, args, "--retry-failed-stage")
+    if args.diagnose_failed_stage:
+        _requires_resume(parser, args, "--diagnose-failed-stage")
     if args.diagnose_failed_stage and args.retry_failed_stage:
         parser.error("--diagnose-failed-stage and --retry-failed-stage are alternative responses to the same pause; use one")
-    if args.grant_recovery is not None and (not args.run_dir or not args.resume_paused):
-        parser.error("--grant-recovery requires --run-dir and --resume-paused")
+    if args.grant_recovery is not None:
+        _requires_resume(parser, args, "--grant-recovery")
     if args.grant_recovery is not None and args.grant_recovery < 1:
         parser.error("--grant-recovery needs a positive number of recoveries")
     if args.resolver_response and not (args.run_dir and args.resolver_request and args.resolver_token):
-        parser.error('--resolver-response requires --run-dir, --resolver-request and --resolver-token')
+        parser.error('--resolver-response requires --run-dir, --resolver-request and --resolver-token' if not args.run_dir
+                     else '--resolver-response requires --resolver-request and --resolver-token')
     if args.resolver_response and any((args.answer, args.delegate, args.approve_goal, args.approve_review,
                                       args.feedback is not None, args.retry_failed_stage, args.grant_recovery is not None,
                                       args.resume_paused)):
         parser.error('A resolver response cannot be combined with approval, feedback or execution authorization')
     if args.planning_review_call_limit is not None and args.planning_review_call_limit != 0 and args.planning_review_call_limit < 2:
         parser.error("--planning-review-call-limit must be 0 (unlimited) or at least 2")
-    if unit and args.unit != unit:
-        parser.error(f"This entry point runs only {unit}")
     if args.unit in ("autocode", "autoreview", "autoresolver") and not args.run_dir:
         parser.error("Build and review units require an existing --run-dir with an approved plan")
     if args.chat is None:
@@ -248,13 +325,9 @@ def parse(unit, argv, default_models):
     for flag in ("max_iterations", "legacy_iteration_ceiling", "max_seconds", "max_stage_seconds", "max_idle_seconds", "max_tool_seconds", "no_progress_limit", "max_milestone_seconds", "max_milestone_replans", "max_milestone_stalled_reviews", "max_findings_per_task"):
         if getattr(args, flag) is not None and getattr(args, flag) < 0:
             parser.error(f"--{flag.replace('_', '-')} must be nonnegative")
-    actions = [args.status, args.dry_run, args.migrate_only, args.show_goal,
-               bool(args.answer or args.delegate), bool(args.delegate_all), bool(args.reject_assumption),
-               bool(args.approve_goal), bool(args.edit_goal),
-               bool(args.approve_review), bool(args.reconcile_review),
-               args.feedback is not None, args.follow_up is not None, args.accept_completion, args.abandon_stage is not None,
-               args.request_milestone_checkpoints, args.planning_review_call_limit is not None,
-               args.bind_dependency, args.receive_dependency]
+    actions = list(user_actions(args).values())
+    if args.close_finding and not args.run_dir:
+        parser.error("--close-finding requires --run-dir")
     if sum(bool(a) for a in actions) > 1:
         parser.error("Choose one action per invocation; answering and approving are separate events")
     if args.retry_builder and any(actions):
@@ -269,4 +342,49 @@ def parse(unit, argv, default_models):
         parser.error("--reconcile-review requires --review-token")
     if not args.run_dir and any(actions[2:]):
         parser.error("User actions require an existing --run-dir")
+    if notice:
+        # stderr: --status and --dry-run print exactly one JSON object on stdout.
+        print(notice, file=sys.stderr, flush=True)
     return args, parser
+
+
+def _requires_resume(parser, args, flag):
+    """Refuse a resume companion without --resume-paused; name --run-dir only when no run was named or found."""
+    if not args.run_dir:
+        parser.error(f"{flag} requires --run-dir and --resume-paused")
+    if not args.resume_paused:
+        parser.error(f"{flag} requires --resume-paused")
+
+
+def _find_run(parser, args, explicit, resume_only, flags):
+    """Choose the saved run an invocation that names none means; return the notice to print, or None.
+
+    explicit holds the destinations typed on the command line (--workspace defaults to the
+    current directory, so its value alone cannot tell). flags is the rest of the command line
+    without --workspace, --run-dir and --unit, for the commands a refusal lists; those name the
+    unit (typed, or the entry point's) themselves.
+    """
+    new_run = [f"--{name.replace('_', '-')}" for name in NEW_RUN_INPUTS if getattr(args, name)]
+    if resume_only and args.task is not None:
+        parser.error('autocode resume continues a saved run; start a new task with autocode "TASK"')
+    if resume_only and new_run:
+        parser.error(f"autocode resume continues a saved run; {new_run[0]} only applies to a new one")
+    if args.run_dir is not None:
+        if 'workspace' not in explicit:
+            # The run's own checkout, so the run can be named from any directory.
+            checkout = run_finder.checkout_of(args.run_dir)
+            if checkout is not None:
+                args.workspace = checkout
+        return None
+    given = [flag for flag, present in user_actions(args).items() if present]
+    if args.task is not None or new_run or len(given) > 1:
+        return None
+    action = ("follow_up" if given == ["--follow-up"] else "read" if given and given[0] in READ_ACTIONS
+              else "act" if given or args.resolver_response else "advance")
+    try:
+        run = run_finder.choose(args.workspace, action, flags, args.unit)
+    except run_finder.RunNotFound as error:
+        # Not parser.error: its usage text would bury the runs and commands the message lists.
+        parser.exit(2, f"autocode: {error}\n")
+    args.run_dir, args.workspace = run.run_dir, run.workspace
+    return f"Using the saved run {run.run_dir} ({run.status}, {run.reason}); add --run-dir to choose another."

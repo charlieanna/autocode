@@ -11,8 +11,11 @@ import time
 import psutil
 
 try:
+    from . import autocode_process_children as process_children, autocode_process_receipts as process_receipts
     from .autocode_activity import idle_timeout_reason
 except ImportError:
+    import autocode_process_children as process_children
+    import autocode_process_receipts as process_receipts
     from autocode_activity import idle_timeout_reason
 
 
@@ -168,7 +171,7 @@ class ProcessTree:
                 parent = psutil.Process(pid)
                 if _birth_identity(parent) != table[pid].get("birth_identity"):
                     continue
-                descendants = parent.children(recursive=True)
+                descendants = process_children.descendants(parent)
                 candidates = {child.pid: _birth_identity(child) for child in descendants}
             except psutil.NoSuchProcess:
                 continue
@@ -190,7 +193,7 @@ class ProcessTree:
                 table.update(found)
                 owned.update(found)
                 covered.update(found)
-            except psutil.Error as error:
+            except (psutil.Error, OSError) as error:
                 raise ProcessError(f"Cannot inspect descendants of owned process {pid}: {type(error).__name__}") from error
             found = process_table(candidates)
             found = {child_pid: row for child_pid, row in found.items()
@@ -237,6 +240,11 @@ class ProcessTree:
                 os.kill(row["pid"], sig)
             except ProcessLookupError:
                 pass
+            except PermissionError as error:
+                # A denied signal on a birth-verified owned process leaves cleanup
+                # uncertain; fail closed with the typed error so no partial outcome
+                # is published. The retired killpg path swallowed this class.
+                raise ProcessError(f"Cannot signal owned process {row['pid']}: permission denied") from error
 
     def stop(self, child):
         # Freeze the verified tree before termination. Always resume anything
@@ -294,16 +302,17 @@ def interruption_handler():
 
 def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkpoint=None,
                    startup_grace=0):
-    tree = ProcessTree(child.pid, checkpoint)
+    receipts = process_receipts.ReceiptWorker()
+    tree = ProcessTree(child.pid, receipts.record)
     deadline = time.monotonic() + timeout if timeout else None
     startup_deadline = time.monotonic() + max(0, float(startup_grace))
     stopped = threading.Event()
     watchdog_fired = threading.Event()
     root_captured = threading.Event()
     firing = threading.Lock()
-    # Only the owner thread samples processes and persists state. The independent
-    # event reader consumes bounded chunks; deadline enforcement never waits on
-    # that I/O, ps, or a checkpoint write. Assign whole snapshots across threads.
+    # Process ownership is maintained independently of controller persistence.
+    # Only this calling thread invokes checkpoint callbacks; the worker owns
+    # discovery/cleanup and publishes whole receipts, even while a save stalls.
     live = []
     latest_activity = None
     latest_observation = (time.monotonic(), {
@@ -405,6 +414,36 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
             activity_checkpoint(dict(snapshot))
             last_publish, last_activity_key = current, key
 
+    def cleanup_owned():
+        try:
+            tree.stop(child)
+        except ProcessError as error:
+            error.processes = list(tree.known.values())
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=2)
+            raise
+        finally:
+            if tree.known:
+                receipts.record(list(tree.known.values()))
+
+    def own_processes():
+        nonlocal live
+        try:
+            live = tree.sample(initial=True)
+            while not receipts.cancel.is_set() and child.poll() is None:
+                live = tree.sample()
+                if watchdog_fired.is_set():
+                    break
+                try:
+                    child.wait(timeout=min(.2, max(.001, deadline - time.monotonic())) if deadline else .2)
+                except subprocess.TimeoutExpired:
+                    pass
+        finally:
+            # Includes normal exits. A blocked controller save cannot defer
+            # stopping detached writers beyond the supervision result.
+            cleanup_owned()
+
     # The hard limit never depends on event parsing, process sampling or writes.
     hard_timer = threading.Timer(timeout, stop_at_deadline, args=({
         "kind": "stage", "reason": f"Stage exceeded its {timeout:g}-second hard runtime limit"},)) if timeout else None
@@ -416,48 +455,44 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
             hard_timer.start()
         if watchdog:
             watchdog.start()
-        # Capture before ordinary observer/watchdog polling, but after deadline
-        # enforcement starts: native inspection and checkpoint writes can stall.
+        # Capture before ordinary observer/watchdog polling, after independent
+        # deadline enforcement starts. This publishes in memory, without I/O.
         tree.capture_root()
         root_captured.set()
         if observer:
             observer.start()
-        live = tree.sample(initial=True)
-        publish_activity()
-        while child.poll() is None:
-            live = tree.sample()
+        receipts.start(own_processes)
+        while not receipts.done.is_set():
+            receipts.flush(checkpoint)
             publish_activity()
-            if watchdog_fired.is_set():
-                break
-            try:
-                child.wait(timeout=min(.2, max(.001, deadline - time.monotonic())) if deadline else .2)
-            except subprocess.TimeoutExpired:
-                pass
+            receipts.done.wait(.05)
+        receipts.flush(checkpoint)
+        publish_activity(force=True)
     finally:
-        stopped.set()
-        if hard_timer:
-            hard_timer.cancel()
-        # Capture can fail before the observer starts; cleanup still fails closed.
-        if watchdog and watchdog.is_alive():
-            watchdog.join(timeout=1)
-        if observer and observer.is_alive():
-            observer.join(timeout=1)
-        # This includes normal exits: a bounded stage must not leave background
-        # writers running after its final source snapshot or workspace unlock.
+        # Interruption or a failed save must not let the process worker escape
+        # this call. Callbacks stay serialized on the controller thread.
         handlers = {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGINT, signal.SIGTERM)}
         try:
-            try:
-                try:
-                    publish_activity(force=True)
-                finally:
-                    tree.stop(child)
-            except ProcessError as error:
-                error.processes = list(tree.known.values())
-                if child.poll() is None:
-                    child.kill()
-                    child.wait(timeout=2)
-                raise
+            receipts.cancel.set()
+            if receipts.started:
+                receipts.join()
+            else:
+                cleanup_owned()
+            if receipts.error is not None:
+                raise receipts.error
+            # An interrupt can precede the controller's next flush. Preserve
+            # all discovered identities before propagating it, but do not
+            # replay an already failed write or mask uncertain cleanup.
+            if not receipts.checkpoint_failed:
+                receipts.flush(checkpoint)
         finally:
+            stopped.set()
+            if hard_timer:
+                hard_timer.cancel()
+            if watchdog and watchdog.is_alive():
+                watchdog.join(timeout=1)
+            if observer and observer.is_alive():
+                observer.join(timeout=1)
             if escalation_timer:
                 escalation_timer.cancel()
             for sig, handler in handlers.items():

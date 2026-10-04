@@ -187,11 +187,12 @@ first; the branch is kept. Anything else is listed with the reason it is kept.
 Worktrees recorded by an `autocode program` are left to that command. The
 dashboard and registry show a removed worktree's runs as `workspace_missing`.
 
-Resume with the printed run path and either the original project or task workspace:
+Resume from the project while the task is its only unfinished run, or from inside the
+task worktree, or name the run from anywhere:
 
 ```sh
-autocode --workspace /path/to/project \
-  --run-dir /path/to/project/.autocode/worktrees/TASK/.autocode/runs/RUN
+cd /path/to/project/.autocode/worktrees/TASK && autocode resume
+autocode --run-dir /path/to/project/.autocode/worktrees/TASK/.autocode/runs/RUN
 ```
 
 Existing runs retain their original checkout. `--in-place` explicitly starts a new

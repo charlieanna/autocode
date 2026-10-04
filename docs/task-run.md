@@ -103,7 +103,7 @@ meaning must change.
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "status": "AWAITING_GOAL_APPROVAL",
   "done": false,
   "needs": {"kind": "approve_plan", "token": "..."},
@@ -155,6 +155,48 @@ running now, or null), `tokens`, `cost_usd` (`reported`, `estimated`, `complete`
 and `by_role` (see [Cost reporting](cost-reporting.md#every-task-continuously)). Unknown cost is
 not zero: `complete` is false while a stage has none or is running.
 
+`progress` is how far the run has got, counted only from saved records
+(`tools/autocode_progress_view.py`; added by `autocode --status`, which supplies
+the accepted milestones, the valid review receipts and the state of the recorded
+workers). `line` is the one line a person reads, for example
+`Builder working · 1 of 3 tasks done · 1 of 3 requirements checked, 1 failed · 1 open problem · nothing needed from you`;
+its wording may change, so programs read the fields beside it:
+
+- `headline`: `Complete`, `Waiting for you`, `Paused`, `Waiting for another run`,
+  `<job> working`, `<job> finished` (its report is saved but not applied yet),
+  `Next: <job>`, `<job> stopped without saving a report` (the recorded workers are
+  gone; see the top-level `stale` and `next_action`; a stopped runner check is named
+  `Runner check (...)`), or the status in words when no stage is known. Job names
+  come from `autocode_roles`; `stage` is that name.
+- `needs_you`: what a person has to do, in words: what `needs` asks for, the
+  top-level `next_action` when the workers are gone, or `plan approval needed`
+  while a saved plan waits to be shown for approval.
+- `tasks`: one item per milestone of the current plan, proposed or approved (`number`,
+  `id`, `label`, `state`, `current`), with `done` and `total`. `state` is `done`
+  (accepted under the current contract, or the run is complete), `working` (the run is
+  on it now), `waiting`, or `unknown` when milestone checkpoints are off (`known` is
+  then false until the run completes).
+- `requirements`: one item per acceptance criterion. Its state comes from the newest
+  `PASS` or `FAIL` for it across the Tester results under the current contract (the
+  current validation and the ones before it); `NOT_VERIFIED` and a missing row leave
+  an earlier verdict standing. `checked` is a pass in the current validation with no
+  different source recorded since; `checked_earlier` a pass from an earlier
+  validation, or from one the source has changed since (`rebuilt_since_check`);
+  `failed`; `awaiting_review` (a human-review criterion the Tester passed but no
+  person has accepted yet); `reviewed` (a person's review receipt is valid for the
+  current validation); `unchecked` otherwise, never `checked`. Each state has a
+  count. Results under another contract, or with no contract hash under a contract,
+  do not count. The view does not read the workspace.
+- `problems`: `open` counts the open findings (`items`: `id`, `finding`, `source`,
+  `severity`, `blocking`) plus, for a code or design review and a design-conflict
+  stop, the findings that job saved instead (`reports`: `kind`, `blocking`,
+  `advisory`, `report_path`).
+- `for_earlier_request`: true after a `--follow-up` until the follow-up's own plan is
+  drafted; the previous request's tasks, requirements and review findings are then
+  left out.
+
+No field is a percentage or an estimate from elapsed time.
+
 `displayed_plan` is an optional structured approval projection: `revision`, `hash`,
 `token`, `acceptance_criteria`, `constraints` and `permission_boundaries`. It appears
 only when the last displayed token matches the current sealed contract. Missing,
@@ -196,6 +238,8 @@ run is waiting for:
 | `answer` | answers to clarifying questions or a decision | `questions` (id, question, why, options, proposed_default), `request_kind`; for a question Resolver published, also `resolver_request_id`, `resolver_token` and `resolver_scope` | Answer, once per question (with `--resolver-token` when given) |
 | `review` | a person to accept specific acceptance criteria | `criteria`, `token`, `question` | Approve a review, per criterion |
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
+| `recover_source` | an attempt without a saved original source identity | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |
+| `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint` | Exact retry after restoring original source |
 | `resume` | a person to inspect a pause and resolve its cause | `reason` | Resume a pause, once resolved |
 | `continue` | nothing; the run can simply proceed | | Continue |
 
@@ -263,3 +307,16 @@ saved source, route and limits. The CLI equivalent is
 `--resume-paused --retry-failed-stage --job-retry-token TOKEN`. A plain resume
 keeps the pause. Stale source/configuration, a token for a different attempt,
 or unresolved restoration is rejected before any model request.
+
+A missing or corrupt capture file does not prevent retry if the current source
+exactly matches the identity saved before the attempt, including file modes and
+Git HEAD. After manual restoration, the same token can be used; the old
+`unrestored`/`write_diagnosis` fields remain historical evidence and the CLI
+rechecks the full identity. It does not reconstruct an original identity from
+the current checkout.
+
+In status schema 2, an older attempt that never recorded its original identity
+exposes `needs.kind = "recover_source"` and `action = null`, with
+`recovery_hint`. Its token, archive and diagnosis remain available for inspection,
+but cannot authorize an exact retry. Inspect the retained work and current changes
+before starting a new run. No automatic restart or budget reset occurs.

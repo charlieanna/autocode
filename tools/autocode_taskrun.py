@@ -105,6 +105,11 @@ class TaskRun:
         self._invoke("resume", "--resume-paused", "--no-chat", *self.options, advancing=True)
         return self.status()
 
+    def abandon_stage(self, attempt_id: str) -> dict:
+        """Set aside the inspected uncertain attempt (retains edits and evidence)."""
+        self._act("abandon stage", "--abandon-stage", attempt_id)
+        return self.status()
+
     def retry_job(self, token: str) -> dict:
         """Retry exactly the inspected failed workflow job, retaining route and limits."""
         self._invoke('retry job', '--resume-paused', '--retry-failed-stage', '--job-retry-token', token,

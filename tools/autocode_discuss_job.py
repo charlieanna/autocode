@@ -26,10 +26,11 @@ import json
 from pathlib import Path
 
 try:
-    from . import autocode_stray_writes as stray_writes
+    from . import autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
     from . import autocode_workflows as workflows
     from .autocode_test_cases import run_probes
 except ImportError:
+    import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_workflows as workflows
     from autocode_test_cases import run_probes
@@ -66,9 +67,9 @@ tradeoff ("should we use A or B"). Either way:
 
 1. Find the facts in the repository before anything else: the code, its configuration and deployment
    files, its docs and tests. Deciding facts are often in a different file from the one the question
-   names (how the service is deployed, a limit in a docstring, who calls a function). You may make a
-   scratch copy OUTSIDE the workspace to run code; never write into the workspace itself. The runner
-   compares it before and after and rejects an answer that changed anything.
+   names (how the service is deployed, a limit in a docstring, who calls a function). """ + stage_access.scratch_rule(STAGE) + """
+   Otherwise never write into the workspace: the runner compares it before and after and rejects an
+   answer that changed anything.
 2. answer: the answer in plain words. For a tradeoff, give a recommendation AND its consequences, and
    what would change it; do not just pick one.
 3. evidence: each claim your answer rests on, with source = the repository file (optionally

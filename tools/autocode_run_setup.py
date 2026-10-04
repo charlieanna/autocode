@@ -22,6 +22,7 @@ try:
     from . import autocode_figma as figma, autocode_design_manifest as design_manifest
     from . import autocode_task_preflight as task_preflight
     from . import autocode_goals as goals, autocode_protected_oracles as protected_oracles
+    from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_interventions as interventions
     from . import autocode_milestones as milestones
     from . import model_catalogue
@@ -39,6 +40,7 @@ except ImportError:
     import autocode_figma as figma, autocode_design_manifest as design_manifest
     import autocode_task_preflight as task_preflight
     import autocode_goals as goals, autocode_protected_oracles as protected_oracles
+    import autocode_goal_lifecycle as lifecycle
     import autocode_interventions as interventions
     import autocode_milestones as milestones
     import model_catalogue
@@ -87,11 +89,18 @@ def resolve(runner, args, parser):
         run_dir = args.run_dir.resolve()
         state_path = run_dir / "state.json"
         state = runner.read_json(state_path)
+        try:
+            lifecycle.require_supported_checkpoint(state)
+        except support.Paused as error:
+            parser.error(error.args[1] if len(error.args) > 1 else str(error))
         task = state["task"]
         workspace = task_workspaces.resume_workspace(workspace, state)
     else:
         if not args.task:
-            parser.error("task is required unless --run-dir is supplied")
+            # Reached only when a new-run input (--in-place, --figma-file, ...) turned off finding a saved run.
+            parser.error('a task is needed to start a run, for example: autocode "Build a greeting CLI". '
+                         "To continue a saved run, run autocode without new-run options from its project "
+                         "or task worktree, or name it with --run-dir")
         task = args.task
         if not (workspace / ".git").exists():
             if args.dry_run or args.status:
@@ -211,7 +220,13 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         relevant = {'PAUSED_ITERATION_LIMIT': ('max_iterations', 'legacy_iteration_ceiling', 'unlimited_iterations'),
                     'PAUSED_TIME_LIMIT': ('max_seconds',),
                     'PAUSED_MILESTONE_TIME_LIMIT': ('max_milestone_seconds',)}
-        if any(flag in args._explicit_budget_flags for flag in relevant.get(paused_for, ())):
+        # Match the paused budget by kind as well as status: an operational-exhaustion
+        # request after recovery burn-out may name a different origin.pause_status than
+        # the bound the operator is raising (#301).
+        budget_kind = origin.get('budget', {}).get('kind')
+        bound_flags = runner.BUDGET_ARGUMENTS.get(budget_kind, ()) if budget_kind else ()
+        if any(flag in args._explicit_budget_flags for flag in
+               set(relevant.get(paused_for, ())) | set(bound_flags)):
             if resolver_human.supersede_operational(state, 'Operator explicitly changed the exhausted bound'):
                 state['_authorized_bound_change'] = {'pause_status': paused_for, 'at': runner.now()}
         if args.autoresolver_managed_limits and entry.get('identity', {}).get('proposal', {}).get('origin', {}).get('budget', {}).get('kind'):

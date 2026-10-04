@@ -124,7 +124,9 @@ correct result: no implementation can satisfy both the rule and the example.
 # A live greenfield run (2026-10-01, docs/bugs/2026-10-01-reliability-live-cases.md) transcribed the brief's
 # literal "ID TEXT [open|done]" into examples without the brackets; the Builder, the tests, the Validator and
 # the completion gate then all honestly served the corrupted criteria and the run completed falsely. Every
-# other handoff has an independent check; the brief-to-criteria transcription had none.
+# other handoff has an independent check; the brief-to-criteria transcription had none. The runner now
+# rejects a draft that drops a backticked brief literal (autocode_brief_literals); this rule asks the
+# reviewer whether the examples agree with it, which no mechanical check can decide.
 BRIEF_TRACE_RULE = """
 CHECK EVERY EXAMPLE AGAINST THE BRIEF: re-read the user's brief and re-derive each worked example's literal
 result from the brief's own words, not from the criterion next to it. Every literal the brief states — an

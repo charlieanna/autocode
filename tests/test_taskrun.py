@@ -192,6 +192,13 @@ class RunViewTests(unittest.TestCase):
                          run_view.needs({"status": "PAUSED_BUDGET", "stop_reason": "quota"}))
         self.assertEqual("resume", run_view.needs({"status": "PLAN_REWORK_REQUIRED"})["kind"])
 
+    def test_quota_pause_names_the_abandon_step_with_the_attempt_id(self):
+        need = run_view.needs({
+            "status": "PAUSED_BUDGET", "stop_reason": "quota restored; set the attempt aside",
+            "active_stage": {"iteration": 1, "output": "/run/terra-01.json", "stage": "terra"}})
+        self.assertEqual("001/terra-01", need["abandon_stage"])
+        self.assertIn("--abandon-stage 001/terra-01 then --resume-paused", need["action"])
+
     def test_rejected_validator_report_exposes_exact_retry_attempt(self):
         state = {"status": "PAUSED_REPEATED_FAILURE", "stop_reason": "report rejected",
                  "settings": {"report_repair": {"max_attempts": 2}},
@@ -199,6 +206,21 @@ class RunViewTests(unittest.TestCase):
                                            "attempts": 2,
                                            "latest_rejected": {"iteration": 1, "output": "/run/sol_report_repair-02.json"}}}
         self.assertEqual("001/sol_report_repair-02", run_view.needs(state)["retry_report_attempt"])
+
+    def test_legacy_job_without_source_identity_exposes_recovery_not_retry(self):
+        failure = {'reason': 'Provider stopped', 'stage': 'investigate_bug',
+                   'attempt_id': '001/bug-investigation-01', 'job_retry_token': 'jr:old',
+                   'archive': '/run/archive', 'source_identity': None,
+                   'write_diagnosis': {'unrestored': ['original source capture']},
+                   'unrestored': ['original source capture']}
+        for status in ('PAUSED_JOB_FAILURE', 'PAUSED_STAGE_ABANDONED'):
+            need = run_view.needs({'status': status, 'job_failure': failure})
+            self.assertEqual('recover_source', need['kind'])
+            self.assertIsNone(need['action'])
+            self.assertIn('original source identity', need['recovery_hint'])
+            self.assertEqual('jr:old', need['job_retry_token'])
+            self.assertEqual('/run/archive', need['archive'])
+            self.assertEqual(failure['write_diagnosis'], need['write_diagnosis'])
 
     def test_running_continues(self):
         self.assertEqual({"kind": "continue"}, run_view.needs({"status": "RUNNING", "pending_questions": []}))
@@ -234,12 +256,20 @@ class TaskRunTests(unittest.TestCase):
         run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
         view = run.status()
         self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        self.assertEqual("Waiting for you", view["progress"]["headline"], view["progress"])
+        self.assertEqual("plan approval needed", view["progress"]["needs_you"])
         with self.assertRaisesRegex(taskrun.TaskRunError, "approve plan exited"):
             run.approve_plan("not-the-displayed-token")
         run.approve_plan(view["needs"]["token"])
         view = run.advance_until_input()
         self.assertTrue(view["done"], view)
         self.assertTrue((self.workspace / "greet.py").is_file())
+        progress = view["progress"]
+        self.assertEqual("Complete", progress["headline"], progress)
+        self.assertEqual(progress["tasks"]["total"], progress["tasks"]["done"], progress)
+        self.assertEqual(progress["requirements"]["total"], progress["requirements"]["checked"], progress)
+        self.assertGreater(progress["tasks"]["total"], 0, progress)
+        self.assertGreater(progress["requirements"]["total"], 0, progress)
         # A new caller can reattach to the saved run.
         again = taskrun.TaskRun(self.workspace, run.run_dir, options=FIXTURE_OPTIONS, env=self.env)
         self.assertEqual("TASK_COMPLETE", again.status()["status"])

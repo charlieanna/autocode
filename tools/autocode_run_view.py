@@ -24,7 +24,7 @@ except ImportError:
     import autocode_contract_identity as contract_identity
     import autocode_progressive_plan as progressive_rules
 
-SCHEMA = 1
+SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
 # Statuses where relaunching the run, with no user input, continues the work.
 CONTINUE = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL")
@@ -250,7 +250,10 @@ def needs(state: dict) -> dict | None:
                                                      when the view carries one)
     approve_plan  approval of the displayed plan    --approve-goal TOKEN
     planning_budget  more planning review calls     --feedback TEXT or --planning-review-call-limit N
-    resume        a person to inspect a pause       --resume-paused, after resolving stop_reason
+    resume        a person to inspect a pause       --resume-paused, after resolving stop_reason;
+                                                     when `abandon_stage` is set, --abandon-stage
+                                                     ATTEMPT first (the attempt is uncertain)
+    recover_source missing original identity       inspect archive and source before a new run
     continue      nothing; relaunch to proceed      the same command with --run-dir
     """
     status = state.get("status", "")
@@ -258,12 +261,20 @@ def needs(state: dict) -> dict | None:
         return None
     failure = state.get('job_failure') or {}
     if status in ('PAUSED_JOB_FAILURE', 'PAUSED_STAGE_ABANDONED') and failure:
-        return {'kind': 'retry_job', 'reason': failure['reason'], 'stage': failure['stage'],
+        known_source = bool(failure.get('source_identity'))
+        return {'kind': 'retry_job' if known_source else 'recover_source',
+                'reason': failure['reason'], 'stage': failure['stage'],
                 'attempt_id': failure['attempt_id'], 'job_retry_token': failure['job_retry_token'],
                 'archive': failure['archive'], 'source_identity': failure['source_identity'],
                 'write_diagnosis': deepcopy(failure['write_diagnosis']),
                 'unrestored': list(failure['unrestored']),
-                'action': '--resume-paused --retry-failed-stage --job-retry-token TOKEN'}
+                'action': '--resume-paused --retry-failed-stage --job-retry-token TOKEN' if known_source else None,
+                'recovery_hint': ('Exact retry rechecks the saved original source identity, including file modes and Git HEAD. '
+                                  'Restore that exact source before retrying; the archived restoration diagnosis is retained.'
+                                  if known_source else
+                                  'Exact retry is unavailable because this attempt has no saved original source identity. '
+                                  'Inspect the archived attempt and current changes before starting a new run. '
+                                  'The current checkout cannot establish the missing original identity.')}
     if status == "WAITING_FOR_DEPENDENCY":
         return {"kind": "dependency", "reason": state.get("stop_reason"),
                 "producer_run": (state.get("dependency_wait") or {}).get("producer_run")}
@@ -305,6 +316,12 @@ def needs(state: dict) -> dict | None:
         return {"kind": "planning_budget", "reason": state.get("stop_reason")}
     if status.startswith(("PAUSED_", "BLOCKED_")) or status not in CONTINUE:
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
+        # An uncertain attempt must be set aside before a resume can continue (#340).
+        active = state.get("active_stage") or {}
+        if active.get("output") and isinstance(active.get("iteration"), int):
+            attempt = f"{active['iteration']:03d}/{Path(active['output']).stem}"
+            need["abandon_stage"] = attempt
+            need["action"] = f"--abandon-stage {attempt} then --resume-paused"
         pending = state.get("pending_report_repair") or {}
         rejected = pending.get("latest_rejected") or {}
         if (status == "PAUSED_REPEATED_FAILURE"

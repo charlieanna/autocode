@@ -53,10 +53,11 @@ into `master`. Once a batch is integrated, each Builder's checkout and
 
 Failed workers, stale baselines, or overlapping worker changes pause the run and
 retain worktrees and logs for inspection. After inspecting a failed Builder, explicitly
-retry it once all workers have stopped:
+retry it once all workers have stopped (from the project or task worktree; add
+`--run-dir RUN` when there are several unfinished runs):
 
 ```sh
-autocode --run-dir RUN --resume-paused --retry-builder M2
+autocode --resume-paused --retry-builder M2
 ```
 
 Repeat `--retry-builder` to select additional failed milestones. Successful siblings
@@ -308,7 +309,9 @@ before a PASS is accepted, the runner re-runs every check itself
   `--resume-paused` asks for a fresh validation.
 - **Record.** The result is saved with the validation, bound to its source
   revision, under `<run>/check-replay/`, and shown in the status view as
-  `evidence.check_replay`.
+  `evidence.check_replay`. Each invocation gets a fresh directory, including
+  retries of the same report. Later replays preserve the earlier receipt and
+  logs at their original paths; a failed replay remains available after a pass.
 
 This replaces trust in the Tester's own session with a run the runner owns.
 It does not judge whether the checks test the right thing: that is still the
@@ -379,6 +382,11 @@ with the limit before changing it. An inactivity stop names its limit, whether t
 is the runner default or was set explicitly, and how to change it (`--resume-paused
 --max-idle-seconds N`). Once the automatic recovery allowance is spent, the new
 limit is saved but no provider launches until `--grant-recovery N` is also given.
+Routes of a model family that reasons in long silent blocks run under a higher default:
+MiMo routes get 900 seconds when the limit is the runner default (`autocode_idle_policy`).
+OpenCode reports reasoning only as completed blocks, so a live MiMo Builder can emit no event
+for over 300 seconds. An explicit `--max-idle-seconds` is always used as given, and the saved
+setting is not rewritten.
 A workflow job's stop (review, design, design check, bug investigation, question,
 stuck-stage investigation) says instead that its exact retry runs under the same
 limit: that retry is bound to the limits the job ran under, so a changed limit
