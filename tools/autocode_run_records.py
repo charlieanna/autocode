@@ -18,6 +18,7 @@ from typing import Any
 
 try:
     from . import autocode_job_failure as job_failure
+    from . import autocode_recovery_accounting as accounting
     from . import autopilot
     from . import autocode_goals as goals
     from . import autocode_goal_lifecycle as lifecycle
@@ -30,6 +31,7 @@ try:
     from . import autocode_progressive_state as progressive, autocode_output_policy as output_policy
 except ImportError:
     import autocode_job_failure as job_failure
+    import autocode_recovery_accounting as accounting
     import autopilot
     import autocode_goals as goals
     import autocode_goal_lifecycle as lifecycle
@@ -371,16 +373,9 @@ def attempt_id(record):
     return f"{record['iteration']:03d}/{Path(record['output']).stem}"
 
 
-def recovery_count(state):
-    # Older runs do not have the aggregate counter. Their consecutive counters
-    # record recent failures; the history arrays include recovered older runs.
-    return state.get("automatic_recoveries_since_resume",
-                     max(state.get("consecutive_timeout_recoveries", 0),
-                         state.get("no_progress_batches", 0)))
-
-
-def count_automatic_recovery(state):
-    state["automatic_recoveries_since_resume"] = recovery_count(state) + 1
+# The automatic-recovery budget lives in autocode_recovery_accounting; these names are kept for callers.
+recovery_count = accounting.spent
+count_automatic_recovery = accounting.count
 
 
 def timeout_recovery_route(state, record):
