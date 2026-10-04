@@ -18,6 +18,10 @@ learned the run directory (it returns the workspace's only run, or `None`).
 
 `tools/autocode_taskrun.py` wraps the commands below.
 
+This example accepts the displayed plan and chooses question defaults or the first
+listed option. An interactive client should collect the person’s answer instead,
+using the token from the view they saw. Operational recovery needs a separate decision.
+
 ```python
 from autocode_cli.autocode_taskrun import TaskRun, TaskRunError
 
@@ -25,17 +29,17 @@ run = TaskRun.start(workspace, brief, options=("--engine", "codex"))
 view = run.advance_until_input()
 while not view["done"]:
     need = view["needs"]
+    if need["kind"] == "answer" and need.get("resolver_scope") in ("blocker", "operational_exhaustion"):
+        break  # Inspect recovery guidance; respond_operational() handles these requests.
     if need["kind"] == "approve_plan":
         view = run.approve_plan(need["token"])
     elif need["kind"] == "answer":
-        if need.get("resolver_scope") in ("blocker", "operational_exhaustion"):
-            break  # Inspect recovery guidance; this needs respond_operational(), not answer().
-        # Answer one displayed question, then let the loop use the returned view.
+        # One question per pass: an answer consumes the request, and the questions
+        # left come back in the returned view under a new resolver_token.
         question = need["questions"][0]
-        print(question["question"])
-        print("Options:", ", ".join(question["options"] or []))
-        answer = input("Your answer: ")
-        view = run.answer(question["id"], answer, resolver_token=need.get("resolver_token"))
+        # Decision questions may have no default; choose among their options.
+        view = run.answer(question["id"], question["proposed_default"] or question["options"][0],
+                          resolver_token=need.get("resolver_token"))
     elif need["kind"] == "continue":
         view = run.advance_until_input()
     else:
@@ -47,12 +51,6 @@ owns the workspace, typically a worktree it created, so start one run per
 workspace at a time. `options` (engine and model flags) are passed whenever the
 run starts or advances. Any rejected command raises `TaskRunError` with
 AutoCode's message.
-
-`answer()` needs the `resolver_token` from the status view that displayed the
-question. A successful answer returns an updated view with a new request token
-for any remaining questions. Handle that view before answering again: reusing
-the first token for a whole question list is rejected as stale. Do not silently
-fetch a new token to retry an old answer; inspect the current question first.
 
 Inputs fixed when a run starts, such as `--ui-run`, belong in `start_options`
 instead of `options`: `TaskRun.start(workspace, brief, options=("--engine", "codex"),
@@ -79,7 +77,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Resume a pause | `autocode --resume-paused --no-chat [options]` | 0 complete, 2 stopped for input |
 | Grant N recoveries after resolving the cause | `autocode --resume-paused --grant-recovery N --no-chat [options]` | 0 complete, 2 stopped for input |
 | Accept a changed OpenCode transport | `autocode --resume-paused --accept-transport-change --no-chat [options]` | 0 complete, 2 stopped for input |
-| Answer | `autocode --answer QUESTION_ID=TEXT [--resolver-token TOKEN]` | 0 saved, 2 rejected |
+| Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN` (`--answer` repeatable) | 0 saved, 2 rejected |
 | Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT` | 0 saved, 2 rejected |
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
 | Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
