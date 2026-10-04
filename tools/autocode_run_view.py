@@ -65,6 +65,21 @@ def view(state: dict) -> dict:
         # Runner-owned assignment provenance, never a model diagnosis or completion proof.
         "direct_rework_assignments": deepcopy(state.get("direct_rework_assignments", [])),
     }
+    contract = state.get("goal_contract") or {}
+    if isinstance(contract, dict) and isinstance(contract.get("body"), dict):
+        try:
+            if (type(contract.get("revision")) is int and contract["revision"] > 0
+                    and state.get("displayed_goal") == contract_identity.token(contract)
+                    and contract_identity.sealed(contract)):
+                # Approval consumers need actual fields, not model-authored display text.
+                result["displayed_plan"] = {
+                    "revision": contract["revision"], "hash": contract["hash"],
+                    "token": state["displayed_goal"],
+                    **{key: deepcopy(contract["body"].get(key)) for key in
+                       ("acceptance_criteria", "constraints", "permission_boundaries")},
+                }
+        except (KeyError, TypeError, ValueError):
+            pass  # Missing, stale or unsealed plans cannot supply approval authority.
     design = design_coverage.projection(state)
     if design is not None:
         result["design"] = design
