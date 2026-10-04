@@ -56,7 +56,8 @@ with correct code because the Validator kept citing event IDs, which a report-fi
 its generic instructions said to, and they now defer to the provider's receipt rule. In three re-runs
 of the to-do case on that fix, no report was rejected for event IDs and 2 of 3 passed. The third
 stopped honestly because AutoResolver wrote a plan check with a note in parentheses that the runner
-replayed as a shell command. That bug is recorded in the same note and not yet fixed.
+replayed as a shell command. The runner now leaves such a line to the Validator as prose; no live
+re-run has confirmed it yet.
 
 Re-run of the two failed cases (2026-10-01, master fba6e738, same profile, 90/130-minute
 budgets; same note for details):

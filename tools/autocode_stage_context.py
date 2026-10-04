@@ -120,7 +120,7 @@ def context_packet(state, stage, state_path):
         proof = regression.handoff(state)
         if proof:
             base["regression_proof"] = proof
-            proof_note = support.REGRESSION_PROOF_NOTES["passed" if proof["verdict"] == "PASS" else "open"][
+            proof_note = regression.PROMPT_NOTES["passed" if proof["verdict"] == "PASS" else "open"][
                 "validator" if stage == "sol" else "owner"]
         else:
             proof_note = ""
