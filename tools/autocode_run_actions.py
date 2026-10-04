@@ -205,10 +205,17 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         try:
             resolver_human.respond_operational(candidate, args.resolver_request, args.resolver_token,
                                                args.resolver_response, args.resolver_message)
-            resolver_human.review_operational_response(candidate)
         except ValueError as error:
-            print(f'Input rejected: {error}', file=sys.stderr)
-            return 2
+            # A saved-state change after display strands the shown token; the
+            # operator's decision still applies to the identical pending
+            # request, re-bound to the current state in this same invocation.
+            fresh = resolver_human.rebind_stale(candidate, args.resolver_request, args.resolver_token)
+            if fresh is None:
+                print(f'Input rejected: {error}', file=sys.stderr)
+                return 2
+            resolver_human.respond_operational(candidate, fresh['request_id'], fresh['request_token'],
+                                               args.resolver_response, args.resolver_message)
+        resolver_human.review_operational_response(candidate)
         runner.commit_user_action(state, candidate, run_dir)
         print('AutoResolver received the response. Work, approvals and budgets remain unchanged; no provider launched.')
         return 0
@@ -378,7 +385,15 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             if args.answer or args.delegate:
                 if not published or not args.resolver_token:
                     raise ValueError('Answers require the current --resolver-token shown by AutoResolver')
-                resolver_human.require_response(candidate, published['request_id'], args.resolver_token)
+                try:
+                    resolver_human.require_response(candidate, published['request_id'], args.resolver_token)
+                except ValueError:
+                    # A saved-state change after display strands the shown token;
+                    # the operator still answered this exact request content.
+                    fresh = resolver_human.rebind_stale(candidate, None, args.resolver_token)
+                    if fresh is None:
+                        raise
+                    published = fresh
                 if published['scope'] in ('blocker', 'operational_exhaustion'):
                     raise ValueError('Use --resolver-response for this operational request; it is not a requirements answer')
             if args.approve_goal and (not published or published['scope'] != 'goal_approval'):

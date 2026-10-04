@@ -481,8 +481,12 @@ checkpoint. It never replays that timed-out request. Each automatic recovery con
 the existing no-progress budget. Consecutive timeouts without an accepted stage also
 pause at that configured limit for every role, including the Plan Reviewer and Tester.
 A successful stage resets the consecutive-timeout counter. A separate ceiling of
-three automatic recoveries covers timeouts and external-directory denials. Accepted
-intermediate reports and milestone-budget extensions do not reset this ceiling.
+three automatic recoveries covers timeouts and provider-capacity failures. External-directory
+denials have their own accounting instead: a denial retry never consumes the
+timeout-recovery budget, repeats of the same denied operation hold after one
+workspace-only retry, and distinct denials hold at their own ceiling of three
+recoveries without an accepted stage. Accepted
+intermediate reports and milestone-budget extensions do not reset these ceilings.
 Inspect the saved cause and adjust limits as needed; explicit `--resume-paused`
 acknowledges `PAUSED_TIMEOUT_RECOVERY` and resets recovery counters while retaining
 history. Setting `--no-progress-limit 0` disables the unchanged-batch limit, but
