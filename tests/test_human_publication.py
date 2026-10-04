@@ -145,7 +145,7 @@ class HumanPublicationTests(unittest.TestCase):
             run_dir=self.state['run_dir'], expected_goal_token=None, conversation_handoff=None,
             answer=None, delegate=None, approve_goal=None, edit_goal=None, approve_review=None,
             reconcile_review=None, feedback=None, follow_up=None, show_goal=None,
-            accept_completion=None, resolver_response=None, planning_review_call_limit=None,
+            accept_completion=None, resolver_response=None, planning_review_call_limit=None, close_finding=None,
             resume_paused=False, retry_builder=False, retry_failed_stage=False, retry_report=False,
             abandon_stage='001/terra-01', grant_recovery=None, diagnose_failed_stage=False)
         fake_runner = Mock()
