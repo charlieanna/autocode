@@ -285,7 +285,11 @@ class ProviderEnvPrepTests(unittest.TestCase):
         for key in settings["config_hashes"]:
             self.assertFalse(key.startswith(str(decoy_config)), key)
             self.assertFalse(key.startswith(str(decoy_home)), key)
-        self.assertEqual(1, len([value for value in settings["config_hashes"].values() if value is not None]))
+        hook = Path(oc.__file__).with_name("opencode_activity.mjs").resolve()
+        self.assertEqual(
+            {str(config): hashlib.sha256(config.read_bytes()).hexdigest(),
+             str(hook): hashlib.sha256(hook.read_bytes()).hexdigest()},
+            {path: value for path, value in settings["config_hashes"].items() if value is not None})
 
     def test_ac12_opencode_env_variables_resolve_from_mapping(self):
         decoy_root = self.root / "decoy-root"

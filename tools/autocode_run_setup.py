@@ -220,6 +220,23 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
                 if resolver_human.supersede_operational(state,
                         'User delegated this finite harness limit to bounded AutoResolver recovery'):
                     state['_authorized_bound_change'] = {'pause_status': pause_status, 'at': runner.now()}
+    # A response can consume the request before a time-limit change is applied.
+    # Reasserting that saved limit is also explicit authority, but only with headroom.
+    time_limit = settings.get('limits', {}).get('max_seconds')
+    if (args.resume_paused and 'max_seconds' in args._explicit_budget_flags
+            and time_limit is not None
+            and (time_limit == 0 or state.get('active_seconds', 0) < time_limit)):
+        published = resolver_human.current(state)
+        entry = state.get('resolver', {}).get('human_escalations', {}).get(
+            published['request_id'], {}) if published else {}
+        origin = entry.get('identity', {}).get('proposal', {}).get('origin', {})
+        time_pause = (published and published['scope'] == 'operational_exhaustion'
+                      and origin.get('pause_status') == 'PAUSED_TIME_LIMIT')
+        consumed_pause = (not state.get(resolver_human.PUBLIC) and not state.get(resolver_human.PRIVATE)
+                          and state.get('status') == 'PAUSED_TIME_LIMIT')
+        if ((time_pause and resolver_human.supersede_operational(state,
+                'Operator explicitly resumed with an available active-time limit')) or consumed_pause):
+            state['_authorized_bound_change'] = {'pause_status': 'PAUSED_TIME_LIMIT', 'at': runner.now()}
     if state.get("settings") and settings != state["settings"]:
         published = state.get(resolver_human.PUBLIC) or {}
         entry = state.get('resolver', {}).get('human_escalations', {}).get(published.get('request_id'), {})
@@ -245,13 +262,17 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             if settings.get('budget_origins', {}).get(kind) == 'resolver_delegated':
                 if resolver_human.supersede_operational(state, 'User delegated this finite harness limit to bounded AutoResolver recovery'):
                     state['_authorized_bound_change'] = {'pause_status': paused_for, 'at': runner.now()}
-        # Any other settings write changes the binding of the published operational request, and the
-        # writer boundary would rebuild the stranded request as a legacy blocker for AutoResolver to
-        # adjudicate with model calls: an unrelated --max-stage-seconds got past an exhausted time cap
-        # (#379). Return the run to the pause itself; the stage-boundary guards re-check every bound.
+        retain_time_pause = False
+        # Preserve actions that validate the operational request themselves. Other
+        # settings writes retire its stale binding without authorizing continuation.
         if (published.get('scope') == 'operational_exhaustion' and paused_for
-                and args.grant_recovery is None and not any(getattr(args, name, None) for name in OTHER_RECOVERY)):
-            resolver_human.supersede_operational(state, 'Settings changed without changing the exhausted bound')
+                and args.grant_recovery is None
+                and not any(getattr(args, name, None) for name in OTHER_RECOVERY)):
+            withdrawn = resolver_human.supersede_operational(
+                state, 'Settings changed without changing the exhausted bound')
+            retain_time_pause = (withdrawn and paused_for == 'PAUSED_TIME_LIMIT'
+                and 'max_seconds' not in args._explicit_budget_flags
+                and not state.get('_authorized_bound_change'))
         previous_settings = state["settings"]
         enabling_joint = settings.get("joint_planning") and not previous_settings.get("joint_planning")
         if enabling_joint:
@@ -276,6 +297,12 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         # A grant validates the original request before its writer publishes
         # the corrected settings. Normalizing here would replace that request
         # with a different resolver decision before the grant can be checked.
+        if retain_time_pause:
+            # Re-publish under the new settings. Merely leaving PAUSED_TIME_LIMIT here
+            # is insufficient: unrelated explicit budget flags bypass generic escalation.
+            runner.resolver_runtime.record_operational_exhaustion(runner, state, run_dir,
+                support.Paused('PAUSED_TIME_LIMIT',
+                    'Active-time pause retained; unrelated settings do not acknowledge it'))
         if args.grant_recovery is None:
             runner.write_json(state_path, state)
     state["settings"] = settings

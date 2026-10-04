@@ -143,7 +143,7 @@ def _binding(state, workspace, config, checks, worker=None):
     # Readiness reuse covers these observable bindings, not unobservable OS
     # permissions or remote services. Such probes must explicitly use reuse=false.
     runtime = {str(p.relative_to(Path(__file__).parent)): util.file_hash(p)
-               for p in Path(__file__).parent.rglob("*") if p.suffix in ('.py', '.cjs') and "__pycache__" not in p.parts}
+               for p in Path(__file__).parent.rglob("*") if p.suffix in ('.py', '.cjs', '.mjs') and "__pycache__" not in p.parts}
     packages = []
     # Installed dependency changes commonly leave project Git content untouched.
     for lib in sorted({Path(workspace) / ".venv/lib", Path(workspace) / "venv/lib", Path(python).parent.parent / "lib"}):
