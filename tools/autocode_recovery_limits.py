@@ -6,8 +6,21 @@ except ImportError:
     from autocode_util import snapshot
     from autocode_permission_recovery import hold_message
 
+GRANT_ADVICE = (
+    "After fixing the cause, authorize more recoveries explicitly with "
+    "--resume-paused --grant-recovery N.")
+INFORM_ADVICE = (
+    "After fixing the cause, send the AutoResolver request corrective information "
+    "with --resolver-request ID --resolver-token TOKEN --resolver-response "
+    "provide_information --resolver-message TEXT, then --resume-paused.")
 
-def stop_reason(state, count, maximum):
+
+def advice(*, allow_grant):
+    """The recovery-exhaustion next step. Never names a command the CLI will refuse."""
+    return GRANT_ADVICE if allow_grant else INFORM_ADVICE
+
+
+def stop_reason(state, count, maximum, *, allow_grant=True):
     context = state.get("recovery_context") or {}
     if (context.get("denied_operation") and context.get("repeat_count", 0) >= 2
             and snapshot(state["workspace"])["revision"] == context.get("source_revision")):
@@ -19,6 +32,5 @@ def stop_reason(state, count, maximum):
         return "PAUSED_TIMEOUT_RECOVERY", (
             f"Automatic recovery budget exhausted; no further provider will launch. Last cause: {cause}. "
             "AutoResolver retained the diagnosis and failure history; this is an operational "
-            "stop, not a request for approval. After fixing the cause, authorize more recoveries "
-            "explicitly with --resume-paused --grant-recovery N.")
+            f"stop, not a request for approval. {advice(allow_grant=allow_grant)}")
     return None
