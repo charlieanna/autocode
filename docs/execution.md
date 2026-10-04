@@ -489,7 +489,13 @@ first.
 
 An execution report whose two read-only repairs are exhausted can be retried with
 `--resume-paused`. Autocode archives the rejected reports and starts a fresh role
-session; it does not replay implementation or planning. A transport-change pause
+session; it does not replay implementation or planning. When the source changes
+while a run is paused (an operator edit), a queued report repair can no longer
+run: `--resume-paused` archives it, evidence intact, and starts a fresh attempt
+of the same stage on the current source. A finished read-only response that was
+never applied stays paused instead, and its message names the `--abandon-stage`
+step. `--accept-completion` refuses a validation of another source, goal
+revision or task and says so; resume to re-validate first. A transport-change pause
 can be resumed with `--resume-paused --accept-transport-change` after Autocode checks
 that the current OpenCode models and subscription routes are available.
 
