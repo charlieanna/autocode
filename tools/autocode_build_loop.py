@@ -21,6 +21,7 @@ try:
     from . import autocode_regression as regression, autocode_provider_recovery as provider_recovery
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_support as support
+    from .units import common
     from . import autocode_workflow as workflow
     from . import autocode_workflows as workflows
 except ImportError:
@@ -35,6 +36,7 @@ except ImportError:
     import autocode_regression as regression, autocode_provider_recovery as provider_recovery
     import autocode_resolver_runtime as resolver_runtime
     import autocode_support as support
+    from units import common
     import autocode_workflow as workflow
     import autocode_workflows as workflows
 
@@ -138,7 +140,7 @@ def run(runner, args, state, state_path, run_dir, workspace):
         schema_path = run_dir / "schemas" / f"v3-{stage}.json"
         runner.write_json(schema_path, support.model_output_schema(schema_value))
         try:
-            value, record = runner.run_role(role=role, prompt=prompt, sandbox="workspace-write" if request.allow_write else "read-only",
+            value, record = runner.run_role(role=role, prompt=prompt, sandbox=common.launch_sandbox(stage, request.allow_write),
                 workspace=workspace, run_dir=run_dir, state=current,
                 schema=schema_path,
                 model=current["settings"]["roles"][route_role]["model"], allow_write=request.allow_write, dry_run=False)

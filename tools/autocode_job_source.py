@@ -132,6 +132,12 @@ def _replace(root, name, original, witnessed, blob):
 def restore(workspace, record):
     result = {'restored': [], 'deleted': [], 'unrestored': []}
     capture = record.get('job_source') or {}
+    if not capture and not (record.get('changed_files') or []):
+        # The attempt crashed before capturing its source binding but also
+        # reported no source changes (e.g. a provider exit during a diagnosis
+        # stage): there is nothing of the attempt's to restore, and the retry
+        # gate anchors on the recorded live-workspace identity instead.
+        return result
     try:
         manifest = _bound(capture.get('capture'), capture.get('capture_hash'))
         witness = _bound(capture.get('witness'), capture.get('witness_hash'))
