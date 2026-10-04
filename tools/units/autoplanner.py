@@ -952,7 +952,16 @@ def repair_rules(stage, schema):
     fields = schema.get("properties", {})
     if stage not in TRACE_STAGES or "contract" not in fields:
         return ""
+    contract_fields = ((fields.get("contract") or {}).get("properties") or {})
+    # A format repair must still produce a complete initial_task when the saved
+    # schema requires it. Without this marker the repair can omit the task and
+    # schema-completion invents empty requirements, which assign_task rejects
+    # (#341-adversarial: truncated astra_discovery repair).
+    initial_task_rule = (adaptive.PLANNER_RULE
+                         if "initial_task" in contract_fields or "initial_task" in
+                         ((fields.get("contract") or {}).get("required") or []) else "")
     return (REVISION_CONFLICT_RULE
+            + initial_task_rule
             + (RESPONSE_EVIDENCE_RULE if "responses" in fields else "")
             + (PROGRESSIVE_POLICY if "progressive_proposal" in fields else ""))
 

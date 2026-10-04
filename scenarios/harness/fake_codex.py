@@ -673,7 +673,9 @@ def report_for(stage: str, data: dict) -> dict:
                 "proposed_assumptions": [], "open_questions": [], "requirements": requirements(),
                 "ignored_statements": [], "conflicts": [], "proposed_reframes": []}
     # An adaptive-planning Planner drafts the complete plan, initial_task included.
-    adaptive = "ADAPTIVE PLANNING" in PROMPT
+    # Report repairs must keep the same contract shape as the original attempt,
+    # including a complete initial_task when the schema requires one.
+    adaptive = "ADAPTIVE PLANNING" in PROMPT or bool(data.get("report_repair"))
     if stage == "astra_discovery":
         report = {"summary": "Scripted plan", "contract": contract(final=adaptive), "alternatives": [],
                   "uncertainties": [], **planning}

@@ -231,3 +231,14 @@ class DecisionRepairContextTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlanningRepairKeepsInitialTask(unittest.TestCase):
+    def test_discovery_repair_rules_repeat_the_initial_task_requirement(self):
+        from units import autoplanner
+        schema = {"properties": {"contract": {"properties": {"initial_task": {}}, "required": ["initial_task"]}}}
+        rules = autoplanner.repair_rules("astra_discovery", schema)
+        self.assertIn("ADAPTIVE PLANNING", rules)
+        self.assertIn("initial_task", rules)
+        # Stages without a contract keep no planning rules.
+        self.assertEqual("", autoplanner.repair_rules("terra", {"properties": {}}))
