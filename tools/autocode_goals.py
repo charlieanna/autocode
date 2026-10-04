@@ -844,7 +844,8 @@ def render_completion(state):
                   "    " + ", ".join(results[criterion["id"]]["evidence_refs"])]
     flow = validation.get("end_to_end_result")
     if flow:
-        lines += ["", f"End-to-end flow: {flow['status']} — {flow['summary']}",
+        status = flow["status"] if flow["status"] == "PASS" else "completed by your review"
+        lines += ["", f"End-to-end flow: {status} — {flow['summary']}",
                   "  " + ", ".join(flow["evidence_refs"])]
     lines += ["", "Validation report: " + validation["output"]]
     for limitation in state["final_decision"].get("agreed_limitations", []):
@@ -995,6 +996,8 @@ def human_only_pending_validation(state, validation, criterion):
     Any number of human-review criteria may be pending together, provided
     every technical criterion passes with evidence and the pending set is
     exactly the human set (a single pending criterion remains the common case).
+    The overall verdict may be BLOCKED or PASS: live GLM 5.3 Validators report
+    PASS for a technically complete task whose only gap is human acceptance (#195).
     """
     criteria = state["goal_contract"]["body"]["acceptance_criteria"]
     human = {row["id"] for row in criteria if row["human_review"]}
@@ -1004,12 +1007,24 @@ def human_only_pending_validation(state, validation, criterion):
                    for entry in validation.get("unverified_criteria", [])}
     if (criterion not in human or not human
             or set(results) != {row["id"] for row in criteria} or len(rows) != len(criteria)
-            or validation.get("verdict") != "BLOCKED" or not pending_ids or pending_ids != human
-            or validation.get("findings") or validation.get("end_to_end_result", {}).get("status") != "PASS"):
+            or validation.get("verdict") not in ("BLOCKED", "PASS") or not pending_ids or pending_ids != human
+            or validation.get("findings") or not flow_awaits_only(validation.get("end_to_end_result", {}), human)):
         return False
     return all(row.get("evidence_refs") and
                row.get("status") == ("NOT_VERIFIED" if cid in human else "PASS")
                for cid, row in results.items())
+
+
+def flow_awaits_only(flow, human):
+    """The flow passed, or its executed steps have evidence and it names the human gate as what is left.
+
+    An approved flow that ends in a person's approval is correctly NOT_VERIFIED before that approval
+    (#195). Naming every pending criterion as a whole token keeps an unexecuted technical step from
+    reading as a review gap."""
+    if flow.get("status") == "PASS":
+        return True
+    return (flow.get("status") == "NOT_VERIFIED" and bool(flow.get("evidence_refs")) and all(
+        re.search(r"(?<![\w-])" + re.escape(cid) + r"(?![\w-])", flow.get("summary", "")) for cid in human))
 
 
 def approve_review(state, criterion, selected, current):
