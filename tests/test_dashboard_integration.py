@@ -1,5 +1,7 @@
 """Interaction regressions for inboxes with existing planning/report recovery."""
 import copy
+import json
+import os
 import unittest
 from unittest.mock import patch
 from . import test_report_repair as repair_fixtures
@@ -51,13 +53,18 @@ class DashboardIntegrationTests(unittest.TestCase):
         def complete(state, stage, value, record, workspace, run):
             state.update(status='TASK_COMPLETE', next_stage=None, completed_at='fixture')
             runner.save_record(state, record)
-        repair = {'stage':'astra_review_report_repair','events':'repair-events','output':'repair-output'}
+        value = {'summary': 'Repaired completion'}
+        repair = fixture.stage_record(stage='astra_review_report_repair', report=json.dumps(value))
         with patch.object(runner, 'apply_result', side_effect=complete), patch.object(runner, 'write_json', side_effect=observe):
-            runner.accept_repaired_report(fixture.state, fixture.run, fixture.root, {}, repair)
+            runner.accept_repaired_report(fixture.state, fixture.run, fixture.root, value, repair)
         self.assertTrue(writes)
         self.assertNotIn('TASK_COMPLETE', writes)
         self.assertEqual('PAUSED_INTERVENTION', fixture.state['status'])
-        self.assertEqual('accepted', fixture.state['report_repair_history'][-1]['result'])
+        receipt = fixture.state['report_repair_history'][-1]
+        self.assertEqual('accepted', receipt['result'])
+        self.assertEqual(repair['output'], receipt['repair']['output'])
+        self.assertEqual(support.file_hash(repair['output']), receipt['output_hash'])
+        self.assertEqual(receipt, support.read(fixture.run/'state.json')['report_repair_history'][-1])
         self.assertEqual('astra_review_report_repair', fixture.state['stages'][-1]['stage'])
 
     def test_denied_planning_admission_does_not_spend_an_astra_call(self):
@@ -69,14 +76,16 @@ class DashboardIntegrationTests(unittest.TestCase):
         runner.planning.start(fixture.state)
         support.atomic_json(fixture.run/'state.json', fixture.state)
         snapshot = support.snapshot(fixture.root)
+        controller = runner.processes.process_table({os.getpid()})
         self.submit(fixture)
         with patch.object(support, 'snapshot', return_value=snapshot), \
-             patch.object(runner.processes, 'process_table', return_value={}), \
+             patch.object(runner.processes, 'process_table', return_value=controller) as table, \
              patch.object(runner.subprocess, 'Popen') as launch:
             with self.assertRaises(support.Paused):
                 runner.run_role(role='astra', prompt='Fixture only', sandbox='read-only', workspace=fixture.root,
                     run_dir=fixture.run, state=fixture.state, schema=runner.SCHEMA_DIR/'v2/astra-decision.schema.json',
                     model='fixture', allow_write=False, dry_run=False)
+        table.assert_called_once_with({os.getpid()})
         launch.assert_not_called()
         self.assertEqual(0, fixture.state['planning']['astra_calls'])
         self.assertNotIn('active_stage', fixture.state)

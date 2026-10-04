@@ -257,14 +257,28 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(0, attached['limits']['idle_timeout_seconds'])
         self.assertEqual(0, attached['limits']['stage_timeout_seconds'])
 
-    def test_profile_rejects_mimo_without_changing_input_and_keeps_explicit_budget(self):
-        settings = {'engine': 'opencode', 'provider': 'opencode', 'roles': {}, 'limits': {'max_seconds': 45}}
-        before = deepcopy(settings)
-        with self.assertRaisesRegex(ValueError, 'must use'):
-            routes.configure_runner_profile(settings, SimpleNamespace(terra_model='xiaomi-token-plan-sgp/mimo-v2.6-pro'))
-        self.assertEqual(before, settings)
-        routes.configure_runner_profile(settings, SimpleNamespace(max_seconds=45))
-        self.assertEqual(45, settings['limits']['max_seconds'])
+    def test_profile_preserves_explicit_model_effort_retry_and_budget(self):
+        for model in ('mimo-token-plan/mimo-v2.6-pro', 'xiaomi-token-plan-sgp/mimo-v2.6-flash',
+                      'opencode/future-free', 'openai/gpt-6-astra'):
+            with self.subTest(model=model):
+                settings = {'engine': 'opencode', 'provider': 'opencode', 'roles': {}, 'limits': {'max_seconds': 45}}
+                routes.configure_runner_profile(settings, SimpleNamespace(
+                    terra_model=model, terra_reasoning_effort='medium', builder_strong_model=model, max_seconds=45))
+                self.assertEqual(model, settings['roles']['terra']['model'])
+                self.assertEqual('medium', settings['roles']['terra']['reasoning_effort'])
+                self.assertEqual(model, settings['builder_retry']['strong_model'])
+                self.assertEqual(45, settings['limits']['max_seconds'])
+
+    def test_conversation_and_visual_routes_preserve_any_explicit_model(self):
+        configured = deepcopy(routes.MANDATED_ROUTES)
+        configured['requirements_gatherer'].update(model='mimo-token-plan/mimo-v2.6-pro', reasoning_effort='medium')
+        configured['planner'].update(model='openai/gpt-6-astra', reasoning_effort='medium')
+        self.assertEqual(configured, routes.enforce_conversation_routes(configured))
+        visual = {'model': 'opencode/future-flash-free', 'reasoning_effort': 'low', 'engine': 'opencode'}
+        self.assertEqual(visual, routes.select_visual_review_route(visual))
+        configured['plan_reviewer']['model'] = configured['planner']['model']
+        with self.assertRaisesRegex(ValueError, 'must not grade'):
+            routes.enforce_conversation_routes(configured)
 
     def test_failed_profile_builder_retains_high_and_its_authorized_retry(self):
         state = {'settings': self.fresh('/fixture/handoff.json'), 'status': 'RUNNING',

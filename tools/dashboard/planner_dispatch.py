@@ -3,12 +3,9 @@
 Per the recorded Q2-PLANNER-TARGET answer this module is "the actual Planner":
 it reuses the runner Planner role configuration semantics and the M1 versioned
 structured-draft contract, runs deny-all tool-free Planner sessions with
-durable dispatch-observer records, and fails loudly rather than silently
-falling back to any non-mandated model.  Per the saved Q4-VISUAL-ROUTE-SCOPE
-answer, future visual review uses openai/gpt-6-astra at high reasoning,
-visual review only: the visual-only model is rejected for every nonvisual
-role and unsupported visual selections fail loudly with no fallback, while
-historical Flash receipts remain historical and no image-based visual PASS
+durable dispatch-observer records, and preserves configured model routes
+without silent fallback. Visual-review defaults are suggestions; selecting a
+model does not establish image-based visual evidence. No visual PASS
 is claimed here.  Architect approval gates stay in the runner;
 ``record_product_change`` is the frozen-contract backend control.
 """
@@ -196,11 +193,7 @@ def new_dispatch(*, logical_turn_id, requirements_revision, client_request_id, r
 
 def opencode_planner_provider(messages, route, workdir, *, dispatch_observer=None,
                               logical_turn_id=None, requirements_revision=None):
-    """Run one fresh, deny-all, tool-free Planner session on the mandated route.
-
-    The route is policy-checked up front so a misspelled or non-mandated route
-    fails loudly before any provider process exists; there is no fallback.
-    """
+    """Run a fresh tool-free Planner session on its validated configured route."""
     enforced = enforce_route_policy({'planner': route})['planner']
     try:
         from . import conversation_transport as chats

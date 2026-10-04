@@ -129,6 +129,26 @@ class OracleProcessTest(unittest.TestCase):
             with self.assertRaisesRegex(ProcessError, 'cleanup unverified'):
                 process.run(['unused'], TOOLS)
 
+    def test_cleanup_permission_error_fails_closed_without_publishing_a_partial_result(self):
+        # The retired killpg path swallowed EPERM (#311's interim fix). The
+        # supervisor signals birth-verified pids individually; a denied signal
+        # on a lingering same-group child is uncertain cleanup: the typed
+        # ProcessError reaches the caller, never a partial probe outcome.
+        from autocode_process import ProcessError
+        probe = ("import subprocess, sys; subprocess.Popen(['sleep', '5']); "
+                 "print('done'); sys.exit(7)")
+        with _project({}) as root, mock.patch.object(os, 'kill', side_effect=PermissionError('denied')):
+            with self.assertRaisesRegex(ProcessError, 'permission denied'):
+                scenarios._run([sys.executable, '-c', probe], Path(root))
+
+    def test_launch_permission_error_propagates(self):
+        with _project({}) as root:
+            denied = Path(root) / 'denied-probe'
+            denied.write_text('#!/bin/sh\ntrue\n')
+            denied.chmod(0)
+            with self.assertRaises(PermissionError):
+                scenarios._run([str(denied)], Path(root))
+
 
 class BugfixOracleTest(unittest.TestCase):
     def test_reference_passes_and_seed_alone_fails(self):
@@ -203,6 +223,18 @@ class FeatureOracleTest(unittest.TestCase):
 
 
 class ArchOracleTest(unittest.TestCase):
+    def test_reference_passes_and_injected_violation_fails(self):
+        for changes, expected in (({}, scenarios.PASS),
+                                  ({"architecture/check.py": "raise SystemExit(1)\n"}, scenarios.FAIL)):
+            with self.subTest(expected=expected), _project(_variant(references.ARCH_REFERENCE, changes)) as root:
+                result = scenarios.arch01_oracle(Path(root))
+                self.assertEqual(expected, result.status, result.summary)
+                if expected == scenarios.PASS:
+                    self.assertTrue(all(row["ok"] for row in result.checks))
+                else:
+                    self.assertIn("check.py.passes_on_candidate", [row["name"] for row in result.failed])
+                    self.assertIn("check.py.rejects_injected_violation", [row["name"] for row in result.failed])
+
     def test_relative_comma_and_nested_imports_fail_both_checkers(self):
         variants = [
             ("services/catalog/api.py", "from ..notifications import api as notifications\n"),

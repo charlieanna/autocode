@@ -18,6 +18,10 @@ classifiers = [
 ]
 dependencies = ["psutil>=7.0,<8"]
 
+[project.optional-dependencies]
+visual = ["Pillow>=11.3,<13"]
+visual-test = ["Pillow>=11.3,<13", "playwright>=1.56,<2"]
+
 [project.scripts]
 autopilot = "autocode_cli.autocode:cli"
 autocode = "autocode_cli.autocode:cli"

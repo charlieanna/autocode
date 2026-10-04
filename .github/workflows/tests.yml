@@ -42,7 +42,7 @@ jobs:
           agent-browser install --with-deps
 
       - name: Install package and runtime dependencies
-        run: python3 -m pip install -e .
+        run: python3 -m pip install -e '.[visual]'
 
       - name: Run the suite gate
         # tools/run_suite.py wraps the same discovery as
@@ -117,3 +117,20 @@ jobs:
             echo "node $test_file"
             node "$test_file" || exit 1
           done
+
+  visual-comparison:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install image and browser test dependencies
+        run: |
+          python3 -m pip install -e '.[visual-test]'
+          python3 -m playwright install --with-deps chromium
+      - name: Run real-browser visual comparison controls
+        run: python3 -m unittest tests.test_visual_check_browser -v
+        env:
+          AUTOCODE_REQUIRE_VISUAL_BROWSER: "1"
+          PYTHONDONTWRITEBYTECODE: "1"

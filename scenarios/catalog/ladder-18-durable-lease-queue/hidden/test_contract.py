@@ -34,11 +34,42 @@ class QueueContract(unittest.TestCase):
         self.assertEqual(len({row['token'] for row in rows}),8)
         self.assertEqual(self.q.pending(),8)
     def test_invalid_time_and_unknown_ack(self):
+        cases=((-1,2),(0,0),(0,-1),(True,2),(False,2),(0,True),(0,False),
+               (1.5,2),(0,1.5),('0',2),(0,'2'),(None,2),(0,None))
+        for index,(now,lease) in enumerate(cases):
+            with self.subTest(now=now,lease=lease):
+                path=Path(self.tmp.name)/f'claim-{index}'; q=LeaseQueue(path)
+                q.enqueue('a','A')
+                # The brief requires type rejection, not a particular exception convention.
+                errors=(TypeError,ValueError) if type(now) is not int or type(lease) is not int else ValueError
+                with self.assertRaises(errors): q.claim(now,lease)
+                reopened=LeaseQueue(path)
+                self.assertEqual(reopened.pending(),1)
+                item=reopened.claim(0,1)
+                self.assertIsNotNone(item)
+                self.assertEqual((item['id'],item['payload'],item['deadline']),('a','A',1))
+                self.assertTrue(reopened.ack('a',item['token'],0))
         self.q.enqueue('a','A')
-        for now,lease in ((-1,2),(True,2),(0,0),(0,True),(1.5,2)):
-            with self.assertRaises(ValueError): self.q.claim(now,lease)
         self.assertFalse(self.q.ack('missing','token',0))
         self.assertEqual(self.q.claim(0,1)['id'],'a')
+
+    def test_invalid_ack_time_preserves_lease(self):
+        self._invalid_finish_preserves_lease('ack')
+
+    def test_invalid_nack_time_preserves_lease(self):
+        self._invalid_finish_preserves_lease('nack')
+
+    def _invalid_finish_preserves_lease(self,method):
+        for index,now in enumerate((-1,True,False,1.5,'0',None)):
+            with self.subTest(method=method,now=now):
+                path=Path(self.tmp.name)/f'{method}-{index}'; q=LeaseQueue(path)
+                q.enqueue('a','A'); item=q.claim(0,10)
+                errors=ValueError if type(now) is int else (TypeError,ValueError)
+                with self.assertRaises(errors): getattr(q,method)('a',item['token'],now)
+                reopened=LeaseQueue(path)
+                self.assertEqual(reopened.pending(),1)
+                self.assertIsNone(reopened.claim(0,10))
+                self.assertTrue(reopened.ack('a',item['token'],0))
 
     def test_large_injected_times_and_deadlines_preserve_fencing(self):
         now=2**63-1

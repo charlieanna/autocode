@@ -52,6 +52,59 @@ class ProcessTests(unittest.TestCase):
                           side_effect=[PermissionError('sysctl table refresh'), [101]]):
             self.assertEqual([101], processes.process_ids())
 
+    def test_stage_preflight_inspects_controller_not_unrelated_processes(self):
+        import autocode as runner
+
+        class Prepared(RuntimeError):
+            pass
+
+        pid = os.getpid()
+        controller = MagicMock()
+        controller.create_time.return_value = 1790019574.123
+        controller._ident = (pid, 1790019574.123)
+        controller.ppid.return_value = os.getppid()
+        controller.status.return_value = 'running'
+        controller._proc.name.return_value = 'fixture-controller'
+
+        def inspect(selected):
+            self.assertEqual(pid, selected, 'Preflight must not inspect unrelated processes')
+            return controller
+
+        with patch.object(processes.psutil, 'pids', return_value=[pid, *range(pid + 1, pid + 4097)]) as pids, \
+             patch.object(processes.psutil, 'Process', side_effect=inspect) as metadata, \
+             patch.object(processes.os, 'getpgid', return_value=pid), \
+             patch.object(runner.artifacts, 'reserve', side_effect=Prepared('preflight passed')):
+            with self.assertRaisesRegex(Prepared, 'preflight passed'):
+                runner.run_role(role='requirements', prompt='Fixture', sandbox='read-only',
+                    workspace=Path('.'), run_dir=Path('.'), schema=Path('unused.json'), model=None,
+                    state={'iteration': 1, 'next_stage': 'recognize_workflow',
+                           'settings': {'roles': {'requirements': {}}}},
+                    allow_write=False, dry_run=False)
+        pids.assert_called_once_with()
+        metadata.assert_called_once_with(pid)
+
+    def test_preflight_enumeration_failure_stops_before_metadata_inspection(self):
+        with patch.object(processes.psutil, 'pids', side_effect=PermissionError('enumeration denied')) as pids, \
+             patch.object(processes.time, 'sleep'), \
+             patch.object(processes.psutil, 'Process') as metadata:
+            with self.assertRaisesRegex(processes.ProcessError, 'Cannot enumerate'):
+                processes.preflight()
+        self.assertEqual(3, pids.call_count)
+        metadata.assert_not_called()
+
+    def test_preflight_requires_accessible_controller_identity(self):
+        pid = os.getpid()
+        for error, message in ((processes.psutil.AccessDenied(pid), 'access denied'),
+                               (SystemError('identity unavailable'), 'SystemError'),
+                               (processes.psutil.NoSuchProcess(pid), 'controller')):
+            with self.subTest(error=type(error).__name__), \
+                 patch.object(processes.psutil, 'pids', return_value=[pid]) as pids, \
+                 patch.object(processes.psutil, 'Process', side_effect=error) as metadata:
+                with self.assertRaisesRegex(processes.ProcessError, message):
+                    processes.preflight()
+                pids.assert_called_once_with()
+                metadata.assert_called_once_with(pid)
+
     def test_native_process_table_uses_birth_identity_without_shell_commands(self):
         process = MagicMock()
         process.create_time.return_value = 1790019574.123
@@ -264,16 +317,17 @@ class ProcessTests(unittest.TestCase):
                 child.kill()
             child.wait(timeout=5)
 
-    def wait_ready(self, root, child):
+    def wait_ready(self, root, child, *, ready='ready', go='go'):
         deadline = time.monotonic() + 15
-        while not (root / 'ready').exists():
+        while not (root / ready).exists():
             if child.poll() is not None or time.monotonic() >= deadline:
-                self.fail('Provider fixture failed to initialize')
+                self.fail(f'Provider fixture failed to initialize: {ready}')
             time.sleep(.01)
-        (root / 'go').touch()
+        if go:
+            (root / go).touch()
 
     def activity_child(self, body, *, idle=.45, tool=1.5, total=None, sample=None, require_worker=False,
-                       startup_grace=0):
+                       startup_grace=0, tool_ready=False):
         """Run a real event-writing worker without making cleanup speed an assertion."""
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -284,22 +338,30 @@ class ProcessTests(unittest.TestCase):
                               "Path('ready').touch()\nwhile not Path('go').exists(): time.sleep(.01)\n" + body)
             snapshots = []
             owned = []
+
+            def checkpoint_activity(value):
+                snapshots.append(value.copy())
+                if tool_ready and value.get('active_tool_count', 0):
+                    (root / 'tool-observed').touch()
+
             with events.open('w') as stream:
                 child = subprocess.Popen([sys.executable, str(worker)], cwd=root, stdout=stream,
                                          start_new_session=True)
                 try:
                     self.wait_ready(root, child)
+                    if tool_ready:
+                        self.wait_ready(root, child, ready='tool-started', go=None)
                     monitor = ActivityMonitor(events, idle_seconds=idle, tool_seconds=tool)
                     if sample is None:
                         code, expired = processes.wait_for_stage(child, total,
                             lambda rows: owned.__setitem__(slice(None), rows), activity=monitor,
-                            activity_checkpoint=lambda value: snapshots.append(value.copy()),
+                            activity_checkpoint=checkpoint_activity,
                             startup_grace=startup_grace)
                     else:
                         with patch.object(processes.ProcessTree, 'sample', sample(child)):
                             code, expired = processes.wait_for_stage(child, total,
                                 lambda rows: owned.__setitem__(slice(None), rows), activity=monitor,
-                                activity_checkpoint=lambda value: snapshots.append(value.copy()),
+                                activity_checkpoint=checkpoint_activity,
                                 startup_grace=startup_grace)
                     self.assertEqual([], processes.live_processes(owned))
                     self.assertFalse((root / 'late-write').exists())
@@ -326,10 +388,12 @@ class ProcessTests(unittest.TestCase):
 
     def test_quiet_running_tool_has_its_own_deadline(self):
         body = """emit({'type':'item.started','item':{'id':'test','type':'command_execution','command':'quiet tests','status':'in_progress'}})
+Path('tool-started').touch()
+while not Path('tool-observed').exists(): time.sleep(.01)
 time.sleep(.8)
 emit({'type':'item.completed','item':{'id':'test','type':'command_execution','command':'quiet tests','exit_code':0}})
 """
-        code, expired, snapshots, _ = self.activity_child(body, idle=2, tool=5)
+        code, expired, snapshots, _ = self.activity_child(body, idle=2, tool=5, tool_ready=True)
         self.assertEqual(0, code)
         self.assertFalse(expired)
         self.assertTrue(any(row.get('active_tool_count', 0) for row in snapshots))

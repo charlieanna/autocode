@@ -2,6 +2,7 @@
 import contextlib
 import copy
 import json
+import os
 from pathlib import Path
 import sys
 import threading
@@ -131,17 +132,33 @@ class InterventionOrderingTests(unittest.TestCase):
 
     def test_feedback_winning_admission_leaves_no_active_request_or_launch(self):
         snapshot = support.snapshot(self.workspace)
+        controller = runner.processes.process_table({os.getpid()})
         def submit_during_preparation(workspace):
             self.submit()
             return snapshot
-        with patch.object(runner.processes, 'process_table', return_value={}), \
+        with patch.object(runner.processes, 'process_table', return_value=controller) as table, \
              patch.object(support, 'snapshot', side_effect=submit_during_preparation), \
              patch.object(runner.subprocess, 'Popen') as launch:
             with self.assertRaisesRegex(support.Paused, 'Queued intervention'):
                 self.role()
+        table.assert_called_once_with({os.getpid()})
         launch.assert_not_called()
         self.assertNotIn('active_stage', self.state)
         self.assertNotIn('active_stage', support.read(self.run / 'state.json'))
+        self.assertEqual([], [p for p in (self.run / 'iterations').rglob('*') if p.is_file()])
+
+    def test_inaccessible_controller_stops_before_active_request_or_launch(self):
+        original = (self.run / 'state.json').read_bytes()
+        pid = os.getpid()
+        with patch.object(runner.processes.psutil, 'Process',
+                          side_effect=runner.processes.psutil.AccessDenied(pid)) as metadata, \
+             patch.object(runner.subprocess, 'Popen') as launch:
+            with self.assertRaisesRegex(runner.processes.ProcessError, 'access denied'):
+                self.role()
+        metadata.assert_called_once_with(pid)
+        launch.assert_not_called()
+        self.assertNotIn('active_stage', self.state)
+        self.assertEqual(original, (self.run / 'state.json').read_bytes())
         self.assertEqual([], [p for p in (self.run / 'iterations').rglob('*') if p.is_file()])
 
     def test_submission_after_admission_is_available_during_provider_wait(self):
@@ -170,12 +187,14 @@ class InterventionOrderingTests(unittest.TestCase):
             self.assertTrue(accepted.is_set(), 'Admission lock was held across provider execution')
             raise KeyboardInterrupt()
         snapshot = support.snapshot(self.workspace)
-        with patch.object(runner.processes, 'process_table', return_value={}), \
+        controller = runner.processes.process_table({os.getpid()})
+        with patch.object(runner.processes, 'process_table', return_value=controller) as table, \
              patch.object(support, 'snapshot', return_value=snapshot), \
              patch.object(runner.subprocess, 'Popen', side_effect=launch), \
              patch.object(runner.processes, 'wait_for_stage', side_effect=wait):
             with self.assertRaisesRegex(support.Paused, 'interrupted'):
                 self.role()
+        table.assert_called_once_with({os.getpid()})
         self.assertEqual(1, inbox.inspect(self.workspace, self.run)['pending_count'])
 
     def test_cli_goal_approval_cannot_commit_feedback_accepted_during_validation(self):

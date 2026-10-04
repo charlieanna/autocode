@@ -61,8 +61,19 @@ class ArtifactReviewCLITests(unittest.TestCase):
 
     def test_unexplained_flow_gap_is_not_offered_as_a_review(self):
         self.env.update(AUTOCODE_FIXTURE_MODE="human-pending",
+                        AUTOCODE_FIXTURE_LEGACY_FLOW_GAP="1",
                         AUTOCODE_FIXTURE_FLOW_AWAITS_REVIEW="One flow step was not executed")
         self.launch(["Build greeting", "--chat", "--max-iterations", "2"], 2, answers="CLI\nyes\n")
+        run, _ = self.saved()
+        status = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
+        self.assertFalse(status["view"]["done"])
+        self.assertNotEqual("review", status["view"]["needs"]["kind"])
+
+    def test_technical_flow_gap_naming_human_criterion_is_not_offered_as_review(self):
+        self.env.update(AUTOCODE_FIXTURE_MODE="human-pending", AUTOCODE_FIXTURE_TECHNICAL_FLOW_PENDING="1",
+                        AUTOCODE_FIXTURE_FLOW_AWAITS_REVIEW=
+                        "C1 human acceptance pending; installation and invocation were not executed")
+        self.launch(["Build greeting", "--chat", "--max-iterations", "1"], 2, answers="CLI\nyes\n")
         run, _ = self.saved()
         status = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
         self.assertFalse(status["view"]["done"])
@@ -160,7 +171,9 @@ class ArtifactReviewGateTests(unittest.TestCase):
 
     def awaiting_flow(self, summary="Both CLI flows checked; C1 human acceptance pending"):
         state, decision, current = self.fixture()
-        state["validation"]["end_to_end_result"].update(status="NOT_VERIFIED", summary=summary)
+        state["validation"]["end_to_end_result"].update(status="NOT_VERIFIED", summary=summary,
+            technical_result={"status": "PASS", "summary": "Both CLI flows executed", "evidence_refs": ["event:check"]},
+            pending_human_criteria=["C1"])
         return state, decision, current
 
     def test_flow_awaiting_only_human_acceptance_is_presented_and_completes_only_after_approval(self):
@@ -186,12 +199,15 @@ class ArtifactReviewGateTests(unittest.TestCase):
         state["validation"]["end_to_end_result"]["evidence_refs"] = []
         self.assertFalse(completion.completion_ready(state, complete, current))
 
-    def test_flow_gap_that_does_not_name_every_pending_human_criterion_is_not_a_review(self):
+    def test_legacy_flow_prose_does_not_establish_a_human_only_gap(self):
         for label, summary in {"unexplained": "One flow step was not executed",
                                "longer ID": "Awaiting C10 acceptance", "prefixed ID": "Awaiting XC1 acceptance",
+                               "mixed gap": "C1 human acceptance pending; installation was not executed",
                                "empty": ""}.items():
             with self.subTest(label=label):
                 state, decision, current = self.awaiting_flow(summary)
+                state["validation"]["end_to_end_result"].pop("technical_result")
+                state["validation"]["end_to_end_result"].pop("pending_human_criteria")
                 self.assertIsNone(completion.artifact_review_request(state, decision, current))
         state, decision, current = self.awaiting_flow()
         state["validation"]["end_to_end_result"]["evidence_refs"] = []
@@ -202,3 +218,51 @@ class ArtifactReviewGateTests(unittest.TestCase):
         state, decision, current = self.awaiting_flow()
         state["validation"]["verdict"] = "FAIL"
         self.assertIsNone(completion.artifact_review_request(state, decision, current))
+
+    def test_technical_flow_gap_cannot_be_presented_approved_or_completed(self):
+        state, decision, current = self.awaiting_flow()
+        flow = state["validation"]["end_to_end_result"]
+        flow["technical_result"].update(status="NOT_VERIFIED", summary="Installation was not executed")
+        for verdict in ("PASS", "BLOCKED"):
+            with self.subTest(verdict=verdict):
+                state["validation"]["verdict"] = verdict
+                self.assertIsNone(completion.artifact_review_request(state, decision, current))
+                complete = {**decision, "status": "TASK_COMPLETE", "acceptance_criteria": [
+                    {**row, "status": "verified"} for row in decision["acceptance_criteria"]]}
+                self.assertFalse(completion.completion_ready(state, complete, current, require_human_reviews=False))
+                state["displayed_review"] = goals.review_token(state)
+                with self.assertRaisesRegex(ValueError, "current validated artifact"):
+                    goals.approve_review(state, "C1", goals.review_token(state), current)
+
+
+class HumanFlowProofTests(unittest.TestCase):
+    def flow(self):
+        return {"status": "NOT_VERIFIED", "summary": "Waiting for acceptance", "evidence_refs": ["event:check"],
+                "technical_result": {"status": "PASS", "summary": "All technical flow steps executed",
+                                     "evidence_refs": ["event:check"]},
+                "pending_human_criteria": ["C1", "C2"]}
+
+    def test_technical_proof_and_exact_pending_set_are_required(self):
+        flow = self.flow()
+        self.assertTrue(goals.flow_awaits_only(flow, {"C1", "C2"}))
+        for pending in ([], ["C1"], ["C1", "C1"], ["C1", "C20"], ["C1", "XC2"], ["C1", "C2", "C3"]):
+            with self.subTest(pending=pending):
+                flow["pending_human_criteria"] = pending
+                self.assertFalse(goals.flow_awaits_only(flow, {"C1", "C2"}))
+        for proof in (None, {}, {"status": "FAIL"}, {"status": "NOT_VERIFIED"},
+                      {"status": "PASS", "summary": "Claim only", "evidence_refs": []},
+                      {"status": "PASS", "summary": "", "evidence_refs": ["event:check"]}):
+            with self.subTest(proof=proof):
+                flow = self.flow()
+                flow["technical_result"] = proof
+                self.assertFalse(goals.flow_awaits_only(flow, {"C1", "C2"}))
+
+    def test_pass_flows_cannot_hide_conflicting_structured_results(self):
+        flow = {"status": "PASS", "summary": "Executed flow", "evidence_refs": ["event:check"]}
+        self.assertTrue(goals.flow_awaits_only(flow, set()))
+        for status in ("FAIL", "NOT_VERIFIED"):
+            with self.subTest(status=status):
+                flow["technical_result"] = {"status": status, "summary": "Incomplete step", "evidence_refs": ["event:check"]}
+                self.assertFalse(goals.flow_awaits_only(flow, set()))
+        flow.update(technical_result=None, pending_human_criteria=["C1"])
+        self.assertFalse(goals.flow_awaits_only(flow, {"C1"}))

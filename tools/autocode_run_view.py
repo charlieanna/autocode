@@ -65,6 +65,21 @@ def view(state: dict) -> dict:
         # Runner-owned assignment provenance, never a model diagnosis or completion proof.
         "direct_rework_assignments": deepcopy(state.get("direct_rework_assignments", [])),
     }
+    contract = state.get("goal_contract") or {}
+    if isinstance(contract, dict) and isinstance(contract.get("body"), dict):
+        try:
+            if (type(contract.get("revision")) is int and contract["revision"] > 0
+                    and state.get("displayed_goal") == contract_identity.token(contract)
+                    and contract_identity.sealed(contract)):
+                # Approval consumers need actual fields, not model-authored display text.
+                result["displayed_plan"] = {
+                    "revision": contract["revision"], "hash": contract["hash"],
+                    "token": state["displayed_goal"],
+                    **{key: deepcopy(contract["body"].get(key)) for key in
+                       ("acceptance_criteria", "constraints", "permission_boundaries")},
+                }
+        except (KeyError, TypeError, ValueError):
+            pass  # Missing, stale or unsealed plans cannot supply approval authority.
     design = design_coverage.projection(state)
     if design is not None:
         result["design"] = design
@@ -167,7 +182,15 @@ def evidence(state: dict) -> dict:
 
     outcome           the approved contract's intended outcome, or None
     base_commit       the revision the run started from
-    acceptance        one row per criterion: its latest recorded outcome and evidence
+    acceptance        one row per criterion: its latest recorded outcome and evidence;
+                      validator_status is the latest saved validation's result for that
+                      criterion (FAIL, PASS or NOT_VERIFIED), None when that validation
+                      has no row — a failed criterion must be distinguishable from an
+                      unchecked one
+    validator_source_revision  the source revision that validation checked, or None.
+                      The view does not read the workspace: after rework, validator_status
+                      still reports that validation until a newer one replaces it. Compare
+                      this revision to the workspace before treating the status as current.
     findings          the findings ledger: id, status, severity, finding
     regression_proof  for bug fixes, the runner's own fail-before/pass-after proof, else None;
                       case_tests maps each English test case to the tests that prove it
@@ -181,15 +204,19 @@ def evidence(state: dict) -> dict:
     report = decision.get("report") if isinstance(decision.get("report"), dict) else decision
     outcomes = {row.get("id"): row for row in report.get("acceptance_criteria") or [] if isinstance(row, dict)}
     reviewed = state.get("human_reviews") if isinstance(state.get("human_reviews"), dict) else {}
+    validation = state.get("validation") if isinstance(state.get("validation"), dict) else {}
+    validated = {row.get("id"): row.get("status") for row in validation.get("criterion_results") or []
+                 if isinstance(row, dict)}
     acceptance = []
     for item in criteria:
         item = item if isinstance(item, dict) else {"criterion": str(item)}
         outcome = outcomes.get(item.get("id")) or {}
         acceptance.append({"id": item.get("id"), "criterion": item.get("criterion") or item.get("text"),
                            "status": outcome.get("status"), "evidence": outcome.get("evidence"),
+                           "validator_status": validated.get(item.get("id")),
                            "human_reviewed": item.get("id") in reviewed})
     proof = state.get("regression_proof")
-    replay = (state.get("validation") or {}).get("check_replay") if isinstance(state.get("validation"), dict) else None
+    replay = validation.get("check_replay")
     investigation = state.get("investigation") if isinstance(state.get("investigation"), dict) else {}
     return {
         "outcome": contract.get("intended_outcome"),
@@ -197,6 +224,7 @@ def evidence(state: dict) -> dict:
         **({"protected_tests": deepcopy(state["settings"]["protected_tests"])}
            if state.get("settings", {}).get("protected_tests") else {}),
         "acceptance": acceptance,
+        "validator_source_revision": validation.get("source_revision"),
         "findings": [{key: row.get(key) for key in ("id", "status", "severity", "finding")}
                      for row in state.get("findings_ledger") or [] if isinstance(row, dict)],
         "regression_proof": {key: proof.get(key) for key in

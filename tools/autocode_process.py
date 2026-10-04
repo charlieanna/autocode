@@ -77,6 +77,14 @@ def process_table(pids=None):
     return table
 
 
+def preflight():
+    """Check enumeration and native metadata without inspecting unrelated PIDs."""
+    process_ids()
+    pid = os.getpid()
+    if pid not in process_table({pid}):
+        raise ProcessError("Cannot inspect controller process; refusing an unsafe provider launch")
+
+
 def identity(row):
     return {key: row[key] for key in ("pid", "started", "group", "birth_time", "birth_identity") if key in row}
 
@@ -229,6 +237,11 @@ class ProcessTree:
                 os.kill(row["pid"], sig)
             except ProcessLookupError:
                 pass
+            except PermissionError as error:
+                # A denied signal on a birth-verified owned process leaves cleanup
+                # uncertain; fail closed with the typed error so no partial outcome
+                # is published. The retired killpg path swallowed this class.
+                raise ProcessError(f"Cannot signal owned process {row['pid']}: permission denied") from error
 
     def stop(self, child):
         # Freeze the verified tree before termination. Always resume anything

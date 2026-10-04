@@ -80,6 +80,22 @@ Exit codes and verdicts follow [testing](testing.md#live-trial-results):
 `--authorize-deployment` flag is required to schedule deployment workstreams;
 `PROGRAM-01` generates descriptors as ordinary code and does not need that flag.
 
+## When a scenario counts as reliably passing
+
+The live qualification rule (#110, as practised): a rung passes only with
+**3 fresh live PASS runs in a row on one profile, with zero `FALSE_COMPLETE`**,
+each judged by that scenario's own oracle. Fresh means every run starts from a
+clean checkout with no reused workspace or run state. A rung passes on any one
+profile, and the profile that passed is recorded (for example `glm53-openai`,
+`default`, `claude-tiers`). Fake runs (`--fake`) are used on every change;
+live runs are spent only at qualification rungs and need explicit spend
+authorization.
+
+The FX04 frozen-reference fixture for LIVE-04's 7-state × 3-viewport matrix
+was not created. That matrix is owned by the Figma design-coverage track
+(#250 coverage manifests, #251 rendered comparison, #297 deterministic PNG
+comparison); `tests/test_catalogue_t12.py` records the remaining gap.
+
 ## Limits, stated plainly
 
 - All five task types were attempted on 2026-09-26 with the `glm53-mimo` profile.

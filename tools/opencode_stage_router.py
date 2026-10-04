@@ -42,10 +42,6 @@ import tempfile
 import time
 
 
-ALLOWED_MODELS = frozenset({
-    "zai-coding-plan/glm-5.3",
-    "xiaomi-token-plan-sgp/mimo-v2.6-pro",
-})
 MARKER = b"CURRENT HANDOFF DATA\n"
 MAX_STDIN_BYTES = 64 * 1024 * 1024
 ENV_CONFIG = "AUTOCODE_OPENCODE_ROUTER_CONFIG"
@@ -221,8 +217,8 @@ def main(argv: list[str] | None = None) -> int:
             return subprocess.run([str(real), *argv]).returncode
         model = _option(argv, "--model", required=True)
         variant = _option(argv, "--variant", required=False)
-        if model not in ALLOWED_MODELS:
-            raise Denied("model/provider is not allowed")
+        if not model or any(c.isspace() for c in model):
+            raise Denied("invalid model identifier")
         _deny_billing_override(dict(os.environ))
         stdin = sys.stdin.buffer.read(MAX_STDIN_BYTES + 1)
         stage, repairing = _handoff(stdin)

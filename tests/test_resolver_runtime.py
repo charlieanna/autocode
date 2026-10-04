@@ -566,7 +566,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
 
     @contextmanager
     def provider(self, *, value=None, timeout=False, uncertain=False):
-        """Exercise real run_role, mocking only provider process creation/wait."""
+        """Exercise real run_role with fake process preflight, creation and wait."""
         value = value if value is not None else {
             'diagnosis': 'The summary field was omitted.',
             'recommendation': {'action': 'retry', 'rationale': 'Include a nonempty summary field.',
@@ -593,7 +593,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
             return SimpleNamespace(pid=99999999)
 
         with patch.object(runner.subprocess, 'Popen', side_effect=launch), \
-             patch.object(runner.processes, 'process_table', return_value={}), \
+             patch.object(runner.processes, 'preflight', return_value=None), \
              patch.object(runner.processes, 'wait_for_stage', return_value=(-15, True) if timeout else (0, False)):
             yield launches
 

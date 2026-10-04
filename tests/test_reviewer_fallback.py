@@ -91,6 +91,18 @@ class ReviewerFallbackTests(unittest.TestCase):
         self.assertEqual(calls, self.state["planning"]["astra_calls"])
         self.assertEqual(accounting, {key: self.state[key] for key in accounting})
 
+    def test_fallback_accepts_any_already_configured_independent_model(self):
+        for model in ('mimo-token-plan/mimo-v2.6-pro', 'opencode/mimo-v2.6-flash-free', 'new-plan/future-model'):
+            with self.subTest(model=model):
+                state = copy.deepcopy(self.state)
+                state['settings']['roles']['sol']['model'] = model
+                current = 'openai/gpt-6-sol'
+                state['settings']['roles']['plan_reviewer']['model'] = current
+                for record in state['stages']:
+                    record['launch_route']['model'] = current
+                grant = fallback.reserve(state, self.run, self.root)
+                self.assertEqual(model, grant['binding']['selected_route']['model'])
+
     def test_explicit_pin_denies_without_mutation(self):
         self.state["settings"]["roles"]["plan_reviewer"]["model_pinned"] = True
         before = copy.deepcopy(self.state)

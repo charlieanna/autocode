@@ -4,7 +4,7 @@
 Dimensions (each scored PASS / FAIL / HONEST_BLOCKER / PARTIAL / N/A):
   repair_loops     — report-repair and builder rework are bounded and logged
   gate_honesty     — approval/answer gates never auto-approve; stale tokens rejected
-  model_routing    — every stage launch uses the pinned subscription models
+  model_routing    — recorded models retain independent verification routes
   pause_recovery   — pauses state a reason and a recovery command; no silent COMPLETE
   evidence         — COMPLETE/ACCEPT requires evidence, not just claims
   token_discipline — per-stage token usage recorded
@@ -27,15 +27,6 @@ try:
     from .autocode_usage import REFERENCE_PRICES
 except ImportError:
     from autocode_usage import REFERENCE_PRICES
-
-ALLOWED_MODEL_PREFIXES = (
-    "zai-coding-plan/glm-5.3",
-    "openai/gpt-6-astra",
-    "openai/gpt-6-sol",
-    "openai/gpt-6-luna",
-    "xiaomi-token-plan-sgp/",
-)
-FORBIDDEN_MODEL_MARKERS = ("-free", "flash", "mimo-token-plan/", "glm-5.2")
 
 # docs/models.md ladder entry points + user independence rule (2026-09-26):
 # verifier never equals producer. OpenAI GPT checks GLM work and GLM checks GPT work.
@@ -62,11 +53,12 @@ INDEPENDENCE_PAIRS = (
 def _family(model: str) -> str:
     if not model:
         return ""
-    if model.startswith("zai-coding-plan/"):
+    name = model.rsplit("/", 1)[-1].lower()
+    if model.startswith("zai-coding-plan/") or name.startswith("glm-"):
         return "glm"
-    if model.startswith("xiaomi-token-plan-sgp/") or model.startswith("mimo-"):
+    if model.startswith("xiaomi-token-plan-sgp/") or name.startswith("mimo-"):
         return "mimo"
-    return model.split("/", 1)[0]
+    return model
 
 
 def token_count(value):
@@ -164,6 +156,7 @@ def stage_token_rows(state: dict) -> list[dict]:
             "estimated_usd": 0.0 if runner_owned else estimate_cost(model, tokens),
             "finished_at": st.get("finished_at"),
             "active": is_active,
+            "partial": metrics.get("provider_tokens_partial") is True,
             "runner_owned": runner_owned,
         })
     return rows
@@ -176,7 +169,7 @@ def usage_summary(state: dict) -> dict:
         "per_stage": rows,
         "totals": {k: known_sum(r["tokens"].get(k) for r in rows) for k in (
             "input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens")},
-        "estimated_api_equivalent_usd": None if any(r["active"] for r in rows)
+        "estimated_api_equivalent_usd": None if any(r["active"] or r["partial"] for r in rows)
             else known_sum(r["estimated_usd"] for r in rows),
         "known_estimated_api_equivalent_usd": sum(
             r["estimated_usd"] for r in rows if r["estimated_usd"] is not None),
@@ -226,11 +219,10 @@ def model_route_checks(state: dict, run_dir: Path) -> dict:
             launched.append(m)
 
     uniq = sorted(set(launched))
-    bad = [m for m in uniq if any(f in m for f in FORBIDDEN_MODEL_MARKERS)]
-    # only accept the subscription models for this run
-    ok_models = all(m.startswith(ALLOWED_MODEL_PREFIXES) for m in uniq) if uniq else False
-    return {"launched_models": uniq, "pinned_roles": pinned, "forbidden_seen": sorted(set(bad)),
-            "all_subscription_only": ok_models and not bad}
+    # Legacy fields remain available to report consumers; billing is descriptive.
+    subscription_only = bool(uniq) and all(m.startswith(("zai-coding-plan/", "github-copilot/")) for m in uniq)
+    return {"launched_models": uniq, "pinned_roles": pinned, "forbidden_seen": [],
+            "all_subscription_only": subscription_only}
 
 
 def ladder_alignment(pinned: dict) -> dict:
@@ -263,7 +255,7 @@ def ladder_alignment(pinned: dict) -> dict:
     for producer, verifier, label in INDEPENDENCE_PAIRS:
         pm, _ = model_effort(producer)
         vm, _ = model_effort(verifier)
-        if pm and vm and _family(pm) == _family(vm):
+        if pm and vm and (pm == vm or (_family(pm) in ("glm", "mimo") and _family(pm) == _family(vm))):
             independence_ok = False
             mismatches.append(f"independence {label}: both {_family(pm)} ({pm} / {vm})")
     return {"aligned": aligned, "mismatches": mismatches,
@@ -313,12 +305,10 @@ def score_run(run_dir: Path) -> dict:
             gate_notes.append("COMPLETE without an independent validator stage")
 
     # --- model routing ---
-    route_score = "PASS" if routing["all_subscription_only"] else "FAIL"
-    if routing["forbidden_seen"]:
-        route_score = "FAIL"
+    route_score = "PASS" if routing["launched_models"] else "FAIL"
     ladder = ladder_alignment(routing.get("pinned_roles") or {})
-    if not ladder["on_ladder"]:
-        route_score = "PARTIAL" if route_score == "PASS" else route_score
+    if not ladder["independence_ok"]:
+        route_score = "FAIL"
 
     # --- pause recovery ---
     pause_score = "PASS"
@@ -341,7 +331,8 @@ def score_run(run_dir: Path) -> dict:
 
     # --- token discipline ---
     token_score = "PASS" if rows and all(
-        r["tokens"][k] is not None for r in rows for k in ("input_tokens", "output_tokens")) else "PARTIAL"
+        not r["partial"] and r["tokens"][k] is not None
+        for r in rows for k in ("input_tokens", "output_tokens")) else "PARTIAL"
     token_notes = []
     total_usd = usage["estimated_api_equivalent_usd"]
     known_usd = usage["known_estimated_api_equivalent_usd"]

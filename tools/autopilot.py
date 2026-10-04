@@ -491,6 +491,8 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     refs += [p for row in value["criterion_results"] for p in row["evidence_refs"]] + design_coverage.report_refs(state, value, stage=stage)
     flow = value.get("end_to_end_result", {})
     refs += flow.get("evidence_refs", [])
+    technical = flow.get("technical_result") or {}
+    refs += technical.get("evidence_refs", [])
     members = state.get("current_task", {}).get("milestone_ids", [])
     if members:
         results = value.get("milestone_results", [])
@@ -504,6 +506,9 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
             refs += result["evidence_refs"]
     if flow.get("status") == "PASS" and (not flow.get("summary", "").strip() or not flow.get("evidence_refs")):
         raise ValueError("End-to-end PASS requires a check description and evidence")
+    if ((flow.get("status") == "PASS" and not goals.flow_awaits_only(flow, set()))
+            or (technical.get("status") == "FAIL" and flow.get("status") != "FAIL")):
+        raise ValueError("End-to-end result conflicts with technical proof or pending human criteria")
     ids = [row["id"] for row in value["criterion_results"]]
     known = {c["id"] for c in state["acceptance_criteria"]}
     if len(ids) != len(set(ids)) or not set(ids) <= known:

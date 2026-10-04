@@ -25,6 +25,26 @@ from . import test_subprocess
 
 
 class PlanningTests(unittest.TestCase):
+    def test_progressive_prompts_distinguish_the_product_milestone_from_slices(self):
+        state = self.state()
+        state["workspace"] = "/fixture"
+        for stage in ("astra_discovery", "astra_challenge", "glm_revise", "astra_finalize"):
+            with self.subTest(stage=stage):
+                prompt, _ = planning.context(state, stage, Path("/fixture/state.json"))
+                self.assertIn("exactly one whole-product milestone", prompt)
+                self.assertIn("not one milestone per slice", prompt)
+                self.assertIn("contract.initial_task executes only slices[0]", prompt)
+                self.assertIn("each check's criterion_ids must be a subset", prompt)
+
+    def test_revision_prompt_requires_each_citation_and_a_safe_protected_conflict_exit(self):
+        state = self.state()
+        state["workspace"] = "/fixture"
+        prompt, _ = planning.context(state, "glm_revise", Path("/fixture/state.json"))
+        self.assertIn("Each responses[].evidence_refs must be nonempty", prompt)
+        self.assertIn("code_refs does not satisfy this per-response requirement", prompt)
+        self.assertIn("retain the protected text and add a blocking decision", prompt)
+        self.assertIn("contract.initial_task.kind=none", prompt)
+
     def test_finalizer_context_requests_only_legal_obligation_lists(self):
         state = self.state()
         state.update(workspace="/fixture")
@@ -727,14 +747,13 @@ class JointFlow(unittest.TestCase):
         self.assertNotEqual(final["sessions"]["terra"], final["sessions"]["sol"])
         self.assertNotEqual(final["sessions"]["terra"], final["sessions"]["completion"])
 
-    def test_openai_api_connection_pauses_before_any_provider_stage(self):
+    def test_openai_api_connection_reaches_the_requirements_question(self):
         self.prepare()
         self.env['AUTOCODE_FIXTURE_OPENAI_AUTH'] = 'api'
-        self.launch(["Build a greeting tool", "--no-chat", "--terra-model", "openai/gpt-5.6-terra"], 2)
-        state = self.saved()[1]
-        self.assertEqual('PAUSED_BILLING_ROUTE', state['status'])
-        self.assertEqual([], state['stages'])
-        self.assertNotIn('active_stage', state)
+        result = self.launch(['Build a greeting tool', '--no-chat',
+                              '--terra-model', 'openai/gpt-5.6-terra'], 2)
+        self.assertIn('Should the greeting be a CLI or web endpoint?', result.stdout)
+        self.assertNotIn('PAUSED_BILLING_ROUTE', result.stdout + result.stderr)
 
     def test_unresolved_final_returns_to_user_without_approval_or_extra_calls(self):
         run, state = self.draft("planning-blocked")

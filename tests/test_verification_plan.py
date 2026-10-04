@@ -73,6 +73,18 @@ class CommandsTests(unittest.TestCase):
             "current_task": {"acceptance_criteria": ["C1"], "validation_plan": ["go test ./first"]}}
         self.assertEqual(["go test ./first"], plan.approved_commands(state))
 
+    def test_visual_check_alias_is_prescribed_without_admitting_other_task_commands(self):
+        command = "autocode visual-check --policy visual-policy.json --policy-sha256 " + "a" * 64
+        self.assertEqual([command], plan.commands(command))
+        self.assertEqual(["/venv/bin/" + command], plan.commands("Run `/venv/bin/" + command + "`"))
+        self.assertEqual([], plan.commands(command + " and inspect the screenshots"))
+        self.assertEqual([], plan.commands("autocode ui 'Design a dashboard'"))
+        self.assertEqual([], plan.commands("autocode 'Build an application'"))
+        state = {"goal_contract": {"body": {"acceptance_criteria": [
+            {"id": "visual", "human_review": False, "verification_method": command}]}},
+            "current_task": {"acceptance_criteria": ["visual"], "validation_plan": ["python -m unittest"]}}
+        self.assertEqual(["python -m unittest", command], plan.approved_commands(state))
+
     def test_discovery_only_requires_packages_between_start_and_explicit_top(self):
         for command, expected in (
             ("python3 -m unittest discover -s tests -t .", ["tests/__init__.py"]),

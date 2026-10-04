@@ -117,7 +117,9 @@ meaning must change.
   "evidence": {
     "outcome": "...",
     "base_commit": "...",
-    "acceptance": [{"id": "AC1", "criterion": "...", "status": "passed", "evidence": "...", "human_reviewed": false}],
+    "acceptance": [{"id": "AC1", "criterion": "...", "status": "passed", "evidence": "...",
+                    "validator_status": "PASS", "human_reviewed": false}],
+    "validator_source_revision": "...",
     "findings": [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "..."}],
     "regression_proof": null
   }
@@ -131,18 +133,37 @@ acceptance criterion with its latest recorded outcome and evidence, the
 findings ledger, and, for bug fixes, the runner's own fail-before/pass-after
 regression proof (`verdict`, `fail_to_pass`, `failures`, `unverified`,
 `commands`, `source_revision`, and `case_tests`: each English test case's
-proving tests; `null` otherwise). `test_cases` lists a reproduced bug's
-regression tests in plain English (`id`, `given`, `when`, `then`; empty
-otherwise; see [Bug fixes](workflow.md#bug-fixes)). `check_replay` is the
-current validation's checks as the runner itself re-ran them in a clean copy:
-`verdict`, `source_revision` and one row per command (`command`, `exit_code`,
-`timed_out`, `output`); `null` before a PASS validation and for validations
-that predate it (see [Execution](execution.md#the-runner-re-runs-the-validators-checks)).
+proving tests; `null` otherwise). Each acceptance row also carries
+`validator_status`: the latest saved validation's result for that criterion
+(`FAIL`, `PASS` or `NOT_VERIFIED`), or `null` when that validation has no row
+for it. A failed criterion must be distinguishable from an unchecked one; the
+decision report's own `status` is a separate field and a separate vocabulary
+(`verified` / not). `validator_source_revision` is the source revision that
+validation checked, or `null` before one. The view does not read the
+workspace: after rework, `validator_status` still reports that validation
+until a newer one replaces it, so compare `validator_source_revision` to the
+workspace before treating the status as current. `test_cases` lists a
+reproduced bug's regression tests in plain English (`id`, `given`, `when`,
+`then`; empty otherwise; see [Bug fixes](workflow.md#bug-fixes)). `check_replay`
+is the current validation's checks as the runner itself re-ran them in a clean
+copy: `verdict`, `source_revision` and one row per command (`command`,
+`exit_code`, `timed_out`, `output`); `null` before a PASS validation and for
+validations that predate it (see [Execution](execution.md#the-runner-re-runs-the-validators-checks)).
 
 `usage` is the run's tokens and cost so far: `stages` (finished), `active_stage` (the stage
 running now, or null), `tokens`, `cost_usd` (`reported`, `estimated`, `complete`), `unknown_stages`
 and `by_role` (see [Cost reporting](cost-reporting.md#every-task-continuously)). Unknown cost is
 not zero: `complete` is false while a stage has none or is running.
+
+`displayed_plan` is an optional structured approval projection: `revision`, `hash`,
+`token`, `acceptance_criteria`, `constraints` and `permission_boundaries`. It appears
+only when the last displayed token matches the current sealed contract. Missing,
+modified or stale contracts do not expose it. Criterion `verification_method` and
+`human_review` values are copied without interpreting or coercing model-authored
+text. Automation must check these structured fields and bind the token to
+`needs.token`; do not infer approval authority by parsing headings or review labels
+embedded in `--show-goal` prose. This projection is not approval, execution permission
+or completion proof; the existing CLI approval checks remain authoritative.
 
 `direct_rework_assignments` records a repair assigned directly from a Completion
 Owner's accepted REWORK report. Each entry binds the original and assigned tasks,

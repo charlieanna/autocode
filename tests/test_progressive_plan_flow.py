@@ -102,6 +102,22 @@ class AcceptProposalTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "extracts no executable command"):
             progressive_state.accept_proposal(self.state, value, origin="glm_draft")
 
+    def test_s3_and_milestone_errors_are_distinct_unchanged_guards(self):
+        value = report()
+        value["progressive_proposal"]["slices"].append(slice_row(
+            "S3", checks=[check("K3")], depends_on=("S2",), tentative=False))
+        value["contract"]["milestones"].append({
+            **copy.deepcopy(value["contract"]["milestones"][0]), "id": "M2", "depends_on": ["M1"]})
+        support.validate_schema(value, autoplanner.SCHEMAS["astra_discovery"])
+        with self.assertRaisesRegex(ValueError, "slice S3 is future work"):
+            progressive_state.accept_proposal(self.state, copy.deepcopy(value), origin="glm_draft")
+        value["progressive_proposal"]["slices"][2]["tentative"] = True
+        with self.assertRaisesRegex(ValueError, "requires one whole-product milestone"):
+            progressive_state.accept_proposal(self.state, copy.deepcopy(value), origin="glm_draft")
+        value["contract"]["milestones"] = value["contract"]["milestones"][:1]
+        progressive_state.accept_proposal(self.state, value, origin="glm_draft")
+        rules.check_disclosure(value["contract"], value["progressive_proposal"], ["C1"])
+
     def test_without_a_proposal_the_ordinary_path_stays_untouched(self):
         value = report(with_proposal=False)
         progressive_state.accept_proposal(self.state, value, origin="glm_draft")
@@ -143,7 +159,7 @@ class SealTests(unittest.TestCase):
     def test_displayed_token_without_independent_review_cannot_seal(self):
         self.with_contract()
         before = copy.deepcopy(self.state)
-        with self.assertRaisesRegex(ValueError, "independent plan review"):
+        with self.assertRaisesRegex(ValueError, "planning report lacks an accepted read-only witness"):
             progressive_state.seal(self.state, "r1:tok")
         self.assertEqual(before, self.state)
 
@@ -152,7 +168,7 @@ class SealTests(unittest.TestCase):
         self.state["planning"] = {"astra_calls": 2}
         self.state["active_seconds"] = 350
         before = copy.deepcopy(self.state)
-        with self.assertRaisesRegex(ValueError, "independent plan review"):
+        with self.assertRaisesRegex(ValueError, "planning report lacks an accepted read-only witness"):
             progressive_state.seal(self.state, "r1:tok")
         self.assertEqual(before, self.state)
 
@@ -204,7 +220,7 @@ class ApprovalIntegrationTests(unittest.TestCase):
         self.assertEqual("approved", self.state["goal_contract"]["approval_status"])
 
     def test_unreviewed_card_cannot_grant_delegation_through_ordinary_approval(self):
-        with self.assertRaisesRegex(ValueError, "independent plan review"):
+        with self.assertRaisesRegex(ValueError, "planning report lacks an accepted read-only witness"):
             self.approve(report())
         self.assertFalse(goals.approved(self.state))
         self.assertNotIn("delegation", self.state["progressive"])
@@ -223,7 +239,7 @@ class ApprovalIntegrationTests(unittest.TestCase):
         self.assertFalse(goals.approved(self.state))
 
     def test_approval_alone_cannot_dispatch_an_unreviewed_slice(self):
-        with self.assertRaisesRegex(ValueError, "independent plan review"):
+        with self.assertRaisesRegex(ValueError, "planning report lacks an accepted read-only witness"):
             self.approve(report())
         with self.assertRaises(support.Paused):
             progressive_state.guard_dispatch(self.state, "terra")
