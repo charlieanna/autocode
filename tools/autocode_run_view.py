@@ -182,7 +182,10 @@ def evidence(state: dict) -> dict:
 
     outcome           the approved contract's intended outcome, or None
     base_commit       the revision the run started from
-    acceptance        one row per criterion: its latest recorded outcome and evidence
+    acceptance        one row per criterion: its latest recorded outcome and evidence;
+                      validator_status is the Validator's own result for that criterion
+                      (FAIL, PASS or NOT_VERIFIED), None when it has not been checked —
+                      a failed criterion must be distinguishable from an unchecked one
     findings          the findings ledger: id, status, severity, finding
     regression_proof  for bug fixes, the runner's own fail-before/pass-after proof, else None;
                       case_tests maps each English test case to the tests that prove it
@@ -196,15 +199,19 @@ def evidence(state: dict) -> dict:
     report = decision.get("report") if isinstance(decision.get("report"), dict) else decision
     outcomes = {row.get("id"): row for row in report.get("acceptance_criteria") or [] if isinstance(row, dict)}
     reviewed = state.get("human_reviews") if isinstance(state.get("human_reviews"), dict) else {}
+    validation = state.get("validation") if isinstance(state.get("validation"), dict) else {}
+    validated = {row.get("id"): row.get("status") for row in validation.get("criterion_results") or []
+                 if isinstance(row, dict)}
     acceptance = []
     for item in criteria:
         item = item if isinstance(item, dict) else {"criterion": str(item)}
         outcome = outcomes.get(item.get("id")) or {}
         acceptance.append({"id": item.get("id"), "criterion": item.get("criterion") or item.get("text"),
                            "status": outcome.get("status"), "evidence": outcome.get("evidence"),
+                           "validator_status": validated.get(item.get("id")),
                            "human_reviewed": item.get("id") in reviewed})
     proof = state.get("regression_proof")
-    replay = (state.get("validation") or {}).get("check_replay") if isinstance(state.get("validation"), dict) else None
+    replay = validation.get("check_replay")
     investigation = state.get("investigation") if isinstance(state.get("investigation"), dict) else {}
     return {
         "outcome": contract.get("intended_outcome"),
