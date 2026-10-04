@@ -160,9 +160,24 @@ class TaskRun:
         return self._act("receive dependency", "--receive-dependency", str(manifest))
 
     def answer(self, question_id: str, text: str, *, resolver_token: str | None = None) -> dict:
-        """Answer the displayed question, retaining its resolver token when present."""
-        token_args = ("--resolver-token", resolver_token) if resolver_token is not None else ()
-        return self._act("answer", "--answer", f"{question_id}={text}", *token_args)
+        """Answer one question of the run's current AutoResolver request.
+
+        Each answer consumes that request, and the questions left return under a
+        new token. Pass ``resolver_token`` from the view the answer was chosen from;
+        a stale one is rejected, never refreshed. Without it, the current request's
+        token is used after checking that the request lists ``question_id``.
+        """
+        if resolver_token is None:
+            need = self.status()["needs"] or {}
+            listed = [question["id"] for question in need.get("questions") or ()]
+            if need.get("kind") != "answer" or question_id not in listed:
+                raise TaskRunError(f"the run is not waiting for an answer to {question_id} "
+                                   f"(needs {need.get('kind')}, questions {listed})")
+            resolver_token = need.get("resolver_token")
+            if not resolver_token:
+                raise TaskRunError(f"no current AutoResolver request carries {question_id}; "
+                                   "advance the run to publish one, then answer")
+        return self._act("answer", "--answer", f"{question_id}={text}", "--resolver-token", resolver_token)
 
     def respond_operational(self, request_id: str, request_token: str, text: str) -> dict:
         """Send corrective information to the published AutoResolver request."""
