@@ -11,6 +11,10 @@ This module is pure over the run state and the review report file. It imports no
 the runner.
 
 State keys written here:
+    brief_feedback, user_events: the same user-input receipt in both existing ledgers.
+        Planning receives its exact text and ID through the standard handoff; the
+        contract guard accepts that ID as user_feedback for declared revisions.
+        Recording a follow-up does not grant plan approval or recovery allowance.
     turns: [{"at", "say", "previous": {"task", "workflow", "status", "completed_at", "first_stage",
              "review": {"report_path", "change_under_review", "change_patch", "verdict",
                         "blocking": [...], "advisory": [...]} or absent}}]
@@ -22,12 +26,14 @@ State keys written here:
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 
 try:
-    from . import autocode_workflows as workflows
+    from . import autocode_workflows as workflows, autocode_contract_identity as identity
 except ImportError:
     import autocode_workflows as workflows
+    import autocode_contract_identity as identity
 
 FINDING_FIELDS = ("id", "severity", "file", "lines", "summary", "evidence")
 
@@ -52,6 +58,14 @@ def accept(state: dict, text: str, workspace, now: str) -> None:
     review = carried_review(state, workspace)
     if review:
         previous["review"] = review
+    # A new request can revise the previous contract. Reuse the recorded-feedback
+    # identity understood by planning and the contract guard, without granting approval.
+    contract = state.get("goal_contract")
+    event = {"kind": "brief_feedback", "id": "feedback-" + uuid.uuid4().hex[:12],
+             "actor": "user_cli", "at": now, "text": say,
+             "contract_token": identity.token(contract) if contract else state.get("requirements_artifact_token", "")}
+    state.setdefault("brief_feedback", []).append(event)
+    state.setdefault("user_events", []).append(event)
     state.setdefault("turns", []).append({"at": now, "say": say, "previous": previous})
     state["task"] = (f"{say}\n\nThis follows up an earlier request in the same conversation"
                      f" ({previous['workflow'] or 'a finished job'}): {previous['task']}")

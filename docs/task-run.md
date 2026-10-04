@@ -18,6 +18,10 @@ learned the run directory (it returns the workspace's only run, or `None`).
 
 `tools/autocode_taskrun.py` wraps the commands below.
 
+This example accepts the displayed plan and chooses question defaults or the first
+listed option. An interactive client should collect the person’s answer instead,
+using the token from the view they saw. Operational recovery needs a separate decision.
+
 ```python
 from autocode_cli.autocode_taskrun import TaskRun, TaskRunError
 
@@ -25,6 +29,8 @@ run = TaskRun.start(workspace, brief, options=("--engine", "codex"))
 view = run.advance_until_input()
 while not view["done"]:
     need = view["needs"]
+    if need["kind"] == "answer" and need.get("resolver_scope") in ("blocker", "operational_exhaustion"):
+        break  # Inspect recovery guidance; respond_operational() handles these requests.
     if need["kind"] == "approve_plan":
         view = run.approve_plan(need["token"])
     elif need["kind"] == "answer":

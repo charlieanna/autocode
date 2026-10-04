@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 import autocode_follow_up as follow_up
+import autocode_contract_revision as revision
 import autocode_workflows as workflows
 from units import autoplanner
 
@@ -126,6 +127,44 @@ class FollowUpTests(unittest.TestCase):
         follow_up.accept(self.state, "Now add a retry for .org.", self.workspace, "t3")
         self.assertEqual("requirements_gather", self.state["workflow"]["then"])
         self.assertEqual(2, len(self.state["turns"]))
+
+
+    def test_follow_up_supplies_saved_user_basis_without_approving_or_relaxing_other_changes(self):
+        body = {"required_behaviors": ["Preserve exact case."], "scope_exclusions": [], "constraints": [],
+                "important_failure_cases": [], "permission_boundaries": ["No network."],
+                "acceptance_criteria": [{"id": "C1", "criterion": "Original behavior passes.",
+                    "verification_method": "guard: test_original", "human_review": False}]}
+        approval = {"kind": "goal_approval", "token": "r3:old"}
+        self.state.update(goal_contract={"body": body, "revision": 3, "hash": "old",
+            "approval_status": "approved", "approval_event": approval}, user_events=[approval],
+            automatic_capacity_recoveries=[{"attempt": "kept"}], settings={"max_iterations": 6})
+        original = copy.deepcopy(self.state)
+        message = "Add ignore_case=True for casefolding; preserve exact case by default."
+        follow_up.accept(self.state, message, self.workspace, "t1")
+        self.assertEqual(1, len(self.state.get("brief_feedback", [])), "Follow-up lacks saved provenance")
+        [event] = self.state.get("brief_feedback", [])
+        self.assertEqual((message, "r3:old", "t1"), (event["text"], event["contract_token"], event["at"]))
+        self.assertTrue(revision.saved_user_basis(self.state, "user_feedback", event["id"]))
+        self.assertEqual([approval, event], self.state["user_events"])
+        for key in ("goal_contract", "automatic_capacity_recoveries", "settings"):
+            self.assertEqual(original[key], self.state[key])
+        after = copy.deepcopy(body)
+        after["required_behaviors"] = ["Preserve exact case by default; casefold when ignore_case=True."]
+        change = {"item": body["required_behaviors"][0], "change": "reworded", "basis": "user_feedback",
+                  "answer_id": event["id"], "replacement": after["required_behaviors"][0]}
+        self.assertEqual([change], revision.revision_guard(self.state, after, [change], "astra_discovery"))
+        for fault in ("forged_id", "missing_event", "undeclared_permission", "undeclared_criterion"):
+            state, proposed, declared = copy.deepcopy((self.state, after, [change]))
+            if fault == "forged_id":
+                declared[0]["answer_id"] = "feedback-invented"
+            elif fault == "missing_event":
+                state["user_events"] = [approval]
+            elif fault == "undeclared_permission":
+                proposed["permission_boundaries"] = ["Allow network."]
+            else:
+                proposed["acceptance_criteria"] = []
+            with self.subTest(fault=fault), self.assertRaises(ValueError):
+                revision.revision_guard(state, proposed, declared, "astra_discovery")
 
     def test_an_unreadable_review_report_is_refused(self):
         (self.workspace / "review" / "findings.json").write_text("{not json")

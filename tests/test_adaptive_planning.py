@@ -27,6 +27,19 @@ class EntryStage(unittest.TestCase):
         value = {"workflow": "build", "clarity": "clear"}
         self.assertEqual(adaptive.entry_stage(ON, value, "requirements_gather", "astra_discovery"), "astra_discovery")
 
+    def test_clear_follow_up_refreshes_saved_requirements(self):
+        value = {"workflow": "build", "clarity": "clear"}
+        state = {**ON, "turns": [{"say": "Add optional casefolding."}],
+                 "requirements_handoff": {"output": "previous-requirements.json", "report": {}}}
+        self.assertEqual("requirements_gather",
+                         adaptive.entry_stage(state, value, "requirements_gather", "astra_discovery"))
+        # Review findings can deliberately replace requirements; no prior handoff needs refresh otherwise.
+        self.assertEqual("astra_discovery",
+                         adaptive.entry_stage(state, value, "astra_discovery", "astra_discovery"))
+        state.pop("requirements_handoff")
+        self.assertEqual("astra_discovery",
+                         adaptive.entry_stage(state, value, "requirements_gather", "astra_discovery"))
+
     def test_vague_build_keeps_requirements(self):
         value = {"workflow": "build", "clarity": "vague"}
         self.assertEqual(adaptive.entry_stage(ON, value, "requirements_gather", "astra_discovery"), "requirements_gather")

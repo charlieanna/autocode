@@ -116,6 +116,23 @@ class PrerequisiteExecutionTests(PreflightFixture):
         self.assertEqual(settings["roles"], state["settings"]["roles"])
         self.assertEqual(settings["limits"], state["settings"]["limits"])
 
+    def test_native_javascript_runtime_change_invalidates_readiness_reuse(self):
+        runtime = self.root / "runtime"
+        runtime.mkdir()
+        hook = runtime / "opencode_activity.mjs"
+        hook.write_text("// first native hook")
+        state = self.state()
+        with patch.object(preflight, "__file__", str(runtime / "preflight.py")), \
+                patch.object(preflight.verify, "run_command", wraps=preflight.verify.run_command) as execute:
+            preflight.guard(state, self.workspace, self.run_dir)
+            first = state["task_preflight"]["receipt"]
+            preflight.guard(state, self.workspace, self.run_dir)
+            self.assertEqual(2, execute.call_count)
+            hook.write_text("// changed native hook")
+            preflight.guard(state, self.workspace, self.run_dir)
+            self.assertEqual(4, execute.call_count)
+            self.assertNotEqual(first, state["task_preflight"]["receipt"])
+
     def test_receipt_is_readiness_only_and_tampering_forces_new_execution(self):
         state = self.state()
         preflight.guard(state, self.workspace, self.run_dir)
