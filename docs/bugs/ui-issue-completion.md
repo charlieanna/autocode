@@ -620,3 +620,28 @@ images and found no material blocker. The repeated full fake catalog returned
 Rendered forced-colors behavior remains unverified; no live-model qualification
 is claimed. Failed receipts and screenshots remain local. The subsequent PR CI
 run separately qualifies the submitted repair on Linux.
+
+## CI repair: actual keyboard focus (2026-10-04)
+
+The next submitted-head CI run, 37192129033, passed the 3,441-case core
+gate, 179 scenario-harness cases, all 405 dashboard Python tests, visual
+comparison controls and nine browser flows. The last scoped-start flow failed
+its composer outline assertion. The unchanged test reproduced that failure in
+an owned Debian Linux browser fixture.
+
+The probe combined unknown focus after reload with programmatic focus and an
+immediate style read. It now anchors at the textarea, uses actual Shift+Tab to
+leave and Tab to return, verifies active keyboard-visible focus, then reads the
+outline separately. The existing outline, minimum 2px width and shadow checks
+remain. No application CSS or timeout was changed. All six desktop/phone project
+cases pass with a solid 2px outline on both local macOS and Debian ARM64 Chromium.
+The manifest records each focus measurement and binds unchanged source; there
+were no provider calls or browser errors. Independent review accepted the test
+correction. GitHub Ubuntu x64 remains a separate submitted-head gate.
+
+The changed-code gate passed all four architecture cases. The full fake catalog
+again passed 54 scenarios, with one NOT_EXERCISED Resolver route and one skipped
+live-model Investigator; source remained unchanged during both gates. Original
+failures and browser evidence remain local. The disposable Linux container was
+removed after exporting its evidence; user projects and unrelated containers
+were preserved.

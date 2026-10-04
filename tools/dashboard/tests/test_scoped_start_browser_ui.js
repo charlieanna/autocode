@@ -12,7 +12,7 @@ function start(){return new Promise((resolve,reject)=>{
  let output='',errors='';server.stdout.on('data',c=>{output+=c;const line=output.split('\n').find(x=>x.startsWith('FIXTURE='));if(line)resolve(JSON.parse(line.slice(8)));});server.stderr.on('data',c=>errors+=c);server.on('error',reject);server.on('exit',code=>reject(Error('fixture exited '+code+' '+errors)));
 });}
 (async()=>{
- const fixture=await start(),captures=[];
+ const fixture=await start(),captures=[],focusMeasurements=[];
  const files=execFileSync('git',['ls-files','-z','--cached','--others','--exclude-standard'],{cwd:root,encoding:'utf8'}).split('\0').filter(p=>p&&/^(tools|tests|scenarios|test-scenarios)\//.test(p)&&/\.(py|js|css|html|json|svg)$/.test(p)&&fs.existsSync(path.join(root,p)));
  const source=Object.fromEntries([...new Set(files)].map(p=>[p,digest(path.join(root,p))]));
  const asset=path.join(root,'tools/dashboard/assets/connected.svg');
@@ -46,9 +46,17 @@ function start(){return new Promise((resolve,reject)=>{
    const file=path.join(evidence,viewport+'-'+project.name+'.png');browser('screenshot',file);
    captures.push({file,sha256:digest(file),viewport:{width,height},reference:(viewport==='desktop'?['462:7945','462:8099','462:8253']:['469:1070','469:1121','469:1172'])[index],project:project.name,geometry});
    const draft='Unsent idea for '+project.name+' '+viewport;browser('fill','#draft-text',draft);browser('reload');wait('latestConversation?.id==='+JSON.stringify(project.conversation)+'&&document.querySelector("#scoped-start-card")');assert.equal(data('()=>document.querySelector("#draft-text").value'),draft);
-   browser('press','Tab');browser('press','Shift+Tab');
-   const focus=data('()=>{document.querySelector("#draft-text").focus();const s=getComputedStyle(document.querySelector("#draft-form .composer"));return {outline:s.outlineStyle,width:parseFloat(s.outlineWidth),shadow:s.boxShadow}}');
+   // Anchor traversal after reload, then enter the textarea with an actual
+   // keyboard action. Programmatic focus from an unknown origin is not a
+   // reliable :focus-visible probe across browser/platform combinations.
+   browser('focus','#draft-text');browser('press','Shift+Tab');
+   assert.notEqual(data('()=>document.activeElement?.id'),'draft-text','Shift+Tab leaves the composer');
+   browser('press','Tab');
+   wait('document.activeElement===document.querySelector("#draft-text")&&document.activeElement.matches(":focus-visible")');
+   const focus=data('()=>{const e=document.querySelector("#draft-text"),s=getComputedStyle(document.querySelector("#draft-form .composer"));return {active:document.activeElement===e,keyboardVisible:e.matches(":focus-visible"),outline:s.outlineStyle,width:parseFloat(s.outlineWidth),shadow:s.boxShadow}}');
+   assert.equal(focus.active,true);assert.equal(focus.keyboardVisible,true);
    assert.notEqual(focus.outline,'none');assert.ok(focus.width>=2);assert.notEqual(focus.shadow,'none');
+   focusMeasurements.push({viewport,project:project.name,...focus});
    browser('fill','#draft-text','');
    assert.equal(fs.readFileSync(fixture.provider_calls,'utf8'),'','opening, refreshing and drafting never spends');
   }
@@ -59,6 +67,6 @@ function start(){return new Promise((resolve,reject)=>{
  assert.ok(!fixture.projects.map(x=>x.conversation).includes(data('()=>latestConversation.id')));
  const errors=browser('errors').trim();assert.ok(!errors||/^No (?:page )?errors\.?$/i.test(errors),errors);
  for(const [file,sha]of Object.entries(source))assert.equal(digest(path.join(root,file)),sha,'source stable: '+file);
- fs.writeFileSync(path.join(evidence,'manifest.json'),JSON.stringify({source_sha256:source,captures,no_provider_calls:fs.readFileSync(fixture.provider_calls,'utf8')==='',errors},null,2));
+ fs.writeFileSync(path.join(evidence,'manifest.json'),JSON.stringify({source_sha256:source,captures,focus_measurements:focusMeasurements,no_provider_calls:fs.readFileSync(fixture.provider_calls,'utf8')==='',errors},null,2));
  console.log('Six scoped-conversation screens passed with persisted drafts, actual project creation, native geometry and zero model calls. '+evidence);
-})().catch(error=>{console.error(error.stack||error);try{browser('screenshot',path.join(evidence,'failure.png'));console.error(JSON.stringify(data('()=>({view:currentView,title:document.querySelector("#draft-title").textContent,notice:document.querySelector("#dashboard-notice").textContent})')));}catch{}process.exitCode=1;}).finally(()=>{try{browser('close')}catch{}if(server)server.kill('SIGTERM');});
+})().catch(error=>{console.error(error.stack||error);try{browser('screenshot',path.join(evidence,'failure.png'));console.error(JSON.stringify(data('()=>({view:currentView,title:document.querySelector("#draft-title").textContent,notice:document.querySelector("#dashboard-notice").textContent,active:document.activeElement?.id,keyboardVisible:document.querySelector("#draft-text")?.matches(":focus-visible"),composerOutline:getComputedStyle(document.querySelector("#draft-form .composer")).outline})')));}catch{}process.exitCode=1;}).finally(()=>{try{browser('close')}catch{}if(server)server.kill('SIGTERM');});
