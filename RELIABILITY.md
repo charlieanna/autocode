@@ -49,6 +49,15 @@ reviews are satisfied, and the dashboard reflects the saved result. Missing evid
 stays unverified. Claims of dependable project completion require these live trials;
 passing fixture tests alone does not establish model effectiveness.
 
+On Claude models (2026-10-04, master e8366ad, profile `claude-tiers`, three runs of each case;
+details in docs/bugs/2026-10-04-claude-reliability-cases.md): 8 of 9 runs passed and none completed
+falsely. The feature and bug-fix cases passed 3 of 3. The to-do case passed 2 of 3: one run stopped
+with correct code because the Validator kept citing event IDs, which a report-file provider rejects;
+its generic instructions said to, and they now defer to the provider's receipt rule. In three re-runs
+of the to-do case on that fix, no report was rejected for event IDs and 2 of 3 passed. The third
+stopped honestly because AutoResolver wrote a plan check with a note in parentheses that the runner
+replayed as a shell command. That bug is recorded in the same note and not yet fixed.
+
 Re-run of the two failed cases (2026-10-01, master fba6e738, same profile, 90/130-minute
 budgets; same note for details):
 
@@ -69,7 +78,10 @@ TASK_COMPLETE, oracle 10/10, no permission recoveries, criteria carrying the bri
 literals. One passing sample does not prove the prompt rules caused it; the next sweep
 should watch the same boundaries. Standing tally after the fixes: all three cases pass end
 to end; the one observed false completion came through the requirements boundary, and its
-guard is now model-dependent — verified by live runs, not mechanically.
+guard is now model-dependent — verified by live runs, not mechanically. Since 2026-10-04 one part is
+mechanical (`tools/autocode_brief_literals.py`): a planner draft that drops a literal the brief writes in
+backticks goes back to the planner. Whether every worked example agrees with that literal is still the
+Plan Reviewer's check.
 
 First run of the three cases (2026-10-01, master 68e89aa4, profile glm53-openai:
 GLM-5.3 producers on the Z.AI plan, GPT-6 verifiers on OpenCode's ChatGPT login;

@@ -386,10 +386,12 @@ not proof of execution in this attempt. PASS requires every listed check to exit
 runs and their resolution in checks_run and the full logs. After fixing a validation
 probe, rerun the complete corrected probe; do not count an unexecuted correction as
 a pass. Source diff exit 1 means files differ, not a successful verification command.
-List each check by its exact command with evidence_ref 'event:' and exit_code null: the runner attaches the
-event ID and exit code of that command's latest completed run in this stage, so never read your event log
-for them. Cite a listed check in criterion, end-to-end and milestone evidence_refs as check:<its position from 1>.
-For capture receipts follow the execution engine's evidence instructions and copy command_text verbatim.
+List each check by its exact command. When the execution engine's evidence instructions ask for capture receipts,
+cite each check's receipt path as its evidence_ref and copy command_text verbatim, never an event: ID (the
+runner rejects one from such an engine). Otherwise give evidence_ref 'event:' with exit_code null instead of a
+receipt, and the runner attaches the event ID and exit code of that command's latest completed run in this stage,
+so never read your event log for them. Cite a listed check in criterion, end-to-end and milestone evidence_refs
+as check:<its position from 1>.
 For criterion and end-to-end evidence from image/MCP calls or retained earlier
 stages, cite the exact existing artifact path (including the owning JSONL log),
 not a foreign or non-command event: ID. These artifacts still require independent

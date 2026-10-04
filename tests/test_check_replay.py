@@ -1,7 +1,9 @@
 """The runner re-runs the Validator's checks in a clean copy before a PASS counts."""
 import json
 from pathlib import Path
+import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -146,6 +148,20 @@ class ScratchReplayTests(unittest.TestCase):
         self.assertEqual("PASS", self.replay("test -f app.txt && test -f new.txt")["verdict"])
         with self.assertRaisesRegex(ValueError, "exited 1"):
             self.replay("test -f local-only.txt")
+
+    def test_file_inventory_must_exclude_git_metadata_even_when_it_is_a_file(self):
+        code = ("from pathlib import Path; "
+                "found = {p.name for p in Path('.').iterdir() if p.is_file() and p.name != 'local-only.txt'}; "
+                "assert found == {'.gitignore', 'app.txt', 'new.txt'}, found")
+        command = shlex.join([sys.executable, "-c", code])
+        original = subprocess.run([sys.executable, "-c", code], cwd=self.workspace, capture_output=True, text=True)
+        self.assertEqual(0, original.returncode, original.stderr)
+        with self.assertRaisesRegex(ValueError, "exited 1") as rejected:
+            self.replay(command)
+        self.assertIn(".git", str(rejected.exception))
+        portable = code.replace("p.name != 'local-only.txt'", "p.name not in {'local-only.txt', '.git'}")
+        self.assertEqual("PASS", self.replay(shlex.join([sys.executable, "-c", portable]))["verdict"])
+        self.assertIn(".git may be a file or a directory", check_replay.VALIDATOR_NOTE)
 
     def test_a_check_reading_run_files_is_rejected_with_what_to_cite_instead(self):
         # Fix run B, 2026-09-29: a Validator re-read the regression proof from .autocode/ as its check.

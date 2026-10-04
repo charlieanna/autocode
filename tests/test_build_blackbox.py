@@ -128,14 +128,14 @@ class BuildBlackbox(unittest.TestCase):
         return [e for e in map(json.loads, (self.root/'events.jsonl').read_text().splitlines())
                 if e['event'] == kind and e['stage'] == stage]
 
-    def seed(self, spec=None, checker='gpt-5.6-sol'):
+    def seed(self, spec=None, checker='gpt-5.6-sol', max_parallel=3):
         self.spec = spec or independent()
         (self.root/'plan.json').write_text(json.dumps(self.spec, indent=2))
         self.invoke('autoplanner', [self.spec['contract']['intended_outcome'], '--engine','codex','--in-place',
             '--terra-model','gpt-6-luna','--terra-reasoning-effort','medium',
             '--sol-model',checker,'--sol-reasoning-effort','high',
             '--completion-model',checker,'--completion-reasoning-effort','medium',
-            '--max-parallel-builders','3','--no-chat'], 2)
+            '--max-parallel-builders',str(max_parallel),'--no-chat'], 2)
         self.run = next((self.project/'.autocode/runs').iterdir())
         token = self.state()['displayed_goal']
         self.invoke('autoplanner', ['--run-dir',str(self.run),'--approve-goal',token,'--no-chat'])
@@ -204,10 +204,91 @@ class BuildBlackbox(unittest.TestCase):
         self.seed(spec); self.build(); self.candidate()
         self.assertEqual(['M1'],[e['milestone'] for e in self.events()])
 
+    def test_completed_paths_do_not_serialize_next_diamond_wave(self):
+        spec = notes()
+        spec.update(review_completed_paths=True, complete_product=True)
+        self.seed(spec, max_parallel=2)
+        self.build(); self.candidate()
+        storage = (self.project / 'notes/storage.py').read_bytes()
+        self.assertEqual(['M1'], [e['milestone'] for e in self.events()])
+        self.invoke('autoreview', ['--run-dir', str(self.run), '--no-chat'])
+        handoff = self.events('decision', stage='astra_review')[-1]
+        self.assertEqual('M2', handoff['next_task']['milestone_id'])
+        self.assertEqual(['notes/storage.py'], handoff['affected_paths'])
+
+        # M1 has already started; require both new Builder processes before either finishes.
+        self.env['BUILD_AUDIT_OVERLAP'] = '3'
+        self.build(); candidate = self.candidate()
+        self.env.pop('BUILD_AUDIT_OVERLAP')
+        starts, ends = self.events()[1:], self.events('finish')[1:]
+        self.assertEqual({'M2', 'M3'}, {e['milestone'] for e in starts})
+        self.assertEqual(2, len(starts))
+        self.assertEqual(2, len({e['pid'] for e in starts}))
+        self.assertEqual(2, len({e['workspace'] for e in starts}))
+        self.assertTrue(all(e['workspace'] != str(self.project) for e in starts))
+        self.assertLess(max(e['time'] for e in starts), min(e['time'] for e in ends))
+        self.assertEqual(2, len(candidate['implementation']['builder_reports']))
+        for event in starts:
+            owned = spec['contract']['milestones'][int(event['milestone'][1:]) - 1]['affected_paths']
+            self.assertEqual(owned, event['task_paths'])
+            self.assertEqual(owned, event['affected_paths'])
+            self.assertEqual(storage.decode(), event['inputs']['notes/storage.py'])
+            self.assertFalse({'notes/add.py', 'notes/listing.py'} & set(event['inputs']))
+        self.assertEqual(storage, (self.project / 'notes/storage.py').read_bytes())
+
+        self.invoke('autoreview', ['--run-dir', str(self.run), '--no-chat'])
+        self.build(); self.candidate()
+        last = self.events()[-1]
+        self.assertEqual('M4', last['milestone'])
+        self.assertEqual(['main.py'], last['task_paths'])
+        self.assertEqual(['main.py'], last['affected_paths'])
+        self.assertTrue({'notes/add.py', 'notes/listing.py'} <= set(last['inputs']))
+        self.invoke('autoreview', ['--run-dir', str(self.run), '--no-chat'])
+        # The completion owner requests one final read-only validation of all criteria.
+        self.invoke('autoreview', ['--run-dir', str(self.run), '--no-chat'])
+        status = json.loads(self.invoke('autocode', ['--run-dir', str(self.run), '--status']).stdout)
+        self.assertEqual('TASK_COMPLETE', status['status'])
+        self.assertTrue(status['completion_current'])
+        self.assertEqual(4, len(self.events()))
+        self.assertEqual([], self.events(stage='astra_resolve'))
+        for files in spec['payloads'].values():
+            for name, content in files.items():
+                self.assertEqual(content, (self.project / name).read_text())
+        for check in spec['checks'].values():
+            checked = subprocess.run([sys.executable, '-c', check], cwd=self.project,
+                                     capture_output=True, text=True)
+            self.assertEqual(0, checked.returncode, checked.stdout + checked.stderr)
+
     def test_06_hidden_ownership_escape_rejected(self):
         self.seed(); self.env['BUILD_AUDIT_FAULT']='escape'; self.build(2)
         self.assertFalse((self.project/'unauthorized.txt').exists())
         self.assertNotIn('autocode',self.state()['unit_handoffs'])
+
+    def test_final_validator_gets_own_repairs_on_unchanged_source(self):
+        spec = notes()
+        spec.update(complete_product=True, validator_repair_incidents=True)
+        self.seed(spec, max_parallel=2)
+        for _ in range(3):
+            self.build()
+            self.invoke('autoreview', ['--run-dir', str(self.run), '--no-chat'])
+        status = json.loads(self.invoke('autocode', ['--run-dir', str(self.run), '--status']).stdout)
+        self.assertEqual('TASK_COMPLETE', status['status'])
+        self.assertTrue(status['completion_current'])
+        after = self.state()
+        originals = [row for row in after['stages'] if row['stage'] == 'sol' and row.get('rejected')]
+        self.assertEqual(2, len(originals))
+        self.assertEqual(originals[0]['source_revision'], originals[1]['source_revision'])
+        self.assertNotEqual(originals[0]['task_id'], originals[1]['task_id'])
+        self.assertEqual(originals[0]['failure_key'], originals[1]['failure_key'])
+        self.assertEqual([2, 1], [row['attempts'] for row in after['report_repair_history']])
+        self.assertEqual(['accepted', 'accepted'], [row['result'] for row in after['report_repair_history']])
+        self.assertEqual([1, 2], sorted(after['resolver']['attempts'].values()))
+        self.assertEqual('validate', after['current_task']['kind'])
+        self.assertEqual(3, len(self.events(stage='sol_report_repair')))
+        self.assertEqual(4, len(self.events()))
+        for files in spec['payloads'].values():
+            for name, content in files.items():
+                self.assertEqual(content, (self.project / name).read_text())
 
     def test_07_failed_worker_retries_without_successful_siblings(self):
         self.seed(); self.env['BUILD_AUDIT_FAULT']='crash'; self.build(2)
