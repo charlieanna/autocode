@@ -1,16 +1,28 @@
-"""Admission policy for existing recovery allowances and unchanged denial holds."""
+"""Admission policy for existing recovery allowances and unchanged denial holds.
+
+An unchanged denial holds every launch until the operator authorizes one fresh attempt past that
+exact denial (autocode_operational_retry); the next denial holds again.
+"""
 try:
     from .autocode_util import snapshot
+    from . import autocode_operational_retry as operational_retry
     from . import autocode_recovery_accounting as accounting
     from .autocode_permission_recovery import hold_message
 except ImportError:
     from autocode_util import snapshot
+    import autocode_operational_retry as operational_retry
     import autocode_recovery_accounting as accounting
     from autocode_permission_recovery import hold_message
 
 GRANT_ADVICE = (
     "After fixing the cause, authorize more recoveries explicitly with "
     "--resume-paused --grant-recovery N.")
+# #301: at a hold that operational_retry.target accepts, information followed by a resume holds by
+# design; the one action that moves the run is an explicit, single fresh attempt.
+RETRY_ADVICE = (
+    "After inspecting the cause, authorize exactly one fresh attempt with --resume-paused "
+    "--retry-failed-stage; corrective information sent first with --resolver-response "
+    "provide_information reaches that attempt. Counts and limits stay as they are, so a repeat stops again.")
 INFORM_ADVICE = (
     "After fixing the cause, send the AutoResolver request corrective information "
     "with --resolver-request ID --resolver-token TOKEN --resolver-response "
@@ -35,8 +47,10 @@ def abandon_advice(attempt: str) -> str:
     return ABANDON_THEN_RESUME.format(attempt=attempt)
 
 
-def advice(*, allow_grant, pause_status=None, attempt=None):
+def advice(*, allow_grant, pause_status=None, attempt=None, allow_retry=False):
     """The recovery-exhaustion next step. Never names a command the CLI will refuse."""
+    if allow_retry:
+        return RETRY_ADVICE
     if allow_grant:
         return GRANT_ADVICE
     if pause_status in BOUND_ADVICE:
@@ -51,7 +65,8 @@ def advice(*, allow_grant, pause_status=None, attempt=None):
 def stop_reason(state, count, maximum, *, allow_grant=True):
     context = state.get("recovery_context") or {}
     if (context.get("denied_operation") and context.get("repeat_count", 0) >= 2
-            and snapshot(state["workspace"])["revision"] == context.get("source_revision")):
+            and snapshot(state["workspace"])["revision"] == context.get("source_revision")
+            and not operational_retry.lifts_permission_hold(state, context)):
         return "PAUSED_REPEATED_FAILURE", hold_message(context)
     limit = state.get("settings", {}).get("limits", {}).get("no_progress_batches", 3)
     # A zero no-progress threshold does not disable the lifetime allowance.

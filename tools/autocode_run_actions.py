@@ -27,6 +27,7 @@ try:
     from . import autocode_jobs as jobs
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_milestones as milestones
+    from . import autocode_operational_retry as operational_retry
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_progressive_state as progressive
@@ -51,6 +52,7 @@ except ImportError:
     import autocode_jobs as jobs
     import autocode_goal_lifecycle as lifecycle
     import autocode_milestones as milestones
+    import autocode_operational_retry as operational_retry
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
     import autocode_progressive_state as progressive
@@ -286,8 +288,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 elif args.retry_failed_stage:
                     try:
                         authorization = runner.authorize_failure_retry(state, run_dir, workspace)
-                        print("Failure retry authorized for the recorded repeated failure; "
-                              "one fresh attempt proceeds under existing limits.", flush=True)
+                        print(operational_retry.NOTICES.get(authorization.get('kind'),
+                              "Failure retry authorized for the recorded repeated failure; "
+                              "one fresh attempt proceeds under existing limits."), flush=True)
                     except ValueError as error:
                         print(f"Input rejected: {error}", file=sys.stderr)
                         return 2

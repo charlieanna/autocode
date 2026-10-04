@@ -4,7 +4,8 @@ documented action must move the run again (#288/#301).
 Real CLI processes with an explicitly fake provider; no sleeps, no live models.
 Checkpoints mirror the pause classes reported live: exhausted automatic
 timeout recovery, an explicit user time cap, and exhausted AutoResolver
-operational-recovery attempts.
+operational-recovery attempts. A repeated OpenCode external_directory denial
+is driven through the public CLI by the scripted adversarial provider.
 """
 import json
 import subprocess
@@ -13,6 +14,9 @@ from pathlib import Path
 import unittest
 
 from . import test_subprocess
+from scenarios.harness.adversarial import AdversarialCase
+from scenarios.harness.driver import default_autocode
+from scenarios.harness.processes import run_cli
 import autocode as runner
 import autocode_resolver_human as human
 import autocode_support as support
@@ -118,9 +122,11 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
         runner.write_json(self.run / 'state.json', state)
         flags, published = self.advertised_commands(state)
         self.assertNotIn('--grant-recovery', flags)
-        self.assertNotIn('--retry-failed-stage', flags)
+        # Since #301 this stop advertises its one fresh attempt. The injected history above makes the
+        # published request stale, so its acceptance is checked on an intact checkpoint below.
+        self.assertIn('--retry-failed-stage', flags)
         for flag in sorted(flags):
-            if flag in ('--resolver-response',):
+            if flag in ('--resolver-response', '--retry-failed-stage'):
                 continue  # answered through the request's own options, not a bare CLI retry
             with self.subTest(flag=flag):
                 self.assertNotIn('requires', self.describe_rejection(flag))
@@ -182,6 +188,79 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
         self.assertFalse(launched, 'a cap without headroom is not authority to continue')
         self.assertEqual('PAUSED_TIME_LIMIT', self.paused_for(after))
 
+    def test_attempt_exhaustion_advertises_one_fresh_attempt_that_moves_the_run(self):
+        state = self.attempt_exhausted_checkpoint()
+        flags, published = self.advertised_commands(state)
+        self.assertIn('--retry-failed-stage', flags, state['stop_reason'])
+        self.assertNotIn('--grant-recovery', flags)
+        run = str(self.run)
+        self.launch(['--run-dir', run, '--no-chat', '--resolver-request', published['request_id'],
+                     '--resolver-token', published['request_token'], '--resolver-response',
+                     'provide_information', '--resolver-message', 'The provider quota was raised.'], 0)
+        # Information is not authority: the advertised path never relies on a plain resume.
+        held = self.launch(['--run-dir', run, '--resume-paused', '--no-chat'], 2)
+        self.assertIn('retained the human guidance', held.stdout)
+        _, before = self.saved()
+        probe = self.root / 'retry-launches.jsonl'
+        self.env['AUTOCODE_REGISTRY_LAUNCH_PROBE'] = str(probe)
+        result = self.launch(['--run-dir', run, '--resume-paused', '--retry-failed-stage', '--no-chat'], 2)
+        self.assertNotIn('Input rejected', result.stderr)
+        self.assertTrue(self.progress(before, probe), 'the advertised retry must move the run')
+        launches = [json.loads(line)['stage'] for line in probe.read_text().splitlines()]
+        self.assertEqual(before['next_stage'], launches[0], launches)
+        self.assertEqual(1, launches.count(before['next_stage']), 'exactly one fresh attempt of the stopped stage')
+        _, after = self.saved()
+        [authorization] = after['failure_retry_authorizations']
+        self.assertEqual('operational_exhaustion', authorization['kind'])
+        self.assertEqual(before['recovery_context']['events'], authorization['events'])
+        self.assertEqual(['failure_retry_authorized'],
+                         [e['kind'] for e in after['user_events'] if e['kind'] == 'failure_retry_authorized'])
+        for key in ('automatic_recoveries_since_resume', 'automatic_timeout_recoveries',
+                    'automatic_permission_recoveries', 'failure_history'):
+            self.assertEqual(before.get(key), after.get(key), f'{key} must not be reset')
+
+    def test_three_pause_sequence_resumes_each_stop_with_its_advertised_command(self):
+        """#301 as reported live: an external_directory denial, a user time cap, then attempt exhaustion."""
+        denials = self.root / 'permission-denials'
+        denials.write_text('2')
+        self.env.update(AUTOCODE_FIXTURE_MODE='no-human', AUTOCODE_FIXTURE_PERMISSION_DENIALS=str(denials))
+        self.launch(['Build greeting', '--chat'], 2, answers='CLI\nyes\n')
+        self.run, held = self.saved()
+        run = ['--run-dir', str(self.run), '--no-chat']
+        # 1. The same denial twice holds the Builder; its one advertised retry launches one fresh attempt.
+        flags, _ = self.advertised_commands(held)
+        self.assertIn('--retry-failed-stage', flags, held.get('stop_reason'))
+        self.assertNotIn('--grant-recovery', flags)
+        self.launch([*run, '--resume-paused', '--retry-failed-stage', '--pause-after-stage'], 2)
+        _, state = self.saved()
+        builder = [row for row in state['stages'] if row.get('stage') == 'terra']
+        self.assertEqual([True, True, False], [bool(row.get('rejected')) for row in builder])
+        # 2. An explicit time cap: raising the bound continues in the same command.
+        state['settings']['limits']['max_seconds'] = 7200
+        state['settings'].setdefault('budget_origins', {})['max_seconds'] = 'user_explicit'
+        state['active_seconds'] = 7300
+        state = self.publish(state, 'PAUSED_TIME_LIMIT', 'Saved active-time limit reached at stage boundary')
+        flags, _ = self.advertised_commands(state)
+        self.assertIn('--max-seconds', flags)
+        self.assertNotIn('--retry-failed-stage', flags)
+        self.env['AUTOCODE_FIXTURE_QUOTA_STAGE'] = 'astra_review'
+        self.launch([*run, '--resume-paused', '--max-seconds', '28800'], 2)
+        _, state = self.saved()
+        self.assertEqual('astra_review', state['active_stage']['stage'], 'the raised bound moved the run')
+        self.launch([*run, '--abandon-stage', runner.attempt_id(state['active_stage'])], 0)
+        # 3. AutoResolver's operational recoveries are exhausted at that stopped attempt.
+        state = self.publish(self.saved()[1], 'PAUSED_RESOLVER_OPERATIONAL',
+                             'AutoResolver exhausted its recorded operational recoveries')
+        flags, _ = self.advertised_commands(state)
+        self.assertIn('--retry-failed-stage', flags)
+        self.assertNotIn('--grant-recovery', flags)
+        self.launch([*run, '--resume-paused', '--retry-failed-stage'], 2)
+        self.assertTrue(self.progress(state), 'the advertised retry must move the run')
+        _, after = self.saved()
+        self.assertEqual(['permission_hold', 'operational_exhaustion'],
+                         [row['kind'] for row in after['failure_retry_authorizations']])
+        self.assertEqual([1, 2], [row['repeat_count'] for row in after['automatic_permission_recoveries']])
+
     def describe_rejection(self, flag):
         probe = self.root / 'probe.jsonl'
         self.env['AUTOCODE_REGISTRY_LAUNCH_PROBE'] = str(probe)
@@ -192,6 +271,82 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
             args += ['--resume-paused']
         result = self.launch(args, 2)
         return result.stderr
+
+
+class PermissionHoldConformanceTests(AdversarialCase):
+    """A repeated external_directory denial holds until one explicit fresh attempt (#301)."""
+
+    NOTE = 'Write scratch files only under the diagnostic_directory named in recovery_context.'
+
+    def operator(self, *extra):
+        """What an operator types at the saved run: one action, no launch or limit flags."""
+        command = [*default_autocode(), '--workspace', str(self.project), '--run-dir', str(self.driver.run_dir),
+                   '--no-chat', *extra]
+        return run_cli(command, env=self.env, cwd=self.root, timeout=60)
+
+    def advertised(self, view):
+        need = view.get('needs') or {}
+        texts = [str((view.get('recovery') or {}).get('saved_reason') or '')]
+        for question in need.get('questions') or []:
+            texts += [question.get('question') or '', *(question.get('options') or [])]
+        return set(ADVERTISED_FLAGS.findall(' '.join(texts)))
+
+    def held(self, fault):
+        self.set_fault('recovery', fault)
+        view = self.driver.drive(self.scenario.brief)
+        self.assertEqual(2, len(self.trace('builder_permission_denied')), self.root)
+        self.assertFalse(view['done'], view)
+        self.assertEqual('operational_exhaustion', view['needs'].get('resolver_scope'), view)
+        return view
+
+    def test_permission_hold_advertises_one_fresh_attempt_and_it_resumes_the_run(self):
+        view = self.held('builder_permission_until_retry')
+        flags = self.advertised(view)
+        self.assertIn('--retry-failed-stage', flags, view)
+        self.assertNotIn('--grant-recovery', flags, 'a denial never spends the timeout-recovery budget')
+        before = self.driver.state()  # evidence only
+        need = view['needs']
+        answered = self.operator('--resolver-request', need['resolver_request_id'], '--resolver-token',
+                                 need['resolver_token'], '--resolver-response', 'provide_information',
+                                 '--resolver-message', self.NOTE)
+        self.assertEqual(0, answered.returncode, answered.stdout + answered.stderr)
+        # Information is not authority: a plain resume still launches nothing.
+        self.assertEqual(2, self.operator('--resume-paused').returncode)
+        self.assertEqual(2, len(self.trace('builder_permission_denied')))
+        self.assertFalse(self.trace('builder_permission_corrected'))
+        retried = self.operator('--resume-paused', '--retry-failed-stage')
+        self.assertNotIn('Input rejected', retried.stderr, retried.stdout + retried.stderr)
+        self.assertEqual(1, len(self.trace('builder_permission_corrected')), self.root)
+        handoff = self.trace('builder_permission_handoff')[-1]['recovery']
+        self.assertEqual(self.NOTE, handoff['human_information']['text'], 'the information reaches the attempt')
+        view = self.finish()
+        self.assertEqual('TASK_COMPLETE', view['status'], view)
+        state = self.driver.state()
+        self.assertEqual(before['automatic_permission_recoveries'], state['automatic_permission_recoveries'])
+        self.assertEqual(0, state.get('automatic_recoveries_since_resume', 0))
+        granted = [e for e in state['user_events'] if e['kind'] == 'failure_retry_authorized']
+        self.assertEqual(['user_cli'], [e.get('actor') for e in granted])
+        self.assertEqual(['permission_hold'], [row['kind'] for row in state['failure_retry_authorizations']])
+
+    def test_one_authorization_launches_one_attempt_and_a_repeat_holds_again(self):
+        self.held('builder_permission_repeated')
+        retried = self.operator('--resume-paused', '--retry-failed-stage')
+        self.assertNotIn('Input rejected', retried.stderr, retried.stdout + retried.stderr)
+        self.assertEqual(3, len(self.trace('builder_permission_denied')), self.root)
+        for _ in range(2):
+            self.assertEqual(2, self.operator('--resume-paused').returncode)
+        self.assertEqual(3, len(self.trace('builder_permission_denied')), 'a used authorization launched again')
+        state = self.driver.state()  # evidence only
+        self.assertEqual([1, 2, 3], [row['repeat_count'] for row in state['automatic_permission_recoveries']])
+        self.assertEqual(0, state.get('automatic_recoveries_since_resume', 0))
+        self.assertFalse(self.trace('stage_enter', 'sol'))
+        self.assertEqual(1, len(state['failure_retry_authorizations']))
+        # Another attempt needs another explicit authorization. It buys at most one, and the
+        # no-progress limit and recovery budget, which three Builder denials reach, still apply.
+        self.assertIn('--retry-failed-stage', self.advertised(self.status()))
+        self.assertNotIn('Input rejected', self.operator('--resume-paused', '--retry-failed-stage').stderr)
+        self.assertLessEqual(len(self.trace('builder_permission_denied')), 4, self.root)
+        self.assertFalse(self.status()['done'])
 
 
 if __name__ == '__main__':

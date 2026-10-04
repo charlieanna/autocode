@@ -16,7 +16,7 @@ FAULTS = frozenset({
     "investigator_iteration", "investigator_run_root", "investigator_missing_citation",
     "investigator_uncited_input", "truncated_once", "truncated_repeated",
     "completion_denial", "builder_permission_corrected", "builder_permission_repeated",
-    "builder_permission_distinct",
+    "builder_permission_distinct", "builder_permission_until_retry",
 })
 MISSING_REF = "README.md.adversarial-missing"
 
@@ -110,7 +110,10 @@ def install(fake, configuration: dict, trace) -> None:
             mark("builder_permission_handoff", recovery=data.get("recovery_context"),
                  artifact_policy=data.get("builder_artifact_policy"),
                  partial=partial.read_text() if partial.exists() else None)
-            if counts[stage] == 1 or attack in ("builder_permission_repeated", "builder_permission_distinct"):
+            # until_retry repeats the same denial once (the run holds), then corrects it on the
+            # one fresh attempt an operator authorizes.
+            if (counts[stage] == 1 or attack in ("builder_permission_repeated", "builder_permission_distinct")
+                    or (attack == "builder_permission_until_retry" and counts[stage] == 2)):
                 mark("builder_permission_denied", invocation=counts[stage])
                 # A distinct denied path per invocation makes each denial a new
                 # incident, so only the permission ceiling can bound this loop.

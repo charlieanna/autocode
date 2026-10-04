@@ -93,6 +93,7 @@ a new run instead; `autocode resume` never does.
 | Flag | Meaning |
 | --- | --- |
 | `--resume-paused` | Acknowledge an operational pause and continue. Does not approve a draft, and does not restore a spent recovery allowance. |
+| `--retry-failed-stage` | With `--resume-paused`, authorize exactly one fresh attempt at an unchanged source: a recorded repeated failure, a held external_directory denial, or AutoResolver's exhausted operational recovery after a stopped attempt. Counts, permissions and limits stay as they are; audited as a `failure_retry_authorized` user event. |
 | `--diagnose-failed-stage` | With `--resume-paused`, request bounded read-only diagnosis of a recorded repeated Builder report failure. Alternative to `--retry-failed-stage`; not a permission or budget override. |
 | `--grant-recovery N` | With `--resume-paused`, authorize N more automatic timeout recoveries for a run paused at `PAUSED_TIMEOUT_RECOVERY` after its cause was fixed. Audited as a `recovery_grant` user event; recovery history is retained. |
 | `--planning-review-call-limit N` | At a reconciled planning-budget pause, save a total allowance for the current cycle. `0` disables the cap for this and future cycles while preserving usage history; it can also be saved at a requested pause or after abandoning a stopped stage. No model launch or approval; resume separately. |

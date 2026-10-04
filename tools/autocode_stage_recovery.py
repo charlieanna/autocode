@@ -25,6 +25,7 @@ try:
     from . import autocode_run_records as records
     from . import autocode_validation_recovery as validation_recovery
     from . import autocode_permission_recovery as permission_recovery
+    from . import autocode_operational_retry as operational_retry
 except ImportError:
     import autocode_job_failure as job_failure
     import autocode_escalation as escalation
@@ -40,6 +41,7 @@ except ImportError:
     import autocode_run_records as records
     import autocode_validation_recovery as validation_recovery
     import autocode_permission_recovery as permission_recovery
+    import autocode_operational_retry as operational_retry
 
 
 def recover_legacy_report_repair(state, run_dir, workspace):
@@ -861,7 +863,28 @@ def authorize_failure_retry(state, run_dir, workspace):
 
     The durable record is audit only. The returned exception is consumed in this
     invocation; loading the checkpoint cannot grant another execution attempt.
+    A repeated permission denial or an exhausted operational recovery, which hold
+    before the failure history is stalled, take autocode_operational_retry's path:
+    its launch guard honours that record for the one denial it names (#301).
     """
+    published = state.get(resolver_human.PUBLIC)
+    held = operational_retry.target(
+        state, cause=operational_retry.stop_cause(state, published), published=published,
+        revision=lambda: support.snapshot(workspace)['revision'], is_planning=planning.is_planning)
+    if held:
+        kind, recovery = held
+        # The latest failed record, which repeated_failure_resume_guard checks once its history is
+        # stalled, when it is the stopped attempt itself.
+        record = next((row for row in reversed(state.get('stages', [])) if row.get('failure_key')), None)
+        if record and record.get('events') != recovery['events']:
+            record = None
+        failure = record and (failures.repeated(state, record)
+                              or (state.get('failure_history') or {}).get(record['failure_key']))
+        authorization = operational_retry.authorize(state, kind, recovery, now=records.now(),
+                                                    failure_key=record and record['failure_key'], failure=failure)
+        resolver_human.supersede_operational(state, 'Operator explicitly authorized one fresh attempt')
+        records.write_json(run_dir / 'state.json', state)
+        return authorization
     issued = resolver_human.current(state)
     issued_cause = (state.get('resolver', {}).get('human_escalations', {}).get(issued['request_id'], {})
                     .get('identity', {}).get('proposal', {}).get('origin', {}).get('pause_status')) if issued else None

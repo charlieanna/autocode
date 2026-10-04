@@ -40,3 +40,10 @@ Letting `--resume-paused` pass a published operational request changes what
 that command authorizes, which is the operational-exhaustion decision left
 open in #288/#301. `tests/test_paused_source_edit.py` builds this state
 (`exhausted_report_repair_published_after_a_source_edit`).
+
+#301 settled that decision for holds at an unchanged source: a repeated
+external_directory denial and AutoResolver's exhausted operational recovery
+after a stopped attempt advertise `--resume-paused --retry-failed-stage`, one
+fresh attempt (`autocode_operational_retry`); `--resume-paused` still holds.
+This source-edit case stays open: the queued repair and the moved source keep it
+out of that path.
