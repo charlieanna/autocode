@@ -200,6 +200,21 @@ class RunViewTests(unittest.TestCase):
                                            "latest_rejected": {"iteration": 1, "output": "/run/sol_report_repair-02.json"}}}
         self.assertEqual("001/sol_report_repair-02", run_view.needs(state)["retry_report_attempt"])
 
+    def test_legacy_job_without_source_identity_exposes_recovery_not_retry(self):
+        failure = {'reason': 'Provider stopped', 'stage': 'investigate_bug',
+                   'attempt_id': '001/bug-investigation-01', 'job_retry_token': 'jr:old',
+                   'archive': '/run/archive', 'source_identity': None,
+                   'write_diagnosis': {'unrestored': ['original source capture']},
+                   'unrestored': ['original source capture']}
+        for status in ('PAUSED_JOB_FAILURE', 'PAUSED_STAGE_ABANDONED'):
+            need = run_view.needs({'status': status, 'job_failure': failure})
+            self.assertEqual('recover_source', need['kind'])
+            self.assertIsNone(need['action'])
+            self.assertIn('original source identity', need['recovery_hint'])
+            self.assertEqual('jr:old', need['job_retry_token'])
+            self.assertEqual('/run/archive', need['archive'])
+            self.assertEqual(failure['write_diagnosis'], need['write_diagnosis'])
+
     def test_running_continues(self):
         self.assertEqual({"kind": "continue"}, run_view.needs({"status": "RUNNING", "pending_questions": []}))
 

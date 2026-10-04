@@ -47,6 +47,16 @@ def identity(workspace):
     return {'head': snap['head'], 'files': {name: _entry(root, name) for name in snap['files']}}
 
 
+def matches_original(workspace, expected):
+    """Compare against the identity saved before admission; never infer one now."""
+    if not expected:
+        return False
+    try:
+        return util.digest(identity(workspace)) == expected
+    except (OSError, ValueError):
+        return False
+
+
 def capture(workspace, base, record, before):
     if record.get('stage') not in jobs.STAGES or record.get('report_only'):
         return
@@ -132,6 +142,11 @@ def _replace(root, name, original, witnessed, blob):
 def restore(workspace, record):
     result = {'restored': [], 'deleted': [], 'unrestored': []}
     capture = record.get('job_source') or {}
+    # No restoration needs capture bytes or a stopped witness when every current
+    # path, mode and Git HEAD already matches the pre-admission identity.
+    if matches_original(workspace, capture.get('before_identity')):
+        result['original_identity_verified'] = True
+        return result
     try:
         manifest = _bound(capture.get('capture'), capture.get('capture_hash'))
         witness = _bound(capture.get('witness'), capture.get('witness_hash'))

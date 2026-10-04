@@ -172,4 +172,8 @@ A failed read-only workflow job exposes an exact `retry_job` action in status.
 After inspecting the archived attempt, retry with `--resume-paused
 --retry-failed-stage --job-retry-token TOKEN` using its current
 `needs.job_retry_token`. Plain resume does not repeat the job. Unrestored source
-or changed source/model/limits requires a fresh authorized run.
+blocks retry until the exact original source is restored. The CLI verifies file
+bytes, modes and Git HEAD even when a capture artifact is missing; changed
+model/limits still invalidate the retry. An older attempt with no saved original
+identity exposes `recover_source` and an explanation instead of a retry action.
+Inspect its archive and current changes before starting a new run.

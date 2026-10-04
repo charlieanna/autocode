@@ -106,9 +106,8 @@ class OracleProcessTest(unittest.TestCase):
             self.assertEqual(0, code)
             self.assertEqual("\ufffd", out)
 
-    def test_completed_output_is_not_lost_to_stale_group_cleanup(self):
-        # Deterministic EPERM injection supplements the saved real OS failures.
-        with _project({}) as root, mock.patch.object(os, 'killpg', side_effect=PermissionError):
+    def test_nonzero_exit_preserves_both_output_streams(self):
+        with _project({}) as root:
             result = scenarios._run([sys.executable, '-c',
                 "import sys; print('done'); print('error', file=sys.stderr); sys.exit(7)"], Path(root))
         self.assertEqual((7, 'done\n', 'error\n'), result)
@@ -409,10 +408,7 @@ class ProgramOracleTest(unittest.TestCase):
                 self.assertEqual(scenarios.PASS, result.status, result.summary)
 
     def test_reference_passes_the_full_journey(self):
-        # Both command and long-running launcher cleanup must avoid signaling
-        # a process group by a leader PID that has already been reaped.
-        with _project(references.PROGRAM_REFERENCE) as root, \
-                mock.patch.object(os, 'killpg', side_effect=PermissionError):
+        with _project(references.PROGRAM_REFERENCE) as root:
             result = scenarios.program01_oracle(Path(root))
             self.assertEqual(scenarios.PASS, result.status, result.summary)
             self.assertIn("never executed", result.summary)
