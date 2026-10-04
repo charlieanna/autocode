@@ -379,6 +379,11 @@ with the limit before changing it. An inactivity stop names its limit, whether t
 is the runner default or was set explicitly, and how to change it (`--resume-paused
 --max-idle-seconds N`). Once the automatic recovery allowance is spent, the new
 limit is saved but no provider launches until `--grant-recovery N` is also given.
+Routes of a model family that reasons in long silent blocks run under a higher default:
+MiMo routes get 900 seconds when the limit is the runner default (`autocode_idle_policy`).
+OpenCode reports reasoning only as completed blocks, so a live MiMo Builder can emit no event
+for over 300 seconds. An explicit `--max-idle-seconds` is always used as given, and the saved
+setting is not rewritten.
 A workflow job's stop (review, design, design check, bug investigation, question,
 stuck-stage investigation) says instead that its exact retry runs under the same
 limit: that retry is bound to the limits the job ran under, so a changed limit
