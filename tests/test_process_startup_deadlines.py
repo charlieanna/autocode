@@ -7,7 +7,7 @@ import autocode_process as processes
 
 
 class StartupDeadlineTests(unittest.TestCase):
-    def run_provider(self, phase, *, idle=False):
+    def run_provider(self, phase, *, idle=False, origin=None):
         # Drive the real supervisor with a fake provider, clock and scheduler.
         # A suspended event wait resumes at the next clock tick; nothing sleeps.
         class Suspended(BaseException):
@@ -101,6 +101,7 @@ class StartupDeadlineTests(unittest.TestCase):
 
         class Monitor:
             idle_limit, tool_limit = 5, 0
+            idle_origin = origin
             timeout = None
 
             def poll(self, **kwargs):
@@ -152,6 +153,15 @@ class StartupDeadlineTests(unittest.TestCase):
 
     def test_idle_cap_during_initial_inspection(self):
         self.assert_bounded('inspection', idle=True)
+
+    def test_idle_stop_reason_names_limit_origin_and_how_to_change_it(self):
+        for origin, source in (('runner_default', ', runner default'), ('user_explicit', ', set explicitly'),
+                               (None, '')):
+            with self.subTest(origin=origin):
+                _, expired, _, monitor, _ = self.run_provider('inspection', idle=True, origin=origin)
+                self.assertTrue(expired)
+                self.assertEqual(f'No new provider activity within the inactivity limit (5 seconds{source}; '
+                                 'change it with --resume-paused --max-idle-seconds N)', monitor.timeout['reason'])
 
     def test_watchdog_cannot_reap_before_identity_is_captured(self):
         code, expired, owned, _, _ = self.run_provider('fast_exit')

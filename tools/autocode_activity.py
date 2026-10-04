@@ -18,6 +18,17 @@ import threading
 import time
 
 
+IDLE_REASON = "No new provider activity within the inactivity limit"
+_ORIGINS = {"runner_default": "runner default", "user_explicit": "set explicitly",
+            "resolver_delegated": "delegated to AutoResolver"}
+
+
+def idle_timeout_reason(limit, origin=None):
+    """Operator text for an idle stop: the limit, where it came from and how to change it."""
+    source = f", {_ORIGINS.get(origin, origin)}" if origin else ""
+    return f"{IDLE_REASON} ({limit:g} seconds{source}; change it with --resume-paused --max-idle-seconds N)"
+
+
 class _ProjectedJsonLine:
     """Validate a JSONL record while bounding retained string-token contents.
 
@@ -116,14 +127,16 @@ class ActivityMonitor:
     }
 
     def __init__(self, events_path, *, idle_seconds=300, tool_seconds=1800,
-                 clock=time.monotonic, reporter=None):
+                 clock=time.monotonic, reporter=None, idle_origin=None):
         self.path = Path(events_path)
         self.idle_limit = max(0, float(idle_seconds))
         self.tool_limit = max(0, float(tool_seconds))
+        self.idle_origin = idle_origin
         self.clock = clock
         self._reporter = reporter
         self._lock = threading.RLock()
         self._last_activity = clock()
+        self._longest_idle = 0
         self._provider_active = False
         self._offset = 0
         self._file_identity = None
@@ -301,6 +314,7 @@ class ActivityMonitor:
     def poll(self, processes=None, root_pid=None):
         with self._lock:
             now = self.clock()
+            idle = None if self._tool_elapsed(now) is not None else now - self._last_activity
             self._read(now)
             if processes is not None and root_pid is not None and not self._explicit_starts:
                 rows = processes.values() if isinstance(processes, dict) else processes
@@ -313,6 +327,9 @@ class ActivityMonitor:
                 elif not descendants and self._fallback_started is not None:
                     self._fallback_started = None
                     self._activity(now)
+            if idle is not None and (self._last_activity == now or self._tool_elapsed(now) is not None):
+                # Only a quiet period that has ended; the open one is idle_seconds.
+                self._longest_idle = max(self._longest_idle, idle)
             return self._snapshot(now)
 
     def _tool_elapsed(self, now):
@@ -327,7 +344,7 @@ class ActivityMonitor:
             if self.tool_limit and elapsed >= self.tool_limit:
                 return {"kind": "tool", "reason": "Tool execution exceeded its fixed time limit"}
         elif self.idle_limit and now - self._last_activity >= self.idle_limit:
-            return {"kind": "idle", "reason": "No new provider activity within the inactivity limit"}
+            return {"kind": "idle", "reason": idle_timeout_reason(self.idle_limit, self.idle_origin)}
         return None
 
     def expired(self):
@@ -349,6 +366,7 @@ class ActivityMonitor:
             activity, detail = "waiting_for_provider", "waiting for new provider activity"
         return {"activity": activity, "detail": detail,
                 "idle_seconds": round(max(0, now - self._last_activity), 3),
+                "longest_idle_seconds": round(self._longest_idle, 3),
                 "tool_elapsed_seconds": round(elapsed, 3) if elapsed is not None else None,
                 "idle_limit_seconds": self.idle_limit, "tool_limit_seconds": self.tool_limit,
                 "active_tool_count": len(self._active), "completed_tool_count": len(self._closed),

@@ -21,6 +21,7 @@ import autocode_milestones as milestones
 import autocode_planning as planning
 import autopilot
 import autocode_support as support
+from autocode_activity import ActivityMonitor
 from goal_fixtures import assert_operational_wait, envelope
 
 
@@ -179,6 +180,75 @@ class ActivityRuntimeTests(unittest.TestCase):
                 self.assertIn('observed_at', observed[0])
                 self.assertGreaterEqual(observed[0]['elapsed_seconds'], 0)
                 self.assertEqual(20, observed[0]['stage_limit_seconds'])
+
+    def test_idle_stop_names_saved_limit_origin_and_longest_earlier_quiet_period(self):
+        self.start_task()
+        self.state['settings']['limits'].update(stage_timeout_seconds=3600, idle_timeout_seconds=300,
+                                                tool_timeout_seconds=1800)
+        self.state['settings']['budget_origins'] = {'idle_timeout_seconds': 'runner_default'}
+        clock = [0.0]
+
+        class Child:
+            pid = 987654321
+
+            def __init__(child, command, **kwargs):
+                kwargs['stdout'].write('{"type":"thread.started","thread_id":"fixture"}\n')
+                kwargs['stdout'].flush()
+
+        def monitor(*args, **kwargs):
+            return ActivityMonitor(*args, clock=lambda: clock[0], **kwargs)
+
+        def wait(child, hard_limit, checkpoint, *, activity, activity_checkpoint, startup_grace):
+            checkpoint([])
+            activity_checkpoint(activity.poll())
+            clock[0] = 181
+            with activity.path.open('a') as stream:
+                stream.write(json.dumps({'type': 'item.completed', 'item': {
+                    'id': 'note', 'type': 'agent_message', 'text': 'Reading the failing module'}}) + '\n')
+            activity_checkpoint(activity.poll())
+            clock[0] = 481
+            activity_checkpoint(activity.poll())
+            activity.timeout = activity.expired()
+            return -15, True
+
+        output = io.StringIO()
+        with patch.object(runner, 'ActivityMonitor', monitor), \
+             patch.object(runner.subprocess, 'Popen', Child), \
+             patch.object(support, 'snapshot', return_value={'head': 'h', 'files': {}, 'revision': 'r'}), \
+             patch.object(runner.processes, 'process_table', return_value={}), \
+             patch.object(runner.processes, 'wait_for_stage', side_effect=wait), \
+             contextlib.redirect_stdout(output), self.assertRaises(support.Paused) as caught:
+            runner.run_role(role='terra', prompt='Finish the bounded greeting task',
+                sandbox='workspace-write', workspace=self.root, run_dir=self.run,
+                state=self.state, schema=runner.SCHEMA_DIR / 'v2/terra-report.schema.json',
+                model='fixture-terra', allow_write=True, dry_run=False)
+        reason = ('No new provider activity within the inactivity limit (300 seconds, runner default; '
+                  'change it with --resume-paused --max-idle-seconds N)')
+        self.assertEqual('PAUSED_PROVIDER_TIMEOUT', caught.exception.status)
+        self.assertIn(reason, str(caught.exception))
+        stalled = [line for line in output.getvalue().splitlines() if line.startswith('Builder: stalled;')]
+        self.assertEqual(1, len(stalled))
+        self.assertIn('idle=300s/300', stalled[0])
+        self.assertTrue(stalled[0].endswith('; ' + reason))
+        active = support.read(self.run / 'state.json')['active_stage']
+        self.assertEqual(('idle', reason), (active['timeout_kind'], active['timeout_reason']))
+        self.assertEqual((300, 181), (active['activity']['idle_seconds'], active['activity']['longest_idle_seconds']))
+
+    def test_resume_with_max_idle_seconds_applies_to_the_next_launch(self):
+        self.start_task()
+        self.state['settings']['limits']['idle_timeout_seconds'] = 300
+        self.state['settings']['budget_origins'] = {'idle_timeout_seconds': 'runner_default'}
+        self.state.update(status='PAUSED_PROVIDER_TIMEOUT', stop_reason='Builder idle stop')
+        launched = []
+
+        def inspect(**kwargs):
+            settings = kwargs['state']['settings']
+            launched.append((settings['limits']['idle_timeout_seconds'],
+                             settings['budget_origins']['idle_timeout_seconds']))
+            raise support.Paused('PAUSED_TEST', 'Offline dispatch inspected')
+
+        test_goals.GoalTests.invoke(self, '--resume-paused', '--max-idle-seconds', '900', role=inspect)
+        self.assertEqual([(900, 'user_explicit')], launched)
 
     def interrupted_attempt(self, *, terminal=False):
         before = support.snapshot(self.root)
