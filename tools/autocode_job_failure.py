@@ -83,6 +83,11 @@ def recover(runtime, state, run_dir, workspace, error=None, *, abandoned=False):
     record.update(job_failure_kind=kind, write_diagnosis=restoration, abandoned=abandoned)
     config = record.get('job_configuration') or configuration(state)
     source_identity = (record.get('job_source') or {}).get('before_identity')
+    if not source_identity and not (record.get('changed_files') or []):
+        # Crashed before capturing its source binding, changed nothing: anchor the
+        # retry gate on the live workspace identity so an exact retry stays possible
+        # (authorize still refuses if the workspace changes before the retry).
+        source_identity = util.digest(source.identity(workspace))
     token = 'jr:' + util.digest({'run': str(run_dir), 'attempt': original_attempt,
                     'started_at': record.get('started_at'), 'source': source_identity, 'configuration': config})
     originals = runtime.archive_rejected_stage(state, run_dir, record, reason)

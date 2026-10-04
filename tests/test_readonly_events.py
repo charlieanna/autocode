@@ -188,3 +188,93 @@ class SnapshotIgnoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PermittedReviewAdditionTests(unittest.TestCase):
+    """A review may create review/ evidence; it may not touch pre-existing files."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        subprocess.run(["git", "-C", str(self.root), "config", "user.name", "Fixture"], check=True)
+        subprocess.run(["git", "-C", str(self.root), "config", "user.email", "fixture@example.test"], check=True)
+        (self.root / "app.py").write_text("print('hi')\n")
+        subprocess.run(["git", "-C", str(self.root), "add", "app.py"], check=True)
+        subprocess.run(["git", "-C", str(self.root), "commit", "-qm", "base"], check=True)
+        self.events = self.root / "review.jsonl"
+        self.record = {"engine": "opencode", "output_mode": "opencode_events", "role": "sol",
+                       "stage": "review_change", "events": str(self.events),
+                       "output": str(self.root / "report.json")}
+
+    def tree(self):
+        subprocess.run(["git", "-C", str(self.root), "add", "-A"], check=True)
+        return subprocess.check_output(["git", "-C", str(self.root), "write-tree"], text=True).strip()
+
+    def write_events(self, snapshots):
+        rows = []
+        for index, snapshot in enumerate(snapshots):
+            rows.append({"type": "step_start", "sessionID": "ses_review", "part": {
+                "id": f"start-{index}", "type": "step-start", "snapshot": snapshot,
+                "messageID": "msg_review", "sessionID": "ses_review"}})
+        rows.append({"type": "step_finish", "sessionID": "ses_review", "part": {
+            "id": "finish", "type": "step-finish", "messageID": "msg_review", "reason": "stop",
+            "snapshot": snapshots[-1], "tokens": {"input": 1, "output": 1, "reasoning": 0,
+                                                  "cache": {"read": 0, "write": 0}}}})
+        self.events.write_text("\n".join(json.dumps(row) for row in rows))
+
+    def check(self):
+        return importlib.import_module("autocode_readonly_events").assert_unchanged_review(
+            self.record, workspace=self.root)
+
+    def test_accepts_a_new_delivered_test_under_review(self):
+        base = self.tree()
+        tests = self.root / "review/tests"
+        tests.mkdir(parents=True)
+        (tests / "test_f1_behavior.py").write_text("import unittest\n")
+        added = self.tree()
+        self.write_events([base, added])
+        self.assertIsNone(self.check())
+
+    def test_rejects_an_edit_to_preexisting_source(self):
+        base = self.tree()
+        (self.root / "app.py").write_text("print('changed')\n")
+        edited = self.tree()
+        self.write_events([base, edited])
+        with self.assertRaises(support.Paused) as caught:
+            self.check()
+        self.assertEqual("PAUSED_STALE_VALIDATION", caught.exception.status)
+
+    def test_rejects_an_edit_to_a_preexisting_review_file(self):
+        review = self.root / "review"
+        review.mkdir()
+        (review / "notes.md").write_text("prior\n")
+        base = self.tree()
+        (review / "notes.md").write_text("edited\n")
+        edited = self.tree()
+        self.write_events([base, edited])
+        with self.assertRaises(support.Paused):
+            self.check()
+
+    def test_rejects_a_transient_edit_to_preexisting_source(self):
+        base = self.tree()
+        (self.root / "app.py").write_text("print('changed')\n")
+        edited = self.tree()
+        (self.root / "app.py").write_text("print('hi')\n")
+        restored = self.tree()
+        self.assertEqual(base, restored)
+        self.write_events([base, edited, base])
+        with self.assertRaises(support.Paused):
+            self.check()
+
+    def test_non_review_stages_allow_no_additions(self):
+        self.record["stage"] = "sol"
+        base = self.tree()
+        tests = self.root / "review/tests"
+        tests.mkdir(parents=True)
+        (tests / "test_f1_behavior.py").write_text("import unittest\n")
+        added = self.tree()
+        self.write_events([base, added])
+        with self.assertRaises(support.Paused):
+            self.check()

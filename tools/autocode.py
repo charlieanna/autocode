@@ -67,6 +67,7 @@ try:
         prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
         recover_legacy_report_repair, retry_format_failed_report)
     from .autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT
+    from . import autocode_idle_policy as idle_policy
 except ImportError:
     import autocode_job_source as job_source, autocode_job_failure as job_failure
     import autocode_workspaces as task_workspaces
@@ -99,6 +100,7 @@ except ImportError:
         prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
         recover_legacy_report_repair, retry_format_failed_report)
     from autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT
+    import autocode_idle_policy as idle_policy
 
 
 write_json = stop_policy.state_writer(ordinary_write_json, status_records.persist)
@@ -172,8 +174,9 @@ slug = util.slug
 
 def load_stage_report(record, workspace=None, evidence_record=None, state=None):
     """Validate provider output, retaining raw bytes before hydrating review IDs."""
-    readonly_events.assert_unchanged_review(record)
-    if evidence_record: readonly_events.assert_unchanged_review(evidence_record)
+    readonly_events.assert_unchanged_review(record, workspace=workspace)
+    if evidence_record:
+        readonly_events.assert_unchanged_review(evidence_record, workspace=workspace)
     rework_policy.verify_existing(record)
     if record.get("engine") == "opencode":
         # Raw provider events are authoritative, including during recovery.
@@ -353,6 +356,8 @@ def run_role(
     limits = state["settings"].get("limits", {})
     stage_timeout = limits.get("stage_timeout_seconds")
     idle_timeout = limits.get("idle_timeout_seconds", 300)
+    idle_limit, idle_origin = idle_policy.effective(
+        idle_timeout, state["settings"].get("budget_origins", {}).get("idle_timeout_seconds"), model)
     tool_timeout = limits.get("tool_timeout_seconds", 1800)
     command, child_environment, overrides, worker_context = provider_launch.prepare(
         engine=engine, adapter=opencode, role=role, route_role=route_role, workspace=workspace,
@@ -450,8 +455,8 @@ def run_role(
                 prepared.unlink(missing_ok=True)
             raise
         print(f"{autocode_status.role_name(stage, state)}: started; model={model or 'default'}; log={events}", flush=True)
-        activity = ActivityMonitor(events, idle_seconds=idle_timeout, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
-                                   idle_origin=state["settings"].get("budget_origins", {}).get("idle_timeout_seconds"),
+        activity = ActivityMonitor(events, idle_seconds=idle_limit, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
+                                   idle_origin=idle_origin,
                                    idle_hint=JOB_IDLE_LIMIT if stage in jobs.STAGES else CHANGE_IDLE_LIMIT)
         activity_label = None
         last_activity_print = 0
@@ -467,7 +472,7 @@ def run_role(
                 stop = snapshot.get("timeout_reason") or (snapshot.get("detail") if snapshot.get("activity") == "stalled" else None)
                 print(f"{autocode_status.role_name(stage, state)}: {snapshot.get('activity', 'waiting_for_provider')}; model={model or 'default'}; "
                       f"elapsed={record['activity']['elapsed_seconds']:g}s; "
-                      f"idle={snapshot.get('idle_seconds', 0):g}s/{idle_timeout or 'off'}; "
+                      f"idle={snapshot.get('idle_seconds', 0):g}s/{idle_limit or 'off'}; "
                       f"tool={snapshot.get('tool_elapsed_seconds', 0) or 0:g}s/{tool_timeout or 'off'}; "
                       f"stage_limit={stage_timeout or 'off'}" + (f"; {stop}" if stop else ""), flush=True)
                 activity_label, last_activity_print = label, current
@@ -797,7 +802,8 @@ def timeout_recovery_guard(state):
 def grant_recovery_allowance(state, run_dir, amount, *, previous_settings=None):
     return recovery_grants.grant(state, run_dir, amount, previous_settings=previous_settings,
         current_request=resolver_human.current, count=recovery_count(state),
-        supersede=resolver_human.supersede_operational, persist=write_json)
+        supersede=resolver_human.supersede_operational, persist=write_json,
+        maximum=MAX_AUTOMATIC_RECOVERIES)
 
 
 def repeated_failure_resume_guard(state, workspace, *, authorization=None):

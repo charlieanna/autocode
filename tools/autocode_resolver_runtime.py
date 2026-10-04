@@ -16,6 +16,7 @@ try:
     from . import autocode_goals as goals, autocode_failures as failures
     from . import autocode_resolver_human as human
     from . import autocode_progressive_state as progressive
+    from . import autocode_recovery_grants as recovery_grants, autocode_recovery_limits as recovery_limits
 except ImportError:
     import autocode_resolver as policy
     import autocode_support as support
@@ -23,6 +24,8 @@ except ImportError:
     import autocode_failures as failures
     import autocode_resolver_human as human
     import autocode_progressive_state as progressive
+    import autocode_recovery_grants as recovery_grants
+    import autocode_recovery_limits as recovery_limits
 
 
 REVIEW_STAGES = ('astra_challenge', 'astra_finalize')
@@ -389,10 +392,19 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
     decision = (f'AutoResolver could not resolve {category} after {attempts} recorded operational recoveries. '
                 'Provide corrective information or leave the run paused.')
     options = ['Provide corrective information', 'Leave paused']
-    if error.status == 'PAUSED_TIMEOUT_RECOVERY':
-        decision += (' After fixing the cause, authorize more automatic recoveries with '
-                     '--resume-paused --grant-recovery N.')
+    count = (runner.recovery_count(state) if callable(getattr(runner, 'recovery_count', None))
+             else attempts)
+    maximum = int(getattr(runner, 'MAX_AUTOMATIC_RECOVERIES', 3) or 3)
+    # Advice and grant eligibility share one check (#288): never name a command
+    # the CLI will refuse at this stop.
+    allow_grant = recovery_grants.eligible(
+        state, current_request=human.current, count=count, maximum=maximum,
+        issued={'scope': 'operational_exhaustion', 'request_id': None}, cause=error.status)
+    if allow_grant:
+        decision += ' ' + recovery_limits.GRANT_ADVICE
         options.append('Authorize more recoveries with --grant-recovery N')
+    else:
+        decision += ' ' + recovery_limits.advice(allow_grant=False, pause_status=error.status)
     request = request or {'kind': 'blocker', 'discovered': str(error),
                           'impact': 'AutoResolver retained the attempts, work and evidence but cannot continue safely.',
                           'decision_needed': decision,
@@ -401,6 +413,12 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
     human.queue(state, 'operational_exhaustion',
                 {'stage': state.get('next_stage') or 'operational_recovery', 'pause_status': error.status, 'budget': budget},
                 request=request, evidence={'resolver_receipt_id': receipt}, next_stage=state.get('next_stage'))
+    # Keep the printed stop reason on the same contract as the published request, after the cause it
+    # stops for (an external_directory denial, a spent budget), which the advice alone does not name.
+    cause = str(error).strip()
+    advice = request.get('decision_needed') or decision
+    state['stop_reason'] = advice if not cause or cause in advice else (
+        cause + ('' if cause.endswith('.') else '.') + ' ' + advice)
     return True
 
 
