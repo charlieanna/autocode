@@ -564,7 +564,10 @@ which revises that plan ([Adaptive planning](adaptive-planning.md#feedback-on-a-
 `--delegate Q1` explicitly accepts that question's proposed
 default. Saved answers are included in subsequent interviews; an answered question
 ID cannot be requested again. Answers do not approve the task. The approval token
-must exactly match the current displayed contract revision. Approval saves
+must exactly match the current displayed contract revision. At the approval stop the brief
+says which plan revision (`r3`) waits and that approving it authorizes implementation,
+explains the token as a SHA-256 lock on that exact plan (any revision changes it), and ends
+with the limits in effect and the exact `--approve-goal` and `--feedback` commands. Approval saves
 `READY_TO_EXECUTE`; the next ordinary invocation begins execution. User-input commands
 never launch an agent. This command-per-turn interface also works from scripts and
 other frontends; no continuously attached terminal is required.

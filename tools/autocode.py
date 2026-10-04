@@ -1173,7 +1173,7 @@ def chat_checkpoint(state: dict[str, Any], run_dir=None) -> bool:
         if not published or published['scope'] != 'goal_approval':
             return False
         print('\nAutoResolver: proposed plan ready for your decision:\n')
-        print(lifecycle.present(state))
+        print(lifecycle.present(state, run_dir))
         while True:
             try:
                 reply = input("Approve this brief? [y/N], or type planning feedback: ").strip()
@@ -1287,7 +1287,7 @@ def _main_body(unit=None) -> int:
                 if state["status"] == "TASK_COMPLETE":
                     print(jobs.render(state, goals.render_completion) + worktrees.deliver(state, workspace))
                     return 0
-            rendered = lifecycle.present(state)
+            rendered = lifecycle.present(state, run_dir)
             write_json(state_path, state)
             print(rendered)
         return 0 if state["status"] == "TASK_COMPLETE" else 2
