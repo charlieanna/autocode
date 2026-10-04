@@ -76,13 +76,13 @@ autopilot "Build a greeting CLI" --workspace /path/to/project --chat
 # Or invoke individual units at their saved boundaries:
 autoplanner "Build a greeting CLI" --workspace /path/to/project --chat
 # After approval, this stops before any Builder starts.
-# Use the workspace and run directory printed by the planner:
-autocode-build --workspace /path/to/run-workspace --run-dir /path/to/run --no-chat
-autoreview --workspace /path/to/run-workspace --run-dir /path/to/run --no-chat
+# Each unit continues the project's unfinished run (add --run-dir RUN when it has several):
+autocode-build --workspace /path/to/project --no-chat
+autoreview --workspace /path/to/project --no-chat
 # If review requests rework, diagnose it without launching a Builder:
-autoresolver --workspace /path/to/run-workspace --run-dir /path/to/run --no-chat
+autoresolver --workspace /path/to/project --no-chat
 # Let Autopilot continue through any remaining build/review cycles:
-autopilot --workspace /path/to/run-workspace --run-dir /path/to/run --no-chat
+autopilot --workspace /path/to/project --no-chat
 ```
 
 Each unit command stops successfully before dispatching another unit.

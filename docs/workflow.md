@@ -543,16 +543,18 @@ brief feedback, contract history, user events, prompts, schema files, evidence a
 sessions remain in the target workspace's `.autocode/runs/<run>/`. No implementation
 starts from the initial prompt.
 
-Use the printed run path in the following commands (keep the same `--workspace`):
+Run the following from the project or the task worktree; each acts on its unfinished run.
+With several unfinished runs, add `--run-dir /path/to/run` (see
+[Which run a command acts on](cli.md#which-run-a-command-acts-on)):
 
 ```sh
-autocode --workspace /path/to/project --run-dir /path/to/run --answer 'Q1=CLI only'
-autocode --workspace /path/to/project --run-dir /path/to/run --no-chat
-autocode --workspace /path/to/project --run-dir /path/to/run --feedback 'Keep the first milestone local only'
-autocode --workspace /path/to/project --run-dir /path/to/run --no-chat
-autocode --workspace /path/to/project --run-dir /path/to/run --show-goal
-autocode --workspace /path/to/project --run-dir /path/to/run --approve-goal 'r3:<full displayed hash>'
-autocode --workspace /path/to/project --run-dir /path/to/run --no-chat
+autocode --answer 'Q1=CLI only'
+autocode --no-chat
+autocode --feedback 'Keep the first milestone local only'
+autocode --no-chat
+autocode --show-goal
+autocode --approve-goal 'r3:<full displayed hash>'
+autocode --no-chat
 ```
 
 `--answer` is repeatable. `--feedback TEXT` saves a correction and returns to Requirements

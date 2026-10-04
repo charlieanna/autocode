@@ -23,11 +23,19 @@ OpenCode 1.x is the default engine. To use a logged-in Codex CLI instead, add
 `--engine codex`. See [installation](docs/install.md),
 [provider setup](docs/providers.md) and [model selection](docs/models.md).
 
-When a run stops for input, use the workspace and run directory it prints:
+When a run stops for input, continue it from the project or its task worktree:
 
 ```sh
-autocode --workspace /path/to/run-workspace --run-dir /path/to/run --status
-autocode --workspace /path/to/run-workspace --run-dir /path/to/run --chat
+autocode --status    # what the run needs
+autocode resume      # continue it; plain `autocode` does the same
+```
+
+AutoCode acts on the only unfinished run there. With several, it lists them and
+changes nothing; name one with `--run-dir`, which works from any directory:
+
+```sh
+autocode --run-dir /path/to/run --status
+autocode --run-dir /path/to/run --chat
 ```
 
 The [workflow guide](docs/workflow.md) explains questions, plan approval and
