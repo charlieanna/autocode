@@ -30,6 +30,7 @@ try:
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_progressive_state as progressive
     from . import autocode_resolver_human as resolver_human
+    from . import autocode_recovery_progress as recovery_progress
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_support as support
     from . import autocode_workflows as workflows
@@ -50,6 +51,7 @@ except ImportError:
     import autocode_planning_artifacts as planning_artifacts
     import autocode_progressive_state as progressive
     import autocode_resolver_human as resolver_human
+    import autocode_recovery_progress as recovery_progress
     import autocode_resolver_runtime as resolver_runtime
     import autocode_support as support
     import autocode_workflows as workflows
@@ -68,6 +70,7 @@ def explicit_recovery_requested(args):
 
 def handle(runner, args, parser, state, state_path, run_dir, workspace):
     """Apply this invocation's action to the saved run; return an exit code to stop, or None to build."""
+    args._failure_retry_authorization = None  # Invocation-local; saved history is audit data, not credit.
     try:
         conversation_ingress.require_expected_goal(state, getattr(args, 'expected_goal_token', None),
                                                    token_for=goals.token, is_approved=goals.approved)
@@ -103,6 +106,11 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                            args.approve_review, args.reconcile_review, args.feedback is not None, args.follow_up is not None,
                            args.show_goal, args.accept_completion, args.resolver_response,
                            args.planning_review_call_limit is not None))
+    if (args.resume_paused and not decision_action and not explicit_recovery_requested(args)
+            and recovery_progress.reconcile(state, issued=resolver_human.current(state),
+                approved=goals.approved(state), supersede=resolver_human.supersede_operational,
+                now=runner.now)):
+        runner.write_json(state_path, state)
     active = state.get('active_stage') or {}
     if (not decision_action and active and support.failure_status(active.get('events', '')) == 'PAUSED_RATE_LIMIT'):
         prior = resolver_human.current(state)
@@ -227,7 +235,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             # the user events bound into the resolver request's identity.
             if args.grant_recovery is not None:
                 try:
-                    runner.grant_recovery_allowance(state, run_dir, args.grant_recovery)
+                    runner.grant_recovery_allowance(state, run_dir, args.grant_recovery,
+                        previous_settings=getattr(args, "_recovery_grant_settings", None))
                 except ValueError as error:
                     print(f"Input rejected: {error}", file=sys.stderr)
                     return 2
@@ -253,7 +262,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                     pass  # exact job authorization was validated before generic recovery
                 elif args.retry_failed_stage:
                     try:
-                        authorization = runner.authorize_failure_retry(state, run_dir, workspace)
+                        authorization = (runner.resolver_recovery.authorize_retry(runner, state, run_dir, workspace)
+                                         or runner.authorize_failure_retry(state, run_dir, workspace))
+                        args._failure_retry_authorization = authorization
                         print("Failure retry authorized for the recorded repeated failure; "
                               "one fresh attempt proceeds under existing limits.", flush=True)
                     except ValueError as error:

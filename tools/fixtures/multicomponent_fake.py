@@ -57,7 +57,7 @@ def contract(spec: dict, final: bool = False) -> dict:
         "milestones": [{"id": "M1", "objective": spec["description"], "acceptance_criteria": ["C1"], "depends_on": [],
                         "affected_paths": [spec["file"]]}],
         "deliverables": [spec["file"]], "required_behaviors": [spec["description"]],
-        "important_failure_cases": ["The check command fails"], "scope_exclusions": ["Anything outside this component"],
+        "important_failure_cases": ["The check command fails"], "scope_exclusions": ["Anything outside this component", "Visual acceptance"],
         "constraints": ["Only write files under this component's own directory"],
         "permission_boundaries": ["Read and edit only this component's worktree"],
         "accepted_assumptions": [{"text": "The scripted deliverable is correct", "basis": "agent_proposed", "answer_id": ""}],
@@ -172,14 +172,19 @@ def complete(value, schema):
     """Give every required field the script leaves out an empty value of its type (same as
     scenarios/harness/fake_codex.py): new report fields then mean "none", not a crash."""
     kind = schema.get("type")
+    if isinstance(kind, list):
+        kind = next((item for item in kind if item != "null"), "null")
     if kind == "object" and isinstance(value, dict):
         properties = schema.get("properties", {})
         for key in schema.get("required", []):
             if key not in value and key in properties:
                 sub = properties[key]
+                sub_kind = sub.get("type")
+                if isinstance(sub_kind, list):
+                    sub_kind = "null" if "null" in sub_kind else sub_kind[0]
                 value[key] = (sub["enum"][0] if sub.get("enum") else
                               {"object": lambda: complete({}, sub), "array": list, "string": str, "boolean": bool,
-                               "integer": int, "number": float}.get(sub.get("type"), lambda: None)())
+                               "integer": int, "number": float}.get(sub_kind, lambda: None)())
         for key, sub in properties.items():
             if key in value:
                 complete(value[key], sub)
@@ -205,16 +210,25 @@ def main() -> int:
     stage = data.get("stage") or original.get("stage") or ""
     if data.get("report_repair"):
         stage = original.get("stage", stage)
-    component_id = component_id_for(prompt, data)
-    spec = MANIFEST[component_id]
-    if spec.get("observations"):
-        # Optional external fixture output: assert what the real CLI sent to the
-        # provider without peeking into the task run's private state.json.
-        directory = Path(spec["observations"])
-        directory.mkdir(parents=True, exist_ok=True)
-        (directory / f"{component_id}-{stage}-{uuid.uuid4().hex}.json").write_text(json.dumps(
-            {"component_id": component_id, "stage": stage, "prompt": prompt}))
-    report = report_for(stage, component_id, spec, data)
+    if data.get("report_repair"):
+        # A repair envelope is not a new task handoff. Preserve the original
+        # report identity, failures and event references without rerunning work.
+        # This fixture cannot manufacture evidence to fix a semantic rejection.
+        supplied = data.get("original_report") or data.get("rejected_report") or {}
+        if not isinstance(supplied.get("content"), dict):
+            raise SystemExit("multicomponent_fake: report repair needs the supplied structured report")
+        report = json.loads(json.dumps(supplied["content"]))
+    else:
+        component_id = component_id_for(prompt, data)
+        spec = MANIFEST[component_id]
+        if spec.get("observations"):
+            # Optional external fixture output: assert what the real CLI sent to the
+            # provider without peeking into the task run's private state.json.
+            directory = Path(spec["observations"])
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / f"{component_id}-{stage}-{uuid.uuid4().hex}.json").write_text(json.dumps(
+                {"component_id": component_id, "stage": stage, "prompt": prompt}))
+        report = report_for(stage, component_id, spec, data)
     if "--output-schema" in sys.argv:
         complete(report, json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text()))
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(report))

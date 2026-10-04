@@ -13,7 +13,7 @@ import tomllib
 from importlib import metadata
 from pathlib import Path
 
-SUBCOMMANDS = {"output": "autocode_output", "tasks": "autocode_tasks", "components": "autocode_components", "ui": "autocode_ui",
+SUBCOMMANDS = {"visual-capture": "autocode_visual_capture", "output": "autocode_output", "tasks": "autocode_tasks", "components": "autocode_components", "ui": "autocode_ui",
                "program": "autocode_program", "compare-baseline": "autocode_baseline",
                "doctor": "autocode_doctor", "clean-worktrees": "autocode_worktrees", "models": "model_catalogue"}
 DISTRIBUTION = "autocode-supervisor"

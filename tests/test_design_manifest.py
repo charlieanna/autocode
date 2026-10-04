@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 import zlib
+from tests.visual_capture_fixtures import make_capture
 
 import autocode_completion as completion
 import autocode_design_coverage as coverage
@@ -174,22 +175,26 @@ class DesignManifestTests(unittest.TestCase):
 
     def passing_state(self):
         retained = manifest.retain(manifest.load(self.path), self.workspace)
-        viewport = self.body["cases"][0]["viewport"]
-        png(self.workspace / "candidate.png", round(viewport["width"] * viewport["device_scale_factor"]),
-            round(viewport["height"] * viewport["device_scale_factor"]))
-        (self.workspace / "comparison.txt").write_text("Offline fixture comparison; not genuine browser acceptance")
+        if not (self.workspace / '.git').exists():
+            subprocess.run(['git', 'init', '-q', str(self.workspace)], check=True)
+            subprocess.run(['git', '-C', str(self.workspace), '-c', 'user.name=T', '-c', 'user.email=t@example.test',
+                            'commit', '-q', '--allow-empty', '-m', 'base'], check=True)
+        (self.workspace / 'greet.py').write_text('print("fixture")\n')
+        comparison = self.workspace / '.autocode' / 'comparison.txt'
+        comparison.write_text("Offline fixture comparison; not genuine browser acceptance")
         validation = {"design_manifest_hash": retained["manifest_hash"], "design_results": [
             {"id": case["id"], "status": "PASS", "criterion_ids": ["C1"],
-             "candidate_ref": "candidate.png", "comparison_ref": "comparison.txt"} for case in self.body["cases"]],
-            "verdict": "PASS", "criteria_revision": "criteria", "source_revision": "source-a",
+             **make_capture(self.workspace, retained['manifest_hash'], case),
+             "comparison_ref": str(comparison)} for case in self.body["cases"]],
+            "verdict": "PASS", "criteria_revision": "criteria", "source_revision": util.snapshot(self.workspace)['revision'],
             "checks": [{"exit_code": 0}], "findings": [], "unverified_criteria": [],
-            "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["comparison.txt"]}],
+            "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": [str(comparison)]}],
             "reviewer_role": "sol"}
         criteria = [{"id": "C1", "criterion": "Fixture behavior", "status": "verified", "evidence": "comparison"}]
         state = {"workspace": str(self.workspace), "version": 2, "settings": {"design_manifest": retained},
                  "criteria_revision": "criteria", "validation": validation, "acceptance_criteria": criteria}
         validation["evidence_hashes"] = {ref: util.file_hash(ref) for ref in coverage.report_refs(state, validation)}
-        return state, {"status": "TASK_COMPLETE", "acceptance_criteria": criteria}, {"revision": "source-a"}
+        return state, {"status": "TASK_COMPLETE", "acceptance_criteria": criteria}, util.snapshot(self.workspace)
 
     def test_whole_completion_requires_every_design_case_on_current_source(self):
         state, decision, current = self.passing_state()
@@ -218,9 +223,10 @@ class DesignManifestTests(unittest.TestCase):
         self.path.write_text(json.dumps(self.body))
         state, decision, current = self.passing_state()
         self.assertTrue(completion.completion_ready(state, decision, current))
-        self.assertEqual((8, 4), manifest.png_dimensions(self.workspace / "candidate.png"))
+        candidate = Path(state['validation']['design_results'][0]['candidate_ref'])
+        self.assertEqual((8, 4), manifest.png_dimensions(candidate))
         # A candidate rendered at the reference's smaller export dimensions is wrong.
-        png(self.workspace / "candidate.png", width=2, height=1)
+        png(candidate, width=2, height=1)
         self.assertFalse(completion.completion_ready(state, decision, current))
 
     def test_reference_png_wrong_viewport_and_changed_capture_cannot_count_as_proof(self):
@@ -230,12 +236,12 @@ class DesignManifestTests(unittest.TestCase):
         row["candidate_ref"] = str(Path(state["settings"]["design_manifest"]["root"]) / "screen.png")
         self.assertFalse(completion.completion_ready(state, decision, current))
         row["candidate_ref"] = original
-        png(self.workspace / "candidate.png", width=1)
+        png(Path(original), width=1)
         self.assertFalse(completion.completion_ready(state, decision, current))
         viewport = self.body["cases"][0]["viewport"]
-        png(self.workspace / "candidate.png", round(viewport["width"] * viewport["device_scale_factor"]),
+        png(Path(original), round(viewport["width"] * viewport["device_scale_factor"]),
             round(viewport["height"] * viewport["device_scale_factor"]))
-        (self.workspace / "comparison.txt").write_text("changed after validation")
+        Path(row['comparison_ref']).write_text("changed after validation")
         self.assertFalse(completion.completion_ready(state, decision, current))
 
     def test_report_generation_and_decoding_enforce_complete_inventory_without_mutating_schema(self):
@@ -319,22 +325,39 @@ class DesignManifestCliTests(unittest.TestCase):
         # Extend a copied fixture only; neither the production fake nor a live provider is changed.
         hook = r"""
     design = data.get('design_manifest')
-    if design and stage == 'sol':
+    if design:
+        sys.path.insert(0, os.environ['FAKE_CAPTURE_REPO'])
+        from tests.visual_capture_fixtures import make_capture
+    if design and stage == 'terra':
+        if os.environ.get('FAKE_DESIGN_STALE_CAPTURE'):
+            old = [make_capture(Path.cwd(), design['manifest_hash'], case) for case in design['body']['cases']]
+            Path('.autocode/old-captures.json').write_text(json.dumps(old))
+            with Path('greet.py').open('a') as source:
+                source.write('\n# Implementation B: current source differs from capture A.\n')
+        for case in design['body']['cases']:
+            make_capture(Path.cwd(), design['manifest_hash'], case)
+    if design and stage == 'sol' and not data.get('report_repair'):
+        selected = {row['case']['id']: row for row in data['implementation_captures']['current']}
+        assert set(selected) == {case['id'] for case in design['body']['cases']}, selected
+        assert data['implementation_captures']['visual_acceptance'] is None
         report['design_manifest_hash'] = design['manifest_hash']
         rows = []
         for index, case in enumerate(design['body']['cases']):
-            capture = output.parent / ('capture-' + case['id'] + '.png')
-            capture.write_bytes((Path(design['root']) / case['artifacts']['screenshot']['path']).read_bytes())
+            capture = {key: selected[case['id']][key] for key in ('candidate_ref', 'capture_ref', 'capture_sha256')}
+            if os.environ.get('FAKE_DESIGN_STALE_CAPTURE'):
+                capture = json.loads(Path('.autocode/old-captures.json').read_text())[index]
             comparison = output.parent / ('compare-' + case['id'] + '.txt')
             comparison.write_text('Offline fixture metadata comparison; not real image acceptance')
             rows.append(dict(id=case['id'], status='PASS', criterion_ids=['C1'],
-                             candidate_ref=str(capture), comparison_ref=str(comparison)))
+                             **capture, comparison_ref=str(comparison)))
         if os.environ.get('FAKE_DESIGN_UNVERIFIED'):
             rows[-1]['status'] = 'NOT_VERIFIED'
         report['design_results'] = rows
     if design:
         with open(os.environ['FAKE_DESIGN_PROMPTS'], 'a') as log:
             log.write(json.dumps(dict(stage=stage, ids=[c['id'] for c in design['body']['cases']])) + '\n')
+    if data.get('report_repair') and stage == 'sol':
+        report = data['rejected_report']['content']
 """
         provider = provider.replace('    output.write_text(json.dumps(report))', hook + '    output.write_text(json.dumps(report))')
         # os is present in most fixtures; make it explicit in this copy.
@@ -342,7 +365,8 @@ class DesignManifestCliTests(unittest.TestCase):
         (bindir / "codex").write_text(provider)
         (bindir / "codex").chmod(0o755)
         self.env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "AUTOCODE_HOME": str(self.root / "registry"),
-                    "PYTHONDONTWRITEBYTECODE": "1", "FAKE_DESIGN_PROMPTS": str(self.root / "prompts.jsonl")}
+                    "PYTHONDONTWRITEBYTECODE": "1", "FAKE_DESIGN_PROMPTS": str(self.root / "prompts.jsonl"),
+                    "FAKE_CAPTURE_REPO": str(ROOT)}
 
     def start(self):
         return taskrun.TaskRun.start(self.workspace, BRIEF, options=OPTIONS,
@@ -382,6 +406,14 @@ class DesignManifestCliTests(unittest.TestCase):
             self.start()
         self.assertFalse((self.root / "prompts.jsonl").exists())
         self.assertFalse((self.workspace / ".autocode").exists())
+
+    def test_stale_a_cannot_earn_acceptance_for_b_even_when_fresh_b_is_available(self):
+        self.env['FAKE_DESIGN_STALE_CAPTURE'] = '1'
+        run = self.start()
+        run.approve_plan(run.status()['needs']['token'])
+        view = run.advance_until_input()
+        self.assertFalse(view['done'], view)
+        self.assertIn('Stale implementation capture', json.dumps(view))
 
 
 if __name__ == "__main__":

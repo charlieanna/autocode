@@ -14,10 +14,16 @@ def render(runner, state, args, workspace, run_dir):
     check_workers = runner.processes.recorded_worker_state(check) if check else None
     stale_check = bool(check and not active and state.get("status") == "RUNNING"
                        and check_workers.get("checked") and not check_workers.get("alive"))
-    current = runner.support.snapshot(workspace) if state["status"] == "TASK_COMPLETE" else None
+    strict_visual = runner.visual_runtime.requested(state)
+    current = runner.support.snapshot(workspace) if state["status"] == "TASK_COMPLETE" or strict_visual or state.get('settings', {}).get('design_manifest') else None
+    visual_acceptance = (runner.visual_runtime.projection(state, current_snapshot=current)
+                         if (state.get('settings', {}).get('design_manifest') or strict_visual) and current else None)
     completion_current = (runner.completion_gate.completion_ready(state, state.get("final_decision", {}), current)
                           if state["status"] == "TASK_COMPLETE" else None)
-    public_view = runner.run_view.view(state)
+    if completion_current is True and (state.get('settings', {}).get('design_manifest') or strict_visual):
+        completion_current = runner.visual_runtime.completion_check(state, current_snapshot=current)['passed']
+    public_view = runner.run_view.view(state, completion_current=completion_current,
+                                       visual_acceptance=visual_acceptance)
     if public_view.get("progressive") and completion_current is not None:
         public_view["progressive"]["current_whole_product_proof"] = {
             "verified": completion_current is True,

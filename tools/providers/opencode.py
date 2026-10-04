@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import copy
 from pathlib import Path
 import re
 import shutil
@@ -16,8 +17,10 @@ import uuid
 
 try:
     from . import env_prep
+    from .. import autocode_tool_containment as tool_containment
 except ImportError:  # Script-style execution from tools/ remains supported.
     from providers import env_prep
+    import autocode_tool_containment as tool_containment
 
 
 DEFAULT_MODELS = {
@@ -57,7 +60,7 @@ def _configuration_path(value, home):
     return Path(value).expanduser()
 
 
-def configuration_inputs(workspace, *, env=None):
+def _configuration_sources(workspace, *, env=None):
     """Enumerate local configuration definitions, never OpenCode's auth database.
 
     Directory contents matter as well as directory names. Generated dependencies,
@@ -71,7 +74,7 @@ def configuration_inputs(workspace, *, env=None):
     home = Path(effective["HOME"]) if effective.get("HOME") else Path.home()
     global_root = (Path(effective["XDG_CONFIG_HOME"]) if effective.get("XDG_CONFIG_HOME") else home / ".config") / "opencode"
     directories = {global_root, home / ".opencode"}
-    paths = set()
+    paths, definitions = set(), set()
     for parent in (root, *root.parents):
         paths.update(parent / name for name in ("opencode.json", "opencode.jsonc"))
         directories.add(parent / ".opencode")
@@ -91,10 +94,32 @@ def configuration_inputs(workspace, *, env=None):
         for name in ("agent", "agents", "mode", "modes", "command", "commands", "plugin", "plugins", "tool", "tools"):
             folder = directory / name
             if folder.is_dir():
-                paths.update(p for p in folder.rglob("*") if p.is_file()
-                             and p.suffix in (".md", ".json", ".jsonc", ".js", ".ts", ".mjs", ".cjs")
-                             and "node_modules" not in p.relative_to(folder).parts)
-    return sorted({(p if p.is_absolute() else root / p).absolute() for p in paths}, key=str)
+                definitions.update(p for p in folder.rglob("*") if p.is_file()
+                              and p.suffix in (".md", ".json", ".jsonc", ".js", ".ts", ".mjs", ".cjs")
+                              and "node_modules" not in p.relative_to(folder).parts)
+    normalize = lambda values: {(p if p.is_absolute() else root / p).absolute() for p in values}
+    return normalize(paths) - normalize(definitions), normalize(definitions)
+
+
+def configuration_inputs(workspace, *, env=None):
+    primary, definitions = _configuration_sources(workspace, env=env)
+    return sorted(primary | definitions, key=str)
+
+
+def _inert_native_config(raw):
+    try:
+        return json.loads(raw) in ({}, {"$schema": "https://opencode.ai/config.json"})
+    except (ValueError, UnicodeDecodeError):
+        return False
+
+
+def _configuration_hash(path, *, primary):
+    if not path.is_file():
+        return None
+    raw = path.read_bytes()
+    if primary and not path.is_symlink() and path.name in ("config.json", "opencode.json", "opencode.jsonc") and _inert_native_config(raw):
+        return None
+    return hashlib.sha256(raw).hexdigest()
 
 
 def local_settings(workspace, *, env=None):
@@ -116,8 +141,9 @@ def local_settings(workspace, *, env=None):
         raise RuntimeError("This adapter requires OpenCode 1.x; inspect opencode --version")
     # Fingerprint configuration, never credentials. OAuth token refreshes must not
     # invalidate a run, and the runner never opens OpenCode's auth.json.
-    fingerprints = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
-                    for p in configuration_inputs(workspace, env=effective)}
+    primary, definitions = _configuration_sources(workspace, env=effective)
+    fingerprints = {str(p): _configuration_hash(p, primary=p in primary)
+                    for p in sorted(primary | definitions, key=str)}
     inline = {key: hashlib.sha256(effective[key].encode()).hexdigest() if key in effective else None
               for key in ("OPENCODE_CONFIG_CONTENT", "OPENCODE_PERMISSION", "OPENCODE_CONFIG_DIR",
                           "OPENCODE_DISABLE_PROJECT_CONFIG", "OPENCODE_PURE", "OPENCODE_TEST_MANAGED_CONFIG_DIR")}
@@ -126,6 +152,16 @@ def local_settings(workspace, *, env=None):
 
 
 def transport_drift(current, checkpoint):
+    checkpoint = copy.deepcopy(checkpoint)
+    for name, previous in checkpoint.get('config_hashes', {}).items():
+        # A shipped checkpoint may contain the old raw hash of the native
+        # schema-only bootstrap. Confirm the exact bytes before normalizing it.
+        if previous and name in current.get('config_hashes', {}) and current['config_hashes'][name] is None:
+            path = Path(name)
+            if path.name in ('config.json', 'opencode.json', 'opencode.jsonc') and path.is_file() and not path.is_symlink():
+                raw = path.read_bytes()
+                if hashlib.sha256(raw).hexdigest() == previous and _inert_native_config(raw):
+                    checkpoint['config_hashes'][name] = None
     if checkpoint.get("identity_version", 1) >= 2:
         return current != checkpoint
     # Old checkpoints did not record every config source. Check every identity
@@ -226,7 +262,7 @@ def _openai_auth_modes(workspace, env=None):
 
 
 def launch(role, workspace, run_dir, session, model, effort, allow_write, *, planning=False,
-           report=None, schema=None, prompt_file=None, sandbox=None, env=None):
+           report=None, schema=None, prompt_file=None, sandbox=None, env=None, containment=None):
     if not model or "/" not in model or any(c.isspace() for c in model):
         raise ValueError("OpenCode model must use provider/model, e.g. zai-coding-plan/glm-5.3")
     agent = "autocode_" + role
@@ -271,6 +307,12 @@ def launch(role, workspace, run_dir, session, model, effort, allow_write, *, pla
         command += ["--session", session]
     if effort:
         command += ["--variant", effort]
+    if containment is not None:
+        child, boundary = tool_containment.configure(command, child, workspace,
+                                                     allow_write=allow_write, request=containment)
+        actual = json.loads(child['OPENCODE_CONFIG_CONTENT'])
+        overrides['shell'] = boundary['shell']
+        overrides['agent'][agent] = actual['agent'][agent]
     return command, child, overrides
 
 

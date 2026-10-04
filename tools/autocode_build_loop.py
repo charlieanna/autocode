@@ -140,7 +140,8 @@ def run(runner, args, state, state_path, run_dir, workspace):
             value, record = runner.run_role(role=role, prompt=prompt, sandbox="workspace-write" if request.allow_write else "read-only",
                 workspace=workspace, run_dir=run_dir, state=current,
                 schema=schema_path,
-                model=current["settings"]["roles"][route_role]["model"], allow_write=request.allow_write, dry_run=False)
+                model=current["settings"]["roles"][route_role]["model"], allow_write=request.allow_write, dry_run=False,
+                retry_authorization=getattr(args, '_failure_retry_authorization', None))
             record["unit"] = autopilot.unit_for(stage)
             runner.account_stage(current, record)
             try:

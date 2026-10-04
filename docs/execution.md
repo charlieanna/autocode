@@ -289,7 +289,7 @@ cannot substitute for missing criterion results.
 A Validator's checks are first matched against its own session: the provider's
 event log or a capture receipt must show each command ran with the reported exit
 code. That shows the command ran, not that it passes on the code as it is. So
-before a PASS is accepted, the runner re-runs every check itself
+before a PASS is accepted, the runner requires its own current execution of each check
 (`tools/autocode_check_replay.py`):
 
 - **Where.** From the repository root, in a scratch copy of the current source:
@@ -309,6 +309,22 @@ before a PASS is accepted, the runner re-runs every check itself
 - **Record.** The result is saved with the validation, bound to its source
   revision, under `<run>/check-replay/`, and shown in the status view as
   `evidence.check_replay`.
+
+If the controller stops after saving a successful supplementary check but before
+committing validation, it may reuse that exact completed runner receipt when the
+same Validator obligation resumes. Reuse requires unchanged source, command,
+task and contract, purpose, execution environment, interpreter, runtime and
+dependencies, plus intact original output and complete nonzero collected test
+results. It does not turn a Builder receipt into independent proof. Approved
+canonical commands, protected checks and a fresh Validator's obligations still
+execute; unsupported test inventories are not guessed. Public evidence records
+the scheduling decision and preserves the original receipt, output hashes and
+execution interval. Those artifacts remain pinned by the Completion gate.
+
+An uncertain earlier launch blocks subsequent owned verification even if its
+source, task or command identity changed. Starting a new identity does not prove
+that the previous process stopped. Missing, partial, stale or altered receipts
+cannot authorize reuse.
 
 This replaces trust in the Validator's own session with a run the runner owns.
 It does not judge whether the checks test the right thing: that is still the
@@ -537,6 +553,33 @@ approve a draft, start implementation, change requirements, grant permissions,
 switch billing routes, or change models/deadlines. Requirements and Planner
 timeouts remain in their own planning stage, never jump to execution review.
 
+### Evidence-bound repair
+
+Repeated repair incidents also retain their diagnostic history across task IDs,
+provider sessions and restarts. Original reports, errors, check output and prior
+attempts remain available through pinned packet artifacts. Changing incidental
+temporary paths or rephrasing a hypothesis is not new evidence.
+
+Before another paid diagnosis or repair of the same incident, the final dispatch
+boundary checks whether an unresolved causal question remains or a concrete,
+supported change has a discriminating check. A structured `recovery_change` may
+declare that change and cite its pinned evidence; it does not grant permission,
+approve scope, create another retry allowance or establish that the repair worked.
+The absence of a proposal is `null`, not a request to buy report repair.
+
+An unchanged incident can pause as `PAUSED_NO_PROGRESS` before another provider
+launch. A source hash, session rotation or comment-only edit alone cannot clear
+that hold. Existing healthy or uncertain workers are not restarted to create a
+new attempt. A supported known correction still receives the ordinary retry or
+escalation decision, assignment checks, fresh independent validation and the
+Completion gate. Unsupported changes remain unknown rather than being treated as
+proven progress.
+
+The explicit `--resume-paused --retry-failed-stage` control can authorize one
+scoped retry of a recorded hold under the existing limits. It retains previous
+attempts and evidence; ordinary resume is not that authorization. Permission,
+product and scope decisions still require their existing bound human controls.
+
 ### Budget ownership and human escalation
 
 Budget limits are not all provider quota. New runs record whether each configured
@@ -590,7 +633,25 @@ declared artifact acceptance remain human decisions. External service failures
 cannot be guaranteed resolvable; automatic recovery is bounded rather than infinite.
 
 The Plan Reviewer and Validator use the read-only sandbox with the Codex engine; the Builder uses workspace-write.
-OpenCode uses the native permissions and snapshot checks described in [Providers](providers.md).
+Built-in OpenCode execution launches in this checkout additionally require the
+qualified macOS Seatbelt shell boundary on OpenCode 1.18.33. Each launch uses a
+fresh provider session, preserves effective Bash restrictions, and disables other
+model tools. Nonwriter stages may write only to their fresh stage scratch area;
+the Builder may also write application files, but not runner state, evidence,
+configuration or runtime authority. Failed conformance or changed boundary files
+pause as `PAUSED_TOOL_CONTAINMENT` before the provider is launched.
+
+Tool networking remains denied, including ephemeral loopback HTTP tests. The
+tested Seatbelt `localhost` rule also permits non-loopback addresses belonging to
+the host; it is not an exact loopback-IP boundary. Loopback capability requests
+are therefore rejected, not silently enabled. A test requiring such networking
+needs a separately qualified execution path; neither an approved test command nor
+a successful runner preflight establishes that the model's shell can execute it.
+
+This boundary covers shell-tool subprocesses, not the authenticated OpenCode
+client or its plugin hooks. Planning, report-only repair and configured custom
+providers are outside this kernel-containment claim; they retain the native
+permissions and snapshot checks described in [Providers](providers.md).
 The runner does not pass blanket auto-approval. Contract permission text is a role instruction,
 not a general-purpose OS policy compiler. The Codex sandbox/approval system remains
 responsible for individual tool permissions; custom MCP/connector write permissions

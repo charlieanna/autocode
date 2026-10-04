@@ -1,6 +1,7 @@
 """Public CLI coverage for bounded Completion repairs, using isolated fake providers."""
 import dataclasses
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -12,13 +13,28 @@ from harness.driver import Driver, DriveError, default_autocode, fake_setup
 from harness.project import materialize
 
 
+class SavedRoutesDriver(Driver):
+    def call(self, *args, **kwargs):
+        if self.run_dir:
+            # Initial route declarations are saved configuration, not repeated
+            # overrides of a legitimately escalated Builder on every resume.
+            initial = self.flags
+            self.flags = [value for index, value in enumerate(initial) if not value.endswith("-model")
+                          and not (index and initial[index - 1].endswith("-model"))]
+        return super().call(*args, **kwargs)
+
+
 class CompletionReworkCLI(unittest.TestCase):
     def setUp(self):
         results = Path(__file__).resolve().parents[1] / ".scenario-runs"
         results.mkdir(exist_ok=True)
-        scratch = tempfile.TemporaryDirectory(prefix="rework-cli-", dir=results)
-        self.addCleanup(scratch.cleanup)
-        self.root = Path(scratch.name).resolve()
+        if artifacts := os.environ.get('BUILD_AUDIT_ARTIFACTS'):
+            Path(artifacts).mkdir(parents=True, exist_ok=True)
+            self.root = Path(tempfile.mkdtemp(prefix="rework-cli-", dir=artifacts)).resolve()
+        else:
+            scratch = tempfile.TemporaryDirectory(prefix="rework-cli-", dir=results)
+            self.addCleanup(scratch.cleanup)
+            self.root = Path(scratch.name).resolve()
         self.scenario = catalog.load("completion-rework-direct")
         self.project = materialize(self.scenario.seed, self.root / "project")
         self.config_home = self.root / "config"
@@ -29,8 +45,12 @@ class CompletionReworkCLI(unittest.TestCase):
     def driver(self, fault="direct", *extra):
         scenario = dataclasses.replace(self.scenario, fake_fault="completion_rework_" + fault)
         flags, env = fake_setup(scenario, self.root, scenario.reference)
+        if fault == "recurring":
+            # The resumed Codex route must remain bare and distinct from both
+            # independent checkers; the existing single escalation is unchanged.
+            flags += ["--builder-strong-model", "gpt-5.4"]
         env.update(XDG_CONFIG_HOME=str(self.config_home), CODEX_HOME=str(self.codex_home), AUTOCODE_PROVIDER="opencode")
-        return Driver(self.project, self.root, [*flags, "--max-iterations", "6", *extra], env,
+        return SavedRoutesDriver(self.project, self.root, [*flags, "--max-iterations", "6", *extra], env,
                       autocode=default_autocode(), max_steps=20, timeout_seconds=180)
 
     def trace(self):
@@ -113,11 +133,53 @@ class CompletionReworkCLI(unittest.TestCase):
     def test_recurring_rework_uses_resolver_and_fresh_current_source_checks(self):
         driver = self.driver("recurring")
         view = driver.drive(self.scenario.brief)
+        self.assertFalse(view["done"])
+        self.assertIn("No causal progress", view["stop_reason"])
+        before = self.trace()
+        driver.call("unchanged-resume", "--resume-paused")
+        self.assertEqual(before, self.trace())
+        driver.call("authorized-diagnosis", "--resume-paused", "--retry-failed-stage")
+        view = driver.view()
+        self.assertIn("No causal progress", view["stop_reason"])
+        self.assertEqual([row["stage"] for row in before] + ["astra_resolve"],
+                         [row["stage"] for row in self.trace()])
+        granted = driver.call("authorized-repair", "--resume-paused", "--retry-failed-stage")
+        view = driver.until_stopped()
+        self.assertTrue(view["done"], (view.get("status"), view.get("stop_reason"), granted.stdout[-1800:], granted.stderr[-1800:]))
         self.assert_delivery(driver, view)
         self.assertEqual(1, len(view["direct_rework_assignments"]))
         self.assertEqual(["terra", "sol", "astra_review", "terra", "sol", "astra_review",
                           "astra_resolve", "terra", "sol", "astra_review"],
                          [row["stage"] for row in self.trace()])
+
+    def test_resolver_validation_repair_runs_fresh_checks_without_another_builder(self):
+        driver = self.driver("validate", "--pause-after-stage")
+        view = driver.drive(self.scenario.brief)
+        while (not (self.root / "rework-trace.jsonl").exists()
+               or not any(row["stage"] == "astra_resolve" for row in self.trace())):
+            self.assertEqual("--pause-after-stage checkpoint reached", view["needs"].get("reason"), view)
+            driver.call("resume-checkpoint", "--resume-paused")
+            view = driver.until_stopped()
+        self.assertFalse(view["done"], view)
+        self.assertEqual("sol", view["next_stage"], view)
+        self.assertEqual("validate", driver.state()["current_task"]["kind"])
+        self.assertEqual(0, scenario_run.metrics(driver.state())["report_repairs"])
+        # The previous passing report belongs to another task and cannot finish this one.
+        previous = [row for row in self.trace() if row["stage"] == "sol"]
+        self.assertEqual(1, len(previous))
+        self.assertNotEqual(previous[0]["task_id"], driver.state()["current_task"]["id"])
+        while not view["done"]:
+            self.assertEqual("--pause-after-stage checkpoint reached", view["needs"].get("reason"), view)
+            driver.call("resume-checkpoint", "--resume-paused")
+            view = driver.until_stopped()
+        self.assertEqual(["terra", "sol", "astra_review", "astra_resolve", "sol", "astra_review"],
+                         [row["stage"] for row in self.trace()])
+        self.assertEqual(1, len({row["source_revision"] for row in self.trace() if row["stage"] != "terra"}))
+        self.assertEqual(1, len({row["source_sha256"] for row in self.trace()}))
+        self.assertEqual([0, 0], [row["exit_code"] for row in self.trace() if row["stage"] == "sol"])
+        self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
+        checks = self.scenario.oracle()(self.project, self.scenario)
+        self.assertTrue(all(check.ok for check in checks), checks)
 
     def test_exhausted_pinned_builder_keeps_existing_pause(self):
         driver = self.driver("exhausted", "--pin-model-role", "terra")
@@ -125,7 +187,7 @@ class CompletionReworkCLI(unittest.TestCase):
         self.assertFalse(view["done"], view)
         self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", view["status"])
         self.assertEqual(1, len(view["direct_rework_assignments"]))
-        self.assertEqual(["terra", "sol", "astra_review", "terra", "sol", "astra_review", "astra_resolve"],
+        self.assertEqual(["terra", "sol", "astra_review", "terra", "sol", "astra_review"],
                          [row["stage"] for row in self.trace()])
         self.assertEqual([1, 1], [row["exit_code"] for row in self.trace() if row["stage"] == "sol"])
 

@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
@@ -329,6 +330,24 @@ class VerifyCase(unittest.TestCase):
         self.assertEqual("failing", verify.suite_health({**receipt, "exit_code": 1}))
         self.assertEqual("broken", verify.suite_health({**receipt, "exit_code": 0, "results_expected": True}))
         self.assertEqual("timeout", verify.suite_health({**receipt, "exit_code": None, "timed_out": True}))
+
+    def test_partial_or_timed_out_baseline_is_not_a_fail_to_pass_proof(self):
+        project = self.project()
+        project.write(REFERENCE)
+        framework = verify.detect_framework(project.root)
+        for timed_out in (True, False):
+            with self.subTest(timed_out=timed_out):
+                def run(_framework, command, tree, out, label, **kwargs):
+                    base = label == 'regression-on-base'
+                    return {'command': command, 'exit_code': None if base and timed_out else 1 if base else 0,
+                            'timed_out': base and timed_out, 'results_expected': True, 'output': 'unused', 'tail': '',
+                            'results': {'passed': [] if base else ['test_greet.Case.test_empty'],
+                                        'failed': ['test_greet.Case.test_empty'] if base else [],
+                                        'skipped': [], 'collection_errors': [], 'total': 1, 'complete': not base}}
+                with mock.patch.object(verify, 'run_suite', side_effect=run):
+                    result = verify.verify(project.root, project.base, project.evidence, framework=framework)
+                self.assertEqual(verify.UNVERIFIED, result['verdict'], result)
+                self.assertTrue(any('base' in reason for reason in result['unverified']), result)
 
     def test_untracked_new_test_file_counts_as_the_regression_test(self):
         project = self.project()

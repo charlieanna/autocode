@@ -185,7 +185,7 @@ class TaskRun:
         # also exit 2, so recognize argparse's message rather than trusting the code.
         usage_error = proc.returncode == 2 and proc.stderr.startswith("usage:")
         rejected_input = proc.returncode == 2 and any(
-            line.startswith("Input rejected:")
+            line.startswith(("Input rejected:", "autocode:"))
             for message in (proc.stdout, proc.stderr) for line in message.splitlines())
         accepted = proc.returncode in (0, 2) if advancing else proc.returncode == 0
         if usage_error or rejected_input or not accepted:

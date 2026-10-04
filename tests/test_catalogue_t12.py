@@ -12,7 +12,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -21,6 +20,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import autopilot_testkit as kit
 import autocode_support as support
+from tests import browser_suite_process
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DASH = REPO_ROOT / "tools" / "dashboard" / "tests"
@@ -51,9 +51,9 @@ def run_browser_suite(name, timeout=420):
     # macOS AF_UNIX paths must fit 103 bytes, including the bridge's session suffix.
     with tempfile.TemporaryDirectory(prefix="ab-", dir="/tmp") as sockets:
         environment["AGENT_BROWSER_SOCKET_DIR"] = sockets
-        completed = subprocess.run(["node", str(DASH / BROWSER_SUITES[name])],
-                                   cwd=REPO_ROOT, env=environment, capture_output=True,
-                                   text=True, timeout=timeout)
+        completed = browser_suite_process.run(
+            ["node", str(DASH / BROWSER_SUITES[name])],
+            cwd=REPO_ROOT, env=environment, timeout=timeout)
     _SUITE_CACHE[name] = completed
     return _SUITE_CACHE[name]
 
@@ -66,10 +66,14 @@ class DashboardCase(kit.CatalogueCase):
             self.skipTest(
                 "agent-browser bridge is not on PATH; install it to run the "
                 f"real-browser {name!r} suite (see tools/dashboard/tests/)")
-        completed = run_browser_suite(name)
-        self.bundle.log("dashboard_suite", suite=name,
-                        kind="browser" if name in REAL_BROWSER_SUITES else "node_vm",
-                        returncode=completed.returncode, stdout=completed.stdout, stderr=completed.stderr)
+        kind = "browser" if name in REAL_BROWSER_SUITES else "node_vm"
+        try:
+            completed = run_browser_suite(name)
+        except BaseException as error:
+            self.bundle.log("dashboard_suite", suite=name, kind=kind,
+                            **getattr(error, "receipt", {"reason": "harness_error", "error": str(error)}))
+            raise
+        self.bundle.log("dashboard_suite", suite=name, kind=kind, **completed.receipt)
         ok = completed.returncode == 0
         self.check(f"[{name}] browser_suite_passes", True, ok)
         return ok

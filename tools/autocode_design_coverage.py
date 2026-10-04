@@ -1,15 +1,15 @@
 """Report coverage and completion obligations for a retained design inventory.
 
-Checks coverage, identities and evidence files, not pixel comparison or browser
-capture provenance; those require the separate visual gate.
+Checks coverage and capture provenance. Pixel comparison remains the independent
+reviewer's obligation; a valid capture receipt never supplies a PASS verdict.
 """
 from __future__ import annotations
 import copy
 from pathlib import Path
 try:
-    from . import autocode_design_manifest as manifest, autocode_util as util
+    from . import autocode_design_manifest as manifest, autocode_util as util, autocode_visual_evidence as visual
 except ImportError:
-    import autocode_design_manifest as manifest, autocode_util as util
+    import autocode_design_manifest as manifest, autocode_util as util, autocode_visual_evidence as visual
 
 
 RESULT = manifest.obj({
@@ -17,16 +17,22 @@ RESULT = manifest.obj({
     "status": {"type": "string", "enum": ["PASS", "FAIL", "NOT_VERIFIED"]},
     "criterion_ids": {"type": "array", "items": manifest.TEXT},
     "candidate_ref": {"type": "string"}, "comparison_ref": {"type": "string"},
+    "capture_ref": {"type": "string"}, "capture_sha256": {"type": "string"},
 })
 
 
 def extend_schema(schema, state, stage):
     record = state.get("settings", {}).get("design_manifest")
-    if not record or stage not in ("sol", "astra_checkpoint"):
+    if not visual.reference_hash(state.get('settings', {})) or stage not in ("sol", "astra_checkpoint"):
         return schema
     schema = copy.deepcopy(schema)
     slot = schema if stage == "sol" else schema.get("properties", {}).get("validation")
     if not slot:
+        return schema
+    if not record:
+        slot['properties']['implementation_captures'] = {'type': 'array', 'items': manifest.obj({
+            'capture_ref': manifest.TEXT, 'capture_sha256': manifest.TEXT})}
+        slot['required'] = list(dict.fromkeys([*slot['required'], 'implementation_captures']))
         return schema
     result = copy.deepcopy(RESULT)
     result["properties"]["id"] = {**result["properties"]["id"],
@@ -47,7 +53,7 @@ def report_refs(state, report, *, stage=None):
     """
     record = state.get("settings", {}).get("design_manifest")
     if not record:
-        return []
+        return visual.native_refs(state, report) if stage in (None, 'sol', 'astra_checkpoint') else []
     if (stage not in ("sol", "astra_checkpoint")
             and not report.get("design_manifest_hash") and not report.get("design_results")):
         return []
@@ -65,7 +71,8 @@ def report_refs(state, report, *, stage=None):
     root = Path(state["workspace"]).resolve()
     references = {str((Path(record["root"]) / artifact["path"]).resolve())
                   for case in cases.values() for artifact in case["artifacts"].values()}
-    refs = []
+    refs, candidates = [], set()
+    current = util.snapshot(root) if any(row['status'] == 'PASS' for row in rows) else None
     for row in rows:
         mapped = row["criterion_ids"]
         if len(mapped) != len(set(mapped)) or not set(mapped) <= criteria:
@@ -88,7 +95,16 @@ def report_refs(state, report, *, stage=None):
         expected = tuple(round(viewport[key] * viewport["device_scale_factor"]) for key in ("width", "height"))
         if manifest.png_dimensions(paths[0]) != expected:
             raise ValueError(f"Candidate PNG has the wrong CSS viewport/device scale: {row['id']}")
+        if not row['capture_ref'] or not row['capture_sha256']:
+            raise ValueError(f"Design PASS needs current capture provenance: {row['id']}")
+        captured, capture_refs = visual.verify(state, row['capture_ref'], row['capture_sha256'],
+                                               case=cases[row['id']], current=current)
+        if paths[0] != root / captured['artifacts']['candidate']['path']:
+            raise ValueError('Visual review cited a different image from the bound capture')
+        candidates.add(str(paths[0]))
+        refs.extend(capture_refs)
         refs.extend(str(path) for path in paths)
+    visual.require_current_image_citations(state, report, candidates, references)
     return list(dict.fromkeys(refs))
 
 
@@ -106,7 +122,7 @@ def gaps(state):
 
 
 def ready(state):
-    if not state.get("settings", {}).get("design_manifest"):
+    if not visual.reference_hash(state.get('settings', {})):
         return True
     try:
         refs = report_refs(state, state.get("validation") or {})

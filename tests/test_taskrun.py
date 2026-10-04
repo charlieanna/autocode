@@ -31,7 +31,7 @@ class RunViewTests(unittest.TestCase):
     def test_contract_fields(self):
         self.assertEqual({"schema", "status", "done", "needs", "phase", "next_stage", "iteration", "stop_reason", "runner_check",
                           "current_task", "workflow", "workflow_source", "workflow_reason", "turn", "evidence",
-                          "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments"},
+                           "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments", "efficiency"},
                          set(run_view.view({"status": "RUNNING"})))
 
     def test_evidence_is_empty_before_planning(self):
@@ -163,9 +163,13 @@ class TaskRunTests(unittest.TestCase):
     """End to end through the real CLI with the offline fixture provider (a few seconds)."""
 
     def setUp(self):
-        temp = tempfile.TemporaryDirectory(prefix="taskrun-")
-        self.addCleanup(temp.cleanup)
-        root = Path(temp.name)
+        if artifacts := os.environ.get('BUILD_AUDIT_ARTIFACTS'):
+            Path(artifacts).mkdir(parents=True, exist_ok=True)
+            root = Path(tempfile.mkdtemp(prefix="taskrun-", dir=artifacts))
+        else:
+            temp = tempfile.TemporaryDirectory(prefix="taskrun-")
+            self.addCleanup(temp.cleanup)
+            root = Path(temp.name)
         self.workspace = root / "project"
         self.workspace.mkdir()
         subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
@@ -193,17 +197,34 @@ class TaskRunTests(unittest.TestCase):
             run.approve_plan("not-the-displayed-token")
         run.approve_plan(view["needs"]["token"])
         view = run.advance_until_input()
-        self.assertTrue(view["done"], view)
+        self.assertTrue(view["done"], {key: view.get(key) for key in ("status", "needs", "runner_check")})
+        self.assertEqual(0, view["efficiency"]["by_category"].get("report_repair", {}).get("attempts", 0))
         self.assertTrue((self.workspace / "greet.py").is_file())
         # A new caller can reattach to the saved run.
         again = taskrun.TaskRun(self.workspace, run.run_dir, options=FIXTURE_OPTIONS, env=self.env)
         self.assertEqual("TASK_COMPLETE", again.status()["status"])
+        self.assertEqual(1, view["efficiency"]["delivery"]["verified_deliveries"])
+        # Historical completion cannot supply a current accepted-outcome denominator.
+        (self.workspace / "greet.py").write_text("raise SystemExit(3)\n", encoding="utf-8")
+        stale = again.status()
+        self.assertEqual(0, stale["efficiency"]["delivery"]["verified_deliveries"])
+        self.assertIsNone(stale["efficiency"]["unit_metrics"]["wall_seconds"]["value"])
 
     def test_usage_errors_are_not_mistaken_for_a_pause(self):
         run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
         broken = taskrun.TaskRun(self.workspace, run.run_dir, options=("--no-such-flag",), env=self.env)
         with self.assertRaisesRegex(taskrun.TaskRunError, "unrecognized arguments"):
             broken.advance()
+
+
+    def test_rejected_verification_change_is_reported_to_the_caller(self):
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
+        before = (run.run_dir / 'state.json').read_bytes()
+        broken = taskrun.TaskRun(self.workspace, run.run_dir,
+                                options=('--test-command', 'python -m unittest'), env=self.env)
+        with self.assertRaisesRegex(taskrun.TaskRunError, 'Changing saved verification commands'):
+            broken.resume_paused()
+        self.assertEqual(before, (run.run_dir / 'state.json').read_bytes())
 
 
 class TaskRunClientTests(unittest.TestCase):

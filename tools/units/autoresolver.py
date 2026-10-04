@@ -14,7 +14,7 @@ try:
     from .. import autocode_goal_lifecycle as lifecycle
     from .. import autocode_discuss_job as discuss_job, autocode_stuck_job as stuck_job, autocode_failures as failures
     from .. import autocode_providers, autocode_verify as verify
-    from .. import autocode_investigation_workspace as investigation_workspace
+    from .. import autocode_investigation_workspace as investigation_workspace, autocode_recovery_novelty as novelty, autocode_resolver_recovery as resolver_recovery
 except ImportError:
     import autocode_verify as verify
     import autocode_util as util
@@ -24,7 +24,7 @@ except ImportError:
     import autocode_discuss_job as discuss_job
     import autocode_stuck_job as stuck_job
     import autocode_providers
-    import autocode_investigation_workspace as investigation_workspace
+    import autocode_investigation_workspace as investigation_workspace, autocode_recovery_novelty as novelty, autocode_resolver_recovery as resolver_recovery
     import autocode_failures as failures
 from . import autoplanner
 from .common import ModelRequest, capped_route, execution_request
@@ -210,6 +210,7 @@ def prepare(state, stage, state_path, schema_dir):
     schema = copy.deepcopy(request.schema)
     schema['properties']['status']['enum'] = ['REWORK', 'BLOCKED']
     schema['properties']['diagnosis'] = goals.STRING
+    schema['properties']['recovery_change'] = copy.deepcopy(novelty.CHANGE_SCHEMA)
     schema['required'].append('diagnosis')
     prompt = ('You are AUTORESOLVER, a read-only failure diagnostician, not a Builder or completion owner. '
               'Inspect the source report, rejected build, review findings and exact evidence. '
@@ -217,6 +218,9 @@ def prepare(state, stage, state_path, schema_dir):
               'is a Builder or Validator proposal, not accepted independent validation. Do not promote '
               'its checks, criterion statuses, or claims into accepted review evidence. Return a nonempty diagnosis '
               'and one bounded REWORK next_task with defect evidence and concrete validation_plan retests. '
+              'Use kind=implement for a source correction, or kind=validate when the remaining defect is '
+              'missing or invalid independent verification of unchanged work. A validate task dispatches '
+              'the Validator; it neither authorizes source edits nor accepts prior evidence as current. '
               'The runner exports this task as a one-node repair DAG. Preserve the whole integrated batch. '
               'Return the complete unchanged acceptance_criteria list from the handoff; select the repair subset only in next_task.acceptance_criteria. '
               'Criterion statuses and evidence remain owned by the reviewer, not the resolver. '
@@ -225,7 +229,8 @@ def prepare(state, stage, state_path, schema_dir):
               'bounded repair is available, explain the investigated evidence and remaining smallest '
               'decision in BLOCKED with a structured user_request. If scope or permission must change, '
               'return BLOCKED; never grant it yourself. This only proposes a human question, not execution authority.\n'
-              + instruction + '\nResolver constraint overrides completion choices: only REWORK or BLOCKED.\n'
+              + novelty.INSTRUCTION + instruction + '\nResolver constraint overrides completion choices: only REWORK or BLOCKED; '
+              'validation-only repairs use REWORK with next_task.kind=validate.\n'
               + 'CURRENT HANDOFF DATA\n' + json.dumps(data, indent=2))
     metrics = {**request.metrics, 'estimated_prompt_tokens': (len(prompt) + 3) // 4}
     return ModelRequest('astra', 'resolver', prompt, metrics, schema, False)
@@ -239,8 +244,10 @@ def validate(state, value, record, workspace):
         raise util.Paused('PAUSED_STALE_HANDOFF', 'Resolver diagnosis requires its saved successful read-only output')
     if value.get('status') not in ('REWORK', 'BLOCKED') or not value.get('diagnosis', '').strip():
         raise ValueError('Resolver requires a diagnosis and a REWORK or BLOCKED decision')
-    if value['status'] == 'REWORK' and (not value.get('evidence') or value.get('next_task', {}).get('kind') != 'implement'):
-        raise ValueError('Resolver must supply an evidence-backed implementation repair')
+    if value['status'] == 'REWORK' and (not value.get('evidence')
+            or value.get('next_task', {}).get('kind') not in ('implement', 'validate')):
+        raise ValueError('Resolver must supply an evidence-backed implementation or validation repair')
+    resolver_recovery.validate_decision(state, value, record)
 
 
 # Operational diagnosis: a genuinely separate stage and schema from astra_resolve.
@@ -254,6 +261,7 @@ DIAGNOSIS_SCHEMA = {
     "required": ["diagnosis", "recommendation"],
     "properties": {
         "diagnosis": goals.STRING,
+        "recovery_change": copy.deepcopy(novelty.CHANGE_SCHEMA),
         "recommendation": {
             "type": "object", "additionalProperties": False,
             "required": ["action", "rationale"],
@@ -302,7 +310,7 @@ def prepare_diagnosis(state, stage, state_path, schema_dir):
               'or needs a human decision -- never guess. You cannot approve work, change requirements, weaken '
               'tests, modify source, dispatch a task, or claim completion yourself; this recommendation is '
               'advisory only, and the runner independently validates and bounds it before any retry proceeds.\n'
-              + instruction + '\nDiagnosis constraint overrides completion choices: return only diagnosis and recommendation.\n'
+              + novelty.INSTRUCTION + instruction + '\nDiagnosis constraint overrides completion choices: return diagnosis, recommendation and any bounded recovery_change.\n'
               + 'CURRENT HANDOFF DATA\n' + json.dumps(data, indent=2))
     metrics = {**request.metrics, 'estimated_prompt_tokens': (len(prompt) + 3) // 4}
     return ModelRequest('astra', 'resolver', prompt, metrics, DIAGNOSIS_SCHEMA, False)

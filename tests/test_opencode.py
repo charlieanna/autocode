@@ -21,6 +21,7 @@ import autocode_planning as planning
 import autopilot
 import autocode_support as support
 from . import test_subprocess as subprocess_tests
+from . import opencode_fixture_cli as fixture_cli
 
 
 def event(kind, **part):
@@ -400,6 +401,7 @@ class OpenCodeTests(unittest.TestCase):
 
 
 class OpenCodeFlow(unittest.TestCase):
+    """Builtin adapter/model routing through an explicitly uncontained fake CLI."""
     # Product default is joint planning. Codex-only coverage stays in SubprocessFlow.
     new_run_engine_args = ()
     launch = subprocess_tests.SubprocessFlow.launch
@@ -411,6 +413,7 @@ class OpenCodeFlow(unittest.TestCase):
         target = self.root / "fixture-bin/opencode"
         shutil.copy2(source / "fake_opencode.py", target)
         target.chmod(0o755)
+        self.entry = fixture_cli.entrypoint(self.entry)
         self.env.update(CODEX_HOME=str(self.root / "codex-config"),
                         XDG_CONFIG_HOME=str(self.root / "config"))
         for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL", "OPENCODE_CONFIG_CONTENT"):
@@ -452,7 +455,8 @@ class OpenCodeFlow(unittest.TestCase):
         self.assertIn("Validator (--sol-model): openai/gpt-6-sol → xiaomi-token-plan-sgp/mimo-v2.6-pro", result.stdout)
 
     def test_standalone_cli_full_interview_approval_review_and_completion(self):
-        self.launch(["Greeting tool", "--chat"], 0, answers="CLI\nyes\nyes\n")
+        result = self.launch(["Greeting tool", "--chat"], 0, answers="CLI\nyes\nyes\n")
+        self.assertIn("TEST-ONLY simulated OpenCode transport; no kernel containment", result.stderr)
         _, state = self.saved()
         self.assertEqual("opencode", state["settings"]["engine"])
         self.assertTrue(state["settings"]["joint_planning"])
@@ -482,6 +486,35 @@ class OpenCodeFlow(unittest.TestCase):
             self.assertEqual(engines[role], command[0])
             self.assertNotIn("--auto", command)
             self.assertEqual(expected[role], command[command.index("--model") + 1])
+            self.assertIsNone(record.get("tool_containment"))
+            self.assertIn("no OS sandbox", record["isolation"])
+
+    def test_bootstrap_refuses_unknown_client_even_with_fixture_environment_markers(self):
+        marker = self.root / "unexpected-client-launch"
+        (self.root / "fixture-bin/opencode").write_text(
+            f"#!{sys.executable}\nfrom pathlib import Path\nPath({str(marker)!r}).touch()\n")
+        self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
+        result = subprocess.run([*self.entry, "models"], cwd=self.root, env=self.env,
+                                capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("refuses an unknown OpenCode executable", result.stderr)
+        self.assertFalse(marker.exists())
+
+    def test_bootstrap_refuses_a_replaced_fake_delegate_before_launch(self):
+        (self.root / "fixture-bin/codex").write_text("#!/bin/sh\nexit 99\n")
+        result = subprocess.run([*self.entry, "models"], cwd=self.root, env=self.env,
+                                capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("refuses an unknown delegated fixture: codex", result.stderr)
+
+    def test_fixture_environment_without_bootstrap_does_not_bypass_native_admission(self):
+        self.entry = [sys.executable, str(fixture_cli.TOOLS / "autocode.py")]
+        self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
+        result = self.launch(["Greeting tool", "--chat"], 2, answers="CLI\nyes\n")
+        self.assertIn("PAUSED_TOOL_CONTAINMENT", result.stderr)
+        _, state = self.saved()
+        self.assertFalse(any(row["stage"] == "terra" for row in state["stages"]))
+        self.assertFalse((self.project / "greet.py").exists())
 
 
 if __name__ == "__main__":

@@ -28,6 +28,44 @@ batch finishes, the parent copies each worker's finished stages, cost included, 
 (`autocode_dispatch.account_workers`), so the parent's row holds them. While a batch is still running its
 workers' spend is not yet in the parent's row; it appears when the batch is accounted.
 
+## Outcome-linked status
+
+The public status view also exposes `usage.accounting` and `efficiency`. These are
+additive measurement projections, not new acceptance gates or model calls.
+
+- Accounting keeps individual failed, interrupted, active and report-repair attempts.
+  Native requests are deduplicated by session and part identity. Missing finishes,
+  conflicting duplicates and absent token components remain explicitly incomplete;
+  a known subtotal is not a complete total, even when another component is priced.
+- Observed execution intervals, summed execution durations and provider-request
+  intervals are separate. Parallel overlap is not added to wall time twice.
+  Unobserved waiting, setup or visual-inspection time is not inferred from gaps.
+- Runner check observations distinguish execution, repeated execution, reuse and
+  suppression, with reasons and original receipt provenance. A required independent
+  or canonical execution is not classified as wasted merely because it repeats a command.
+  Recovery after a checkpoint crash imports a retained check's original duration
+  once; reusing that receipt does not execute or charge those seconds again.
+- `autocode_efficiency.aggregate` consumes supplied public task-run views, not other
+  runs' private state. It keeps root deliveries distinct from worker completions,
+  deduplicates imported request identities, and reports missing worker coverage.
+- Accepted-task unit metrics require the current checkout's full completion gate,
+  not just a historical `TASK_COMPLETE`. A stale checkout contributes no current
+  delivery; a state-only view without a fresh gate result keeps acceptance unknown.
+  Unit metrics remain undefined without an accepted root outcome or complete usage.
+  Experiment reports must additionally apply their external
+  delivery oracle; the status projection cannot establish untested product quality.
+
+Visual acceptance remains a separate, stronger requirement. A manifest case,
+produced screenshot, model assertion or green functional suite does not establish
+that an independent reviewer inspected the reference and current candidate images.
+Until the runner supplies authoritative current-bound visual acceptance receipts,
+accepted-frame/state counts, first-acceptance times and visual unit costs are
+`null` with an explanation. Do not substitute zero, count mapped criteria as
+accepted screens, or advertise visual savings from a generic `TASK_COMPLETE`.
+
+Failed ledger writes emit a visible warning without changing the task outcome.
+That warning is a measurement gap, not evidence that the missing usage was free.
+
 The sections below describe the scorer and sampler, which inspect a saved run after the fact.
 
 The existing scorer and live sampler can inspect a saved run without launching
@@ -102,8 +140,8 @@ effectiveness comparison have not yet been established by the accounting tests.
 ## Regression checks
 
 ```sh
-.venv/bin/python -m unittest tools.test_cost_reporting \
-  tools.test_opencode tools.test_opencode_length -q
+.venv/bin/python -m unittest tests.test_cost_reporting tests.test_efficiency \
+  tests.test_usage tests.test_autocode_request_usage tests.test_opencode tests.test_opencode_length -q
 ```
 
 These checks use synthetic provider events and local fixture executables. They

@@ -144,6 +144,32 @@ class VerificationCommandGuards(unittest.TestCase):
 
 
 class VerificationProofCache(unittest.TestCase):
+    def test_current_complete_proof_reuses_but_tampered_output_and_environment_do_not(self):
+        import autocode_regression as regression
+        from .test_verify import Project, REFERENCE
+        import os
+
+        project = Project()
+        self.addCleanup(project.close)
+        project.write(REFERENCE)
+        state = {'goal_contract': {'body': {'task_kind': 'bugfix'}}, 'base_commit': project.base,
+                 'settings': {'regression': {'python': sys.executable, 'test_timeout': 15}}}
+        first = regression.prove(state, project.root, project.evidence)
+        self.assertEqual('PASS', first['verdict'], first)
+        self.assertTrue(regression.complete(state, first['source_revision']))
+        self.assertEqual(first['path'], regression.prove(state, project.root, project.evidence)['path'])
+        output = Path(first['checks']['regression_on_candidate']['output'])
+        output.write_text('tampered PASS summary\n')
+        self.assertFalse(regression.complete(state, first['source_revision']))
+        second = regression.prove(state, project.root, project.evidence)
+        self.assertEqual('PASS', second['verdict'], second)
+        self.assertNotEqual(first['path'], second['path'])
+        self.assertEqual('tampered PASS summary\n', output.read_text(), 'old evidence must never be overwritten')
+        with mock.patch.dict(os.environ, {'VERIFICATION_FIXTURE_SEED': 'changed'}):
+            third = regression.prove(state, project.root, project.evidence)
+        self.assertEqual('PASS', third['verdict'], third)
+        self.assertNotEqual(second['path'], third['path'])
+
     def test_changed_detected_suite_reruns_proof_for_unchanged_source_and_options(self):
         import autocode_regression as regression
         import autocode_verify as verify

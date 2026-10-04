@@ -213,8 +213,13 @@ def main() -> int:
         "task_id": task.get("id", ""),
         "deferred_backlog": [],
         "user_request": {"kind": "none", "discovered": "", "impact": "",
-                         "decision_needed": "", "options": [], "proposed_delta": ""},
+                          "decision_needed": "", "options": [], "proposed_delta": ""},
     }
+    if repairing:
+        identity = data.get("report_identity") or data.get("original") or {}
+        for key in ("contract_revision", "contract_hash", "task_id"):
+            if key in identity:
+                common[key] = identity[key]
 
     adaptive = "ADAPTIVE PLANNING" in prompt  # an adaptive Planner's draft carries its initial_task
     if stage == "recognize_workflow":
