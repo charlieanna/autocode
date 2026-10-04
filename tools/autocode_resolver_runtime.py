@@ -537,6 +537,93 @@ def _evaluate(state, run_dir, blocker, context, evidence, boundaries, proposal):
     return decision, receipt, accepted
 
 
+def report_repair_identity(original):
+    """Identify the runner's original execution, never a repair draft or error."""
+    attempt = original.get('failure_attempt')
+    if not attempt:
+        # Older saved records may lack failure_attempt. Archival retains the
+        # original path mapping; interpreting it needs no filesystem access.
+        output = original.get('output')
+        output = next((old for old, archived in original.get('archived_paths', {}).items()
+                       if archived == output), output)
+        attempt = f"{original.get('iteration')}:{original['stage']}:{output}"
+    return {'stage': original['stage'], 'artifact_hash': original.get('source_revision'),
+            'task_id': original.get('task_id'), 'execution': attempt,
+            'started_at': original.get('started_at')}
+
+
+def _report_repair_blocker(state, original):
+    selected = report_repair_identity(original)
+    stages = state.get('stages', [])
+    # Recover the original error key from its execution, not a mutated pending
+    # error. The execution-scoped identity itself never depends on that key.
+    saved_original = next((row for row in stages if not row.get('runner_owned') and not row.get('report_only')
+                           and report_repair_identity(row) == selected), None)
+    original = saved_original or original
+    legacy = {'stage': original['stage'], 'artifact_hash': original.get('source_revision'),
+              'failure_key': original.get('failure_key')}
+    legacy_id = support.digest(legacy)
+    contract = state['goal_contract']
+    lineage = {key: contract[key] for key in ('task_id', 'revision', 'hash')}
+    budget = support.digest({'blocker_id': legacy_id, **lineage})
+    try:
+        ledger = load_ledger(state.get('resolver', {}))
+        used = ledger.attempts.get(budget, 0)
+        _require(type(used) is int and used >= 0, 'invalid legacy attempt count')
+        if saved_original is None:
+            # Without the execution row its current error key may be a reclassification.
+            # Only exclude charges proved to belong elsewhere; an opaque retained
+            # budget cannot be treated as unspent merely because its old key is lost.
+            accounted = {support.digest({'blocker_id': support.digest(selected), **lineage})}
+            for key, failure in (state.get('failure_history') or {}).items():
+                recorded = failure.get('identity') or {}
+                if key != support.digest(recorded):
+                    continue
+                identity = {'stage': recorded.get('stage'), 'artifact_hash': recorded.get('artifact_hash'),
+                            'failure_key': key}
+                if (identity['stage'], identity['artifact_hash']) != (selected['stage'], selected['artifact_hash']):
+                    accounted.add(support.digest({'blocker_id': support.digest(identity), **lineage}))
+            for _, receipt in ledger.cache.values():
+                if (receipt.prior_lineage and receipt.prior_lineage != lineage
+                        and receipt.budget_key == support.digest({'blocker_id': receipt.blocker_id,
+                                                                **receipt.prior_lineage})):
+                    accounted.add(receipt.budget_key)
+            _require(all(type(count) is int and count >= 0 for count in ledger.attempts.values()),
+                     'invalid attempt count')
+            if any(count and key not in accounted for key, count in ledger.attempts.items()):
+                raise support.Paused('PAUSED_RESOLVER_STATE',
+                    'Cannot attribute saved legacy report-repair charges; reconcile original execution history before retry')
+    except (KeyError, IndexError, TypeError, ValueError, AttributeError) as error:
+        raise support.Paused('PAUSED_RESOLVER_STATE', 'Saved resolver ledger is malformed; reconcile before retry') from error
+    cached = {key: receipt for key, (_, receipt) in ledger.cache.items()
+              if receipt.budget_key == budget and receipt.blocker_id == legacy_id
+              and receipt.prior_lineage == lineage and receipt.attempt is not None}
+    owner, found, attributed = None, False, set()
+    for row in stages:
+        if not row.get('runner_owned') and not row.get('report_only'):
+            owner = report_repair_identity(row)
+            found = found or owner == selected
+        receipt = row.get('receipt') or {}
+        # Keep an already-spent legacy incident on its original ledger/cache.
+        # An exhausted fallback has attempt=None: it cannot bind a later
+        # original to the earlier original's spent allowance.
+        if (owner and row.get('runner_owned') and receipt.get('blocker_id') == legacy_id
+                and receipt.get('attempt') is not None and receipt.get('prior_lineage') == lineage):
+            if owner == selected:
+                return legacy
+            key = receipt.get('idempotency_key')
+            if (owner['stage'] == selected['stage'] and owner['artifact_hash'] == selected['artifact_hash']
+                    and key in cached and {'version': 1, **receipt} == plain(cached[key])):
+                attributed.add(key)
+    if used and (not found or not cached or set(cached) - attributed
+                 or len({receipt.attempt for receipt in cached.values() if 1 <= receipt.attempt <= used}) != used):
+        # The legacy ledger did not encode its execution owner. Missing display
+        # rows cannot renew it; reconstruct the binding before automatic retry.
+        raise support.Paused('PAUSED_RESOLVER_STATE',
+                             'Cannot attribute saved legacy report-repair charges; reconcile original execution history before retry')
+    return selected
+
+
 def boundary(runner, state, run_dir, workspace):
     """Record one deterministic decision at a stopped, approved stage boundary."""
     if human.current(state):
@@ -567,8 +654,7 @@ def boundary(runner, state, run_dir, workspace):
             raise support.Paused('PAUSED_STALE_VALIDATION', 'Saved report-repair inputs changed; do not resolve or retry')
         kind, description = 'model_output', pending.get('error') or failed.get('rejection_reason', 'Invalid stage report')
         evidence = [failed[key] for key in ('output', 'events') if failed.get(key)]
-        selected = {'stage': failed['stage'], 'artifact_hash': failed.get('source_revision'),
-                    'failure_key': failed.get('failure_key')}
+        selected = _report_repair_blocker(state, failed)
         proposal = policy.Proposal('retry', {'guidance': 'Use only the existing bounded report-repair path; preserve original execution evidence.'},
                                    'Terminal report failure eligible for report-only repair')
     elif (validation.get('verdict') == 'BLOCKED' and failed
