@@ -98,6 +98,45 @@ class VerifyCase(unittest.TestCase):
                 rejected = project.verify()
                 self.assertEqual(verify.FAIL, rejected['verdict'], rejected)
 
+    def linked_project(self):
+        project = self.project({**SEED, 'src/keep.py': 'KEEP = 1\n', 'tests/a/real_test.py': 'original\n'})
+        (project.root / 'tests/b').mkdir()
+        (project.root / 'tests/b/link_test.py').symlink_to('../a/real_test.py')
+        git(project.root, 'add', '-A')
+        git(project.root, '-c', 'user.name=t', '-c', 'user.email=t@example.test', 'commit', '-qm', 'linked test')
+        original = project.evidence.parent / 'original_real_test.py'
+        original.write_text('original\n')
+        return project, original
+
+    LAYOUT_PROBE = ("python3 -c \"import json, os; print(json.dumps([os.path.islink('tests/a'), "
+                    "os.path.islink('tests/b/link_test.py'), open('tests/b/link_test.py').read(), "
+                    "sorted(os.listdir('src'))]))\"")
+
+    def test_scratch_overlay_never_writes_through_a_replaced_directory(self):
+        project, original = self.linked_project()
+        shutil.rmtree(project.root / 'tests/a')
+        (project.root / 'tests/a').symlink_to('../src')
+        result = verify.scratch_run(project.root, project.evidence, command=self.LAYOUT_PROBE,
+                                    files={'tests/a/real_test.py': str(original)})
+        self.assertEqual(0, result['exit_code'], result)
+        self.assertEqual([False, True, 'original\n', ['keep.py']], json.loads(result['tail'].splitlines()[-1]))
+        self.assertTrue((project.root / 'tests/a').is_symlink())
+
+    def test_scratch_overlay_restores_a_link_as_a_link_inside_the_tree(self):
+        project, original = self.linked_project()
+        (project.root / 'tests/b/link_test.py').unlink()
+        (project.root / 'tests/b/link_test.py').write_text('candidate copy\n')
+        result = verify.scratch_run(project.root, project.evidence, command=self.LAYOUT_PROBE,
+                                    files={'tests/a/real_test.py': str(original)},
+                                    links={'tests/b/link_test.py': '../a/real_test.py'})
+        self.assertEqual(0, result['exit_code'], result)
+        self.assertEqual([False, True, 'original\n', ['keep.py']], json.loads(result['tail'].splitlines()[-1]))
+        self.assertEqual('candidate copy\n', (project.root / 'tests/b/link_test.py').read_text())
+        for escaping in ('../../../outside', str(project.root / 'src/keep.py')):
+            with self.subTest(link=escaping), self.assertRaisesRegex(ValueError, 'link escapes'):
+                verify.scratch_run(project.root, project.evidence, command='true',
+                                   links={'tests/b/link_test.py': escaping})
+
     def test_ignored_vendor_reaches_scratch_probe_without_sharing_writes(self):
         project = self.project({**SEED, '.gitignore': 'vendor/\n'})
         project.write({'vendor/example/resource.txt': 'offline'})

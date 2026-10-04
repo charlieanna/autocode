@@ -6,6 +6,15 @@ files' bytes, modes and original suite command in a content-addressed bundle.
 Stage handoffs include the binding identity, relevant assigned tests and the
 full inventory's location, rather than repeating every test's contents.
 
+A test that is a symbolic link inside the repository is bound as a link: its
+exact relative target and, recursively, the identity of the file it names, even
+when that file is not itself a test. The bundle and the original replay
+recreate the link with the same target and restore what it names, so a link is
+never replaced by a copy. Retargeting the link or changing what it names
+counts as changing the test. A run does not start when a test link is
+absolute, leaves the repository, dangles, loops, names a directory, passes
+through a directory link, or uses `..` anywhere but at its start.
+
 When an existing test is edited, deleted, renamed or replaced, a passing
 independent validation must also pass the retained original suite against the
 current implementation. Both candidate and original executions happen in
@@ -27,6 +36,8 @@ Validator or combined checkpoint. Supply `--revise-protected-tests FILE` with
 - `previous_hash`: the exact current protected binding hash shown by status.
 - `files`: every currently eligible test path mapped to `sha256`, `size` and
   Unix permission `mode` (an integer), matching the actual workspace files.
+  A test link maps to `{"symlink": "<its exact target>", "target": <the
+  entry of the path it names>}`, as status shows it.
 - `command`: the nonempty suite command authorized for the revised inventory.
 - `reason`: the user's rationale for the revision.
 

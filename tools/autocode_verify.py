@@ -702,7 +702,7 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout):
 
 
 def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeout=DEFAULT_TIMEOUT,
-                files=None) -> dict:
+                files=None, links=None) -> dict:
     """Run tests or one command in a scratch copy of the workspace as it is now, never in the workspace.
 
     The copy is HEAD plus every uncommitted change (so files a stage just delivered are there),
@@ -712,7 +712,10 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
     ``results`` (or None) and ``error`` (why nothing could be run, else "").
     ``files`` maps a path inside the tree to a file outside it that is copied in first (a stuck
     investigation's cited run files, under ``run/``), so a probe sees exactly what was cited and
-    never the real run directory.
+    never the real run directory. ``links`` maps a path inside the tree to the relative target of a
+    symbolic link made there (an original test link is restored as that link, never as a copy).
+    Overlays replace whatever the candidate has at the path or its parents, so they never write
+    through a candidate's link.
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
     head = _git(workspace, "rev-parse", "HEAD").strip()
@@ -724,17 +727,26 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
             if applied.returncode:
                 return {"error": f"git apply {patch} failed: {(applied.stderr or applied.stdout).strip()[-300:]}",
                         "results": None}
-        for relative, source in (files or {}).items():
+        overlays = [*((path, source, False) for path, source in (files or {}).items()),
+                    *((path, source, True) for path, source in (links or {}).items())]
+        for relative, source, link in overlays:
             relative_path = PurePosixPath(relative)
             if relative_path.is_absolute() or ".." in relative_path.parts or str(relative_path) != relative:
                 raise ValueError("Scratch overlays require canonical relative file paths")
             target = tree / relative
-            if target.is_symlink():
-                target.unlink()  # never write through a candidate's replacement link
+            for parent in reversed(relative_path.parents[:-1]):
+                if (tree / parent).is_symlink() or (tree / parent).is_file():
+                    (tree / parent).unlink()
             if not target.parent.resolve().is_relative_to(tree.resolve()):
                 raise ValueError("Scratch overlay parent escapes the independent tree")
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, target)
+            _clear(target)
+            if not link:
+                shutil.copy2(source, target)
+            elif not Path(os.path.normpath(target.parent / source)).is_relative_to(os.path.normpath(tree)):
+                raise ValueError("Scratch overlay link escapes the independent tree")
+            else:
+                target.symlink_to(source)
         if command is None:
             python = python_for(workspace)
             framework = detect_framework(tree, python=python)

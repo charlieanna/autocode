@@ -3,9 +3,17 @@
 reconcile alone writes settings.protected_tests. Replay and completion read it;
 user_events and content-addressed bundles preserve explicit revisions. The
 caller supplies test classification, framework discovery and scratch execution.
+
+A regular test is bound by hash, size and mode. A test that is a symbolic link
+is bound as that link: its exact relative target and, recursively, the identity
+of what it names. The bundle and the original replay recreate each link and its
+targets (the closure), never a dereferenced copy. A link must name a file
+inside the repository through real directories; absolute, escaping, dangling,
+cyclic and directory links are refused.
 """
 from __future__ import annotations
 import copy
+import os
 from pathlib import Path, PurePosixPath
 import shutil
 import uuid
@@ -15,21 +23,59 @@ except ImportError:
     import autocode_util as util
 
 
-def path_in(root, name):
+def path_in(root, name, *, link=False):
+    """``name`` under ``root`` through real directories; a regular file, or with ``link`` also a link itself."""
     relative = PurePosixPath(name)
     if not name or relative.is_absolute() or '..' in relative.parts or str(relative) != name:
         raise ValueError('Protected test paths must be portable repository-relative paths')
     path = Path(root) / name
-    if any(parent.is_symlink() for parent in [path, *path.parents] if parent != Path(root).parent):
+    if any(parent.is_symlink() for parent in [path, *path.parents]
+           if parent != Path(root).parent and not (link and parent == path)):
         raise ValueError(f'Protected test must not follow a symlink: {name}')
+    if link and path.is_symlink():
+        return path
     if not path.resolve().is_relative_to(Path(root).resolve()) or not path.is_file():
-        raise ValueError(f'Protected test is missing: {name}')
+        raise ValueError(f'Protected test is missing or not a file: {name}')
     return path
 
 
-def identity(path):
-    return {'sha256': util.file_hash(path), 'size': path.stat().st_size,
-            'mode': path.stat().st_mode & 0o777}
+def link_target(name, link):
+    """The repository path a protected link names. Leading '..' only, so it resolves the same in any copy."""
+    relative = PurePosixPath(link)
+    up = next((index for index, part in enumerate(relative.parts) if part != '..'), len(relative.parts))
+    parent = PurePosixPath(name).parent.parts
+    if (not link or relative.is_absolute() or str(relative) != link or '..' in relative.parts[up:]
+            or up == len(relative.parts) or up > len(parent)):
+        raise ValueError("Protected test link must name a path inside the repository, with '..' only leading it")
+    return str(PurePosixPath(*parent[:len(parent) - up], *relative.parts[up:]))
+
+
+def identity(root, name, seen=()):
+    """A regular file's hash, size and mode, or a link's exact target and the identity of what it names."""
+    path = path_in(root, name, link=True)
+    if not path.is_symlink():
+        return {'sha256': util.file_hash(path), 'size': path.stat().st_size,
+                'mode': path.stat().st_mode & 0o777}
+    if name in seen:
+        raise ValueError(f'Protected test link is cyclic: {name}')
+    link = os.readlink(path)
+    try:
+        return {'symlink': link, 'target': identity(root, link_target(name, link), (*seen, name))}
+    except ValueError as error:
+        raise ValueError(f'Protected test link {name} -> {link} is refused: {error}') from None
+
+
+def closure(files):
+    """Every path a binding restores: each test and, for a link, every path along its chain of targets."""
+    paths = {}
+    for name, entry in files.items():
+        while True:
+            if paths.setdefault(name, entry) != entry:
+                raise ValueError(f'Protected test binding gives {name} two identities')
+            if 'symlink' not in entry:
+                break
+            name, entry = link_target(name, entry['symlink']), entry['target']
+    return paths
 
 
 def body(record):
@@ -42,7 +88,7 @@ def verify_binding(record):
     if record.get('inventory_path') and util.read_object(record['inventory_path']) != body(record):
         raise ValueError('Retained protected-test inventory changed')
     for name, expected in record['files'].items():
-        if identity(path_in(record['root'], name)) != expected:
+        if identity(record['root'], name) != expected:
             raise ValueError(f'Original protected test bundle changed: {name}')
     return record
 
@@ -58,12 +104,15 @@ def retain(workspace, run_dir, files, command):
         temporary.mkdir(parents=True)
         try:
             for name, expected in files.items():
-                source = path_in(workspace, name)
-                if identity(source) != expected:
+                if identity(workspace, name) != expected:
                     raise ValueError(f'Protected input changed during capture: {name}')
+            for name, entry in closure(files).items():
                 target = temporary / name
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, target)
+                if 'symlink' in entry:
+                    target.symlink_to(entry['symlink'])
+                else:
+                    shutil.copy2(path_in(workspace, name), target)
             verify_binding({**record, 'root': str(temporary)})
             temporary.rename(root)
         finally:
@@ -77,7 +126,7 @@ def retain(workspace, run_dir, files, command):
 
 
 def inventory(workspace, is_test_path):
-    return {name: identity(path_in(workspace, name)) for name, value in util.snapshot(workspace)['files'].items()
+    return {name: identity(workspace, name) for name, value in util.snapshot(workspace)['files'].items()
             if is_test_path(name) and value != 'deleted'}
 
 
@@ -147,7 +196,7 @@ def replay(state, workspace, out, scratch_run, *, timeout):
     changed = []
     for name, expected in record['files'].items():
         try:
-            actual = identity(path_in(workspace, name))
+            actual = identity(workspace, name)
         except (OSError, ValueError):
             actual = None
         if actual != expected:
@@ -162,8 +211,10 @@ def replay(state, workspace, out, scratch_run, *, timeout):
         result.update(verdict='NOT_VERIFIED', error='No original suite command was available; explicit user revision required')
     else:
         result['candidate'] = scratch_run(workspace, directory / 'candidate', command=record['command'], timeout=timeout)
+        restored = closure(record['files'])
         result['original'] = scratch_run(workspace, directory / 'original', command=record['command'], timeout=timeout,
-                                        files={name: str(path_in(record['root'], name)) for name in record['files']})
+            files={name: str(path_in(record['root'], name)) for name, entry in restored.items() if 'symlink' not in entry},
+            links={name: entry['symlink'] for name, entry in restored.items() if 'symlink' in entry})
         receipts = (result['candidate'], result['original'])
         if any(row.get('exit_code') != 0 or row.get('error') or row.get('timed_out') for row in receipts):
             result['verdict'] = 'FAIL'

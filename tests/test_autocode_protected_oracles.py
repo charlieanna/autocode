@@ -1,8 +1,10 @@
 """Original-oracle binding, execution, revisions and immutable history."""
 import copy
 import json
+import os
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -157,6 +159,189 @@ class OriginalOracleTests(unittest.TestCase):
         self.state = {'settings': {}}
         self.configure(SimpleNamespace(run_dir=self.run))
         self.assertNotIn('protected_tests', self.state['settings'])
+
+
+
+LINKED = '''import os
+import unittest
+from layout import height
+class Layout(unittest.TestCase):
+    def test_required_height(self):
+        self.assertEqual(height(), 40)
+    def test_runs_through_the_original_link(self):
+        self.assertEqual('../a/real_test.py', os.readlink('tests/b/link_test.py'))
+        self.assertFalse(os.path.islink('tests/a'))
+'''
+WEAKENED = LINKED.replace('height(), 40', 'height(), 20')
+
+
+class LinkedOracleTests(unittest.TestCase):
+    """A tracked test that is a relative link inside the repository (#307).
+
+    The original test asserts its own link and directory, so a replay that
+    restored a copy or wrote through a replaced directory would report more
+    than the two height failures.
+    """
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.project = Path(temp.name).resolve() / 'project'
+        for name in ('tests/__init__.py', 'tests/a/__init__.py', 'tests/b/__init__.py'):
+            (self.project / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.project / name).write_text('')
+        (self.project / 'layout.py').write_text('def height():\n    return 20\n')
+        (self.project / 'tests/a/real_test.py').write_text(LINKED)
+        self.link = self.project / 'tests/b/link_test.py'
+        self.link.symlink_to('../a/real_test.py')
+        subprocess.run(['git', 'init', '-q', str(self.project)], check=True)
+        subprocess.run(['git', '-C', str(self.project), 'add', '.'], check=True)
+        subprocess.run(['git', '-C', str(self.project), '-c', 'user.name=Fixture',
+                        '-c', 'user.email=f@example.test', 'commit', '-qm', 'linked original'], check=True)
+        self.run = self.project / '.autocode/runs/protected'
+        self.command = shlex.join([sys.executable, '-B', '-m', 'unittest', 'discover',
+                                   '-s', 'tests', '-p', '*_test.py', '-t', '.', '-v'])
+        self.bind()
+
+    def bind(self):
+        self.state = {'settings': {}}
+        guard.reconcile(self.state, self.state['settings'], SimpleNamespace(run_dir=None), self.project, self.run,
+                        is_test_path=verify.is_test_path, discover_command=lambda: self.command)
+
+    @property
+    def binding(self):
+        return self.state['settings']['protected_tests']
+
+    def execute(self):
+        return guard.replay(self.state, self.project, self.run / 'replays', verify.scratch_run, timeout=60)
+
+    def rejected(self):
+        with self.assertRaisesRegex(ValueError, 'original gate did not pass'):
+            self.execute()
+        receipts = list((self.run / 'replays').glob('protected-tests/*/receipt.json'))
+        return json.loads(max(receipts, key=lambda path: path.stat().st_mtime).read_text())
+
+    def assert_original_height_failures_only(self, receipt, failures=2):
+        self.assertEqual(1, receipt['original']['exit_code'])
+        self.assertIn('20 != 40', receipt['original']['tail'])
+        self.assertIn(f'FAILED (failures={failures})\n', receipt['original']['tail'])
+
+    def test_existing_internal_link_is_bound_as_the_link_and_its_target(self):
+        files = self.binding['files']
+        regular = files['tests/a/real_test.py']
+        self.assertEqual({'sha256', 'size', 'mode'}, set(regular))
+        self.assertEqual({'symlink': '../a/real_test.py', 'target': regular}, files['tests/b/link_test.py'])
+        bundle = Path(self.binding['root'])
+        self.assertEqual('../a/real_test.py', os.readlink(bundle / 'tests/b/link_test.py'))
+        self.assertFalse((bundle / 'tests/a/real_test.py').is_symlink())
+        self.assertEqual(LINKED, (bundle / 'tests/b/link_test.py').read_text())
+        self.assertEqual([], self.execute()['changed_tests'])
+
+    def test_real_fix_passes_the_original_gate_with_the_link_restored_as_a_link(self):
+        (self.project / 'layout.py').write_text('def height():\n    return 40\n')
+        (self.project / 'tests/a/real_test.py').write_text(
+            LINKED + '    def test_positive(self):\n        self.assertGreater(height(), 0)\n')
+        result = self.execute()
+        self.assertEqual('PASS', result['verdict'])
+        self.assertEqual(['tests/a/real_test.py', 'tests/b/link_test.py'], result['changed_tests'])
+        self.assertIn('Ran 6 tests', result['candidate']['tail'])
+        self.assertEqual(0, result['original']['exit_code'], result['original']['tail'])
+        self.assertIn('Ran 4 tests', result['original']['tail'])
+
+    def test_weakened_link_target_fails_the_original_gate(self):
+        (self.project / 'tests/a/real_test.py').write_text(WEAKENED)
+        receipt = self.rejected()
+        self.assertEqual(['tests/a/real_test.py', 'tests/b/link_test.py'], receipt['changed_tests'])
+        self.assertEqual(0, receipt['candidate']['exit_code'])
+        self.assert_original_height_failures_only(receipt)
+
+    def test_retargeted_link_fails_the_original_gate(self):
+        (self.project / 'tests/a/weak_test.py').write_text(WEAKENED)
+        self.link.unlink(); self.link.symlink_to('../a/weak_test.py')
+        receipt = self.rejected()
+        self.assertEqual(['tests/b/link_test.py'], receipt['changed_tests'])
+        self.assert_original_height_failures_only(receipt)
+
+    def test_link_replaced_by_a_weakened_copy_is_restored_as_the_original_link(self):
+        self.link.unlink(); self.link.write_text(WEAKENED)
+        receipt = self.rejected()
+        self.assertEqual(['tests/b/link_test.py'], receipt['changed_tests'])
+        self.assert_original_height_failures_only(receipt)
+
+    def test_replacement_link_into_source_cannot_write_through(self):
+        source = self.project / 'layout.py'; original = source.read_bytes()
+        self.link.unlink(); self.link.symlink_to(source)
+        receipt = self.rejected()
+        self.assertEqual(['tests/b/link_test.py'], receipt['changed_tests'])
+        self.assert_original_height_failures_only(receipt)
+        self.assertEqual(original, source.read_bytes())
+
+    def test_replacement_directory_link_cannot_redirect_restoration(self):
+        decoy = self.project / 'decoy'
+        shutil.copytree(self.project / 'tests/a', decoy)
+        (decoy / 'real_test.py').write_text(WEAKENED)
+        shutil.rmtree(self.project / 'tests/a'); (self.project / 'tests/a').symlink_to('../decoy')
+        receipt = self.rejected()
+        self.assertEqual(['tests/a/__init__.py', 'tests/a/real_test.py', 'tests/b/link_test.py'],
+                         receipt['changed_tests'])
+        self.assert_original_height_failures_only(receipt)
+        self.assertEqual(WEAKENED, (decoy / 'real_test.py').read_text())
+
+    def test_link_target_outside_the_test_inventory_is_restored_from_the_bundle(self):
+        shared = self.project / 'shared/height_case.py'
+        shared.parent.mkdir()
+        shared.write_text('import unittest\nfrom layout import height\nclass Shared(unittest.TestCase):\n'
+                          '    def test_positive(self):\n        self.assertGreater(height(), 0)\n')
+        (self.project / 'tests/b/case_test.py').symlink_to('../../shared/height_case.py')
+        (self.project / 'layout.py').write_text('def height():\n    return 40\n')
+        self.bind()
+        self.assertNotIn('shared/height_case.py', self.binding['files'])
+        self.assertEqual(shared.read_text(), (Path(self.binding['root']) / 'shared/height_case.py').read_text())
+        shared.write_text(shared.read_text().replace('assertGreater(height(), 0)', 'assertEqual(height(), 41)'))
+        receipt = self.rejected()
+        self.assertEqual(['tests/b/case_test.py'], receipt['changed_tests'])
+        self.assertEqual(1, receipt['candidate']['exit_code'])
+        self.assertEqual(0, receipt['original']['exit_code'], receipt['original']['tail'])
+        self.assertIn('Ran 5 tests', receipt['original']['tail'])
+
+    def test_retained_link_and_target_cannot_be_changed(self):
+        bundle = Path(self.binding['root'])
+        link, target = bundle / 'tests/b/link_test.py', bundle / 'tests/a/real_test.py'
+        for change in ('retarget', 'target'):
+            with self.subTest(change=change):
+                if change == 'retarget':
+                    link.unlink(); link.symlink_to('../a/__init__.py')
+                else:
+                    target.write_text(WEAKENED)
+                with self.assertRaisesRegex(ValueError, 'bundle changed'):
+                    self.execute()
+                self.assertFalse(guard.ready(self.state, 'current'))
+                link.unlink(); link.symlink_to('../a/real_test.py'); target.write_text(LINKED)
+
+    def test_unsafe_links_are_refused_before_a_run_binds(self):
+        (self.project.parent / 'outside_test.py').write_text(LINKED)
+        cases = {
+            'outside the root': {'tests/b/out_test.py': '../../../outside_test.py'},
+            'absolute': {'tests/b/abs_test.py': str(self.project / 'tests/a/real_test.py')},
+            'dangling': {'tests/b/gone_test.py': '../a/missing_test.py'},
+            'self cycle': {'tests/b/loop_test.py': 'loop_test.py'},
+            'cycle': {'tests/b/x_test.py': 'y_test.py', 'tests/b/y_test.py': 'x_test.py'},
+            'chain leaving the root': {'tests/b/hop_test.py': '../../hop.py', 'hop.py': '../outside_test.py'},
+            'directory': {'tests/c': 'a'},
+            'through a directory link': {'lib': 'tests/a', 'tests/b/via_test.py': '../../lib/real_test.py'},
+            'non-canonical': {'tests/b/dot_test.py': '../b/../a/real_test.py'},
+        }
+        for case, links in cases.items():
+            with self.subTest(case=case):
+                for name, target in links.items():
+                    (self.project / name).symlink_to(target)
+                try:
+                    with self.assertRaisesRegex(ValueError, 'Protected test'):
+                        self.bind()
+                    self.assertNotIn('protected_tests', self.state['settings'])
+                finally:
+                    for name in links:
+                        (self.project / name).unlink()
 
 
 if __name__ == '__main__':
