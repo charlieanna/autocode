@@ -243,17 +243,19 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         previous_settings = state["settings"]
         enabling_joint = settings.get("joint_planning") and not previous_settings.get("joint_planning")
         if enabling_joint:
+            contract = state.get("goal_contract")  # Recognition can pause before the first draft.
             backup = run_dir / f"state.pre-joint-planning-{uuid.uuid4().hex[:8]}.json"
             runner.write_json(backup, state)
             state.setdefault("planning_migrations", []).append({"at": runner.now(), "backup": str(backup),
-                "goal_token": goals.token(state["goal_contract"]), "next_stage": state.get("next_stage"),
+                "goal_token": goals.token(contract) if contract else None, "next_stage": state.get("next_stage"),
                 "reason": "Explicitly enabled independent planning; existing work and sessions retained"})
         state.setdefault("configuration_changes", []).append({"at":runner.now(),"previous":state["settings"],"selected":settings,
             "reason":("Cumulative token budgets were removed" if retiring_token_pause else
                       "Run settings updated at a saved stage boundary")})
         state["settings"] = settings
         if enabling_joint and settings.get("engine") == "codex":
-            state["goal_contract"].update(approval_status="draft", approval_event=None)
+            if contract:
+                contract.update(approval_status="draft", approval_event=None)
             goals.invalidate(state, "Independent requirements and plan review requested before further execution")
             state.update(status="RUNNING", phase="DISCOVERING", next_stage="requirements_gather",
                          pending_questions=[])

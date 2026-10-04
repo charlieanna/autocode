@@ -893,6 +893,7 @@ class GoalTests(unittest.TestCase):
         self.assertEqual("saved-terra.json", legacy["stages"][0]["output"])
         self.assertTrue(legacy["validation_archive"])
         self.assertEqual("Known answer", legacy["answers"]["saved-question"]["text"])
+        self.assertIn("Reconstruct the goal from the request and saved work", lifecycle.render(legacy))
 
     def test_active_or_uncertain_migration_refuses_without_discarding_work(self):
         for field in ["active_stage", "uncertain_artifacts"]:

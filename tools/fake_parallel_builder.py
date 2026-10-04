@@ -29,12 +29,12 @@ def report(data):
         return {"workflow": "build", "reason": "Fixture: every request is a build", "signals": [], "design_document": ""}
     if data["stage"] == "investigate_stuck":
         return {"diagnosis": "Offline fixture: it cannot diagnose; the run pauses as before.", "cause": "other", "guidance": "", "recommendation": "pause", "user_question": "", "evidence_refs": [], "example": "", "probe": "", "untestable": ""}
+    if data["stage"] == "astra_discovery":
+        return {"contract": plan(), "summary": "Two independent outputs, then combine"}
     common = {"contract_revision": data["goal_contract"]["revision"], "contract_hash": data["goal_contract"]["hash"],
               "task_id": (data.get("current_task") or {}).get("id", ""), "deferred_backlog": [],
               "user_request": {"kind": "none", "discovered": "", "impact": "", "decision_needed": "",
                                "options": [], "proposed_delta": ""}}
-    if data["stage"] == "astra_discovery":
-        return {"contract": plan(), "summary": "Two independent outputs, then combine"}
     if data["stage"] == "sol":
         command = [sys.executable, "-c", "from pathlib import Path; print({p:Path(p).read_text() for p in ('a.txt','b.txt','combined.txt') if Path(p).exists()})"]
         checked = subprocess.run(command, capture_output=True, text=True)
