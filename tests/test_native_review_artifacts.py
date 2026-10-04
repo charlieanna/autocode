@@ -22,6 +22,10 @@ class NativeReviewArtifactTests(unittest.TestCase):
         cls.addClassCleanup(cls.seed_dir.cleanup)
         cls.seed = Path(cls.seed_dir.name) / 'project'
         subprocess.run(['git', 'init', '-q', str(cls.seed)], check=True)
+        # A copied seed must stay immutable while each case copies its objects: Git's background
+        # auto-maintenance after the commit raced copytree over .git/objects/maintenance.lock in CI.
+        subprocess.run(['git', '-C', str(cls.seed), 'config', 'maintenance.auto', 'false'], check=True)
+        subprocess.run(['git', '-C', str(cls.seed), 'config', 'gc.auto', '0'], check=True)
         (cls.seed / 'app.py').write_text('VALUE = 1\n')
         (cls.seed / 'review').mkdir()
         (cls.seed / 'review/existing.py').write_text('existing = True\n')
