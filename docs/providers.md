@@ -46,6 +46,16 @@ OpenCode has a different isolation boundary: Requirements Planner sessions and o
 read-only OpenCode roles have edit tools denied and their workspace snapshots
 checked, but OpenCode tool permissions are **not an OS sandbox**. Shell commands
 and configured external tools retain OpenCode's native permission policy. Autocode
+also rejects a read-only report when native OpenCode step snapshots record a
+workspace change during the attempt, even if the final files were restored. This
+check applies when loading saved reports and when reusing review evidence for
+report repair. Before a native OpenCode launch, the runner adds local Git
+exclusions for `.autocode/`, `.autocode-ui/`, `__pycache__/` and `*.pyc`, matching
+its existing source-snapshot boundary and preserving other exclusion rules.
+This prevents runtime evidence writes from looking like source drift. The check
+cannot detect writes outside the workspace, ignored files, or
+transient changes between snapshots, and is unavailable when the transport omits
+snapshots. Use an OS sandbox when filesystem prevention is required. Autocode
 does not enable `--auto` or override user-level permission rules with blanket allows.
 A denied required operation is reported back as a blocker.
 See OpenCode's [permission documentation](https://opencode.ai/docs/permissions/).
