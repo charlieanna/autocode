@@ -103,3 +103,11 @@ for the architecture format, approvals and integration.
 - [Testing](docs/testing.md) and [scenario harness](scenarios/README.md)
 - [Check a coding tool/model's conformance](docs/provider-conformance.md)
 - [Task-run interface for integrations](docs/task-run.md)
+
+
+### Role names
+
+The terminal and dashboard use the same job names: Requirements, Planner,
+Plan Reviewer, Builder, Tester, Completion Reviewer and Resolver.
+A configured model can perform different jobs; the current step names the job
+being done. See [roles and reviewer-routing modes](docs/models.md#roles).

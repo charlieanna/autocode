@@ -276,6 +276,29 @@ class RetrofitTest(unittest.TestCase):
         with patch.object(s.subprocess,"run",return_value=subprocess.CompletedProcess([],1,stdout="")):
             with self.assertRaisesRegex(s.Paused,"Cannot inspect"): s.assert_no_legacy_process(self.run,self.root)
 
+    def test_legacy_guard_scopes_run_paths_without_matching_another_workspace(self):
+        relative = os.path.relpath(self.run, self.root)
+        for command in (
+            f"python tools/autocode.py --run-dir /another-workspace/{relative}",
+            f"python tools/autocode.py --run-dir {self.run}-different",
+            f"codex exec -o /another-workspace/{relative}/report.json",
+        ):
+            with self.subTest(command=command), patch.object(s.subprocess, "run", return_value=
+                    subprocess.CompletedProcess([], 0, stdout=f"101 {command}\n")):
+                s.assert_no_legacy_process(self.run, self.root)
+        # Same-run controller and provider output remain protected, including
+        # bare relative legacy paths whose workspace cannot be established.
+        for command in (
+            f"python tools/autocode.py --run-dir={self.run}",
+            f"python tools/autocode.py --run-dir {relative}",
+            f"codex exec -o {self.run}/report.json",
+            f'python tools/autocode.py --run-dir "{self.run}"',
+        ):
+            with self.subTest(command=command), patch.object(s.subprocess, "run", return_value=
+                    subprocess.CompletedProcess([], 0, stdout=f"101 {command}\n")):
+                with self.assertRaisesRegex(s.Paused, "Existing run process 101"):
+                    s.assert_no_legacy_process(self.run, self.root)
+
     def test_process_guard_allows_isolated_workspace_when_sandbox_denies_process_listing(self):
         result=subprocess.CompletedProcess([],1,stdout="",stderr="ps: operation not permitted")
         with patch.object(s.subprocess,"run",return_value=result):

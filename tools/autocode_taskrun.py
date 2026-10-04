@@ -124,6 +124,17 @@ class TaskRun:
                      '--no-chat', *self.options, advancing=True)
         return self.status()
 
+    def compare_checkpoint(self, checkpoint_id: str) -> dict:
+        """Read a source-bound comparison; no execution, approval or file rewrite."""
+        return json.loads(self._invoke("compare checkpoint", "checkpoint", "--compare", checkpoint_id).stdout)
+
+    def restore_checkpoint(self, checkpoint_id: str, expected_token: str, request_id: str) -> "TaskRun":
+        """Create a paused continuation on a new branch; keep this run untouched."""
+        result = json.loads(self._invoke("restore checkpoint", "checkpoint", "--restore", checkpoint_id,
+            "--expected-token", expected_token, "--request-id", request_id).stdout)
+        return TaskRun(Path(result["workspace"]), Path(result["run_dir"]), self.command,
+                       self.options, self.env, self.timeout)
+
     def accept_transport_change(self) -> dict:
         """Explicitly accept a validated OpenCode transport change and continue."""
         self._invoke("accept transport change", "--resume-paused", "--accept-transport-change",

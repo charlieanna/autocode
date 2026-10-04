@@ -15,81 +15,25 @@ import tomllib
 
 # Re-export shared helpers for existing callers and test patches.
 try:
+    from .autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command
     from .autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report
     from . import autocode_output_filter as output_filter, autocode_request_usage as request_usage
     from . import autocode_evidence_snapshot as evidence_snapshot
     from .autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
                                 model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
     from . import autocode_receipts as receipts, autocode_usage as token_usage
-    from . import autocode_event_matching as event_matching
+    from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary
     from .autocode_event_matching import same_command
 except ImportError:
+    from autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command
     from autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report
     import autocode_output_filter as output_filter, autocode_request_usage as request_usage
     import autocode_evidence_snapshot as evidence_snapshot
     from autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
                                model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
     import autocode_receipts as receipts, autocode_usage as token_usage
-    import autocode_event_matching as event_matching
+    import autocode_event_matching as event_matching, autocode_event_metrics as event_summary
     from autocode_event_matching import same_command
-
-
-def duplicate_runner_command(command):
-    """True only for processes that are themselves the runner or a codex exec call.
-    Wrappers (zsh -lc '... autocode.py ...') and helper apps whose argv embeds
-    runner prompt text are not duplicate runners."""
-    parts = command.split(None, 2)
-    if len(parts) < 2:
-        return False
-    name = os.path.basename(parts[0])
-    if name == "codex":
-        return parts[1] == "exec"
-    if name in ("opencode", "opencode.exe"):
-        return parts[1] == "run"
-    return (name.startswith("python") or name == "autocode") and any(
-        script in command for script in ("autocode.py", "autocode_builder_worker.py"))
-
-
-def assert_no_legacy_process(run_dir, workspace):
-    """Read process metadata internally; never print unrelated command arguments."""
-    marker_path = Path(run_dir) / "active-processes.json"
-    if marker_path.exists():
-        try:
-            from . import autocode_process as processes
-        except ImportError:
-            import autocode_process as processes
-        marker = read(marker_path)
-        owned = marker.get("processes", [])
-        if not owned or processes.live_processes(owned):
-            raise Paused("PAUSED_WORKSPACE_BUSY", "Provider commands from an earlier stage may still be alive; inspect its checkpoint")
-    try:
-        result = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        if isinstance(error, OSError) and "operation not permitted" in str(error).lower():
-            # The per-workspace flock still serializes writers when process listing is blocked.
-            return
-        raise Paused("PAUSED_PROCESS_CHECK", "Cannot inspect legacy workers; refuse possible duplicate launch") from error
-    if result.returncode and "operation not permitted" in (result.stderr or "").lower():
-        # The per-workspace flock above still serializes writers for this
-        # workspace. Sandboxed hosts may deny a machine-wide process listing,
-        # which must not prevent an independent workspace from running.
-        return
-    if result.returncode:
-        raise Paused("PAUSED_PROCESS_CHECK", "Cannot inspect legacy workers; refuse possible duplicate launch")
-    marker = str(Path(run_dir).resolve())
-    relative = os.path.relpath(marker, Path(workspace).resolve())
-    for line in result.stdout.splitlines():
-        parts = line.strip().split(None, 1)
-        if len(parts) != 2:
-            continue
-        pid, command = parts
-        # Skip the runner and the wrapper that launched it: a shell running our own
-        # command text (e.g. zsh -lc '... autocode.py ...') is not a duplicate runner.
-        if int(pid) in (os.getpid(), os.getppid()):
-            continue
-        # Also catches an orphaned Codex child with an output path in this run.
-        if (marker in command or relative in command) and duplicate_runner_command(command):
-            raise Paused("PAUSED_WORKSPACE_BUSY", f"Existing run process {pid} is active; leave it untouched")
 
 
 def events(path):
@@ -114,15 +58,7 @@ def events(path):
 
 def event_metrics(path):
     rows = events(path)
-    completed = [r for r in rows if r.get("type") == "turn.completed" and isinstance(r.get("usage"), dict)]
-    usages = [r["usage"] for r in rows if r.get("type") in ("turn.completed", "turn.failed", "usage.partial")
-              and isinstance(r.get("usage"), dict)]
-    keys = ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"]
-    usage = {k: sum(u[k] for u in usages) if usages and all(k in u for u in usages) else None for k in keys}
-    return {"provider_tokens": usage, "request_context": request_usage.read(path),
-            "provider_tokens_partial": any(r.get("type") == "usage.partial" for r in rows),
-            "provider_requests": None, "provider_retries": None,
-            "completed_turns": len(completed), "headroom_transformed": None, "provider_cost_usd": token_usage.reported_cost(rows)}
+    return event_summary.summarize(rows, request_usage.read(path), token_usage.reported_cost(rows))
 
 
 def terminal_failure_reason(path):

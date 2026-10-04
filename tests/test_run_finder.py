@@ -51,6 +51,8 @@ class Fixture(unittest.TestCase):
         self.project = self.root / "project"
         self.project.mkdir()
         git(self.project, "init", "-q")
+        # A detached maintenance child must not race the read-only tree snapshots.
+        git(self.project, "config", "maintenance.auto", "false")
         (self.project / "app.txt").write_text("committed\n")
         git(self.project, "add", "app.txt")
         git(self.project, "-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "base")
@@ -444,6 +446,27 @@ class WhichRunIsChosen(Fixture):
 
 
 class CommandLine(Fixture):
+    def test_discovered_run_preserves_evidence_inspection_requirements(self):
+        run = self.run_in(self.project)
+        before = tree_snapshot(self.project)
+        args, _ = self.parse("--status", "--inspect-evidence")
+        self.assertEqual(run, args.run_dir)
+        self.assertTrue(args.inspect_evidence)
+        self.assertIn("--inspect-evidence requires --run-dir and --status",
+                      self.parse_error("--inspect-evidence"))
+        self.assertEqual(before, tree_snapshot(self.project))
+
+    def test_discovered_run_requires_explicit_recovery_with_an_expected_token(self):
+        run = self.run_in(self.project, status="PAUSED_BUDGET")
+        before = tree_snapshot(self.project)
+        for action in (["--resume-paused"], ["--abandon-stage", "001/terra-01"]):
+            with self.subTest(action=action):
+                args, _ = self.parse(*action, "--expected-recovery-token", "exact-view-token")
+                self.assertEqual((run, "exact-view-token"), (args.run_dir, args.expected_recovery_token))
+        self.assertIn("--expected-recovery-token requires a saved run and an explicit resume or abandon action",
+                      self.parse_error("--expected-recovery-token", "exact-view-token"))
+        self.assertEqual(before, tree_snapshot(self.project))
+
     def test_a_task_or_an_explicit_run_dir_turns_finding_off(self):
         first = self.worktree_run("One")[1]
         self.worktree_run("Two")

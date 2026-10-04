@@ -267,6 +267,44 @@ class ProjectScopeProviderContextTests(unittest.TestCase):
             self.assertTrue(any('Project-only instruction' in text for text in texts),
                             f'the {kind} received the repository instructions')
 
+    def test_replaced_project_never_dispatches_either_provider_and_keeps_saved_turn(self):
+        opened = self.store.create_empty(str(self.project), request_id='before-replacement')
+        original = self.root / 'preserved-project'
+        self.project.rename(original)
+        self.project.mkdir()
+        (self.project / 'keep.txt').write_text('replacement work')
+        self.store.send(opened['id'], 'Preserve this exact turn', request_id='after-replacement')
+        self.store.close()
+        current = self.store.get(opened['id'])
+        self.assertEqual([], self.calls, 'neither provider may enter a replacement folder')
+        self.assertEqual('error', current['status'])
+        self.assertIn('replaced', current['error'])
+        self.assertEqual(['Preserve this exact turn'], [row['text'] for row in current['messages'] if row['role'] == 'user'])
+        self.assertEqual('replacement work', (self.project / 'keep.txt').read_text())
+        self.assertTrue((original / 'AGENTS.md').exists())
+
+    def test_legacy_failed_handoff_requires_confirmation_and_rejects_non_git_folder(self):
+        opened = self.store.create_empty(str(self.project), request_id='legacy-handoff')
+        path = self.store.root / (opened['id'] + '.json')
+        old = json.loads(path.read_text())
+        old.pop('_project_identity')
+        old['attachment'] = {'status': 'failed', 'workspace': str(self.project), 'launch_rejected': True}
+        path.write_text(json.dumps(old))  # controlled pre-upgrade fixture
+        current = self.store.get(opened['id'])
+        self.assertIn('project_scope_confirmation', current)
+        token = current['project_scope_confirmation']['token']
+        (self.project / '.git').rename(self.project / 'saved-git')
+        invalid = self.store.get(opened['id'])
+        self.assertTrue(invalid['project_scope_error'])
+        self.assertNotIn('project_scope_confirmation', invalid)
+        with self.assertRaises(ValueError):
+            self.store.confirm_project_scope(opened['id'], token)
+        (self.project / 'saved-git').rename(self.project / '.git')
+        confirmed = self.store.confirm_project_scope(opened['id'], token)
+        self.assertFalse(confirmed.get('project_scope_error'))
+        self.assertEqual(old['attachment'], confirmed['attachment'])
+        self.assertEqual([], self.calls)
+
 
 if __name__ == '__main__':
     unittest.main()

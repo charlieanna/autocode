@@ -12,34 +12,48 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
  const fixture=await ready,results=[];
  for(const [viewport,width,height]of [['desktop',1440,1024],['tablet',1024,768],['mobile',390,844]]){
   browser('set','viewport',String(width),String(height));
-  for(const state of ['running','waiting','complete']){
+  for(const state of ['running','waiting','complete','stale','unavailable']){
    browser('open',fixture.scenarios['flow-work-progress-'+state]);
    wait('typeof latestRun!=="undefined"&&latestRun?.run?.endsWith("/flow-work-progress-'+state+'")&&!taskReadError');
    const run=data('()=>latestRun.run'),stateFile=path.join(run,'state.json'),before=fs.readFileSync(stateFile);
    const strip=data('()=>document.querySelector("#task-progress-summary").textContent');
-   assert.match(strip,state==='complete'?/2 of 2 tasks complete/:/1 of 2 tasks complete/);
-   assert.match(strip,state==='complete'?/6 of 6 requirements checked/:/1 of 6 requirements checked · 1 failed · 4 unchecked/);
+   const done=['complete','stale','unavailable'].includes(state);
+   assert.match(strip,done?/2 of 2 tasks complete/:/1 of 2 tasks complete/);
+   assert.match(strip,state==='complete'?/6 of 6 requirements checked/:state==='waiting'?/1 of 6 requirements checked · 1 failed · 4 unchecked/:/0 of 6 requirements checked · 6 unchecked/);
+   if(['stale','unavailable'].includes(state)){
+    assert.equal(data('()=>latestRun.completion_current'),false);
+    assert.equal(data('()=>statusInfo(latestRun).label'),'Checks need review');
+    assert.match(data('()=>document.querySelector("#task-delivery").textContent'),/Completion was recorded earlier/);
+    assert.doesNotMatch(data('()=>document.querySelector("#live-mode").textContent'),/task is paused/);
+    assert.equal(data('()=>canEditFutureTaskSettings(latestRun)'),false,'Evidence inspection does not reopen a completed run for mutation');
+   }
    if(state==='waiting')assert.match(strip,/questions to answer/);
    assert.doesNotMatch(strip,/%/);
    browser('click','#task-progress-summary');
    const tasks=data('()=>[...document.querySelectorAll("#now .work-task-rows li")].map(row=>row.dataset.taskState)');
-   assert.deepEqual(tasks,state==='complete'?['done','done']:state==='waiting'?['done','waiting']:['done','working']);
+   assert.deepEqual(tasks,done?['done','done']:state==='waiting'?['done','waiting']:['done','working']);
    wait('(()=>{const r=document.querySelector("#now .work-task-rows li").getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight})()');
    browser('screenshot',path.join(evidence,viewport+'-'+state+'-work.png'));
-   if(state!=='complete'){
+   if(!done){
     data('()=>{const button=[...document.querySelectorAll("#now button")].find(e=>e.textContent==="Error message is hidden");button.closest("details").open=true;return true}');
     browser('get','text','#now');
     data('()=>{[...document.querySelectorAll("#now button")].find(e=>e.textContent==="Error message is hidden").click();return true}');
     assert.equal(data('()=>currentTab'),'execution');
     browser('eval','(async()=>{await refresh();return true})()');
     assert.equal(data('()=>document.activeElement.dataset.workId'),'F7');
-    assert.match(data('()=>document.activeElement.textContent'),/Reported by Validator/);
+    assert.match(data('()=>document.activeElement.textContent'),/Reported by Tester/);
     data('()=>{activateTab("now");return true}');
    }
-   data('()=>{document.querySelector("#now .work-check-row button").click();return true}');
+   data('()=>{document.querySelector("#now .work-requirement-list>summary").scrollIntoView({block:"center"});return true}');
+   if(!data('()=>document.querySelector("#now .work-requirement-list").open'))browser('click','#now .work-requirement-list>summary');
+   data('()=>{document.querySelector("#now .work-check-row button").scrollIntoView({block:"center"});return true}');
+   browser('click','#now .work-check-row button');
    assert.equal(data('()=>currentTab'),'execution');
     browser('eval','(async()=>{await refresh();return true})()');
    assert.equal(data('()=>document.activeElement.dataset.workId'),'C1');
+   assert.match(data('()=>document.activeElement.textContent'),/Planned check: Record the current viewport values/);
+   if(state==='stale')assert.match(data('()=>document.querySelector("#execution").textContent'),/source changed after these checks/);
+   if(state==='unavailable')assert.match(data('()=>document.querySelector("#execution").textContent'),/Fixture inspection unavailable/);
    assert.deepEqual(fs.readFileSync(stateFile),before,'Inspecting saved tasks, problems and checks is read-only');
    if(viewport==='mobile')browser('click','#details-drawer-close');
    const geometry=data('()=>({overflow:document.documentElement.scrollWidth>innerWidth,strip:document.querySelector("#task-progress-summary").getBoundingClientRect().height,chat:document.querySelector("#interview").getBoundingClientRect().height,composer:document.querySelector("#change-text").getBoundingClientRect().bottom})');
@@ -48,5 +62,5 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
   }
  }
  fs.writeFileSync(path.join(evidence,'manifest.json'),JSON.stringify(results,null,2));
- console.log('Saved Work summaries and detail links passed at three sizes and three lifecycle states. '+evidence);
+ console.log('Saved Work summaries and detail links passed at three sizes and five lifecycle/freshness states. '+evidence);
 })().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>{try{browser('close');}catch{}server.kill('SIGTERM');});

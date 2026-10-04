@@ -3,8 +3,10 @@ import json
 import sys
 
 try:
+    from . import autocode_verification_inspection as verification
     from . import autocode_progress_view as progress_view
 except ImportError:
+    import autocode_verification_inspection as verification
     import autocode_progress_view as progress_view
 
 
@@ -23,6 +25,17 @@ def render(runner, state, args, workspace, run_dir):
     completion_current = (runner.completion_gate.completion_ready(state, state.get("final_decision", {}), current)
                           if state["status"] == "TASK_COMPLETE" else None)
     public_view = runner.run_view.view(state)
+    if getattr(args, 'inspect_evidence', False):
+        contract = state.get('goal_contract') or {}
+        criteria = (contract.get('body') or {}).get('acceptance_criteria') or []
+        missing = runner.goals.missing_human_reviews(state) if contract else []
+        accepted = [row['id'] for row in criteria if row.get('human_review') and row['id'] not in missing]
+        inspected = verification.inspect(state, workspace, snapshot=runner.support.snapshot,
+            read_state=lambda: runner.read_json(run_dir / 'state.json'), accepted_human_ids=accepted, initial_snapshot=current)
+        public_view['verification'] = inspected
+        if completion_current is not None and (inspected['freshness'] != 'current'
+                or inspected.get('inspected_source_revision') != current['revision']):
+            completion_current = False
     checkpoint = runner.milestones.summary(state)
     stage = (active or {}).get("stage") or state.get("next_stage")
     next_action = (f"AutoResolver must reconcile retained attempt {runner.attempt_id(active)} before any provider call"

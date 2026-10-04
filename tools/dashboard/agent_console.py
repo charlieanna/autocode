@@ -9,10 +9,12 @@ from urllib.parse import parse_qs,urlparse
 sys.dont_write_bytecode=True
 try:
  from .. import autocode_resolver_human as resolver_human
+ from ..autocode_role_names import CATALOGUE as ROLE_NAMES
 except ImportError:
  tools=str(Path(__file__).resolve().parents[1])
  if tools not in sys.path:sys.path.insert(0,tools)
  import autocode_resolver_human as resolver_human
+ from autocode_role_names import CATALOGUE as ROLE_NAMES
 CODEX_DEFAULT_MODELS={'astra':'gpt-5.6-sol','terra':'gpt-5.6-terra','sol':'gpt-5.6-sol','completion':'gpt-5.6-sol'}
 GLM_MODELS={'astra':'glm-5.3','terra':'glm-5.3-flash','sol':'glm-5.3','completion':'glm-5.3'}
 DEFAULT_REASONING_EFFORTS={'astra':'high','terra':'medium','sol':'high','completion':'medium'}
@@ -22,7 +24,7 @@ MODEL_ID=re.compile(r'^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._:/-]{0,120}$',re.I)
 def obj(x): return x if isinstance(x,dict) else {}
 def items(x): return x if isinstance(x,list) else []
 def pending_decisions(state):
- """Only a current durable AutoResolver receipt can expose a decision."""
+ """Only a current durable Resolver receipt can expose a decision."""
  public=resolver_human.projection(state)
  return public['pending_questions'],public['user_request'] or None
 def require_human_response(view,data,scopes):
@@ -31,7 +33,7 @@ def require_human_response(view,data,scopes):
      or not public.get('request_id') or not public.get('request_token')
      or data.get('resolver_request')!=public['request_id']
      or data.get('resolver_token')!=public['request_token']):
-  raise ValueError('Response requires the exact current AutoResolver request and token. Refresh the task.')
+  raise ValueError('Response requires the exact current Resolver request and token. Refresh the task.')
  return public
 def json_file(p):
  try:
@@ -495,7 +497,7 @@ class LegacyConsole:
     raise ValueError('Provide corrective information or leave the task paused')
    extra=['--resolver-request',public['request_id'],'--resolver-token',public['request_token'],'--resolver-response',response]
    if text:extra+=['--resolver-message',text]
-   return self.enqueue(ws,run,'Respond to AutoResolver',extra+['--no-chat'])
+   return self.enqueue(ws,run,'Respond to Resolver',extra+['--no-chat'])
   if action=='answer':
    public=require_human_response(v,d,('clarification','permission','goal_change'))
    ident,text=str(d.get('id','')),d.get('text','')
@@ -531,20 +533,26 @@ class LegacyConsole:
   raise ValueError('Unknown action')
 try:
  from .dashboard_backend import RegistryInterventionMixin, approved_goal_token
+ from .dashboard_recovery import RecoveryActionsMixin
  from .dashboard_chat import ConversationMixin
  from .dashboard_project_controls import ProjectRemovalMixin
  from .dashboard_tasks import TaskArchiveMixin
  from .dashboard_delete import PermanentDeleteMixin
+ from .dashboard_setup import SetupMixin
+ from .dashboard_checkpoints import CheckpointMixin
  from .dashboard_evidence import stage_evidence
 except ImportError:  # Support running this file directly from a source checkout.
  from dashboard_backend import RegistryInterventionMixin, approved_goal_token
+ from dashboard_recovery import RecoveryActionsMixin
  from dashboard_chat import ConversationMixin
  from dashboard_project_controls import ProjectRemovalMixin
  from dashboard_tasks import TaskArchiveMixin
  from dashboard_delete import PermanentDeleteMixin
+ from dashboard_setup import SetupMixin
+ from dashboard_checkpoints import CheckpointMixin
  from dashboard_evidence import stage_evidence
 
-class Console(PermanentDeleteMixin, TaskArchiveMixin, ProjectRemovalMixin, ConversationMixin, RegistryInterventionMixin, LegacyConsole):
+class Console(CheckpointMixin, SetupMixin, PermanentDeleteMixin, TaskArchiveMixin, ProjectRemovalMixin, ConversationMixin, RecoveryActionsMixin, RegistryInterventionMixin, LegacyConsole):
  def model_catalogue(self,refresh=False):
   result=self.catalogue.fetch(refresh=refresh)
   try:
@@ -557,9 +565,9 @@ class Console(PermanentDeleteMixin, TaskArchiveMixin, ProjectRemovalMixin, Conve
           'conversation_routes':MANDATED_ROUTES}
 
 # Static presentation is kept separate from the read-only adapter and mutation API.
-INDEX = Path(__file__).with_name('dashboard.html').read_text()
-STYLE = Path(__file__).with_name('dashboard.css').read_text()
-APP = Path(__file__).with_name('dashboard_app.js').read_text()
+INDEX = re.sub(r'\{\{role:(\w+)\}\}',lambda match:ROLE_NAMES['roles'][match[1]],Path(__file__).with_name('dashboard.html').read_text())
+STYLE = Path(__file__).with_name('dashboard.css').read_text()+'\n'+Path(__file__).with_name('dashboard_scoped_start.css').read_text()+'\n'+Path(__file__).with_name('dashboard_reference_layout.css').read_text()
+APP = 'globalThis.AUTOCODE_ROLE_NAMES = '+json.dumps(ROLE_NAMES,sort_keys=True)+';\n'+Path(__file__).with_name('dashboard_app.js').read_text()+'\n'+Path(__file__).with_name('dashboard_setup.js').read_text()+'\n'+Path(__file__).with_name('dashboard_checkpoints.js').read_text()+'\n'+Path(__file__).with_name('dashboard_scoped_start.js').read_text()
 
 class LoopbackHTTPServer(ThreadingHTTPServer):
  def server_bind(self):
@@ -603,6 +611,7 @@ class Handler(BaseHTTPRequestHandler):
   if p.path=='/':return self.reply(200,INDEX,'text/html')
   if p.path=='/static/style.css':return self.reply(200,STYLE,'text/css')
   if p.path=='/static/app.js':return self.reply(200,APP,'application/javascript')
+  if p.path=='/static/connected.svg':return self.reply(200,(Path(__file__).parent/'assets/connected.svg').read_bytes(),'image/svg+xml')
   if p.path.startswith('/static/fonts/'):
    fonts=('Inter-Regular.woff2','Inter-SemiBold.woff2','JetBrainsMono-Regular.woff2')
    name=p.path[len('/static/fonts/'):]
@@ -610,6 +619,17 @@ class Handler(BaseHTTPRequestHandler):
    return self.reply(200,(Path(__file__).parent/'assets/fonts'/name).read_bytes(),'font/woff2')
   if p.path=='/api/runs':return self.reply(200,self.console.dashboard_snapshot())
   if p.path=='/api/models':return self.reply(200,self.console.model_catalogue())
+  if p.path=='/api/screenshot':
+   try:
+    q=parse_qs(p.query);raw=q.get('workspace',[''])[0];selected=q.get('run',[''])[0]
+    if self.console.removed_project(raw) or self.console.archived_task(selected):return self.reply(404,{'error':'Restore this task and project to inspect its evidence'})
+    ws=self.console.workspace_for(raw);run=self.console.run_for(ws,selected)
+    if not run:return self.reply(404,{'error':'Task unavailable'})
+    try:from .dashboard_screenshots import read_image
+    except ImportError:from dashboard_screenshots import read_image
+    image,mime=read_image(self.console.task_view(ws,run),q.get('image',[''])[0],ws,run)
+    self.send_response(200);self.send_header('Content-Type',mime);self.send_header('Content-Length',str(len(image)));self.send_header('Cache-Control','private, no-store');self.send_header('X-Content-Type-Options','nosniff');self.end_headers();self.wfile.write(image);return
+   except (ValueError,OSError):return self.reply(400,{'error':'Saved screenshot unavailable for this verification'})
   if p.path=='/api/evidence':
    q=parse_qs(p.query);raw=q.get('workspace',[''])[0];selected=q.get('run',[''])[0]
    if self.console.removed_project(raw) or self.console.archived_task(selected):return self.reply(404,{'error':'Restore this task and project to inspect its changes'})
@@ -630,7 +650,11 @@ class Handler(BaseHTTPRequestHandler):
   try:
    d=json.loads(self.rfile.read(int(self.headers.get('Content-Length','0'))));
    if not isinstance(d,dict):raise ValueError('JSON body must be an object')
-   if self.path=='/api/projects':x=self.console.project_action(d)
+   if self.path=='/api/setup/check':x=self.console.setup_check(d)
+   elif self.path=='/api/setup/project':x=self.console.setup_project(d)
+   elif self.path=='/api/checkpoint/compare':x=self.console.checkpoint_action(d)
+   elif self.path=='/api/checkpoint/restore':x=self.console.checkpoint_action(d,restore=True)
+   elif self.path=='/api/projects':x=self.console.project_action(d)
    elif self.path=='/api/tasks':x=self.console.task_archive_action(d)
    elif self.path=='/api/tasks/delete-preview':x=self.console.deletion_preview(d)
    elif self.path=='/api/tasks/delete':x=self.console.delete_permanently(d)
@@ -638,6 +662,9 @@ class Handler(BaseHTTPRequestHandler):
    elif self.path=='/api/conversation/archive':x=self.console.conversation_archive(d)
    elif self.path=='/api/conversation/message':
     self.console.require_unarchived_conversation(d.get('id'));x=self.console.conversations.send(d.get('id'),d.get('text'),d.get('request_id'))
+   elif self.path=='/api/conversation/refresh-draft':
+    self.console.require_unarchived_conversation(d.get('id'));x=self.console.conversations.refresh_draft(d.get('id'),requirements_revision=d.get('requirements_revision'),logical_turn_id=d.get('logical_turn_id'),request_id=d.get('request_id'))
+   elif self.path=='/api/conversation/confirm-scope':x=self.console.confirm_conversation_scope(d)
    elif self.path=='/api/conversation/retry':
     self.console.require_unarchived_conversation(d.get('id'));x=self.console.conversations.retry(d.get('id'))
    elif self.path=='/api/conversation/attach':x=self.console.conversation_attach(d)

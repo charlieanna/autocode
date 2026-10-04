@@ -1,4 +1,4 @@
-const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('./dashboard_vm');
 const source=fs.readFileSync(require('node:path').join(__dirname,'../dashboard_app.js'),'utf8');
 class Element{constructor(){this.children=[];this.dataset={};this.isConnected=true;}append(...x){this.children.push(...x);}replaceChildren(...x){this.children=x;}addEventListener(){}showModal(){this.open=true;}close(){this.open=false;}focus(){}}
 const nodes=new Map(),calls=[],pending=[];
