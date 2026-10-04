@@ -174,8 +174,9 @@ slug = util.slug
 
 def load_stage_report(record, workspace=None, evidence_record=None, state=None):
     """Validate provider output, retaining raw bytes before hydrating review IDs."""
-    readonly_events.assert_unchanged_review(record)
-    if evidence_record: readonly_events.assert_unchanged_review(evidence_record)
+    readonly_events.assert_unchanged_review(record, workspace=workspace)
+    if evidence_record:
+        readonly_events.assert_unchanged_review(evidence_record, workspace=workspace)
     rework_policy.verify_existing(record)
     if record.get("engine") == "opencode":
         # Raw provider events are authoritative, including during recovery.
