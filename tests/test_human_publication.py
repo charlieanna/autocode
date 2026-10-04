@@ -140,6 +140,7 @@ class HumanPublicationTests(unittest.TestCase):
                                   'provide_information', 'Inspected the uncertain attempt')
         human.review_operational_response(self.state)
         self.assertTrue(human.response_holds_current_frontier(self.state))
+        # Parsed by the real CLI parser so a new flag cannot leave the fixture stale (#346).
         import autocode_args
         args = autocode_args.build_parser(None, runner.DEFAULT_ROLE_MODELS).parse_args(
             ['--run-dir', self.state['run_dir'], '--abandon-stage', '001/terra-01'])
