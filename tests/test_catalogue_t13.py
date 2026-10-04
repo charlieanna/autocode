@@ -92,8 +92,12 @@ class CompatScenarios(CompatCase):
         argv = ["autocode", "--workspace", str(self.root), "--run-dir", str(self.run)]
         import contextlib, io
         launched = []
+        def record(**kwargs):
+            launched.append((kwargs.get("state") or {}).get("next_stage") or kwargs)
+            raise RuntimeError("stop after the first launch")
         with patch.object(sys, "argv", argv), patch.object(support, "assert_no_legacy_process"), \
-                patch.object(runner, "run_role", side_effect=launched.append), \
+                patch.object(support, "local_settings", return_value=self.local), \
+                patch.object(runner, "run_role", side_effect=record), \
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             try:
                 code = runner.main()
@@ -313,3 +317,16 @@ class HarnessReportingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CheckpointVersionTests(unittest.TestCase):
+    def test_migrate_refuses_a_future_checkpoint_version(self):
+        import autocode_goal_lifecycle as lifecycle
+        with self.assertRaises(support.Paused) as caught:
+            lifecycle.migrate({"version": 99, "task": "t", "status": "RUNNING"})
+        self.assertEqual("PAUSED_UNSUPPORTED_CHECKPOINT", caught.exception.status)
+        with self.assertRaises(support.Paused):
+            lifecycle.migrate({"version": "3", "task": "t", "status": "RUNNING"})
+        # Supported versions still migrate or no-op.
+        self.assertIsNone(lifecycle.require_supported_checkpoint({"version": 3, "status": "RUNNING"}))
+        self.assertIsNone(lifecycle.require_supported_checkpoint({"status": "RUNNING"}))
