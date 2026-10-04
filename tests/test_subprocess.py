@@ -235,11 +235,22 @@ class SubprocessFlow(unittest.TestCase):
         run, state = self.saved()
         args = ["--run-dir", str(run)]
         stage_count = len(state["stages"])
+        before_inspection = (run / "state.json").read_bytes()
+        current = json.loads(self.launch([*args, "--status", "--inspect-evidence"], 0).stdout)
+        self.assertTrue(current['completion_current'])
+        self.assertEqual('current', current['view']['verification']['freshness'])
+        self.assertEqual('Complete', current['view']['progress']['headline'])
+        self.assertEqual(current['view']['progress']['tasks']['total'], current['view']['progress']['tasks']['done'])
+        self.assertTrue(all(row['state']=='checked' for row in current['view']['verification']['coverage']))
+        self.assertEqual(before_inspection, (run / "state.json").read_bytes())
         source = self.project / "greet.py"
         source.write_text(source.read_text() + "\n# external edit\n")
         unchanged = (run / "state.json").read_bytes()
-        status = self.launch([*args, "--status"], 0)
-        self.assertFalse(json.loads(status.stdout)["completion_current"])
+        status = self.launch([*args, "--status", "--inspect-evidence"], 0)
+        inspected = json.loads(status.stdout)
+        self.assertFalse(inspected["completion_current"])
+        self.assertEqual('stale_or_unverified', inspected['view']['verification']['freshness'])
+        self.assertTrue(all(row['state']=='unchecked' for row in inspected['view']['verification']['coverage']))
         self.assertEqual(unchanged, (run / "state.json").read_bytes())
         self.launch(args, 2)
         _, paused = self.saved()
@@ -252,6 +263,12 @@ class SubprocessFlow(unittest.TestCase):
         # Deliberate external corruption bypasses the normal read-only event log guard.
         evidence.chmod(evidence.stat().st_mode | 0o200)
         evidence.write_text(evidence.read_text() + "\n")
+        saved = (run / "state.json").read_bytes()
+        damaged = json.loads(self.launch([*args, "--status", "--inspect-evidence"], 0).stdout)
+        self.assertFalse(damaged['completion_current'])
+        self.assertEqual('stale_or_unverified', damaged['view']['verification']['freshness'])
+        self.assertTrue(all(row['state']=='unchecked' for row in damaged['view']['verification']['coverage']))
+        self.assertEqual(saved, (run / "state.json").read_bytes())
         self.launch(args, 2)
         self.assertEqual("PAUSED_STALE_VALIDATION", self.saved()[1]["status"])
 
@@ -421,10 +438,10 @@ class SubprocessFlow(unittest.TestCase):
                 self.assertNotIn('command', record)
                 continue
             command = record["command"]
-            # The judging stages write their evidence under .autocode/ (#313); the after-stage
-            # source snapshot, not the sandbox, keeps their source unchanged.
-            writes = record["role"] == "terra" or record["stage"] in ("sol", "astra_review", "astra_checkpoint")
-            expected = "workspace-write" if writes else "read-only"
+            # Judges may write operational evidence; their source changes are
+            # rejected by the independent post-stage snapshot guard.
+            writable_stages = {"terra", "sol", "astra_review", "astra_checkpoint"}
+            expected = "workspace-write" if record["stage"] in writable_stages else "read-only"
             self.assertEqual(expected, command[command.index("--sandbox") + 1])
             self.assertEqual(expected_models[record["role"]], command[command.index("--model") + 1])
             self.assertNotIn("--last", command)

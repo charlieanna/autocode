@@ -491,7 +491,7 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         by_text = {row['text']: row for row in messages}
         self.assertEqual('2026-09-20T10:01:00Z', by_text['First clarification reply']['created_at'])
         self.assertEqual('2026-09-20T10:02:00Z', by_text['Current Planner draft']['created_at'])
-        self.assertEqual(['Planner', 'Planner'], [row['speaker'] for row in messages])
+        self.assertEqual(['Requirements', 'Requirements'], [row['speaker'] for row in messages])
 
     def test_stale_question_and_conflicting_replay_are_rejected_without_commands(self):
         self.make_run([{'id': 'current', 'question': 'Current question'}])
@@ -657,6 +657,55 @@ class ChatHttpTests(ChatFixture, unittest.TestCase):
         finally:
             connection.close()
 
+    def test_http_role_catalogue_matches_terminal_and_resolves_page_labels(self):
+        from autocode_role_names import CATALOGUE
+        connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=30)
+        try:
+            connection.request('GET', '/static/app.js')
+            response = connection.getresponse()
+            self.assertEqual(200, response.status)
+            script = response.read().decode()
+            prefix = 'globalThis.AUTOCODE_ROLE_NAMES = '
+            self.assertTrue(script.startswith(prefix))
+            actual = json.loads(script[len(prefix):].split(';\n', 1)[0])
+            self.assertEqual(CATALOGUE, actual)
+            connection.request('GET', '/')
+            response = connection.getresponse()
+            self.assertEqual(200, response.status)
+            page = response.read().decode()
+            self.assertNotIn('{{role:', page)
+            self.assertIn('Plan Reviewer <small>', page)
+            self.assertIn('Completion Reviewer <small>', page)
+        finally:
+            connection.close()
+        self.assertEqual([], self.commands())
+        self.assertEqual([], self.provider_calls)
+
+    def test_task_http_projects_saved_transcript_without_clock_reordering_or_state_writes(self):
+        from urllib.parse import urlencode
+        self.make_run([{'id':'q1','question':'Which format?'}])
+        route='/api/run?'+urlencode({'workspace':str(self.workspace),'run':str(self.run)})
+        for status, texts in (
+            ('TASK_COMPLETE', ['Builder finished', 'Checks passed', 'Task complete']),
+            ('WAITING_FOR_USER', ['Planning started', 'A format is needed']),
+            ('PAUSED_REPEATED_FAILURE', ['Checks failed', 'Saved work needs repair']),
+        ):
+            with self.subTest(status=status):
+                self.state['status']=status
+                self.state['progress_messages']=[{'id':f'progress-{index}', 'role':'assistant',
+                    'text':text, 'created_at':30-index} for index,text in enumerate(texts)]
+                self.save_state()
+                before=(self.run/'state.json').read_bytes()
+                code, first=self.request('GET',route)
+                self.assertEqual(200,code)
+                code, second=self.request('GET',route)
+                self.assertEqual(200,code)
+                self.assertEqual(texts,[row['text'] for row in first['transcript']['messages']])
+                self.assertEqual(first['transcript'],second['transcript'])
+                self.assertEqual(before,(self.run/'state.json').read_bytes())
+        self.assertEqual([],self.commands())
+        self.assertEqual([],self.provider_calls)
+
     def test_http_chat_round_trip_is_persistent_without_project(self):
         status, started = self.request('POST', '/api/conversations', {'text': 'Draft a review journal', 'request_id': 'http-start'})
         self.assertEqual(202, status)
@@ -713,6 +762,30 @@ class ChatHttpTests(ChatFixture, unittest.TestCase):
             self.assertEqual(403, code)
             self.assertIn('cross-origin', value['error'])
         self.assertEqual([], self.provider_calls)
+
+
+class PlanningReportNames(unittest.TestCase):
+    def test_reports_use_the_canonical_job_for_each_legacy_and_v2_stage(self):
+        from autocode_status import role_name
+        from units.autoplanner import V2_STAGES
+        stages = ['astra_discovery', 'astra_challenge', 'glm_revise', 'astra_finalize', *V2_STAGES]
+        state = {'planning': {'reports': {stage: {'report': {'summary': stage}} for stage in stages}}}
+        messages = planning_messages(state)
+        self.assertEqual(stages, [row['stage'] for row in messages])
+        self.assertEqual([role_name(stage, state) for stage in stages], [row['speaker'] for row in messages])
+        self.assertEqual(['Requirements', 'Planner', 'Plan Reviewer', 'Planner', 'Plan Reviewer'],
+                         [row['speaker'] for row in messages[-len(V2_STAGES):]])
+
+    def test_clarification_speaker_uses_stage_even_when_provider_role_is_missing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run = Path(temporary)
+            stages = []
+            for number, role in enumerate([None, 'glm', 'astra']):
+                path = run / (str(number) + '.json')
+                path.write_text(json.dumps({'summary': 'Clarification ' + str(number)}))
+                stages.append({'stage': 'astra_discovery', 'role': role, 'output': str(path), 'exit_code': 0})
+            messages = planning_messages({'stages': stages}, run)
+            self.assertEqual(['Requirements'] * 3, [row['speaker'] for row in messages])
 
 
 if __name__ == '__main__':

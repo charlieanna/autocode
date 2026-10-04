@@ -1,5 +1,5 @@
 // Read-only rendering and stale-state behavior; no real server or provider.
-const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('./dashboard_vm'),path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../dashboard_app.js'),'utf8');
 class Element {
   constructor(tag,text=''){this.tag=tag;this.textContent=text;this.children=[];this.dataset={};this.disabled=false;this.hidden=false;this.classList={add:()=>{},remove:()=>{}};}
@@ -49,6 +49,7 @@ context.workRequirementRows=()=>[{state:'unchecked',criterion:{id:'R1',criterion
 context.planEntryText=row=>row.criterion;
 context.button=(label,click)=>Object.assign(new Element('button',label),{onclick:click});
 context.appendWorkTasks=host=>host.append(new Element('details','Saved tasks'));
+context.disclosure=(label,key,rows)=>{const element=new Element('details',label);element.append(...rows);return element;};
 const navigated=[];context.openWorkDetail=(kind,id)=>navigated.push([kind,id]);
 vm.runInContext(source.slice(source.indexOf('function workChecklistPanel('),source.indexOf('function renderTaskNow(')),context);
 const descend=element=>[element,...element.children.flatMap(descend)];
@@ -58,10 +59,10 @@ assert.equal(descend(planChecklist).filter(row=>row.tag==='button'||row.tag==='d
 const workChecklist=context.workChecklistPanel({},true),links=descend(workChecklist).filter(row=>row.tag==='button');
 assert.equal(links.length,1);links[0].onclick();
 assert.deepEqual(navigated,[['requirement','R1']]);
-assert.equal(descend(workChecklist).filter(row=>row.tag==='details').length,1,'Work includes the saved task list');
+assert.equal(descend(workChecklist).filter(row=>row.tag==='details').length,2,'Work includes saved tasks and expandable requirement evidence');
 
 assert.match(source,/if\(!selected\).*Task list checked just now/);
-const chip=new Element('p','Running · worker verified'),step=new Element('h2','Validator · Reviewing');
+const chip=new Element('p','Running · worker verified'),step=new Element('h2','Tester · Reviewing');
 const nextHeading=new Element('strong','Let the current step finish');
 const nextDescription=new Element('p','The worker is active.');
 const next={querySelector:selector=>selector==='strong'?nextHeading:selector==='p:not(.monitor-kicker)'?nextDescription:null};
@@ -72,11 +73,11 @@ vm.runInContext(source.slice(source.indexOf('function markMonitorStale('),source
 context.markMonitorStale();
 assert.equal(chip.textContent,'Status unverified');
 assert.equal(chip.className,'monitor-status-chip stale');
-assert.equal(step.textContent,'Last reported · Validator · Reviewing');
+assert.equal(step.textContent,'Last reported · Tester · Reviewing');
 assert.equal(nextHeading.textContent,'Refresh task status');
 assert.doesNotMatch(nextDescription.textContent,/worker is active/i);
 context.markMonitorStale();
-assert.equal(step.textContent,'Last reported · Validator · Reviewing','repeat failures must not stack stale labels');
+assert.equal(step.textContent,'Last reported · Tester · Reviewing','repeat failures must not stack stale labels');
 vm.runInContext(source.slice(source.indexOf('function orchestrationPanel('),source.indexOf('function monitorPanel(')),context);
 const batch={id:'batch-1',status:'BUILDING',workers:[{milestone_id:'M1',status:'RUNNING',workspace:'/repo/builder-1',run_dir:'/repo/run/worker-1'},{milestone_id:'M2',status:'BUILT',workspace:'/repo/builder-2',run_dir:'/repo/run/worker-2'}]};
 const batchText=text(context.orchestrationPanel(batch));

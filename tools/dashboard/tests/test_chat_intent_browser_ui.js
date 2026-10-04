@@ -10,6 +10,11 @@ const server=spawn(python,[path.join(__dirname,'unified_browser_fixture.py')],{c
 const browser=(...args)=>execFileSync('agent-browser',['--session',session,...args],{cwd:root,encoding:'utf8',timeout:45000});
 const data=fn=>JSON.parse(JSON.parse(browser('eval','JSON.stringify(('+fn+')())').trim()));
 const wait=expression=>browser('wait','--fn',expression);
+const click=selector=>{
+ data('()=>{document.querySelector('+JSON.stringify(selector)+').scrollIntoView({block:"center"});return true}');
+ wait('(()=>{const e=document.querySelector('+JSON.stringify(selector)+');if(!e||e.disabled)return false;const r=e.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return e===hit||e.contains(hit)})()');
+ browser('click',selector);
+};
 const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout.on('data',chunk=>{output+=chunk;const line=output.split('\n').find(line=>line.startsWith('FIXTURE='));if(line)resolve(JSON.parse(line.slice(8)));});server.stderr.on('data',chunk=>errors+=chunk);server.on('error',reject);server.on('exit',code=>reject(Error('Fixture exited '+code+': '+errors)));});
 (async()=>{
  const fixture=await ready,results=[];
@@ -38,11 +43,11 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
   assert.equal(bounds.overflow,false);
   assert.ok(bounds.buttons.every(row=>row.height>=44),viewport+' confirmation targets remain usable');
   const screenshot=path.join(evidence,viewport+'-confirmation.png');browser('screenshot',screenshot);
-  browser('click','#conversation .chat-intent button:last-child');
+  click('#conversation .chat-intent button:last-child');
   wait('latestRun.chat_messages[4].confirmation?.status==="declined"&&!taskChatPending.has(latestRun.run)');
   assert.deepEqual(fs.readFileSync(stateFile),before,viewport+' declined correction makes no runner mutation');
   send('Use SMS instead of email',6);
-  browser('click','#conversation .chat-intent button:first-of-type');
+  click('#conversation .chat-intent button:first-of-type');
   wait('latestRun.chat_messages[5].confirmation?.status==="confirmed"&&latestRun.chat_messages[5].status==="received"&&!taskChatPending.has(latestRun.run)');
   const saved=JSON.parse(fs.readFileSync(stateFile,'utf8')),receipt=data('()=>latestRun.chat_messages[5]');
   assert.equal(saved._fixture_interventions.entries.length,1);
@@ -67,4 +72,4 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
  const files=['dashboard_app.js','dashboard_chat.py','dashboard_chat_intent.py'].map(file=>({file,sha256:crypto.createHash('sha256').update(fs.readFileSync(path.join(root,'tools/dashboard',file))).digest('hex')}));
  fs.writeFileSync(path.join(evidence,'manifest.json'),JSON.stringify({files,results},null,2));
  console.log('Chat intent real-browser checks passed at desktop, tablet and mobile. '+evidence);
-})().catch(error=>{console.error(error);process.exitCode=1;}).finally(()=>{try{browser('close');}catch{}server.kill('SIGTERM');});
+})().catch(error=>{console.error(error);try{console.error(JSON.stringify(data('()=>({run:latestRun?.run,chat:latestRun?.chat_messages,errors:[...taskChatErrors],pending:[...taskChatPending],buttons:[...document.querySelectorAll("#conversation .chat-intent button")].map(e=>({text:e.textContent,disabled:e.disabled,bounds:e.getBoundingClientRect().toJSON()}))})')));browser('screenshot',path.join(evidence,'failure.png'));}catch{}process.exitCode=1;}).finally(()=>{try{browser('close');}catch{}server.kill('SIGTERM');});

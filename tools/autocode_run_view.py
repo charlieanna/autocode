@@ -18,11 +18,15 @@ try:
     from . import autocode_usage, autocode_design_coverage as design_coverage
     from . import autocode_contract_identity as contract_identity
     from . import autocode_progressive_plan as progressive_rules
+    from . import autocode_verification_view as verification_view
+    from . import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
 except ImportError:
     import autocode_output_policy as output_policy, autocode_request_usage as request_usage
     import autocode_usage, autocode_design_coverage as design_coverage
     import autocode_contract_identity as contract_identity
     import autocode_progressive_plan as progressive_rules
+    import autocode_verification_view as verification_view
+    import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
 
 SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -43,6 +47,9 @@ def view(state: dict) -> dict:
         "status": status,
         "done": status in COMPLETE,
         "needs": needs(state),
+        "recovery": recovery_view.project(state, needs(state)),
+        "verification": verification_view.project(state),
+        "code_checkpoints": code_checkpoints.project(state),
         "phase": state.get("phase"),
         "next_stage": state.get("next_stage"),
         "iteration": state.get("iteration"),

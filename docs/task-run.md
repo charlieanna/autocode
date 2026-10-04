@@ -105,6 +105,41 @@ an operational request cannot be answered with `TaskRun.answer()`.
 after a person inspects the new route and the saved run reports
 `PAUSED_TRANSPORT_CHANGED`.
 
+## Exact stopped-run recovery
+
+The additive `view.recovery` projection describes a saved pause: what happened,
+what is retained, recorded failure groups and specific next actions. Its `token`
+binds the run, task, scope, settings, attempts and failure history. It does not
+grant approval, increase limits or confirm that a human request is authorized.
+Current AutoResolver request and approval gates remain authoritative. Running
+and complete tasks have no recovery card. Unknown pause types retain inspection
+and corrective feedback rather than offering a guessed execution command.
+
+A caller displaying this card can append `--expected-recovery-token TOKEN` to
+an existing `--resume-paused` or `--abandon-stage` command. The runner rechecks
+the token under its run lock before applying settings or writing the checkpoint.
+If the pause changed, it refuses: refresh and inspect the new card. Existing
+CLI callers can omit the flag; all ordinary liveness, scope and approval gates
+still apply. Abandoning an interrupted attempt preserves partial work and does
+not resume automatically. Stop remains terminal for that conversation.
+
+## Inspecting current verification
+
+`autocode --run-dir RUN --status --inspect-evidence` performs a read-only source
+and evidence inspection. The additive `view.verification` field lists every
+planned criterion and method, its recorded result and current checked / failed /
+unchecked state. A normal status projection labels saved results `not_inspected`;
+a saved PASS alone never establishes current proof.
+
+The inspection checks the report's source, task, plan and criterion identity,
+then hashes its pinned project-local evidence. It rereads the source and checkpoint
+to detect work changing during inspection. Missing, stale or unavailable evidence
+keeps current requirements unchecked while retaining the old report. Human
+acceptance remains a separately authenticated requirement. The inspection never
+runs tests, changes the checkpoint, approves work or substitutes for the full
+completion gate. The dashboard uses this supported inspection for selected task
+detail; list polling does not hash every project checkout.
+
 ## Status view
 
 Produced by `tools/autocode_run_view.py` from the saved state. Fields may be
@@ -330,3 +365,50 @@ exposes `needs.kind = "recover_source"` and `action = null`, with
 `recovery_hint`. Its token, archive and diagnosis remain available for inspection,
 but cannot authorize an exact retry. Inspect the retained work and current changes
 before starting a new run. No automatic restart or budget reset occurs.
+
+### Saved code checkpoints
+
+`status()["code_checkpoints"]` adds immutable source receipts for recorded,
+code-changing Builder steps. Historical step metadata without source objects
+is inspectable but cannot be restored. `recorded_check` is historical, never
+current proof. This interface does not silently materialize snapshots for old runs.
+
+Use `compare_checkpoint(id)` to inspect all changed paths and a bounded textual
+diff (including uncommitted additions). `restore_checkpoint(id, expected_token,
+request_id)` requires that exact comparison and returns a new `TaskRun` on a new
+managed branch. The original branch, staged changes, run and later work remain
+intact. Restoration is supported at an explicit reconciled pause of an ordinary
+build run with the same approved contract. Active workers/checks, pending
+interventions, human decisions, terminal Stop, progressive contracts and other
+workflow kinds refuse with an explanation; no worker is interrupted.
+
+The new continuation is paused, with the exact plan approval, saved settings,
+model routes, limits and consumed allowances preserved. All milestones require
+fresh proof. Implementation/validation/completion and human artifact acceptance
+are not inherited as current. Earlier finding dispositions are restored; later
+open findings are marked rolled back, with complete original history retained
+in `restoration-history.json` and on the original run. Explicit `resume_paused()`
+uses the normal Builder/Validator/completion gates. No approval or provider call
+happens during restoration. Replaying the same request reconciles its owned
+candidate; changed or uncertain partial candidates are preserved and refused.
+
+The CLI equivalent is `autocode checkpoint --workspace WORKTREE --run-dir RUN
+--compare CHECKPOINT`, followed by the mutually exclusive `--restore CHECKPOINT
+--expected-token TOKEN --request-id ID`. The dashboard uses this supported
+interface, places confirmation in chat and comparison in the Changes pane.
+
+### Conversation task provenance
+
+New dashboard attachments, including saved legacy conversations, carry a canonical
+`autocode.conversation-task` envelope. The full validated handoff remains in the
+task presented to workers: human and assistant messages, titles, structured drafts,
+routes and receipts are retained. Only its human messages are requirement sources;
+assistant suggestions and unapproved drafts do not become mandatory requirements.
+Later human feedback and answers retain their existing source rules. A human can
+adopt a suggested literal by requesting it in a message, feedback or answer.
+
+Source projection requires the complete canonical envelope and valid handoff digest.
+Extra instructions, altered envelopes and ordinary CLI tasks retain whole-task
+source semantics. Existing saved flattened tasks are not rewritten or reinterpreted.
+This format changes neither model routes nor the legacy/continuous handoff controls,
+and conveys no approval to implement.

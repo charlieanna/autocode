@@ -276,6 +276,29 @@ class RetrofitTest(unittest.TestCase):
         with patch.object(s.subprocess,"run",return_value=subprocess.CompletedProcess([],1,stdout="")):
             with self.assertRaisesRegex(s.Paused,"Cannot inspect"): s.assert_no_legacy_process(self.run,self.root)
 
+    def test_legacy_guard_scopes_run_paths_without_matching_another_workspace(self):
+        relative = os.path.relpath(self.run, self.root)
+        for command in (
+            f"python tools/autocode.py --run-dir /another-workspace/{relative}",
+            f"python tools/autocode.py --run-dir {self.run}-different",
+            f"codex exec -o /another-workspace/{relative}/report.json",
+        ):
+            with self.subTest(command=command), patch.object(s.subprocess, "run", return_value=
+                    subprocess.CompletedProcess([], 0, stdout=f"101 {command}\n")):
+                s.assert_no_legacy_process(self.run, self.root)
+        # Same-run controller and provider output remain protected, including
+        # bare relative legacy paths whose workspace cannot be established.
+        for command in (
+            f"python tools/autocode.py --run-dir={self.run}",
+            f"python tools/autocode.py --run-dir {relative}",
+            f"codex exec -o {self.run}/report.json",
+            f'python tools/autocode.py --run-dir "{self.run}"',
+        ):
+            with self.subTest(command=command), patch.object(s.subprocess, "run", return_value=
+                    subprocess.CompletedProcess([], 0, stdout=f"101 {command}\n")):
+                with self.assertRaisesRegex(s.Paused, "Existing run process 101"):
+                    s.assert_no_legacy_process(self.run, self.root)
+
     def test_process_guard_allows_isolated_workspace_when_sandbox_denies_process_listing(self):
         result=subprocess.CompletedProcess([],1,stdout="",stderr="ps: operation not permitted")
         with patch.object(s.subprocess,"run",return_value=result):
@@ -323,6 +346,15 @@ class RetrofitTest(unittest.TestCase):
         self.assertIn('Do not create a top-level evidence/',text)
         self.assertIn('Source writes must stay within current_task.affected_paths',text)
         self.assertGreater(metrics["estimated_prompt_tokens"],0)
+
+    def test_every_pipeline_stage_prompt_forbids_external_scratch_paths(self):
+        for stage in ("terra", "sol", "astra_review", "astra_plan", "astra_checkpoint"):
+            with self.subTest(stage=stage):
+                text,_=stage_context.context_packet(self.state,stage,self.run/"state.json")
+                self.assertIn("must stay inside the current workspace",text)
+                self.assertIn("provider sandbox",text)
+                self.assertIn("/tmp",text)
+                self.assertIn("mktemp",text)
 
     def test_context_packet_includes_only_runner_provided_private_source_exceptions(self):
         self.state["private_source_exceptions"]=[{

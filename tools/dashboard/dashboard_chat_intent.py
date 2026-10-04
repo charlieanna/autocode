@@ -3,6 +3,11 @@ import hashlib
 import json
 import re
 
+try:
+    from .dashboard_work_summary import project as work_summary
+except ImportError:
+    from dashboard_work_summary import project as work_summary
+
 
 def classify(text, question_id=None):
     words = text.strip().lower().rstrip(".!?")
@@ -25,16 +30,28 @@ def status_reply(view):
     reason = view.get("stop_reason")
     if isinstance(reason, str) and reason.strip():
         result.append(reason.strip())
-    counts = view.get("counts") or {}
-    if isinstance(counts, dict):
-        labels = (("pass", "passed"), ("fail", "failed or blocked"), ("unknown", "unchecked"))
-        found = [f"{counts[key]} requirements {label}" for key, label in labels
-                 if type(counts.get(key)) is int]
-        if found:
-            result.append("; ".join(found) + ".")
+    summary = work_summary(view)
+    counts = summary['counts']
+    if view.get('status') == 'TASK_COMPLETE' and view.get('completion_current') is not True:
+        result[0] = 'Completion was recorded earlier; current completion needs verification.'
+    if summary['verification_stale']:
+        result.extend(summary['verification_reasons'] or ['The saved check results have not been inspected against current source and evidence.'])
+    if counts['requirements']:
+        result.append(f"{counts['checked']} requirements checked; {counts['failed']} failed or blocked; "
+                      f"{counts['unchecked']} unchecked.")
     request = view.get("human_escalation") or {}
     if isinstance(request, dict) and request.get("decision_needed"):
         result.append(str(request["decision_needed"]))
+    pending = [row for row in summary['requirements'] if row['state'] != 'checked']
+    problems = summary['problems']
+    if pending:
+        result.append("Requirements still needing proof: " + "; ".join(
+            f"{row['id']}: {row['label']} ({row['state']})" for row in pending[:5])
+            + (f"; and {len(pending)-5} more in Work." if len(pending) > 5 else "."))
+    if problems:
+        result.append("Open problems: " + "; ".join(
+            f"{row['id']}: {row['label']}" for row in problems[:5])
+            + (f"; and {len(problems)-5} more in Work." if len(problems) > 5 else "."))
     result.append("This reply uses saved records and does not change the task.")
     return "\n".join(result)
 

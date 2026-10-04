@@ -1,8 +1,12 @@
 """Destructive endpoints exercised only against disposable directories and real Git worktrees."""
 import fcntl
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 import http.client
 import json
 import os
+import queue
+import socket
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,13 +15,16 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
+from urllib.parse import urlencode
 
 TOOLS = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(TOOLS / 'dashboard'), str(TOOLS)]
 from agent_console import Console, Handler, LoopbackHTTPServer
 import autocode_registry as registry
 from dashboard_delete import git
+from dashboard_command_gate import WorkspaceCommandGate
 from autocode_workspaces import create as create_worktree
+from autocode_worktrees import deliver
 
 
 class PermanentDeleteTests(unittest.TestCase):
@@ -136,6 +143,149 @@ class PermanentDeleteTests(unittest.TestCase):
         self.assertTrue((self.project / 'keep.txt').exists())
         self.assertTrue((self.project / '.autocode/runs/selected/output.txt').exists())
 
+    def delivered(self):
+        metadata = self.managed()
+        (self.workspace / 'feature.py').write_text('print("delivered")\n')
+        message = deliver({'status': 'TASK_COMPLETE', 'task': 'Disposable owned task',
+                           'run_dir': str(self.run)}, self.workspace)
+        self.assertIn('Delivered on branch', message)
+        self.assertIn('detached', git(self.project, 'worktree', 'list', '--porcelain'))
+        self.status['status'] = 'TASK_COMPLETE'
+        self.save_status()
+        return metadata
+
+    def test_delivered_task_worktree_and_branch_can_be_deleted(self):
+        metadata = self.delivered()
+        self.assertTrue(self.preview()['can_include_worktree'])
+        preview = self.preview(include_worktree=True, include_branch=True)
+        receipt = self.delete(preview)
+        self.assertEqual('deleted', receipt['status'], receipt)
+        self.assertFalse(self.workspace.exists())
+        self.assertNotIn(str(self.workspace), git(self.project, 'worktree', 'list', '--porcelain'))
+        self.assertEqual('', git(self.project, 'for-each-ref', '--format=%(refname)', 'refs/heads/' + metadata['branch']))
+        self.assertEqual('source belongs to the project', (self.project / 'keep.txt').read_text())
+        self.assertTrue((self.project / '.autocode/runs/selected/output.txt').exists())
+
+    def test_delivered_packed_branch_can_be_deleted_with_the_same_tip_guard(self):
+        metadata = self.delivered()
+        git(self.project, 'pack-refs', '--all')
+        preview = self.preview(include_worktree=True, include_branch=True)
+        receipt = self.delete(preview)
+        self.assertEqual('deleted', receipt['status'], receipt)
+        self.assertEqual('', git(self.project, 'for-each-ref', '--format=%(refname)', 'refs/heads/' + metadata['branch']))
+
+    def test_delivered_branch_checked_out_elsewhere_is_not_exclusively_owned(self):
+        metadata = self.delivered()
+        other = self.root / 'retained-checkout'
+        git(self.project, 'worktree', 'add', str(other), metadata['branch'])
+        preview = self.preview()
+        self.assertFalse(preview['can_include_worktree'])
+        self.assertIn('shared', preview['worktree_unavailable_reason'])
+        self.assertTrue((other / 'feature.py').exists())
+        self.assertTrue(self.run.exists())
+
+    def test_detached_head_change_invalidates_saved_deletion_scope(self):
+        metadata = self.delivered()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        head = git(self.project, 'rev-parse', 'refs/heads/' + metadata['branch'])
+        self.assertNotEqual(head, git(self.workspace, 'rev-parse', 'HEAD'))
+        git(self.workspace, 'update-ref', '--no-deref', 'HEAD', head)
+        code, result = self.post('delete', {'preview_id': preview['preview_id'], 'confirmation': preview['confirmation']})
+        self.assertEqual(400, code, result)
+        self.assertIn('ownership changed', result['error'])
+        self.assertTrue(self.run.exists())
+        self.assertEqual(head, git(self.project, 'rev-parse', 'refs/heads/' + metadata['branch']))
+
+    def test_missing_delivered_branch_has_readable_ownership_failure(self):
+        metadata = self.delivered()
+        git(self.project, 'branch', '-D', '--', metadata['branch'])
+        preview = self.preview()
+        self.assertFalse(preview['can_include_worktree'])
+        self.assertIn('could not verify', preview['worktree_unavailable_reason'])
+        self.assertNotIn('fatal:', preview['worktree_unavailable_reason'])
+        self.assertTrue(self.run.exists())
+
+    def test_detached_metadata_cannot_select_another_unclaimed_branch(self):
+        metadata = self.delivered()
+        other = 'autocode/unrelated-owned-work'
+        head = git(self.project, 'rev-parse', 'refs/heads/' + metadata['branch'])
+        git(self.project, 'branch', other, head)
+        path = self.workspace / '.autocode/task-workspace.json'
+        document = json.loads(path.read_text())
+        document['branch'] = other
+        path.write_text(json.dumps(document))
+        preview = self.preview()
+        self.assertFalse(preview['can_include_worktree'])
+        self.assertIn('dedicated task branch', preview['worktree_unavailable_reason'])
+        self.assertEqual(head, git(self.project, 'rev-parse', 'refs/heads/' + other))
+        self.assertTrue(self.run.exists())
+
+    def test_detach_without_successful_delivery_cannot_claim_managed_scope(self):
+        self.managed()
+        git(self.workspace, 'checkout', '-q', '--detach')
+        self.status['status'] = 'TASK_COMPLETE'
+        self.save_status()
+        preview = self.preview()
+        self.assertFalse(preview['can_include_worktree'])
+        self.assertIn('no verified delivery', preview['worktree_unavailable_reason'])
+        self.assertTrue(self.run.exists())
+
+    def test_branch_claimed_at_removal_is_preserved_by_git_checkout_guard(self):
+        metadata = self.delivered()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        original, other = git, self.root / 'concurrent-checkout'
+        def checkout_before_delete(root, *args):
+            if args[2:4] == ('branch', '-D'):
+                original(self.project, 'worktree', 'add', str(other), metadata['branch'])
+            return original(root, *args)
+        with patch('dashboard_delete.git', side_effect=checkout_before_delete):
+            receipt = self.delete(preview)
+        self.assertEqual('partial', receipt['status'], receipt)
+        self.assertEqual(preview['managed']['branch_head'], git(other, 'rev-parse', 'HEAD'))
+        self.assertEqual(preview['managed']['branch_head'], git(self.project, 'rev-parse', metadata['branch']))
+        self.assertEqual('print("delivered")\n', (other / 'feature.py').read_text())
+
+    def test_existing_reference_hook_refusal_is_preserved_without_config_changes(self):
+        self.delivered()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        hooks = self.root / 'custom-hooks'
+        hooks.mkdir()
+        hook = hooks / 'reference-transaction'
+        hook.write_text('#!/bin/sh\nif [ "$1" = prepared ]; then echo "Repository policy refused" >&2; exit 1; fi\n')
+        hook.chmod(0o700)
+        git(self.project, 'config', 'core.hooksPath', str(hooks))
+        before = hook.read_bytes()
+        receipt = self.delete(preview)
+        self.assertEqual('partial', receipt['status'], receipt)
+        self.assertIn('Repository policy refused', ' '.join(receipt['errors']))
+        self.assertEqual(str(hooks), git(self.project, 'config', 'core.hooksPath'))
+        self.assertEqual(before, hook.read_bytes())
+        self.assertEqual(preview['managed']['branch_head'], git(self.project, 'rev-parse', preview['managed']['branch']))
+
+    def test_branch_advance_at_removal_is_preserved_by_expected_tip_delete(self):
+        metadata = self.delivered()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        original, advanced = git, []
+        def advance_before_delete(root, *args):
+            if args[2:4] == ('branch', '-D'):
+                old = preview['managed']['branch_head']
+                tree = original(self.project, 'rev-parse', old + '^{tree}')
+                new = original(self.project, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                               'commit-tree', tree, '-p', old, '-m', 'New work after confirmation')
+                original(self.project, 'update-ref', 'refs/heads/' + metadata['branch'], new, old)
+                advanced.append(new)
+            return original(root, *args)
+        with patch('dashboard_delete.git', side_effect=advance_before_delete):
+            receipt = self.delete(preview)
+        self.assertEqual('partial', receipt['status'], receipt)
+        self.assertFalse(self.workspace.exists(), 'Only the already confirmed worktree was removed')
+        self.assertEqual(1, len(advanced))
+        self.assertEqual(advanced[0], git(self.project, 'rev-parse', 'refs/heads/' + metadata['branch']))
+        retry = self.delete(preview)
+        self.assertEqual('partial', retry['status'])
+        self.assertTrue(retry['retry_blocked'])
+        self.assertEqual(advanced[0], git(self.project, 'rev-parse', 'refs/heads/' + metadata['branch']))
+
     def test_shared_worktree_scope_and_unrelated_run_are_rejected(self):
         code, _ = self.post('delete-preview', {'workspace': str(self.workspace), 'run': str(self.run), 'include_worktree': True})
         self.assertEqual(400, code)
@@ -170,6 +320,95 @@ class PermanentDeleteTests(unittest.TestCase):
         self.save_status()
         code, _ = self.post('delete-preview', {'workspace': str(self.workspace), 'run': str(self.run)})
         self.assertEqual(400, code)
+
+    def test_owned_status_poll_finishes_before_preview_or_deletion(self):
+        # Hold a real status subprocess using a socket, not a timing delay.
+        # The observer orders the competing HTTP request at the gate boundary.
+        self.delivered()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        original_runner = self.fake.read_text()
+        listener = socket.socket()
+        self.addCleanup(listener.close)
+        listener.bind(('127.0.0.1', 0))
+        listener.listen()
+        listener.settimeout(10)
+        for operation in ('delete-preview', 'delete'):
+            marker = self.root / 'hold-poll-once'
+            marker.write_text('hold one owned reader')
+            block = ("import os,socket\nmarker=Path(" + repr(str(marker)) + ")\n"
+                     "if '--status' in sys.argv:\n"
+                     " try:marker.unlink()\n except FileNotFoundError:pass\n else:\n"
+                     "  with socket.create_connection(('127.0.0.1'," + str(listener.getsockname()[1]) + "),timeout=10) as held:\n"
+                     "   held.sendall(b'ready')\n   assert held.recv(1)==b'x'\n")
+            self.fake.write_text(original_runner.replace('from autocode_registry import cli\n',
+                                                         'from autocode_registry import cli\n' + block))
+            events, armed = queue.Queue(), threading.Event()
+            class ObservedGate(WorkspaceCommandGate):
+                @contextmanager
+                def hold(gate, workspace):
+                    if armed.is_set():
+                        events.put('gate entered')
+                    with super().hold(workspace):
+                        yield
+            self.console.workspace_commands = ObservedGate()
+            self.console.status_cache.clear()
+            def poll(workspace=None, run=None):
+                connection = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=15)
+                try:
+                    connection.request('GET', '/api/run?' + urlencode({'workspace': str(workspace or self.workspace), 'run': str(run or self.run)}))
+                    response = connection.getresponse()
+                    return response.status, json.loads(response.read())
+                finally:
+                    connection.close()
+            data = ({'workspace': str(self.workspace), 'run': str(self.run), 'include_worktree': True, 'include_branch': True}
+                    if operation == 'delete-preview' else
+                    {'preview_id': preview['preview_id'], 'confirmation': preview['confirmation']})
+            with ThreadPoolExecutor(2) as pool:
+                read = pool.submit(poll)
+                held, _ = listener.accept()
+                with held:
+                    self.assertEqual(b'ready', held.recv(5))
+                    other = pool.submit(poll, self.project, self.project / '.autocode/runs/selected')
+                    self.assertEqual(200, other.result(timeout=10)[0], 'An unrelated workspace can still be inspected')
+                    armed.set()
+                    mutation = pool.submit(self.post, operation, data)
+                    mutation.add_done_callback(events.put)
+                    try:
+                        first = events.get(timeout=10)
+                        if first != 'gate entered':
+                            first = first.result()
+                        self.assertEqual('gate entered', first, 'An owned dashboard read must not cause a worker refusal')
+                        self.assertFalse(read.done(), 'The controlled reader is still active')
+                        self.assertFalse(mutation.done(), 'Deletion waits for the active dashboard reader')
+                    finally:
+                        held.sendall(b'x')
+                    self.assertEqual(200, read.result(timeout=15)[0])
+                    code, result = mutation.result(timeout=15)
+                self.assertEqual(202, code, result)
+                if operation == 'delete-preview':
+                    self.assertTrue(self.workspace.exists())
+                    preview = result
+                else:
+                    self.assertEqual('deleted', result['status'])
+                    self.assertFalse(self.workspace.exists())
+                    self.assertTrue((self.project / 'keep.txt').exists())
+                    self.assertTrue((self.project / '.autocode/runs/selected/output.txt').exists())
+
+    def test_external_live_process_still_blocks_preview_and_deletion(self):
+        preview = self.preview()
+        process = subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.buffer.read(1)', str(self.run)],
+                                   stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            for operation, data in (
+                ('delete-preview', {'workspace': str(self.workspace), 'run': str(self.run)}),
+                ('delete', {'preview_id': preview['preview_id'], 'confirmation': preview['confirmation']}),
+            ):
+                code, result = self.post(operation, data)
+                self.assertEqual(400, code, result)
+                self.assertIn('live process', result['error'])
+                self.assertTrue(self.run.exists())
+        finally:
+            process.communicate(b'x', timeout=5)
 
     def test_writer_lock_rejects_even_when_saved_status_is_stopped(self):
         handle = (self.run / 'writer.lock').open('a+')
@@ -229,7 +468,7 @@ class PermanentDeleteTests(unittest.TestCase):
         preview = self.preview(include_worktree=True, include_branch=True)
         original = git
         def fail_branch(root, *args):
-            if args[:2] == ('branch', '-D'):
+            if args[2:4] == ('branch', '-D'):
                 raise ValueError('Injected branch cleanup failure')
             return original(root, *args)
         with patch('dashboard_delete.git', side_effect=fail_branch):
@@ -238,6 +477,99 @@ class PermanentDeleteTests(unittest.TestCase):
         self.assertFalse(self.workspace.exists())
         self.assertEqual(['branch'], [item['kind'] for item in receipt['remaining']])
         self.assertEqual('deleted', self.delete(preview)['status'])
+
+    def test_completed_receipt_preserves_recreated_branch(self):
+        metadata = self.managed()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        self.assertEqual('deleted', self.delete(preview)['status'])
+        git(self.project, 'branch', metadata['branch'], preview['managed']['branch_head'])
+        receipt = self.delete(preview)
+        self.assertEqual('partial', receipt['status'], receipt)
+        self.assertEqual(['branch'], [item['kind'] for item in receipt['remaining']])
+        self.assertNotIn('branch', [item['kind'] for item in receipt['deleted']])
+        self.assertIn('recreated', ' '.join(receipt['errors']).lower())
+        self.assertEqual(preview['managed']['branch_head'], git(self.project, 'rev-parse', 'refs/heads/' + metadata['branch']))
+
+    def test_registry_failure_records_branch_as_removed(self):
+        self.managed()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        with patch.object(self.console, '_forget_deleted', side_effect=ValueError('discovery unavailable')):
+            receipt = self.delete(preview)
+        self.assertEqual('partial', receipt['status'])
+        self.assertEqual([], receipt['remaining'], 'Removed branch must not be reported as still present')
+        self.assertEqual(preview['scope'], receipt['deleted'])
+        self.assertEqual('deleted', self.delete(preview)['status'])
+
+    def test_partial_receipt_never_deletes_recreated_branch(self):
+        metadata = self.managed()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        with patch.object(self.console, '_forget_deleted', side_effect=ValueError('discovery unavailable')):
+            self.assertEqual('partial', self.delete(preview)['status'])
+        git(self.project, 'branch', metadata['branch'], preview['managed']['branch_head'])
+        receipt = self.delete(preview)
+        self.assertEqual('partial', receipt['status'], 'Old confirmation must not delete recreated same-head branch')
+        self.assertEqual(preview['managed']['branch_head'], git(self.project, 'rev-parse', 'refs/heads/' + metadata['branch']))
+        self.assertEqual(['branch'], [item['kind'] for item in receipt['remaining']])
+        self.assertNotIn('branch', [item['kind'] for item in receipt['deleted']])
+
+    def test_partial_receipt_never_deletes_recreated_empty_run(self):
+        preview = self.preview()
+        with patch.object(self.console, '_forget_deleted', side_effect=ValueError('discovery unavailable')):
+            self.assertEqual('partial', self.delete(preview)['status'])
+        self.run.mkdir()
+        receipt = self.delete(preview)
+        self.assertEqual('partial', receipt['status'])
+        self.assertTrue(self.run.is_dir())
+
+    def test_lost_branch_receipt_preserves_recreated_branch(self):
+        metadata = self.managed()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        class SimulatedCrash(BaseException):
+            pass
+        original = git
+        def crash_after_branch(root, *args):
+            result = original(root, *args)
+            if args[2:4] == ('branch', '-D'):
+                raise SimulatedCrash()
+            return result
+        with patch('dashboard_delete.git', side_effect=crash_after_branch):
+            with self.assertRaises(SimulatedCrash):
+                self.console.delete_permanently({'preview_id': preview['preview_id'], 'confirmation': preview['confirmation']})
+        git(self.project, 'branch', metadata['branch'], preview['managed']['branch_head'])
+        receipt = self.delete(preview)
+        self.assertEqual('partial', receipt['status'])
+        self.assertTrue(receipt['retry_blocked'])
+        self.assertEqual(preview['managed']['branch_head'], git(self.project, 'rev-parse', 'refs/heads/' + metadata['branch']))
+        self.assertEqual('partial', self.delete(preview)['status'])
+
+    def test_lost_branch_receipt_reconciles_absence_without_second_delete(self):
+        self.managed()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        class SimulatedCrash(BaseException):
+            pass
+        original = git
+        def crash_after_branch(root, *args):
+            result = original(root, *args)
+            if args[2:4] == ('branch', '-D'):
+                raise SimulatedCrash()
+            return result
+        with patch('dashboard_delete.git', side_effect=crash_after_branch):
+            with self.assertRaises(SimulatedCrash):
+                self.console.delete_permanently({'preview_id': preview['preview_id'], 'confirmation': preview['confirmation']})
+        def no_second_delete(root, *args):
+            self.assertNotEqual(('branch', '-D'), args[2:4])
+            return original(root, *args)
+        with patch('dashboard_delete.git', side_effect=no_second_delete):
+            self.assertEqual('deleted', self.delete(preview)['status'])
+
+    def test_completed_receipt_cannot_claim_success_when_git_is_unreadable(self):
+        self.managed()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        self.assertEqual('deleted', self.delete(preview)['status'])
+        with patch('dashboard_delete.git', side_effect=ValueError('Git repository unavailable')):
+            receipt = self.delete(preview)
+        self.assertEqual('partial', receipt['status'])
+        self.assertIn('inspected', ' '.join(receipt['errors']))
 
 
 if __name__ == '__main__':

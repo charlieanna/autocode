@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const vm = require('node:vm');
+const vm = require('./dashboard_vm');
 const source = fs.readFileSync(path.join(__dirname, '../dashboard_app.js'), 'utf8');
 
 function functionSource(name) {
@@ -67,7 +67,7 @@ const formatting = vm.createContext({
   n: (tag, text) => new Element(tag, text),
   card: (_, className) => Object.assign(new Element('div'), {className}),
   human: text => String(text),
-  roleDisplayName: text => ({GLM: 'Requirements planner', Astra: 'Plan reviewer', Terra: 'Builder', Sol: 'Validator', Planner: 'Planner', 'Plan Reviewer': 'Plan reviewer'})[String(text)] || String(text),
+  roleDisplayName: text => ({GLM: 'Requirements planner', Astra: 'Plan Reviewer', Terra: 'Builder', Sol: 'Tester', Planner: 'Planner', 'Plan Reviewer': 'Plan Reviewer'})[String(text)] || String(text),
   concise: (text, limit) => String(text).slice(0, limit),
   messageTime: () => 0,
   messageBody: text => Object.assign(new Element('div', text), {className: 'message-body'}),
@@ -124,3 +124,11 @@ formatting.renderMessageHistory(answerHistory,[
 assert.equal(answerHistory.children[0].label,'You answered 2 questions · 1 used the suggestion');
 assert.equal(answerHistory.children[1].label,'You answered 1 question · 0 used the suggestion');
 assert.notEqual(answerHistory.children[2].tagName,'DETAILS','Failed delivery remains visible outside accepted answer history');
+
+// Unknown legacy provenance is not merged into a newly confirmed answer group.
+const mixedAnswers=formatting.answerHistoryItems([
+ {id:'old',role:'user',question_id:'old',status:'received',provenance:'unrecorded',display_source:'answer'},
+ {id:'new1',role:'user',question_id:'q1',status:'received',display_source:'receipt'},
+ {id:'new2',role:'user',question_id:'q2',status:'received',display_source:'receipt'}]);
+assert.equal(mixedAnswers[0].id,'old');
+assert.equal(mixedAnswers[1].answers.length,2);

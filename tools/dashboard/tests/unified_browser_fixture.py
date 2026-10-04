@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_console import Console, Handler, LoopbackHTTPServer, ThreadingHTTPServer, resolver_human
 from dashboard_work_summary import project as work_summary, progress_from_status
+import autocode_verification_view as verification_view
 
 
 
@@ -36,6 +37,9 @@ def publish_human_request(state):
     contract['body']['open_blocking_questions'] = questions if scope == 'clarification' else []
     contract['hash'] = resolver_human.support.digest({key: contract[key] for key in ('task_id', 'revision', 'body')})
     state['displayed_goal'] = f"r{contract['revision']}:{contract['hash']}"
+    if state.get('validation'):
+        # Finish test-only report construction before sealing the request.
+        state['validation'].update(contract_hash=contract['hash'],contract_revision=contract['revision'])
     evidence = {}
     if scope == 'goal_approval':
         output = Path(state['run_dir']) / 'fixture-final-plan.json'
@@ -166,7 +170,7 @@ def scenario_states(workspace):
          'options': ['Keep the saved revision', 'Start a new provider request'],
          'why': 'The first unresolved question is preserved.', 'proposed_default': 'Keep the saved revision'},
         {'id': 'question-2', 'question': 'Should recovery return to plan review?', 'options': ['Plan review', 'Remain paused']},
-        {'id': 'question-3', 'question': 'Who should verify the recovered checkpoint?', 'options': ['Validator', 'Plan Reviewer']},
+        {'id': 'question-3', 'question': 'Who should verify the recovered checkpoint?', 'options': ['Tester', 'Plan Reviewer']},
     ]
 
     plan = base_state(workspace, 'Approve the exact plan revision before building',
@@ -206,7 +210,7 @@ def scenario_states(workspace):
     completed['validation'] = {
         'source_revision': 'abc123',
         'recorded_at': '2026-09-22T12:51:00Z',
-        'criterion_results': [{'id': 'C1', 'status': 'pass'}],
+        'criterion_results': [{'id': 'C'+str(i), 'status': 'PASS'} for i in range(1,7)],
         'checks': [{'name': '8 checks were recorded as passing'}],
     }
     completed['_fixture_monitor'].update({
@@ -314,7 +318,7 @@ def scenario_states(workspace):
         {'role': 'assistant', 'speaker': 'Builder', 'status': 'received',
          'text': 'The pane switches now keep this chat visible.',
          'created_at': '2026-09-22T12:24:00Z'},
-        {'role': 'assistant', 'speaker': 'Validator', 'status': 'received',
+        {'role': 'assistant', 'speaker': 'Tester', 'status': 'received',
          'text': 'Persistence checks passed. Mobile and browser checks are next.',
          'created_at': '2026-09-22T12:28:00Z'},
     ]
@@ -342,7 +346,13 @@ def scenario_states(workspace):
         if name == 'complete':
             work['validation']['criterion_results'] = [{'id': 'C' + str(i), 'status': 'PASS'} for i in range(1, 7)]
             work['_fixture_monitor']['findings'] = []
+        if name == 'waiting':
+            work.pop('active_stage', None)
         states['flow-work-progress-' + name] = work
+    for mode in ('stale', 'unavailable'):
+        sample=copy.deepcopy(states['flow-work-progress-complete'])
+        sample['_fixture_verification']=mode
+        states['flow-work-progress-'+mode]=sample
     return states
 
 
@@ -366,10 +376,33 @@ def main():
         (workspace / '.git').mkdir(parents=True)
         runs_root = workspace / '.autocode' / 'runs'
         states = scenario_states(workspace)
+        preview_fixture = os.environ.get('AUTOCODE_PREVIEW_FIXTURE') == '1'
+        if preview_fixture:
+            for name in ('flow-preview-first', 'flow-preview-second'):
+                states[name] = copy.deepcopy(states['completed'])
+                states[name]['task'] = 'Inspect saved preview evidence'
         for name, state in states.items():
             run = runs_root / name
             run.mkdir(parents=True)
             state.update(run_dir=str(run), task_id='browser-fixture-' + name)
+            if '_fixture_saved_diff' in state:
+                (run / 'saved.diff').write_text(state.pop('_fixture_saved_diff'), encoding='utf8')
+            if preview_fixture and name.startswith('flow-preview-'):
+                import base64, hashlib
+                image = run / 'screen.png'
+                image.write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXioAAAAASUVORK5CYII='))
+                state['validation'] = {'source_revision':'fixture-screen-source',
+                    'evidence_hashes':{str(image):hashlib.sha256(image.read_bytes()).hexdigest()},
+                    'criterion_results':[{'id':'C1','status':'FAIL','evidence_refs':[str(image)]}]}
+            if state.get('validation'):
+                # Explicit saved-report fixture identity, not real runner proof.
+                # Actual byte authentication is exercised by the CLI tests.
+                report=state['validation'];contract=state['goal_contract']
+                report.update(contract_hash=contract['hash'],contract_revision=contract['revision'],
+                              task_id=state['current_task'].get('id'),criteria_revision=state.get('criteria_revision'))
+                report.setdefault('source_revision',FIXTURE_SOURCE)
+                for result in report.get('criterion_results',[]):
+                    result.setdefault('evidence_refs',['fixture-check-output.txt'])
             if state['status'] in ('WAITING_FOR_USER', 'AWAITING_GOAL_APPROVAL'):
                 publish_human_request(state)
             (run / 'state.json').write_text(json.dumps(state), encoding='utf8')
@@ -393,7 +426,19 @@ def main():
                     requested = Path(command[command.index('--run-dir') + 1]).resolve()
                     if requested.parent != runs_root or not (requested / 'state.json').is_file():
                         return None, 'Unknown disposable fixture run'
-                    return self._state(requested), None
+                    state=self._state(requested)
+                    if '--inspect-evidence' in command:
+                        # Only the external source/proof inspection is supplied.
+                        # Production projection, binding and UI rendering run.
+                        mode=state.get('_fixture_verification','current')
+                        revision=state.get('validation',{}).get('source_revision')
+                        inspected=verification_view.project(state,
+                            current_revision='changed-fixture-source' if mode=='stale' else revision,
+                            evidence_matches=True,
+                            inspection_error='Fixture inspection unavailable' if mode=='unavailable' else None)
+                        return {'status':state['status'],'view':{'verification':inspected},
+                                'completion_current':state['status']=='TASK_COMPLETE' and inspected['freshness']=='current'},None
+                    return state, None
                 operation = command[1]
                 return {'registry_version': 1, 'operation': operation, 'registry_path': str(root / 'registry.json'), 'runs': [], 'workspaces': []}, None
 
@@ -699,7 +744,18 @@ def main():
                 self.actions.setdefault(str(run), []).append(action)
                 return action
 
-        console = FixtureConsole([workspace], root / 'no-runner', lambda: False,
+        watched = [workspace]
+        other_run = None
+        if preview_fixture:
+            other_workspace = root / 'Other project'
+            (other_workspace / '.git').mkdir(parents=True)
+            other_run = other_workspace / '.autocode/runs/flow-preview-other'
+            other_run.mkdir(parents=True)
+            other_state = copy.deepcopy(states['completed'])
+            other_state.update(workspace=str(other_workspace),run_dir=str(other_run),task_id='other-preview',task='Other project with no preview')
+            (other_run / 'state.json').write_text(json.dumps(other_state))
+            watched.append(other_workspace)
+        console = FixtureConsole(watched, root / 'no-runner', lambda: False,
                                  conversation_root=root / 'conversations', project_store_root=root / 'dashboard',
                                  catalogue_command=(sys.executable, str(catalogue)))
         server = LoopbackHTTPServer(('127.0.0.1', 0), Handler)
@@ -709,13 +765,30 @@ def main():
         scenario_urls = {'workspace': base_url + '#tasks'}
         for name in states:
             scenario_urls[name] = base_url + '#' + urlencode({'task': str(workspace), 'run': str(runs_root / name)})
-        print('FIXTURE=' + json.dumps({'base_url': base_url, 'scenarios': scenario_urls}, sort_keys=True), flush=True)
+        if other_run:
+            scenario_urls['flow-preview-other'] = base_url + '#' + urlencode({'task':str(other_run.parents[2]), 'run':str(other_run)})
+        preview_server = None
+        preview_url = None
+        if preview_fixture:
+            from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+            import threading
+            class DemoHandler(BaseHTTPRequestHandler):
+                def log_message(self, *args): pass
+                def do_GET(self):
+                    body=b'<html><body style="font-family:sans-serif;background:#edf3ff;padding:24px"><h1>Preview fixture</h1><p>A separately running local application.</p></body></html>'
+                    self.send_response(200);self.send_header('Content-Type','text/html');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+            preview_server=ThreadingHTTPServer(('127.0.0.1',0),DemoHandler)
+            threading.Thread(target=preview_server.serve_forever,daemon=True).start()
+            preview_url='http://127.0.0.1:'+str(preview_server.server_port)+'/'
+        print('FIXTURE=' + json.dumps({'base_url': base_url, 'scenarios': scenario_urls, 'preview_url':preview_url}, sort_keys=True), flush=True)
         try:
             server.serve_forever()
         except KeyboardInterrupt:
             pass
         finally:
             server.server_close()
+            if preview_server:
+                preview_server.shutdown();preview_server.server_close()
             console.pool.shutdown(wait=True)
             if console._conversation_store is not None:
                 console._conversation_store.close()

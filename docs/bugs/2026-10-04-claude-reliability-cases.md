@@ -57,7 +57,7 @@ Same profile and budgets, the fix's commit `b33ced2`, $12.07 in all:
 | 3 | PASS | 10/10 | 658 s | $4.50 | 2 |
 
 No report was sent back for an event ID; it had happened in 8 of 9 runs before the fix. The four
-reports that were sent back had other causes, and the stop has a new one. All three are still open:
+reports that were sent back had other causes, and the stop has a new one (1 is fixed; 2 and 3 are open):
 
 1. **A note stuck on a plan check makes it fail every replay (the stop).** After the first review,
    AutoResolver wrote the task's validation plan entry as `python3 -m unittest test_todo -v (all 10
@@ -66,7 +66,9 @@ reports that were sent back had other causes, and the stop has a new one. All th
    line in `/bin/sh` and got `Syntax error: "(" unexpected` (exit 2) on every Validator report. The
    Investigator named the cause and stopped the run, since no Validator report could pass. This is
    the same class of error as the earlier `passes;` and `from repo root:` sentences that the prose
-   patterns already catch.
+   patterns already catch. **Fixed:** an unquoted `(` that does not open `$(...)` now marks plain
+   text as prose (`verification_plan.NOTE`), so the Validator, not the replay, judges that line;
+   a test in `tests/test_verification_plan.py` uses the live entry. Not yet confirmed by a live run.
 2. **Probe scripts under `.autocode/` cited as checks.** The Validator is told to keep scratch
    files under `.autocode/` (`VALIDATOR_NOTE`), but the check replay runs in a clean copy of the
    source without `.autocode/`, so a cited check such as `sh .autocode/probe.sh` fails there. It

@@ -1,5 +1,5 @@
 // Verify the action state machine and preview boundary used by the real UI.
-const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('./dashboard_vm');
 const source=fs.readFileSync(require('node:path').join(__dirname,'../dashboard_app.js'),'utf8');
 const projectedRun=require('./resolver_fixture');
 const c=vm.createContext({URL,URLSearchParams});

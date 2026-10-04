@@ -55,7 +55,7 @@ STATE = {
         "contract_revision": 5,
         "decision": "CONTINUE",
         "owner": "Builder",
-        "next_role": "Validator",
+        "next_role": "Tester",
     },
     "task_archive": [{
         "id": "fixture-initial",

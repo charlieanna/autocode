@@ -6,6 +6,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dashboard_work_summary import project, progress_from_status
+from dashboard_verification import digest
 
 
 def fixture(status='RUNNING'):
@@ -17,7 +18,19 @@ def fixture(status='RUNNING'):
     view['interventions'] = {'work_progress': progress_from_status({
         'status': status, 'contract_token': 'r2:current', 'active_stage': {'stage': 'sol'},
         'current_task': {'milestone_id': 'M2'}, 'milestone_checkpoint': {'accepted_milestones': ['M1']}})}
+    inspect(view)
     return view
+
+
+def inspect(view):
+    # A supplied public-inspection receipt. The CLI tests exercise its actual
+    # source/evidence authentication; these tests cover deterministic UI prose.
+    goal=view['goal'];report=view['validation']
+    view['verification']={'version':1,'freshness':'current',
+        'contract_token':f"r{goal['revision']}:{goal['hash']}",
+        'report_token':digest(report),'criteria_token':digest(view['criteria']),
+        'coverage':[{'id':row['id'],'state':{'PASS':'checked','FAIL':'failed'}.get(row['status'],'unchecked')}
+                    for row in report['criterion_results']]}
 
 
 class WorkSummaryTests(unittest.TestCase):
@@ -25,6 +38,7 @@ class WorkSummaryTests(unittest.TestCase):
         view = fixture()
         view['validation']['criterion_results'].append({'id': 'R2', 'status': 'FAIL'})
         view['monitor']['findings'] = [{'id': 'F7', 'finding': 'Error is hidden', 'source': 'sol', 'times_reported': 2}]
+        inspect(view)
         before = json.dumps(view, sort_keys=True)
         result = project(view)
         self.assertEqual('1 of 2 tasks complete · 1 of 2 requirements checked · 1 failed · 0 unchecked · 1 open problem · No decision requested', result['line'])
@@ -45,6 +59,7 @@ class WorkSummaryTests(unittest.TestCase):
         view = fixture('TASK_COMPLETE')
         view['interventions']['work_progress']['accepted'].append('M2')
         view['validation']['criterion_results'].append({'id': 'R2', 'status': 'PASS'})
+        inspect(view)
         result = project(view)
         self.assertEqual('2 of 2 tasks complete · 2 of 2 requirements checked · 0 unchecked · 0 open problems · No decision requested', result['line'])
         del view['interventions']
@@ -72,6 +87,21 @@ class WorkSummaryTests(unittest.TestCase):
         self.assertFalse(result['task_progress_known'])
         view['plan'] = []
         self.assertEqual('No saved task list', project(view)['task_label'])
+
+    def test_stale_unavailable_or_mismatched_reports_keep_every_requirement_unchecked(self):
+        for kind in ('stale_or_unverified','unavailable','not_inspected','missing','mismatched'):
+            with self.subTest(kind=kind):
+                view=fixture()
+                if kind=='missing':
+                    view.pop('verification')
+                elif kind=='mismatched':
+                    view['validation']['source_revision']='new report'
+                else:
+                    view['verification']['freshness']=kind
+                result=project(view)
+                self.assertEqual(0,result['counts']['checked'])
+                self.assertEqual(2,result['counts']['unchecked'])
+                self.assertTrue(result['verification_stale'])
 
     def test_stale_controller_is_not_reported_as_working(self):
         source = {'status': 'RUNNING', 'active_stage': {'stage': 'terra'},

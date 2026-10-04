@@ -46,6 +46,10 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--run-dir", type=Path, help="Existing run directory to resume")
     parser.add_argument("--conversation-handoff", type=Path,
                         help="Validated conversation receipt to attach when creating a task; never grants approval")
+    parser.add_argument("--inspect-evidence", action="store_true",
+                        help="With --status, inspect current source and saved evidence without running checks")
+    parser.add_argument("--expected-recovery-token",
+                        help="Require this exact inspected pause before applying a recovery action")
     parser.add_argument("--expected-goal-token",
                         help="Require this exact already-approved plan before continuing a dashboard Build request")
     parser.add_argument("--in-place", action="store_true", help="Use this checkout directly; otherwise new tasks get independent worktrees from HEAD")
@@ -280,6 +284,10 @@ def parse(unit, argv, default_models):
     if unit and args.unit != unit:
         parser.error(f"This entry point runs only {unit}")
     notice = _find_run(parser, args, explicit, resume_only, shlex.join(rest))
+    if args.inspect_evidence and (not args.run_dir or not args.status):
+        parser.error("--inspect-evidence requires --run-dir and --status")
+    if args.expected_recovery_token is not None and (not args.run_dir or not (args.resume_paused or args.abandon_stage)):
+        parser.error('--expected-recovery-token requires a saved run and an explicit resume or abandon action')
     if args.max_parallel_builders is not None and args.max_parallel_builders < 1:
         parser.error('--max-parallel-builders must be positive')
     if args.retry_builder:
