@@ -164,6 +164,7 @@ def stage_token_rows(state: dict) -> list[dict]:
             "estimated_usd": 0.0 if runner_owned else estimate_cost(model, tokens),
             "finished_at": st.get("finished_at"),
             "active": is_active,
+            "partial": metrics.get("provider_tokens_partial") is True,
             "runner_owned": runner_owned,
         })
     return rows
@@ -176,7 +177,7 @@ def usage_summary(state: dict) -> dict:
         "per_stage": rows,
         "totals": {k: known_sum(r["tokens"].get(k) for r in rows) for k in (
             "input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens")},
-        "estimated_api_equivalent_usd": None if any(r["active"] for r in rows)
+        "estimated_api_equivalent_usd": None if any(r["active"] or r["partial"] for r in rows)
             else known_sum(r["estimated_usd"] for r in rows),
         "known_estimated_api_equivalent_usd": sum(
             r["estimated_usd"] for r in rows if r["estimated_usd"] is not None),
@@ -341,7 +342,8 @@ def score_run(run_dir: Path) -> dict:
 
     # --- token discipline ---
     token_score = "PASS" if rows and all(
-        r["tokens"][k] is not None for r in rows for k in ("input_tokens", "output_tokens")) else "PARTIAL"
+        not r["partial"] and r["tokens"][k] is not None
+        for r in rows for k in ("input_tokens", "output_tokens")) else "PARTIAL"
     token_notes = []
     total_usd = usage["estimated_api_equivalent_usd"]
     known_usd = usage["known_estimated_api_equivalent_usd"]

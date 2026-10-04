@@ -40,6 +40,17 @@ class TotalsTests(unittest.TestCase):
         self.assertFalse(usage.summary(state)["cost_usd"]["complete"])
         self.assertEqual("astra_review", usage.summary(state)["active_stage"])
 
+    def test_partial_tokens_remain_a_lower_bound_after_the_attempt_is_archived(self):
+        interrupted = stage("glm_revise_report_repair", "glm", GLM, tokens=(1_000_000, 0, 1_000_000))
+        interrupted["metrics"]["provider_tokens_partial"] = True
+        state = {"status": "WAITING_FOR_USER", "stages": [interrupted]}
+        totals = run_view.view(state)["usage"]
+        self.assertEqual(1_000_000, totals["tokens"]["input_tokens"])
+        self.assertEqual(1_000_000, totals["tokens"]["output_tokens"])
+        self.assertEqual({"reported": 0.0, "estimated": 2.8, "complete": False}, totals["cost_usd"])
+        self.assertEqual(1, totals["partial_stages"])
+        self.assertEqual(0, totals["unknown_stages"])
+
     def test_a_reported_cost_needs_every_turn_to_report_and_a_zero_is_not_a_price(self):
         turn = {"type": "turn.completed", "cost_usd": 0.25}
         self.assertEqual(0.75, usage.reported_cost([turn, {"type": "turn.failed", "cost_usd": 0.5}]))

@@ -26,6 +26,9 @@ def engineering_delta(row: dict, before: dict, after: dict, proof_corrections: s
         return True
     if any(item == cid + " (new criterion added)" for cid in new - old):
         return True
+    if item == "acceptance_criteria":
+        return bool(new - old) and all(criterion in after["acceptance_criteria"]
+                                     for criterion in before.get("acceptance_criteria", []))
     if item in ("technical_approach", "milestones", "initial_task"):
         return item in after and before.get(item) != after[item]
     milestones = {row["id"]: row for row in before.get("milestones", [])}
