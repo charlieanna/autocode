@@ -67,6 +67,7 @@ class RunViewTests(unittest.TestCase):
                      {"id": "AC1", "criterion": "Parses dates"}, {"id": "AC2", "criterion": "Documents it"}]}},
                  "last_decision": {"report": {"acceptance_criteria": [
                      {"id": "AC1", "status": "passed", "evidence": "pytest -k dates: 3 passed"}]}},
+                 "validation": {"criterion_results": [{"id": "AC1", "status": "FAIL"}]},
                  "human_reviews": {"AC2": {"token": "r1"}},
                  "findings_ledger": [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo",
                                       "times_reported": 2}],
@@ -75,10 +76,13 @@ class RunViewTests(unittest.TestCase):
                                       "checks": {"large": "output"}}}
         evidence = run_view.evidence(state)
         self.assertEqual(("Fix it", "abc"), (evidence["outcome"], evidence["base_commit"]))
+        # validator_status keeps a Validator FAIL distinct from a criterion that was
+        # never checked (None), independent of the decision report's own outcome.
         self.assertEqual([{"id": "AC1", "criterion": "Parses dates", "status": "passed",
-                           "evidence": "pytest -k dates: 3 passed", "human_reviewed": False},
+                           "evidence": "pytest -k dates: 3 passed", "validator_status": "FAIL",
+                           "human_reviewed": False},
                           {"id": "AC2", "criterion": "Documents it", "status": None, "evidence": None,
-                           "human_reviewed": True}], evidence["acceptance"])
+                           "validator_status": None, "human_reviewed": True}], evidence["acceptance"])
         self.assertEqual([{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo"}],
                          evidence["findings"])
         self.assertEqual({"verdict": "PASS", "fail_to_pass": ["test_dates"], "failures": [], "unverified": [],
