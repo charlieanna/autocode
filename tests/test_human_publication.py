@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
@@ -136,18 +135,14 @@ class HumanPublicationTests(unittest.TestCase):
         self.assertIn(human.PRIVATE, saved)
 
     def test_answered_operational_request_allows_explicit_stage_abandonment(self):
+        import autocode_args
         published = self.publish_operational()
         human.respond_operational(self.state, published['request_id'], published['request_token'],
                                   'provide_information', 'Inspected the uncertain attempt')
         human.review_operational_response(self.state)
         self.assertTrue(human.response_holds_current_frontier(self.state))
-        args = SimpleNamespace(
-            run_dir=self.state['run_dir'], expected_goal_token=None, conversation_handoff=None,
-            answer=None, delegate=None, approve_goal=None, edit_goal=None, approve_review=None,
-            reconcile_review=None, feedback=None, follow_up=None, show_goal=None,
-            accept_completion=None, resolver_response=None, planning_review_call_limit=None,
-            resume_paused=False, retry_builder=False, retry_failed_stage=False, retry_report=False,
-            abandon_stage='001/terra-01', grant_recovery=None, diagnose_failed_stage=False)
+        args = autocode_args.build_parser(None, runner.DEFAULT_ROLE_MODELS).parse_args(
+            ['--run-dir', self.state['run_dir'], '--abandon-stage', '001/terra-01', '--no-chat'])
         fake_runner = Mock()
         fake_runner.abandon_stage.side_effect = lambda state, *_: state.update(
             status='PAUSED_STAGE_ABANDONED', stop_reason='Stage set aside')
