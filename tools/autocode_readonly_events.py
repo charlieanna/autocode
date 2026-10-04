@@ -6,14 +6,18 @@ covered. Never interpret model text or a tool's output as filesystem evidence.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
 
 try:
-    from .autocode_util import Paused
+    from .autocode_util import Paused, digest
+    from . import autocode_review_job as review_job, autocode_opencode_snapshots as native_snapshots
 except ImportError:
-    from autocode_util import Paused
+    from autocode_util import Paused, digest
+    import autocode_review_job as review_job
+    import autocode_opencode_snapshots as native_snapshots
 
 
 def assert_unchanged_review(record):
@@ -22,7 +26,7 @@ def assert_unchanged_review(record):
             or record.get("output_mode", "opencode_events") != "opencode_events"
             or (record.get("role") == "terra" and not record.get("report_only"))):
         return
-    baselines = {}
+    baselines, changes = {}, set()
     events = Path(record["events"])
     if not events.is_file():
         return  # The provider's report parser still requires its terminal evidence.
@@ -45,17 +49,47 @@ def assert_unchanged_review(record):
                 continue
             baseline = baselines.setdefault(session, snapshot)
             if snapshot != baseline:
-                raise Paused("PAUSED_STALE_VALIDATION",
-                             "Repository changed during read-only review in OpenCode's recorded snapshots, "
-                             "even if restored before the final report; inspect saved events and revalidate")
+                changes.add((baseline, snapshot))
+    if not changes:
+        return
+    protected = _protected_paths(record)
+    if protected is not None and native_snapshots.only_new_artifacts(
+            record, sorted(changes), protected, review_job.ALLOWED_PREFIXES):
+        return
+    raise Paused("PAUSED_STALE_VALIDATION",
+                 "Repository changed during read-only review in OpenCode's recorded snapshots, "
+                 "even if restored before the final report; inspect saved events and revalidate")
 
 
-def prepare_opencode_snapshots(workspace):
+def _protected_paths(record):
+    """Only a normal Code Review may add evidence; its source capture binds existing paths."""
+    if record.get('stage') != review_job.STAGE or record.get('report_only'):
+        return None
+    try:
+        capture = record['job_source']
+        raw = Path(capture['capture']).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != capture['capture_hash']:
+            return None
+        original = json.loads(raw)['original']
+        files = original['files']
+        if (not isinstance(files, dict) or not all(isinstance(name, str) for name in files)
+                or digest(original) != capture['before_identity'] or sorted(files) != capture['paths']):
+            return None
+        return set(files)
+    except (KeyError, TypeError, ValueError, OSError):
+        return None
+
+
+def prepare_opencode_snapshots(workspace, *, record=None, env=None):
     """Keep native Git snapshots aligned with the runner's runtime exclusions.
 
     Append only local Git exclusions, preserving existing user rules and source
     files. This runs before provider admission, including for a Git worktree.
     """
+    # Written only here, before provider admission; the native-tree reader uses
+    # this stage-record metadata on immediate parsing and saved-report recovery.
+    if record is not None and record.get('stage') == review_job.STAGE and not record.get('report_only'):
+        record['opencode_snapshot_context'] = native_snapshots.context(workspace, env)
     try:
         name = subprocess.check_output(["git", "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"],
                                        cwd=workspace, text=True, stderr=subprocess.DEVNULL).strip()
