@@ -336,8 +336,13 @@ def observe_operational_recovery(runner, state, run_dir, workspace, recovery):
                                   'capacity_error': recovery.get('capacity_error')})
 
 
-def record_operational_exhaustion(runner, state, run_dir, error):
-    """Retain exhaustion and stage a resolver-owned, request-only escalation."""
+def record_operational_exhaustion(runner, state, run_dir, error, *, request=None):
+    """Retain exhaustion and stage a resolver-owned, request-only escalation.
+
+    ``request`` replaces the generic question only for a stop the runner diagnosed itself
+    (autocode_validation_rounds). The runner composes it from its own records, which may quote
+    saved rejection reasons; no model proposes or edits it.
+    """
     if progressive.retained_review_budget_pause(state, error.status):
         return False
     if (error.status not in ('PAUSED_RESOLVER_OPERATIONAL', 'PAUSED_TIMEOUT_RECOVERY',
@@ -353,8 +358,8 @@ def record_operational_exhaustion(runner, state, run_dir, error):
             or state.get('pending_questions')
             or (Path(run_dir) / 'pause-requested').exists()):
         return False
-    request = state.get('user_request') or (state.get('agent_request') or {}).get('request')
-    if request and request.get('kind') != 'none':
+    pending = state.get('user_request') or (state.get('agent_request') or {}).get('request')
+    if pending and pending.get('kind') != 'none':
         return False
     kind = {'PAUSED_ITERATION_LIMIT': 'iteration_ceiling', 'PAUSED_TIME_LIMIT': 'max_seconds',
             'PAUSED_PLANNING_BUDGET': 'planning_review_call_limit',
@@ -388,11 +393,11 @@ def record_operational_exhaustion(runner, state, run_dir, error):
         decision += (' After fixing the cause, authorize more automatic recoveries with '
                      '--resume-paused --grant-recovery N.')
         options.append('Authorize more recoveries with --grant-recovery N')
-    request = {'kind': 'blocker', 'discovered': str(error),
-               'impact': 'AutoResolver retained the attempts, work and evidence but cannot continue safely.',
-               'decision_needed': decision,
-               'options': options,
-               'proposed_delta': 'Answering does not authorize a retry, approval, permission or budget change.'}
+    request = request or {'kind': 'blocker', 'discovered': str(error),
+                          'impact': 'AutoResolver retained the attempts, work and evidence but cannot continue safely.',
+                          'decision_needed': decision,
+                          'options': options,
+                          'proposed_delta': 'Answering does not authorize a retry, approval, permission or budget change.'}
     human.queue(state, 'operational_exhaustion',
                 {'stage': state.get('next_stage') or 'operational_recovery', 'pause_status': error.status, 'budget': budget},
                 request=request, evidence={'resolver_receipt_id': receipt}, next_stage=state.get('next_stage'))

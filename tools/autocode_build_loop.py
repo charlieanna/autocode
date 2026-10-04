@@ -118,6 +118,7 @@ def run(runner, args, state, state_path, run_dir, workspace):
                 raise
             milestones.dispatch_guard(current, stage)
         workflow.dispatch_guard(current,stage,workspace)
+        autopilot.admit_validation(runner, current, stage, workspace, run_dir)
         if planning.is_planning(current, stage):
             if not runner.recover_default_budget(current, run_dir, workspace, 'planning_review_call_limit'):
                 resolver_runtime.operational_boundary(runner, current, run_dir, workspace)
