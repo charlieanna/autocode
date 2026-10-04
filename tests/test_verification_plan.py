@@ -52,6 +52,16 @@ class CommandsTests(unittest.TestCase):
         self.assertEqual(["python3 -m unittest -v"], plan.commands(
             "Run `python3 -m unittest -v` and confirm it exits successfully."))
 
+    def test_a_parenthesized_note_after_a_command_stays_with_the_validator(self):
+        # A live to-do run (Claude models, 2026-10-04): AutoResolver wrote this validation_plan entry, the replay
+        # ran it whole in /bin/sh (Syntax error: "(" unexpected) and rejected every Validator report.
+        self.assertEqual([], plan.commands("python3 -m unittest test_todo -v (all 10 pass)"))
+        self.assertEqual(["python3 -m unittest test_todo -v"], plan.commands(
+            "`python3 -m unittest test_todo -v` (all 10 pass)"))
+        for command in ("python3 -c 'print(1)'", "pytest $(ls tests)"):
+            with self.subTest(command=command):
+                self.assertEqual([command], plan.commands(command))
+
     def test_declared_zero_exits_keep_the_original_required_commands(self):
         self.assertEqual(["go test ./a", "go test ./b"], plan.commands(
             "Run `go test ./a` and `go test ./b` and confirm exit codes 0/0."))
