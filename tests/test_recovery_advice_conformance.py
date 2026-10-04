@@ -7,6 +7,7 @@ timeout recovery, an explicit user time cap, and exhausted AutoResolver
 operational-recovery attempts.
 """
 import json
+import subprocess
 import re
 from pathlib import Path
 import unittest
@@ -123,6 +124,63 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
                 continue  # answered through the request's own options, not a bare CLI retry
             with self.subTest(flag=flag):
                 self.assertNotIn('requires', self.describe_rejection(flag))
+
+    def resume(self, *flags):
+        """Run --resume-paused with ``flags``; return (exit code, whether a provider launched, saved state)."""
+        probe = self.root / f'launch-{len(list(self.root.glob("launch-*")))}.jsonl'
+        self.env['AUTOCODE_REGISTRY_LAUNCH_PROBE'] = str(probe)
+        result = subprocess.run([*self.entry, '--workspace', str(self.project), '--run-dir', str(self.run),
+                                 '--resume-paused', *flags, '--no-chat'],
+                                cwd=self.root, env=self.env, capture_output=True, text=True, timeout=60)
+        return result.returncode, probe.exists(), self.saved()[1]
+
+    def paused_for(self, state):
+        published = human.current(state)
+        if published:
+            entry = state['resolver']['human_escalations'][published['request_id']]
+            return entry['identity']['proposal']['origin'].get('pause_status')
+        return state.get('status')
+
+    def test_an_unrelated_limit_change_never_releases_the_time_cap(self):
+        # #379: --max-stage-seconds is a different bound from the exhausted --max-seconds. The settings
+        # change rebound the published request into a legacy blocker, and the generic resume launched a stage.
+        state = self.explicit_time_cap_checkpoint()
+        code, launched, after = self.resume('--max-stage-seconds', '1200')
+        self.assertFalse(launched, 'an unrelated limit must not admit a provider past the exhausted time cap')
+        self.assertEqual(2, code)
+        self.assertEqual('PAUSED_TIME_LIMIT', self.paused_for(after))
+        self.assertEqual(1200, after['settings']['limits']['stage_timeout_seconds'], 'the unrelated change itself is kept')
+        code, launched, after = self.resume()
+        model_stages = [row['stage'] for row in after['stages'][len(state['stages']):] if not row.get('runner_owned')]
+        self.assertEqual([], model_stages, 'no model may run past the exhausted cap, AutoResolver included')
+        self.assertEqual('PAUSED_TIME_LIMIT', self.paused_for(after))
+        raised = int(state['settings']['limits']['max_seconds']) + 3600
+        code, launched, after = self.resume('--max-seconds', str(raised))
+        self.assertTrue(launched or after['status'] != 'PAUSED_TIME_LIMIT',
+                        'raising the exhausted bound still resumes afterwards')
+
+    def test_restating_a_saved_cap_with_headroom_resumes_after_a_consumed_response(self):
+        # #378: the user answered the time-cap request (provide_information consumes it), then saved a raised
+        # cap. Restating that cap with --resume-paused changed no setting, so it set no acknowledgment, and the
+        # consumed response held the run: no command could resume it although the cap left headroom.
+        state = self.explicit_time_cap_checkpoint()
+        published = human.current(state)
+        self.launch(['--run-dir', str(self.run), '--resolver-request', published['request_id'],
+                     '--resolver-token', published['request_token'], '--resolver-response', 'provide_information',
+                     '--resolver-message', 'One more hour is authorized', '--no-chat'], 0)
+        raised = int(state['settings']['limits']['max_seconds']) + 3600
+        result = subprocess.run([*self.entry, '--workspace', str(self.project), '--run-dir', str(self.run),
+                                 '--max-seconds', str(raised), '--no-chat'],
+                                cwd=self.root, env=self.env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(raised, self.saved()[1]['settings']['limits']['max_seconds'], result.stdout + result.stderr)
+        code, launched, after = self.resume('--max-seconds', str(raised))
+        self.assertTrue(launched, 'restating the saved cap that leaves headroom must resume the time-limit pause')
+
+    def test_restating_an_exhausted_cap_stays_paused(self):
+        state = self.explicit_time_cap_checkpoint()
+        code, launched, after = self.resume('--max-seconds', str(state['settings']['limits']['max_seconds']))
+        self.assertFalse(launched, 'a cap without headroom is not authority to continue')
+        self.assertEqual('PAUSED_TIME_LIMIT', self.paused_for(after))
 
     def describe_rejection(self, flag):
         probe = self.root / 'probe.jsonl'

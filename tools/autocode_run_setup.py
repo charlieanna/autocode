@@ -57,6 +57,11 @@ except ImportError:
     import autocode_workspaces as task_workspaces
     import autocode_workflows as workflows
 
+# Recovery actions that answer or act on the published operational request themselves; a settings change
+# that comes with one leaves that request for the action to check.
+OTHER_RECOVERY = ('retry_failed_stage', 'retry_report', 'retry_builder', 'abandon_stage', 'diagnose_failed_stage',
+                  'resolver_response')  # and --grant-recovery
+
 
 def resolve(runner, args, parser):
     """Return (workspace, run_dir, state_path, state), or an exit code when the invocation ends here."""
@@ -258,12 +263,16 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
                 if resolver_human.supersede_operational(state, 'User delegated this finite harness limit to bounded AutoResolver recovery'):
                     state['_authorized_bound_change'] = {'pause_status': paused_for, 'at': runner.now()}
         retain_time_pause = False
-        if (published.get('scope') == 'operational_exhaustion' and paused_for == 'PAUSED_TIME_LIMIT'
-                and 'max_seconds' not in args._explicit_budget_flags and args.grant_recovery is None
-                and not state.get('_authorized_bound_change')):
-            # Retire the old binding before settings make its display look like a legacy blocker.
-            retain_time_pause = resolver_human.supersede_operational(
-                state, 'Other settings changed without acknowledging the active-time pause')
+        # Preserve actions that validate the operational request themselves. Other
+        # settings writes retire its stale binding without authorizing continuation.
+        if (published.get('scope') == 'operational_exhaustion' and paused_for
+                and args.grant_recovery is None
+                and not any(getattr(args, name, None) for name in OTHER_RECOVERY)):
+            withdrawn = resolver_human.supersede_operational(
+                state, 'Settings changed without changing the exhausted bound')
+            retain_time_pause = (withdrawn and paused_for == 'PAUSED_TIME_LIMIT'
+                and 'max_seconds' not in args._explicit_budget_flags
+                and not state.get('_authorized_bound_change'))
         previous_settings = state["settings"]
         enabling_joint = settings.get("joint_planning") and not previous_settings.get("joint_planning")
         if enabling_joint:
