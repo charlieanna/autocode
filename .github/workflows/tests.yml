@@ -44,6 +44,18 @@ jobs:
       - name: Install package and runtime dependencies
         run: python3 -m pip install -e '.[visual]'
 
+      - name: Restore the test map from master
+        # --changed also runs the tests the map records running a changed file: a CLI-level
+        # test imports the harness, not the module it drives, so import rules alone miss it
+        # (#232, #242 and #330 broke master that way). Master records the map below. Without
+        # one, --changed selects by imports and names only.
+        if: github.event_name == 'pull_request'
+        uses: actions/cache/restore@v4
+        with:
+          path: .suite-map.json
+          key: suite-map-${{ github.event.pull_request.base.sha }}
+          restore-keys: suite-map-
+
       - name: Run the suite gate
         # tools/run_suite.py wraps the same discovery as
         # `python -m unittest discover -s tests -t . -p 'test_*.py'`, minus
@@ -59,10 +71,18 @@ jobs:
           if [ "${{ github.event_name }}" = pull_request ]; then
             python3 tools/run_suite.py --verbosity 2 --changed "origin/${{ github.base_ref }}"
           else
-            python3 tools/run_suite.py --verbosity 2
+            python3 tools/run_suite.py --verbosity 2 --record-map
           fi
         env:
           PYTHONDONTWRITEBYTECODE: "1"
+
+      - name: Save the test map
+        # Saved even when a test failed: the map records what each test ran, not whether it passed.
+        if: always() && github.event_name != 'pull_request' && hashFiles('.suite-map.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .suite-map.json
+          key: suite-map-${{ github.sha }}
 
       - name: Run the scenario harness
         # scenarios/ is outside tests/: its catalog checks and scripted end-to-end runs

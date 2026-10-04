@@ -31,3 +31,6 @@ dist/
 .scenario-runs/
 # Default artifact directory written by tools/autopilot_testkit.py during test runs
 .tmp-autopilot-testkit/
+
+# Test map written by tools/run_suite.py --record-map (CI caches it; never committed)
+.suite-map.json

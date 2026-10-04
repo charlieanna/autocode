@@ -7,9 +7,13 @@ silently), and fails loudly if an exclusion entry no longer matches anything
 discovered — so a stale exclusion is caught rather than quietly rotting.
 """
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -147,6 +151,74 @@ class SelectTestsTests(unittest.TestCase):
         self.assertEqual("providers", run_suite.tools_module("tools/providers/__init__.py"))
         self.assertIsNone(run_suite.tools_module("tools/dashboard/server.py"))
         self.assertIsNone(run_suite.tools_module("docs/cli.md"))
+
+
+class TestMapSelectionTests(unittest.TestCase):
+    SOURCES = {"tests.test_architecture": "import ast\n", "tests.test_cli_flow": "from harness import driver\n",
+               "tests.test_other": "import autopilot\n"}
+    RUNS = {"tests.test_cli_flow": {"tools/autocode_resolver_runtime.py", "scenarios/harness/driver.py"},
+            "tests.test_removed": {"tools/autocode_resolver_runtime.py"}}
+
+    def test_a_test_that_runs_a_changed_module_without_importing_it_is_selected(self):
+        # #330: the CLI test drives autocode_resolver_runtime in a subprocess and imports only the harness.
+        selected = run_suite.select_tests(["tools/autocode_resolver_runtime.py"], self.SOURCES, self.RUNS)
+        self.assertEqual({"tests.test_architecture": "always",
+                          "tests.test_cli_flow": "runs tools/autocode_resolver_runtime.py"}, selected)
+
+    def test_a_changed_file_outside_tools_selects_the_tests_that_ran_it(self):
+        selected = run_suite.select_tests(["scenarios/harness/driver.py"], self.SOURCES, self.RUNS)
+        self.assertEqual("runs scenarios/harness/driver.py", selected["tests.test_cli_flow"])
+
+    def test_without_a_map_selection_is_unchanged(self):
+        self.assertEqual({"tests.test_architecture": "always"},
+                         run_suite.select_tests(["tools/autocode_resolver_runtime.py"], self.SOURCES))
+
+    def test_the_map_round_trips_and_drops_tests_that_no_longer_exist(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "map.json"
+            run_suite.write_map(path, {"tests.test_a": ["tools/a.py"], "tests.test_gone": ["tools/a.py"]},
+                                ["tests.test_a", "tests.test_b"])
+            run_suite.write_map(path, {"tests.test_b": ["tools/b.py"]}, ["tests.test_a", "tests.test_b"])
+            runs, commit = run_suite.load_map(path)
+        self.assertEqual({"tests.test_a": {"tools/a.py"}, "tests.test_b": {"tools/b.py"}}, runs)
+        self.assertRegex(commit, "^[0-9a-f]{40}$")
+
+    def test_a_missing_map_is_empty(self):
+        self.assertEqual(({}, ""), run_suite.load_map(Path("/nonexistent/map.json")))
+
+
+class TraceHookTests(unittest.TestCase):
+    """tools/suite_trace/sitecustomize.py, run in a copy whose repository root is a scratch directory."""
+
+    def test_records_what_subprocesses_run_but_not_import_time_calls_or_hidden_directories(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            hook = root / "tools" / "suite_trace"
+            hook.mkdir(parents=True)
+            shutil.copy(run_suite.TRACE_HOOK / "sitecustomize.py", hook)
+            (root / "lib").mkdir()
+            (root / ".hidden").mkdir()
+            (root / "lib" / "called.py").write_text("def work():\n    return 1\n")
+            (root / "lib" / "imported.py").write_text("def table():\n    return {}\nTABLE = table()\n")
+            (root / ".hidden" / "scratch.py").write_text("def work():\n    return 2\n")
+            child = (f"import sys; sys.path[:0] = [{str(root / 'lib')!r}, {str(root / '.hidden')!r}]\n"
+                     "import called, imported, scratch; called.work(); scratch.work()\n")
+            parent = textwrap.dedent(f"""
+                import subprocess, sys
+                subprocess.run([sys.executable, "-c", {child!r}], cwd={temp!r}, check=True)
+            """)
+            out = root / "trace"
+            out.mkdir()
+            env = {**os.environ, "AUTOCODE_SUITE_TRACE": str(out), "PYTHONPATH": str(hook)}
+            subprocess.run([sys.executable, "-c", parent], cwd=temp, env=env, check=True)
+            self.assertEqual(["lib/called.py"], run_suite.traced_paths(out))
+
+    def test_does_nothing_without_a_trace_directory(self):
+        env = {key: value for key, value in os.environ.items() if key != "AUTOCODE_SUITE_TRACE"}
+        env["PYTHONPATH"] = str(run_suite.TRACE_HOOK)
+        completed = subprocess.run([sys.executable, "-c", "import sys; print(sys.getprofile())"], env=env,
+                                   capture_output=True, text=True, check=True)
+        self.assertEqual("None", completed.stdout.strip())
 
 
 class DropSlowTests(unittest.TestCase):

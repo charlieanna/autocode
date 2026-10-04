@@ -123,16 +123,21 @@ the full suite's time is spent waiting on subprocesses and timeouts, not
 computing, so it runs one test module per CPU at a time (`--jobs 1` for one
 process). `--changed` picks the tests for the files changed since
 `origin/master`: a changed test, the tests named after a changed `tools/`
-module, and the tests that import it directly (the script's docstring has the
-rules). It leaves out the slow end-to-end modules in `tests/suite_slow.json`
-(over 10 s each in CI, about three quarters of the suite's time) unless the
-module itself changed; `--include-slow` runs them too. Before committing a
-change to `tools/`, run `--changed` and the fake scenario runs.
+module, the tests that import it directly, and the tests the test map records
+running a changed file (the script's docstring has the rules). The map is what
+catches a CLI-level test: it imports the harness, not the module it drives.
+Master's CI records it (`--record-map`) and caches it; a pull request's CI
+restores it. Locally, `--record-map` writes `.suite-map.json`, and without one
+`--changed` selects by imports and names only. It leaves out the slow
+end-to-end modules in `tests/suite_slow.json` (over 10 s each in CI, about
+three quarters of the suite's time) unless the module itself changed;
+`--include-slow` runs them too. Before committing a change to `tools/`, run
+`--changed` and the fake scenario runs.
 
 A pull request's CI runs `--changed`; a push to master runs every test,
-including the slow ones. A break that crosses modules, or one only a slow
-module catches, can therefore first show up on master: fix it forward
-straight away. Making a slow test fast (in-process instead of a CLI
+including the slow ones. A break that only a slow module catches, or one in a
+test the map has not recorded yet, can therefore first show up on master: fix
+it forward straight away. Making a slow test fast (in-process instead of a CLI
 subprocess, a copied Git fixture instead of `git init`, a fake clock instead
 of a wait) and taking it off the slow list is progress. Run the full suite yourself only when you change something many
 modules share. Every module taken out of the import cycle makes `--changed`
