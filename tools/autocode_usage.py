@@ -29,8 +29,7 @@ import tempfile
 # These are not verified current provider prices or subscription charges.
 REFERENCE_PRICES = {
     "zai-coding-plan/glm-5.3": {"input": 0.60, "output": 2.20},
-    # Only for pricing saved runs from before MiMo was dropped (user 2026-09-27); new runs
-    # never use it (score_autocode_run.FORBIDDEN_MODEL_MARKERS).
+    # Historical comparison rates also apply to configured MiMo routes.
     "xiaomi-token-plan-sgp/mimo-v2.6-pro": {"input": 0.30, "output": 1.20},
 }
 LEDGER = "usage.jsonl"

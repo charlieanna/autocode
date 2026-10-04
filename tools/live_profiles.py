@@ -50,11 +50,11 @@ PROFILES = {
         "base": "cursor-acp/auto",
         "effort": {role: "none" for role in EFFORT_ROLES},
     },
-    # Subscription-only. Two hard rules (user 2026-09-26):
+    # Historical subscription profile defaults:
     # 1) Verifier ≠ producer — OpenAI GPT checks GLM work and GLM checks GPT work.
     # 2) Start at the ladder's medium rung where it says medium; shift to higher
     #    reasoning inside the stage when evidence shows struggle.
-    # Never free-tier or flash; OpenAI via the ChatGPT login.
+    # These pins do not restrict model selection in other profiles or runs.
     "glm53-openai": {
         "provider": "opencode",
         "role_models": {

@@ -447,9 +447,17 @@ class OpenCodeFlow(unittest.TestCase):
         self.assertIn("xiaomi-token-plan-sgp/mimo-v2.6-pro", result.stdout)
         self.assertIn("Every default route can be used:", result.stdout)
         result = models("api")
-        self.assertEqual(1, result.returncode, result.stderr)
-        self.assertIn("OpenAI via api · not used: AutoCode bills OpenAI only through the ChatGPT login", result.stdout)
-        self.assertIn("Validator (--sol-model): openai/gpt-6-sol → xiaomi-token-plan-sgp/mimo-v2.6-pro", result.stdout)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("OpenAI via api · pay per token", result.stdout)
+        self.assertIn("Every default route can be used:", result.stdout)
+
+    def test_cli_completes_with_mimo_token_plan_builder_and_api_authenticated_checker(self):
+        self.env['AUTOCODE_FIXTURE_OPENAI_AUTH'] = 'api'
+        self.launch(['Greeting tool', '--chat', '--terra-model', 'mimo-token-plan/mimo-v2.6-pro'], 0,
+                    answers='CLI\nyes\nyes\n')
+        run, state = self.saved()
+        self.assertEqual('mimo-token-plan/mimo-v2.6-pro', state['settings']['roles']['terra']['model'])
+        self.assertEqual('COMPLETE', state['phase'])
 
     def test_standalone_cli_full_interview_approval_review_and_completion(self):
         self.launch(["Greeting tool", "--chat"], 0, answers="CLI\nyes\nyes\n")

@@ -24,11 +24,11 @@ See [CLI](cli.md).
 
 ## Default models
 
-New OpenCode runs (the default engine) use these routes. Every OpenAI model goes
-through the ChatGPT login; GLM goes through the Z.ai Coding Plan. The cheaper model
+New OpenCode runs (the default engine) use these routes through the configured
+provider connections. The cheaper model
 does the volume and the more expensive one judges it: GLM plans and builds, GPT-6 Sol
 reviews the plan and checks the build. A verifier never shares its producer's model
-family. GPT-6 Astra is reserved for the Resolver.
+family. GPT-6 Astra is the Resolver's default; explicit choices may use it in other roles.
 
 | Role | Default model | Reasoning | Escalation ladder |
 | --- | --- | --- | --- |
@@ -60,7 +60,7 @@ Other engines keep their own defaults, set where each engine is configured:
 | `--engine codex` | `gpt-5.6-terra` for the Builder; `gpt-5.6-sol` for the Resolver, Validator and Completion Owner (`DEFAULT_ROLE_MODELS` in `tools/autocode.py`) |
 | `--provider kilocode` | `openai/gpt-5.6-terra` for the Builder, `zai-coding-plan/glm-5.3` for the Planner, `openai/gpt-5.6-sol` for every other role (`tools/providers/configs/kilocode.toml`) |
 | a user-level provider | whatever its `~/.config/autocode/providers/<name>.toml` `[roles]` specify |
-| Dashboard Codex console | `gpt-5.6-*`, or `glm-5.3` / `glm-5.3-flash` per role through Z.ai |
+| Dashboard Codex console | `gpt-5.6-*` defaults; any valid bare Codex model name can be selected, with configured GLM routes using Z.ai |
 
 Autocode advances exactly one rung after durable evidence that the current role
 struggled: an invalid completed response after report repair is exhausted, an
@@ -130,13 +130,18 @@ No Codex login is required for the default workflow. Bare model names for the le
 `astra` and `sol` CLI roles are expanded to `openai/model` on OpenCode. Explicit
 legacy `--engine codex` runs retain their separate Codex routing.
 
-Before launching an OpenAI role, Autocode checks the nonsecret `opencode auth list`
-summary for OAuth; missing/unknown/API authentication or API environment overrides
-pause without fallback. This also applies before a project-free planning reply.
-Other providers retain their configured connections. No credentials are copied.
-Models in a catalogue are not proof of entitlement. Usage/provider failures pause
-without silently switching to separately billed API access. Actual subscription
-entitlements are managed by the CLIs.
+AutoCode accepts every well-formed model route listed by the configured provider,
+including `mimo-token-plan/`, free, Flash, highspeed and newly listed models.
+Model defaults and tier labels guide selection; they are not allowlists. Explicit
+conversation handoff choices retain their model and reasoning effort. Visual
+review also accepts an explicit model instead of requiring Astra.
+
+Before launching an OpenAI role, AutoCode accepts either OAuth or API authentication
+reported by `opencode auth list`, or explicit API environment configuration. Missing
+or ambiguous authentication pauses without choosing another connection. Other
+providers retain their configured connections. No credentials are copied. Actual
+model entitlement is managed by the provider CLI; a listed model can still fail at
+request time. Producers and their reviewers must keep independent routes.
 
 The dashboard shows the live `opencode models` catalogue in all four pickers, grouped
 by provider, plus explicit reasoning selectors for the Plan Reviewer, Builder,
@@ -154,21 +159,19 @@ If a role's model is not listed, the run stops before any model call and shows:
 
 - every model your plans offer, grouped by plan, each marked **subscription** or **pay
   per token** and with its tier: **cheap worker** (plans and builds), **strong judge**
-  (checks) or **Resolver only**. A model AutoCode has no tier for says "tier unknown";
-  free, flash and MiMo routes are not offered.
+  (checks) or **Resolver tier**. A model AutoCode has no tier for says "tier unknown";
+  MiMo token-plan, free and Flash routes are included.
 - a replacement for each missing role. It prefers a subscription over per-token billing,
   then the tier the role wants, and never shares a model (or GLM family) with the role it
-  checks or is checked by. Only the Resolver is offered GPT-6 Astra. OpenAI routes are
-  not offered when OpenCode signs in to OpenAI another way, such as an API key.
+  checks or is checked by. Any listed model can be offered, including GPT-6 Astra
+  for other roles and OpenAI routes authenticated with an API key.
 - the flags to start the run with, for example `--sol-model openai/gpt-6-luna`.
 
 In `--chat`, you can accept all the replacements and the run continues with them, as if
 you had passed the flags. AutoCode never changes a model without you. A saved run is not
 re-routed this way: resuming keeps its models, so start a new run instead.
 
-A listed OpenAI route while OpenCode is signed in with an API key is not a missing model:
-the run pauses at the billing check, as above, and resumes once the ChatGPT login is
-connected. `autocode models` shows the same list at any time and checks every role's
+`autocode models` shows the same list at any time and checks every role's
 default route; see [CLI](cli.md).
 
 See also: [Providers](providers.md) · [Workflow](workflow.md) · [CLI](cli.md)

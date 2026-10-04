@@ -136,15 +136,13 @@ class OpenCodeStageRouterTests(unittest.TestCase):
         self.assertEqual(("terra", True, "scripted_fixture", "non-live"),
                          (receipt["stage"], receipt["repair"], receipt["mode"], receipt["token_class"]))
 
-    def test_allowed_models_are_exact(self):
-        for model in ("openai/gpt-5.6-sol", "glm-5.3", GLM + "-preview", "ZAI-CODING-PLAN/glm-5.3"):
-            with self.subTest(model=model):
-                result = self.invoke(*self.live_args(model=model), stdin=self.prompt())
-                self.assertEqual(125, result.returncode)
-        for model in (GLM, MIMO):
+    def test_router_passes_through_any_configured_model(self):
+        for model in ('mimo-token-plan/mimo-v2.6-pro', 'opencode/mimo-v2.6-flash-free',
+                      'openai/gpt-5.6-sol', 'new-plan/future-model', GLM, MIMO):
             with self.subTest(model=model):
                 result = self.invoke(*self.live_args(model=model), stdin=self.prompt())
                 self.assertEqual(7, result.returncode)
+                self.assertEqual(model, self.read_receipts()[-1]['model'])
 
     def test_recursion_missing_absolute_exec_unknown_stage_and_drift_are_denied(self):
         cases = []

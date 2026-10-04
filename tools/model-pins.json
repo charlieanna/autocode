@@ -4,10 +4,9 @@
   "source": "live opencode models search; user confirmed shortlist",
   "rules": [
     "verifier != producer: OpenAI GPT checks GLM work and GLM checks OpenAI GPT work",
-    "subscription routes only: no free, flash, or highspeed",
     "start on the ladder medium rung where docs say medium; escalate reasoning in-stage when needed",
     "cheap model does the volume, expensive model judges (user 2026-09-29): GLM plans and builds, GPT-6 Sol reviews and checks",
-    "GPT-6 Astra only for the Resolver (user 2026-09-28)"
+    "pins are defaults: all configured model routes may be selected"
   ],
   "roles": {
     "requirements": {
