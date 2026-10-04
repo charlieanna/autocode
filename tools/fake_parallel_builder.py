@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Offline Builder fixture; a rendezvous verifies actual concurrent processes."""
+import hashlib
 import json
 import shlex
 import os
@@ -109,9 +110,23 @@ def main():
         elif name.endswith(".bin"):
             p.write_bytes(b"\x00\xffbinary\x00")
         else:
-            p.write_text(task["milestone_id"] + "\n")
+            content = task["milestone_id"] + "\n"
+            if "Append the SHA-256 digest of the milestone ID." in task["requirements"]:
+                content += hashlib.sha256(task["milestone_id"].encode()).hexdigest() + "\n"
+            p.write_text(content)
             if name.endswith(".sh"):
                 p.chmod(0o755)
+    commands = []
+    if "Verify the output checksum." in task["validation_plan"]:
+        command = [sys.executable, "-c", "import hashlib,sys; from pathlib import Path; "
+                   "rows=[Path(p).read_text().splitlines() for p in sys.argv[1:]]; "
+                   "assert all(len(r)==2 and r[1]==hashlib.sha256(r[0].encode()).hexdigest() for r in rows)", *paths]
+        checked = subprocess.run(command, capture_output=True, text=True)
+        commands.append(shlex.join(command))
+        print(json.dumps({"type": "item.completed", "item": {"id": "checksum", "type": "command_execution",
+              "command": commands[-1], "exit_code": checked.returncode,
+              "aggregated_output": checked.stdout + checked.stderr}}), flush=True)
+        checked.check_returncode()
     if os.environ.get("AUTOCODE_BUILDER_ESCAPE") == task["milestone_id"]:
         Path("outside.txt").write_text("out of scope")
     if os.environ.get("AUTOCODE_BUILDER_STRAY") == task["milestone_id"]:
@@ -124,7 +139,7 @@ def main():
     evidence = Path(data["state_file"]).parent / (task["id"] + "-evidence.txt")
     evidence.write_text("Fixture outputs written: " + ", ".join(paths))
     result = {"summary": "Fixture built " + task["milestone_id"], "changed_files": paths,
-              "commands_run": [], "results": ["Written"], "remaining_risks": [],
+              "commands_run": commands, "results": ["Written"], "remaining_risks": [],
               "evidence_refs": [str(evidence)],
               "addressed_requirements": task["requirements"], "untested_behavior": [], "recommended_checks": [],
               "contract_revision": data["goal_contract"]["revision"], "contract_hash": data["goal_contract"]["hash"],
