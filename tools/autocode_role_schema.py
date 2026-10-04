@@ -60,6 +60,15 @@ def role_schema(legacy, role, *, progressive=False):
             "status": {"type": "string", "enum": ["PASS", "FAIL", "NOT_VERIFIED"]},
             "summary": STRING, "evidence_refs": STRINGS,
         })
+        # Optional for saved reports; new strict responses separate technical proof
+        # from the runner-owned human gate instead of inferring it from summary prose.
+        technical = obj({
+            "status": {"type": "string", "enum": ["PASS", "FAIL", "NOT_VERIFIED"]},
+            "summary": STRING, "evidence_refs": STRINGS,
+        })
+        schema["properties"]["end_to_end_result"]["properties"].update(
+            technical_result={**technical, "type": ["object", "null"]},
+            pending_human_criteria=STRINGS)
         schema["properties"]["finding_dispositions"] = {"type": "array", "items": {
             "type": "object", "additionalProperties": False, "required": ["id", "disposition", "evidence"],
             "properties": {"id": STRING, "disposition": {"type": "string", "enum": ["resolved", "retracted"]},

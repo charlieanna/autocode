@@ -1016,15 +1016,21 @@ def human_only_pending_validation(state, validation, criterion):
 
 
 def flow_awaits_only(flow, human):
-    """The flow passed, or its executed steps have evidence and it names the human gate as what is left.
+    """Require passing technical-flow proof and an exact, separate human gate.
 
-    An approved flow that ends in a person's approval is correctly NOT_VERIFIED before that approval
-    (#195). Naming every pending criterion as a whole token keeps an unexecuted technical step from
-    reading as a review gap."""
+    Summary prose naming human IDs cannot establish that unfinished flow steps
+    are solely human approvals. Older PASS flows retain their existing behavior.
+    """
+    technical = flow.get("technical_result")
+    pending = flow.get("pending_human_criteria") or []
+    technical_ready = (technical is None or (technical.get("status") == "PASS"
+                       and bool(technical.get("summary", "").strip()) and bool(technical.get("evidence_refs"))))
     if flow.get("status") == "PASS":
-        return True
-    return (flow.get("status") == "NOT_VERIFIED" and bool(flow.get("evidence_refs")) and all(
-        re.search(r"(?<![\w-])" + re.escape(cid) + r"(?![\w-])", flow.get("summary", "")) for cid in human))
+        return technical_ready and not pending
+    return (flow.get("status") == "NOT_VERIFIED" and bool(flow.get("evidence_refs"))
+            and bool(flow.get("summary", "").strip())
+            and technical is not None and technical_ready and bool(human)
+            and len(pending) == len(human) and set(pending) == human)
 
 
 def approve_review(state, criterion, selected, current):
