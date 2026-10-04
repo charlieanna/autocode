@@ -60,6 +60,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--approve-review C1 --review-token '…'` | Record a human-review decision for criterion `C1`. |
 | `--investigator-model MODEL`, `--investigator-reasoning-effort LEVEL` | Pin the stuck-stage Investigator's model for this run (default, at high: Claude Opus 5.5 in `kilocode` runs, otherwise GPT-6 Sol, or GLM 5.3 when the stuck stage runs on Sol). A `provider/model` id runs it through OpenCode. See [Workflow](workflow.md#when-a-stage-stops-making-progress). |
 | `--resolver-response provide_information --resolver-request ID --resolver-token '…'` | Answer an Resolver operational request with corrective information. `--resolver-response` requires both `--resolver-request` and `--resolver-token`; the response itself authorizes no retry, approval or budget change. |
+| `--close-finding ID --close-reason '…'` | Close an open reviewer finding as your own decision (repeatable), for example a duplicate of a problem you already settled. Records who closed it and why, and launches no agent. Closing every finding a validation-only stop asked about answers that stop, so the next `--resume-paused` continues. |
 
 ### Execution and recovery
 
@@ -84,6 +85,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--no-progress-limit N` | Unchanged-batch limit (`0` disables; never disables the 3-recovery ceiling). |
 | `--max-iterations N` | Optional total iteration ceiling; new runs default to unlimited, and resumes retain their saved limit. |
 | `--test-command CMD` | The project's test suite command for runner-owned regression proof (default: detected). Correct a saved command with `--resume-paused` at a reconciled pause before the Tester or combined checkpoint; see [Bug fixes](workflow.md#bug-fixes). |
+| `--base-patch PATH` | Bug fixes whose only regression test needs a hook or variable the fix adds: a patch that adds only that instrumentation to the original code, so the test can run and fail there. Pinned by hash, may not change test files, and must be contained in the final change; every proof that uses it asks the Tester and Completion Reviewer to check it changes no behavior. Set it when the run starts, or with `--resume-paused` at a stop before the Tester or a completion check. |
 | `--regression-command CMD` | A command that runs only the fix's new or changed tests (default: derived). Saved corrections require the same pre-validation `--resume-paused` boundary as `--test-command`. |
 
 ### Engine, provider, and models
@@ -172,4 +174,8 @@ A failed read-only workflow job exposes an exact `retry_job` action in status.
 After inspecting the archived attempt, retry with `--resume-paused
 --retry-failed-stage --job-retry-token TOKEN` using its current
 `needs.job_retry_token`. Plain resume does not repeat the job. Unrestored source
-or changed source/model/limits requires a fresh authorized run.
+blocks retry until the exact original source is restored. The CLI verifies file
+bytes, modes and Git HEAD even when a capture artifact is missing; changed
+model/limits still invalidate the retry. An older attempt with no saved original
+identity exposes `recover_source` and an explanation instead of a retry action.
+Inspect its archive and current changes before starting a new run.

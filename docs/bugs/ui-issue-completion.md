@@ -551,3 +551,45 @@ bounded fixes; independent visual review accepted all 18 approved states.
 Evidence and failed/superseded receipts remain local rather than being committed.
 The installed app, user projects, active providers and unrelated runs were not
 used as destructive test fixtures. Merge and installation remain review steps.
+
+## Merged-source completion checks (2026-10-04)
+
+The review branch incorporates master `40297be3`. The four merge conflicts retain
+upstream typed cleanup failures and source-recovery constraints as well as the
+UI work. Independent review checked each resolution.
+
+Integration caught a real direct-CLI dispatch regression: a package-only import
+of `units.common` failed in 16 Resolver tests. The retained failing gate ran
+2,105 cases / 146 modules and isolated that failure. The correction uses the
+existing package/direct import pair without changing sandbox policy. All 79
+focused Resolver, unit-flow and architecture tests then passed; the fresh
+2,105-case / 146-module gate passed on unchanged source.
+
+The new public `recover_source` state now offers inspection and feedback without
+Resume. Both paused states are covered, and actual browser requests to forge
+Resume are refused without changing the saved fixture. The regression fixture
+uses the Investigator stage recorded by the real failure path.
+
+Independent image review also found that project labels could be borrowed from
+another task in the same project. Labels now use the stable project identity
+already used by sidebar groups and scoped creation. The regression failed before
+the fix; multi-task selection, worker-liveness/reordering, removal confirmation
+and browser polling checks now verify the distinction between project and task.
+All 27 standalone Node scripts pass after this bounded UI correction.
+
+The merged dashboard Python gate passed all 405 tests. Fresh affected browser
+flows and native Figma-state captures qualify the final UI source separately;
+no collection count or source hash is treated as visual acceptance. Full
+canonical/harness baseline, skipped live checks and earlier failures above
+remain explicitly recorded. Raw local evidence remains untracked.
+
+The final fake catalog returned zero with 54 PASS, one NOT_EXERCISED Resolver
+route (the task passed its completion oracles without entering Resolver), and
+one explicitly skipped live-model Investigator. The final bounded UI correction
+passed 25 project/sidebar/served-asset Python tests, all 27 Node scripts, and five
+affected actual-browser flows including persistent chat with 200% text sizing.
+Independent review accepted all 18 approved states after inspecting the new
+project labels and recovery-role evidence. The four-file transfer was verified
+byte-for-byte across all 1,428 manifest paths, so the accepted candidate captures
+bind the submitted implementation. All execution receipts report unchanged
+source. CI for the submitted commit remains a separate verification gate.

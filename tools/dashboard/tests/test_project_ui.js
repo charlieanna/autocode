@@ -26,6 +26,14 @@ function harness() {
  return {context,nodes,requests,pending,read:expression=>vm.runInContext(expression,context)};
 }
 async function test() {
+ const labels=harness();
+ labels.read("latestData.runs=[{workspace:'/a/shared',run:'/a/shared/first',task:'First task',monitor:{live:{state:'alive'}}},{workspace:'/a/shared',run:'/a/shared/second',task:'Different selected task'}]");
+ assert.equal(labels.context.projectTitle('/a/shared'),'shared','A project retains its own identity when a different task is active');
+ labels.read("latestData.runs.reverse();latestData.runs[0].monitor={live:{state:'alive'}}");
+ assert.equal(labels.context.projectTitle('/a/shared'),'shared','Polling order and worker liveness cannot rename a project');
+ labels.context.reviewProjectRemoval('/a/shared');
+ assert.equal(labels.nodes.get('#project-removal-name').textContent,'shared','Removal names the project, not one of its tasks');
+ assert.equal(labels.context.projectTitle('/new/New project'),'New project','An empty project has the same naming rule');
  const h=harness(),{context:c}=h;
  // Cancel remains a review-only action, with no API request.
  c.reviewProjectRemoval('/a/shared');assert.equal(h.nodes.get('#project-removal-dialog').open,true);

@@ -133,3 +133,18 @@ class RecoveryViewTests(unittest.TestCase):
         self.assertEqual(('retry_report', '004/validator-01'), (selected['kind'], selected['attempt_id']))
         actions = self.card(self.state('WAITING_FOR_DEPENDENCY'))['actions']
         self.assertEqual(['inspect', 'feedback'], [row['kind'] for row in actions])
+
+    def test_missing_original_job_source_offers_inspection_without_execution(self):
+        for status in ('PAUSED_JOB_FAILURE', 'PAUSED_STAGE_ABANDONED'):
+            with self.subTest(status=status):
+                state = self.state(status, next_stage='investigate_bug', job_failure={
+                    'reason': 'Provider stopped', 'stage': 'investigate_bug',
+                    'attempt_id': '001/bug-investigation-01', 'job_retry_token': 'old',
+                    'archive': '/run/archive', 'source_identity': None,
+                    'write_diagnosis': {'unrestored': ['original source capture']},
+                    'unrestored': ['original source capture']})
+                before = copy.deepcopy(state)
+                card = self.card(state)
+                self.assertEqual(['inspect', 'feedback'], [row['kind'] for row in card['actions']])
+                self.assertIn('original source identity', card['saved_reason'])
+                self.assertEqual(before, state)

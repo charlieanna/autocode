@@ -63,10 +63,11 @@ try:
         authorize_failure_retry, automatically_recover_capacity_stage,
         automatically_recover_external_directory_denial, automatically_recover_report_repair_timeout,
         automatically_recover_timed_out_stage, automatically_recover_truncated_review,
-        prepare_abandoned_completion_revalidation,
+        archive_stale_report_repair, prepare_abandoned_completion_revalidation, stale_report_repair,
         prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
         recover_legacy_report_repair, retry_format_failed_report)
-    from .autocode_activity import ActivityMonitor
+    from .autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT
+    from . import autocode_idle_policy as idle_policy
 except ImportError:
     import autocode_job_source as job_source, autocode_job_failure as job_failure
     import autocode_workspaces as task_workspaces
@@ -95,10 +96,11 @@ except ImportError:
         authorize_failure_retry, automatically_recover_capacity_stage,
         automatically_recover_external_directory_denial, automatically_recover_report_repair_timeout,
         automatically_recover_timed_out_stage, automatically_recover_truncated_review,
-        prepare_abandoned_completion_revalidation,
+        archive_stale_report_repair, prepare_abandoned_completion_revalidation, stale_report_repair,
         prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
         recover_legacy_report_repair, retry_format_failed_report)
-    from autocode_activity import ActivityMonitor
+    from autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT
+    import autocode_idle_policy as idle_policy
 
 
 write_json = stop_policy.state_writer(ordinary_write_json, status_records.persist)
@@ -172,8 +174,9 @@ slug = util.slug
 
 def load_stage_report(record, workspace=None, evidence_record=None, state=None):
     """Validate provider output, retaining raw bytes before hydrating review IDs."""
-    readonly_events.assert_unchanged_review(record)
-    if evidence_record: readonly_events.assert_unchanged_review(evidence_record)
+    readonly_events.assert_unchanged_review(record, workspace=workspace)
+    if evidence_record:
+        readonly_events.assert_unchanged_review(evidence_record, workspace=workspace)
     rework_policy.verify_existing(record)
     if record.get("engine") == "opencode":
         # Raw provider events are authoritative, including during recovery.
@@ -353,6 +356,8 @@ def run_role(
     limits = state["settings"].get("limits", {})
     stage_timeout = limits.get("stage_timeout_seconds")
     idle_timeout = limits.get("idle_timeout_seconds", 300)
+    idle_limit, idle_origin = idle_policy.effective(
+        idle_timeout, state["settings"].get("budget_origins", {}).get("idle_timeout_seconds"), model)
     tool_timeout = limits.get("tool_timeout_seconds", 1800)
     command, child_environment, overrides, worker_context = provider_launch.prepare(
         engine=engine, adapter=opencode, role=role, route_role=route_role, workspace=workspace,
@@ -450,7 +455,9 @@ def run_role(
                 prepared.unlink(missing_ok=True)
             raise
         print(f"{autocode_status.role_name(stage, state)}: started; model={model or 'default'}; log={events}", flush=True)
-        activity = ActivityMonitor(events, idle_seconds=idle_timeout, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage, state), model))
+        activity = ActivityMonitor(events, idle_seconds=idle_limit, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
+                                   idle_origin=idle_origin,
+                                   idle_hint=JOB_IDLE_LIMIT if stage in jobs.STAGES else CHANGE_IDLE_LIMIT)
         activity_label = None
         last_activity_print = 0
         def activity_checkpoint(snapshot):
@@ -462,11 +469,12 @@ def run_role(
             label = (snapshot.get("activity"), snapshot.get("detail"))
             current = time.monotonic()
             if label != activity_label or current - last_activity_print >= 60:
+                stop = snapshot.get("timeout_reason") or (snapshot.get("detail") if snapshot.get("activity") == "stalled" else None)
                 print(f"{autocode_status.role_name(stage, state)}: {snapshot.get('activity', 'waiting_for_provider')}; model={model or 'default'}; "
                       f"elapsed={record['activity']['elapsed_seconds']:g}s; "
-                      f"idle={snapshot.get('idle_seconds', 0):g}s/{idle_timeout or 'off'}; "
+                      f"idle={snapshot.get('idle_seconds', 0):g}s/{idle_limit or 'off'}; "
                       f"tool={snapshot.get('tool_elapsed_seconds', 0) or 0:g}s/{tool_timeout or 'off'}; "
-                      f"stage_limit={stage_timeout or 'off'}", flush=True)
+                      f"stage_limit={stage_timeout or 'off'}" + (f"; {stop}" if stop else ""), flush=True)
                 activity_label, last_activity_print = label, current
         def checkpoint(owned):
             record["processes"] = owned
@@ -646,6 +654,10 @@ def execute_report_repair(state, run_dir, workspace):
                     pending['pins'].setdefault(latest[key], support.file_hash(latest[key]))
         elif pending.get('error') != original.get('rejection_reason'):
             raise support.Paused('PAUSED_STALE_VALIDATION', 'Repair error does not match the saved original report')
+    if stale_report_repair(state, workspace):
+        raise support.Paused('PAUSED_STALE_VALIDATION',
+            f"The source changed after the rejected {original['stage']} report, so its repair cannot run. Resume with "
+            f"--resume-paused to archive the repair (evidence retained) and start a fresh {original['stage']} attempt.")
     if (support.snapshot(workspace)['revision'] != original['source_revision']
             or (state.get('goal_contract') or {}).get('hash') != pending['contract_hash']
             or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending['pins'].items())):
@@ -790,7 +802,8 @@ def timeout_recovery_guard(state):
 def grant_recovery_allowance(state, run_dir, amount, *, previous_settings=None):
     return recovery_grants.grant(state, run_dir, amount, previous_settings=previous_settings,
         current_request=resolver_human.current, count=recovery_count(state),
-        supersede=resolver_human.supersede_operational, persist=write_json)
+        supersede=resolver_human.supersede_operational, persist=write_json,
+        maximum=MAX_AUTOMATIC_RECOVERIES)
 
 
 def repeated_failure_resume_guard(state, workspace, *, authorization=None):
@@ -867,7 +880,11 @@ def reconcile_active(state, run_dir, workspace):
     before = read_json(Path(record["before_ref"]))
     after = support.snapshot(workspace)
     if (record["role"] != "terra" or record.get('report_only')) and before["revision"] != after["revision"]:
-        raise support.Paused("PAUSED_STALE_VALIDATION", "Read-only stage revision changed across interruption")
+        raise support.Paused("PAUSED_STALE_VALIDATION",
+            f"Read-only stage revision changed across interruption: {record['stage']} ran on source "
+            f"{before['revision'][:12]}, the workspace is now at {after['revision'][:12]}; its result is not applied. "
+            f"After inspecting the change, use --abandon-stage {attempt_id(record)} to set the result aside "
+            "(evidence and edits retained), then --resume-paused for a fresh attempt on the current source.")
     base = Path(record["output"]).with_suffix("")
     write_json(base.with_suffix(".after.json"), after)
     record.update(after_ref=str(base.with_suffix(".after.json")), source_revision=after["revision"],
@@ -968,6 +985,10 @@ def accept_completion(state: dict[str, Any], workspace: Path) -> None:
              "acceptance_criteria": [{**c, "status": "verified", "evidence": "Current Validator criterion evidence"}
                                      for c in state["acceptance_criteria"]]}
     if not completion_gate.completion_ready(state, probe, current):
+        stale = completion_gate.stale_validation(state, current)
+        if stale:
+            raise ValueError(f"Validation is stale: {stale}. Resume with --resume-paused to re-validate the current "
+                             "source; completion can be accepted only after that validation passes.")
         raise ValueError("Completion acceptance requires current passing independent evidence for every criterion")
     if goals.missing_human_reviews(state):
         raise ValueError("Completion acceptance requires every required human review to be recorded")

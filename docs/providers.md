@@ -170,8 +170,14 @@ plan_reviewer = { model = "openai/gpt-6-sol", effort = "high" }
 roles break that pauses with `PAUSED_CROSS_MODEL` before any agent is launched.
 
 Placeholders are `{model}`, `{effort}`, `{workspace}`, `{report}`, `{schema}`,
-`{prompt_file}`, `{run_dir}`, `{role}`, and `{sandbox}`. `{sandbox}` is
-`read-only` for planning and review and `workspace-write` for the builder.
+`{prompt_file}`, `{run_dir}`, `{role}`, and `{sandbox}`. The opt-in Codex
+artifact adapter below adds the standalone `{sandbox_args}` argv splice. `{sandbox}` is
+`read-only` for planning, `workspace-write` for the builder, and
+`workspace-write` for the judging stages (Validator, Completion Owner,
+milestone checkpoint): their contract requires writing runner-owned
+operational files under `.autocode/` (capture receipts, reports), which
+`read-only` forbids. Their source contract stays enforced by the runner's
+after-stage workspace snapshot, not by the sandbox.
 `{effort}` reaches the tool only if the command uses it.
 Use `{{` and `}}` for literal braces in a command argument, such as
 `${{VAR}}` or `{{"key":1}}`; single braces are reserved for placeholders.
@@ -184,12 +190,22 @@ Changing the config file or the tool version pauses a saved run.
 - `output = "report_file"` (the default): the tool writes exactly one JSON object
   to `{report}`, as `codex exec -o` does. Every stage starts fresh. Command
   evidence is a `capture_command` receipt file, not an `event:` id. These tools
-  report no token usage, so those counts remain unknown in the usage ledger.
+  need supported usage events for token accounting; otherwise those counts
+  remain unknown in the usage ledger.
 - `output = "opencode_events"`: the tool prints OpenCode-format JSON events, as
   `opencode run --format json` and `kilo run --format json` do. Autocode reads
   the final report, token usage and command exit codes from those events, and
   resumes each role's session with the required `resume` template, for example
   `resume = ["--session", "{session}"]`.
+
+Every structured handoff for these output modes includes an executable
+`capture_command`, including standalone review, design, discuss and investigation
+jobs. Models append `--output .autocode/evidence/<unique-name>.json -- <command>`
+to that value. It uses the public `autocode.py capture` entry point; the
+`autocode_capture_command.py` implementation module is not a standalone command.
+An existing handoff command and its explicit output mode are preserved; the
+supplied default inherits the runner's output-mode environment. This supplies
+tool context without granting additional filesystem permissions.
 
 The runner can fill an omitted check exit code from a unique executed event or
 the cited, verified capture receipt before checking the unchanged report schema.
@@ -201,6 +217,75 @@ from the tool process: the capture helper records it automatically and the
 validator checks it against the saved attempt. Receipts from another attempt,
 missing capture context, or changed output hashes are rejected. Event providers
 continue to require their independent tool-event attestation.
+
+### Codex commands that write capture receipts
+
+A registered `report_file` command that passes `--sandbox read-only` to Codex
+cannot create AutoCode's required capture receipts. For that command, opt in to
+`sandbox_adapter = "codex_artifacts"` and replace the legacy sandbox flag and
+`{sandbox}` value with the standalone `{sandbox_args}` argument:
+
+```toml
+name = "codex_receipts"
+sandbox_adapter = "codex_artifacts"
+command = ["codex", "exec", "--ephemeral", "{sandbox_args}", "-C", "{workspace}", "--model", "{model}", "-c", "model_reasoning_effort=\"{effort}\"", "-c", "approval_policy=\"never\"", "-c", "forced_login_method=\"chatgpt\"", "--output-schema", "{schema}", "-o", "{report}", "--json", "-"]
+prompt = "stdin"
+output = "report_file"
+version_command = ["codex", "--version"]
+
+[roles]
+astra = { model = "gpt-6-sol", effort = "medium" }
+terra = { model = "gpt-6-luna", effort = "medium" }
+sol = { model = "gpt-6-sol", effort = "medium" }
+completion = { model = "gpt-6-sol", effort = "medium" }
+glm = { model = "gpt-6-luna", effort = "medium" }
+plan_reviewer = { model = "gpt-6-sol", effort = "medium" }
+
+[auth]
+command = ["codex", "login", "status"]
+forbid_env = ["OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"]
+[[auth.routes]]
+models = "gpt-"
+pattern = "(?m)^Logged in using (ChatGPT)$"
+expect = "ChatGPT"
+```
+
+Save this as `~/.config/autocode/providers/codex_receipts.toml`, then select it
+with `autocode "Your task" --provider codex_receipts`. Choose models available
+to your login. Requirements inherits the configured Planner (`glm`) model and
+effort; `--requirements-model` and `--requirements-reasoning-effort` still
+provide explicit overrides.
+
+This adapter requires **Codex CLI 0.160.0 or later**, checked before a model
+request. For planning and review it selects a named permission profile derived
+from `:read-only`, adding writes only to the workspace's `.autocode/evidence/`,
+`.autocode/output/`, and the exact assigned stage JSON report. The Builder keeps
+`workspace-write`. Codex's `-o` option saves the final JSON response; the model
+still runs actual capture commands to produce independently checked receipts.
+No permission answer automatically changes this profile.
+
+**Opting in passes `--ignore-user-config` to each Codex invocation.** Global files
+are untouched and the stored login is reused, but user-level configuration,
+plugins, MCP servers and provider defaults are omitted. Supply any required,
+compatible options explicitly in the command. Managed requirements still apply.
+Do not combine the adapter with legacy sandbox flags, additional writable roots,
+configuration profiles or permission-policy overrides. The adapter rejects those
+combinations instead of silently overriding a policy.
+
+Operational paths must be canonical and unaliased. Pre-existing symlinks,
+hard-linked files and special files in the writable operational directories are
+rejected before launch; AutoCode does not delete or rewrite them. A stage report
+must be a JSON file under the run's `iterations/` directory. Existing source
+snapshot, receipt identity, hash, regression-proof and completion checks still
+apply. Language tools that need additional caches must use an allowed operational
+path or a separately configured provider; this adapter does not grant arbitrary
+cache directories.
+
+Existing provider configs and `--engine codex` keep their behavior. Changing a
+saved run's provider config triggers its existing transport-change pause; inspect
+and accept that change through the public recovery command. Permission-profile
+behavior has been exercised on macOS with Codex 0.160.0; other platform/version
+combinations need their own conformance check.
 
 ### Auth checks
 

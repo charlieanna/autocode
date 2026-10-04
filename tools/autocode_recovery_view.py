@@ -170,6 +170,12 @@ def project(state, need=None):
     if terminal:
         actions.append(_action('new_conversation', 'Start a new conversation', 'Keep this stopped conversation and start separate work in the same project.'))
         return result
+    if need.get('kind') == 'recover_source':
+        result['title'] = 'Original source needs inspection'
+        result['what_happened'] = 'This saved attempt has no verifiable original source identity, so an exact retry is unavailable.'
+        result['saved_reason'] = need.get('recovery_hint') or need.get('reason')
+        actions.append(_action('feedback', 'Explain what should change', 'Draft corrective information in chat after inspecting the archived attempt and current source. This does not authorize a retry.'))
+        return result
     active = _dict(state.get('active_stage'))
     uncertain = status in ('PAUSED_PROVIDER_UNCERTAIN', 'PAUSED_UNCERTAIN_STAGE')
     if uncertain and isinstance(active.get('iteration'), int) and active.get('output'):

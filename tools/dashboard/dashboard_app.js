@@ -407,13 +407,7 @@ function taskTitle(run) {
   const first=(raw||recovered||'Untitled task').split(/(?<=[.!?])\s+(?=[A-Z])/)[0];
   return concise(first,86);
 }
-function projectTitle(workspace) {
-  const runs=(latestData?.runs||[]).filter(run=>run.workspace===workspace&&run.run);
-  const named=runs.filter(run=>run.task||run.goal?.body?.intended_outcome);
-  const candidates=named.length?named:runs;
-  const current=candidates.find(run=>run.monitor?.live?.state==='alive')||candidates[0];
-  return current?taskTitle(current):basename(workspace);
-}
+function projectTitle(workspace) { return projectLabel(workspace); }
 // The project's own name (its folder), used for sidebar group headers and the
 // scope shown on new-conversation controls before anything is submitted.
 function projectLabel(workspace) { return basename(workspace); }

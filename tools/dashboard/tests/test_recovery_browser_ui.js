@@ -26,9 +26,13 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
  const button=id=>'#task-attention [data-recovery-action="'+id+'"]';
  const inspect='#task-attention details[data-recovery-inspection] summary';
  const refresh=()=>browser('eval','(async()=>{await refresh();return true})()');
+ const assertIdentity=kind=>{
+  assert.equal(data('()=>document.querySelector("#breadcrumb-title").textContent'),path.basename(fixture.workspace),'The breadcrumb keeps the project identity across task changes and polling');
+  assert.equal(data('()=>document.querySelector("#task-title").textContent'),'Inspect '+kind+' recovery','The selected task retains its separate title');
+ };
  for(const [viewport,width,height]of [['desktop',1440,1024],['tablet',1024,768],['mobile',390,844]]){
   browser('set','viewport',String(width),String(height));
-  const open=kind=>{const name=kind+'-'+viewport;browser('open',fixture.scenarios[name]);wait('typeof latestRun!=="undefined"&&latestRun?.run?.endsWith('+JSON.stringify('/'+name)+')&&!taskReadError&&!!document.querySelector("#task-attention [data-recovery-action]")');};
+  const open=kind=>{const name=kind+'-'+viewport;browser('open',fixture.scenarios[name]);wait('typeof latestRun!=="undefined"&&latestRun?.run?.endsWith('+JSON.stringify('/'+name)+')&&!taskReadError&&!!document.querySelector("#task-attention [data-recovery-action]")');assertIdentity(kind);};
   open('builder');
   const run=data('()=>latestRun.run'),file=path.join(run,'state.json'),before=fs.readFileSync(file);
   assert.ok(run.startsWith(path.join(evidence,'fixture')+path.sep));
@@ -37,7 +41,7 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
   assert.equal(data('()=>document.querySelector('+JSON.stringify(button('retry_builder:M1'))+').disabled'),true);
   click(inspect);
   wait('!document.querySelector('+JSON.stringify(button('retry_builder:M1'))+').disabled');
-  refresh();assert.equal(data('()=>document.querySelector("#task-attention details[data-recovery-inspection]").open'),true,'Polling keeps inspected same-token evidence open');
+  refresh();assertIdentity('builder');assert.equal(data('()=>document.querySelector("#task-attention details[data-recovery-inspection]").open'),true,'Polling keeps inspected same-token evidence open');
   assert.deepEqual(fs.readFileSync(file),before,'Inspection does not change the task');
   const geometry=data('()=>{const e=document.querySelector('+JSON.stringify(button('retry_builder:M1'))+'),r=e.getBoundingClientRect();return {w:r.width,h:r.height,overflow:document.documentElement.scrollWidth>innerWidth}}');
   assert.ok(geometry.w>=44&&geometry.h>=44);assert.equal(geometry.overflow,false);
@@ -76,6 +80,18 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
   assert.deepEqual(data('()=>[...document.querySelectorAll("#task-attention [data-recovery-action]")].map(e=>e.dataset.recoveryAction)'),['inspect','feedback']);
   assert.deepEqual(fs.readFileSync(staleFile),staleBefore,'An absent worker does not grant duplicate execution');
   browser('screenshot',path.join(evidence,viewport+'-stale-worker.png'));
+  open('source');
+  const sourceFile=path.join(data('()=>latestRun.run'),'state.json'),sourceBefore=fs.readFileSync(sourceFile);
+  assert.deepEqual(data('()=>[...document.querySelectorAll("#task-attention [data-recovery-action]")].map(e=>e.dataset.recoveryAction)'),['inspect','feedback']);
+  assert.match(data('()=>document.querySelector("#task-attention").textContent'),/original source identity/);
+  click(inspect);refresh();assertIdentity('source');
+  assert.equal(data('()=>latestRun.interventions.recovery.context.role'),'Investigator');
+  assert.match(data('()=>document.querySelector("#task-attention").textContent'),/Investigator/);
+  const sourceRefusal=JSON.parse(JSON.parse(browser('eval','(async()=>{const r=await fetch("/api/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({workspace:latestRun.workspace,run:latestRun.run,action:"recover_pause",recovery_token:latestRun.interventions.recovery.token,recovery_action:"resume"})});return JSON.stringify({status:r.status,text:await r.text()})})()').trim()));
+  assert.equal(sourceRefusal.status,400);assert.match(sourceRefusal.text,/no longer offered/);
+  assert.deepEqual(fs.readFileSync(sourceFile),sourceBefore,'Missing original identity never grants an execution attempt');
+  assert.equal(data('()=>latestRun.actions?.length||0'),0);
+  browser('screenshot',path.join(evidence,viewport+'-missing-source.png'));
   open('internal');
   const internalFile=path.join(data('()=>latestRun.run'),'state.json'),internalBefore=fs.readFileSync(internalFile);
   assert.match(data('()=>document.querySelector("#task-attention").textContent'),/Awaiting Resolver/);

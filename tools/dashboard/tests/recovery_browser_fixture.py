@@ -30,7 +30,7 @@ def main():
         runs = workspace / '.autocode/runs'
         names = []
         for viewport in ('desktop','tablet','mobile'):
-            for kind in ('builder','interruption','unknown','stopped','internal','stale'):
+            for kind in ('builder','interruption','unknown','stopped','internal','stale','source'):
                 name = kind+'-'+viewport
                 names.append(name)
                 run = runs / name
@@ -57,6 +57,13 @@ def main():
                     state['status'] = 'RUNNING'
                     state['active_stage'] = {'stage':'terra','iteration':31,'output':str(run/'builder-01.json')}
                     state['_fixture_monitor']['live'] = {'state':'exited','label':'Recorded worker exited'}
+                elif kind == 'source':
+                    state['status'] = 'PAUSED_STAGE_ABANDONED'
+                    state['next_stage'] = 'investigate_bug'
+                    state['job_failure'] = {'reason': 'Provider stopped', 'stage': 'investigate_bug',
+                        'attempt_id': '001/bug-investigation-01', 'job_retry_token': 'historical-token',
+                        'archive': str(run / 'archive'), 'source_identity': None,
+                        'write_diagnosis': {}, 'unrestored': ['original source capture']}
                 elif kind == 'internal':
                     state['status'] = 'WAITING_FOR_USER'
                     state['pending_questions'] = [{'id':'internal-question','question':'Unpublished internal question?'}]

@@ -17,14 +17,20 @@ import subprocess
 import tomllib
 
 try:
-    from . import env_prep, opencode as _opencode_events
+    from . import codex_sandbox, env_prep, opencode as _opencode_events
 except ImportError:  # Script-style execution from tools/.
-    from providers import env_prep, opencode as _opencode_events
+    from providers import codex_sandbox, env_prep, opencode as _opencode_events
+
+
+try:
+    from .. import autocode_tool_handoff as tool_handoff
+except ImportError:
+    import autocode_tool_handoff as tool_handoff
 
 
 REQUIRED_ROLES = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
-PLACEHOLDERS = {"model", "effort", "workspace", "report", "schema", "prompt_file", "run_dir", "role", "sandbox"}
-RESUME_PLACEHOLDERS = PLACEHOLDERS | {"session"}
+PLACEHOLDERS = {"model", "effort", "workspace", "report", "schema", "prompt_file", "run_dir", "role", "sandbox", "sandbox_args"}
+RESUME_PLACEHOLDERS = (PLACEHOLDERS - {"sandbox_args"}) | {"session"}
 OUTPUTS = ("report_file", "opencode_events")
 _PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
 _NAME = re.compile(r"[a-z][a-z0-9_]{0,62}$")
@@ -46,6 +52,9 @@ class CommandProvider:
         self.PROMPT_MODE = config.get("prompt", "stdin")
         self.DEFAULT_MODELS = {role: spec["model"] for role, spec in config["roles"].items()}
         self.DEFAULT_REASONING_EFFORTS = {role: spec["effort"] for role, spec in config["roles"].items()}
+        if "glm" in self.DEFAULT_MODELS:
+            self.DEFAULT_MODELS["requirements"] = self.DEFAULT_MODELS["glm"]
+            self.DEFAULT_REASONING_EFFORTS["requirements"] = self.DEFAULT_REASONING_EFFORTS["glm"]
         # The models the config lists, or None when it lists them with models_command or not at all.
         self.LISTED_MODELS = config.get("models")
 
@@ -73,6 +82,8 @@ class CommandProvider:
             if result.returncode:
                 raise RuntimeError(f"{self._config['name']} version command failed; no agent was launched")
             version = (result.stdout or result.stderr).strip()
+        if self._config.get("sandbox_adapter") == codex_sandbox.ADAPTER:
+            codex_sandbox.check_version(version)
         return {
             "engine": self._config["name"],
             "identity_version": 1,
@@ -152,7 +163,12 @@ class CommandProvider:
             "role": role,
             "sandbox": sandbox,
         }
-        command = [self._fill(part, values) for part in self._config["command"]]
+        command = []
+        for part in self._config["command"]:
+            if part == codex_sandbox.TOKEN:
+                command.extend(codex_sandbox.arguments(sandbox, workspace, run_dir, report))
+            else:
+                command.append(self._fill(part, values))
         if session and self.SUPPORTS_SESSIONS:
             command += [self._fill(part, {**values, "session": session}, RESUME_PLACEHOLDERS)
                         for part in self._config["resume"]]
@@ -161,10 +177,14 @@ class CommandProvider:
     def prompt_for_schema(self, prompt, schema, events):
         if self.OUTPUT == "opencode_events":
             return _opencode_events.prompt_for_schema(prompt, schema, events)
+        prompt = tool_handoff.with_capture_command(prompt)
         report = str(Path(events).with_suffix(".json"))
+        persistence = "Write your final report as exactly one JSON object to this file: " + report + "\n"
+        if self._config.get("sandbox_adapter") == codex_sandbox.ADAPTER:
+            persistence = ("Return exactly one JSON object as your final response. Codex persists it at "
+                           + report + "; no shell write of the final report is required.\n")
         instructions = (
-            "\nTOOL OUTPUT CONTRACT\n"
-            "Write your final report as exactly one JSON object to this file: " + report + "\n"
+            "\nTOOL OUTPUT CONTRACT\n" + persistence +
             "Do not wrap it in explanation. The runner reads that file and validates every required field.\n"
             "Cite command evidence only through capture_command receipt files. Do not cite event: IDs. "
             "Use the capture_command in CURRENT HANDOFF DATA with "
@@ -333,6 +353,7 @@ def _validate(name: str, config: dict) -> None:
             raise ValueError(f"{key} must be an array of non-empty strings")
     if "models" in config and not config["models"]:
         raise ValueError("models must list at least one model")
+    codex_sandbox.validate(config)
     if "auth" in config:
         _validate_auth(config["auth"])
 
@@ -372,6 +393,8 @@ def _validate_auth(auth) -> None:
 def _validate_template(parts, allowed) -> None:
     for part in parts:
         masked = _mask_literal_braces(part)
+        if "sandbox_args" in _PLACEHOLDER.findall(masked) and part != codex_sandbox.TOKEN:
+            raise ValueError('{sandbox_args} must be a standalone command argument')
         unknown = set(_PLACEHOLDER.findall(masked)) - allowed
         if unknown:
             raise ValueError("unknown command placeholder " + ", ".join("{" + item + "}" for item in sorted(unknown)))

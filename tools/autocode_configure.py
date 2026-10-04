@@ -24,6 +24,7 @@ try:
     from . import autocode_retired_token_budget as retired_token_budget, autocode_design_manifest as design_manifest
     from . import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
     from . import autocode_task_preflight as task_preflight, autocode_output_policy as output_policy
+    from . import autocode_base_patch as operator_patch
 except ImportError:
     import autocode_support as support, autocode_goals as goals, autocode_providers
     import autocode_opencode, autocode_figma as figma
@@ -31,6 +32,7 @@ except ImportError:
     import autocode_retired_token_budget as retired_token_budget, autocode_design_manifest as design_manifest
     import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
     import autocode_task_preflight as task_preflight, autocode_output_policy as output_policy
+    import autocode_base_patch as operator_patch
 
 DEFAULT_ROLE_MODELS = {
     "astra": "gpt-5.6-sol",
@@ -255,6 +257,7 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
             settings["orchestration"]["max_parallel"] = args.max_parallel_builders
         settings = autopilot.stuck.configure(settings, args)
         settings = verification_config.configure_resume(state, settings, args)
+        settings = operator_patch.configure_resume(state, settings, args)
         return task_preflight.configure(state, output_policy.configure(state, settings, args), args)
     if engine == "opencode":
         local = opencode.local_settings(state["workspace"])
@@ -295,7 +298,9 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
                     if getattr(args, 'max_milestone_replans', None) is not None else milestones.DEFAULTS['max_replans'])},
             "headroom": {"enabled": args.headroom == "on", "verified": False},
             "regression": {key: value for key, value in (("test_command", getattr(args, "test_command", None)),
-                           ("regression_command", getattr(args, "regression_command", None))) if value},
+                           ("regression_command", getattr(args, "regression_command", None)),
+                           ("base_patch", getattr(args, "base_patch", None) and operator_patch.pin(
+                               args.base_patch, state["workspace"], state.get("base_commit")))) if value},
             "context_soft_tokens": args.context_soft_tokens if args.context_soft_tokens is not None else 10000,
             "rotation_after_input_tokens": args.rotate_after_input_tokens if args.rotate_after_input_tokens is not None else 1000000,
             "limits": {"iteration_ceiling": args.legacy_iteration_ceiling if args.legacy_iteration_ceiling is not None
