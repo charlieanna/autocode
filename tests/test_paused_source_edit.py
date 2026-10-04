@@ -10,6 +10,7 @@ import unittest
 import autocode as runner
 import autocode_completion as completion_gate
 import autocode_goal_lifecycle as lifecycle
+import autocode_resolver_human as resolver_human
 import autocode_support as s
 from goal_fixtures import body, envelope
 from tests import test_goals
@@ -125,6 +126,8 @@ class PausedSourceEditTests(unittest.TestCase):
 
     def queue_validator_report_repair(self):
         self.state["settings"]["report_repair"] = {"max_attempts": 2}
+        # run_role saves the provider session before the runner reads (and here rejects) the report.
+        self.state.setdefault("sessions", {})["sol"] = "sol-session"
         with self.assertRaises(runner.ReportRepairQueued):
             runner.reject_completed_stage(self.state, self.run, self.completed_validator_attempt(),
                                           ValueError("Missing summary"))
@@ -151,6 +154,44 @@ class PausedSourceEditTests(unittest.TestCase):
         self.assertNotIn("pending_report_repair", self.state)
         self.assertEqual(pending, self.state["report_repair_archive"][-1]["repair"])
         self.assertTrue(all(Path(path).is_file() for path in pending["pins"]))
+        # The fresh attempt does not resume the session that judged the old source.
+        self.assertNotIn("sol", self.state["sessions"])
+        self.assertEqual("sol-session", self.state["session_rotations"][-1]["old_session"])
+
+    def exhausted_report_repair_published_after_a_source_edit(self):
+        """The repair's attempts ran out at the same error (reject_completed_stage keeps the repair and pauses
+        for repeated failure), the operator edited the source, and a plain invocation published AutoResolver's
+        operational request."""
+        pending = self.queue_validator_report_repair()
+        pending["attempts"] = self.state["pending_report_repair"]["attempts"] = 2
+        self.state.update(status="PAUSED_REPEATED_FAILURE", phase="PAUSED_OR_BLOCKED",
+                          stop_reason="Completed sol output was rejected (Missing summary); attempt archived. "
+                                      "Consecutive attempts at this source failed with the same error.")
+        self.edit_test_file()
+        self.assertEqual(2, self.invoke("--no-chat"))
+        request = resolver_human.current(self.state)
+        self.assertEqual(("WAITING_FOR_USER", "operational_exhaustion"), (self.state["status"], request["scope"]))
+        return pending, request
+
+    def test_resume_leaves_a_published_operational_request_and_its_stale_repair_alone(self):
+        # Issue #302 review: an interactive resume archived the repair, withdrew AutoResolver's request as a side
+        # effect and launched the Validator, although the same command with --no-chat (rightly) held.
+        self.approve()
+        lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
+        pending, request = self.exhausted_report_repair_published_after_a_source_edit()
+        calls, provider = self.provider([])
+
+        self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
+        self.assertIn("AutoResolver retained the operational request", self.stdout)
+        self.assertEqual(request, resolver_human.current(self.state))
+        self.assertEqual(2, self.invoke("--resume-paused", "--chat", role=provider))
+
+        self.assertEqual([], calls)
+        escalation = self.state["resolver"]["human_escalations"][request["request_id"]]
+        self.assertEqual("pending", escalation["status"])  # answered or withdrawn only by its own actions
+        self.assertEqual(pending["original"], self.state["pending_report_repair"]["original"])
+        self.assertNotIn("report_repair_archive", self.state)
+        self.assertEqual("sol-session", self.state["sessions"]["sol"])
 
     def test_resume_of_an_interrupted_stale_report_repair_starts_the_stage_afresh(self):
         self.approve()
@@ -179,6 +220,24 @@ class PausedSourceEditTests(unittest.TestCase):
         self.assertEqual(pending, self.state["pending_report_repair"])
         self.assertNotIn("report_repair_archive", self.state)
 
+    def test_only_a_moved_source_makes_a_repair_stale(self):
+        self.approve()
+        lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
+        self.queue_validator_report_repair()
+        self.assertIsNone(runner.stale_report_repair(self.state, self.root))  # same source: the repair still runs
+        old, new = self.edit_test_file()
+        self.assertEqual((old, new), runner.stale_report_repair(self.state, self.root))
+        changes = {"an attempt is still active": {"active_stage": {"stage": "sol"}},
+                   "uncertain artifacts await reconciliation": {"uncertain_artifacts": [{"path": "x"}]},
+                   "the goal changed": {"goal_contract": {**self.state["goal_contract"], "hash": "another-goal"}},
+                   "another stage is next": {"next_stage": "astra_review"},
+                   "a person is asked": {"status": "WAITING_FOR_USER"},
+                   "an AutoResolver request is published": {resolver_human.PUBLIC: {"scope": "operational_exhaustion"}},
+                   "an AutoResolver request is queued": {resolver_human.PRIVATE: {"scope": "blocker"}}}
+        for why, change in changes.items():
+            with self.subTest(why):
+                self.assertIsNone(runner.stale_report_repair({**copy.deepcopy(self.state), **change}, self.root))
+
     def test_read_only_result_left_stale_by_a_source_edit_names_the_abandon_step(self):
         self.approve()
         lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
@@ -199,19 +258,18 @@ class PausedSourceEditTests(unittest.TestCase):
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
         self.assertEqual([("sol", False)], [(call["stage"], call["report_only"]) for call in calls])
 
-    def assert_recovered_result_set_aside_then_retried(self, record):
+    def assert_recovered_result_set_aside(self, record, why):
         self.state.update(status="PAUSED_INTERRUPTED", phase="PAUSED_OR_BLOCKED", next_stage="sol", active_stage=record)
         calls, provider = self.provider([])
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
         self.assertEqual([], calls)
         self.assertNotIn(self.state["status"], ("PAUSED_STALE_GOAL", "PAUSED_STALE_TASK"))
-        self.assertIn("attempt archived", self.state["stop_reason"])
+        self.assertIn(f"Completed sol output was rejected ({why}); attempt archived", self.state["stop_reason"])
+        self.assertEqual(why, self.state["stages"][-1]["rejection_reason"])
         self.assertNotIn("validation", self.state)
         self.assertNotIn("active_stage", self.state)
         self.assertTrue(self.state["stages"][-1]["rejected"])
-
-        self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
-        self.assertEqual([("sol", False)], [(call["stage"], call["report_only"]) for call in calls])
+        return calls, provider
 
     def test_resume_never_applies_a_recovered_result_of_another_task(self):
         self.approve()
@@ -220,7 +278,11 @@ class PausedSourceEditTests(unittest.TestCase):
         follow_up = copy.deepcopy(self.decision())
         follow_up["next_objective"] = "Validate again"
         lifecycle.assign_task(self.state, follow_up, s.snapshot(self.root))
-        self.assert_recovered_result_set_aside_then_retried(record)
+        calls, provider = self.assert_recovered_result_set_aside(
+            record, "Role result belongs to another implementation task")
+
+        self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
+        self.assertEqual([("sol", False)], [(call["stage"], call["report_only"]) for call in calls])
 
     def test_resume_never_applies_a_recovered_result_of_another_goal_revision(self):
         self.approve()
@@ -232,7 +294,7 @@ class PausedSourceEditTests(unittest.TestCase):
         lifecycle.human.evaluate(self.state)
         lifecycle.present(self.state)
         lifecycle.approve(self.state, runner.goals.token(self.state["goal_contract"]))
-        self.assert_recovered_result_set_aside_then_retried(record)
+        self.assert_recovered_result_set_aside(record, "Role result belongs to another goal revision")
 
 
 class StaleValidationTests(unittest.TestCase):

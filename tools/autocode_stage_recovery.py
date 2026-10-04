@@ -706,15 +706,24 @@ def stale_report_repair(state, workspace):
     """(repaired source, current source) when only the source moved under a queued report repair, else None.
 
     A repair restates the original report for the source that attempt ran on, so after an operator
-    edit it can never run (issue #302). A changed goal or changed pinned evidence is not this case."""
+    edit it can never run (issue #302). A changed goal or changed pinned evidence is not this case.
+    Neither is a run waiting on a person: an AutoResolver operational request, even one a source edit
+    made stale, is answered or withdrawn only through its own actions, never as a side effect of
+    resuming (archiving would also change the frontier the request is bound to)."""
     pending = state.get('pending_report_repair')
-    if not isinstance(pending, dict) or any(state.get(key) for key in ('active_stage', 'uncertain_artifacts')):
+    status = str(state.get('status') or '')
+    if (not isinstance(pending, dict) or any(state.get(key) for key in ('active_stage', 'uncertain_artifacts'))
+            or not (status == 'RUNNING' or status.startswith('PAUSED_'))
+            or (state.get(resolver_human.PUBLIC) or {}).get('scope') in ('operational_exhaustion', 'blocker')
+            or state.get(resolver_human.PRIVATE)):
         return None
     original = pending.get('original') or {}
     checked = original.get('source_revision')
+    if (not checked or original.get('stage') != state.get('next_stage')
+            or (state.get('goal_contract') or {}).get('hash') != pending.get('contract_hash')):
+        return None
     revision = support.snapshot(workspace)['revision']
-    if (not checked or checked == revision or original.get('stage') != state.get('next_stage')
-            or (state.get('goal_contract') or {}).get('hash') != pending.get('contract_hash')
+    if (checked == revision
             or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending.get('pins', {}).items())):
         return None
     return checked, revision
@@ -723,7 +732,9 @@ def stale_report_repair(state, workspace):
 def archive_stale_report_repair(state, run_dir, workspace):
     """On an explicit resume, archive (never delete) a stale report repair so the same stage starts afresh.
 
-    Returns the message to show, or None when stale_report_repair does not apply."""
+    The role's saved session judged the old source, so it is rotated like an exhausted repair's
+    (prepare_exhausted_execution_report_retry). Returns the message to show, or None when
+    stale_report_repair does not apply."""
     stale = stale_report_repair(state, workspace)
     if not stale:
         return None
@@ -732,12 +743,16 @@ def archive_stale_report_repair(state, run_dir, workspace):
     stage = original['stage']
     message = (f"Discarded stale {stage} report repair from source {checked[:12]}; the workspace is now at "
                f"{revision[:12]}. A fresh {stage} attempt runs on the current source.")
+    reason = 'Source changed while paused; the repair no longer applies'
     state.setdefault('report_repair_archive', []).append({
-        'at': records.now(), 'reason': 'Source changed while paused; the repair no longer applies',
-        'repair': state.pop('pending_report_repair')})
+        'at': records.now(), 'reason': reason, 'repair': state.pop('pending_report_repair')})
+    role = original.get('route_role') or original.get('role')
+    old = state.setdefault('sessions', {}).pop(role, None) if role else None
+    if old:
+        state.setdefault('session_rotations', []).append(
+            {'role': role, 'old_session': old, 'at': records.now(), 'reason': reason})
     state.setdefault('reconciliation_notes', []).append({
         'at': records.now(), 'stage': stage, 'iteration': original.get('iteration'), 'reason': message})
-    resolver_human.supersede_operational(state, 'A stale report repair was archived after a source change')
     records.write_json(Path(run_dir) / 'state.json', state)
     return message
 

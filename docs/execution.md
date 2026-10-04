@@ -492,7 +492,9 @@ An execution report whose two read-only repairs are exhausted can be retried wit
 session; it does not replay implementation or planning. When the source changes
 while a run is paused (an operator edit), a queued report repair can no longer
 run: `--resume-paused` archives it, evidence intact, and starts a fresh attempt
-of the same stage on the current source. A finished read-only response that was
+of the same stage, in a new provider session, on the current source. It does
+not do this while an AutoResolver operational request is published or queued:
+that request is answered or withdrawn only through its own actions. A finished read-only response that was
 never applied stays paused instead, and its message names the `--abandon-stage`
 step. `--accept-completion` refuses a validation of another source, goal
 revision or task and says so; resume to re-validate first. A transport-change pause
