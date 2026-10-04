@@ -66,7 +66,8 @@ class StatusTests(unittest.TestCase):
         self.assertEqual('Tester', status.role_name('sol'))
         self.assertEqual('Completion Reviewer', status.role_name('astra_review'))
         self.assertEqual('', status.role_name(None))
-        self.assertEqual('Astra Diagnose', status.role_name('astra_diagnose'))
+        self.assertEqual('Resolver', status.role_name('astra_diagnose'))
+        self.assertEqual('Unlisted Stage', status.role_name('unlisted_stage'))  # unknown stages title-case
 
     def test_running_stage_shows_the_launched_model(self):
         self.state['active_stage']['launch_route'] = {'model': 'gpt-x'}
@@ -182,6 +183,10 @@ class StaleCheckpointTests(unittest.TestCase):
         # operator --abandon-stage hint; the exact attempt is still named.
         self.assertIn('AutoResolver must reconcile', payload['next_action'])
         self.assertIn(payload['attempt_id'], payload['next_action'])
+        # The progress line does not call a stage with dead workers "working" (#29).
+        progress = payload['view']['progress']
+        self.assertTrue(progress['headline'].endswith('stopped without saving a report'), progress['headline'])
+        self.assertEqual(payload['next_action'], progress['needs_you'])
         self.assertIn('STALE CHECKPOINT', result.stderr)
         self.assertEqual(before, self.state_path.read_bytes())
 
