@@ -131,6 +131,9 @@ def _stop(state, stalled, revision, window, count):
         and str(row.get("rejection_reason") or "").strip()))
     ids = ", ".join(sorted(row["id"] for row in stalled))
     why = "; ".join(_why(row) for row in sorted(stalled, key=lambda row: row["id"]))
+    settled = _settled_matches(state, stalled)
+    if settled:
+        why += ". " + "; ".join(settled)
     if rejected:
         why += ". Rejected Validator reports in these rounds: " + "; ".join(rejected)
     reason = (f"{count} validation-only rounds at source {revision[:12]} made no progress on blocking "
@@ -141,8 +144,25 @@ def _stop(state, stalled, revision, window, count):
                "decision_needed": (f"Blocking finding(s) {ids} stayed open through {count} validation-only "
                                    "rounds at this source. What must change before they are rechecked? Answering "
                                    "keeps the run paused and launches no Validator; to continue instead, revise "
-                                   "the goal with --feedback."),
+                                   "the goal with --feedback, or, if a finding no longer applies (for example a "
+                                   "duplicate of one already settled), close it with --close-finding ID "
+                                   "--close-reason TEXT."),
                "options": ["Provide corrective information", "Leave paused"],
+               "finding_ids": sorted(row["id"] for row in stalled),
                "proposed_delta": "Answering closes no finding and does not authorize a retry, approval, "
                                  "permission or budget change."}
     return {"reason": reason, "request": request}
+
+
+def _settled_matches(state, stalled):
+    """A hint, never a closure: stalled findings with the same text or evidence as a resolved one."""
+    resolved = [row for row in state.get("findings_ledger", []) if row.get("status") == "resolved"]
+    hints = []
+    for row in sorted(stalled, key=lambda row: row["id"]):
+        same = [other["id"] for other in resolved
+                if (row.get("finding") and other.get("finding") == row.get("finding"))
+                or (row.get("evidence") and other.get("evidence") == row.get("evidence"))]
+        if same:
+            hints.append(f"{row['id']} has the same finding or evidence as resolved {', '.join(same)}; if it is the "
+                         f"same problem, close it with --close-finding {row['id']} --close-reason TEXT")
+    return hints

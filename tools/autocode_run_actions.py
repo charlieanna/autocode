@@ -20,6 +20,7 @@ try:
     from . import autocode_dependency as dependency
     from . import autocode_conversation_ingress as conversation_ingress
     from . import autocode_dispatch as dispatch
+    from . import autocode_finding_close as finding_close
     from . import autocode_follow_up as follow_up
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
@@ -42,6 +43,7 @@ except ImportError:
     import autocode_dependency as dependency
     import autocode_conversation_ingress as conversation_ingress
     import autocode_dispatch as dispatch
+    import autocode_finding_close as finding_close
     import autocode_follow_up as follow_up
     import autocode_goals as goals
     import autocode_interventions as interventions
@@ -113,7 +115,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     decision_action = any((args.answer, args.delegate, args.approve_goal, args.edit_goal,
                            args.approve_review, args.reconcile_review, args.feedback is not None, args.follow_up is not None,
                            args.show_goal, args.accept_completion, args.resolver_response,
-                           args.planning_review_call_limit is not None))
+                           args.planning_review_call_limit is not None, bool(args.close_finding)))
     if (args.resume_paused and not decision_action and not explicit_recovery_requested(args)
             and recovery_progress.reconcile(state, issued=resolver_human.current(state),
                 approved=goals.approved(state), supersede=resolver_human.supersede_operational,
@@ -358,7 +360,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                        args.approve_goal, args.edit_goal,
                        args.approve_review, args.reconcile_review,
                        args.feedback is not None, args.follow_up is not None, args.accept_completion,
-                       args.planning_review_call_limit is not None))
+                       args.planning_review_call_limit is not None, bool(args.close_finding)))
     if user_action:
         metadata = runner.intervention_metadata(workspace, run_dir, state)
         if metadata["pending_count"] or metadata["inbox_error"]:
@@ -427,6 +429,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                                               args.review_token, support.snapshot(workspace))
             if args.accept_completion:
                 runner.accept_completion(candidate, workspace)
+            if args.close_finding:
+                finding_close.close(candidate, args.close_finding, args.close_reason,
+                                    current=resolver_human.current, supersede=resolver_human.supersede_operational)
             if published and any((args.answer, args.delegate, args.approve_goal, args.approve_review)):
                 runner.finish_human_action(candidate, published)
         except (ValueError, KeyError) as error:
