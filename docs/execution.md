@@ -373,6 +373,17 @@ independent milestone evidence remains mandatory.
 CLI updates and `--status`'s `active_stage.activity` show provider/tool activity,
 elapsed and idle time, active tool time, applicable limits and an observation
 timestamp. A saved observation does not prove a recorded worker is still alive.
+`longest_idle_seconds` is the longest quiet period that ended with new activity or
+a tool start (the open one is `idle_seconds`), so earlier silences can be compared
+with the limit before changing it. An inactivity stop names its limit, whether that
+is the runner default or was set explicitly, and how to change it (`--resume-paused
+--max-idle-seconds N`). Once the automatic recovery allowance is spent, the new
+limit is saved but no provider launches until `--grant-recovery N` is also given.
+A workflow job's stop (review, design, design check, bug investigation, question,
+stuck-stage investigation) says instead that its exact retry runs under the same
+limit: that retry is bound to the limits the job ran under, so a changed limit
+would make it stale. AutoResolver never changes this limit, even when limits were
+delegated to it.
 The task conversation also receives durable role-based progress messages: stage
 transitions, blockers with next steps, completion, and a heartbeat every 60 seconds
 while the code runner observes an active stage or Builder batch. Parallel-worker
@@ -489,7 +500,15 @@ first.
 
 An execution report whose two read-only repairs are exhausted can be retried with
 `--resume-paused`. Autocode archives the rejected reports and starts a fresh role
-session; it does not replay implementation or planning. A transport-change pause
+session; it does not replay implementation or planning. When the source changes
+while a run is paused (an operator edit), a queued report repair can no longer
+run: `--resume-paused` archives it, evidence intact, and starts a fresh attempt
+of the same stage, in a new provider session, on the current source. It does
+not do this while an AutoResolver operational request is published or queued:
+that request is answered or withdrawn only through its own actions. A finished read-only response that was
+never applied stays paused instead, and its message names the `--abandon-stage`
+step. `--accept-completion` refuses a validation of another source, goal
+revision or task and says so; resume to re-validate first. A transport-change pause
 can be resumed with `--resume-paused --accept-transport-change` after Autocode checks
 that the current OpenCode models and subscription routes are available.
 

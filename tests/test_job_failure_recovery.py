@@ -90,6 +90,10 @@ if mode not in ('success','terminal','abandon','exit42','capacity','rate','exter
  def deadline(child, seconds, checkpoint, *, activity=None, **kwargs):
   code=child.wait(timeout=10);checkpoint([])
   if mode=='cleanup':raise autocode.processes.ProcessError('injected cleanup cannot be proved')
+  if mode=='idle':
+   # Move the real monitor run_role built past its limit: its own reason is the stop reason.
+   later=activity.clock()+activity.idle_limit;activity.clock=lambda:later
+   activity.timeout=activity.expired();return code,True
   activity.timeout={'kind':'stage','reason':f'Stage exceeded its {seconds}-second hard runtime limit (injected clock)'}
   return code,True
  autocode.processes.wait_for_stage=deadline
@@ -183,6 +187,17 @@ class JobFailureTaskRunTests(unittest.TestCase):
         self.assertEqual(4,len([e for e in events if e.get('type')=='item.completed']))
         finished=[json.loads(line) for line in (run.run_dir/'activity.jsonl').read_text().splitlines() if json.loads(line).get('event')=='stage_finished' and json.loads(line).get('stage')=='review_change']
         self.assertEqual(1,len(finished));self.assertTrue(finished[0]['timed_out']);self.assertEqual(-15,finished[0]['exit_code']);self.assertEqual(0,finished[0]['changed_files'])
+
+    def test_idle_stop_of_a_job_names_its_limit_and_the_retry_that_keeps_it(self):
+        # #298 review: the generic advice (--resume-paused --max-idle-seconds N) saves a new limit, and
+        # a changed limit makes this job's exact retry stale, so a job's idle stop must not offer it.
+        options=list(self.options);options[options.index('--max-idle-seconds')+1]='240';self.options=tuple(options)
+        run=self.start('idle');need=self.paused(run)
+        self.assertIn('Reviewer: No new provider activity within the inactivity limit (240 seconds, set explicitly; '
+                      'an exact job retry runs under the same limit; a different limit needs a new run)',need['reason'])
+        self.assertNotIn('--max-idle-seconds',need['reason'])
+        run.env['JOB_MODE']='success'
+        view=run.retry_job(need['job_retry_token']);self.assertTrue(view['done'],view);self.assertEqual(2,self.count())
 
     def test_t2_abandon_names_the_owning_reviewer_and_retains_fragments(self):
         run=self.start('abandon')
