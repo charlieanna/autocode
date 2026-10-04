@@ -388,7 +388,7 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
             limit = snapshot.get(kind + "_limit_seconds", 0)
             if limit and elapsed + lag >= limit:
                 reason = (f"Tool execution exceeded its fixed time limit ({limit:g} seconds)" if kind == "tool"
-                          else idle_timeout_reason(limit, getattr(activity, "idle_origin", None)))
+                          else getattr(activity, "idle_reason", idle_timeout_reason)(limit))
                 stop_at_deadline({"kind": kind, "reason": reason})
                 return
             if stopped.wait(.05):

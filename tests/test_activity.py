@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from autocode_activity import ActivityMonitor, idle_timeout_reason
+from autocode_activity import ActivityMonitor, JOB_IDLE_LIMIT, idle_timeout_reason
 
 
 class ActivityTests(unittest.TestCase):
@@ -391,6 +391,21 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(('stalled', reason), (self.monitor.snapshot()['activity'], self.monitor.snapshot()['detail']))
         self.assertIn('(90 seconds, set explicitly; change it', idle_timeout_reason(90, 'user_explicit'))
         self.assertIn('(300 seconds; change it with --resume-paused --max-idle-seconds N)', idle_timeout_reason(300))
+        # AutoResolver never extends this limit, so a delegated one must not suggest it will.
+        self.assertIn('(300 seconds, delegated to AutoResolver, which does not change it; change it',
+                      idle_timeout_reason(300, 'resolver_delegated'))
+
+    def test_a_workflow_jobs_idle_stop_names_its_exact_retry_not_a_limit_change(self):
+        # A job's exact retry is bound to its limits, so changing the limit on resume would make it stale.
+        job = ActivityMonitor(self.path, idle_seconds=300, clock=lambda: self.now, idle_origin='runner_default',
+                              idle_hint=JOB_IDLE_LIMIT)
+        self.now = 300
+        reason = job.expired()['reason']
+        self.assertEqual('No new provider activity within the inactivity limit (300 seconds, runner default; an exact '
+                         'job retry runs under the same limit; a different limit needs a new run)', reason)
+        self.assertNotIn('--max-idle-seconds', reason)
+        self.assertEqual(reason, job.idle_reason())
+        self.assertIn('(240 seconds, runner default; an exact job retry', job.idle_reason(240))
 
     def test_deduplication_cache_saturation_never_evicts_old_credit(self):
         self.monitor.MAX_SEEN = 2

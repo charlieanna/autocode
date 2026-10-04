@@ -19,14 +19,20 @@ import time
 
 
 IDLE_REASON = "No new provider activity within the inactivity limit"
+CHANGE_IDLE_LIMIT = "change it with --resume-paused --max-idle-seconds N"
+# A workflow job's exact retry is bound to the limits it ran under (autocode_job_failure), so
+# changing the limit on resume would only make that retry stale.
+JOB_IDLE_LIMIT = "an exact job retry runs under the same limit; a different limit needs a new run"
+# AutoResolver extends only time, iteration and planning budgets, never this limit (autocode_budget_recovery).
 _ORIGINS = {"runner_default": "runner default", "user_explicit": "set explicitly",
-            "resolver_delegated": "delegated to AutoResolver"}
+            "resolver_delegated": "delegated to AutoResolver, which does not change it"}
 
 
-def idle_timeout_reason(limit, origin=None):
-    """Operator text for an idle stop: the limit, where it came from and how to change it."""
+def idle_timeout_reason(limit, origin=None, hint=CHANGE_IDLE_LIMIT):
+    """Operator text for an idle stop: the limit, where it came from and what to do about it."""
     source = f", {_ORIGINS.get(origin, origin)}" if origin else ""
-    return f"{IDLE_REASON} ({limit:g} seconds{source}; change it with --resume-paused --max-idle-seconds N)"
+    advice = f"; {hint}" if hint else ""
+    return f"{IDLE_REASON} ({limit:g} seconds{source}{advice})"
 
 
 class _ProjectedJsonLine:
@@ -127,11 +133,12 @@ class ActivityMonitor:
     }
 
     def __init__(self, events_path, *, idle_seconds=300, tool_seconds=1800,
-                 clock=time.monotonic, reporter=None, idle_origin=None):
+                 clock=time.monotonic, reporter=None, idle_origin=None, idle_hint=CHANGE_IDLE_LIMIT):
         self.path = Path(events_path)
         self.idle_limit = max(0, float(idle_seconds))
         self.tool_limit = max(0, float(tool_seconds))
         self.idle_origin = idle_origin
+        self.idle_hint = idle_hint
         self.clock = clock
         self._reporter = reporter
         self._lock = threading.RLock()
@@ -344,8 +351,12 @@ class ActivityMonitor:
             if self.tool_limit and elapsed >= self.tool_limit:
                 return {"kind": "tool", "reason": "Tool execution exceeded its fixed time limit"}
         elif self.idle_limit and now - self._last_activity >= self.idle_limit:
-            return {"kind": "idle", "reason": idle_timeout_reason(self.idle_limit, self.idle_origin)}
+            return {"kind": "idle", "reason": self.idle_reason()}
         return None
+
+    def idle_reason(self, limit=None):
+        """This stage's idle-stop text; the process supervisor uses it too when it stops the stage first."""
+        return idle_timeout_reason(self.idle_limit if limit is None else limit, self.idle_origin, self.idle_hint)
 
     def expired(self):
         with self._lock:

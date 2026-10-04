@@ -66,7 +66,7 @@ try:
         prepare_abandoned_completion_revalidation,
         prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
         recover_legacy_report_repair, retry_format_failed_report)
-    from .autocode_activity import ActivityMonitor
+    from .autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT
 except ImportError:
     import autocode_job_source as job_source, autocode_job_failure as job_failure
     import autocode_workspaces as task_workspaces
@@ -98,7 +98,7 @@ except ImportError:
         prepare_abandoned_completion_revalidation,
         prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
         recover_legacy_report_repair, retry_format_failed_report)
-    from autocode_activity import ActivityMonitor
+    from autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT
 
 
 write_json = stop_policy.state_writer(ordinary_write_json, status_records.persist)
@@ -451,7 +451,8 @@ def run_role(
             raise
         print(f"{autocode_status.role_name(stage, state)}: started; model={model or 'default'}; log={events}", flush=True)
         activity = ActivityMonitor(events, idle_seconds=idle_timeout, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
-                                   idle_origin=state["settings"].get("budget_origins", {}).get("idle_timeout_seconds"))
+                                   idle_origin=state["settings"].get("budget_origins", {}).get("idle_timeout_seconds"),
+                                   idle_hint=JOB_IDLE_LIMIT if stage in jobs.STAGES else CHANGE_IDLE_LIMIT)
         activity_label = None
         last_activity_print = 0
         def activity_checkpoint(snapshot):

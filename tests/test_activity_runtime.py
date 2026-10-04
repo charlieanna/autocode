@@ -181,7 +181,12 @@ class ActivityRuntimeTests(unittest.TestCase):
                 self.assertGreaterEqual(observed[0]['elapsed_seconds'], 0)
                 self.assertEqual(20, observed[0]['stage_limit_seconds'])
 
-    def test_idle_stop_names_saved_limit_origin_and_longest_earlier_quiet_period(self):
+    def idle_stop(self, *, supervisor_first):
+        """Run a Builder whose provider falls quiet, through run_role with the real ActivityMonitor.
+
+        The supervisor (autocode_process.wait_for_stage) usually stops the stage before the observer's own
+        poll marks it stalled; it then publishes the last observation merged with its timeout_reason. When
+        the observer polls first, the monitor's own detail carries the reason."""
         self.start_task()
         self.state['settings']['limits'].update(stage_timeout_seconds=3600, idle_timeout_seconds=300,
                                                 tool_timeout_seconds=1800)
@@ -192,8 +197,9 @@ class ActivityRuntimeTests(unittest.TestCase):
             pid = 987654321
 
             def __init__(child, command, **kwargs):
-                kwargs['stdout'].write('{"type":"thread.started","thread_id":"fixture"}\n')
-                kwargs['stdout'].flush()
+                child.stdout = kwargs['stdout']  # the provider writes its events through its own handle
+                child.stdout.write('{"type":"thread.started","thread_id":"fixture"}\n')
+                child.stdout.flush()
 
         def monitor(*args, **kwargs):
             return ActivityMonitor(*args, clock=lambda: clock[0], **kwargs)
@@ -202,19 +208,27 @@ class ActivityRuntimeTests(unittest.TestCase):
             checkpoint([])
             activity_checkpoint(activity.poll())
             clock[0] = 181
-            with activity.path.open('a') as stream:
-                stream.write(json.dumps({'type': 'item.completed', 'item': {
-                    'id': 'note', 'type': 'agent_message', 'text': 'Reading the failing module'}}) + '\n')
+            child.stdout.write(json.dumps({'type': 'item.completed', 'item': {
+                'id': 'note', 'type': 'agent_message', 'text': 'Reading the failing module'}}) + '\n')
+            child.stdout.flush()
             activity_checkpoint(activity.poll())
-            clock[0] = 481
-            activity_checkpoint(activity.poll())
-            activity.timeout = activity.expired()
+            if supervisor_first:
+                # Shaped like autocode_process.stop_at_deadline: polling lag fired the limit at 299.5 s.
+                clock[0] = 480.5
+                activity.timeout = {'kind': 'idle', 'reason': activity.idle_reason()}
+                activity_checkpoint({**activity.poll(), 'activity': 'stalled', 'timeout_kind': 'idle',
+                                     'timeout_reason': activity.timeout['reason']})
+            else:
+                clock[0] = 481
+                activity_checkpoint(activity.poll())
+                activity.timeout = activity.expired()
             return -15, True
 
         output = io.StringIO()
         with patch.object(runner, 'ActivityMonitor', monitor), \
              patch.object(runner.subprocess, 'Popen', Child), \
              patch.object(support, 'snapshot', return_value={'head': 'h', 'files': {}, 'revision': 'r'}), \
+             patch.object(runner.processes, 'preflight', return_value=None), \
              patch.object(runner.processes, 'process_table', return_value={}), \
              patch.object(runner.processes, 'wait_for_stage', side_effect=wait), \
              contextlib.redirect_stdout(output), self.assertRaises(support.Paused) as caught:
@@ -228,11 +242,21 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertIn(reason, str(caught.exception))
         stalled = [line for line in output.getvalue().splitlines() if line.startswith('Builder: stalled;')]
         self.assertEqual(1, len(stalled))
-        self.assertIn('idle=300s/300', stalled[0])
-        self.assertTrue(stalled[0].endswith('; ' + reason))
+        self.assertTrue(stalled[0].endswith('; ' + reason), stalled[0])
         active = support.read(self.run / 'state.json')['active_stage']
         self.assertEqual(('idle', reason), (active['timeout_kind'], active['timeout_reason']))
-        self.assertEqual((300, 181), (active['activity']['idle_seconds'], active['activity']['longest_idle_seconds']))
+        self.assertEqual(181, active['activity']['longest_idle_seconds'])
+        return stalled[0], active
+
+    def test_idle_stop_names_saved_limit_origin_when_the_supervisor_stops_first(self):
+        stalled, active = self.idle_stop(supervisor_first=True)
+        self.assertIn('idle=299.5s/300', stalled)
+        self.assertEqual(299.5, active['activity']['idle_seconds'])
+
+    def test_idle_stop_names_saved_limit_origin_when_the_monitor_sees_it_first(self):
+        stalled, active = self.idle_stop(supervisor_first=False)
+        self.assertIn('idle=300s/300', stalled)
+        self.assertEqual(300, active['activity']['idle_seconds'])
 
     def test_resume_with_max_idle_seconds_applies_to_the_next_launch(self):
         self.start_task()

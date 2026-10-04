@@ -1,13 +1,17 @@
 """Initial provider inspection and persistence cannot disable its deadlines."""
+from pathlib import Path
+import shutil
 import signal
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
 import autocode_process as processes
+from autocode_activity import CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT, ActivityMonitor
 
 
 class StartupDeadlineTests(unittest.TestCase):
-    def run_provider(self, phase, *, idle=False, origin=None):
+    def run_provider(self, phase, *, idle=False, monitor_for=None):
         # Drive the real supervisor with a fake provider, clock and scheduler.
         # A suspended event wait resumes at the next clock tick; nothing sleeps.
         class Suspended(BaseException):
@@ -101,14 +105,14 @@ class StartupDeadlineTests(unittest.TestCase):
 
         class Monitor:
             idle_limit, tool_limit = 5, 0
-            idle_origin = origin
             timeout = None
 
             def poll(self, **kwargs):
                 return {'idle_seconds': 0, 'tool_elapsed_seconds': None,
                         'idle_limit_seconds': 5, 'tool_limit_seconds': 0}
 
-        monitor = Monitor() if idle or phase == 'fast_exit' else None
+        monitor = (monitor_for(lambda: clock[0]) if monitor_for
+                   else Monitor() if idle or phase == 'fast_exit' else None)
         proc = MagicMock()
         proc._ident = (child.pid, 1.0)
         proc.create_time.return_value = 1.0
@@ -154,14 +158,28 @@ class StartupDeadlineTests(unittest.TestCase):
     def test_idle_cap_during_initial_inspection(self):
         self.assert_bounded('inspection', idle=True)
 
-    def test_idle_stop_reason_names_limit_origin_and_how_to_change_it(self):
-        for origin, source in (('runner_default', ', runner default'), ('user_explicit', ', set explicitly'),
-                               (None, '')):
-            with self.subTest(origin=origin):
-                _, expired, _, monitor, _ = self.run_provider('inspection', idle=True, origin=origin)
+    def test_idle_stop_reason_comes_from_the_stages_own_monitor(self):
+        # The supervisor stops the stage first when the observer's last poll lags; its reason must still be
+        # the one the real monitor run_role built names: the limit, its origin and the stage's advice.
+        events = Path(tempfile.mkdtemp(prefix='idle-reason-')) / 'events.jsonl'
+        self.addCleanup(shutil.rmtree, events.parent, True)
+        events.touch()
+        for origin, hint, expected in (
+                ('runner_default', CHANGE_IDLE_LIMIT,
+                 '(5 seconds, runner default; change it with --resume-paused --max-idle-seconds N)'),
+                ('user_explicit', JOB_IDLE_LIMIT,
+                 '(5 seconds, set explicitly; an exact job retry runs under the same limit; '
+                 'a different limit needs a new run)'),
+                (None, CHANGE_IDLE_LIMIT, '(5 seconds; change it with --resume-paused --max-idle-seconds N)')):
+            with self.subTest(origin=origin, hint=hint):
+                def monitor_for(clock):
+                    return ActivityMonitor(events, idle_seconds=5, tool_seconds=0, clock=clock,
+                                           idle_origin=origin, idle_hint=hint)
+                _, expired, _, monitor, _ = self.run_provider('inspection', idle=True, monitor_for=monitor_for)
                 self.assertTrue(expired)
-                self.assertEqual(f'No new provider activity within the inactivity limit (5 seconds{source}; '
-                                 'change it with --resume-paused --max-idle-seconds N)', monitor.timeout['reason'])
+                self.assertEqual('idle', monitor.timeout['kind'])
+                self.assertEqual('No new provider activity within the inactivity limit ' + expected,
+                                 monitor.timeout['reason'])
 
     def test_watchdog_cannot_reap_before_identity_is_captured(self):
         code, expired, owned, _, _ = self.run_provider('fast_exit')

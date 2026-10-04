@@ -379,6 +379,11 @@ with the limit before changing it. An inactivity stop names its limit, whether t
 is the runner default or was set explicitly, and how to change it (`--resume-paused
 --max-idle-seconds N`). Once the automatic recovery allowance is spent, the new
 limit is saved but no provider launches until `--grant-recovery N` is also given.
+A workflow job's stop (review, design, design check, bug investigation, question,
+stuck-stage investigation) says instead that its exact retry runs under the same
+limit: that retry is bound to the limits the job ran under, so a changed limit
+would make it stale. AutoResolver never changes this limit, even when limits were
+delegated to it.
 The task conversation also receives durable role-based progress messages: stage
 transitions, blockers with next steps, completion, and a heartbeat every 60 seconds
 while the code runner observes an active stage or Builder batch. Parallel-worker
