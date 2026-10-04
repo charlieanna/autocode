@@ -8,6 +8,11 @@ is not a reproduction, so the proof stays FAIL; this module only recognizes the
 case and says what to do instead (issue #299). A log line the fix adds is no
 substitute: a fix with the real call removed and the log kept passes such a test.
 
+A Python test can also reach the seam only at run time (``mock.patch.object``):
+it loads on the unfixed code and errors there, which the proof cannot tell from
+a genuine AttributeError reproduction. The verdict stands, but the Validator and
+the Completion Owner are told to check why that test fails before the fix.
+
 Pure functions over text. Imports nothing from AutoCode.
 """
 from __future__ import annotations
@@ -21,6 +26,7 @@ MISSING = tuple(re.compile(pattern) for pattern in (
     r"has no field or method ([A-Za-z_]\w*)",  # Go
     r"cannot import name '([A-Za-z_]\w*)'",  # Python
     r"has no attribute '([A-Za-z_]\w*)'",  # Python
+    r"does not have the attribute '([A-Za-z_]\w*)'",  # Python unittest.mock.patch
     r"name '([A-Za-z_]\w*)' is not defined",  # Python
     r"No module named '(?:[\w.]*\.)?([A-Za-z_]\w*)'",  # Python
     r"does not provide an export named '([A-Za-z_$][\w$]*)'",  # JavaScript modules
@@ -59,19 +65,29 @@ def used(output: str, added: set[str], test_words: set[str]) -> list[str]:
 def reason(collection_errors, names) -> str:
     """The proof's failure when the new tests cannot build on the unfixed code because of a seam."""
     seam = ", ".join(names[:5])
-    return ("On the unfixed code the new tests only fail to import or collect ("
-            + ", ".join(collection_errors[:5]) + f") because they use {seam}, which only the fix adds. "
+    failed = f" ({', '.join(collection_errors[:5])})" if collection_errors else ""
+    return (f"On the unfixed code the new tests only fail to import or collect{failed} "
+            f"because they use {seam}, which only the fix adds. "
             "A compile or import error is not a reproduction of the bug, and a seam (hook, package variable, "
             "injectable function) added with the fix cannot make the unfixed code build. Rewrite the regression "
             "tests to use only code that exists before the fix: drive the real failure path through its existing "
             "public APIs (for example a real file, directory or input that makes the failing operation fail) and "
             "assert the behavior itself, such as the returned error, the result or the saved state. A log line "
             "or message alone does not prove the behavior. If no existing API can reach that path, report that "
-            "this bug needs a separately approved instrumentation-only base patch: the runner adds none, so a "
-            f"test that uses {seam} cannot pass this proof.")
+            "this bug needs a separately approved instrumentation-only base patch; the runner adds none. A test "
+            f"that fails on the unfixed code only because {seam} is missing there is not a reproduction, even if "
+            f"it reaches {seam} at run time.")
 
 
 def note(collection_errors, names) -> str:
     """Why some tests were left out of a proof that other tests satisfy."""
     return ("Not counted as proof: on the unfixed code " + ", ".join(collection_errors[:5])
             + f" could not build because the tests use {', '.join(names[:5])}, which only the fix adds")
+
+
+def review_reason(tests, names) -> str:
+    """Why a passing proof needs a reader: its base run reports missing a seam the fix adds and the tests use."""
+    seam = ", ".join(names[:5])
+    return (f"the unfixed code's run reports {seam} missing, which only the fix adds and the tests use: check "
+            "that each fail-to-pass test (" + ", ".join(sorted(tests)[:5]) + ") fails there because of the bug, "
+            f"not only because {seam} is missing")

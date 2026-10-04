@@ -103,6 +103,8 @@ class ContractCasesTests(unittest.TestCase):
                 self.assertIn("Do not make a test import or reference anything the fix adds", fix)
                 self.assertIn("Drive the real failure path through public APIs that exist before the fix", fix)
                 self.assertIn("A log line or message alone does not prove the behavior", fix)
+                # A guard keeps its own rule: it must pass before the fix, not fail there.
+                self.assertIn("a guard: (preserve) test must pass there and after the fix", fix)
         self.assertIn("TESTS NAMED IN THE PLAN", note("bugfix"))
         self.assertNotIn("BUG FIX TESTS", note("build"))
 

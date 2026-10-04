@@ -31,6 +31,11 @@ Still open:
   no person is guaranteed to read the patch.
 - A Python test that reaches the seam only at run time
   (`mock.patch.object(store, "replace_file")`) runs and errors on the unfixed
-  code, so it counts as fail-to-pass. A negative control with the fix reverted
-  still fails that test. Rejecting such tests would need per-test error
+  code, so it still counts as fail-to-pass. A negative control with the fix
+  reverted still fails that test. Rejecting such tests would need per-test error
   attribution, which could also reject genuine `AttributeError` reproductions.
+  The verdict is unchanged, but when the unfixed run reports the seam missing,
+  the proof adds a review reason naming the seam and the fail-to-pass tests, so
+  the Validator and the Completion Owner check why each test fails before the
+  fix. The FAIL reason above no longer claims that every test using the seam
+  is rejected.

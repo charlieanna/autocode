@@ -203,7 +203,8 @@ existing test to make its name match a planned case id. The regression proof rej
 
 # Issue #299: a seam the fix adds cannot compile on the unfixed code, and a log line the fix adds proves nothing.
 BUGFIX_TEST_NOTE = """
-BUG FIX TESTS: each regression test must build and run on the unfixed code and fail there because of the bug.
+BUG FIX TESTS: each regression test must build and run on the unfixed code. A test of behavior the fix
+restores must fail there because of the bug; a guard: (preserve) test must pass there and after the fix.
 Do not make a test import or reference anything the fix adds (a new function, package variable, hook or
 injectable seam): on the unfixed code such a test only fails to compile or import, which is not a
 reproduction, and adding the seam with the fix does not change that. Drive the real failure path through

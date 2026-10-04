@@ -69,6 +69,16 @@ SEAM_TEST = TESTS.replace("import store\n", "import store\nfrom store import rep
         spy.assert_called_once()
         self.assertIs(os.rename, replace_file)
 '''
+# The same seam, reached only at run time: nothing imports it, so the module loads on the unfixed code and
+# the test errors there ("does not have the attribute") instead of failing on the bug.
+RUNTIME_SEAM_TEST = TESTS + '''
+    def test_t1_rename_failure_is_raised(self):
+        with mock.patch.object(store, "replace_file", side_effect=OSError("disk full")) as spy, \\
+                tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(OSError):
+                store.save(directory, "a", "x")
+        spy.assert_called_once()
+'''
 # The same failure, reached through save() as it exists before the fix: a directory is in the way.
 BEHAVIOR_TEST = TESTS + '''
     def test_t1_rename_failure_is_raised(self):
@@ -106,6 +116,37 @@ class PythonSeamProofTests(unittest.TestCase):
         self.assertIn("A log line or message alone does not prove the behavior", reason)
         self.assertIn("instrumentation-only base patch", reason)
         self.assertNotIn("Write the regression test against behavior that exists before the fix", reason)
+        # The gate does not reject every test that uses the seam (see the run-time case below), so the
+        # reason must not promise that it does.
+        self.assertNotIn("cannot pass this proof", reason)
+        self.assertIn("only because replace_file is missing there is not a reproduction, even if it reaches "
+                      "replace_file at run time", reason)
+
+    def test_a_test_that_reaches_the_seam_only_at_run_time_is_flagged_for_the_validator(self):
+        # The proof cannot tell this error from a genuine AttributeError reproduction, so the verdict is
+        # unchanged, but the Validator and the Completion Owner are told to check why the test fails before.
+        proof = self.prove({"store.py": FIXED_STORE, "test_store.py": RUNTIME_SEAM_TEST})
+        self.assertEqual(["test_store.SaveTests.test_t1_rename_failure_is_raised"], proof["fail_to_pass"])
+        reason = next((reason for reason in proof["review_reasons"] if "replace_file" in reason), None)
+        self.assertIsNotNone(reason, proof["review_reasons"])
+        self.assertIn("the unfixed code's run reports replace_file missing, which only the fix adds", reason)
+        self.assertIn("test_store.SaveTests.test_t1_rename_failure_is_raised", reason)
+        self.assertIn("fails there because of the bug, not only because replace_file is missing", reason)
+
+    def test_a_test_that_reads_the_seam_while_loading_is_unverified_and_names_it(self):
+        # An AttributeError while loading the module stops unittest before it reports any test.
+        loads_seam = RUNTIME_SEAM_TEST.replace("import store\n", "import store\nORIGINAL = store.replace_file\n")
+        proof = self.prove({"store.py": FIXED_STORE, "test_store.py": loads_seam})
+        self.assertEqual(verify.UNVERIFIED, proof["verdict"])
+        reason = next((reason for reason in proof["unverified"] if "replace_file" in reason), None)
+        self.assertIsNotNone(reason, proof["unverified"])
+        self.assertIn("reported no test results", reason)
+        self.assertIn("because they use replace_file, which only the fix adds", reason)
+
+    def test_a_behavior_test_through_the_existing_api_is_not_flagged(self):
+        proof = self.prove({"store.py": FIXED_STORE, "test_store.py": BEHAVIOR_TEST})
+        self.assertFalse(any("replace_file" in reason for reason in proof["review_reasons"]),
+                         proof["review_reasons"])
 
     def test_the_same_fix_is_proven_by_a_test_through_the_existing_api(self):
         proof = self.prove({"store.py": FIXED_STORE, "test_store.py": BEHAVIOR_TEST})
@@ -220,9 +261,11 @@ class SeamNameTests(unittest.TestCase):
             "ImportError: cannot import name 'replace_file' from 'store' (/tmp/store.py)",
             "AttributeError: module 'store' has no attribute 'flush_dir'",
             "ModuleNotFoundError: No module named 'store.sync'",
+            "AttributeError: <module 'store' from '/tmp/store.py'> does not have the attribute 'fsync_dir'",
             "SyntaxError: invalid syntax",
         ))
-        self.assertEqual({"renameFile", "Hook", "replace_file", "flush_dir", "sync"}, proof_seam.missing_names(output))
+        self.assertEqual({"renameFile", "Hook", "replace_file", "flush_dir", "sync", "fsync_dir"},
+                         proof_seam.missing_names(output))
 
     def test_added_names_come_from_the_changed_lines_even_when_a_comment_already_used_the_word(self):
         before = "// rename the file\nfunc Save() {\n\tos.Rename(a, b)\n}\n"

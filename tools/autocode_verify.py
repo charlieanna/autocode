@@ -958,7 +958,10 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
             review_reasons.append("the regression proof is a timeout on base, not a named test")
             return
         if base is None:
-            unverified.append("The regression run on the base code reported no test results")
+            # A module that reads a seam while loading can stop the whole run before it reports any test.
+            seam = seam_names(on_base) if seam_names and not new_behavior else []
+            unverified.append("The regression run on the base code reported no test results"
+                              + (". " + proof_seam.reason([], seam) if seam else ""))
             return
         ran_and_failed = set(base["failed"]) - set(base["collection_errors"])
         # New behavior: a test that did not pass on base (failed, or could not even import
@@ -971,7 +974,10 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         # Passing tests that never ran on the original code (their module did not import there): a
         # guard's test there is not shown to fail before, only not shown to pass (check_cases).
         proof["not_run_on_base"] = sorted(passed - set(base["passed"]) - set(base["failed"]))
-        seam = seam_names(on_base) if seam_names and base["collection_errors"] and not new_behavior else []
+        # A test that fails to build on base because of a seam is named; one that reaches the seam only at run
+        # time errors there instead, which cannot be told from a reproduction, so a reader is asked to check.
+        seam = (seam_names(on_base) if seam_names and (base["collection_errors"] or flipped) and not new_behavior
+                else [])
         if not flipped and new_behavior:
             fail.append("No new or changed test passes with the change and did not pass without it, "
                         "so the tests do not show the new behavior")
@@ -986,7 +992,9 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
                 fail.append("No test fails on the unfixed base code and passes with the fix, "
                             "so the tests do not reproduce the bug")
         elif seam:
-            notes.append(proof_seam.note(base["collection_errors"], seam))
+            if base["collection_errors"]:
+                notes.append(proof_seam.note(base["collection_errors"], seam))
+            review_reasons.append(proof_seam.review_reason(flipped, seam))
         return
     # Exit codes only: honest, but weaker, so a person or the Reviewer must read the change.
     review_reasons.append("the regression proof rests on exit codes, not named tests")
