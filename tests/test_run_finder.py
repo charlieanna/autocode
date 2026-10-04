@@ -21,6 +21,7 @@ import autocode_program
 import autocode_run_finder as finder
 import autocode_subcommands
 import autocode_workspaces as w
+from providers import opencode as opencode_provider
 
 TASK = "Add greeting"
 
@@ -626,6 +627,7 @@ class InProcessCli(Fixture):
         with patch.object(sys, "argv", ["autocode", *argv]), \
              patch.object(Path, "cwd", return_value=cwd or self.project), \
              patch.object(autocode, "run_role", side_effect=AssertionError("No provider may launch")), \
+             patch.object(opencode_provider, "local_settings", return_value={"engine": "opencode"}), \
              contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             try:
                 code = autocode.main()
