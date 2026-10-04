@@ -317,16 +317,17 @@ class ProcessTests(unittest.TestCase):
                 child.kill()
             child.wait(timeout=5)
 
-    def wait_ready(self, root, child):
+    def wait_ready(self, root, child, *, ready='ready', go='go'):
         deadline = time.monotonic() + 15
-        while not (root / 'ready').exists():
+        while not (root / ready).exists():
             if child.poll() is not None or time.monotonic() >= deadline:
-                self.fail('Provider fixture failed to initialize')
+                self.fail(f'Provider fixture failed to initialize: {ready}')
             time.sleep(.01)
-        (root / 'go').touch()
+        if go:
+            (root / go).touch()
 
     def activity_child(self, body, *, idle=.45, tool=1.5, total=None, sample=None, require_worker=False,
-                       startup_grace=0):
+                       startup_grace=0, tool_ready=False):
         """Run a real event-writing worker without making cleanup speed an assertion."""
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -337,22 +338,30 @@ class ProcessTests(unittest.TestCase):
                               "Path('ready').touch()\nwhile not Path('go').exists(): time.sleep(.01)\n" + body)
             snapshots = []
             owned = []
+
+            def checkpoint_activity(value):
+                snapshots.append(value.copy())
+                if tool_ready and value.get('active_tool_count', 0):
+                    (root / 'tool-observed').touch()
+
             with events.open('w') as stream:
                 child = subprocess.Popen([sys.executable, str(worker)], cwd=root, stdout=stream,
                                          start_new_session=True)
                 try:
                     self.wait_ready(root, child)
+                    if tool_ready:
+                        self.wait_ready(root, child, ready='tool-started', go=None)
                     monitor = ActivityMonitor(events, idle_seconds=idle, tool_seconds=tool)
                     if sample is None:
                         code, expired = processes.wait_for_stage(child, total,
                             lambda rows: owned.__setitem__(slice(None), rows), activity=monitor,
-                            activity_checkpoint=lambda value: snapshots.append(value.copy()),
+                            activity_checkpoint=checkpoint_activity,
                             startup_grace=startup_grace)
                     else:
                         with patch.object(processes.ProcessTree, 'sample', sample(child)):
                             code, expired = processes.wait_for_stage(child, total,
                                 lambda rows: owned.__setitem__(slice(None), rows), activity=monitor,
-                                activity_checkpoint=lambda value: snapshots.append(value.copy()),
+                                activity_checkpoint=checkpoint_activity,
                                 startup_grace=startup_grace)
                     self.assertEqual([], processes.live_processes(owned))
                     self.assertFalse((root / 'late-write').exists())
@@ -379,10 +388,12 @@ class ProcessTests(unittest.TestCase):
 
     def test_quiet_running_tool_has_its_own_deadline(self):
         body = """emit({'type':'item.started','item':{'id':'test','type':'command_execution','command':'quiet tests','status':'in_progress'}})
+Path('tool-started').touch()
+while not Path('tool-observed').exists(): time.sleep(.01)
 time.sleep(.8)
 emit({'type':'item.completed','item':{'id':'test','type':'command_execution','command':'quiet tests','exit_code':0}})
 """
-        code, expired, snapshots, _ = self.activity_child(body, idle=2, tool=5)
+        code, expired, snapshots, _ = self.activity_child(body, idle=2, tool=5, tool_ready=True)
         self.assertEqual(0, code)
         self.assertFalse(expired)
         self.assertTrue(any(row.get('active_tool_count', 0) for row in snapshots))
