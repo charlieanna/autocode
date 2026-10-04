@@ -1,6 +1,7 @@
 """Interaction regressions for inboxes with existing planning/report recovery."""
 import copy
 import json
+import os
 import unittest
 from unittest.mock import patch
 from . import test_report_repair as repair_fixtures
@@ -75,14 +76,16 @@ class DashboardIntegrationTests(unittest.TestCase):
         runner.planning.start(fixture.state)
         support.atomic_json(fixture.run/'state.json', fixture.state)
         snapshot = support.snapshot(fixture.root)
+        controller = runner.processes.process_table({os.getpid()})
         self.submit(fixture)
         with patch.object(support, 'snapshot', return_value=snapshot), \
-             patch.object(runner.processes, 'process_table', return_value={}), \
+             patch.object(runner.processes, 'process_table', return_value=controller) as table, \
              patch.object(runner.subprocess, 'Popen') as launch:
             with self.assertRaises(support.Paused):
                 runner.run_role(role='astra', prompt='Fixture only', sandbox='read-only', workspace=fixture.root,
                     run_dir=fixture.run, state=fixture.state, schema=runner.SCHEMA_DIR/'v2/astra-decision.schema.json',
                     model='fixture', allow_write=False, dry_run=False)
+        table.assert_called_once_with({os.getpid()})
         launch.assert_not_called()
         self.assertEqual(0, fixture.state['planning']['astra_calls'])
         self.assertNotIn('active_stage', fixture.state)

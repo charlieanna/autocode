@@ -645,7 +645,7 @@ class RetrofitTest(unittest.TestCase):
             # Snapshot/diff need real subprocesses, so mock those independent
             # filesystem observations rather than making Popen handle git too.
             with patch.object(s,"snapshot",return_value={"head":"h","files":{},"revision":"r"}), patch.object(runner.subprocess,"run"), \
-                 patch.object(runner.processes,"process_table",return_value={}), \
+                 patch.object(runner.processes,"preflight",return_value=None), \
                  patch.object(runner.processes,"wait_for_stage",return_value=(0,False)):
                 self.settings["roles"]["terra"]["provider"]="ZAI"
                 value,record=runner.run_role(role="terra",prompt="small handoff",sandbox="workspace-write",workspace=self.root,run_dir=self.run,
@@ -667,7 +667,7 @@ class RetrofitTest(unittest.TestCase):
             def __init__(child, command, **kwargs): pass
         with patch.object(runner.subprocess, "Popen", Child), \
              patch.object(s, "snapshot", return_value={"head":"h", "files":{}, "revision":"r"}), \
-             patch.object(runner.processes, "process_table", return_value={}), \
+             patch.object(runner.processes, "preflight", return_value=None), \
              patch.object(runner.processes, "wait_for_stage", return_value=(-15,True)):
             with self.assertRaises(s.Paused) as caught:
                 runner.run_role(role="terra", prompt="small handoff", sandbox="workspace-write", workspace=self.root,

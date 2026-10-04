@@ -683,7 +683,7 @@ class RepairTests(unittest.TestCase):
         with patch.object(runner.opencode, 'launch', return_value=(['fixture-provider'], {}, {})), \
              patch.object(runner.opencode, 'prompt_for_schema', wraps=decorate) as schema_prompt, \
              patch.object(support, 'snapshot', return_value=snapshot), \
-             patch.object(runner.processes, 'process_table', return_value={}), \
+             patch.object(runner.processes, 'preflight', return_value=None), \
              patch.object(runner.subprocess, 'Popen', side_effect=AssertionError('No provider may launch')) as launch:
             with self.assertRaises(support.Paused) as error:
                 runner.execute_report_repair(self.state, self.run, self.root)

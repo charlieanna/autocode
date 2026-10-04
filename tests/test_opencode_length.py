@@ -196,7 +196,7 @@ class OutputLimitTests(unittest.TestCase):
         with patch.object(runner.opencode, "launch", return_value=(["fixture-provider"], {}, {})), \
              patch.object(runner.subprocess, "Popen", Child), \
              patch.object(support, "snapshot", return_value=snapshot), \
-             patch.object(runner.processes, "process_table", return_value={}), \
+             patch.object(runner.processes, "preflight", return_value=None), \
              patch.object(runner.processes, "wait_for_stage", return_value=(0, False)):
             with self.assertRaises(support.Paused) as caught:
                 runner.run_role(role="terra", prompt="Fixture", sandbox="workspace-write", workspace=self.root,

@@ -161,7 +161,7 @@ class ActivityRuntimeTests(unittest.TestCase):
 
                 with patch.object(runner.subprocess, 'Popen', Child), \
                      patch.object(support, 'snapshot', return_value={'head': 'h', 'files': {}, 'revision': 'r'}), \
-                     patch.object(runner.processes, 'process_table', return_value={}), \
+                     patch.object(runner.processes, 'preflight', return_value=None), \
                      patch.object(runner.processes, 'wait_for_stage', side_effect=wait), \
                      contextlib.redirect_stdout(io.StringIO()), self.assertRaises(support.Paused) as caught:
                     runner.run_role(role='terra', prompt='Finish the bounded greeting task',
