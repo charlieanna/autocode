@@ -459,7 +459,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             print(f"Input rejected: {error}", file=sys.stderr)
             return 2
         runner.normalize_human_boundary(candidate, run_dir)
-        rendered = lifecycle.present(candidate)
+        rendered = lifecycle.present(candidate, run_dir)
         autopilot.publish_handoffs(candidate, run_dir)
         runner.commit_user_action(state, candidate, run_dir)
         print(rendered)
@@ -479,7 +479,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 return 2
             runner.write_json(state_path, state)
         else:
-            rendered = lifecycle.present(state)
+            rendered = lifecycle.present(state, run_dir)
             runner.write_json(state_path, state)
             print(rendered)
             return 2

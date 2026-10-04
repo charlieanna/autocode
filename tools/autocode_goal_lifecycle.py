@@ -24,7 +24,7 @@ SUPPORTED_VERSION = 3
 try:
     from . import autocode_util as s, autocode_workflows as workflows, autocode_milestones as checkpoints
     from . import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
-    from . import autocode_adaptive_planning as adaptive
+    from . import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view
     from . import autocode_progressive_state as progressive_state
     from .autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
@@ -34,7 +34,7 @@ try:
 except ImportError:
     import autocode_util as s, autocode_workflows as workflows, autocode_milestones as checkpoints
     import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
-    import autocode_adaptive_planning as adaptive
+    import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view
     import autocode_progressive_state as progressive_state
     from autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
@@ -262,7 +262,8 @@ def migrate(state, *, fresh=False):
         workflows.begin(state, first_stage)
 
 
-def render(state):
+def render(state, run_dir=None):
+    """The brief as a person reads it; ``run_dir``, when given, completes the approve command."""
     contract = state.get("goal_contract")
     if not contract:
         if state.get("settings", {}).get("planning_flow") == "v2":
@@ -280,12 +281,15 @@ def render(state):
         return "No contract yet; resume to interview with the Requirements Gatherer."
     body = contract["body"]
     public = human.current(state)
+    asks_approval = bool(public and public["scope"] == "goal_approval")
     lines = [f"Build brief r{contract['revision']} ({contract['approval_status']})"]
+    if asks_approval:
+        lines.append(approval_view.intro(contract["revision"]))
     if public:
         lines += [f"AutoResolver request: {public['request_id']}",
                   f"AutoResolver token: {public['request_token']}"]
-    if public and public["scope"] == "goal_approval":
-        lines.append(f"Approval token: {token(contract)}")
+    if asks_approval:
+        lines += [f"Approval token: {token(contract)}", approval_view.token_note()]
     if workflows.approval_note(state):
         lines += ["", workflows.approval_note(state)]
     if state.get("discovery_summary"):
@@ -307,7 +311,12 @@ def render(state):
         value = body[key]
         lines += ["", key.replace("_", " ").capitalize() + ":"]
         if isinstance(value, dict):
-            lines.append(json.dumps(value, indent=2))
+            for name, item in value.items():
+                label = "  " + name.replace("_", " ").capitalize() + ":"
+                if isinstance(item, list):
+                    lines += [label + ("" if item else " (none)")] + [f"    - {row}" for row in item]
+                else:
+                    lines.append(f"{label} {item}")
         elif not isinstance(value, list):
             lines.append(value)
         elif not value:
@@ -382,11 +391,14 @@ def render(state):
     if review:
         lines += ["", f"Review token (current validated artifact): {review}",
                   "Validation: " + json.dumps(state["validation"], indent=2)]
+    if asks_approval:
+        lines += [""] + approval_view.actions(token(contract), state.get("settings") or {},
+                                              state.get("iteration", 0), run_dir)
     lines += ["", f"State: {state.get('phase')} / {state['status']}"]
     return "\n".join(lines)
 
 
-def present(state):
+def present(state, run_dir=None):
     public = human.current(state)
     state.pop("displayed_goal", None)
     # Preserve the historical display acknowledgement for exact, already-recorded
@@ -408,7 +420,7 @@ def present(state):
         state["displayed_handoff"] = handoff_ref(state)
     if public:
         state["displayed_review"] = review_token(state)
-    return render(state)
+    return render(state, run_dir)
 
 
 def approve(state, selected):
