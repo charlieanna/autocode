@@ -57,6 +57,45 @@ class BasePatchProofTests(unittest.TestCase):
         self.assertTrue(any("operator's base patch seam.patch" in reason and "changes no behavior" in reason
                             for reason in proof["review_reasons"]), proof["review_reasons"])
 
+    def test_a_seam_call_can_overlap_the_fix_removing_the_exception_handler(self):
+        instrumented = SEAM_ONLY.replace("        os.rename(", "        replace_file(")
+        saved = base_patch.pin(self.patch(diff("store.py", STORE, instrumented)),
+                               self.project.root, self.project.base)
+        self.project.write({"store.py": FIXED_STORE, "test_store.py": SEAM_TEST})
+        proof = self.prove(saved)
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual(["test_store.SaveTests.test_t1_rename_failure_is_raised"], proof["fail_to_pass"])
+        self.assertTrue(any("changes no behavior" in reason for reason in proof["review_reasons"]))
+
+    def test_behavior_changing_patches_absent_from_candidate_cannot_manufacture_a_proof(self):
+        original = ("def clamp(value):\n    if value < 0:\n        return 0\n    return value\n\n"
+                    "def unused():\n        return -1\n")
+        tests = ("import unittest\nfrom store import clamp\nclass ClampTests(unittest.TestCase):\n"
+                 "    def test_positive(self):\n        self.assertEqual(4, clamp(4))\n")
+        new_tests = tests + ("    def test_t1_rename_failure_is_raised(self):\n"
+                             "        self.assertEqual(0, clamp(-3))\n")
+        variants = {
+            "deletion": original.replace("    if value < 0:\n        return 0\n", ""),
+            "replacement": original.replace("return 0", "return -1"),
+            "insertion": original.replace("        return 0", "        return -1\n        return 0"),
+        }
+        for name, instrumented in variants.items():
+            with self.subTest(name=name):
+                project = Project({"store.py": original, "test_store.py": tests})
+                self.addCleanup(project.close)
+                saved = base_patch.pin(self.patch(diff("store.py", original, instrumented), name + ".patch"),
+                                       project.root, project.base)
+                project.write({"store.py": '"""Documentation only."""\n' + original,
+                               "test_store.py": new_tests})
+                state = bugfix_state(project)
+                plain = regression.prove(state, project.root, self.outside / (name + "-plain"))
+                self.assertEqual(verify.FAIL, plain["verdict"], plain)
+                state["settings"]["regression"] = {"base_patch": saved}
+                proof = regression.prove(state, project.root, self.outside / name)
+                self.assertEqual(verify.UNVERIFIED, proof["verdict"], proof)
+                self.assertIsNone(proof["fail_to_pass"])
+                self.assertIn("patch edits are absent", " ".join(proof["unverified"]))
+
     def test_without_the_patch_the_same_test_names_the_base_patch_way_out(self):
         self.project.write({"store.py": FIXED_STORE, "test_store.py": SEAM_TEST})
         proof = regression.prove(bugfix_state(self.project), self.project.root, self.outside / "run")
@@ -70,7 +109,7 @@ class BasePatchProofTests(unittest.TestCase):
         self.project.write({"store.py": FIXED_STORE, "test_store.py": SEAM_TEST})
         proof = self.prove(saved)
         self.assertEqual(verify.UNVERIFIED, proof["verdict"])
-        self.assertIn("does not contain the operator base patch seam.patch: store.py lacks 'raise'",
+        self.assertIn("does not contain the operator base patch seam.patch: store.py: patch edits are absent",
                       " ".join(proof["unverified"]))
 
     def test_a_patch_changed_after_it_was_pinned_is_not_used(self):

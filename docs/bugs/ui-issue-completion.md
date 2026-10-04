@@ -691,3 +691,10 @@ mapping, forged client arguments, and desktop/tablet/phone quota recovery with
 work, settings, contract, failure history and prior stages preserved. Browser
 fixtures supply the execution seam; they do not claim live-provider recovery.
 The runner still enforces its existing exact-attempt and process-liveness gates.
+
+The next upstream revision, `70df7052`, added saved progress to CLI status while
+the first merge was being checked. The follow-up resolution preserves both
+`view.progress` and the fresh `view.verification` inspection, keeps the real
+CLI argument parser in the human-publication test, and deduplicates identical
+canonical stage-name aliases. The real CLI evidence-inspection regression now
+also asserts that completed task progress remains present.

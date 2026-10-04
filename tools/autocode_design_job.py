@@ -29,17 +29,17 @@ import json
 from pathlib import Path
 
 try:
-    from . import autocode_stray_writes as stray_writes
+    from . import autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
     from . import autocode_workflows as workflows
     from .autocode_test_cases import run_probes
 except ImportError:
+    import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_workflows as workflows
     from autocode_test_cases import run_probes
 
 STAGE = workflows.DESIGN_STAGE
 REPORT_PATH = "review/design-review.json"
-ALLOWED_PREFIXES = ("review/",)
 SEVERITIES = ("blocking", "advisory")
 TEXT = {"type": "string"}
 TEXTS = {"type": "array", "items": TEXT}
@@ -83,9 +83,9 @@ First decide the mode:
    states requirements the design must keep (ordering, idempotency, compatibility, invariants in
    docstrings and READMEs). A design that reads well can still contradict the code it replaces.
 2. Challenge it on correctness, failure modes, operations, scale and migration (including how to roll
-   back). You may make a scratch copy OUTSIDE the workspace to run code; never write into the workspace.
-   The runner compares the workspace before and after and rejects a review that changed anything
-   outside review/.
+   back). """ + stage_access.scratch_rule(STAGE) + """
+   Otherwise never write into the workspace: the runner compares it before and after and rejects a
+   review that changed anything outside review/.
 3. satisfied: the goals the design meets as written, each with why.
 4. concerns, each with a severity:
    - blocking: the design cannot be approved until this is resolved (it breaks a requirement, loses or
@@ -133,7 +133,7 @@ def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int =
 
 
 def check(value: dict, changed_files) -> None:
-    stray = sorted(path for path in (changed_files or []) if not str(path).startswith(ALLOWED_PREFIXES))
+    stray = stage_access.stray(STAGE, changed_files)
     if stray:
         raise stray_writes.StrayWrites(
             "A design review must not change the repository; this attempt changed: " + ", ".join(stray), stray)

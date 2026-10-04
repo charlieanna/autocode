@@ -4,8 +4,10 @@ import sys
 
 try:
     from . import autocode_verification_inspection as verification
+    from . import autocode_progress_view as progress_view
 except ImportError:
     import autocode_verification_inspection as verification
+    import autocode_progress_view as progress_view
 
 
 def render(runner, state, args, workspace, run_dir):
@@ -34,6 +36,17 @@ def render(runner, state, args, workspace, run_dir):
         if completion_current is not None and (inspected['freshness'] != 'current'
                 or inspected.get('inspected_source_revision') != current['revision']):
             completion_current = False
+    checkpoint = runner.milestones.summary(state)
+    stage = (active or {}).get("stage") or state.get("next_stage")
+    next_action = (f"AutoResolver must reconcile retained attempt {runner.attempt_id(active)} before any provider call"
+                   if stale else "Inspect the retained runner check and resume the run" if stale_check else None)
+    # A stale runner check stopped before the next stage was launched: name the check, not that stage.
+    stage_name = (f"Runner check ({str(check.get('stage') or 'check').replace('_', ' ')})" if stale_check
+                  else runner.autocode_status.role_name(stage, state) if stage else None)
+    public_view["progress"] = progress_view.progress(
+        state, accepted=checkpoint["accepted_milestones"], needs=public_view["needs"],
+        reviewed=reviewed_criteria(runner, state), stopped=next_action, finished=bool(active_finished),
+        stage=stage_name)
     if public_view.get("progressive") and completion_current is not None:
         public_view["progressive"]["current_whole_product_proof"] = {
             "verified": completion_current is True,
@@ -52,8 +65,7 @@ def render(runner, state, args, workspace, run_dir):
               "Inspect the retained test output before resuming the run.", file=sys.stderr)
     print(json.dumps({"run_dir":str(run_dir), "workspace":str(workspace), "project_workspace":state.get("project_workspace", str(workspace)), "task_branch":state.get("task_branch"), "status":state["status"], "iteration":state["iteration"],
                       "stale":stale or stale_check,
-                      "next_action": (f"AutoResolver must reconcile retained attempt {runner.attempt_id(active)} before any provider call"
-                                      if stale else "Inspect the retained runner check and resume the run" if stale_check else None),
+                      "next_action": next_action,
                       "runner_check_workers":check_workers,
                       "active_stage_workers":worker_state,
                       "active_stage_finished":active_finished,
@@ -66,10 +78,20 @@ def render(runner, state, args, workspace, run_dir):
                        "reasoning_escalations":state.get("reasoning_escalations", []),
                        "attempt_id":runner.attempt_id(active) if active else None,
                        "completion_current":completion_current,
-                       "milestone_checkpoint": runner.milestones.summary(state),
+                       "milestone_checkpoint": checkpoint,
                        "orchestration_batch": state.get("orchestration_batch"),
                        "unit_handoffs": state.get("unit_handoffs", {}),
                        "milestone_activation_pending": (run_dir / 'milestone-checkpoints-requested.json').exists(),
                        "interventions": runner.intervention_metadata(workspace, run_dir, state),
                         "view": {**public_view, "delivery": runner.dependency.export(state, current, completion_current)},
                        **runner.resolver_human.projection(state)}, indent=2))
+
+
+def reviewed_criteria(runner, state):
+    """Human-review criteria whose review receipt is valid for the current validation."""
+    contract = state.get("goal_contract") or {}
+    try:
+        human = {row["id"] for row in contract["body"]["acceptance_criteria"] if row.get("human_review")}
+        return human - set(runner.goals.missing_human_reviews(state))
+    except (KeyError, TypeError, AttributeError, ValueError):
+        return set()  # Legacy or partial plans carry no review binding to show.

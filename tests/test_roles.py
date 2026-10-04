@@ -27,8 +27,15 @@ class OneListOfNames(unittest.TestCase):
             self.assertNotIn("validator", tokens, name)
 
     def test_unknown_stages_title_case_but_are_not_in_the_table(self):
-        self.assertEqual("Astra Diagnose", status.role_name("astra_diagnose"))
-        self.assertNotIn("astra_diagnose", roles.STAGE_JOB)
+        self.assertEqual("Unlisted Stage", status.role_name("unlisted_stage"))
+        self.assertNotIn("unlisted_stage", roles.STAGE_JOB)
+
+    def test_stages_the_runner_queues_have_job_names(self):
+        # Written as next_stage by AutoResolver diagnosis and the --planning-v2 flow (#29 shows them).
+        for stage, name in {"astra_diagnose": "Resolver", "requirements": "Requirements", "plan": "Planner",
+                            "plan_revise": "Planner", "plan_review": "Plan Reviewer",
+                            "plan_finalize": "Plan Reviewer"}.items():
+            self.assertEqual(name, status.role_name(stage), stage)
 
     def test_status_reexports_the_same_table(self):
         for stage in roles.STAGE_JOB:

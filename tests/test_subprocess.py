@@ -239,6 +239,8 @@ class SubprocessFlow(unittest.TestCase):
         current = json.loads(self.launch([*args, "--status", "--inspect-evidence"], 0).stdout)
         self.assertTrue(current['completion_current'])
         self.assertEqual('current', current['view']['verification']['freshness'])
+        self.assertEqual('Complete', current['view']['progress']['headline'])
+        self.assertEqual(current['view']['progress']['tasks']['total'], current['view']['progress']['tasks']['done'])
         self.assertTrue(all(row['state']=='checked' for row in current['view']['verification']['coverage']))
         self.assertEqual(before_inspection, (run / "state.json").read_bytes())
         source = self.project / "greet.py"
