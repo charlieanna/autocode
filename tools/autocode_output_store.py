@@ -9,7 +9,13 @@ import uuid
 
 
 def store_root(value=None):
-    workspace = Path.cwd().resolve()
+    cwd = Path.cwd().resolve()
+    workspace = Path(os.environ.get('AUTOCODE_OUTPUT_WORKSPACE') or cwd)
+    if not workspace.is_absolute():
+        raise ValueError('Output workspace must be an absolute path')
+    workspace = workspace.resolve()
+    if not cwd.is_relative_to(workspace):
+        raise ValueError('Output commands must stay inside the bound run workspace')
     root = Path(value or workspace / '.autocode/output').resolve()
     if not root.is_relative_to(workspace / '.autocode'):
         raise ValueError('Output store must be inside this workspace\'s .autocode directory')

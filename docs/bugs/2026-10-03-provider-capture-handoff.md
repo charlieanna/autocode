@@ -60,7 +60,7 @@ passed 54 scenarios, with one existing NOT_EXERCISED and one live-Investigator
 SKIPPED. Runtime files match the live source pins. These are the checks for this
 change; the previous 3,282-test full suite ran on `122f1c8e` before this delta.
 
-## Remaining output-store defect
+## Separately qualified output-store defect
 
 Luna and Sol captured from inside the investigation copy. Their five receipts
 preserved exact raw logs but fell back to unfiltered display with `ValueError`;
@@ -68,5 +68,7 @@ the inherited parent output-store path failed the helper's CWD containment check
 The public display-operation counters stayed zero. GLM captured from the main
 workspace and retained output blobs. A paired real CLI control confirmed the
 CWD/store mismatch. This separate storage, retrieval and accounting defect is
-tracked in [#329](https://github.com/charlieanna/autocode/issues/329); this helper
-fix does not resolve it or claim output savings.
+tracked in [#329](https://github.com/charlieanna/autocode/issues/329). A subsequent
+workspace-binding fix and its own fresh live qualification are documented in
+[investigation output storage](2026-10-03-investigation-output-store.md); the
+helper qualification above remains tied to its original runtime.

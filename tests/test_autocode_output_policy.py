@@ -1,4 +1,5 @@
 from argparse import Namespace
+from pathlib import Path
 import unittest
 from autocode_output_policy import configure, mode, environment, view
 
@@ -21,6 +22,8 @@ class PolicyTests(unittest.TestCase):
         env = environment({'output_transport': {'mode': 'raw'}}, '/workspace', 'attempt1')
         self.assertEqual(env['AUTOCODE_OUTPUT_ATTEMPT'], 'attempt1')
         self.assertEqual(env['AUTOCODE_OUTPUT_MODE'], 'raw')
+        self.assertEqual(env['AUTOCODE_OUTPUT_WORKSPACE'], str(Path('/workspace').resolve()))
+        self.assertEqual(env['AUTOCODE_OUTPUT_STORE'], str(Path('/workspace').resolve() / '.autocode/output'))
         result = view({'stages': [{}]})
         self.assertEqual(result['unavailable_stages'], 1)
         self.assertIsNone(result['cost_savings_usd'])
