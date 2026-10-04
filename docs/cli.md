@@ -48,10 +48,10 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | --- | --- |
 | `--chat` | Interactive chat mode (default in a terminal). |
 | `--no-chat` | One command per turn (default for non-interactive). |
-| `--answer 'Q1=…'` | Answer a requirements question (repeatable). Requires the current `--resolver-token` shown by AutoResolver. |
+| `--answer 'Q1=…'` | Answer a requirements question (repeatable). Requires the current `--resolver-token` shown by Resolver. |
 | `--feedback '…'` | Send a correction; returns to discovery and requires fresh approval. With `--adaptive-planning`, feedback on a plan shown for approval goes to the Planner, which revises it. |
 | `--follow-up '…'` | Say the next thing to a finished run ("Fix them." after a review): the run recognizes the new job and continues in the same run directory. |
-| `--delegate Q1` | Accept a question's proposed default. Requires the current `--resolver-token` shown by AutoResolver. |
+| `--delegate Q1` | Accept a question's proposed default. Requires the current `--resolver-token` shown by Resolver. |
 | `--delegate-all --review-token 'r3:<hash>'` | Delegate every pending question marked `delegable` with a proposed default, on the exact displayed revision. Refuses the whole call if any question lacks a default, is not delegable, has a protected or missing category (cost, quota, permission, external side effect, requested outcome), or asks about a rejected assumption. Never approves; invalidates any existing approval. |
 | `--reject-assumption A1 --review-token 'r3:<hash>'` | Reject a structured assumption from the displayed requirements handoff (repeatable). A stale token, or a handoff refreshed since display, is refused. Never approves; invalidates any existing approval. |
 | `--show-goal` | Display the current contract/revision. |
@@ -59,7 +59,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--edit-goal body.json` | Load a full contract body as a new draft revision. |
 | `--approve-review C1 --review-token '…'` | Record a human-review decision for criterion `C1`. |
 | `--investigator-model MODEL`, `--investigator-reasoning-effort LEVEL` | Pin the stuck-stage Investigator's model for this run (default, at high: Claude Opus 5.5 in `kilocode` runs, otherwise GPT-6 Sol, or GLM 5.3 when the stuck stage runs on Sol). A `provider/model` id runs it through OpenCode. See [Workflow](workflow.md#when-a-stage-stops-making-progress). |
-| `--resolver-response provide_information --resolver-request ID --resolver-token '…'` | Answer an AutoResolver operational request with corrective information. `--resolver-response` requires both `--resolver-request` and `--resolver-token`; the response itself authorizes no retry, approval or budget change. |
+| `--resolver-response provide_information --resolver-request ID --resolver-token '…'` | Answer an Resolver operational request with corrective information. `--resolver-response` requires both `--resolver-request` and `--resolver-token`; the response itself authorizes no retry, approval or budget change. |
 
 ### Execution and recovery
 
@@ -72,7 +72,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--pause-after-stage` | Stop at the next saved boundary. |
 | `--retry-builder M2` | With `--resume-paused`, authorize one retry of the exhausted current serial milestone or stopped parallel members. Keeps failure history, model routes and verification gates; all workers must be stopped. |
 | `--abandon-stage '001/terra-01'` | Archive a stopped attempt, keep partial edits and logs. |
-| `--retry-report ATTEMPT_ID` | With `--resume-paused`, request fresh Validator evidence after an exhausted rejected report with an exact attempt ID; saved source and evidence pins must still match. |
+| `--retry-report ATTEMPT_ID` | With `--resume-paused`, request fresh Tester evidence after an exhausted rejected report with an exact attempt ID; saved source and evidence pins must still match. |
 | `--accept-transport-change` | Resume a transport-change pause after route checks. |
 | `--max-parallel-builders N` | Concurrency limit for independent milestone Builders. |
 | `--milestone-checkpoints` / `--request-milestone-checkpoints` | Enable milestone checkpoints (idle boundary / queued). |
@@ -83,7 +83,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `--max-seconds N` | Total active provider time for the run (new-run default `43200`, 12 hours; `0` disables). Checked at stage boundaries. |
 | `--no-progress-limit N` | Unchanged-batch limit (`0` disables; never disables the 3-recovery ceiling). |
 | `--max-iterations N` | Optional total iteration ceiling; new runs default to unlimited, and resumes retain their saved limit. |
-| `--test-command CMD` | The project's test suite command for runner-owned regression proof (default: detected). Correct a saved command with `--resume-paused` at a reconciled pause before the Validator or combined checkpoint; see [Bug fixes](workflow.md#bug-fixes). |
+| `--test-command CMD` | The project's test suite command for runner-owned regression proof (default: detected). Correct a saved command with `--resume-paused` at a reconciled pause before the Tester or combined checkpoint; see [Bug fixes](workflow.md#bug-fixes). |
 | `--regression-command CMD` | A command that runs only the fix's new or changed tests (default: derived). Saved corrections require the same pre-validation `--resume-paused` boundary as `--test-command`. |
 
 ### Engine, provider, and models
@@ -92,7 +92,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | --- | --- |
 | `--engine opencode\|codex` | Engine for the run. OpenCode is the default; other tools join as providers (see [Providers](providers.md)). |
 | `--provider <name>` | External tool registered via TOML (see [Providers](providers.md#add-a-tool)). |
-| `--joint-planning` | Add joint Requirements Planner / Plan Reviewer work. |
+| `--joint-planning` | Add joint Requirements / Plan Reviewer work. |
 | `--adaptive-planning` / `--no-adaptive-planning` | New runs plan as deep as the job needs by default (joint planning on the default flow): a clear build request skips the Requirements stage, and a Plan Reviewer with no blocking concern approves the draft. `--no-adaptive-planning` keeps the fixed sequence; `--adaptive-planning` insists. See [Adaptive planning](adaptive-planning.md). |
 | `--builder-strong-model MODEL` | Stronger model for the Builder's second attempt. |
 | `--requirements-model`, `--glm-model`, `--plan-reviewer-model` | Planning-role model overrides (bare GPT names). |

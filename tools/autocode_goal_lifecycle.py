@@ -244,7 +244,7 @@ def render(state):
         if state.get("settings", {}).get("planning_flow") == "v2":
             public = human.current(state)
             questions = public["questions"] if public else human.internal_questions(state)
-            lines = ["No contract yet; resume with the Requirements Planner."]
+            lines = ["No contract yet; resume with Requirements."]
             for question in questions:
                 if not public:
                     lines.append("  Unissued proposal (not an actionable question):")
@@ -490,7 +490,7 @@ def wait_for_user(state, request, *, origin=None, evidence=None, next_stage=None
             key = {"answer_id": answer_id, "contract_token": answer["contract_token"]}
             if key in reused:
                 raise s.Paused("PAUSED_PERMISSION_RECONCILIATION",
-                    f"The decision in saved answer {answer_id} was already returned to the Completion Owner. "
+                    f"The decision in saved answer {answer_id} was already returned to the Completion Reviewer. "
                     "It must honor that answer rather than request the same permission again.")
             reused.append(key)
             state["permission_reuse_context"] = {

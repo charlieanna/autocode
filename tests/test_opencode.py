@@ -418,7 +418,7 @@ class OpenCodeFlow(unittest.TestCase):
 
     def test_a_model_the_plans_do_not_offer_stops_a_new_run_before_any_model_call(self):
         result = self.launch(["Greeting tool", "--no-chat", "--sol-model", "openai/gpt-7-nope"], 2)
-        self.assertIn("Cannot use with OpenCode: openai/gpt-7-nope (Validator).", result.stderr)
+        self.assertIn("Cannot use with OpenCode: openai/gpt-7-nope (Tester).", result.stderr)
         self.assertIn("Z.AI Coding Plan · subscription", result.stderr)
         self.assertIn("--sol-model openai/gpt-6-sol", result.stderr)
         runs = self.project / ".autocode/runs"
@@ -441,8 +441,8 @@ class OpenCodeFlow(unittest.TestCase):
         result = models("oauth")
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn("ChatGPT login · subscription", result.stdout)
-        self.assertRegex(result.stdout, r"openai/gpt-6-sol +strong judge +default for Plan Reviewer, Validator, "
-                                        r"Completion Owner")
+        self.assertRegex(result.stdout, r"openai/gpt-6-sol +strong judge +default for Plan Reviewer, Tester, "
+                                        r"Completion Reviewer")
         self.assertNotIn("MiMo route is not offered.", result.stdout)
         self.assertIn("xiaomi-token-plan-sgp/mimo-v2.6-pro", result.stdout)
         self.assertIn("Every default route can be used:", result.stdout)

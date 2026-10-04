@@ -43,7 +43,7 @@ What does not change:
   with `--no-adaptive-planning` an adaptive one, is refused. Repeating the run's
   own choice, or passing no flag, is fine.
 - Questions work as before. On the fast path the Planner asks them itself.
-- The Validator and Completion Owner still judge the work, and bug-fix, review,
+- The Tester and Completion Reviewer still judge the work, and bug-fix, review,
   design and discuss workflows are unaffected.
 - A plan that the Reviewer does block on takes today's path: revise, then a final
   review that settles every concern.
@@ -168,7 +168,7 @@ ties. Both pipelines sometimes added criteria nobody asked for.
   instead of by item.
 
 Today's pipeline missed a new plan twice: `deployment-planner` (both pipelines
-stopped for a person) and `transactional-outbox` (an AutoResolver blocker,
+stopped for a person) and `transactional-outbox` (an Resolver blocker,
 "Planning recovery scope or inputs changed").
 
 Earlier attempts at this comparison, stopped and restarted, found four Planner
