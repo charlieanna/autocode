@@ -46,7 +46,13 @@ test. These controls use actual Git trees and test processes. Sol completed a
 fresh live review and ran all 19 focused tests (including pytest and Go) plus
 the five controls. MiMo ran the same tests and controls but timed out before a
 final review. GLM's broader code review timed out before executing the requested
-tests. These incomplete reviews remain recorded; they are not passes.
+tests. These incomplete reviews remain recorded; they are not passes. A separate
+focused GLM Analyst run subsequently completed: it executed the unchanged broken-
+application probe, observed FAIL with no fail-to-pass tests, and independently
+confirmed the still-broken application behavior. The controller replayed its
+three executable claims successfully. This qualifies the execution path, not
+the timed-out code review. All runs retained the original 240s stage / 120s idle
+limits and unchanged source/test/runtime hashes.
 
 Still open:
 
