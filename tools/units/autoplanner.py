@@ -13,7 +13,7 @@ try:
     from .. import autocode_stage_context as stage_context, autocode_acceptance_policy as acceptance_policy
     from .. import autocode_bug_job as bug_job, autocode_workflows as workflows, autocode_test_cases as test_cases
     from .. import autocode_follow_up as follow_up, autocode_adaptive_planning as adaptive, autocode_draft_examples as examples
-    from .. import autocode_progressive_state as progressive
+    from .. import autocode_progressive_state as progressive, autocode_brief_literals as brief_literals
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
     import autocode_test_cases as test_cases
@@ -27,6 +27,7 @@ except ImportError:
     import autocode_adaptive_planning as adaptive
     import autocode_draft_examples as examples
     import autocode_progressive_state as progressive
+    import autocode_brief_literals as brief_literals
 
 STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
 # A build that implements an approved design (autocode_design_check_job) skips requirements
@@ -1144,6 +1145,8 @@ def context(state, stage, state_path):
         design_rule += acceptance_policy.DOMAIN
     if rows and stage in TRACE_STAGES:
         design_rule += REQUIREMENT_TRACE_RULE
+    literals = brief_literals.literals(goals.scan_texts(state)) if stage in TRACE_STAGES else []
+    design_rule += brief_literals.rule(literals) if literals else ""
     design_rule += adaptive.prompt_rule(state, stage) + (REREVIEW_RULE if earlier else "")
     prompt = (PROMPTS[stage] + JOB_TYPE_POLICY + design_rule + recovery_instruction + figma_instruction + planning_policy + clarification_policy + progressive_policy + s.COMMON
               + "\nWork read-only; return the report, the runner saves it.\nCURRENT HANDOFF DATA\n"

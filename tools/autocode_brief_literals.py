@@ -82,3 +82,12 @@ def error(lost: list[str]) -> str:
             + ". Keep each one exactly as the brief writes it: quote it verbatim in the criterion, behavior or "
             "deliverable that covers it, or, for a format with placeholders (ALL-CAPS words) or alternatives (a|b), "
             "give an acceptance criterion whose worked example fills it in without changing anything else")
+
+
+def rule(found: list[str]) -> str:
+    """The planner instruction that names the literals its draft must keep, so it need not be sent back."""
+    return ("\nBRIEF LITERALS: the user wrote these in backticks, and the runner returns a draft that drops any of "
+            "them: " + ", ".join(f"`{item}`" for item in found) + ". Quote each one verbatim in the criterion, behavior, "
+            "deliverable or failure case that covers it; a wrong output quoted in a bug report belongs in a failure "
+            "case or regression criterion. For a format with placeholders (ALL-CAPS words) or alternatives (a|b), an "
+            "acceptance criterion whose worked example fills it in also keeps it.\n")

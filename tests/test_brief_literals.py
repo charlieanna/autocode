@@ -4,6 +4,7 @@ import unittest
 
 import autocode_brief_literals as literals
 import autocode_goals as goals
+import autocode_planning as planning
 from goal_fixtures import body
 
 TODO_BRIEF = (Path(__file__).resolve().parents[1] / "scenarios/catalog/greenfield-todo-cli/brief.md").read_text()
@@ -98,6 +99,28 @@ class PlannerDraftTests(unittest.TestCase):
             goals.check_requirement_trace(self.state(answers=answers), {}, todo_contract())
         answers = {"Q1": {"text": "Store it in `todos.json`", "kind": "delegated"}}
         goals.check_requirement_trace(self.state(answers=answers), {}, todo_contract())
+
+
+class PlannerPromptTests(unittest.TestCase):
+    """The drafting stages are told which literals the runner will check, so a draft need not be sent back.
+    In the 2026-10-04 live runs every bug-fix draft first dropped `2024-W54`, the wrong output its report quotes."""
+
+    def prompt(self, stage):
+        state = {"version": 3, "task_id": "task-1", "task": TODO_BRIEF, "workspace": "/absent-workspace",
+                 "settings": {"joint_planning": True, "roles": {"plan_reviewer": {}}},
+                 "answers": {}, "user_events": [], "acceptance_criteria": []}
+        return planning.context(state, stage, Path("/run/state.json"))[0]
+
+    def test_each_drafting_stage_names_every_literal(self):
+        for stage in ("astra_discovery", "glm_revise", "astra_finalize"):
+            text = self.prompt(stage)
+            with self.subTest(stage=stage):
+                self.assertIn("BRIEF LITERALS", text)
+                for literal in literals.literals([TODO_BRIEF]):
+                    self.assertIn(f"`{literal}`", text.split("BRIEF LITERALS", 1)[1].split("\n", 1)[0])
+
+    def test_a_stage_whose_draft_is_not_checked_gets_no_list(self):
+        self.assertNotIn("BRIEF LITERALS", self.prompt("requirements_gather"))
 
 
 if __name__ == "__main__":

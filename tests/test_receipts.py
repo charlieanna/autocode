@@ -5,6 +5,7 @@ check restated its captured command: requoted (`-p "test_*.py"`), with a placeho
 (`go build -o <tmpdir>/policy .`), or summarized (`python3 -c <combined assertions>`).
 """
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -78,3 +79,14 @@ class VerifyChecksTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ValidatorEvidenceInstructionTests(unittest.TestCase):
+    def test_every_event_reference_instruction_names_the_receipt_alternative(self):
+        # A live run (2026-10-04) told a report-file Validator both to cite 'event:' references and,
+        # in its provider's text, never to cite event IDs; the runner rejected 11 such reports in 9 runs.
+        sentences = re.split(r"(?<=[.;])\s+", " ".join(support.STABLE["sol"].split()))
+        for sentence in sentences:
+            if "'event:'" in sentence:
+                with self.subTest(sentence=sentence):
+                    self.assertIn("receipt", sentence)
