@@ -249,12 +249,20 @@ class TaskRunTests(unittest.TestCase):
         run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
         view = run.status()
         self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        self.assertEqual("Waiting for you", view["progress"]["headline"], view["progress"])
+        self.assertEqual("plan approval needed", view["progress"]["needs_you"])
         with self.assertRaisesRegex(taskrun.TaskRunError, "approve plan exited"):
             run.approve_plan("not-the-displayed-token")
         run.approve_plan(view["needs"]["token"])
         view = run.advance_until_input()
         self.assertTrue(view["done"], view)
         self.assertTrue((self.workspace / "greet.py").is_file())
+        progress = view["progress"]
+        self.assertEqual("Complete", progress["headline"], progress)
+        self.assertEqual(progress["tasks"]["total"], progress["tasks"]["done"], progress)
+        self.assertEqual(progress["requirements"]["total"], progress["requirements"]["checked"], progress)
+        self.assertGreater(progress["tasks"]["total"], 0, progress)
+        self.assertGreater(progress["requirements"]["total"], 0, progress)
         # A new caller can reattach to the saved run.
         again = taskrun.TaskRun(self.workspace, run.run_dir, options=FIXTURE_OPTIONS, env=self.env)
         self.assertEqual("TASK_COMPLETE", again.status()["status"])

@@ -29,11 +29,14 @@ class ArtifactReviewCLITests(unittest.TestCase):
         self.assertEqual(["C1"], need["criteria"])
         self.assertTrue(need["token"])
         self.assertFalse(status["view"]["done"])
+        self.assertEqual("1 requirement to review", status["view"]["progress"]["needs_you"])
         # The public review token approves only this current artifact; resume then completes.
         self.launch(["--run-dir", str(run), "--approve-review", "C1", "--review-token", need["token"]], 0)
         self.launch(["--run-dir", str(run), "--no-chat"], 0)
         done = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
         self.assertTrue(done["view"]["done"])
+        # The person's receipt counts the criterion as checked (#29), whatever the Tester could verify.
+        self.assertEqual(["reviewed"], [row["state"] for row in done["view"]["progress"]["requirements"]["items"]])
         stages = [json.loads(line) for line in probe.read_text().splitlines()]
         self.assertEqual(1, sum(row["stage"] == "sol" for row in stages))
         self.assertEqual(1, sum(row["stage"] == "terra" for row in stages))
