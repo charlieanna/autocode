@@ -497,7 +497,7 @@ class RetrofitTest(unittest.TestCase):
         self.state['pending_report_repair'] = pending
         runner.abandon_stage(self.state, self.run, self.root, '005/astra_review_report_repair-01')
         self.assertEqual('sol', self.state['next_stage'])
-        self.assertIn('Validator', self.state['stop_reason'])
+        self.assertIn('Tester', self.state['stop_reason'])
         self.assertNotIn('validation', self.state)
         self.assertNotIn('active_stage', self.state)
         self.assertNotIn('pending_report_repair', self.state)

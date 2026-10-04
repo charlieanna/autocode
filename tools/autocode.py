@@ -25,14 +25,14 @@ try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_task_preflight as task_preflight
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
-    from . import autocode_stop as stop_policy, autocode_status as status_records
+    from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy
 except ImportError:
     import autocode_dependency as dependency, autocode_status_command as status_command, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     import autocode_regression as regression, autocode_format_correction as format_correction, autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_event_log as event_log
     import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
     import autocode_providers, autocode_opencode as opencode, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_task_preflight as task_preflight
-    import autocode_stop as stop_policy, autocode_status as status_records
+    import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
     import autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_rework_policy as rework_policy
     import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue
 
@@ -172,6 +172,8 @@ slug = util.slug
 
 def load_stage_report(record, workspace=None, evidence_record=None, state=None):
     """Validate provider output, retaining raw bytes before hydrating review IDs."""
+    readonly_events.assert_unchanged_review(record)
+    if evidence_record: readonly_events.assert_unchanged_review(evidence_record)
     rework_policy.verify_existing(record)
     if record.get("engine") == "opencode":
         # Raw provider events are authoritative, including during recovery.
@@ -401,6 +403,8 @@ def run_role(
         record.update({"dry_run": True, "finished_at": now(), "exit_code": 0})
         return {"status": "DRY_RUN"}, record
 
+    if engine == "opencode" and not configured_tool:
+        readonly_events.prepare_opencode_snapshots(workspace)
     before = support.snapshot(workspace)
     if record['output_mode'] == 'report_file':
         record['capture_context'] = {'attempt': str(output), 'nonce': uuid.uuid4().hex,
@@ -445,8 +449,8 @@ def run_role(
             for prepared in (prompt_file, events, base.with_suffix(".before.json"), base.with_suffix(".opencode.json")):
                 prepared.unlink(missing_ok=True)
             raise
-        print(f"{autocode_status.role_name(stage)}: started; model={model or 'default'}; log={events}", flush=True)
-        activity = ActivityMonitor(events, idle_seconds=idle_timeout, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage), model))
+        print(f"{autocode_status.role_name(stage, state)}: started; model={model or 'default'}; log={events}", flush=True)
+        activity = ActivityMonitor(events, idle_seconds=idle_timeout, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage, state), model))
         activity_label = None
         last_activity_print = 0
         def activity_checkpoint(snapshot):
@@ -458,7 +462,7 @@ def run_role(
             label = (snapshot.get("activity"), snapshot.get("detail"))
             current = time.monotonic()
             if label != activity_label or current - last_activity_print >= 60:
-                print(f"{autocode_status.role_name(stage)}: {snapshot.get('activity', 'waiting_for_provider')}; model={model or 'default'}; "
+                print(f"{autocode_status.role_name(stage, state)}: {snapshot.get('activity', 'waiting_for_provider')}; model={model or 'default'}; "
                       f"elapsed={record['activity']['elapsed_seconds']:g}s; "
                       f"idle={snapshot.get('idle_seconds', 0):g}s/{idle_timeout or 'off'}; "
                       f"tool={snapshot.get('tool_elapsed_seconds', 0) or 0:g}s/{tool_timeout or 'off'}; "
@@ -532,6 +536,8 @@ def run_role(
     try:
         value = load_stage_report(record, workspace,
             (state.get('pending_report_repair') or {}).get('original') if report_only else None, state=state)
+    except support.Paused:
+        raise
     except (ValueError, RuntimeError) as error:
         reject_completed_stage(state, run_dir, record, error)
     return value, record
@@ -869,6 +875,8 @@ def reconcile_active(state, run_dir, workspace):
     try:
         value = load_stage_report(record, workspace,
             (state.get('pending_report_repair') or {}).get('original') if record.get('report_only') else None, state=state)
+    except support.Paused:
+        raise
     except (ValueError, RuntimeError) as error:
         reject_completed_stage(state, run_dir, record, error)
     if record.get('report_only'):

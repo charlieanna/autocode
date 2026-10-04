@@ -8,9 +8,9 @@ coordinates along the way.
 
 ## The flow
 
-Start with a rough idea and discuss it with the Requirements Planner. It helps define the smallest
+Start with a rough idea and discuss it with the Requirements. It helps define the smallest
 useful end-to-end product, asks focused questions, and drafts a versioned build brief.
-The Plan Reviewer challenges that draft; the Requirements Planner revises; the Plan Reviewer finalizes. You can revise the brief
+The Plan Reviewer challenges that draft; the Requirements revises; the Plan Reviewer finalizes. You can revise the brief
 in the same conversation. Implementation starts only after you explicitly approve it.
 
 After approval, Autocode handles the handoffs:
@@ -42,7 +42,7 @@ Planner → Plan Reviewer → Planner revision → Plan Reviewer final → your 
 
 Autopilot → AutoCode task scheduler → independent Builders → combined validation
 
-Builder → Validator → Completion Owner
+Builder → Tester → Completion Reviewer
    ↑                       |
    └──────── REWORK ───────┘
 ```
@@ -50,8 +50,8 @@ Builder → Validator → Completion Owner
 The Plan Reviewer owns final planning decisions. On new joint runs, the runner-owned
 Autopilot dispatches AutoCode to schedule independent milestone Builders after approval, falling back
 to one Builder when work cannot safely run in parallel. Each Builder implements one bounded
-task. A separate Validator independently inspects and tests the combined code, then the
-Completion Owner proposes completion or rework for Autopilot to evaluate. They all work
+task. A separate Tester independently inspects and tests the combined code, then the
+Completion Reviewer proposes completion or rework for Autopilot to evaluate. They all work
 from the same approved brief; you do not explain the product to each agent or relay
 their prompts. The runner saves decisions, tasks and evidence so it can resume.
 
@@ -85,7 +85,7 @@ The same repository contains four callable units:
 | Autoplanner | Separate requirements, planner, and plan-reviewer sessions | User-approved contract and task DAG |
 | Autocode | Next-task planning, parallel Builders, implementation and integration | Build candidate with source revision |
 | Autoreview | Independent validation and completion-owner review | Evidence-backed review result |
-| Autoresolver | Read-only diagnosis of reviewer-requested rework | Evidence-linked, bounded repair DAG and retests |
+| Resolver | Read-only diagnosis of reviewer-requested rework | Evidence-linked, bounded repair DAG and retests |
 
 `autopilot` is the deterministic workflow controller in `tools/autopilot.py`. It calls
 all four units, consumes their results, selects the next stage, coordinates recovery,
@@ -112,8 +112,8 @@ the saved approval and current evidence; editing a handoff cannot approve a plan
 a review. Existing runs acquire handoffs when they next progress, without migrating
 their approval or replaying completed stages.
 
-In the standard workflow, a reviewer's `REWORK` decision routes to Autoresolver,
-then back to AutoCode and independent review. Autoresolver inherits the Plan Reviewer model
+In the standard workflow, a reviewer's `REWORK` decision routes to Resolver,
+then back to AutoCode and independent review. Resolver inherits the Plan Reviewer model
 configuration but has its own saved session. It cannot implement, approve or complete
 a task. Its first version emits one bounded repair task (a one-node DAG with
 `depends_on: []`), preserving integrated-batch accountability. It pins the reviewed
@@ -162,7 +162,7 @@ read-only `investigate_stuck` stage (`tools/autocode_stuck_job.py`) instead of s
 | `PAUSED_REPEATED_FAILURE`, `PAUSED_INVALID_OUTPUT` | retry runs the stage once more; its failure history stays, so the same failure again extends the run of identical failures and a different one starts a new run (a spent report repair is archived) |
 | `PAUSED_PLANNING_BUDGET` | retry grants one more review round (two calls from the challenge, one from the final review) |
 | `PAUSED_NO_PROGRESS` | retry allows one more implementation batch |
-| `PAUSED_COMPLETION_REVIEW` | retry asks the Completion Owner once more |
+| `PAUSED_COMPLETION_REVIEW` | retry asks the Completion Reviewer once more |
 | `PAUSED_REPORT_REPAIR_LIMIT`, `PAUSED_BUILDER_RETRY_LIMIT`, `PAUSED_MILESTONE_STALLED`, `PAUSED_MILESTONE_REPLAN` | diagnosis only; these keep their operator resume flags |
 
 A rejected report pauses as `PAUSED_REPEATED_FAILURE` only after three consecutive attempts of
@@ -220,7 +220,7 @@ You → Requirements Gatherer: clarify outcome, scope, constraints and definitio
 Requirements Gatherer → Planner: draft plan and task dependencies
 Planner → Plan Reviewer → Planner revision → Plan Reviewer
     → you approve that exact plan
-    → Builder → Validator → Completion Owner
+    → Builder → Tester → Completion Reviewer
 ```
 
 Role defaults and escalation ladders are documented in [Models](models.md).
@@ -269,7 +269,7 @@ Reviewer concerns have stable IDs; every concern requires a Planner response and
 including a concrete acceptance test. The final displayed brief includes the technical
 approach, milestones, and **first bounded implementation task**, all covered by its
 revision/hash. Approval dispatches that task directly, without a third Plan Reviewer
-call. The separate Completion Owner's later decisions use the normal execution budget.
+call. The separate Completion Reviewer's later decisions use the normal execution budget.
 
 Planning defaults to **two Plan Reviewer reviews per cycle**. A review counts once it
 returns a report, whether or not the runner then accepts that report. An attempt that
@@ -299,7 +299,7 @@ Answering final blockers, giving feedback,
 or editing the goal starts fresh joint review and requires fresh approval. Old exchanges
 remain archived. Ordinary resume preserves the cycle and its spent budget.
 
-Before the plan is shown for approval, AutoResolver checks that it is the reviewed final plan and
+Before the plan is shown for approval, Resolver checks that it is the reviewed final plan and
 that the workspace has not changed since that review. If the check fails, approval is deferred and
 planning restarts with a new cycle. Planning restarts at most twice for the same reason since your
 last input. After that, the run pauses at `PAUSED_APPROVAL_DEFERRED` with the reason, instead of
@@ -307,8 +307,8 @@ spending review calls on cycles that end the same way. `--resume-paused` runs on
 `--feedback` restarts from requirements (in an adaptive run, from the Planner when a plan is shown
 for approval) and renews the allowance.
 
-The default workflow uses OpenCode for every role. The Plan Reviewer, Builder, Validator,
-and Completion Owner use OpenCode's current ChatGPT OAuth connection; the Requirements Gatherer
+The default workflow uses OpenCode for every role. The Plan Reviewer, Builder, Tester,
+and Completion Reviewer use OpenCode's current ChatGPT OAuth connection; the Requirements Gatherer
 and Planner use separate sessions on the Z.ai connection by default. Changing
 the account in ChatGPT's browser or desktop app does not change OpenCode's login.
 To switch this workflow's ChatGPT account, reconnect OpenAI in OpenCode.
@@ -326,7 +326,7 @@ The existing `--chat`, `--answer`, `--feedback`, `--show-goal`, `--approve-goal`
 and resume commands work in this mode. Intermediate drafts cannot be approved. The
 saved `planning` object records the exchange, final approval token and Plan Reviewer call count;
 `planning_history` retains prior cycles. Existing runs keep their original routing,
-including earlier OpenCode-only runs and joint-planning runs that used the Requirements Planner model for validation.
+including earlier OpenCode-only runs and joint-planning runs that used the Requirements model for validation.
 Start a new run to use the current GPT Sol default in that case; saved sessions cannot
 move between CLIs. No global OpenCode or Codex configuration is changed.
 
@@ -334,7 +334,7 @@ move between CLIs. No global OpenCode or Codex configuration is changed.
 
 A bug report goes through the same conversation and every stage as any other
 task: requirements, planning, plan challenge, revision, final plan review, your
-approval, orchestrator, Builder, Validator and Completion Owner.
+approval, orchestrator, Builder, Tester and Completion Reviewer.
 
 - **Job type.** The Requirements Gatherer proposes `task_kind` (`bugfix` or
   `build`), the Planner writes it into the contract, and the Plan Reviewer
@@ -344,7 +344,7 @@ approval, orchestrator, Builder, Validator and Completion Owner.
 - **A defect-shaped plan.** For a bug fix the planning stages keep the plan to
   the reproduction, the root cause, the smallest correct fix and a regression
   test in the project's own suite. The same stages run; they review less.
-- **Runner-owned proof, no model call.** Just before the Validator runs, the
+- **Runner-owned proof, no model call.** Just before the Tester runs, the
   runner executes `regression_proof` against the run's base commit (the commit
   the run started from; for a run created before that commit was saved, the
   commit its first stage recorded, if the source still descends from it). Each
@@ -357,10 +357,10 @@ approval, orchestrator, Builder, Validator and Completion Owner.
   is bound to the exact
   source revision and appears as a runner-owned step with zero tokens in the
   stage history.
-- **Reviewers use it instead of repeating it.** The Validator and the Completion
-  Owner receive `regression_proof`. With a passing proof the Validator runs the
+- **Reviewers use it instead of repeating it.** The Tester and the Completion
+  Owner receive `regression_proof`. With a passing proof the Tester runs the
   regression command once as its own check instead of the whole suite. With a
-  failing proof the Validator reports FAIL and the Completion Owner returns
+  failing proof the Tester reports FAIL and the Completion Reviewer returns
   REWORK, which sends the proof's reasons back to the Builder.
 - **The completion gate requires it.** A bug fix cannot reach `TASK_COMPLETE`
   unless the proof passed for the current source. A refusal names the reason.
@@ -404,7 +404,7 @@ approval, orchestrator, Builder, Validator and Completion Owner.
     its own named test.
   - **Without per-test results** (exit codes only), the cases cannot be matched
     and the proof is `UNVERIFIED`.
-  - **The Validator's check.** The Validator reads each case's test
+  - **The Tester's check.** The Tester reads each case's test
     (`case_tests` in the proof) and reports FAIL if the test does not assert
     what the English case says.
   - **Where the cases appear.** The status view's `evidence` carries the cases
@@ -425,11 +425,11 @@ acceptance criterion a test can check as one concrete example, and sets its
 - **You approve the examples with the plan.** The plan display says which
   criteria the runner will prove.
 - **Criteria a test cannot check keep an ordinary verification.** Examples are
-  documentation, visual design and performance under real load; the Validator
+  documentation, visual design and performance under real load; the Tester
   judges those as before.
 - **Naming.** The Builder writes one test per marked criterion, named with its
   id (`test_c2_…`).
-- **The runner's check.** Before the Validator runs, the runner checks each
+- **The runner's check.** Before the Tester runs, the runner checks each
   named test by the same regression proof as a bug fix, with one difference.
   The test must pass with the change and must not have passed without it. For a
   feature, "not passed" includes failing to import the new code on the original
@@ -569,7 +569,7 @@ other frontends; no continuously attached terminal is required.
 
 Execution roles must consult saved answers before asking for permission. An exact
 repeated permission request under the same approved contract is returned once to the
-Completion Owner with its authenticated answer, including any refusal or conditions.
+Completion Reviewer with its authenticated answer, including any refusal or conditions.
 It is not automatically granted or extended to a broader request. If the owner repeats
 it again, the runner pauses for reconciliation rather than creating another question
 or spending indefinitely. Older answers without the original request remain available

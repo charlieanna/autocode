@@ -144,10 +144,10 @@ class AdviseTest(unittest.TestCase):
     def test_the_stop_message_groups_by_plan_and_tier_and_names_per_token_billing(self):
         available = ["zai-coding-plan/glm-5.3", "kilo/some-judge", "opencode/x-free"]
         text = mc.render_advice(mc.advise(routes(), available, openai_auth="oauth"))
-        self.assertIn("Cannot use with OpenCode: openai/gpt-6-sol (Plan Reviewer, Validator, Completion Owner)", text)
+        self.assertIn("Cannot use with OpenCode: openai/gpt-6-sol (Plan Reviewer, Tester, Completion Reviewer)", text)
         self.assertIn("Z.AI Coding Plan · subscription", text)
         self.assertIn("Kilo Gateway · pay per token", text)
-        self.assertRegex(text, r"zai-coding-plan/glm-5\.3 +cheap worker +default for Requirements Gatherer, Planner, Builder")
+        self.assertRegex(text, r"zai-coding-plan/glm-5\.3 +cheap worker +default for Requirements, Planner, Builder")
         self.assertIn("opencode/x-free", text)
         self.assertNotIn("not offered", text)
         self.assertIn("--sol-model kilo/some-judge", text)
@@ -190,7 +190,7 @@ class ChooseTest(unittest.TestCase):
         before = copy.deepcopy(settings)
         with self.assertRaises(RuntimeError) as raised:
             mc.choose(settings, FakeProvider(self.AVAILABLE), Path("."), interactive=False)
-        self.assertIn("Cannot use with OpenCode: openai/gpt-7 (Validator).", str(raised.exception))
+        self.assertIn("Cannot use with OpenCode: openai/gpt-7 (Tester).", str(raised.exception))
         self.assertIn("--sol-model openai/gpt-6-sol", str(raised.exception))
         self.assertEqual(before, settings)
 

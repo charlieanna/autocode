@@ -129,8 +129,8 @@ def abandon_stage(state, run_dir, workspace, selected):
                   retry_stage if record["role"] == "astra" or record.get("planning") else
                   retry_stage if record["role"] in ("terra", "sol") else
                   "astra_review")
-    recovery_role = ("Requirements Planner" if planning.is_planning(state, next_stage) else
-                     "Validator" if next_stage == "sol" else
+    recovery_role = ("Requirements" if planning.is_planning(state, next_stage) else
+                     "Tester" if next_stage == "sol" else
                      "Builder" if next_stage == "terra" else "Plan Reviewer")
     state.update(status="PAUSED_STAGE_ABANDONED", phase="PAUSED_OR_BLOCKED", next_stage=next_stage,
                  stop_reason=f"Partial work retained. Resume explicitly for {recovery_role} to inspect it and choose the next step.")
