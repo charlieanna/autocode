@@ -340,6 +340,53 @@ class TaskRunTests(unittest.TestCase):
         upgraded.approve_plan(view["needs"]["token"])
         self.assertEqual("TASK_COMPLETE", upgraded.advance_until_input()["status"])
 
+    def test_follow_up_can_revise_a_protected_behavior_but_still_needs_new_plan_approval(self):
+        request = "Add optional punctuation to the greeting API while preserving the current default."
+        replacement = "Print Hello, NAME for one nonempty name by default; allow optional punctuation"
+        provider = Path(self.env["PATH"].split(os.pathsep)[0]) / "codex"
+        script = provider.read_text()
+        anchor = '    output = Path(sys.argv[sys.argv.index("-o") + 1])'
+        self.assertIn(anchor, script)
+        amendment = textwrap.dedent("""
+            if stage in ("astra_discovery", "glm_revise", "astra_finalize") and os.environ.get("FOLLOW_UP_PROVENANCE_TEST") == "1":
+                previous = "Print Hello, NAME for one nonempty name"
+                event = next((e for e in data.get("brief_feedback", []) if e.get("text") == REQUEST), {})
+                report["contract"].setdefault("initial_task", _planning_contract()["initial_task"])
+                report["contract"]["required_behaviors"][0] = REPLACEMENT
+                report["requirement_trace"][0]["evidence"] = REPLACEMENT
+                behaviors = ((data.get("goal_contract") or {}).get("body") or {}).get("required_behaviors", [])
+                if previous in behaviors or not behaviors:
+                    report["contract_changes"] = [{"item": previous, "change": "reworded",
+                        "replacement": REPLACEMENT, "basis": "user_feedback",
+                        "answer_id": event.get("id", "feedback-unrecorded-follow-up"), "example_correction": None}]
+        """).replace("REQUEST", repr(request)).replace("REPLACEMENT", repr(replacement))
+        provider.write_text(script.replace(anchor, textwrap.indent(amendment, "    ") + "\n" + anchor, 1))
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS,
+                                   start_options=("--workflow", "build"), env=self.env, timeout=300)
+        first = run.status()["needs"]["token"]
+        run.approve_plan(first)
+        self.assertEqual("TASK_COMPLETE", run.advance_until_input()["status"])
+        accepted = {name: (self.workspace / name).read_bytes() for name in ("greet.py", "test_greet.py", "README.md")}
+        run.follow_up(request)
+        self.env["FOLLOW_UP_PROVENANCE_TEST"] = "1"
+        self.env["LIVE_FIXTURE_CLARITY"] = "clear"
+        recognizing = taskrun.TaskRun(self.workspace, run.run_dir,
+            options=(*FIXTURE_OPTIONS, "--pause-after-stage"), env=self.env, timeout=300)
+        boundary = recognizing.advance()
+        self.assertEqual(("PAUSED_REQUESTED", "requirements_gather"),
+                         (boundary["status"], boundary["next_stage"]), boundary)
+        # Reattach: refresh the prior handoff, and retain the recorded request and authorization identity.
+        run = taskrun.TaskRun(self.workspace, run.run_dir, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
+        view = run.resume_paused()
+        self.assertEqual("AWAITING_GOAL_APPROVAL", view["status"], view)
+        self.assertEqual(2, view["turn"])
+        self.assertIn(replacement, run.show_goal())
+        self.assertNotEqual(first, view["needs"]["token"])
+        with self.assertRaises(taskrun.TaskRunError):
+            run.approve_plan(first)
+        self.assertEqual("approve_plan", run.status()["needs"]["kind"])
+        self.assertEqual(accepted, {name: (self.workspace / name).read_bytes() for name in accepted})
+
     def test_usage_errors_are_not_mistaken_for_a_pause(self):
         run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
         broken = taskrun.TaskRun(self.workspace, run.run_dir, options=("--no-such-flag",), env=self.env)
