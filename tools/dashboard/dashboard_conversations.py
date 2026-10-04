@@ -1,4 +1,4 @@
-"""Durable, project-free AutoResolver intake conversations.
+"""Durable, project-free Resolver intake conversations.
 
 No Autocode process, repository, terminal, or model tool is involved in this
 chat. The direct OpenCode provider uses a new deny-all agent for every turn.
@@ -96,7 +96,7 @@ def _models(value):
 
 def _prompt(messages):
     return (
-        'You are AutoResolver, the project-free intake agent in the Autocode browser dashboard. '
+        'You are Resolver, the project-free intake agent in the Autocode browser dashboard. '
         'This is a project-free conversation. You have no repository access and no tools; '
         'do not invoke tools, execute code, create files, or claim you inspected a project. '
         'Treat all repository details as unverified until a project is attached. '
@@ -163,7 +163,7 @@ def _capture(command, env, cwd, prompt, timeout=PROVIDER_TIMEOUT, output_limit=M
         while selector.get_map():
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise ConversationProviderError('AutoResolver took too long to reply. Your message is saved; retry when ready.')
+                raise ConversationProviderError('Resolver took too long to reply. Your message is saved; retry when ready.')
             for key, _ in selector.select(min(remaining, .25)):
                 pipe = key.fileobj
                 if key.data == 'in':
@@ -193,11 +193,11 @@ def _capture(command, env, cwd, prompt, timeout=PROVIDER_TIMEOUT, output_limit=M
                     output.extend(chunk)
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise ConversationProviderError('AutoResolver took too long to reply. Your message is saved; retry when ready.')
+            raise ConversationProviderError('Resolver took too long to reply. Your message is saved; retry when ready.')
         try:
             code = process.wait(timeout=remaining)
         except subprocess.TimeoutExpired as error:
-            raise ConversationProviderError('AutoResolver took too long to reply. Your message is saved; retry when ready.') from error
+            raise ConversationProviderError('Resolver took too long to reply. Your message is saved; retry when ready.') from error
         return code, output.decode('utf-8', errors='replace')
     finally:
         selector.close()
@@ -227,7 +227,7 @@ def opencode_provider(messages, model, workdir):
     config = {**inherited, 'share': 'disabled', 'autoupdate': False,
               'permission': {'*': 'deny'},
               'agent': {**inherited.get('agent', {}), agent: {
-                  'description': 'AutoResolver project-free intent intake; request-only, no tools',
+                  'description': 'Resolver project-free intent intake; request-only, no tools',
                   'mode': 'primary', 'permission': {'*': 'deny'},
               }}}
     env['OPENCODE_CONFIG_CONTENT'] = json.dumps(config)
@@ -238,7 +238,7 @@ def opencode_provider(messages, model, workdir):
                '--agent', agent, '--model', model, '--title', 'Autocode resolver intake']
     code, output = _capture(command, env, workdir, _prompt(messages))
     if code:
-        raise ConversationProviderError('OpenCode could not get a reply from AutoResolver. Check the configured model and provider connection, then retry.')
+        raise ConversationProviderError('OpenCode could not get a reply from Resolver. Check the configured model and provider connection, then retry.')
     texts = []
     for line in output.splitlines():
         try:
@@ -248,7 +248,7 @@ def opencode_provider(messages, model, workdir):
         if not isinstance(event, dict):
             continue
         if event.get('type') == 'error':
-            raise ConversationProviderError('AutoResolver could not finish its reply. Check the provider connection, then retry.')
+            raise ConversationProviderError('Resolver could not finish its reply. Check the provider connection, then retry.')
         if event.get('type') == 'tool_use':
             raise ConversationProviderError('The intake provider attempted a tool call. This conversation only supports text; retry your message.')
         part = event.get('part')
@@ -256,7 +256,7 @@ def opencode_provider(messages, model, workdir):
             texts.append(part['text'])
     reply = '\n\n'.join(texts).strip()
     if not reply:
-        raise ConversationProviderError('AutoResolver returned no text. Your message is saved; retry when ready.')
+        raise ConversationProviderError('Resolver returned no text. Your message is saved; retry when ready.')
     return reply
 
 
@@ -294,7 +294,7 @@ class ConversationStore:
                         doc = self._load(doc['id'])
                         if doc['status'] == 'thinking':
                             doc['status'] = 'error'
-                            doc['error'] = 'The dashboard restarted before AutoResolver finished. Your message is saved; retry when ready.'
+                            doc['error'] = 'The dashboard restarted before Resolver finished. Your message is saved; retry when ready.'
                             self._pending_message(doc)['status'] = 'error'
                             doc['_active_turn'] = None
                             self._save(doc)
@@ -404,7 +404,7 @@ class ConversationStore:
                     continue
             except (KeyError, TypeError, ValueError, AttributeError):
                 continue
-            message.update(speaker='AutoResolver', human_request_authorized=True, human_escalation=request)
+            message.update(speaker='Resolver', human_request_authorized=True, human_escalation=request)
             messages.append(message)
         return public
 
@@ -500,13 +500,13 @@ class ConversationStore:
             self._append_user(doc, text, request_id)
             return self._start(doc)
 
-    def create_empty(self, workspace=None, request_id=None):
+    def create_empty(self, workspace=None, request_id=None, models=None):
         """Save an empty conversation before the first message is sent.
 
         Activating a New conversation control opens this saved record with its
         project scope already attached; the first message continues it.
         """
-        request_id = _request_id(request_id)
+        request_id, models = _request_id(request_id), _models(models)
         if workspace is not None and (not isinstance(workspace, str) or not workspace.strip() or len(workspace) > 4096):
             raise ValueError('The creation-time project scope must be a short non-empty path.')
         with self._guard():
@@ -514,13 +514,13 @@ class ConversationStore:
             for summary in self.list(include_archived=True):
                 doc = self._load(summary['id'])
                 if doc.get('_create_request_id') == request_id:
-                    if doc['messages'] or (doc.get('project_workspace') or None) != (workspace or None):
+                    if doc['messages'] or doc['models'] != models or (doc.get('project_workspace') or None) != (workspace or None):
                         raise ValueError('That request ID was already used for a different conversation.')
                     return self._public(doc)
             created = _now()
             doc = {'id': uuid.uuid4().hex, 'title': 'New conversation',
                    'created_at': created, 'updated_at': created, 'status': 'ready', 'error': None,
-                   'messages': [], 'models': _models(None), 'attachment': None,
+                   'messages': [], 'models': models, 'attachment': None,
                    **({'project_workspace': workspace} if workspace else {}),
                    '_create_request_id': request_id, '_requests': {}}
             self._save(doc)
@@ -539,7 +539,7 @@ class ConversationStore:
                     raise ValueError('That request ID was already used for a different message.')
                 return self._public(doc)
             if doc['status'] == 'thinking':
-                raise ValueError('AutoResolver is still replying. Wait for the response before sending another message.')
+                raise ValueError('Resolver is still replying. Wait for the response before sending another message.')
             if doc.get('attachment'):
                 raise ValueError('This conversation is attached to a project. Continue in its task conversation.')
             if doc['status'] == 'error':
@@ -579,7 +579,7 @@ class ConversationStore:
                 fields['title'] = title.strip()
             if 'models' in fields:
                 if doc['status'] == 'thinking':
-                    raise ValueError('Wait for AutoResolver to finish before changing conversation models.')
+                    raise ValueError('Wait for Resolver to finish before changing conversation models.')
                 fields['models'] = _models(fields['models'])
             if 'attachment' in fields:
                 attachment = fields['attachment']
@@ -614,7 +614,7 @@ class ConversationStore:
             if expected_attachment is not None and not replacing_failed:
                 return self._public(doc), False
             if doc['status'] != 'ready':
-                raise ValueError('Wait for a complete AutoResolver reply before attaching a project.')
+                raise ValueError('Wait for a complete Resolver reply before attaching a project.')
             return self.update(conversation_id, attachment=attachment), True
 
     def _append_user(self, doc, text, request_id):
@@ -639,7 +639,7 @@ class ConversationStore:
             fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
             lease.close()
-            raise ValueError('AutoResolver is still replying in another dashboard. Wait for the response before continuing.') from error
+            raise ValueError('Resolver is still replying in another dashboard. Wait for the response before continuing.') from error
         return lease
 
     def _start(self, doc):
@@ -659,7 +659,7 @@ class ConversationStore:
             self.pool.submit(self._reply, doc['id'], doc['_active_turn'])
         except RuntimeError:
             self._leases.pop((doc['id'], doc['_active_turn'])).close()
-            doc.update(status='error', error='The conversation service stopped before AutoResolver could reply. Retry shortly.', _active_turn=None)
+            doc.update(status='error', error='The conversation service stopped before Resolver could reply. Retry shortly.', _active_turn=None)
             self._pending_message(doc)['status'] = 'error'
             self._save(doc)
 
@@ -686,22 +686,22 @@ class ConversationStore:
                 raise ConversationProviderError('The conversation scratch directory is invalid.')
             response = self.provider(messages, model, workdir)
             if not isinstance(response, str) or not response.strip():
-                raise ConversationProviderError('AutoResolver returned no text. Your message is saved; retry when ready.')
+                raise ConversationProviderError('Resolver returned no text. Your message is saved; retry when ready.')
             if len(response) > MAX_REPLY_CHARS:
-                raise ConversationProviderError('AutoResolver returned an oversized reply. Your message is saved; retry with a narrower request.')
+                raise ConversationProviderError('Resolver returned an oversized reply. Your message is saved; retry with a narrower request.')
             error = None
         except ConversationProviderError as exc:
             error = str(exc)
         except Exception:
             # Exceptions/CLI diagnostics may contain credentials. Display only
             # controlled messages; never persist provider output or environment.
-            error = 'AutoResolver could not reply. Your message is saved; check the provider connection and retry.'
+            error = 'Resolver could not reply. Your message is saved; check the provider connection and retry.'
         with self._guard():
             doc = self._load(conversation_id)
             if doc.get('_active_turn') != turn_id or doc['status'] != 'thinking':
                 return
             if input_hash != _intake_input_hash(self._public(doc)['messages'], doc['models']['glm_model']):
-                error = 'The intake input changed before AutoResolver finished. No reply was published; retry the saved message.'
+                error = 'The intake input changed before Resolver finished. No reply was published; retry the saved message.'
             if not error:
                 # Fresh runner-owned request-only state, never model-supplied
                 # contracts, receipts, actions, or implementation permissions.
@@ -717,11 +717,11 @@ class ConversationStore:
                             or publication['human_escalation']['scope'] != 'intake'
                             or publication['user_request'] != request):
                         raise ValueError('Intake publication was not authorized')
-                    message = {'id': uuid.uuid4().hex, 'role': 'assistant', 'speaker': 'AutoResolver',
+                    message = {'id': uuid.uuid4().hex, 'role': 'assistant', 'speaker': 'Resolver',
                                'text': publication['user_request']['decision_needed'],
                                'created_at': _now(), 'status': 'received'}
                 except Exception:
-                    error = 'AutoResolver could not authorize this reply. No reply was published; retry the saved message.'
+                    error = 'Resolver could not authorize this reply. No reply was published; retry the saved message.'
                 else:
                     doc.setdefault('_resolver_intake', {})[message['id']] = state
                     doc['messages'].append(message)

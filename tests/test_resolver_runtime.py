@@ -95,6 +95,179 @@ class ResolverRuntimeTests(unittest.TestCase):
             self.boundary()
         self.assertEqual([2], list(self.state['resolver']['attempts'].values()))
 
+    def test_distinct_validator_originals_have_distinct_budgets(self):
+        self.queue(role='sol', stage='sol', task_id='milestone-task')
+        self.boundary()
+        self.state['pending_report_repair']['attempts'] = 1
+        self.boundary()
+        spent = copy.deepcopy(self.state['resolver']['attempts'])
+        # The public CLI regression exercises successful acceptance between these originals.
+        self.state.pop('pending_report_repair')
+        self.queue(role='sol', stage='sol', iteration=6, task_id='final-validation-task')
+        self.assertTrue(self.boundary())
+        self.assertEqual([1, 2], sorted(self.state['resolver']['attempts'].values()))
+        for key, count in spent.items():
+            self.assertEqual(count, self.state['resolver']['attempts'][key])
+
+    def test_original_execution_not_current_task_error_or_repair_identifies_budget(self):
+        pending = self.queue(role='sol', stage='sol', task_id='original-task')
+        self.boundary()
+        pending['attempts'] = 1
+        self.boundary()
+        self.state = support.read(self.run / 'state.json')
+        pending = self.state['pending_report_repair']
+        pending['attempts'] = 0
+        pending['error'] = 'A different error class and wording'
+        pending['latest_rejected'] = {'output': 'another-repair.json', 'failure_key': 'another-error-class'}
+        pending['original']['failure_key'] = 'another-error-class'
+        self.state['current_task'] = {'id': 'tampered-current-task'}
+        with self.assertRaisesRegex(support.Paused, 'attempt budget exhausted'):
+            self.boundary()
+        self.assertEqual([2], list(self.state['resolver']['attempts'].values()))
+
+    def test_original_identity_is_pure_and_stable_across_archival_and_legacy_fields(self):
+        original = self.queue(role='sol', stage='sol', task_id='original-task')['original']
+        before = copy.deepcopy(original)
+        for old, archived in original['archived_paths'].items():
+            for field in ('output', 'events'):
+                if before[field] == archived:
+                    before[field] = old
+        before.pop('archived_paths')
+        identify = runner.resolver_runtime.report_repair_identity
+        with patch.object(support, 'file_hash', side_effect=AssertionError('identity must be pure')), \
+                patch.object(support, 'snapshot', side_effect=AssertionError('identity must be pure')):
+            expected = identify(before)
+            self.assertEqual(expected, identify(original))
+            # Legacy originals without the failure-attempt field use its exact
+            # pre-archive identity, not today's repair output or current task.
+            del original['failure_attempt']
+            del before['failure_attempt']
+            self.assertEqual(expected, identify(before))
+            self.assertEqual(expected, identify(original))
+            self.assertNotEqual(expected, identify({**original, 'task_id': 'other-task'}))
+            self.assertNotEqual(expected, identify({**original, 'started_at': 'another-execution'}))
+
+    def legacy_boundary(self):
+        original = self.state['pending_report_repair']['original']
+        legacy = {'stage': original['stage'], 'artifact_hash': original.get('source_revision'),
+                  'failure_key': original.get('failure_key')}
+        with patch.object(runner.resolver_runtime, '_report_repair_blocker', return_value=legacy):
+            return self.boundary()
+
+    def test_legacy_inflight_incident_preserves_spent_budget_and_cached_receipt(self):
+        self.queue(role='sol', stage='sol', task_id='original-task')
+        self.legacy_boundary()
+        saved = copy.deepcopy(self.state['resolver'])
+        self.state = support.read(self.run / 'state.json')
+        self.boundary()
+        self.assertEqual(saved, self.state['resolver'])
+        self.state['pending_report_repair']['attempts'] = 1
+        self.boundary()
+        self.assertEqual([2], list(self.state['resolver']['attempts'].values()))
+        for key, pair in saved['cache'].items():
+            self.assertEqual(pair, self.state['resolver']['cache'][key])
+        self.state = support.read(self.run / 'state.json')
+        self.state['pending_report_repair'].update(attempts=0, error='new wording')
+        with self.assertRaisesRegex(support.Paused, 'attempt budget exhausted'):
+            self.boundary()
+        self.assertEqual([2], list(self.state['resolver']['attempts'].values()))
+
+    def test_legacy_exhausted_collision_is_not_a_charge_against_new_original(self):
+        self.queue(role='sol', stage='sol', task_id='milestone-task')
+        self.legacy_boundary()
+        self.state['pending_report_repair']['attempts'] = 1
+        self.legacy_boundary()
+        spent = copy.deepcopy(self.state['resolver']['attempts'])
+        self.state.pop('pending_report_repair')
+        self.queue(role='sol', stage='sol', task_id='final-task', iteration=6)
+        with self.assertRaisesRegex(support.Paused, 'attempt budget exhausted'):
+            self.legacy_boundary()
+        self.assertIsNone(self.state['stages'][-1]['receipt']['attempt'])
+        self.state = support.read(self.run / 'state.json')
+        self.state['status'] = 'RUNNING'
+        self.assertTrue(self.boundary())
+        self.assertEqual([1, 2], sorted(self.state['resolver']['attempts'].values()))
+        for key, count in spent.items():
+            self.assertEqual(count, self.state['resolver']['attempts'][key])
+
+    def test_legacy_charges_without_complete_binding_history_fail_closed(self):
+        self.queue(role='sol', stage='sol', task_id='original-task')
+        self.legacy_boundary()
+        self.state['pending_report_repair']['attempts'] = 1
+        self.legacy_boundary()
+        baseline = support.read(self.run / 'state.json')
+        for history in ('absent', 'empty', 'original_only', 'receipts_only'):
+            for changed_key, lost_failures in ((False, False), (True, False), (True, True)):
+                with self.subTest(history=history, changed_key=changed_key, lost_failures=lost_failures):
+                    self.state = copy.deepcopy(baseline)
+                    if history == 'absent':
+                        self.state.pop('stages')
+                    else:
+                        self.state['stages'] = [row for row in self.state['stages']
+                            if (history == 'original_only' and not row.get('runner_owned'))
+                            or (history == 'receipts_only' and row.get('runner_owned'))]
+                    self.state['pending_report_repair'].update(attempts=0, error='different repair failure')
+                    if changed_key:
+                        self.state['pending_report_repair']['original']['failure_key'] = 'reclassified-error'
+                    if lost_failures:
+                        self.state.pop('failure_history', None)
+                    ledger = copy.deepcopy(self.state['resolver'])
+                    with self.assertRaisesRegex(support.Paused, 'legacy report-repair') as caught:
+                        self.boundary()
+                    self.assertEqual('PAUSED_RESOLVER_STATE', caught.exception.status)
+                    self.assertEqual(ledger, self.state['resolver'])
+
+    def test_legacy_changed_error_key_cannot_reset_same_execution_budget(self):
+        self.queue(role='sol', stage='sol', task_id='original-task')
+        self.legacy_boundary()
+        self.state['pending_report_repair']['attempts'] = 1
+        self.legacy_boundary()
+        self.state = support.read(self.run / 'state.json')
+        self.state['pending_report_repair'].update(attempts=0, error='different repair failure')
+        self.state['pending_report_repair']['original']['failure_key'] = 'changed-error-class'
+        self.state['current_task'] = {'id': 'changed-current-task'}
+        with self.assertRaisesRegex(support.Paused, 'attempt budget exhausted'):
+            self.boundary()
+        self.assertEqual([2], list(self.state['resolver']['attempts'].values()))
+
+    def test_new_original_cannot_discard_unattributed_legacy_charges(self):
+        self.queue(role='sol', stage='sol', task_id='milestone-task')
+        self.legacy_boundary()
+        self.state['pending_report_repair']['attempts'] = 1
+        self.legacy_boundary()
+        self.state.pop('pending_report_repair')
+        self.queue(role='sol', stage='sol', task_id='final-task', iteration=6)
+        baseline = copy.deepcopy(self.state)
+        for missing in ('original', 'one_receipt', 'all_receipts', 'cache'):
+            with self.subTest(missing=missing):
+                self.state = copy.deepcopy(baseline)
+                if missing == 'original':
+                    del self.state['stages'][0]
+                elif missing == 'one_receipt':
+                    del self.state['stages'][1]
+                elif missing == 'all_receipts':
+                    self.state['stages'] = [row for row in self.state['stages'] if not row.get('runner_owned')]
+                else:
+                    self.state['resolver']['cache'] = {}
+                before = copy.deepcopy(self.state['resolver'])
+                with self.assertRaisesRegex(support.Paused, 'legacy report-repair'):
+                    self.boundary()
+                self.assertEqual(before, self.state['resolver'])
+
+    def test_unrelated_legacy_blocker_does_not_block_new_original_without_history(self):
+        self.queue(role='terra', stage='terra', task_id='builder-task')
+        self.legacy_boundary()
+        self.state['pending_report_repair']['attempts'] = 1
+        self.legacy_boundary()
+        spent = copy.deepcopy(self.state['resolver']['attempts'])
+        self.state.pop('pending_report_repair')
+        self.queue(role='sol', stage='sol', task_id='validator-task')
+        self.state['stages'] = []
+        self.assertTrue(self.boundary())
+        self.assertEqual([1, 2], sorted(self.state['resolver']['attempts'].values()))
+        for key, count in spent.items():
+            self.assertEqual(count, self.state['resolver']['attempts'][key])
+
     def test_permissions_goal_changes_and_untyped_blockers_remain_user_owned(self):
         original = copy.deepcopy(self.state)
         human = runner.lifecycle.human

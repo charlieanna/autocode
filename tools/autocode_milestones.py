@@ -14,11 +14,13 @@ import uuid
 
 try:
     from . import autocode_util as s
+    from .autocode_milestone_scope import fresh_validation, key, scope  # noqa: F401 (re-exported)
     from . import autocode_carryforward as carryforward
     from . import autocode_review_gate as review_gate
     from . import autocode_progressive_state as progressive
 except ImportError:
     import autocode_util as s
+    from autocode_milestone_scope import fresh_validation, key, scope  # noqa: F401 (re-exported)
     import autocode_carryforward as carryforward
     import autocode_review_gate as review_gate
     import autocode_progressive_state as progressive
@@ -155,32 +157,6 @@ def settings(state):
     return {**DEFAULTS, **state.get("settings", {}).get("milestone_checkpoints", {})}
 
 
-def key(state, task=None):
-    task = task if task is not None else state.get("current_task", {})
-    if task.get("milestone_ids"):
-        return f"{state.get('goal_contract', {}).get('hash', '')}:batch:{s.digest(sorted(task['milestone_ids']))[:16]}"
-    return f"{state.get('goal_contract', {}).get('hash', '')}:{task.get('milestone_id', '')}"
-
-
-def scope(state, task=None):
-    task = task if task is not None else state.get("current_task", {})
-    if task.get("milestone_ids"):
-        members = [m for m in state.get("goal_contract", {}).get("body", {}).get("milestones", [])
-                   if m["id"] in task["milestone_ids"]]
-        return {"id": "batch:" + s.digest(sorted(task["milestone_ids"]))[:16],
-                "milestone_ids": list(task["milestone_ids"]), "members": members,
-                "objective": "; ".join(m["objective"] for m in members),
-                "acceptance_criteria": list(dict.fromkeys(c for m in members for c in m["acceptance_criteria"]))}
-    for milestone in state.get("goal_contract", {}).get("body", {}).get("milestones", []):
-        if milestone["id"] == task.get("milestone_id"):
-            return milestone
-    # Existing sealed briefs may predate milestone definitions. Freeze the scope
-    # of their existing bounded task, rather than inventing or approving a brief.
-    saved = state.get("milestone_progress", {}).get(key(state, task))
-    return {"id": task.get("milestone_id", ""), "objective": task.get("objective", ""),
-            "acceptance_criteria": list(saved["acceptance_criteria"] if saved else task.get("acceptance_criteria", []))}
-
-
 def progress(state):
     task = state.get("current_task", {})
     if not task or task.get("contract_hash") != state.get("goal_contract", {}).get("hash"):
@@ -203,19 +179,6 @@ def account(state, record):
     row["seconds"] += seconds
     role = record.get("role", "unknown")
     row["seconds_by_role"][role] = row["seconds_by_role"].get(role, 0) + seconds
-
-
-def fresh_validation(state, current):
-    val = state.get("validation", {})
-    contract = state.get("goal_contract", {})
-    pins = val.get("evidence_hashes", {})
-    return bool(val.get("reviewer_role") == "sol" and pins
-        and val.get("contract_hash") == contract.get("hash")
-        and val.get("contract_revision") == contract.get("revision")
-        and val.get("criteria_revision") == state.get("criteria_revision")
-        and val.get("task_id") == state.get("current_task", {}).get("id")
-        and val.get("source_revision") == current["revision"]
-        and all(Path(p).is_file() and s.file_hash(p) == digest for p, digest in pins.items()))
 
 
 def evidence_ready(state, current):

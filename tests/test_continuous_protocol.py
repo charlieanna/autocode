@@ -335,7 +335,8 @@ class ExpectedGoalCliTests(unittest.TestCase):
         runner = goal_fixtures.runner
         payload = protocol.handoff_from_document(conversation())
         source = protocol.stage_handoff(self.root, payload)
-        args = ['autocode', 'Build a greeting CLI', '--workspace', str(self.root),
+        task = protocol.task_text(payload)
+        args = ['autocode', task, '--workspace', str(self.root),
                 '--in-place', '--engine', 'opencode', '--no-chat',
                 '--conversation-handoff', str(source)]
         with patch.object(sys, 'argv', args), \
@@ -351,6 +352,8 @@ class ExpectedGoalCliTests(unittest.TestCase):
         self.assertEqual(1, len(runs))
         state = support.read(runs[0] / 'state.json')
         self.assertEqual(payload['digest'], state['conversation_handoff']['digest'])
+        self.assertEqual(task, state['task'])
+        self.assertEqual([row['text'] for row in payload['messages'] if row['role'] == 'user'], goals.source_texts(state))
         self.assertEqual(payload['messages'], protocol.read_journal(runs[0])['conversation']['messages'])
         self.assertFalse(goals.approved(state))
         self.assertEqual([], state['stages'])

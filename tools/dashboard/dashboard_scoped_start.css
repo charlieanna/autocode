@@ -1,0 +1,69 @@
+/* Approved empty project conversations: 462:7945/8099/8253 and
+   469:1070/1121/1172. The saved project controls all text, never fixture names. */
+#draft-conversation.scoped-start{max-width:none;width:100%;padding:18px 0 0;overflow:hidden;background:var(--surface-default)}
+#draft-conversation.scoped-start>.task-detail-navigation{position:absolute;right:24px;top:18px;margin:0;z-index:2}
+#draft-conversation.scoped-start>.draft-heading{position:relative;min-height:110px;padding:0 24px 18px;display:block;flex-shrink:0}
+#draft-conversation.scoped-start .draft-heading h1{font-size:25px;line-height:38px;color:var(--m2b-ink);font-weight:600;margin:4px 0 0}
+#scoped-start-eyebrow{font-size:11px;line-height:17px;font-weight:600;letter-spacing:0;margin:0;color:var(--m2b-secondary)}
+#draft-conversation.scoped-start #draft-status{position:absolute;left:24px;bottom:18px;padding:3px 12px;border-radius:8px;background:var(--m2b-action-tint);color:var(--m2b-action-text);font-size:11px;line-height:18px;margin:0}
+#draft-conversation.scoped-start #draft-status::before{display:none}
+#draft-conversation.scoped-start #draft-subtitle{padding-left:84px;font-size:12px;line-height:24px;margin:0;color:var(--m2b-secondary)}
+#draft-conversation.scoped-start .draft-chat-layout{grid-template-columns:minmax(0,56.0656%) minmax(0,1fr);gap:0;padding:0;overflow:hidden}
+#draft-conversation.scoped-start .draft-chat-column{padding:32px;min-width:0;min-height:0}
+#draft-conversation.scoped-start #draft-scroll{padding:0}
+.scoped-start-card{padding:24px;border-radius:12px;border:1px solid var(--m2b-hairline);background:var(--m2b-action-tint);color:var(--m2b-ink);font-size:13px;line-height:20px}
+.scoped-start-card h2{font-size:17px;line-height:26px;font-weight:600;margin:6px 0}
+.scoped-start-card p{margin:0;color:var(--m2b-secondary)}
+.scoped-start-kicker,.scoped-start-card .scoped-start-kicker{color:var(--m2b-action-text);font-size:11px;font-weight:600;line-height:18px;letter-spacing:1px}
+#scoped-project-context{background:var(--m2b-bg-app);padding:24px;min-height:0;overflow:auto;font-size:13px;line-height:20px;color:var(--m2b-secondary)}
+#scoped-project-context h2{font-size:17px;line-height:26px;color:var(--m2b-ink);margin:0 0 32px}
+#scoped-project-context>p{margin:0 0 12px}
+#scoped-project-context .scoped-start-kicker{margin:0;letter-spacing:0}
+.scoped-context-card{padding:16px;border:1px solid var(--m2b-hairline);border-radius:12px;background:var(--surface-default);margin-bottom:12px}
+.scoped-context-card h3{font-size:17px;line-height:26px;color:var(--m2b-ink);margin:0 0 12px}
+.scoped-context-card p{margin:0 0 4px}.scoped-context-card p:last-child{margin-bottom:0}
+#scoped-project-context .scoped-context-card+ .scoped-context-card h3{font-size:13px;line-height:20px;color:var(--m2b-secondary);margin-bottom:12px}
+#draft-conversation.scoped-start .attach-section{display:none}
+#draft-conversation.scoped-start .draft-composer{padding:0;background:transparent}
+#draft-conversation.scoped-start .composer{display:block;border:1px solid var(--m2b-hairline);border-radius:14px;background:var(--surface-default);box-shadow:var(--m2b-sheet-shadow);padding:16px;min-height:156px}
+#draft-conversation.scoped-start #draft-text{font-size:14px;min-height:24px;height:24px}
+#draft-conversation.scoped-start #draft-text:focus-visible{outline:none;box-shadow:none}
+#draft-conversation.scoped-start .composer:has(textarea:focus-visible){outline:var(--focus-indicator-width) solid var(--focus-surface-layer);outline-offset:4px;box-shadow:0 0 0 var(--focus-indicator-width) var(--focus-control-layer)}
+#scoped-composer-scope{font-size:11px;color:var(--m2b-action-text);line-height:18px;margin:6px 0}
+#draft-conversation.scoped-start .composer-bottom{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+#draft-conversation.scoped-start #draft-delivery{order:3;flex-basis:100%;max-width:100%;font-size:11px}
+#draft-conversation.scoped-start #draft-send{min-height:44px;min-width:80px;margin-left:auto}
+#scoped-start-models{position:relative;min-width:0;max-width:70%;color:var(--m2b-secondary)}
+#scoped-start-models>summary{min-height:44px;display:flex;align-items:center;padding:8px;gap:4px;cursor:pointer;font-size:12px;overflow-wrap:anywhere}
+#scoped-start-models>summary::after{content:'▾'}
+.scoped-model-list{position:absolute;left:0;bottom:100%;z-index:30;width:min(360px,calc(100vw - 64px));max-height:50dvh;overflow:auto;background:var(--surface-default);border:1px solid var(--border-control);border-radius:10px;padding:16px;box-shadow:var(--m2b-sheet-shadow);overflow-wrap:anywhere}
+.scoped-model-list h3{font-size:14px;margin-bottom:12px}.scoped-model-list p{font-size:12px;line-height:18px;margin-bottom:8px}
+@media(max-width:1050px) and (min-width:760px){#draft-conversation.scoped-start .draft-chat-column{padding:24px}#scoped-project-context{padding:18px}#draft-conversation.scoped-start .draft-heading h1{font-size:22px}}
+@media(max-width:759px){
+ .app-shell:has(#draft-conversation.scoped-start:not([hidden])) .topbar{min-height:60px;padding:16px 16px 0;border-bottom:0}
+ .app-shell:has(#draft-conversation.scoped-start:not([hidden])) .breadcrumb{font-size:16px;line-height:24px}
+ #draft-conversation.scoped-start{padding-top:16px}
+ #draft-conversation.scoped-start>.task-detail-navigation{display:none}
+ #draft-conversation.scoped-start>.draft-heading{padding:0 16px 16px;min-height:82px}
+ #draft-conversation.scoped-start .draft-heading h1{font-size:20px;line-height:30px;margin:0}
+ #draft-conversation.scoped-start #scoped-start-eyebrow,#draft-conversation.scoped-start #draft-status{display:none}
+ #draft-conversation.scoped-start #draft-subtitle{padding:0;margin-top:12px;color:var(--m2b-action-text);line-height:18px}
+ #draft-conversation.scoped-start .draft-chat-layout{display:flex;flex-direction:column;overflow:hidden}
+ #draft-conversation.scoped-start .draft-chat-column{padding:0 16px 16px;flex:1;min-height:0}
+ #draft-conversation.scoped-start #scoped-project-context{display:none}
+ .scoped-start-card{padding:16px;background:var(--surface-default)}
+ .scoped-start-card h2{font-size:18px;line-height:26px;margin:0 0 8px}
+ .scoped-start-card p{font-size:14px;line-height:22px}
+ .scoped-start-card .scoped-start-kicker{display:none}
+ #draft-conversation.scoped-start .composer{padding:12px;min-height:152px}
+ #draft-conversation.scoped-start .composer textarea{font-size:14px}
+ #draft-conversation.scoped-start #draft-delivery{position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden}
+ #draft-conversation.scoped-start #draft-send{flex:1;min-width:44px}
+ #draft-conversation.scoped-start #draft-send:disabled{background:var(--m2b-frozen-tint,#eef1f5);border:1px solid var(--border-control);color:var(--m2b-secondary);opacity:1}
+ #scoped-start-models{flex:1;max-width:55%}
+ #scoped-start-models>summary{justify-content:center;font-size:12px;line-height:18px}
+}
+
+#draft-conversation.scoped-start .composer-bottom{display:flex!important}
+#draft-conversation.scoped-start .composer textarea{width:100%;max-width:100%;flex:none}
+#draft-conversation.scoped-start #draft-delivery{display:block}

@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -32,7 +33,8 @@ class RunViewTests(unittest.TestCase):
     def test_contract_fields(self):
         self.assertEqual({"schema", "status", "done", "needs", "phase", "next_stage", "iteration", "stop_reason", "runner_check",
                           "current_task", "workflow", "workflow_source", "workflow_reason", "turn", "evidence",
-                           "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments", "efficiency"},
+                          "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments",
+                          "efficiency", "recovery", "verification", "code_checkpoints"},
                          set(run_view.view({"status": "RUNNING"})))
 
     def test_evidence_is_empty_before_planning(self):
@@ -286,6 +288,71 @@ class TaskRunTests(unittest.TestCase):
         stale = again.status()
         self.assertEqual(0, stale["efficiency"]["delivery"]["verified_deliveries"])
         self.assertIsNone(stale["efficiency"]["unit_metrics"]["wall_seconds"]["value"])
+
+    def use_question_preserving_planner(self, *, genuine_question=False):
+        # Reproduce the live Planner faithfully carrying a question from its handoff.
+        provider = Path(self.env["PATH"].split(os.pathsep)[0]) / "codex"
+        source = provider.read_text()
+        amendment = textwrap.dedent("""
+            if stage == "astra_discovery":
+                questions = (contract.get("body") or {}).get("open_blocking_questions", [])
+                if os.environ.get("FIXTURE_GENUINE_QUESTION"):
+                    questions = [{"id": "readme-audience", "question": "Should the README target beginners or experienced Python users?",
+                                  "why": "This fixture has a genuine unresolved documentation-audience decision.",
+                                  "options": ["Beginners", "Experienced Python users"], "proposed_default": ""}]
+                questions = [dict(q, kind="decision", category="requested_outcome", delegable=False)
+                             for q in questions]
+                report["contract"]["open_blocking_questions"] = questions
+                report["contract"].setdefault("initial_task", _planning_contract()["initial_task"])
+                if questions:
+                    report["contract"].update(technical_approach=[], milestones=[])
+                    report["contract"]["initial_task"] = {
+                        "objective": "", "affected_paths": [], "kind": "none", "milestone_id": "",
+                        "requirements": [], "acceptance_criteria": [], "validation_plan": []}
+        """)
+        marker = '    output = Path(sys.argv[sys.argv.index("-o") + 1])'
+        self.assertIn(marker, source)
+        provider.write_text(source.replace(marker, textwrap.indent(amendment, "    ") + "\n" + marker))
+        if genuine_question:
+            self.env["FIXTURE_GENUINE_QUESTION"] = "1"
+
+    def test_fresh_run_reaches_plan_approval_without_a_migration_question(self):
+        self.use_question_preserving_planner()
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=60)
+        view = run.status()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        self.assertFalse(view["done"])
+        self.assertNotIn("migration-context", run.show_goal())
+        self.assertFalse((self.workspace / "greet.py").exists(), "No implementation before approval")
+        again = taskrun.TaskRun.attach(self.workspace, options=FIXTURE_OPTIONS, env=self.env)
+        self.assertEqual(view["needs"], again.status()["needs"])
+        with self.assertRaisesRegex(taskrun.TaskRunError, "approve plan exited"):
+            again.approve_plan("not-the-displayed-token")
+
+    def test_fresh_run_still_asks_a_genuine_planning_question(self):
+        self.use_question_preserving_planner(genuine_question=True)
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=60)
+        view = run.status()
+        self.assertEqual("answer", view["needs"]["kind"], view)
+        self.assertEqual(["readme-audience"], [q["id"] for q in view["needs"]["questions"]])
+        self.assertFalse(view["done"])
+        self.assertFalse((self.workspace / "greet.py").exists())
+
+    def test_joint_planning_upgrade_before_first_draft_reaches_approval_and_completes(self):
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=("--engine", "codex"),
+                                   start_options=("--pause-after-stage",), env=self.env, timeout=60)
+        paused = run.status()
+        self.assertEqual(("PAUSED_REQUESTED", "astra_discovery"),
+                         (paused["status"], paused["next_stage"]), paused)
+        upgraded = taskrun.TaskRun(self.workspace, run.run_dir, options=FIXTURE_OPTIONS,
+                                   env=self.env, timeout=120)
+        view = upgraded.resume_paused()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        self.assertFalse((self.workspace / "greet.py").exists(), "Upgrade is not approval")
+        with self.assertRaisesRegex(taskrun.TaskRunError, "approve plan exited"):
+            upgraded.approve_plan("not-the-displayed-token")
+        upgraded.approve_plan(view["needs"]["token"])
+        self.assertEqual("TASK_COMPLETE", upgraded.advance_until_input()["status"])
 
     def test_usage_errors_are_not_mistaken_for_a_pause(self):
         run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)

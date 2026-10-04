@@ -12,16 +12,22 @@ import uuid
 import weakref
 try:
     from .. import autocode_conversation as conversation_protocol
+    from ..autocode_role_names import role_label
 except ImportError:
     import autocode_conversation as conversation_protocol
+    from autocode_role_names import role_label
 
 
 try:
     from .conversation_recovery import RecoveryMixin
+    from .conversation_draft_refresh import DraftRefreshMixin
+    from . import conversation_draft_cadence as draft_cadence
     from . import dashboard_conversations as legacy, planner_dispatch
     from .conversation_transport import ConversationProviderError, opencode_provider, _prompt
 except ImportError:
     from conversation_recovery import RecoveryMixin
+    from conversation_draft_refresh import DraftRefreshMixin
+    import conversation_draft_cadence as draft_cadence
     import dashboard_conversations as legacy
     import planner_dispatch
     from conversation_transport import ConversationProviderError, opencode_provider, _prompt
@@ -98,15 +104,16 @@ def _record_plan_draft_revision(doc, message, revision):
     """
     drafts = doc.setdefault('plan_drafts', [])
     previous = _current_plan_draft(doc) or (drafts[-1] if drafts else {})
+    source_messages = draft_cadence.sources(doc, (_current_plan_draft(doc) or {}).get('requirements_revision', 0))
     for row in drafts:
         if row.get('status') == 'current':
             # Retain the last usable structure, but it no longer answers the
             # newest human requirements revision until a Planner validates it.
-            row['freshness'] = {'state': 'stale', 'updated_at': _now(),
+            row['freshness'] = {**row.get('freshness', {}), 'state': 'stale', 'updated_at': _now(),
                                 'reason': 'newer_requirements_input'}
         if row.get('status') == 'pending':
             row['status'] = 'superseded'
-            row['freshness'] = {'state': 'stale', 'updated_at': _now(),
+            row['freshness'] = {**row.get('freshness', {}), 'state': 'stale', 'updated_at': _now(),
                                 'reason': 'invalidated_by_newer_requirements_input',
                                 'source_logical_turn_id': row.get('logical_turn_id')}
     entry = {
@@ -120,7 +127,7 @@ def _record_plan_draft_revision(doc, message, revision):
         'outstanding_questions': list(previous.get('outstanding_questions', [])),
         'reply_preview': None,
         'freshness': {'state': 'pending', 'updated_at': _now(),
-                      'source_message_id': message['id'],
+                      'source_message_id': message['id'], 'source_messages': source_messages,
                       'source_logical_turn_id': message['logical_turn_id']},
         'requirements_revision': revision,
         'logical_turn_id': message['logical_turn_id'],
@@ -140,6 +147,12 @@ def _configured_routes(models):
 
 PROJECT_INSTRUCTIONS_FILE = 'AGENTS.md'
 MAX_PROJECT_INSTRUCTIONS_CHARS = 12_000
+
+
+try:
+    from .dashboard_project_scope import creation_scope as _creation_project_scope, scope_problem, ScopeConfirmationMixin
+except ImportError:
+    from dashboard_project_scope import creation_scope as _creation_project_scope, scope_problem, ScopeConfirmationMixin
 
 
 def _project_scope_context(doc):
@@ -164,6 +177,9 @@ def _project_scope_context(doc):
     if not workspace.is_dir():
         raise ConversationProviderError(
             'The saved project scope is not a repository folder. Restore the project before continuing this conversation.')
+    problem = scope_problem({**doc, 'attachment': None}).get('project_scope_error')
+    if problem:
+        raise ConversationProviderError(problem)
     instructions = ''
     instructions_path = workspace / PROJECT_INSTRUCTIONS_FILE
     try:
@@ -181,7 +197,7 @@ def _project_scope_context(doc):
     return workspace, message
 
 
-class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
+class ContinuousConversationStore(ScopeConfirmationMixin, DraftRefreshMixin, RecoveryMixin, legacy.ConversationStore):
     def __init__(self, root=None, provider=None, planner=None):
         if root is None:
             home = Path(os.environ.get('AUTOCODE_HOME', '~/.autocode')).expanduser()
@@ -242,6 +258,10 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
                 public['retryable'] = public['state'] == 'SAFE_NOT_DISPATCHED'
                 public['recovery'] = 'retry' if public['retryable'] else 'receipt_required' if public['state'] == 'UNCERTAIN' else None
             value[name] = public
+        value['draft_update'] = draft_cadence.public(doc)
+        problem = scope_problem(doc)
+        if problem:
+            value.update(problem, status='error', error=problem['project_scope_error'])
         return value
 
 
@@ -263,7 +283,7 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
             doc = {'id': uuid.uuid4().hex, 'title': ' '.join(text.split())[:80],
                    'created_at': created, 'updated_at': created, 'status': 'thinking', 'error': None,
                    'messages': [], 'models': models, 'attachment': None,
-                   **({'project_workspace': workspace} if workspace else {}),
+                   **_creation_project_scope(workspace),
                    'schema_version': conversation_protocol.HANDOFF_VERSION, 'drafts': [],
                    'requirements': {'revisions': [], 'provenance': []}, 'plan_drafts': [],
                    'configured_routes': _configured_routes(models),
@@ -273,14 +293,14 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
             self._append_user(doc, text, request_id)
             return self._start(doc)
 
-    def create_empty(self, workspace=None, request_id=None):
+    def create_empty(self, workspace=None, request_id=None, models=None):
         """Save an empty scoped conversation before the first message is sent.
 
         Activating a New conversation control opens this saved record with its
         project scope already attached; the first message continues it through
         the normal turn pipeline, providers included.
         """
-        request_id = _request_id(request_id)
+        request_id, models = _request_id(request_id), _models(models)
         if workspace is not None and (not isinstance(workspace, str) or not workspace.strip() or len(workspace) > 4096):
             raise ValueError('The creation-time project scope must be a short non-empty path.')
         with self._guard():
@@ -288,17 +308,17 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
             for summary in self.list(include_archived=True):
                 doc = self._load(summary['id'])
                 if doc.get('_create_request_id') == request_id:
-                    if doc['messages'] or (doc.get('project_workspace') or None) != (workspace or None):
+                    if doc['messages'] or doc['models'] != models or (doc.get('project_workspace') or None) != (workspace or None):
                         raise ValueError('That request ID was already used for a different conversation.')
                     return self._public(doc)
             created = _now()
             doc = {'id': uuid.uuid4().hex, 'title': 'New conversation',
                    'created_at': created, 'updated_at': created, 'status': 'ready', 'error': None,
-                   'messages': [], 'models': _models(None), 'attachment': None,
-                   **({'project_workspace': workspace} if workspace else {}),
+                   'messages': [], 'models': models, 'attachment': None,
+                   **_creation_project_scope(workspace),
                    'schema_version': conversation_protocol.HANDOFF_VERSION, 'drafts': [],
                    'requirements': {'revisions': [], 'provenance': []}, 'plan_drafts': [],
-                   'configured_routes': _configured_routes(_models(None)),
+                   'configured_routes': _configured_routes(models),
                    'provider_capabilities': conversation_protocol.capabilities(),
                    '_create_request_id': request_id, '_requests': {},
                    '_dispatches': {}, '_planner_dispatches': {}}
@@ -401,13 +421,17 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
         # the actual independent Planner — before anything is dispatched, so
         # the Planner dispatch is durable in the same window as the turn.
         revision = _record_requirements_update(doc, message)
-        _record_plan_draft_revision(doc, message, revision['revision'])
+        draft = _record_plan_draft_revision(doc, message, revision['revision'])
+        scheduled = draft_cadence.schedule(doc, revision['revision'])
+        draft['freshness']['reason'] = 'scheduled_refresh' if scheduled else 'batching_answers'
         doc['_dispatches'][message['logical_turn_id']] = conversation_protocol.new_dispatch(
             logical_turn_id=message['logical_turn_id'], client_request_id=request_id,
             route=routes['requirements_gatherer'])
         doc['_planner_dispatches'][message['logical_turn_id']] = planner_dispatch.new_dispatch(
             logical_turn_id=message['logical_turn_id'], requirements_revision=revision['revision'],
             client_request_id=request_id, route=routes['planner'])
+        doc['_planner_dispatches'][message['logical_turn_id']].update(
+            cadence_hold=not scheduled, cadence_reason='automatic_batch' if scheduled else 'batching_answers')
         doc.update(status='thinking', error=None, _active_turn=uuid.uuid4().hex,
                    _active_logical_turn=message['logical_turn_id'])
 
@@ -417,7 +441,8 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
         logical_turn = doc.get('_active_logical_turn')
         for records in ('_dispatches', '_planner_dispatches'):
             dispatch = (doc.get(records) or {}).get(logical_turn) if logical_turn else None
-            if isinstance(dispatch, dict) and dispatch.get('state') in ('SAVED', 'SAFE_NOT_DISPATCHED'):
+            if (isinstance(dispatch, dict) and not draft_cadence.held(dispatch)
+                    and dispatch.get('state') in ('SAVED', 'SAFE_NOT_DISPATCHED')):
                 doc[records][logical_turn] = conversation_protocol.transition(dispatch, 'DISPATCH_PREPARED')
 
 
@@ -438,18 +463,22 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
     def _dispatch(self, doc):
         logical_turn = doc.get('_active_logical_turn')
         key = (doc['id'], logical_turn)
+        held = draft_cadence.held(doc.get('_planner_dispatches', {}).get(logical_turn))
         self._planner_started[key] = threading.Event()
+        if held:
+            self._planner_started[key].set()  # held is not provider-launch evidence
         try:
             # Start the independent Planner first. The Gatherer can converse
             # concurrently, but cannot commit its reply before Planner launch.
-            self.pool.submit(self._planner_reply, doc['id'], doc['_active_turn'], logical_turn)
+            if not held:
+                self.pool.submit(self._planner_reply, doc['id'], doc['_active_turn'], logical_turn)
             self.pool.submit(self._reply, doc['id'], doc['_active_turn'], logical_turn)
         except RuntimeError:
             self._planner_started.pop(key).set()
             self._leases.pop((doc['id'], doc['_active_turn'])).close()
             for records in ('_dispatches', '_planner_dispatches'):
                 dispatch = (doc.get(records) or {}).get(logical_turn)
-                if isinstance(dispatch, dict) and dispatch.get('state') != 'SAFE_NOT_DISPATCHED':
+                if isinstance(dispatch, dict) and not draft_cadence.held(dispatch) and dispatch.get('state') != 'SAFE_NOT_DISPATCHED':
                     try:
                         doc[records][logical_turn] = conversation_protocol.transition(
                             dispatch, 'SAFE_NOT_DISPATCHED', reason='Conversation worker was unavailable before process creation')
@@ -513,9 +542,9 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
             response = self._invoke_provider(conversation_id, turn_id, logical_turn, provider_messages,
                                              model, workdir, effort)
             if not isinstance(response, str) or not response.strip():
-                raise ConversationProviderError('The Requirements Gatherer returned no text. Your message is saved; retry when ready.')
+                raise ConversationProviderError('The ' + role_label('requirements') + ' returned no text. Your message is saved; retry when ready.')
             if len(response) > MAX_REPLY_CHARS:
-                raise ConversationProviderError('The Requirements Gatherer returned an oversized reply. Your message is saved; retry with a narrower request.')
+                raise ConversationProviderError('The ' + role_label('requirements') + ' returned an oversized reply. Your message is saved; retry with a narrower request.')
             self._capture_result(conversation_id, turn_id, logical_turn, response.strip())
             error, outcome = None, None
         except ConversationProviderError as exc:
@@ -523,7 +552,7 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
         except Exception:
             # Exceptions/CLI diagnostics may contain credentials. Display only
             # controlled messages; never persist provider output or environment.
-            error, outcome = 'The Requirements Gatherer could not reply. Your message is saved; check the provider connection and retry.', None
+            error, outcome = 'The ' + role_label('requirements') + ' could not reply. Your message is saved; check the provider connection and retry.', None
         with self._guard():
             doc = self._load(conversation_id)
             if doc.get('_active_turn') != turn_id:
@@ -568,7 +597,7 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
                         dispatch = self._capture_result_locked(doc, logical_turn, text, raw_events=details.get('raw_events'),
                                                                session_id=details.get('session_id'))
                 else:
-                    raise ConversationProviderError('Unknown Requirements Gatherer delivery event.')
+                    raise ConversationProviderError('Unknown ' + role_label('requirements') + ' delivery event.')
             except conversation_protocol.ConversationProtocolError:
                 pass
             else:
@@ -634,16 +663,16 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
         """Commit the Gatherer reply. Never grants plan-draft freshness (AC2)."""
         dispatch = dispatch if isinstance(dispatch, dict) else (doc.get('_dispatches') or {}).get(logical_turn)
         if not isinstance(dispatch, dict) or dispatch.get('state') not in ('RESULT_CAPTURED', 'REPLY_COMMITTED'):
-            raise ConversationProviderError('A completed Requirements Gatherer result is unavailable.')
+            raise ConversationProviderError('A completed ' + role_label('requirements') + ' result is unavailable.')
         result = dispatch.get('result') if isinstance(dispatch.get('result'), dict) else {}
         response = result.get('text')
         if not isinstance(response, str) or not response.strip() or result.get('sha256') != hashlib.sha256(response.encode('utf-8')).hexdigest():
-            raise ConversationProviderError('The saved Requirements Gatherer result failed validation.')
+            raise ConversationProviderError('The saved ' + role_label('requirements') + ' result failed validation.')
         reply = next((row for row in doc['messages']
                       if row.get('role') == 'assistant' and row.get('in_reply_to') == logical_turn), None)
         if reply is None:
             route = dispatch.get('route') if isinstance(dispatch.get('route'), dict) else {}
-            doc['messages'].append({'id': uuid.uuid4().hex, 'role': 'assistant', 'speaker': 'Requirements Gatherer',
+            doc['messages'].append({'id': uuid.uuid4().hex, 'role': 'assistant', 'speaker': role_label('requirements'),
                                     'text': response, 'created_at': _now(), 'status': 'received',
                                     'client_request_id': None,
                                     'logical_turn_id': 'reply-' + uuid.uuid4().hex, 'in_reply_to': logical_turn,
@@ -729,7 +758,7 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
         with self._guard():
             doc = self._load(conversation_id)
             dispatch = (doc.get('_planner_dispatches') or {}).get(logical_turn)
-            if not isinstance(dispatch, dict) or dispatch.get('state') not in ('SAVED', 'SAFE_NOT_DISPATCHED', 'DISPATCH_PREPARED', 'RESULT_CAPTURED'):
+            if draft_cadence.held(dispatch) or not isinstance(dispatch, dict) or dispatch.get('state') not in ('SAVED', 'SAFE_NOT_DISPATCHED', 'DISPATCH_PREPARED', 'RESULT_CAPTURED'):
                 return  # Committed or ambiguous deliveries are never dispatched twice.
             revision = dispatch.get('requirements_revision')
             latest = (doc.get('requirements', {}).get('revisions') or [{}])[-1].get('revision')
@@ -911,9 +940,10 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
     def _mark_planner_draft_failed(self, doc, logical_turn, evidence):
         """Record a failed draft state with retained evidence; keep the previous usable draft."""
         for row in doc.get('plan_drafts', []):
-            if row.get('status') == 'pending' and row.get('logical_turn_id') == logical_turn:
+            if (row.get('status') == 'pending' and row.get('logical_turn_id') == logical_turn
+                    and not draft_cadence.held(doc.get('_planner_dispatches', {}).get(logical_turn))):
                 row['status'] = 'failed'
-                row['freshness'] = {'state': 'failed', 'updated_at': _now(),
+                row['freshness'] = {**row.get('freshness', {}), 'state': 'failed', 'updated_at': _now(),
                                     'source_logical_turn_id': logical_turn,
                                     'error': evidence}
 
@@ -983,7 +1013,7 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
                 row['status'] = 'superseded'
             elif row.get('status') == 'pending':
                 row['status'] = 'superseded'
-                row['freshness'] = {'state': 'stale', 'updated_at': _now(),
+                row['freshness'] = {**row.get('freshness', {}), 'state': 'stale', 'updated_at': _now(),
                                     'reason': 'invalidated_by_newer_requirements_input',
                                     'source_logical_turn_id': row.get('logical_turn_id')}
         target.update({
@@ -995,7 +1025,7 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
             'outstanding_questions': deepcopy(validated['unresolved_questions']),
             'reply_preview': None,
             'attribution': attribution,
-            'freshness': {'state': 'fresh', 'updated_at': _now(),
+            'freshness': {**target.get('freshness', {}), 'state': 'fresh', 'updated_at': _now(),
                           'requirements_revision': revision,
                           'source_logical_turn_id': logical_turn,
                           'structured_result': True},

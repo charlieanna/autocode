@@ -212,6 +212,9 @@ def context_packet(state, stage, state_path):
                 "The completion owner must retain the whole batch during rework. Choose a member "
                 "milestone_id for rework and an outside milestone_id only after all members pass. "
                 "Builder outputs are implementation provenance, not validation evidence.\n")
+        elif stage == "sol":
+            milestone_policy += ("\nDo not include milestone_results for this non-batch task, including final "
+                "whole-product validation. Follow the current schema, not a previous batch report.\n")
     if workflow.enabled(state):
         workflow.guard(state)
         base["workflow"] = state["settings"]["workflow"]

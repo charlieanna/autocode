@@ -260,6 +260,16 @@ def evaluate(state):
         state.setdefault('resolver', {})['human_disposition'] = {
             'action': 'hold', 'reason': 'This exact request was already answered; reevaluate the saved response internally'}
         return 'consumed'
+    _publish(state, identity)
+    return action
+
+
+def _publish(state, identity):
+    """Publish an evaluated identity as this run's one answerable request."""
+    key = support.digest(identity)
+    proposal = identity['proposal']
+    ledger = state['resolver']['human_escalations']
+    existing = ledger.get(key)
     entry = {'identity': identity, 'receipt_hash': support.digest(identity),
              'status': 'pending', 'issued_at': existing['issued_at'] if existing else support.now()}
     ledger[key] = entry
@@ -269,11 +279,11 @@ def evaluate(state):
         if other_key != key and other.get('status') == 'pending':
             other.update(status='superseded', superseded_at=support.now(),
                          superseded_reason='AutoResolver published a newer request for this run')
-    questions = _questions(proposal, key, reason)
+    questions = _questions(proposal, key, identity['reason'])
     public = {'version': VERSION, 'issuer': 'resolver', 'request_id': key,
-              'request_token': support.digest({'request_id': key, 'binding': binding}),
+              'request_token': support.digest({'request_id': key, 'binding': identity['binding']}),
               'scope': proposal['scope'], 'receipt_hash': entry['receipt_hash'],
-              'questions': questions, 'request': copy.deepcopy(proposal['request']), 'reason': reason}
+              'questions': questions, 'request': copy.deepcopy(proposal['request']), 'reason': identity['reason']}
     state[PUBLIC] = public
     state['pending_questions'] = copy.deepcopy(questions)
     if proposal['request']:
@@ -284,7 +294,62 @@ def evaluate(state):
     if proposal.get('next_stage') is not None:
         state['next_stage'] = proposal['next_stage']
     state.pop(PRIVATE, None)
-    return action
+    return copy.deepcopy(public)
+
+
+def rebind_stale(state, request_id, request_token):
+    """Re-publish a stranded request so an operator decision applies once.
+
+    The operator displayed a request, the saved state then changed (for example
+    a tree edit while paused), and their decision command now carries a token
+    bound to the old frontier. The token is authentic for exactly that request,
+    so the identical request is re-published under the current binding and the
+    decision applies in the same invocation. A request already re-published
+    with identical content by the writer boundary is accepted as the one the
+    operator answered. Consumed, forged, diverged, interruption-shadowed or
+    evidence-invalid requests are never re-bound.
+    """
+    ledger = (state.get('resolver', {}) or {}).get('human_escalations') or {}
+    entries = ([request_id] if request_id in ledger else []) + [
+        key for key in ledger if key != request_id]
+    for key in entries:
+        entry = ledger.get(key) or {}
+        identity = entry.get('identity') or {}
+        if (identity.get('issuer') != 'resolver' or support.digest(identity) != key
+                or not request_token
+                or support.digest({'request_id': key, 'binding': identity.get('binding')}) != request_token):
+            continue
+        if entry.get('status') == 'consumed':
+            return None
+        live = current(state)
+        if entry.get('status') == 'superseded':
+            proposal = identity['proposal']
+            live_entry = ledger.get((live or {}).get('request_id')) or {}
+            live_proposal = (live_entry.get('identity') or {}).get('proposal') or {}
+            # The operator answered the question text and request body; a
+            # republication that preserves exactly those is the same ask.
+            # Artifact review additionally pins its evidence identity.
+            same = (live is not None and live_entry.get('status') == 'pending'
+                    and live_proposal.get('scope') == proposal.get('scope')
+                    and live_proposal.get('request') == proposal.get('request')
+                    and live_proposal.get('questions') == proposal.get('questions')
+                    and (proposal.get('scope') != 'human_review'
+                         or live_proposal.get('evidence') == proposal.get('evidence')))
+            if same:
+                return copy.deepcopy(live)
+            return None
+        if state.get('status') not in ('WAITING_FOR_USER', 'AWAITING_GOAL_APPROVAL'):
+            return None
+        binding = _binding(state)
+        if any(binding['interruptions'].values()) or not _evidence_valid(identity['proposal']):
+            return None
+        reborn = {'version': VERSION, 'issuer': 'resolver', 'binding': binding,
+                  'proposal': identity['proposal'], 'action': identity['action'],
+                  'reason': identity['reason']}
+        entry.update(status='superseded', superseded_at=support.now(),
+                     superseded_reason='Re-bound to the current run state for the operator decision')
+        return _publish(state, reborn)
+    return None
 
 
 def current(state):

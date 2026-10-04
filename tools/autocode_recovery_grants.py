@@ -8,12 +8,13 @@ Eligibility is shared with the stop advice (#288): a pause must never advertise
 ``--grant-recovery`` unless :func:`eligible` would accept it.
 """
 try:
-    from . import autocode_util as util
+    from . import autocode_recovery_accounting as accounting, autocode_util as util
 except ImportError:
+    import autocode_recovery_accounting as accounting
     import autocode_util as util
 
-# The #79 flag name is historical: this is the automatic-recovery budget, which
-# idle, capacity and other automatic recoveries share with timeouts.
+# The #79 flag name is historical: a grant replenishes the whole automatic-recovery budget
+# (autocode_recovery_accounting), not timeouts alone. Capacity retries have their own cap.
 GRANTABLE_CAUSES = frozenset({'PAUSED_TIMEOUT_RECOVERY'})
 
 
@@ -52,13 +53,8 @@ def grant(state, run_dir, amount, *, previous_settings, current_request, count, 
     if not eligible(state, previous_settings=previous_settings, current_request=current_request,
                     count=count, maximum=maximum, issued=issued):
         raise ValueError('--grant-recovery requires a run paused for exhausted timeout recovery')
-    remaining = max(0, count - amount)
-    state['automatic_recoveries_since_resume'] = remaining
-    state['consecutive_timeout_recoveries'] = 0
     request_id = issued['request_id'] if issued else None
-    state.setdefault('recovery_grants', []).append({
-        'at': util.now(), 'actor': 'user_cli', 'amount': amount, 'request_id': request_id,
-        'previous_count': count, 'remaining_count': remaining})
+    remaining = accounting.record_grant(state, amount, request_id, count)
     state.setdefault('user_events', []).append({
         'kind': 'recovery_grant', 'at': util.now(), 'actor': 'user_cli', 'amount': amount,
         'request_id': request_id, 'previous_count': count})

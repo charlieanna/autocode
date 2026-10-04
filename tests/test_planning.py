@@ -621,6 +621,25 @@ class JointFlow(unittest.TestCase):
         self.launch(["--run-dir", str(run), "--no-chat"], 2)
         return self.saved()
 
+    def test_stale_answer_token_rebinds_in_one_invocation(self):
+        """A saved-state change after display must not strand the shown token."""
+        self.prepare()
+        self.launch(["Build a greeting tool", "--no-chat"], 2)
+        run, state = self.saved()
+        published = state.get("resolver_human_request") or {}
+        self.assertTrue(published.get("request_token"))
+        stages_before = len(state["stages"])
+        (self.project / "greet.py").write_text("# operator edit while paused\n")
+        self.launch(["--run-dir", str(run), "--answer", "Q1=CLI",
+                     "--resolver-token", published["request_token"]], 0)
+        _, answered = self.saved()
+        self.assertIn("CLI", json.dumps(answered.get("answers", {})))
+        self.assertIn("Q1", answered.get("answers", {}))
+        self.assertEqual(stages_before, len(answered["stages"]), "an answer must not launch a provider")
+        reborn = answered["resolver"]["human_escalations"][published["request_id"]]
+        self.assertEqual("superseded", reborn["status"],
+                         "the answered request must not remain answerable under its old binding")
+
     def test_bug002_regression_recorded_answers_re_evaluate_readiness(self):
         """docs/bugs/002-answers-not-reevaluated.md: an --answer must re-evaluate
         readiness, not linger while the saved summary still says NOT READY."""

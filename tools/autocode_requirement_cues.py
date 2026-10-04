@@ -7,11 +7,17 @@ with the text after it into one un-quotable obligation. Substantive headings
 (``## Files must be encrypted``) stay obligations, as clean sentences. A
 delegated answer stores the model's own proposed default as its text: it stays
 a source a report may quote, but it is not itself a must-quote obligation.
-Pure functions over the state dict; imports nothing from AutoCode.
+Pure functions over the state dict; conversation source projection uses only
+the independent handoff protocol.
 """
 from __future__ import annotations
 
 import re
+
+try:
+    from .autocode_conversation import task_user_texts
+except ImportError:
+    from autocode_conversation import task_user_texts
 
 CUE = re.compile(r"\b(must not|must|never|do not|don't|required|exactly|only)\b", re.I)
 _CUE_WORDS = {"must", "not", "never", "do", "don't", "dont", "required",
@@ -45,9 +51,15 @@ def cue_sentences(text):
     return [part.strip() for part in parts if part.strip() and CUE.search(part)]
 
 
+def _task_sources(state):
+    task = state.get("task") or ""
+    human = task_user_texts(task)
+    return human if human is not None else [task]
+
+
 def source_texts(state):
-    """Every text a source_quote may cite: the task, brief feedback and answers."""
-    texts = [state.get("task") or ""]
+    """Human task sources, brief feedback and answers a source_quote may cite."""
+    texts = _task_sources(state)
     texts += [event.get("text", "") for event in state.get("brief_feedback", [])]
     texts += [event.get("text", "") for event in state.get("answers", {}).values() if isinstance(event, dict)]
     return [text for text in texts if text]
@@ -55,7 +67,7 @@ def source_texts(state):
 
 def scan_texts(state):
     """source_texts minus delegated answers: a model default is quotable, never owed."""
-    texts = [state.get("task") or ""]
+    texts = _task_sources(state)
     texts += [event.get("text", "") for event in state.get("brief_feedback", [])]
     texts += [event.get("text", "") for event in state.get("answers", {}).values()
               if isinstance(event, dict) and event.get("kind") != "delegated"]

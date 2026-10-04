@@ -1,10 +1,13 @@
 import copy
+from contextlib import redirect_stdout
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import autocode_status as status, autocode_support as s, autocode_context as context
@@ -93,6 +96,34 @@ class StatusTests(unittest.TestCase):
             loaded = s.read(path)
             self.assertEqual(self.state['progress_messages'], loaded['progress_messages'])
             self.assertIsNone(status.record(loaded, timestamp=loaded['progress_checkpoint']['at'] + 1))
+
+    def test_evidence_inspection_invalidates_completion_before_efficiency_projection(self):
+        import autocode as runner
+        import autocode_status_command as command
+        state = {'status': 'TASK_COMPLETE', 'iteration': 1, 'sessions': {}, 'stages': []}
+        before = copy.deepcopy(state)
+        args = SimpleNamespace(inspect_evidence=True, run_dir='fixture', engine=None)
+        for freshness, revision, expected in (('current', 'now', True),
+                                               ('unavailable', 'now', False),
+                                               ('current', 'old', False)):
+            inspected = {'freshness': freshness, 'inspected_source_revision': revision}
+            output = io.StringIO()
+            with self.subTest(freshness=freshness, revision=revision), \
+                    patch.object(runner.support, 'snapshot', return_value={'revision': 'now'}), \
+                    patch.object(runner.completion_gate, 'completion_ready', return_value=True), \
+                    patch.object(command.verification, 'inspect', return_value=inspected), \
+                    patch.object(runner.milestones, 'summary', return_value={'accepted_milestones': []}), \
+                    patch.object(runner.dependency, 'export', return_value={}), \
+                    patch.object(runner, 'intervention_metadata', return_value={}), \
+                    patch.object(runner.resolver_human, 'projection', return_value={}), \
+                    redirect_stdout(output):
+                command.render(runner, state, args, Path('.'), Path('fixture'))
+            payload = json.loads(output.getvalue())
+            self.assertIs(expected, payload['completion_current'])
+            self.assertIs(expected, payload['view']['efficiency']['delivery']['current_completion'])
+            self.assertEqual(int(expected), payload['view']['efficiency']['delivery']['verified_deliveries'])
+            self.assertEqual(inspected, payload['view']['verification'])
+        self.assertEqual(before, state)
 
 
 class ContextTests(unittest.TestCase):

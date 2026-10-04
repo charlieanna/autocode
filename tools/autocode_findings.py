@@ -19,12 +19,12 @@ import copy
 
 try:
     from . import autocode_util as s
-    from . import autocode_milestones as milestones
+    from . import autocode_milestone_scope as milestone_scope
     from . import autocode_finding_scope as finding_scope
     from . import autocode_review_gate as review_gate
 except ImportError:
     import autocode_util as s
-    import autocode_milestones as milestones
+    import autocode_milestone_scope as milestone_scope
     import autocode_finding_scope as finding_scope
     import autocode_review_gate as review_gate
 
@@ -110,7 +110,7 @@ def report_scope(state):
     body = state.get("goal_contract", {}).get("body", {})
     if not body.get("milestones") or not state.get("current_task"):
         return None
-    scope = milestones.scope(state)
+    scope = milestone_scope.scope(state)
     criteria = sorted(set(scope.get("acceptance_criteria", [])))
     if not criteria:
         return None
@@ -296,7 +296,7 @@ def record_decision(state, decision, record):
         required = {row["id"] for row in state.get("goal_contract", {}).get("body", {}).get("acceptance_criteria", [])
                     if row.get("human_review") and row["id"] in (report_scope(state) or {}).get("criteria", [])}
         if (not review_gate.review_only_permission(decision, decision.get("user_request", {}), required)
-                or not milestones.fresh_validation(state, s.snapshot(state["workspace"]))):
+                or not milestone_scope.fresh_validation(state, s.snapshot(state["workspace"]))):
             return
     _apply_dispositions(state, "astra", decision.get("finding_dispositions", []), record,
                         report_scope(state),

@@ -15,7 +15,7 @@ try:
     from . import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery, autocode_rework_policy as rework_policy, autocode_resolver_recovery as resolver_recovery
     from . import autocode_planning_clarification as clarification
     from . import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage, autocode_efficiency as efficiency, autocode_visual_runtime as visual_runtime
-    from .units import autoplanner as planning_unit
+    from .units import autoplanner as planning_unit, common as units_common
     from . import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay, autocode_check_refs as check_refs
     from . import autocode_validation_rounds as validation_rounds
 except ImportError:
@@ -34,7 +34,7 @@ except ImportError:
     import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery, autocode_rework_policy as rework_policy, autocode_resolver_recovery as resolver_recovery
     import autocode_planning_clarification as clarification
     import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage, autocode_efficiency as efficiency, autocode_visual_runtime as visual_runtime
-    from units import autoplanner as planning_unit
+    from units import autoplanner as planning_unit, common as units_common
 
 SKIP = object()
 
@@ -167,10 +167,6 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
     schema_path = run_dir / "schemas" / f"v3-{stage}.json"
     runtime.write_json(schema_path, runtime.support.model_output_schema(request.schema))
     try:
-        try:
-            from .units import common as units_common
-        except ImportError:
-            from units import common as units_common
         value, record = runtime.run_role(role=request.role, prompt=request.prompt,
             sandbox=units_common.launch_sandbox(stage, request.allow_write),
             workspace=workspace, run_dir=run_dir, state=state, schema=schema_path,

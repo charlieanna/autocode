@@ -1,10 +1,12 @@
 """Parallel orchestration through real subprocesses/worktrees and offline models."""
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -19,10 +21,81 @@ import autocode_support as s
 from goal_fixtures import assert_operational_wait, body, envelope
 
 
+class TaskForTests(unittest.TestCase):
+    def test_primary_handoff_is_copied_and_rebound_without_leaking_to_siblings(self):
+        rows = [{"id": "M1", "objective": "First output", "affected_paths": ["first/"],
+                 "acceptance_criteria": ["C1"]},
+                {"id": "M2", "objective": "Second output", "affected_paths": ["second/"],
+                 "acceptance_criteria": ["C2"]}]
+        contract = {"revision": 2, "hash": "approved-contract", "body": {
+            "milestones": rows, "acceptance_criteria": [
+                {"id": f"C{i}", "criterion": f"Output {i} works", "verification_method": f"Read output {i}"}
+                for i in (1, 2)]}}
+        primary = {"id": "reviewed-task", "kind": "implement", "milestone_id": "M1",
+                   "objective": "First output with an integrity checksum", "affected_paths": ["first/output.txt"],
+                   "requirements": ["Output 1 works", "Append the SHA-256 digest of the milestone ID."],
+                   "validation_plan": ["Read output 1", "Verify the output checksum."],
+                   "acceptance_criteria": ["C1"], "findings": [], "decision": "CONTINUE",
+                   "contract_revision": 2, "contract_hash": "approved-contract",
+                   "source_revision": "reviewed-source", "assigned_at": "review-time"}
+        state = {"goal_contract": contract, "current_task": primary}
+        before = copy.deepcopy(state)
+        with patch.object(s, "now", return_value="dispatch-time"):
+            task = d.task_for(state, rows[0], {"revision": "dispatch-source"})
+            sibling = d.task_for(state, rows[1], {"revision": "dispatch-source"})
+        self.assertEqual({**primary, "id": task["id"], "source_revision": "dispatch-source",
+                          "assigned_at": "dispatch-time"}, task)
+        self.assertEqual({"id": sibling["id"], "kind": "implement", "milestone_id": "M2",
+                          "objective": "Second output", "affected_paths": ["second/"],
+                          "requirements": ["Output 2 works"], "validation_plan": ["Read output 2"],
+                          "acceptance_criteria": ["C2"], "decision": "CONTINUE",
+                          "contract_revision": 2, "contract_hash": "approved-contract",
+                          "source_revision": "dispatch-source", "assigned_at": "dispatch-time"}, sibling)
+        self.assertEqual(3, len({primary["id"], task["id"], sibling["id"]}))
+        for field in ("requirements", "validation_plan", "affected_paths", "acceptance_criteria", "findings"):
+            task[field].append("child-only")
+        self.assertEqual(before, state)
+
+
+class SnapshotCommitTests(unittest.TestCase):
+    def test_snapshot_with_untracked_source_and_runner_directories(self):
+        for tracked_seed in (False, True):
+            for ignored_runner in (False, True):
+                with self.subTest(tracked_seed=tracked_seed, ignored_runner=ignored_runner), tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    d.git(root, "init", "-q")
+                    if tracked_seed:
+                        (root / "seed.txt").write_text("seed\n")
+                        d.git(root, "add", "seed.txt")
+                    d.git(root, "-c", "user.name=Fixture", "-c", "user.email=f@example.test",
+                          "commit", "--allow-empty", "-qm", "fixture")
+                    if ignored_runner:
+                        (root / ".git/info/exclude").write_text("/.autocode/\n/.autocode-ui/\n__pycache__/\n*.pyc\n")
+                    for name in (".autocode/runs/fixture/log", ".autocode-ui/log",
+                                 "__pycache__/root.pyc", "contract/__pycache__/schema.pyc", "contract/other.pyc"):
+                        path = root / name
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_bytes(b"not source")
+                    empty = d.snapshot_commit(root, root / ".autocode/runs/fixture")
+                    self.assertEqual(["seed.txt"] if tracked_seed else [],
+                                     list(filter(None, d.git(root, "ls-tree", "-rz", "--name-only", empty).decode().split("\0"))))
+                    (root / "contract/schema.json").write_text('{"version": 1}\n')
+                    (root / "dependency_trace.json").write_text('{"edges": []}\n')
+                    head = d.git(root, "rev-parse", "HEAD")
+                    index = (root / ".git/index").read_bytes()
+                    before = s.snapshot(root)
+                    commit = d.snapshot_commit(root, root / ".autocode/runs/fixture")
+                    self.assertEqual(sorted(before["files"]), d.git(root, "ls-tree", "-rz", "--name-only", commit).decode().strip("\0").split("\0"))
+                    self.assertEqual(b'{"version": 1}\n', d.git(root, "show", f"{commit}:contract/schema.json"))
+                    self.assertEqual(head, d.git(root, "rev-parse", "HEAD"))
+                    self.assertEqual(index, (root / ".git/index").read_bytes())
+                    self.assertEqual(before, s.snapshot(root))
+
+
 class DispatchTests(unittest.TestCase):
     setUp = test_goals.GoalTests.setUp
 
-    def prepare(self, *, paths=None, human=False):
+    def prepare(self, *, paths=None, human=False, decision=None):
         draft = body(human=human)
         draft["acceptance_criteria"] = [
             {"id": f"C{i}", "criterion": f"Output {i} works", "verification_method": f"Read output {i}", "human_review": human}
@@ -40,7 +113,7 @@ class DispatchTests(unittest.TestCase):
         lifecycle.approve(self.state, self.state["displayed_goal"])
         self.state["settings"].update(orchestration=copy.deepcopy(d.DEFAULTS),
                                       milestone_checkpoints=copy.deepcopy(m.DEFAULTS), engine="codex", report_repair={"max_attempts": 2})
-        decision = {"status": "CONTINUE", "next_objective": "First output", "affected_paths": draft["milestones"][0]["affected_paths"],
+        decision = decision or {"status": "CONTINUE", "next_objective": "First output", "affected_paths": draft["milestones"][0]["affected_paths"],
                     "next_task": {"kind": "implement", "milestone_id": "M1", "requirements": ["Output 1 works"],
                                   "acceptance_criteria": ["C1"], "validation_plan": ["Read output 1"]}}
         lifecycle.assign_task(self.state, decision, s.snapshot(self.root))
@@ -77,6 +150,27 @@ class DispatchTests(unittest.TestCase):
         return lifecycle.assign_task(self.state, {"status": "CONTINUE", "next_objective": "Finish " + mid,
               "affected_paths": ["combined.txt"], "next_task": {"kind": "implement", "milestone_id": mid,
               "requirements": ["Keep outputs working"], "acceptance_criteria": [cid], "validation_plan": ["Read output"]}}, s.snapshot(self.root))
+
+    def test_validator_guidance_switches_from_batch_to_single_task_schema(self):
+        from units import autoreview
+        self.prepare()
+        self.state["settings"]["milestone_checkpoints"] = {"enabled": True}
+        schemas = Path(d.__file__).with_name("autocode-schemas")
+        self.state["current_task"]["milestone_ids"] = ["M1", "M2"]
+        batch = autoreview.prepare(self.state, "sol", self.run / "state.json", schemas)
+        self.assertIn("milestone_results", batch.schema["required"])
+        self.assertIn("must provide milestone_results", batch.prompt)
+        self.assertNotIn("Do not include milestone_results", batch.prompt)
+
+        self.state["current_task"].pop("milestone_ids")
+        self.state["current_task"]["kind"] = "validate"
+        single = autoreview.prepare(self.state, "sol", self.run / "state.json", schemas)
+        self.assertNotIn("milestone_results", single.schema["properties"])
+        self.assertFalse(single.schema["additionalProperties"])
+        self.assertIn("Do not include milestone_results", single.prompt)
+        self.assertIn("whole-product validation", single.prompt)
+        self.assertNotIn("must provide milestone_results", single.prompt)
+        self.assertIn("milestone_results", batch.schema["required"])
 
     def test_ready_selection_respects_dependency_ownership_and_limits(self):
         self.prepare()
@@ -206,6 +300,60 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(["a.txt"], paths)
         self.assertEqual(revision, s.snapshot(workspace)["revision"])
 
+    def test_snapshot_uses_literal_inventory_and_preserves_ignored_policy_and_deletions(self):
+        self.prepare()
+        # A staged deletion is absent from ls-files but still present in HEAD.
+        d.git(self.root, "rm", "greet.py")
+        (self.root / "new.txt").write_text("staged before ignore\n")
+        d.git(self.root, "add", "new.txt")
+        (self.root / "new.txt").write_text("working source after staging\n")
+        (self.root / ".autocode/staged.log").write_text("runner output\n")
+        (self.root / "__pycache__").mkdir(exist_ok=True)
+        (self.root / "__pycache__/staged.pyc").write_bytes(b"generated")
+        d.git(self.root, "add", ".autocode/staged.log", "__pycache__/staged.pyc")
+        (self.root / "test_greeting.py").write_text("tracked despite ignore rule\n")
+        with (self.root / ".git/info/exclude").open("a") as exclude:
+            exclude.write("/test_greeting.py\n/new.txt\n/secret.env\n")
+        (self.root / "secret.env").write_text("must not be captured\n")
+        names = (":(glob)*.txt", "space\nname.txt", "--odd[1].txt")
+        for name in names:
+            (self.root / name).write_bytes(b"\x00\xffliteral source\n")
+        head = d.git(self.root, "rev-parse", "HEAD")
+        index = (self.root / ".git/index").read_bytes()
+        before = s.snapshot(self.root)
+        commit = d.snapshot_commit(self.root, self.run)
+        paths = set(filter(None, d.git(self.root, "ls-tree", "-rz", "--name-only", commit).decode().split("\0")))
+        self.assertEqual(set(before["files"]), paths)
+        self.assertNotIn("greet.py", paths)
+        self.assertNotIn("secret.env", paths)
+        self.assertEqual(b"working source after staging\n", d.git(self.root, "show", f"{commit}:new.txt"))
+        self.assertEqual(b"tracked despite ignore rule\n", d.git(self.root, "show", f"{commit}:test_greeting.py"))
+        for name in names:
+            self.assertEqual(b"\x00\xffliteral source\n", d.git(self.root, "show", f"{commit}:{name}"))
+        self.assertEqual(head, d.git(self.root, "rev-parse", "HEAD"))
+        self.assertEqual(index, (self.root / ".git/index").read_bytes())
+        self.assertEqual(before, s.snapshot(self.root))
+
+    def test_snapshot_reads_working_contents_without_changing_user_index_flags(self):
+        self.prepare()
+        name = "test_greeting.py"
+        for flag in ("--assume-unchanged", "--skip-worktree"):
+            with self.subTest(flag=flag):
+                for reset in ("--no-assume-unchanged", "--no-skip-worktree"):
+                    d.git(self.root, "update-index", reset, "--", name)
+                d.git(self.root, "add", name)
+                d.git(self.root, "update-index", flag, "--", name)
+                expected = f"working contents under {flag}\n".encode()
+                (self.root / name).write_bytes(expected)
+                head = d.git(self.root, "rev-parse", "HEAD")
+                index = (self.root / ".git/index").read_bytes()
+                before = s.snapshot(self.root)
+                commit = d.snapshot_commit(self.root, self.run)
+                self.assertEqual(expected, d.git(self.root, "show", f"{commit}:{name}"))
+                self.assertEqual(head, d.git(self.root, "rev-parse", "HEAD"))
+                self.assertEqual(index, (self.root / ".git/index").read_bytes())
+                self.assertEqual(before, s.snapshot(self.root))
+
     def test_explicit_retry_only_restarts_failed_member_and_counts_once(self):
         self.prepare()
         with patch.dict(os.environ, {"AUTOCODE_BUILDER_FAIL": "M2"}):
@@ -220,6 +368,57 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(3, len(attempts))
         self.assertAlmostEqual(sum(r["duration_seconds"] for r in attempts), self.state["active_seconds"])
         self.assertTrue(all(Path(r["events"]).exists() for r in attempts))
+
+    def test_reviewed_primary_output_and_check_survive_preparation_interrupt_and_retry(self):
+        self.prepare(decision={
+            "status": "CONTINUE", "next_objective": "First output with an integrity checksum",
+            "affected_paths": ["a.txt"], "next_task": {
+                "kind": "implement", "milestone_id": "M1", "acceptance_criteria": ["C1"],
+                "requirements": ["Output 1 works", "Append the SHA-256 digest of the milestone ID."],
+                "validation_plan": ["Read output 1", "Verify the output checksum."]}})
+        reviewed = copy.deepcopy(self.state["current_task"])
+        original = d.git
+
+        def interrupt(workspace, *args, **kwargs):
+            result = original(workspace, *args, **kwargs)
+            if args[:2] == ("worktree", "add"):
+                raise s.Paused("PAUSED_INTERRUPTED", "After worktree creation")
+            return result
+
+        with patch.object(d, "git", side_effect=interrupt):
+            with self.assertRaisesRegex(s.Paused, "After worktree"):
+                self.build()
+        self.state = s.read(self.run / "state.json")
+        with patch.dict(os.environ, {"AUTOCODE_BUILDER_FAIL": "M1"}):
+            with self.assertRaisesRegex(s.Paused, "Builder M1"):
+                self.build()
+        self.state = s.read(self.run / "state.json")
+        sibling_attempt = (self.root / ".autocode/barrier/M2").read_bytes()
+        d.request_retry(self.state, self.run, ["M1"])
+        self.state = s.read(self.run / "state.json")
+        self.build()
+
+        self.assertEqual("M1\n" + hashlib.sha256(b"M1").hexdigest() + "\n", (self.root / "a.txt").read_text())
+        self.assertEqual("M2\n", (self.root / "b.txt").read_text())
+        self.assertEqual(sibling_attempt, (self.root / ".autocode/barrier/M2").read_bytes())
+        self.assertEqual("sol", self.state["next_stage"])
+        self.assertEqual(set(), m.accepted_ids(self.state))
+        batch = self.state["orchestration_history"][0]
+        for row in batch["workers"]:
+            directory = Path(row["run_dir"])
+            prompt = next(directory.glob("iterations/*/builder-*.prompt.md")).read_text()
+            handed = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])["current_task"]
+            if row["milestone_id"] == "M1":
+                for field in ("objective", "requirements", "validation_plan", "affected_paths"):
+                    self.assertEqual(reviewed[field], handed[field])
+            else:
+                self.assertEqual(["Output 2 works"], handed["requirements"])
+                self.assertEqual(["Read output 2"], handed["validation_plan"])
+            child = s.read(directory / "state.json")
+            events = [json.loads(line) for record in child["stages"] if record["stage"] == "terra"
+                      for line in Path(record["events"]).read_text().splitlines()]
+            checks = [e["item"] for e in events if e.get("item", {}).get("id") == "checksum"]
+            self.assertEqual([0] if row["milestone_id"] == "M1" else [], [c["exit_code"] for c in checks])
 
     def test_report_repair_never_replays_builder(self):
         self.prepare()
@@ -381,6 +580,9 @@ class DispatchCliTests(unittest.TestCase):
 
     def test_full_cli_parallel_wave_then_dependency_then_completion(self):
         self.fixture()
+        (self.project / ".git/info/exclude").write_text("/.autocode/\n/.autocode-ui/\n__pycache__/\n*.pyc\n")
+        (self.project / ".autocode-ui").mkdir()
+        (self.project / ".autocode-ui/log").write_text("runner only\n")
         self.launch(["Produce two outputs and combine", "--max-parallel-builders", "2", "--chat"], 0, answers="yes\n")
         run, state = self.saved()
         self.assertEqual("TASK_COMPLETE", state["status"])

@@ -11,15 +11,19 @@ import time
 import uuid
 from contextlib import contextmanager
 try:
+    from .dashboard_command_gate import WorkspaceCommandGate, command_workspace
     from .dashboard_monitor import process_table as monitor_process_table, snapshot as monitor_snapshot
 except ImportError:  # Support direct execution from this source directory.
+    from dashboard_command_gate import WorkspaceCommandGate, command_workspace
     from dashboard_monitor import process_table as monitor_process_table, snapshot as monitor_snapshot
 
 
 try:
     from .dashboard_work_summary import progress_from_status
+    from .dashboard_recovery import projection as recovery_projection
 except ImportError:
     from dashboard_work_summary import progress_from_status
+    from dashboard_recovery import projection as recovery_projection
 
 
 def mapping(value):
@@ -61,6 +65,7 @@ class RegistryInterventionMixin:
 
     def __init__(self, *args, registry_ttl=30.0, **kwargs):
         super().__init__(*args, **kwargs)
+        self.workspace_commands = WorkspaceCommandGate()
         self.registry_lock = threading.RLock()
         self.registry_scope = threading.local()
         self.registry_ttl = max(0.0, float(registry_ttl))
@@ -69,6 +74,10 @@ class RegistryInterventionMixin:
         self.intervention_actions = {}
 
     def _json_command(self, args, timeout=4):
+        with self.workspace_commands.hold(command_workspace(args)):
+            return self._run_json_command(args, timeout)
+
+    def _run_json_command(self, args, timeout):
         try:
             result = subprocess.run([sys.executable, self.runner, *args], capture_output=True, text=True, timeout=timeout)
         except (OSError, subprocess.TimeoutExpired) as error:
@@ -326,7 +335,9 @@ class RegistryInterventionMixin:
                                                                  x.get('submitted_at') if isinstance(x.get('submitted_at'), str) else '')),
                  'blocked_conditions': blocked, 'pause_intent': interventions.get('pause_intent'),
                  'stop_intent': interventions.get('stop_intent'),
-                 'work_progress': progress_from_status(data if not error else {})}
+                 'work_progress': progress_from_status(data if not error else {}),
+                 'recovery': recovery_projection(data if not error else {}),
+                 'code_checkpoints': mapping(mapping(data).get('view')).get('code_checkpoints') if not error else None}
         if capable and (error or inspect_error):
             value['mode'] = 'unavailable'
         self.status_cache[key] = {'at': time.monotonic(), 'value': value}

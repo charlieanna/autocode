@@ -182,6 +182,14 @@ class IsolatedCli(unittest.TestCase):
                                     cwd=flow.root, env=env, capture_output=True, text=True, timeout=10)
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertEqual(state['workspace'], json.loads(result.stdout)['workspace'])
+        # Without --run-dir the project holds two unfinished runs: --status lists both, picks neither.
+        result = subprocess.run([*flow.entry, '--status'], cwd=flow.project, env=env,
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(2, result.returncode, result.stdout + result.stderr)
+        self.assertEqual('', result.stdout)
+        self.assertIn('2 unfinished AutoCode runs', result.stderr)
+        for path in runs:
+            self.assertIn(f'autocode --run-dir {path.parent} --status', result.stderr)
         self.assertFalse((flow.project / 'greet.py').exists())
 
 

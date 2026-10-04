@@ -51,6 +51,18 @@ class ConversationStore:
     def send(self, ident, *args, **kwargs):
         return self._owner(ident).send(ident, *args, **kwargs)
 
+    def confirm_project_scope(self, ident, token):
+        owner = self._owner(ident)
+        if owner is not self.continuous:
+            raise ValueError('This older intake does not dispatch inside a project folder.')
+        return owner.confirm_project_scope(ident, token)
+
+    def refresh_draft(self, ident, **kwargs):
+        owner = self._owner(ident)
+        if owner is not self.continuous:
+            raise ValueError('This older conversation has no live draft refresh operation.')
+        return owner.refresh_draft(ident, **kwargs)
+
     def retry(self, ident):
         return self._owner(ident).retry(ident)
 
@@ -82,7 +94,7 @@ class ConversationStore:
                            and row.get('requirements_revision') == latest
                            and row.get('freshness', {}).get('state') == 'fresh'
                            for row in doc.get('plan_drafts', [])):
-                    raise ValueError('Wait for the current structured draft before attaching a project. Retry a failed delivery from this chat.')
+                    raise ValueError('The current draft is not ready. Use Update draft in chat for batched answers, or retry a confirmed failed delivery there, before attaching a project.')
             return protocol.handoff_from_document(doc)
 
     require_visible = staticmethod(IntakeStore.require_visible)

@@ -220,6 +220,11 @@ class OpenCodeTests(unittest.TestCase):
         self.assertIn("strict filesystem boundary", prompt)
         self.assertIn("ancestor AGENTS.md", prompt)
         self.assertIn("private_source_exceptions", prompt)
+        self.assertIn("Shell commands start in the current workspace", prompt)
+        self.assertIn("omit workdir", prompt)
+        self.assertIn("copy workspace from CURRENT HANDOFF DATA verbatim", prompt)
+        self.assertIn("Never reconstruct it from a run name", prompt)
+        self.assertIn("Absolute paths inside the workspace are not inherently forbidden", prompt)
 
     def test_launch_restricts_reviews_preserves_config_and_resumes_exact_session(self):
         original = {"provider": {"custom": {"models": {"m": {}}}}, "permission": {"bash": "ask"}}

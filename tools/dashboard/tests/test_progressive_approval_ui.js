@@ -1,6 +1,6 @@
 // Run from the repository root: node tools/dashboard/tests/test_progressive_approval_ui.js
 // Execute shipped rendering and action routing; only DOM and network I/O are fake.
-const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('./dashboard_vm');
 const {execFileSync}=require('node:child_process');
 const projectedRun=require('./resolver_fixture');
 const root=path.resolve(__dirname,'../../..');
@@ -43,6 +43,7 @@ const run=projectedRun('goal_approval',{workspace:'/fixture/project',run:'/fixtu
   }}});
 class Element{
   constructor(tag='div',text=''){this.tagName=tag.toUpperCase();this.textContent=text;this.children=[];this.dataset={};this.open=false;this.disabled=false;this.classList={add:()=>{}};}
+  setAttribute(name,value){this[name]=value;}
   append(...children){this.children.push(...children);}
   replaceChildren(...children){this.children=children;}
   get childElementCount(){return this.children.length;}

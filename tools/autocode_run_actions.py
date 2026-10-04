@@ -33,6 +33,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_run_finder as run_finder
     from . import autocode_stop as stop
     from . import autocode_support as support
     from . import autocode_workflows as workflows
@@ -56,6 +57,7 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_recovery_progress as recovery_progress
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_run_finder as run_finder
     import autocode_stop as stop
     import autocode_support as support
     import autocode_workflows as workflows
@@ -204,10 +206,17 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         try:
             resolver_human.respond_operational(candidate, args.resolver_request, args.resolver_token,
                                                args.resolver_response, args.resolver_message)
-            resolver_human.review_operational_response(candidate)
         except ValueError as error:
-            print(f'Input rejected: {error}', file=sys.stderr)
-            return 2
+            # A saved-state change after display strands the shown token; the
+            # operator's decision still applies to the identical pending
+            # request, re-bound to the current state in this same invocation.
+            fresh = resolver_human.rebind_stale(candidate, args.resolver_request, args.resolver_token)
+            if fresh is None:
+                print(f'Input rejected: {error}', file=sys.stderr)
+                return 2
+            resolver_human.respond_operational(candidate, fresh['request_id'], fresh['request_token'],
+                                               args.resolver_response, args.resolver_message)
+        resolver_human.review_operational_response(candidate)
         runner.commit_user_action(state, candidate, run_dir)
         print('AutoResolver received the response. Work, approvals and budgets remain unchanged; no provider launched.')
         return 0
@@ -379,7 +388,15 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             if args.answer or args.delegate:
                 if not published or not args.resolver_token:
                     raise ValueError('Answers require the current --resolver-token shown by AutoResolver')
-                resolver_human.require_response(candidate, published['request_id'], args.resolver_token)
+                try:
+                    resolver_human.require_response(candidate, published['request_id'], args.resolver_token)
+                except ValueError:
+                    # A saved-state change after display strands the shown token;
+                    # the operator still answered this exact request content.
+                    fresh = resolver_human.rebind_stale(candidate, None, args.resolver_token)
+                    if fresh is None:
+                        raise
+                    published = fresh
                 if published['scope'] in ('blocker', 'operational_exhaustion'):
                     raise ValueError('Use --resolver-response for this operational request; it is not a requirements answer')
             if args.approve_goal and (not published or published['scope'] != 'goal_approval'):
@@ -449,7 +466,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         autopilot.publish_handoffs(candidate, run_dir)
         runner.commit_user_action(state, candidate, run_dir)
         print(rendered)
-        print("Saved. Resume with the same --workspace and --run-dir; no agent launched by this action.")
+        print(f"Saved; no agent launched by this action. {run_finder.continue_hint(run_dir, state, args.unit)}.")
         return 0
     if state["status"] == "TASK_COMPLETE":
         runner.recheck_completion(state, workspace)

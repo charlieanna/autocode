@@ -134,11 +134,11 @@ class PendingDecisionTests(unittest.TestCase):
     def test_stale_token_wrong_id_and_missing_receipt_reject_before_enqueue(self):
         fields = self.issue()
         for invalid in ({}, {**fields, 'resolver_token': 'old'}, {**fields, 'resolver_request': 'old'}):
-            with self.assertRaisesRegex(ValueError, 'AutoResolver'):
+            with self.assertRaisesRegex(ValueError, 'Resolver'):
                 self.console.mutate({**self.base, **invalid, 'action': 'answer', 'id': 'Q1', 'text': 'JSON'})
         self.state.pop('resolver')
         self.save()
-        with self.assertRaisesRegex(ValueError, 'AutoResolver'):
+        with self.assertRaisesRegex(ValueError, 'Resolver'):
             self.console.mutate({**self.base, **fields, 'action': 'delegate', 'id': 'Q1'})
         self.console.enqueue.assert_not_called()
 
@@ -147,7 +147,7 @@ class PendingDecisionTests(unittest.TestCase):
         token = self.state['displayed_goal']
         self.console.mutate({**self.base, **fields, 'action': 'approve_goal', 'token': token, 'confirmation': token})
         self.assertEqual(self.console.enqueue.call_args.args[3], ['--approve-goal', token])
-        with self.assertRaisesRegex(ValueError, 'AutoResolver'):
+        with self.assertRaisesRegex(ValueError, 'Resolver'):
             self.console.mutate({**self.base, **fields, 'action': 'approve_review', 'token': 'artifact-token', 'id': 'C1'})
         fields = self.issue('human_review', questions=[])
         self.console.mutate({**self.base, **fields, 'action': 'approve_review', 'token': 'artifact-token', 'id': 'C1'})
@@ -155,7 +155,7 @@ class PendingDecisionTests(unittest.TestCase):
         self.state.pop('resolver_human_request')
         self.save()
         for action in ('approve_goal', 'approve_review'):
-            with self.assertRaisesRegex(ValueError, 'AutoResolver'):
+            with self.assertRaisesRegex(ValueError, 'Resolver'):
                 self.console.mutate({**self.base, **fields, 'action': action, 'token': token, 'confirmation': token, 'id': 'C1'})
 
     def test_operational_response_never_approves_or_continues(self):
@@ -169,14 +169,14 @@ class PendingDecisionTests(unittest.TestCase):
                                      '--resolver-response', response, '--resolver-message', 'Provider repaired', '--no-chat'])
             self.assertNotIn('on_complete', self.console.enqueue.call_args.kwargs)
         for action in ('answer', 'delegate', 'approve_goal', 'approve_review'):
-            with self.assertRaisesRegex(ValueError, 'AutoResolver'):
+            with self.assertRaisesRegex(ValueError, 'Resolver'):
                 self.console.mutate({**self.base, **fields, 'action': action, 'id': self.state['pending_questions'][0]['id'], 'text': 'yes'})
         self.assertEqual(self.state, before)
         self.console.continue_run.assert_not_called()
 
     def test_chat_rejects_stale_envelope(self):
         fields = self.issue()
-        with self.assertRaisesRegex(ValueError, 'AutoResolver'):
+        with self.assertRaisesRegex(ValueError, 'Resolver'):
             self.console.chat({**self.base, **fields, 'resolver_token': 'old', 'request_id': 'chat-stale', 'question_id': 'Q1', 'text': 'JSON'})
         self.console.enqueue.assert_not_called()
         self.assertEqual(self.console._chat_rows(self.run), [])

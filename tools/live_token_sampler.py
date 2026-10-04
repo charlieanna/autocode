@@ -17,9 +17,9 @@ import time
 from pathlib import Path
 
 try:
-    from .score_autocode_run import estimate_cost, recorded_model, known_sum, token_count, money, count_text
+    from .token_cost import estimate_cost, recorded_model, known_sum, token_count, money, count_text
 except ImportError:
-    from score_autocode_run import estimate_cost, recorded_model, known_sum, token_count, money, count_text
+    from token_cost import estimate_cost, recorded_model, known_sum, token_count, money, count_text
 
 
 def event_records(state: dict, run_dir: Path) -> dict:
