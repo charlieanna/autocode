@@ -5,7 +5,7 @@ OS sandbox, so anything in the runner's environment is readable by a model and b
 the tests it writes. Variables that look like credentials are withheld: a name word
 such as TOKEN, SECRET, PASSWORD, KEY or AUTH, or a URL value with an embedded
 password. Providers sign in from their own stored logins (OpenCode, Codex and Kilo
-auth files, GoCode's credential bundle), not from these variables.
+auth files), not from these variables.
 
 Two kinds of variable are always kept: AutoCode's own ``AUTOCODE_*`` settings, and
 proxy settings, without which a provider cannot reach its model. Git's

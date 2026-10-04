@@ -16,12 +16,15 @@ import argparse
 from pathlib import Path
 import shlex
 import sys
+import textwrap
 
 try:
     from . import autocode_workflows as workflows, autopilot, autocode_run_finder as run_finder
+    from . import autocode_subcommands as subcommands
     from .autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
 except ImportError:
     import autocode_workflows as workflows, autopilot, autocode_run_finder as run_finder
+    import autocode_subcommands as subcommands
     from autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
 
 # Inputs that only start a new run: with one of them and no task, nothing is looked up.
@@ -36,9 +39,19 @@ COMMAND_WORDS = ("resume", "status")
 COMMAND_MARK = "\0command-word"
 
 
+def commands_help() -> str:
+    """The commands handled before this parser runs (autocode_subcommands and COMMAND_WORDS), for --help."""
+    words = ["--version", "doctor", *COMMAND_WORDS, *sorted(set(subcommands.SUBCOMMANDS) - {"doctor"})]
+    return textwrap.fill("Commands, typed first: autocode " + " | ".join(words) + ". Each subcommand takes "
+                         "--help (autocode doctor --help); docs/cli.md lists every command.",
+                         width=78, break_on_hyphens=False)
+
+
 def build_parser(unit, default_models) -> argparse.ArgumentParser:
     """default_models is the selected provider's DEFAULT_MODELS, shown in the role-model help text."""
-    parser = argparse.ArgumentParser(description="Independent requirements gathering, planning, plan review, build, validation and completion ownership")
+    parser = argparse.ArgumentParser(description=textwrap.fill(
+        "Independent requirements gathering, planning, plan review, build, validation and completion ownership",
+        width=78), epilog=commands_help(), formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("task", nargs="?", help="Idea for the requirements gatherer, planner and plan reviewer to turn into an approvable build brief")
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
     parser.add_argument("--unit", choices=autopilot.UNITS, default=unit,
@@ -72,7 +85,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         help="Tool that runs each role for a new run. Default: AUTOCODE_PROVIDER, then default_provider in "
                              "~/.config/autocode/config.toml, then opencode. Other names load ~/.config/autocode/providers/<name>.toml")
     parser.add_argument("--joint-planning", action="store_true",
-                        help="Separate requirements, planning, and independent review; default for new OpenCode/GoCode runs, opt-in for Codex")
+                        help="Separate requirements, planning, and independent review; default for new OpenCode runs, opt-in for Codex")
     parser.add_argument("--adaptive-planning", action=argparse.BooleanOptionalAction, default=None,
                         help="New runs plan adaptively by default when they use joint planning on the default flow: "
                              "skip requirements for a clear build request and let a Plan Reviewer with no blocking "

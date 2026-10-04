@@ -116,7 +116,7 @@ field keep their ordinary text brief.
 
 Figma implementation requires the existing native Codex Figma workflow, ChatGPT
 login and the connected Figma plugin; use `--engine codex` for this build.
-Explicit OpenCode or GoCode engines are rejected before components start. See
+Any other explicit `--engine` is rejected before components start. See
 [Figma design and implementation](figma.md) for setup and visual verification.
 Implementation and review inspect the live file because it can change remotely.
 This command consumes an existing design; it does not create a design run.
