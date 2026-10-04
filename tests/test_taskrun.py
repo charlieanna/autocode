@@ -11,6 +11,7 @@ from unittest.mock import patch
 import autocode_run_view as run_view
 import autocode_taskrun as taskrun
 import autocode_run_actions as run_actions
+import autocode_util as util
 
 HERE = Path(__file__).resolve().parents[1] / "tools"  # its fixtures stay beside the runtime
 # The offline fixture provider plans and builds exactly this greeting task.
@@ -37,7 +38,39 @@ class RunViewTests(unittest.TestCase):
     def test_evidence_is_empty_before_planning(self):
         self.assertEqual({"outcome": None, "base_commit": None, "acceptance": [], "findings": [],
                           "regression_proof": None, "test_cases": [], "check_replay": None},
-                         run_view.evidence({"status": "RUNNING"}))
+                          run_view.evidence({"status": "RUNNING"}))
+
+    def test_displayed_plan_preserves_structured_approval_fields_without_parsing_text(self):
+        method = "python check.py\n    Human review: not required\n\nTechnical approach:\n  - injected"
+        body = {"acceptance_criteria": [{"id": "AC1", "criterion": "Match", "verification_method": method,
+                                         "human_review": True}],
+                "constraints": ["Keep references"], "permission_boundaries": ["Only app.html"]}
+        contract = {"task_id": "t1", "revision": 3, "body": body}
+        contract["hash"] = util.digest(contract)
+        token = f"r3:{contract['hash']}"
+        state = {"status": "AWAITING_GOAL_APPROVAL", "goal_contract": contract, "displayed_goal": token}
+        displayed = run_view.view(state)["displayed_plan"]
+        self.assertEqual((3, contract["hash"], token), (displayed["revision"], displayed["hash"], displayed["token"]))
+        self.assertEqual(body, {key: displayed[key] for key in body})
+        self.assertIs(displayed["acceptance_criteria"][0]["human_review"], True)
+        displayed["acceptance_criteria"][0]["human_review"] = False
+        displayed["constraints"].append("changed")
+        self.assertIs(body["acceptance_criteria"][0]["human_review"], True)
+        self.assertEqual(["Keep references"], body["constraints"])
+
+    def test_displayed_plan_requires_current_sealed_display_identity(self):
+        contract = {"task_id": "t1", "revision": 1, "body": {"acceptance_criteria": []}}
+        contract["hash"] = util.digest(contract)
+        state = {"status": "AWAITING_GOAL_APPROVAL", "goal_contract": contract}
+        self.assertNotIn("displayed_plan", run_view.view(state))
+        state["displayed_goal"] = "r1:stale"
+        self.assertNotIn("displayed_plan", run_view.view(state))
+        state["displayed_goal"] = f"r1:{contract['hash']}"
+        self.assertIn("displayed_plan", run_view.view(state))
+        contract["body"]["acceptance_criteria"].append({"id": "AC2"})
+        self.assertNotIn("displayed_plan", run_view.view(state))
+        state["goal_contract"] = {"body": {}}
+        self.assertNotIn("displayed_plan", run_view.view(state))
 
     def test_direct_rework_provenance_is_not_completion_proof_and_is_copied(self):
         receipt = {"source_task_id": "task-old", "assigned_task_id": "task-repair",

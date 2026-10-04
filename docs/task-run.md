@@ -144,6 +144,16 @@ running now, or null), `tokens`, `cost_usd` (`reported`, `estimated`, `complete`
 and `by_role` (see [Cost reporting](cost-reporting.md#every-task-continuously)). Unknown cost is
 not zero: `complete` is false while a stage has none or is running.
 
+`displayed_plan` is an optional structured approval projection: `revision`, `hash`,
+`token`, `acceptance_criteria`, `constraints` and `permission_boundaries`. It appears
+only when the last displayed token matches the current sealed contract. Missing,
+modified or stale contracts do not expose it. Criterion `verification_method` and
+`human_review` values are copied without interpreting or coercing model-authored
+text. Automation must check these structured fields and bind the token to
+`needs.token`; do not infer approval authority by parsing headings or review labels
+embedded in `--show-goal` prose. This projection is not approval, execution permission
+or completion proof; the existing CLI approval checks remain authoritative.
+
 `direct_rework_assignments` records a repair assigned directly from a Completion
 Owner's accepted REWORK report. Each entry binds the original and assigned tasks,
 contract, source, report and evidence hashes, and the ordinary retry charged by
