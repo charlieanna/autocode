@@ -64,16 +64,25 @@ The open #347 owns `autocode_support.py`, `autocode_permission_recovery.py` and
 3. After #347 merges: the snapshot exclusions and the workspace-only scratch rule in `COMMON` and
    `autocode_stage_recovery` read `stage_access`.
 
-## Open decision: the judging stages' sandbox
+## Decision: the judging stages' sandbox (2026-10-04)
 
 #337 launches the judging stages `workspace-write` and relies on the after-stage snapshot to keep
 their source unchanged. #309 gives a read-only Codex launch a named profile that may write only the
-report, `.autocode/evidence` and `.autocode/output`. The profile is the stronger guarantee: the OS
-refuses a source write instead of the runner noticing it afterwards. But #309 applies it only to
-`read-only` launches, and since #337 the three judging stages are not launched read-only, so on
-master the profile does not cover the stages it was written for.
+report, `.autocode/evidence` and `.autocode/output`; the OS then refuses a source write instead of
+the runner noticing it afterwards. But #309 applies the profile only to `read-only` launches, and
+since #337 the three judging stages are not launched read-only, so on master the profile does not
+cover the stages it was written for.
 
-The options are to keep #337's model and drop the judging stages from #309's tests and docs, or to
-launch the judging stages `read-only` again wherever the profile is available (Codex with
-`codex_artifacts`) and keep `workspace-write` elsewhere. Either way, `stage_access` should say which,
-so that the sandbox, the profile and the prompts read one answer.
+**Decided: narrow where possible.** A stage launched without source-write access gets the
+`codex_artifacts` profile wherever the provider has that adapter; `workspace-write` stays for
+OpenCode and the bundled Codex engine.
+
+**Prerequisite: a fresh scratch directory per launch.** The Validator is told to keep scratch
+copies under `.autocode/scratch/` (`autocode_check_replay.py`), which the profile does not allow.
+Adding `.autocode/scratch` to the profile as a shared directory would not work: the adapter refuses
+to launch when a writable directory holds any symlink or hard link (`codex_sandbox._artifact_tree`,
+an alias could point at source), and scratch copies of a repository routinely contain symlinks. So
+each evidence-only launch needs its own new, empty scratch directory, named in its prompt, and the
+profile grants that directory alone. `stage_access` owns the directory names; the prompts and the
+profile read them. A live Codex run (0.160 or newer) is the only check that the profile admits the
+writes a Validator makes; offline tests cover the argv.
