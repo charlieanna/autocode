@@ -38,6 +38,7 @@ try:
     from . import autocode_bug_job as bug_job, autocode_test_cases as test_cases
     from . import autocode_follow_up as follow_up
     from . import autocode_runner_check as runner_check, autocode_status as status
+    from . import autocode_wrapped_runner as wrapped_runner
 except ImportError:
     import autocode_bug_job as bug_job
     import autocode_follow_up as follow_up
@@ -49,11 +50,30 @@ except ImportError:
     import autocode_workspaces as workspaces
     import autocode_runner_check as runner_check
     import autocode_status as status
+    import autocode_wrapped_runner as wrapped_runner
 
 STAGE = "regression_proof"
 SUMMARY_KEYS = ("verdict", "failures", "unverified", "notes", "review_reasons", "fail_to_pass", "pass_to_pass",
                 "not_run_on_base",
                 "commands", "base", "base_patch", "source_revision", "test_files", "source_files", "case_tests")
+
+
+# What the judging stages' prompts say about the proof (autocode_stage_context): the reviewers use it
+# instead of re-running the same tests, and never override it.
+PROMPT_NOTES = {
+    "passed": {
+        "validator": "\nREGRESSION PROOF: regression_proof records that the runner already ran the new or changed "
+                     "tests (failing on the original code, passing now) and the project suite; case_tests names the test for each English test case (the diagnosis's, or the plan's criteria marked test:): read each one and report FAIL if it does not assert exactly the case's given, when and then. Do not re-run the "
+                     "whole suite. Run the regression command once as your own executed check, then spend your "
+                     "effort on what those tests do not cover in the acceptance criteria. To close a finding the proof settles, cite regression_proof's verdict and source_revision as the evidence.\n",
+        "owner": "\nREGRESSION PROOF: regression_proof and the Validator's report are executed evidence for this "
+                 "exact source. Do not re-run tests to re-establish them; decide from the recorded evidence.\n"},
+    "open": {
+        "validator": "\nREGRESSION PROOF: regression_proof is not PASS for this source. The fix is not proven; "
+                     "report FAIL and cite its failures or unverified reasons as findings.\n",
+        "owner": "\nREGRESSION PROOF: regression_proof is not PASS, so the runner will refuse completion. Do not "
+                 "request COMPLETE; return REWORK whose findings are the proof's failures or unverified reasons.\n"},
+}
 
 
 def required(state):
@@ -221,7 +241,9 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework):
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
         if operator:
             proof["review_reasons"] = [*(proof.get("review_reasons") or []), operator_patch.review_reason(operator)]
-        check_cases(proof, cases(state))
+        wanted = cases(state)
+        named = [test for key in ("fail_to_pass", "pass_to_pass", "not_run_on_base") for test in proof.get(key) or []]
+        check_cases(proof, wanted, wrapped_runner.refusals(workspace, named) if wanted else {})
         proof["checks"] = {label: {"command": receipt["command"], "exit_code": receipt["exit_code"],
                                    "timed_out": receipt["timed_out"], "output": receipt["output"]}
                            for label, receipt in result["checks"].items()}
@@ -256,7 +278,7 @@ def rejection(state):
     return f"Completion rejected: this change has no passing regression proof for the current source ({reasons})"
 
 
-def check_cases(proof, cases):
+def check_cases(proof, cases, refused=None):
     """Each English test case needs a test named after it.
 
     A restore case (the default, and what a case without a kind means) needs a
@@ -264,6 +286,11 @@ def check_cases(proof, cases):
     case describes behavior that already worked and must keep working: its test
     must pass on the original code and with the fix. A preserve case whose test
     fails on the original code is mis-tagged: it describes restored behavior.
+
+    ``refused`` maps a test id to why it cannot prove a case: it is in a node:test
+    file that runs another test runner, so it passes on that runner's exit code
+    (autocode_wrapped_runner.refusals, #380). Such a test is never matched to a
+    case, and a case left without a test says why.
     """
     if not cases:
         return
@@ -279,18 +306,29 @@ def check_cases(proof, cases):
                 "assertions and suite, and register each approved case with the supported runner."]
             proof["verdict"] = verify.UNVERIFIED
         return
+    refused = refused or {}
+
+    def usable(tests):
+        return [test for test in tests or [] if test not in refused]
+
+    def refusal(label, case):
+        reasons = sorted({refused[test] for test in test_cases.match_cases([case], sorted(refused))[case["id"]]})
+        return (f"{label} {test_cases.case_text(case)} has a test named after it that cannot prove it: "
+                + "; ".join(reasons)) if reasons else ""
+
     restore = [case for case in cases if case.get("kind", "restore") == "restore"]
     preserve = [case for case in cases if case.get("kind") == "preserve"]
-    proof["case_tests"] = test_cases.match_cases(restore, proof["fail_to_pass"])
-    proof["case_tests"].update(test_cases.match_cases(preserve, proof.get("pass_to_pass") or []))
+    proof["case_tests"] = test_cases.match_cases(restore, usable(proof["fail_to_pass"]))
+    proof["case_tests"].update(test_cases.match_cases(preserve, usable(proof.get("pass_to_pass"))))
     failures = []
     missing = [case for case in restore if not proof["case_tests"][case["id"]]]
-    failures += [
-        f"Test case {test_cases.case_text(case)} has no test named {test_cases.case_test_name(case['id'], case.get('test_name'))} "
-        "that passes with the change and did not pass without it" for case in missing]
+    failures += [refusal("Test case", case) or
+                 f"Test case {test_cases.case_text(case)} has no test named "
+                 f"{test_cases.case_test_name(case['id'], case.get('test_name'))} "
+                 "that passes with the change and did not pass without it" for case in missing]
     # A preserve case (a plan's guard:) whose test could not even import on the original code is not
     # shown to fail there: it counts, with a note that its before-state is unproven.
-    unrun = proof.get("not_run_on_base") or []
+    unrun = usable(proof.get("not_run_on_base"))
     for case in preserve:
         found = [] if proof["case_tests"][case["id"]] else test_cases.match_cases([case], unrun)[case["id"]]
         if found:
@@ -300,12 +338,13 @@ def check_cases(proof, cases):
                 "on the original code (its test file imports code the change adds), so it is not shown to "
                 "have passed before"]
     mistagged = [case for case in preserve
-                 if set(test_cases.match_cases([case], proof["fail_to_pass"])[case["id"]]) - set(unrun)]
+                 if set(test_cases.match_cases([case], usable(proof["fail_to_pass"]))[case["id"]]) - set(unrun)]
     untested = [case for case in preserve
                 if not proof["case_tests"][case["id"]] and case not in mistagged]
-    failures += [
-        f"Preserve case {test_cases.case_text(case)} has no test named {test_cases.case_test_name(case['id'], case.get('test_name'))} "
-        "that passes both with the change and on the original code" for case in untested]
+    failures += [refusal("Preserve case", case) or
+                 f"Preserve case {test_cases.case_text(case)} has no test named "
+                 f"{test_cases.case_test_name(case['id'], case.get('test_name'))} "
+                 "that passes both with the change and on the original code" for case in untested]
     failures += [
         f"Preserve case {test_cases.case_text(case)} has a test that fails on the original code, so it "
         "describes behavior the fix restores: tag it restore, or rewrite the test to assert the behavior "

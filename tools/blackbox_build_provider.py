@@ -35,6 +35,7 @@ def main():
             stream.write(json.dumps(dict(event=event, stage=data['stage'], milestone=mid,
                 pid=os.getpid(), workspace=str(Path.cwd()), time=time.time(), **extra)) + '\n')
     record('start', model=sys.argv[sys.argv.index('--model')+1] if '--model' in sys.argv else None,
+           task_paths=task.get('affected_paths'), affected_paths=data.get('affected_paths'),
            inputs={name: Path(name).read_text() for name in spec.get('observe', []) if Path(name).is_file()})
     if os.environ.get('REVIEW_AUDIT_LIVE_CODEX') and data['stage'].startswith(('sol', 'astra_review')):
         record('live_reviewer')
@@ -57,7 +58,14 @@ def main():
     rows = spec['contract']['milestones']
     if data.get('report_repair'):
         result = json.loads(Path(data['original']['output']).read_text())
-        result['summary'] = 'Reformatted preserved builder report'
+        if data['original']['stage'] == 'sol' and spec.get('validator_repair_incidents'):
+            result.pop('milestone_results', None)
+            state = json.loads(Path(data['state_file']).read_text())
+            # M4 needs both bounded repairs; the final validate task needs its own.
+            if state['current_task']['kind'] == 'implement' and state['pending_report_repair']['attempts'] == 1:
+                result['another_extra_field'] = True
+        else:
+            result['summary'] = 'Reformatted preserved builder report'
         if mode == 'repair_lies':
             result['results'] = ['All tests passed; exit code 0']
             result['commands_run'] = ['python3 -c "raise SystemExit(0)"']
@@ -187,8 +195,10 @@ def main():
         if task.get('milestone_ids'):
             result['milestone_results'] = [dict(milestone_id=m, status='PASS' if passed else 'FAIL',
                 summary='Executed check', evidence_refs=['event:' + cid for cid in owned]) for m in task['milestone_ids']]
+        elif spec.get('validator_repair_incidents') and mid == rows[-1]['id']:
+            result['milestone_results'] = []
     else:
-        # Fixture checkpoint reviewer: evaluates actual checks, never approves final product.
+        # Fixture checkpoint reviewer: evaluates actual checks; final approval is opt-in.
         ready = []
         for row in rows:
             check = subprocess.run([sys.executable, '-c', spec['checks'][row['id']]], capture_output=True)
@@ -201,6 +211,18 @@ def main():
             next_task=dict(kind='implement', milestone_id=row['id'], requirements=[row['objective']],
                 acceptance_criteria=row['acceptance_criteria'], validation_plan=[spec['checks'][row['id']]], findings=[]),
             plan=['Execute approved DAG'], evidence=['Checkpoint checks'], blocker='', agreed_limitations=[], findings=[], finding_dispositions=[])
+        if spec.get('review_completed_paths') and data['stage'] == 'astra_review':
+            result['affected_paths'] = task['affected_paths']
+        if spec.get('complete_product') and not ready:
+            if (data.get('validation') or {}).get('end_to_end_result', {}).get('status') == 'PASS':
+                result.update(status='COMPLETE', next_objective='', next_task=dict(kind='none',
+                    milestone_id='', requirements=[], acceptance_criteria=[], validation_plan=[], findings=[]))
+                for criterion in result['acceptance_criteria']:
+                    criterion.update(status='verified', evidence='event:' + criterion['id'])
+            else:
+                result['next_task'].update(kind='validate', acceptance_criteria=[c['id'] for c in criteria],
+                    validation_plan=list(spec['checks'].values()))
+        record('decision', affected_paths=result['affected_paths'], next_task=result['next_task'])
         if data['stage'] == 'astra_resolve':
             result['diagnosis'] = 'The current candidate failed its prescribed check; correct the current assignment without changing the contract'
         request = (data.get('agent_request') or {}).get('request') or (data.get('implementation') or {}).get('user_request')

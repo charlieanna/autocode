@@ -16,6 +16,7 @@ FAULTS = frozenset({
     "investigator_iteration", "investigator_run_root", "investigator_missing_citation",
     "investigator_uncited_input", "truncated_once", "truncated_repeated",
     "completion_denial", "builder_permission_corrected", "builder_permission_repeated",
+    "builder_permission_distinct",
 })
 MISSING_REF = "README.md.adversarial-missing"
 
@@ -109,9 +110,13 @@ def install(fake, configuration: dict, trace) -> None:
             mark("builder_permission_handoff", recovery=data.get("recovery_context"),
                  artifact_policy=data.get("builder_artifact_policy"),
                  partial=partial.read_text() if partial.exists() else None)
-            if counts[stage] == 1 or attack == "builder_permission_repeated":
+            if counts[stage] == 1 or attack in ("builder_permission_repeated", "builder_permission_distinct"):
                 mark("builder_permission_denied", invocation=counts[stage])
-                print("permission requested: external_directory (/tmp/diagnostic/*); auto-rejecting", flush=True)
+                # A distinct denied path per invocation makes each denial a new
+                # incident, so only the permission ceiling can bound this loop.
+                path = (f"/tmp/diagnostic-{counts[stage]}/*" if attack == "builder_permission_distinct"
+                        else "/tmp/diagnostic/*")
+                print(f"permission requested: external_directory ({path}); auto-rejecting", flush=True)
                 raise SystemExit(0)
             recovery = data.get("recovery_context") or {}
             directory = Path(recovery.get("diagnostic_directory", "missing-recovery-directory"))

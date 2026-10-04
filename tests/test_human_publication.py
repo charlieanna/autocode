@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
@@ -136,19 +135,14 @@ class HumanPublicationTests(unittest.TestCase):
         self.assertIn(human.PRIVATE, saved)
 
     def test_answered_operational_request_allows_explicit_stage_abandonment(self):
+        import autocode_args
         published = self.publish_operational()
         human.respond_operational(self.state, published['request_id'], published['request_token'],
                                   'provide_information', 'Inspected the uncertain attempt')
         human.review_operational_response(self.state)
         self.assertTrue(human.response_holds_current_frontier(self.state))
-        args = SimpleNamespace(
-            run_dir=self.state['run_dir'], expected_goal_token=None, conversation_handoff=None,
-            answer=None, delegate=None, approve_goal=None, edit_goal=None, approve_review=None,
-            reconcile_review=None, feedback=None, follow_up=None, show_goal=None,
-            accept_completion=None, resolver_response=None, planning_review_call_limit=None,
-            resume_paused=False, retry_builder=False, retry_failed_stage=False, retry_report=False,
-            abandon_stage='001/terra-01', grant_recovery=None, diagnose_failed_stage=False,
-            close_finding=None, close_reason=None)
+        args = autocode_args.build_parser(None, runner.DEFAULT_ROLE_MODELS).parse_args(
+            ['--run-dir', self.state['run_dir'], '--abandon-stage', '001/terra-01', '--no-chat'])
         fake_runner = Mock()
         fake_runner.abandon_stage.side_effect = lambda state, *_: state.update(
             status='PAUSED_STAGE_ABANDONED', stop_reason='Stage set aside')
@@ -221,7 +215,7 @@ class HumanResponseCLITests(unittest.TestCase):
         self.assertNotEqual('PAUSED_UNANSWERED_QUESTION', resumed['status'])
         self.assertGreater(len(resumed['stages']), stages_before)
 
-    def test_real_cli_stale_request_answer_says_how_to_refresh(self):
+    def test_real_cli_stale_request_response_rebinds_in_one_invocation(self):
         run, exhausted = self.timeout_exhausted_checkpoint()
         published = human.current(exhausted)
         self.assertIsNotNone(published)
@@ -229,12 +223,33 @@ class HumanResponseCLITests(unittest.TestCase):
         saved = json.loads(path.read_text())
         saved['active_seconds'] = saved.get('active_seconds', 0) + 1
         path.write_text(json.dumps(saved))
-        before = path.read_bytes()
         result = self.launch(['--run-dir', str(run), '--resolver-request', published['request_id'],
                               '--resolver-response', 'provide_information', '--resolver-message', 'Cause fixed',
-                              '--resolver-token', published['request_token']], 2)
-        self.assertIn('out of date', result.stderr)
-        self.assertIn('--no-chat', result.stderr)
+                              '--resolver-token', published['request_token']], 0)
+        self.assertIn('AutoResolver received the response', result.stdout)
+        _, answered = self.saved()
+        self.assertIsNone(human.current(answered))
+        resolution = answered['resolver']['human_response_resolutions']
+        self.assertEqual(1, len(resolution))
+        reborn = answered['resolver']['human_escalations'][published['request_id']]
+        self.assertEqual('superseded', reborn['status'])
+        self.assertIn('Re-bound', reborn['superseded_reason'])
+        self.assertEqual('user_cli', next(iter(resolution.values()))['response']['actor'])
+        self.assertEqual(len(exhausted['stages']), len(answered['stages']),
+                         'recording a response must not launch a provider')
+
+    def test_stale_rebind_rejects_forged_tokens_and_newer_requests(self):
+        run, exhausted = self.timeout_exhausted_checkpoint()
+        published = human.current(exhausted)
+        path = run / 'state.json'
+        saved = json.loads(path.read_text())
+        saved['active_seconds'] = saved.get('active_seconds', 0) + 1
+        path.write_text(json.dumps(saved))
+        before = path.read_bytes()
+        result = self.launch(['--run-dir', str(run), '--resolver-request', published['request_id'],
+                              '--resolver-response', 'provide_information', '--resolver-message', 'no',
+                              '--resolver-token', published['request_token'][:-4] + 'beef'], 2)
+        self.assertIn('requires the exact current', result.stderr)
         self.assertEqual(before, path.read_bytes())
 
     def test_real_cli_grant_recovery_resumes_an_exhausted_timeout_run(self):

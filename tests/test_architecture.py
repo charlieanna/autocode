@@ -11,18 +11,21 @@ TOOLS = Path(__file__).resolve().parents[1] / "tools"
 # (only its script entry does), which freed autocode.py and the controller; the goal lifecycle
 # moved out of autocode_goals, which freed goals and five modules that only read a contract; the
 # completion gate and stage context moved out of autocode_support, which freed support and four more.
+# 2026-10-04: the scenario verdicts (scenario_verdicts) and the token cost helpers (token_cost) moved
+# out of the two live-trial pairs, which freed all four. The milestone scope (autocode_milestone_scope)
+# moved out of autocode_milestones, which freed milestones and the findings ledger.
 # Taking a module out of the cycles is progress (remove it here); adding one fails.
 TANGLED = frozenset({
-    "autocode_findings", "autocode_goal_lifecycle", "autocode_milestones", "autocode_planning",
-    "autocode_stage_context", "autocode_workflow", "live_scenarios", "live_token_sampler",
-    "score_autocode_run", "task_scenarios", "units.autoplanner", "units.common",
+    "autocode_goal_lifecycle", "autocode_planning", "autocode_stage_context", "autocode_workflow",
+    "units.autoplanner", "units.common",
 })
 
 # Line counts on 2026-09-28, after merging master at 24617cc and moving subcommand dispatch out of
 # autocode.py. Lower these when a module shrinks.
 # 2026-10-01: the durable-intervention application policy (metadata, consume,
 # boundary effects) moved to autocode_stop, shrinking autocode.py further.
-MAX_LINES = {"autocode.py": 1491, "autocode_goals.py": 1375, "autocode_support.py": 679, "autopilot.py": 1176}
+# 2026-10-04: the regression proof's prompt notes moved to autocode_regression, which owns the proof.
+MAX_LINES = {"autocode.py": 1491, "autocode_goals.py": 1375, "autocode_support.py": 506, "autopilot.py": 1176}
 
 
 def source_modules() -> dict[str, Path]:

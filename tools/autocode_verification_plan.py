@@ -27,6 +27,10 @@ PROSE = re.compile(r"[;,]|(?:^|\s)(?:and|or|then|via|passes|pass|reads?|should|m
 # root: 2 tests OK." and the runner replayed it whole; unittest read "from", "repo" and "OK." as modules (2026-10-01).
 # A lone "." argument ("-t .") and a path ending in dots are not matched.
 SENTENCE = re.compile(r"\w:(?:\s|$)|[A-Za-z0-9_)]\.$")
+# An unquoted "(" that does not open $(...) is shell syntax no plain command uses: a note such as "(all 10 pass)".
+# A live to-do run approved "python3 -m unittest test_todo -v (all 10 pass)" as a check, the replay ran it whole
+# (Syntax error: "(" unexpected) and rejected every Validator report until the run stopped (2026-10-04).
+NOTE = re.compile(r"(?<!\$)\(")
 QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
 # `python3 -c doing a topological sort` is prose: the code after -c is one quoted argument, and unquoted code
 # followed by more words is a sentence. A live architecture run approved it as AC3's method, the runner replayed
@@ -72,7 +76,7 @@ def commands(method):
     if text.lower().startswith("run "):
         text = text[4:].strip()
     bare = QUOTED.sub("", text)
-    return [text] if executable(text) and not PROSE.search(bare) and not SENTENCE.search(bare) else []
+    return [text] if executable(text) and not any(p.search(bare) for p in (PROSE, SENTENCE, NOTE)) else []
 
 
 def approved_commands(state, *, progressive_context=None):

@@ -587,31 +587,8 @@ class StopOperationTests(StopFixture):
         self.assertTrue(any(item.get("id") == "Q1" for item in questions),
                         "the stopped run retains its unanswered question Q1")
         self.assertFalse((state.get("answers") or {}).get("Q1"), "Q1 remains unanswered")
-        # The approval subcase must use the token the stopped run genuinely
-        # displays for its current contract (r<revision>:<hash>, the rule
-        # agent_console enforces for approvals). The applied stop never
-        # re-presents the goal — every relaunch refuses first — so the fixture
-        # saves the display the product's own rule produces
-        # (autocode_goal_lifecycle.present sets displayed_goal to
-        # goals.token(goal_contract) for the current contract), and the test
-        # reads the token back through the dashboard/status projection and
-        # submits exactly that value, so the refusal below is attributable to
-        # the applied Stop alone, never to a malformed, stale or
-        # never-displayed token.
-        import autocode_goals as goals
-        contract = state["goal_contract"]
-        state["displayed_goal"] = goals.token(contract)
-        (run / "state.json").write_text(json.dumps(state))
-        from agent_console import Console
-        console = Console([self.project], str(RUNNER), lambda: None)
-        self.addCleanup(console.pool.shutdown, False)
-        displayed_goal_token = console.view(self.project, run)["goal_token"]
-        self.assertTrue(displayed_goal_token,
-                        "the dashboard/status projection carries the stopped run's displayed goal token")
-        self.assertEqual(state["displayed_goal"], displayed_goal_token,
-                         "the projected approval token equals the saved displayed field")
-        self.assertEqual("r%s:%s" % (contract["revision"], contract["hash"]), displayed_goal_token,
-                         "the displayed goal token names the stopped run's current contract revision and hash")
+        # This stop precedes any real plan. A separate public-CLI subcase below
+        # obtains a genuinely displayed plan token; no checkpoint is synthesized.
         # No human-review request stands in this stopped run, so it displays no
         # review token (goals.review_token stays None until a contract is
         # approved); the review-token flags keep a placeholder because the
@@ -625,7 +602,7 @@ class StopOperationTests(StopFixture):
             ["--delegate", "Q1"],
             ["--feedback", "go on"],
             ["--follow-up", "later"],
-            ["--approve-goal", displayed_goal_token],
+            ["--approve-goal", "r1:not-displayed"],
             ["--approve-review", "C1"],
             ["--reconcile-review", "C1=A1", "--review-token", "r1:token"],
             ["--edit-goal", str(goal_file)],
@@ -677,6 +654,36 @@ class StopOperationTests(StopFixture):
             runner.consume_interventions(probe, run, self.project)
         self.assertEqual(stop_policy.STOP_STATUS, raised.exception.status)
         self.assertIn(STOP_REASON_MARKER, str(raised.exception))
+
+        # Approval after Stop must also fail with a real, current, displayed token.
+        from autocode_taskrun import TaskRun
+        from agent_console import Console
+        self.hold_stage = ""
+        self.write_provider()
+        project = self.make_project("stopped-at-plan")
+        planned = TaskRun.start(project, "Build a greeting tool", options=("--provider", "stopholder"),
+                                command=(sys.executable, str(RUNNER)), env=self.env, timeout=180)
+        need = planned.status()["needs"]
+        self.assertEqual("answer", need["kind"], need)
+        planned.answer("Q1", "CLI", resolver_token=need["resolver_token"])
+        view = planned.advance_until_input()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        token = view["needs"]["token"]
+        console = Console([project], str(RUNNER), lambda: None)
+        self.addCleanup(console.pool.shutdown, False)
+        self.assertEqual(token, console.view(project, planned.run_dir)["goal_token"])
+        submitted = self.submit_in(project, planned.run_dir, "stop-at-plan")
+        self.assertEqual(0, submitted.returncode, submitted.stdout + submitted.stderr)
+        stopped = planned.advance()
+        self.assertIn(STOP_REASON_MARKER, stopped["stop_reason"])
+        self.assertEqual(token, console.view(project, planned.run_dir)["goal_token"])
+        count = len(self.stage_log(planned.run_dir))
+        refused = self.cli_in(project, planned.run_dir, "--approve-goal", token)
+        self.assertEqual(2, refused.returncode)
+        self.assertIn(stopped["stop_reason"], refused.stdout + refused.stderr)
+        self.assertEqual(count, len(self.stage_log(planned.run_dir)), "Approval after Stop launches no stage")
+        self.assertFalse(planned.status()["done"])
+        self.assertFalse((project / "greet.py").exists(), "Approval after Stop cannot start implementation")
 
 
 class StopPersistenceTests(unittest.TestCase):

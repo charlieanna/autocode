@@ -28,6 +28,30 @@ class SerialRecoveryTests(unittest.TestCase):
         self.launch(['--run-dir', str(run), '--no-chat'], 2)
         return run
 
+    def test_displayed_recovery_token_refuses_a_newer_failure_before_any_settings_write(self):
+        run = self.stopped_run()
+        before = self.status(run)
+        token = before['view']['recovery']['token']
+        self.assertEqual(token, self.status(run)['view']['recovery']['token'])
+        checkpoint = run / 'state.json'  # owned disposable CLI fixture only
+        original = checkpoint.read_bytes()
+        args = ['--run-dir', str(run), '--resume-paused', '--retry-builder', 'M1', '--no-chat']
+        refused = self.launch([*args, '--expected-recovery-token', 'old', '--terra-reasoning-effort', 'low'], 2)
+        self.assertIn('saved pause changed', refused.stderr)
+        self.assertEqual(original, checkpoint.read_bytes())
+        self.launch([*args, '--expected-recovery-token', token], 2)
+        after = self.status(run)
+        self.assertEqual('PAUSED_BUILDER_RETRY_LIMIT', after['status'])
+        self.assertNotEqual(token, after['view']['recovery']['token'])
+        self.assertEqual(before['settings']['roles'], after['settings']['roles'])
+        self.assertEqual(before['contract_token'], after['contract_token'])
+        retained = checkpoint.read_bytes()
+        source = (self.project / 'greet.py').read_bytes()
+        refused = self.launch([*args, '--expected-recovery-token', token], 2)
+        self.assertIn('saved pause changed', refused.stderr)
+        self.assertEqual(retained, checkpoint.read_bytes())
+        self.assertEqual(source, (self.project / 'greet.py').read_bytes())
+
     def test_retry_at_raw_pause_does_not_first_publish_an_operator_question(self):
         run = self.stopped_run()
         self.assertEqual('PAUSED_BUILDER_RETRY_LIMIT', self.status(run)['status'])

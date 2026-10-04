@@ -14,10 +14,12 @@ from pathlib import Path
 try:
     from .autocode_util import Paused, digest
     from . import autocode_review_job as review_job, autocode_opencode_snapshots as native_snapshots
+    from . import autocode_stage_access as stage_access
 except ImportError:
     from autocode_util import Paused, digest
     import autocode_review_job as review_job
     import autocode_opencode_snapshots as native_snapshots
+    import autocode_stage_access as stage_access
 
 
 def assert_unchanged_review(record, *, workspace=None):
@@ -56,7 +58,7 @@ def assert_unchanged_review(record, *, workspace=None):
     if workspace is not None and native_snapshots.workspace(record) != Path(workspace).resolve():
         protected = None
     if protected is not None and native_snapshots.only_new_artifacts(
-            record, sorted(changes), protected, review_job.ALLOWED_PREFIXES):
+            record, sorted(changes), protected, stage_access.opencode_additions(review_job.STAGE)):
         return
     raise Paused("PAUSED_STALE_VALIDATION",
                  "Repository changed during read-only review in OpenCode's recorded snapshots, "

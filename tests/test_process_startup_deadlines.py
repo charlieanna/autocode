@@ -44,27 +44,43 @@ class StartupDeadlineTests(unittest.TestCase):
             def cancel(self):
                 self.due = None
 
+        ticking = [False]
+
         class Thread:
             def __init__(self, target, daemon=False):
                 self.target = target
 
             def tick(self):
+                previous, ticking[0] = ticking[0], True
                 try:
                     self.target()
                 except Suspended:
                     pass
+                finally:
+                    ticking[0] = previous
 
             def start(self):
                 threads.append(self)
-                self.tick()
+                if self.target.__name__ != "own_processes":
+                    self.tick()
 
             def is_alive(self):
                 return False
 
+            def join(self, timeout=None):
+                pass
+
         def event_wait(event, timeout=None):
             if event.is_set():
                 return True
-            raise Suspended()
+            if ticking[0]:
+                raise Suspended()
+            # Let the independent process worker progress when the controller
+            # waits; background waits still yield to this deterministic clock.
+            for thread in threads:
+                if thread.target.__name__ == "own_processes":
+                    thread.tick()
+            return event.is_set()
 
         running_after_cap, owned = [], []
 

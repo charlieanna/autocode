@@ -10,7 +10,7 @@ mandatory models — each role can select any provider/model from `opencode mode
 
 | Role | Job |
 | --- | --- |
-| **Requirements Gatherer** | Read-only requirements handoff, no task DAG |
+| **Requirements** | Read-only requirements handoff, no task DAG |
 | **Planner** | Draft the task DAG and evidence-backed revision |
 | **Plan Reviewer** | Challenge the draft; owns final planning decisions |
 | **Builder** | Implement one bounded task |
@@ -32,7 +32,7 @@ family. GPT-6 Astra is the Resolver's default; explicit choices may use it in ot
 
 | Role | Default model | Reasoning | Escalation ladder |
 | --- | --- | --- | --- |
-| Requirements Gatherer | `zai-coding-plan/glm-5.3` | medium | None |
+| Requirements | `zai-coding-plan/glm-5.3` | medium | None |
 | Planner | `zai-coding-plan/glm-5.3` | high | None |
 | Plan Reviewer | `openai/gpt-6-sol` | high | None |
 | Builder | `zai-coding-plan/glm-5.3` | medium | None; a stuck Builder gets one GPT-6 Sol XHigh attempt ([retry policy](#builder-retry-policy)) |

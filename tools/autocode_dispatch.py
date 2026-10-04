@@ -166,18 +166,39 @@ def snapshot_commit(workspace, directory):
     """Save the complete current source without touching the user's HEAD/index."""
     if git(workspace, "ls-files", "-u"):
         raise s.Paused("PAUSED_ORCHESTRATOR_GIT", "Resolve the existing Git conflict before parallel dispatch")
-    if any(v.startswith(("submodule:", "uninitialized-submodule")) for v in s.snapshot(workspace)["files"].values()):
+    files = s.snapshot(workspace)["files"]
+    if any(v.startswith(("submodule:", "uninitialized-submodule")) for v in files.values()):
         raise s.Paused("PAUSED_ORCHESTRATOR_GIT", "Parallel Builder snapshots do not yet support submodules")
     index = directory / ("index-" + uuid.uuid4().hex)
     env = {**os.environ, "GIT_INDEX_FILE": str(index), "GIT_AUTHOR_NAME": "Autocode",
            "GIT_AUTHOR_EMAIL": "autocode@localhost", "GIT_COMMITTER_NAME": "Autocode",
            "GIT_COMMITTER_EMAIL": "autocode@localhost"}
     try:
-        git(workspace, "read-tree", "HEAD", env=env)
-        # Keep the Git tree aligned with autocode_support.snapshot(): generated
-        # Python bytecode is not source and must not become an ownership delta.
-        git(workspace, "add", "-A", "--", ".", ":(exclude).autocode", ":(exclude).autocode-ui",
-            ":(exclude,glob)**/__pycache__/**", ":(exclude,glob)**/*.pyc", env=env)
+        # Retain user-tracked files that ignore rules now exclude, including
+        # newly staged files absent from HEAD, without force-adding anything.
+        user_index = Path(git(workspace, "rev-parse", "--path-format=absolute", "--git-path", "index").decode().strip())
+        if user_index.is_file():
+            index.write_bytes(user_index.read_bytes())
+        else:
+            git(workspace, "read-tree", "--empty", env=env)
+        # Exact inventory avoids Git rejecting ignored directories named by
+        # negative pathspecs, and keeps runner files/bytecode out of the tree.
+        source = {name for name, value in files.items() if value != "deleted"}
+        cached = set(filter(None, git(workspace, "ls-files", "-z", env=env).decode().split("\0")))
+        removed = cached - source
+        if removed:
+            git(workspace, "update-index", "--force-remove", "-z", "--stdin", env=env,
+                data=b"".join(os.fsencode(name) + b"\0" for name in sorted(removed)))
+        tracked = cached & source
+        if tracked:
+            # Flags suppressing refresh belong to the user's index, not this source snapshot.
+            paths = b"".join(os.fsencode(name) + b"\0" for name in sorted(tracked))
+            for flag in ("--no-assume-unchanged", "--no-skip-worktree"):
+                git(workspace, "update-index", flag, "-z", "--stdin", env=env, data=paths)
+        if source:
+            git(workspace, "--literal-pathspecs", "add", "-A", "--pathspec-from-file=-",
+                "--pathspec-file-nul", env=env,
+                data=b"".join(os.fsencode(name) + b"\0" for name in sorted(source)))
         tree = git(workspace, "write-tree", env=env).decode().strip()
         return git(workspace, "commit-tree", tree, "-p", "HEAD", env=env,
                    data=b"Autocode orchestration snapshot\n").decode().strip()
@@ -186,16 +207,20 @@ def snapshot_commit(workspace, directory):
 
 
 def task_for(state, milestone, baseline):
-    criteria = {c["id"]: c for c in state["goal_contract"]["body"]["acceptance_criteria"]}
-    return {"id": "task-" + uuid.uuid4().hex[:12], "kind": "implement",
-            "milestone_id": milestone["id"], "objective": milestone["objective"],
-            "affected_paths": milestone["affected_paths"],
-            "requirements": [criteria[c]["criterion"] for c in milestone["acceptance_criteria"]],
-            "validation_plan": [criteria[c]["verification_method"] for c in milestone["acceptance_criteria"]],
-            "acceptance_criteria": milestone["acceptance_criteria"],
-            "contract_revision": state["goal_contract"]["revision"],
-            "contract_hash": state["goal_contract"]["hash"], "assigned_at": s.now(),
-            "source_revision": baseline["revision"], "decision": "CONTINUE"}
+    if milestone["id"] == state["current_task"]["milestone_id"]:
+        # select() checked ownership and coverage; preserve the reviewed handoff.
+        task = copy.deepcopy(state["current_task"])
+    else:
+        criteria = {c["id"]: c for c in state["goal_contract"]["body"]["acceptance_criteria"]}
+        task = {"kind": "implement", "milestone_id": milestone["id"], "objective": milestone["objective"],
+                "affected_paths": milestone["affected_paths"],
+                "requirements": [criteria[c]["criterion"] for c in milestone["acceptance_criteria"]],
+                "validation_plan": [criteria[c]["verification_method"] for c in milestone["acceptance_criteria"]],
+                "acceptance_criteria": milestone["acceptance_criteria"]}
+    task.update(id="task-" + uuid.uuid4().hex[:12], contract_revision=state["goal_contract"]["revision"],
+                contract_hash=state["goal_contract"]["hash"], assigned_at=s.now(),
+                source_revision=baseline["revision"], decision="CONTINUE")
+    return task
 
 
 def prepare(state, workspace, run_dir, selected):

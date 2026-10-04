@@ -238,9 +238,12 @@ def automatically_recover_report_repair_timeout(state, run_dir, workspace, error
 def automatically_recover_capacity_stage(state, run_dir, workspace, error):
     """Archive a confirmed model-capacity failure for bounded recovery.
 
-    The next stage is a Plan Reviewer recovery review, so partial work is inspected
-    before another writer runs. Repeated capacity failures stop after two
-    recoveries and require an explicit resume.
+    Workflow-job stages (``autocode_jobs.STAGES``) leave at once through
+    ``job_failure.recover``, which pauses the run for an explicit retry. For every
+    other stage, ``records.timeout_recovery_route`` picks the stage that inspects
+    the archived partial work next. Once ``MAX_AUTOMATIC_CAPACITY_RECOVERIES``
+    recoveries are recorded, the next capacity failure pauses the run and requires
+    an explicit resume.
     """
     record = state.get("active_stage")
     if job_failure.owner(record or {}):
@@ -582,7 +585,9 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
         f"Use the existing diagnostic_directory {recovery['diagnostic_directory']} for scratch files; "
         "for mktemp, supply an explicit template below that directory. Diagnostic success alone is "
         "not task completion; return through the normal independent verification gates.")
-    records.count_automatic_recovery(state)
+    # A denial retry never consumes the shared timeout-recovery budget: the
+    # permission path has its own per-incident repeat guard and this separate
+    # ceiling, so a timeout stop always means actual timeout/capacity causes.
     state.setdefault("automatic_permission_recoveries", []).append(recovery)
     state.setdefault("user_events", []).append({"kind": "automatic_permission_recovery", "actor": "runner",
                                                    "at": recovery["at"], "attempt_id": recovery["attempt_id"],
@@ -594,7 +599,9 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
     state.update(status="RUNNING", phase="PLANNING" if planning.is_planning(state, next_stage) else "EXECUTING",
                  next_stage=next_stage)
     state.pop("stop_reason", None)
-    message = permission_recovery.hold_message(recovery) if recovery['repeat_count'] >= 2 else None
+    message = (permission_recovery.hold_message(recovery) if recovery['repeat_count'] >= 2 else
+               permission_recovery.ceiling_message(recovery)
+               if recovery['denied_since_accepted'] >= permission_recovery.MAX_PERMISSION_RECOVERIES else None)
     if message:
         state.update(status='PAUSED_REPEATED_FAILURE', phase='PAUSED_OR_BLOCKED', stop_reason=message)
     records.write_json(run_dir / "state.json", state)

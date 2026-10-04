@@ -33,6 +33,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_status_command as status_command
+    from . import autocode_recovery_view as recovery_view
     from . import autocode_support as support
     from . import autocode_workspaces as task_workspaces
     from . import autocode_workflows as workflows
@@ -51,9 +52,15 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_retired_token_budget as retired_token_budget
     import autocode_status_command as status_command
+    import autocode_recovery_view as recovery_view
     import autocode_support as support
     import autocode_workspaces as task_workspaces
     import autocode_workflows as workflows
+
+# Recovery actions that answer or act on the published operational request themselves; a settings change
+# that comes with one leaves that request for the action to check.
+OTHER_RECOVERY = ('retry_failed_stage', 'retry_report', 'retry_builder', 'abandon_stage', 'diagnose_failed_stage',
+                  'resolver_response')  # and --grant-recovery
 
 
 def resolve(runner, args, parser):
@@ -97,7 +104,10 @@ def resolve(runner, args, parser):
         workspace = task_workspaces.resume_workspace(workspace, state)
     else:
         if not args.task:
-            parser.error("task is required unless --run-dir is supplied")
+            # Reached only when a new-run input (--in-place, --figma-file, ...) turned off finding a saved run.
+            parser.error('a task is needed to start a run, for example: autocode "Build a greeting CLI". '
+                         "To continue a saved run, run autocode without new-run options from its project "
+                         "or task worktree, or name it with --run-dir")
         task = args.task
         if not (workspace / ".git").exists():
             if args.dry_run or args.status:
@@ -155,6 +165,10 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         state = runner.read_json(state_path)
         if state["workspace"] != str(workspace):
             parser.error("workspace differs from the locked checkpoint")
+        try:
+            recovery_view.require_token(state, getattr(args, 'expected_recovery_token', None))
+        except ValueError as error:
+            parser.error(str(error))
         recovery = state.get("recovery_context") or {}
         archived = (state.get("stages") or [{}])[-1]
         if (args.resume_paused and not state.get("active_stage")
@@ -231,20 +245,29 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
             if settings.get('budget_origins', {}).get(kind) == 'resolver_delegated':
                 if resolver_human.supersede_operational(state, 'User delegated this finite harness limit to bounded AutoResolver recovery'):
                     state['_authorized_bound_change'] = {'pause_status': paused_for, 'at': runner.now()}
+        # Any other settings write changes the binding of the published operational request, and the
+        # writer boundary would rebuild the stranded request as a legacy blocker for AutoResolver to
+        # adjudicate with model calls: an unrelated --max-stage-seconds got past an exhausted time cap
+        # (#379). Return the run to the pause itself; the stage-boundary guards re-check every bound.
+        if (published.get('scope') == 'operational_exhaustion' and paused_for
+                and args.grant_recovery is None and not any(getattr(args, name, None) for name in OTHER_RECOVERY)):
+            resolver_human.supersede_operational(state, 'Settings changed without changing the exhausted bound')
         previous_settings = state["settings"]
         enabling_joint = settings.get("joint_planning") and not previous_settings.get("joint_planning")
         if enabling_joint:
+            contract = state.get("goal_contract")  # Recognition can pause before the first draft.
             backup = run_dir / f"state.pre-joint-planning-{uuid.uuid4().hex[:8]}.json"
             runner.write_json(backup, state)
             state.setdefault("planning_migrations", []).append({"at": runner.now(), "backup": str(backup),
-                "goal_token": goals.token(state["goal_contract"]), "next_stage": state.get("next_stage"),
+                "goal_token": goals.token(contract) if contract else None, "next_stage": state.get("next_stage"),
                 "reason": "Explicitly enabled independent planning; existing work and sessions retained"})
         state.setdefault("configuration_changes", []).append({"at":runner.now(),"previous":state["settings"],"selected":settings,
             "reason":("Cumulative token budgets were removed" if retiring_token_pause else
                       "Run settings updated at a saved stage boundary")})
         state["settings"] = settings
         if enabling_joint and settings.get("engine") == "codex":
-            state["goal_contract"].update(approval_status="draft", approval_event=None)
+            if contract:
+                contract.update(approval_status="draft", approval_event=None)
             goals.invalidate(state, "Independent requirements and plan review requested before further execution")
             state.update(status="RUNNING", phase="DISCOVERING", next_stage="requirements_gather",
                          pending_questions=[])

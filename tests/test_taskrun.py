@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -32,7 +33,7 @@ class RunViewTests(unittest.TestCase):
     def test_contract_fields(self):
         self.assertEqual({"schema", "status", "done", "needs", "phase", "next_stage", "iteration", "stop_reason", "runner_check",
                           "current_task", "workflow", "workflow_source", "workflow_reason", "turn", "evidence",
-                          "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments"},
+                          "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments", "recovery", "verification", "code_checkpoints"},
                          set(run_view.view({"status": "RUNNING"})))
 
     def test_evidence_is_empty_before_planning(self):
@@ -192,6 +193,13 @@ class RunViewTests(unittest.TestCase):
                          run_view.needs({"status": "PAUSED_BUDGET", "stop_reason": "quota"}))
         self.assertEqual("resume", run_view.needs({"status": "PLAN_REWORK_REQUIRED"})["kind"])
 
+    def test_quota_pause_names_the_abandon_step_with_the_attempt_id(self):
+        need = run_view.needs({
+            "status": "PAUSED_BUDGET", "stop_reason": "quota restored; set the attempt aside",
+            "active_stage": {"iteration": 1, "output": "/run/terra-01.json", "stage": "terra"}})
+        self.assertEqual("001/terra-01", need["abandon_stage"])
+        self.assertIn("--abandon-stage 001/terra-01 then --resume-paused", need["action"])
+
     def test_rejected_validator_report_exposes_exact_retry_attempt(self):
         state = {"status": "PAUSED_REPEATED_FAILURE", "stop_reason": "report rejected",
                  "settings": {"report_repair": {"max_attempts": 2}},
@@ -249,15 +257,120 @@ class TaskRunTests(unittest.TestCase):
         run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
         view = run.status()
         self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        self.assertEqual("Waiting for you", view["progress"]["headline"], view["progress"])
+        self.assertEqual("plan approval needed", view["progress"]["needs_you"])
         with self.assertRaisesRegex(taskrun.TaskRunError, "approve plan exited"):
             run.approve_plan("not-the-displayed-token")
         run.approve_plan(view["needs"]["token"])
         view = run.advance_until_input()
         self.assertTrue(view["done"], view)
         self.assertTrue((self.workspace / "greet.py").is_file())
+        progress = view["progress"]
+        self.assertEqual("Complete", progress["headline"], progress)
+        self.assertEqual(progress["tasks"]["total"], progress["tasks"]["done"], progress)
+        self.assertEqual(progress["requirements"]["total"], progress["requirements"]["checked"], progress)
+        self.assertGreater(progress["tasks"]["total"], 0, progress)
+        self.assertGreater(progress["requirements"]["total"], 0, progress)
         # A new caller can reattach to the saved run.
         again = taskrun.TaskRun(self.workspace, run.run_dir, options=FIXTURE_OPTIONS, env=self.env)
         self.assertEqual("TASK_COMPLETE", again.status()["status"])
+
+    def use_question_preserving_planner(self, *, genuine_questions=0):
+        # Reproduce the live Planner faithfully carrying a question from its handoff.
+        provider = Path(self.env["PATH"].split(os.pathsep)[0]) / "codex"
+        source = provider.read_text()
+        amendment = textwrap.dedent("""
+            if stage == "astra_discovery":
+                questions = (contract.get("body") or {}).get("open_blocking_questions", [])
+                if os.environ.get("FIXTURE_GENUINE_QUESTIONS"):
+                    questions = [{"id": "readme-audience", "question": "Should the README target beginners or experienced Python users?",
+                                  "why": "This fixture has a genuine unresolved documentation-audience decision.",
+                                  "options": ["Beginners", "Experienced Python users"], "proposed_default": ""},
+                                 {"id": "greeting-punctuation", "question": "Should the greeting end with an exclamation mark?",
+                                  "why": "This fixture has a second genuine unresolved output decision.",
+                                  "options": ["No punctuation", "Exclamation mark"], "proposed_default": ""},
+                                 ][:int(os.environ["FIXTURE_GENUINE_QUESTIONS"])]
+                questions = [dict(q, kind="decision", category="requested_outcome", delegable=False)
+                             for q in questions]
+                report["contract"]["open_blocking_questions"] = questions
+                report["contract"].setdefault("initial_task", _planning_contract()["initial_task"])
+                if questions:
+                    report["contract"].update(technical_approach=[], milestones=[])
+                    report["contract"]["initial_task"] = {
+                        "objective": "", "affected_paths": [], "kind": "none", "milestone_id": "",
+                        "requirements": [], "acceptance_criteria": [], "validation_plan": []}
+        """)
+        marker = '    output = Path(sys.argv[sys.argv.index("-o") + 1])'
+        self.assertIn(marker, source)
+        provider.write_text(source.replace(marker, textwrap.indent(amendment, "    ") + "\n" + marker))
+        if genuine_questions:
+            self.env["FIXTURE_GENUINE_QUESTIONS"] = str(genuine_questions)
+
+    def test_fresh_run_reaches_plan_approval_without_a_migration_question(self):
+        self.use_question_preserving_planner()
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=60)
+        view = run.status()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        self.assertFalse(view["done"])
+        self.assertNotIn("migration-context", run.show_goal())
+        self.assertFalse((self.workspace / "greet.py").exists(), "No implementation before approval")
+        again = taskrun.TaskRun.attach(self.workspace, options=FIXTURE_OPTIONS, env=self.env)
+        self.assertEqual(view["needs"], again.status()["needs"])
+        with self.assertRaisesRegex(taskrun.TaskRunError, "approve plan exited"):
+            again.approve_plan("not-the-displayed-token")
+
+    def test_fresh_run_still_asks_a_genuine_planning_question(self):
+        self.use_question_preserving_planner(genuine_questions=1)
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=60)
+        view = run.status()
+        self.assertEqual("answer", view["needs"]["kind"], view)
+        self.assertEqual(["readme-audience"], [q["id"] for q in view["needs"]["questions"]])
+        self.assertFalse(view["done"])
+        self.assertFalse((self.workspace / "greet.py").exists())
+
+    def test_each_listed_question_is_answered_against_the_current_request(self):
+        # An answer consumes the published AutoResolver request and the questions
+        # left return under a new token, so one read before the first answer is stale (#382).
+        self.use_question_preserving_planner(genuine_questions=2)
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=60)
+        listed = run.status()["needs"]
+        self.assertEqual(["readme-audience", "greeting-punctuation"], [q["id"] for q in listed["questions"]])
+        for question in listed["questions"]:
+            view = run.answer(question["id"], question["options"][0])
+        self.assertEqual("continue", view["needs"]["kind"], view)
+
+    def test_documented_answer_loop_uses_each_pass_token_and_refuses_a_stale_one(self):
+        self.use_question_preserving_planner(genuine_questions=2)
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=60)
+        view = run.status()
+        first_token = view["needs"]["resolver_token"]
+        answered = []
+        while view["needs"]["kind"] == "answer":  # the loop in docs/task-run.md
+            need = view["needs"]
+            question = need["questions"][0]
+            if answered:  # an explicit token is the caller's binding: never silently refreshed
+                with self.assertRaisesRegex(taskrun.TaskRunError, "exact current AutoResolver request and token"):
+                    run.answer(question["id"], question["options"][0], resolver_token=first_token)
+            view = run.answer(question["id"], question["options"][0], resolver_token=need.get("resolver_token"))
+            answered.append(question["id"])
+        self.assertEqual(["readme-audience", "greeting-punctuation"], answered)
+        self.assertEqual("continue", view["needs"]["kind"], view)
+
+    def test_joint_planning_upgrade_before_first_draft_reaches_approval_and_completes(self):
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=("--engine", "codex"),
+                                   start_options=("--pause-after-stage",), env=self.env, timeout=60)
+        paused = run.status()
+        self.assertEqual(("PAUSED_REQUESTED", "astra_discovery"),
+                         (paused["status"], paused["next_stage"]), paused)
+        upgraded = taskrun.TaskRun(self.workspace, run.run_dir, options=FIXTURE_OPTIONS,
+                                   env=self.env, timeout=120)
+        view = upgraded.resume_paused()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        self.assertFalse((self.workspace / "greet.py").exists(), "Upgrade is not approval")
+        with self.assertRaisesRegex(taskrun.TaskRunError, "approve plan exited"):
+            upgraded.approve_plan("not-the-displayed-token")
+        upgraded.approve_plan(view["needs"]["token"])
+        self.assertEqual("TASK_COMPLETE", upgraded.advance_until_input()["status"])
 
     def test_usage_errors_are_not_mistaken_for_a_pause(self):
         run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
@@ -326,11 +439,27 @@ class TaskRunClientTests(unittest.TestCase):
                                      "--resolver-token", "current-token")
         self.assertEqual("answer", view["needs"]["kind"])
 
-    def test_answer_without_resolver_token_keeps_the_existing_cli_contract(self):
+    def test_answer_without_resolver_token_uses_the_current_request_token(self):
         run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
-        with patch.object(run, "_act") as act:
-            run.answer("Q1", "Use addition.py")
-        act.assert_called_once_with("answer", "--answer", "Q1=Use addition.py")
+        current = {"needs": {"kind": "answer", "questions": [{"id": "Q1"}, {"id": "Q2"}],
+                             "resolver_token": "current-token"}}
+        with patch.object(run, "status", return_value=current), patch.object(run, "_act") as act:
+            run.answer("Q2", "Use addition.py")
+        act.assert_called_once_with("answer", "--answer", "Q2=Use addition.py",
+                                    "--resolver-token", "current-token")
+
+    def test_answer_without_resolver_token_refuses_a_question_the_run_is_not_asking(self):
+        run = taskrun.TaskRun(Path("/work/repo"), Path("/work/repo/.autocode/runs/one"))
+        asking = {"kind": "answer", "questions": [{"id": "Q1"}], "resolver_token": "current-token"}
+        for needs, message in ((None, "not waiting for an answer to Q2"),
+                               ({"kind": "approve_plan", "token": "plan"}, "needs approve_plan"),
+                               (asking, r"questions \['Q1'\]"),
+                               ({**asking, "questions": [{"id": "Q2"}], "resolver_token": None},
+                                "advance the run to publish one")):
+            with self.subTest(needs=needs), patch.object(run, "status", return_value={"needs": needs}), \
+                    patch.object(run, "_act") as act, self.assertRaisesRegex(taskrun.TaskRunError, message):
+                run.answer("Q2", "Use addition.py")
+            act.assert_not_called()
 
     def test_start_preserves_cli_error_when_no_run_was_created(self):
         for stderr, stdout in (("autocode: GoCode authentication check failed", ""),

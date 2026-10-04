@@ -98,6 +98,7 @@ function sourceSnapshot() {
   const files = [
     'tools/dashboard/dashboard.html',
     'tools/dashboard/dashboard.css',
+    'tools/dashboard/dashboard_reference_layout.css',
     'tools/dashboard/dashboard_app.js',
     'tools/dashboard/agent_console.py',
     'tools/dashboard/tests/test_console.py',
@@ -251,7 +252,7 @@ function taskFoldMetrics() {
     // actually rendered. Inspect the dedicated visible value node instead.
     'const required=["state","step","objective","blocker","role","freshness"],clean=value=>String(value||"").replace(/\\s+/g," ").trim();' +
     'const box=e=>{const r=e.getBoundingClientRect();return {left:Math.round(r.left),top:Math.round(r.top),right:Math.round(r.right),bottom:Math.round(r.bottom),width:Math.round(r.width),height:Math.round(r.height)}};' +
-    'const displayed=e=>{if(!e||e.hidden)return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return s.display!=="none"&&s.visibility!=="hidden"&&r.width>0&&r.height>0};' +
+    'const displayed=e=>{if(!e||e.closest("[hidden],[inert]"))return false;const r=e.getBoundingClientRect(),s=getComputedStyle(e);return s.display!=="none"&&s.visibility!=="hidden"&&r.width>0&&r.height>0};' +
     'const mobile=innerWidth<=759,clippedBy=(target,clip)=>target.left<clip.left-1||target.right>clip.right+1||target.top<clip.top-1||target.bottom>clip.bottom+1;' +
     // Chat and its composer stay visible in every pane, so a phone viewport
     // cannot also hold the whole operational hero above the fold; the approved
@@ -263,6 +264,33 @@ function taskFoldMetrics() {
     'const primary=[...new Set([...document.querySelectorAll("#task-detail button.primary,#task-detail [data-primary-action=true]")])].filter(element=>displayed(element)&&element.id!=="send-change").map(element=>{const rect=box(element),parentElement=(()=>{let p=element.parentElement;while(p&&getComputedStyle(p).display==="contents")p=p.parentElement;return p;})();const parent=box(parentElement);return {label:clean(element.textContent),id:element.id,primary:element.classList.contains("primary")||element.dataset.primaryAction==="true",fullyVisible:rect.left>=0&&rect.right<=innerWidth&&rect.top>=0&&rect.bottom<=innerHeight,box:rect,parent};});' +
     'return {facts:required.map(inspect),primaryActions:primary,viewport:{width:innerWidth,height:innerHeight}};' +
   '}');
+}
+
+function verifyTabletScrollbarSpace(info) {
+  const viewport = viewports.find(item => item.name === 'tablet');
+  openScenario(info, 'waiting', viewport);
+  // macOS overlay scrollbars consume no layout space. Reserve only the
+  // missing portion of a 10px classic scrollbar gutter so the same wrapping
+  // failure is exercised locally and on Linux, without doubling its gutters.
+  const gutters = data(`()=>{
+    const pane=document.querySelector('.context-pane-content'),tabs=document.querySelector('.detail-tabs');
+    const ps=getComputedStyle(pane),ts=getComputedStyle(tabs);
+    const vertical=pane.offsetWidth-pane.clientWidth-parseFloat(ps.borderLeftWidth)-parseFloat(ps.borderRightWidth);
+    const horizontal=tabs.offsetHeight-tabs.clientHeight-parseFloat(ts.borderTopWidth)-parseFloat(ts.borderBottomWidth);
+    const reserveVertical=Math.max(0,10-vertical),reserveHorizontal=Math.max(0,10-horizontal);
+    pane.style.paddingRight=(parseFloat(ps.paddingRight)+reserveVertical)+'px';
+    tabs.style.paddingBottom=(parseFloat(ts.paddingBottom)+reserveHorizontal)+'px';
+    return {native_vertical:vertical,native_horizontal:horizontal,reserved_vertical:reserveVertical,reserved_horizontal:reserveHorizontal};
+  }`);
+  const fold = taskFoldMetrics();
+  for (const fact of fold.facts) {
+    assert.ok(fact.present && fact.visible && fact.fullyVisible && !fact.textOverflow,
+      'waiting tablet with classic scrollbar space keeps every fact inside its clipping ancestors: ' + JSON.stringify(fact));
+  }
+  assert.deepEqual(scenarioMetrics().targets.undersized, [], 'classic scrollbar space preserves 44px tablet targets');
+  const screenshot = path.join(shellEvidenceRoot, 'waiting-tablet-classic-scrollbars.png');
+  browser('screenshot', screenshot);
+  return {gutters, fold, screenshot:path.relative(root,screenshot)};
 }
 
 function completionRecordMetrics() {
@@ -459,13 +487,18 @@ function assertM2Scenario(name, viewport) {
   }
 
   if (['running', 'waiting', 'paused', 'completed'].includes(name)) {
+    // Task actions belong to the chat. Measure their actual interactive
+    // surface before the phone's modal artifact drawer makes chat inert.
+    const chatActions=taskFoldMetrics().primaryActions;
     // The approved M3 mobile layout reaches the artifact pane through the
     // details drawer, so phone fold facts are measured with that drawer open.
     if (viewport.name === 'mobile') {
       browser('click', '#details-drawer-toggle');
       browser('wait', '--fn', 'document.querySelector(".app-shell").classList.contains("details-open")');
+      assert.equal(data('()=>document.querySelector(".conversation-column").inert'),true,name+' chat is inert under the modal details drawer');
+      assert.equal(taskFoldMetrics().primaryActions.length,0,name+' modal drawer exposes no background task action as actionable');
     }
-    const task = taskFoldMetrics(),facts=Object.fromEntries(task.facts.map(fact=>[fact.key,fact]));
+    const task = {...taskFoldMetrics(),primaryActions:chatActions},facts=Object.fromEntries(task.facts.map(fact=>[fact.key,fact]));
     for (const key of ['state', 'step', 'objective', 'blocker', 'role', 'freshness']) {
       const fact=facts[key];
       assert.equal(fact?.present, true, name + ' renders its '+key+' fact in the operational hero');
@@ -489,7 +522,7 @@ function assertM2Scenario(name, viewport) {
       // parent (the card) instead of stretching to the bare content column.
       const action = task.primaryActions[0];
       assert.ok(action.box.width >= 44 && action.box.height >= 44, name + ' mobile primary action keeps a 44 px compact target');
-      assert.ok(action.box.left >= action.parent.left && action.box.right <= action.parent.right + 1, name + ' mobile primary action stays inside its composer card parent');
+      assert.ok(action.box.left >= action.parent.left && action.box.right <= action.parent.right + 1, name + ' mobile primary action stays inside its action container');
     }
     const expected=data('()=>({objective:String(latestRun.monitor?.objective||""),question:String(latestRun.questions?.[0]?.question||"")})');
     const normalizedObjective=expected.objective.replace(/\s+/g,' ').trim(),visibleObjective=facts.objective.visibleText.replace(/…$/,'');
@@ -530,7 +563,8 @@ function assertM2Scenario(name, viewport) {
       assert.match(facts.step.visibleText, /^Last confirmed step · /);
       assert.doesNotMatch(facts.step.visibleText, /^(?:Next step|Authoritative completion recorded)/);
       assert.match(data('()=>document.querySelector("#now")?.textContent||""'), /No reply needed\. 8 checks were recorded as passing for source abc123\. Current freshness is unavailable\./);
-      assert.equal(task.primaryActions[0].label, 'Review checks');
+      assert.equal(task.primaryActions[0].label, 'Open preview');
+      assert.equal(data('()=>document.querySelector("#continue-run").classList.contains("primary")'),false,'completed Checks remains secondary to the approved Ready card');
       // Regression F1: the prior passing assertion covered only the evidence
       // sentence and Review checks, omitting C08's authoritative completion
       // timestamp requirement. The four source timestamps below are distinct.
@@ -602,8 +636,8 @@ function assertM2Scenario(name, viewport) {
     openScenario(info, 'running', viewports[0]);
     let metrics = shellMetrics();
     assert.deepEqual(metrics.topbar, [0, 0, 0, 0], 'desktop hides the utility top bar so no full-width toolbar sits above the workspace (422-1495)');
-    assert.deepEqual(metrics.sidebar, [0, 0, 216, 1024], 'desktop sidebar spans the full canvas height at the 216 px Figma width');
-    assert.deepEqual(metrics.main, [216, 0, 1224, 1024], 'desktop main content fills the workspace column from the canvas top');
+    assert.deepEqual(metrics.sidebar, [0, 0, 220, 1024], 'desktop sidebar spans the full canvas height at the 220 px approved Figma width (422:1495 / 462:523)');
+    assert.deepEqual(metrics.main, [220, 0, 1220, 1024], 'desktop main content fills the workspace column from the canvas top');
     assert.equal(metrics.horizontalOverflow, false, 'desktop has no page-level horizontal overflow');
 
     openScenario(info, 'running', {name: 'breakpoint-1024', width: 1024, height: 768});
@@ -687,6 +721,8 @@ function assertM2Scenario(name, viewport) {
       setTheme(theme);
       normalTextMeasurements.push(assertNormalTextContrast('.next-action', theme, 'workspace next action'));
     }
+
+    const scrollbarGutterCheck = verifyTabletScrollbarSpace(info);
 
     for (const viewport of viewports) {
       for (const name of scenarios) {
@@ -988,6 +1024,7 @@ function assertM2Scenario(name, viewport) {
       normal_text_contrast_measurements: normalTextMeasurements,
       m2_interactions: m2Interactions,
       representative_flows: representativeFlows,
+      scrollbar_gutter_check: scrollbarGutterCheck,
       completion_timestamp_checks: completionTimestampChecks,
       completion_timestamp_fallbacks: completionTimestampFallbacks,
       browser_sessions: browserSessionAudits,

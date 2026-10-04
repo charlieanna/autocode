@@ -504,7 +504,7 @@ class VisualCheckTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "autocode_visual_check.*exited 1"):
                         check_replay.replay(checks, project.root, run_dir, record, verify.scratch_run,
                                             approved_state=approved, timeout=30)
-                output = run_dir / "check-replay/validator-01"
+                [output] = (run_dir / "check-replay").glob("validator-01-*")
                 receipt = json.loads((output / "replay.json").read_text())
                 self.assertEqual(status, receipt["verdict"])
                 self.assertEqual([unrelated, command], [row["command"] for row in receipt["checks"]])

@@ -53,10 +53,11 @@ into `master`. Once a batch is integrated, each Builder's checkout and
 
 Failed workers, stale baselines, or overlapping worker changes pause the run and
 retain worktrees and logs for inspection. After inspecting a failed Builder, explicitly
-retry it once all workers have stopped:
+retry it once all workers have stopped (from the project or task worktree; add
+`--run-dir RUN` when there are several unfinished runs):
 
 ```sh
-autocode --run-dir RUN --resume-paused --retry-builder M2
+autocode --resume-paused --retry-builder M2
 ```
 
 Repeat `--retry-builder` to select additional failed milestones. Successful siblings
@@ -308,7 +309,9 @@ before a PASS is accepted, the runner re-runs every check itself
   `--resume-paused` asks for a fresh validation.
 - **Record.** The result is saved with the validation, bound to its source
   revision, under `<run>/check-replay/`, and shown in the status view as
-  `evidence.check_replay`.
+  `evidence.check_replay`. Each invocation gets a fresh directory, including
+  retries of the same report. Later replays preserve the earlier receipt and
+  logs at their original paths; a failed replay remains available after a pass.
 
 This replaces trust in the Tester's own session with a run the runner owns.
 It does not judge whether the checks test the right thing: that is still the
@@ -478,8 +481,12 @@ checkpoint. It never replays that timed-out request. Each automatic recovery con
 the existing no-progress budget. Consecutive timeouts without an accepted stage also
 pause at that configured limit for every role, including the Plan Reviewer and Tester.
 A successful stage resets the consecutive-timeout counter. A separate ceiling of
-three automatic recoveries covers timeouts and external-directory denials. Accepted
-intermediate reports and milestone-budget extensions do not reset this ceiling.
+three automatic recoveries covers timeouts and provider-capacity failures. External-directory
+denials have their own accounting instead: a denial retry never consumes the
+timeout-recovery budget, repeats of the same denied operation hold after one
+workspace-only retry, and distinct denials hold at their own ceiling of three
+recoveries without an accepted stage. Accepted
+intermediate reports and milestone-budget extensions do not reset these ceilings.
 Inspect the saved cause and adjust limits as needed; explicit `--resume-paused`
 acknowledges `PAUSED_TIMEOUT_RECOVERY` and resets recovery counters while retaining
 history. Setting `--no-progress-limit 0` disables the unchanged-batch limit, but

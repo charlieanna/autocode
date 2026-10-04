@@ -105,6 +105,11 @@ class TaskRun:
         self._invoke("resume", "--resume-paused", "--no-chat", *self.options, advancing=True)
         return self.status()
 
+    def abandon_stage(self, attempt_id: str) -> dict:
+        """Set aside the inspected uncertain attempt (retains edits and evidence)."""
+        self._act("abandon stage", "--abandon-stage", attempt_id)
+        return self.status()
+
     def retry_job(self, token: str) -> dict:
         """Retry exactly the inspected failed workflow job, retaining route and limits."""
         self._invoke('retry job', '--resume-paused', '--retry-failed-stage', '--job-retry-token', token,
@@ -118,6 +123,17 @@ class TaskRun:
         self._invoke('grant recovery', '--resume-paused', '--grant-recovery', str(amount),
                      '--no-chat', *self.options, advancing=True)
         return self.status()
+
+    def compare_checkpoint(self, checkpoint_id: str) -> dict:
+        """Read a source-bound comparison; no execution, approval or file rewrite."""
+        return json.loads(self._invoke("compare checkpoint", "checkpoint", "--compare", checkpoint_id).stdout)
+
+    def restore_checkpoint(self, checkpoint_id: str, expected_token: str, request_id: str) -> "TaskRun":
+        """Create a paused continuation on a new branch; keep this run untouched."""
+        result = json.loads(self._invoke("restore checkpoint", "checkpoint", "--restore", checkpoint_id,
+            "--expected-token", expected_token, "--request-id", request_id).stdout)
+        return TaskRun(Path(result["workspace"]), Path(result["run_dir"]), self.command,
+                       self.options, self.env, self.timeout)
 
     def accept_transport_change(self) -> dict:
         """Explicitly accept a validated OpenCode transport change and continue."""
@@ -144,9 +160,24 @@ class TaskRun:
         return self._act("receive dependency", "--receive-dependency", str(manifest))
 
     def answer(self, question_id: str, text: str, *, resolver_token: str | None = None) -> dict:
-        """Answer the displayed question, retaining its resolver token when present."""
-        token_args = ("--resolver-token", resolver_token) if resolver_token is not None else ()
-        return self._act("answer", "--answer", f"{question_id}={text}", *token_args)
+        """Answer one question of the run's current AutoResolver request.
+
+        Each answer consumes that request, and the questions left return under a
+        new token. Pass ``resolver_token`` from the view the answer was chosen from;
+        a stale one is rejected, never refreshed. Without it, the current request's
+        token is used after checking that the request lists ``question_id``.
+        """
+        if resolver_token is None:
+            need = self.status()["needs"] or {}
+            listed = [question["id"] for question in need.get("questions") or ()]
+            if need.get("kind") != "answer" or question_id not in listed:
+                raise TaskRunError(f"the run is not waiting for an answer to {question_id} "
+                                   f"(needs {need.get('kind')}, questions {listed})")
+            resolver_token = need.get("resolver_token")
+            if not resolver_token:
+                raise TaskRunError(f"no current AutoResolver request carries {question_id}; "
+                                   "advance the run to publish one, then answer")
+        return self._act("answer", "--answer", f"{question_id}={text}", "--resolver-token", resolver_token)
 
     def respond_operational(self, request_id: str, request_token: str, text: str) -> dict:
         """Send corrective information to the published AutoResolver request."""

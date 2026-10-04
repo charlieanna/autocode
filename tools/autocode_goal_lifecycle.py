@@ -24,7 +24,7 @@ SUPPORTED_VERSION = 3
 try:
     from . import autocode_util as s, autocode_workflows as workflows, autocode_milestones as checkpoints
     from . import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
-    from . import autocode_adaptive_planning as adaptive
+    from . import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view
     from . import autocode_progressive_state as progressive_state
     from .autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
@@ -34,7 +34,7 @@ try:
 except ImportError:
     import autocode_util as s, autocode_workflows as workflows, autocode_milestones as checkpoints
     import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
-    import autocode_adaptive_planning as adaptive
+    import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view
     import autocode_progressive_state as progressive_state
     from autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
@@ -241,15 +241,19 @@ def migrate(state, *, fresh=False):
     state.setdefault("deferred_backlog", [])
     state["pre_goal_checkpoint"] = {k: copy.deepcopy(state.get(k)) for k in (
         "status", "next_stage", "acceptance_criteria", "criteria_revision", "plan", "next_action")}
-    body = {k: [] for k in BODY_SCHEMA["properties"] if k != "task_kind"}
-    body.update(intended_outcome=state["task"], intended_user="Unconfirmed",
-                acceptance_criteria=[{"id": c["id"], "criterion": c["criterion"],
-                    "verification_method": "Unconfirmed; reconstruct from saved evidence", "human_review": False}
-                    for c in state.get("acceptance_criteria", [])],
-                open_blocking_questions=[{"id": "migration-context", "question": "Reconstruct the goal from the request and saved work",
-                    "why": "Existing criteria and agent assumptions have no user approval event",
-                    "options": [], "proposed_default": ""}])
-    install_draft(state, body, origin="migration_draft; no inferred user approval", queue_human=False)
+    # A new request has no saved work to reconstruct. Its first real draft must
+    # come from planning; inventing a blocking question here makes models ask
+    # for redundant migration permission. Saved legacy runs remain conservative.
+    if not fresh:
+        body = {k: [] for k in BODY_SCHEMA["properties"] if k != "task_kind"}
+        body.update(intended_outcome=state["task"], intended_user="Unconfirmed",
+                    acceptance_criteria=[{"id": c["id"], "criterion": c["criterion"],
+                        "verification_method": "Unconfirmed; reconstruct from saved evidence", "human_review": False}
+                        for c in state.get("acceptance_criteria", [])],
+                    open_blocking_questions=[{"id": "migration-context", "question": "Reconstruct the goal from the request and saved work",
+                        "why": "Existing criteria and agent assumptions have no user approval event",
+                        "options": [], "proposed_default": ""}])
+        install_draft(state, body, origin="migration_draft; no inferred user approval", queue_human=False)
     first_stage = ("requirements" if state.get("settings", {}).get("planning_flow") == "v2" else
                    "requirements_gather" if "requirements" in state.get("settings", {}).get("roles", {})
                    else "astra_discovery")
@@ -258,7 +262,8 @@ def migrate(state, *, fresh=False):
         workflows.begin(state, first_stage)
 
 
-def render(state):
+def render(state, run_dir=None):
+    """The brief as a person reads it; ``run_dir``, when given, completes the approve command."""
     contract = state.get("goal_contract")
     if not contract:
         if state.get("settings", {}).get("planning_flow") == "v2":
@@ -276,12 +281,15 @@ def render(state):
         return "No contract yet; resume to interview with the Requirements Gatherer."
     body = contract["body"]
     public = human.current(state)
+    asks_approval = bool(public and public["scope"] == "goal_approval")
     lines = [f"Build brief r{contract['revision']} ({contract['approval_status']})"]
+    if asks_approval:
+        lines.append(approval_view.intro(contract["revision"]))
     if public:
         lines += [f"AutoResolver request: {public['request_id']}",
                   f"AutoResolver token: {public['request_token']}"]
-    if public and public["scope"] == "goal_approval":
-        lines.append(f"Approval token: {token(contract)}")
+    if asks_approval:
+        lines += [f"Approval token: {token(contract)}", approval_view.token_note()]
     if workflows.approval_note(state):
         lines += ["", workflows.approval_note(state)]
     if state.get("discovery_summary"):
@@ -303,7 +311,12 @@ def render(state):
         value = body[key]
         lines += ["", key.replace("_", " ").capitalize() + ":"]
         if isinstance(value, dict):
-            lines.append(json.dumps(value, indent=2))
+            for name, item in value.items():
+                label = "  " + name.replace("_", " ").capitalize() + ":"
+                if isinstance(item, list):
+                    lines += [label + ("" if item else " (none)")] + [f"    - {row}" for row in item]
+                else:
+                    lines.append(f"{label} {item}")
         elif not isinstance(value, list):
             lines.append(value)
         elif not value:
@@ -378,11 +391,14 @@ def render(state):
     if review:
         lines += ["", f"Review token (current validated artifact): {review}",
                   "Validation: " + json.dumps(state["validation"], indent=2)]
+    if asks_approval:
+        lines += [""] + approval_view.actions(token(contract), state.get("settings") or {},
+                                              state.get("iteration", 0), run_dir)
     lines += ["", f"State: {state.get('phase')} / {state['status']}"]
     return "\n".join(lines)
 
 
-def present(state):
+def present(state, run_dir=None):
     public = human.current(state)
     state.pop("displayed_goal", None)
     # Preserve the historical display acknowledgement for exact, already-recorded
@@ -404,7 +420,7 @@ def present(state):
         state["displayed_handoff"] = handoff_ref(state)
     if public:
         state["displayed_review"] = review_token(state)
-    return render(state)
+    return render(state, run_dir)
 
 
 def approve(state, selected):
@@ -456,7 +472,7 @@ def _approve(state, selected):
             from . import autocode_dispatch as dispatch
         except ImportError:
             import autocode_dispatch as dispatch
-        state.update(next_action=decision["next_objective"], affected_paths=decision["affected_paths"],
+        state.update(next_action=decision["next_objective"],
                      next_stage="sol" if kind == "validate" else
                                 "terra" if progressive_state.enabled(state) else dispatch.build_stage(state))
         record_decision(state, decision)
@@ -573,13 +589,13 @@ def assign_task(state, decision, current):
     if milestones and (spec["milestone_id"] not in milestones or
             not set(ids) <= allowed):
         raise ValueError("Task must belong to an approved milestone and its acceptance criteria")
-    # The named milestone's contract-declared paths are authoritative ownership:
-    # merge them into the task so a planner that names only part of the scope
-    # cannot make the builder's contract-legal work look out-of-scope.
+    # A review's affected paths may describe the completed milestone, not the next
+    # task. Approved ownership permits its new outputs, never the previous owner's.
     task_paths = list(decision.get("affected_paths", []))
     if task_paths and milestones and spec["milestone_id"] not in previous_batch and not progressive_state.enabled(state):
         owned = milestones.get(spec["milestone_id"], {}).get("affected_paths", [])
-        task_paths = list(dict.fromkeys(task_paths + owned))
+        if owned:
+            task_paths = list(dict.fromkeys(owned))
     progressive_state.guard_assignment(state, spec, task_paths)
     verification_plan.require_scaffolding(state.get("workspace"), task_paths, spec["validation_plan"])
     recovery = state.get("recovery_context") or {}
@@ -596,14 +612,14 @@ def assign_task(state, decision, current):
                            if failed_limit in recorded_limits else recorded_limits)
         same_limits = all(limits.get(key, defaults.get(key)) == value
                           for key, value in compared_limits.items())
-        candidate = {**spec, "objective": decision["next_objective"], "affected_paths": decision["affected_paths"]}
+        candidate = {**spec, "objective": decision["next_objective"], "affected_paths": task_paths}
         if same_limits and checkpoints.approach(candidate) == checkpoints.approach(previous_task):
             raise ValueError("The timed-out task needs a changed execution plan before another writer; "
                              "the task and timeout limits are unchanged. Preserve completed work and "
                              "split the remaining work or address the diagnosed stall.")
     if checkpoints.enabled(state):
         checkpoints.carryforward.before_assignment(state, spec, decision)
-    checkpoints.before_assignment(state, decision, current)
+    checkpoints.before_assignment(state, {**decision, "affected_paths": task_paths}, current)
     # After before_assignment, so a milestone accepted while advancing counts.
     checkpoints.require_prerequisites(state, spec["milestone_id"])
     if state.get("current_task"):
@@ -623,4 +639,5 @@ def assign_task(state, decision, current):
     if checkpoints.enabled(state):
         checkpoints.progress(state)["rejected_advances"] = 0
         state.pop("milestone_blocker", None)
+    state["affected_paths"] = list(task_paths)
     return spec["kind"]

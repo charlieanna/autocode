@@ -12,6 +12,12 @@ except ImportError:
     import autocode_conversation as protocol
 
 
+try:
+    from .conversation_draft_cadence import held
+except ImportError:
+    from conversation_draft_cadence import held
+
+
 class RecoveryMixin:
     @contextmanager
     def _planner_lease(self, conversation_id, logical_turn, *, wait=False):
@@ -59,7 +65,7 @@ class RecoveryMixin:
                 # The Gatherer can already be ready while the independent
                 # Planner is still in flight. Reconcile their receipts separately.
                 for turn, saved in list(doc.get('_planner_dispatches', {}).items()):
-                    if saved.get('state') == 'REPLY_COMMITTED' or saved.get('stale_result_discarded') or saved.get('structured_rejected'):
+                    if held(saved) or saved.get('state') == 'REPLY_COMMITTED' or saved.get('stale_result_discarded') or saved.get('structured_rejected'):
                         continue
                     with self._planner_lease(doc['id'], turn) as acquired:
                         if not acquired:
@@ -113,6 +119,8 @@ class RecoveryMixin:
             gatherer = doc.get('_dispatches', {}).get(turn, {})
             planner = doc.get('_planner_dispatches', {}).get(turn, {})
             safe = ('SAVED', 'SAFE_NOT_DISPATCHED', 'DISPATCH_PREPARED', 'RESULT_CAPTURED')
+            if doc.get('status') == 'ready' and held(planner):
+                raise ValueError('This draft is batching answers. Use Update draft in chat to refresh it now.')
             if doc.get('status') == 'ready' and planner.get('state') in safe:
                 self._authorized_dispatch_routes(doc)
                 for row in doc.get('plan_drafts', []):

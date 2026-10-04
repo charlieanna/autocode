@@ -134,7 +134,7 @@ elif stage == "astra_discovery":
         draft['acceptance_criteria'].append({'id': 'C2', 'criterion': 'Goodbye CLI prints Goodbye, NAME',
             'verification_method': 'Execute bye.py with Ada', 'human_review': False})
         draft['milestones'].append({'id': 'M2', 'objective': 'Deliver goodbye CLI',
-                                    'acceptance_criteria': ['C2'], 'depends_on': ['M1'], 'affected_paths': ['goodbye.py']})
+                                    'acceptance_criteria': ['C2'], 'depends_on': ['M1'], 'affected_paths': ['bye.py']})
         draft['deliverables'].append('bye.py')
         draft['required_behaviors'].append('Print Goodbye, NAME from bye.py')
     if data["saved_answers"]:

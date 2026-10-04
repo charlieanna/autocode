@@ -15,12 +15,14 @@ try:
                                             revision_guard, saved_user_basis as _saved_user_basis)
     from .autocode_requirement_cues import cue_sentences, scan_texts, source_texts
     from .autocode_trace_coverage import coverage_errors
+    from . import autocode_brief_literals as brief_literals
     from . import autocode_util as s, autocode_workflows as workflows, autocode_adaptive_planning as adaptive
 except ImportError:
     from autocode_contract_revision import (PLANNER_ORIGINS, PROTECTED_LISTS as _PROTECTED_LISTS,
                                            revision_guard, saved_user_basis as _saved_user_basis)
     from autocode_requirement_cues import cue_sentences, scan_texts, source_texts
     from autocode_trace_coverage import coverage_errors
+    import autocode_brief_literals as brief_literals
     import autocode_util as s, autocode_workflows as workflows, autocode_adaptive_planning as adaptive
 
 # The state keys under which a Resolver proposal waits for the user and the request shown to them.
@@ -341,6 +343,10 @@ def check_requirement_handoff(state, report):
 
 
 def check_requirement_trace(state, report, contract, *, coverage=True):
+    if coverage:
+        lost = brief_literals.missing(brief_literals.literals(scan_texts(state)), contract)
+        if lost:
+            raise ValueError(brief_literals.error(lost))
     handoff = (state.get("requirements_handoff") or {}).get("report") or {}
     requirements = (handoff.get("requirements") or []) + adaptive.feedback_requirements(state)
     if not requirements:

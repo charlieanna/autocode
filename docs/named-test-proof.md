@@ -34,6 +34,16 @@ Missing or incomplete evidence stays unverified. The adapter uses the
 [documented Node TestsStream custom reporter API](https://nodejs.org/api/test.html#custom-reporters),
 including final summary events available in current Node 22 and later releases.
 
+A `node:test` case must assert the behavior itself. A case that runs another
+test runner through `child_process` (`npm test -- -t NAME`, `npx vitest`, Jest,
+Mocha or `node --test`) passes on that runner's exit code, and Vitest exits 0
+when a `-t` filter matches no test, so a misspelt or renamed case would pass
+without running (#380). AutoCode reads each `node:test` file that a case's test
+lives in and does not match a case to a test in a file that spawns a test
+runner; the proof names the file. Running the product's own CLI from a
+`node:test` case (`node cli.js add x`) is fine. The check only sees commands
+the file spells out; a wrapper is not named proof in any form.
+
 Shell pipelines, custom reporters, npm/Jest/Vitest/Mocha summaries and custom
 assertion scripts do not currently provide named proof. A direct supported
 targeted command can accompany an existing package-script suite. If the project

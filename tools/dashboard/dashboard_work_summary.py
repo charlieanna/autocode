@@ -5,6 +5,12 @@ completion is usable only when the CLI's checked status names this contract.
 """
 
 
+try:
+    from .dashboard_verification import matches
+except ImportError:
+    from dashboard_verification import matches
+
+
 def mapping(value):
     return value if isinstance(value, dict) else {}
 
@@ -47,16 +53,17 @@ def project(view):
         tasks = [{'id': None, 'label': item, 'state': 'unknown', 'number': index + 1}
                  for index, item in enumerate(plan) if isinstance(item, str)]
         known = False
-    validation = mapping(view.get('validation'))
-    stale = bool(validation.get('contract_hash') and goal.get('hash') and validation['contract_hash'] != goal['hash'])
-    results = {} if stale else {str(row.get('id')): row for row in rows(validation.get('criterion_results'))}
+    verification = mapping(view.get('verification'))
+    current = verification.get('freshness') == 'current' and matches(view, verification)
+    stale = bool(view.get('validation')) and not current
+    results = {str(row.get('id')): row for row in rows(verification.get('coverage'))} if current else {}
     requirements = []
     for criterion in rows(view.get('criteria')):
         result = results.get(str(criterion.get('id')), {})
-        status = str(result.get('status') or '').lower()
-        state = 'checked' if status in ('pass', 'verified') else 'failed' if status in ('fail', 'blocked') else 'unchecked'
+        state = result.get('state') if result.get('state') in ('checked', 'failed') else 'unchecked'
         requirements.append({'id': criterion.get('id'), 'label': criterion.get('criterion') or criterion.get('description') or str(criterion.get('id')),
-                             'state': state})
+                             'state': state, 'verification_method': criterion.get('verification_method'),
+                             'human_review': criterion.get('human_review') is True})
     problems = [{'id': row.get('id') or f"problem-{index + 1}", 'label': row.get('finding') or 'Saved problem',
                  'source': row.get('source'), 'severity': row.get('severity'), 'times_reported': row.get('times_reported', 1)}
                 for index, row in enumerate(rows(mapping(view.get('monitor')).get('findings')))]
@@ -80,4 +87,5 @@ def project(view):
             'requirements': requirements, 'problems': problems, 'line': line, 'attention': attention,
             'counts': {'done': done, 'tasks': len(tasks), 'checked': passed, 'failed': failed,
                        'unchecked': unknown, 'requirements': len(requirements), 'problems': len(problems)},
-            'verification_stale': stale}
+            'verification_stale': stale, 'verification_reasons': verification.get('reasons') or [],
+            'verification_freshness': verification.get('freshness', 'not_inspected')}

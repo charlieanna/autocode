@@ -1,5 +1,5 @@
 // Exercise the shipped picker updater; no provider calls or DOM test library.
-const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('./dashboard_vm'),path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../dashboard_app.js'),'utf8');
 const html=fs.readFileSync(path.join(__dirname,'../dashboard.html'),'utf8');
 class Element {

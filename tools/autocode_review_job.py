@@ -28,17 +28,17 @@ import json
 from pathlib import Path
 
 try:
-    from . import autocode_stray_writes as stray_writes
+    from . import autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
     from . import autocode_workflows as workflows
     from .autocode_test_cases import match_cases
 except ImportError:
+    import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_workflows as workflows
     from autocode_test_cases import match_cases
 
 STAGE = workflows.REVIEW_STAGE
 REPORT_PATH = "review/findings.json"
-ALLOWED_PREFIXES = ("review/",)
 SEVERITIES = ("blocking", "advisory")
 
 FINDING = {
@@ -142,7 +142,7 @@ def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int =
 
 def stray_changes(changed_files) -> list[str]:
     """Paths the stage changed that a review may not touch."""
-    return sorted(path for path in (changed_files or []) if not str(path).startswith(ALLOWED_PREFIXES))
+    return stage_access.stray(STAGE, changed_files)
 
 
 def delivered_tests(value: dict, record: dict, workspace) -> list[str]:

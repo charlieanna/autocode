@@ -1,13 +1,16 @@
 """The runner re-runs the Validator's checks in a clean copy before a PASS counts."""
 import json
 from pathlib import Path
+import shlex
 import subprocess
+import sys
 import tempfile
 import unittest
 
 from . import test_subprocess
 import autocode_check_replay as check_replay
 import autocode_verify as verify
+import autocode_util as util
 
 
 def receipt(exit_code=0, *, timed_out=False, error="", tail=""):
@@ -37,8 +40,21 @@ class ReplayTests(unittest.TestCase):
         result, calls = self.replay(checks, {"pytest -q": receipt(), "python cli.py --help": receipt()})
         self.assertEqual(["pytest -q", "python cli.py --help"], calls)
         self.assertEqual(("PASS", "rev1", 3), (result["verdict"], result["source_revision"], len(result["checks"])))
-        saved = json.loads((self.run_dir / "check-replay" / "sol-01" / "replay.json").read_text())
+        [saved_path] = (self.run_dir / "check-replay").glob("sol-01-*/replay.json")
+        saved = json.loads(saved_path.read_text())
         self.assertEqual("PASS", saved["verdict"])
+
+    def test_g1_a_passing_replay_still_runs_each_distinct_command_once_and_writes_a_pass_receipt(self):
+        checks = [{"command": "pytest -q", "exit_code": 0, "evidence_ref": "event:a"},
+                  {"command": "pytest -q", "exit_code": 0, "evidence_ref": "event:b"},
+                  {"command": "python cli.py --help", "exit_code": 0, "evidence_ref": "event:c"}]
+        result, calls = self.replay(checks, {"pytest -q": receipt(), "python cli.py --help": receipt()})
+        self.assertEqual(["pytest -q", "python cli.py --help"], calls)
+        self.assertEqual(("PASS", "rev1"), (result["verdict"], result["source_revision"]))
+        self.assertEqual([0, 0, 0], [row["reported_exit_code"] for row in result["checks"]])
+        receipts = list(self.run_dir.glob("check-replay/*/replay.json"))
+        self.assertEqual(1, len(receipts), "one replay call writes exactly one receipt under check-replay/")
+        self.assertEqual("PASS", json.loads(receipts[0].read_text())["verdict"])
 
     def test_a_check_that_does_not_reproduce_rejects_the_report_and_says_why(self):
         for result, words in ((receipt(1, tail="AssertionError: 3 != 4"), ["exited 1", "3 != 4"]),
@@ -67,6 +83,130 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(["python3 -c 'print(1)'", "python3 -m unittest test_greet.py"], calls)
 
 
+class ReceiptCollisionTests(unittest.TestCase):
+    """A later iteration's replay never overwrites an earlier cited receipt (issue #341).
+
+    Stage attempt stems restart at 1 each iteration, so two Validator replays can share a
+    stem; each replay call must therefore keep its own receipt and per-check-log directory.
+    """
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.run_dir = Path(temp.name)
+
+    def scratch_runner(self, log_by_command, exit_by_command, calls):
+        """A fake scratch runner that writes each command's log in the directory replay() gives it."""
+        def scratch_run(workspace, folder, *, command, timeout):
+            calls.append(command)
+            folder = Path(folder)
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "scratch-command.log").write_text(log_by_command[command])
+            return {"exit_code": exit_by_command.get(command, 0), "timed_out": False, "error": "",
+                    "tail": log_by_command[command], "output": str(folder / "scratch-command.log"),
+                    "output_sha256": "x", "duration_seconds": 0.1}
+        return scratch_run
+
+    @staticmethod
+    def cited_receipt(message):
+        return Path(message.split("Receipt: ", 1)[1].split(". Cite", 1)[0])
+
+    def test_inv1_each_replay_call_writes_a_distinct_directory_and_earlier_receipts_keep_their_original_bytes(self):
+        folders = []
+
+        def scratch_run(workspace, folder, *, command, timeout):
+            folders.append(Path(folder))
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "scratch-command.log").write_text("log-first\n" if len(folders) == 1 else "log-second\n")
+            return receipt()
+
+        first = check_replay.replay([{"command": "pytest -q", "exit_code": 0, "evidence_ref": "event:a"}],
+                                    "/ws", self.run_dir,
+                                    {"output": "iterations/001/validator-01.json", "source_revision": "first"},
+                                    scratch_run)
+        after_first = {path: path.read_bytes() for path in self.run_dir.glob("check-replay/*/replay.json")}
+        first_log = folders[0] / "scratch-command.log"
+        self.assertEqual(1, len(after_first))
+        second = check_replay.replay([{"command": "pytest -q", "exit_code": 0, "evidence_ref": "event:b"}],
+                                     "/ws", self.run_dir,
+                                     {"output": "iterations/002/validator-01.json", "source_revision": "second"},
+                                     scratch_run)
+        self.assertEqual(("PASS", "first"), (first["verdict"], first["source_revision"]))
+        self.assertEqual(("PASS", "second"), (second["verdict"], second["source_revision"]))
+        receipts = list(self.run_dir.glob("check-replay/*/replay.json"))
+        self.assertEqual(2, len(receipts), "each replay call writes its own receipt")
+        self.assertEqual(1, len([path for path in receipts if path not in after_first]),
+                         "the second call's receipt is a different file")
+        for path, original in after_first.items():
+            self.assertEqual(original, path.read_bytes(), "an earlier receipt keeps exactly its original bytes")
+        kept = json.loads(next(iter(after_first.values())))
+        self.assertEqual(("PASS", "first"), (kept["verdict"], kept["source_revision"]))
+        self.assertEqual("log-first\n", first_log.read_text(), "an earlier check log keeps exactly its original bytes")
+
+    def test_t1_a_second_iterations_validator_replay_preserves_the_first_fail_receipt_and_log(self):
+        cart, checkout, shipping, tax = ("python3 -m unittest tests.test_cart",
+                                         "python3 -m unittest tests.test_checkout",
+                                         "python3 -m unittest tests.test_shipping",
+                                         "python3 -m unittest tests.test_tax")
+        first_logs = {cart: "OK\n", checkout: "FAIL: test_checkout_total\nAssertionError: 120.00 != 119.99\n",
+                      tax: "OK\n"}
+        second_logs = {cart: "OK\n", shipping: "OK\n", tax: "OK\n"}
+        first_calls, second_calls = [], []
+        with self.assertRaises(ValueError) as rejected:
+            check_replay.replay(
+                [{"command": cart, "exit_code": 0, "evidence_ref": "event:cart"},
+                 {"command": checkout, "exit_code": 0, "evidence_ref": "event:checkout"},
+                 {"command": tax, "exit_code": 0, "evidence_ref": "event:tax"}],
+                "/ws", self.run_dir,
+                {"output": "iterations/001/validator-01.json", "source_revision": "rev-001"},
+                self.scratch_runner(first_logs, {checkout: 1}, first_calls))
+        cited = self.cited_receipt(str(rejected.exception))
+        check_replay.replay(
+            [{"command": cart, "exit_code": 0, "evidence_ref": "event:cart"},
+             {"command": shipping, "exit_code": 0, "evidence_ref": "event:shipping"},
+             {"command": tax, "exit_code": 0, "evidence_ref": "event:tax"}],
+            "/ws", self.run_dir,
+            {"output": "iterations/002/validator-01.json", "source_revision": "rev-002"},
+            self.scratch_runner(second_logs, {}, second_calls))
+        self.assertEqual([cart, checkout, tax], first_calls)
+        self.assertEqual([cart, shipping, tax], second_calls)
+        first = json.loads(cited.read_text())
+        self.assertEqual(("FAIL", "rev-001"), (first["verdict"], first["source_revision"]))
+        self.assertEqual(checkout, first["checks"][1]["command"])
+        self.assertEqual("FAIL: test_checkout_total\nAssertionError: 120.00 != 119.99\n",
+                         (cited.parent / "check-02/scratch-command.log").read_text())
+        other = [path for path in self.run_dir.glob("check-replay/*/replay.json") if path != cited]
+        self.assertEqual(1, len(other))
+        second = json.loads(other[0].read_text())
+        self.assertEqual(("PASS", "rev-002"), (second["verdict"], second["source_revision"]))
+        self.assertEqual(shipping, second["checks"][1]["command"])
+        self.assertEqual("OK\n", (other[0].parent / "check-02/scratch-command.log").read_text())
+
+    def test_t2_a_second_iterations_report_repair_replay_preserves_the_first_fail_receipt_and_log(self):
+        repair = "python3 repair_report.py"
+        first_calls, second_calls = [], []
+        with self.assertRaises(ValueError) as rejected:
+            check_replay.replay([{"command": repair, "exit_code": 0, "evidence_ref": "event:repair"}],
+                                "/ws", self.run_dir,
+                                {"output": "iterations/001/validator-report-repair-01.json",
+                                 "source_revision": "rev-repair-001"},
+                                self.scratch_runner({repair: "repair failed\n"}, {repair: 1}, first_calls))
+        cited = self.cited_receipt(str(rejected.exception))
+        check_replay.replay([{"command": repair, "exit_code": 0, "evidence_ref": "event:repair"}],
+                            "/ws", self.run_dir,
+                            {"output": "iterations/002/validator-report-repair-01.json",
+                             "source_revision": "rev-repair-002"},
+                            self.scratch_runner({repair: "repair passed\n"}, {}, second_calls))
+        first = json.loads(cited.read_text())
+        self.assertEqual(("FAIL", "rev-repair-001"), (first["verdict"], first["source_revision"]))
+        self.assertEqual("repair failed\n", (cited.parent / "check-01/scratch-command.log").read_text())
+        other = [path for path in self.run_dir.glob("check-replay/*/replay.json") if path != cited]
+        self.assertEqual(1, len(other))
+        second = json.loads(other[0].read_text())
+        self.assertEqual(("PASS", "rev-repair-002"), (second["verdict"], second["source_revision"]))
+        self.assertEqual("repair passed\n", (other[0].parent / "check-01/scratch-command.log").read_text())
+
+
 class ScratchReplayTests(unittest.TestCase):
     """The real scratch runner: the clean copy is the source as it is now, and only that."""
 
@@ -90,10 +230,74 @@ class ScratchReplayTests(unittest.TestCase):
                                    self.workspace, self.run_dir, {"output": "sol-01.json", "source_revision": "r"},
                                    verify.scratch_run, timeout=60)
 
+    def test_later_replays_preserve_the_receipt_and_every_log_cited_by_a_rejection(self):
+        variants = (
+            ("iterations", "iterations/001/validator-01.json", "iterations/002/validator-01.json"),
+            ("repairs", "iterations/001/validator-report-repair-01.json",
+             "iterations/002/validator-report-repair-01.json"),
+            ("same-attempt", "iterations/001/validator-01.json", "iterations/001/validator-01.json"),
+            ("fallback", None, None),
+        )
+        for name, first_output, second_output in variants:
+            with self.subTest(name=name):
+                run = self.run_dir / name
+                (self.workspace / "app.txt").write_text("first source\n")
+                first_record = {"source_revision": util.snapshot(self.workspace)["revision"]}
+                if first_output:
+                    first_record["output"] = str(run / first_output)
+                checks = [{"command": "printf 'original failure\\n'; exit 1", "exit_code": 0,
+                           "evidence_ref": "event:first"},
+                          {"command": "printf 'original second check\\n'", "exit_code": 0,
+                           "evidence_ref": "event:second"}]
+                with self.assertRaisesRegex(ValueError, "exited 1") as rejected:
+                    check_replay.replay(checks, self.workspace, run, first_record, verify.scratch_run, timeout=30)
+                cited = Path(str(rejected.exception).split("Receipt: ", 1)[1].split(". Cite", 1)[0])
+                first = json.loads(cited.read_text())
+                self.assertEqual("FAIL", first["verdict"])
+                self.assertEqual([1, 0], [row["exit_code"] for row in first["checks"]])
+                paths = [cited, *[Path(row["output"]) for row in first["checks"]]]
+                original_bytes = {path: path.read_bytes() for path in paths}
+                (self.workspace / "app.txt").write_text("second source\n")
+                second_record = {"source_revision": util.snapshot(self.workspace)["revision"]}
+                if second_output:
+                    second_record["output"] = str(run / second_output)
+                second = check_replay.replay(
+                    [{"command": "printf 'later success\\n'", "exit_code": 0, "evidence_ref": "event:later"}],
+                    self.workspace, run, second_record, verify.scratch_run, timeout=30)
+                self.assertEqual("PASS", second["verdict"])
+                self.assertNotEqual(first["source_revision"], second["source_revision"])
+                for path, contents in original_bytes.items():
+                    self.assertEqual(contents, path.read_bytes(), f"Later replay overwrote {path}")
+                self.assertNotIn(second["checks"][0]["output"], [row["output"] for row in first["checks"]])
+
+    def test_successful_replays_of_one_attempt_keep_independent_logs(self):
+        first = self.replay("printf 'first successful check\\n'")
+        original_log = Path(first["checks"][0]["output"])
+        contents = original_log.read_bytes()
+        second = self.replay("printf 'second successful check\\n'")
+        self.assertEqual(["PASS", "PASS"], [first["verdict"], second["verdict"]])
+        self.assertEqual(first["source_revision"], second["source_revision"])
+        self.assertEqual(contents, original_log.read_bytes())
+        self.assertNotEqual(str(original_log), second["checks"][0]["output"])
+
     def test_the_copy_has_committed_and_delivered_files_but_nothing_ignored(self):
         self.assertEqual("PASS", self.replay("test -f app.txt && test -f new.txt")["verdict"])
         with self.assertRaisesRegex(ValueError, "exited 1"):
             self.replay("test -f local-only.txt")
+
+    def test_file_inventory_must_exclude_git_metadata_even_when_it_is_a_file(self):
+        code = ("from pathlib import Path; "
+                "found = {p.name for p in Path('.').iterdir() if p.is_file() and p.name != 'local-only.txt'}; "
+                "assert found == {'.gitignore', 'app.txt', 'new.txt'}, found")
+        command = shlex.join([sys.executable, "-c", code])
+        original = subprocess.run([sys.executable, "-c", code], cwd=self.workspace, capture_output=True, text=True)
+        self.assertEqual(0, original.returncode, original.stderr)
+        with self.assertRaisesRegex(ValueError, "exited 1") as rejected:
+            self.replay(command)
+        self.assertIn(".git", str(rejected.exception))
+        portable = code.replace("p.name != 'local-only.txt'", "p.name not in {'local-only.txt', '.git'}")
+        self.assertEqual("PASS", self.replay(shlex.join([sys.executable, "-c", portable]))["verdict"])
+        self.assertIn(".git may be a file or a directory", check_replay.VALIDATOR_NOTE)
 
     def test_a_check_reading_run_files_is_rejected_with_what_to_cite_instead(self):
         # Fix run B, 2026-09-29: a Validator re-read the regression proof from .autocode/ as its check.

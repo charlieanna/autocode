@@ -26,10 +26,11 @@ import json
 from pathlib import Path
 
 try:
-    from . import autocode_stray_writes as stray_writes
+    from . import autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
     from . import autocode_workflows as workflows
     from .autocode_test_cases import run_probes
 except ImportError:
+    import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_workflows as workflows
     from autocode_test_cases import run_probes
@@ -80,7 +81,7 @@ You do not write code and you do not edit anything.
    names, signatures, rules such as "only the injected clock is a source of time", rejected alternatives).
 4. summary: two sentences on what the design specifies.
 
-You may make a scratch copy OUTSIDE the workspace to run things; never write into the workspace. The runner
+""" + stage_access.scratch_rule(STAGE) + """ Otherwise never write into the workspace. The runner
 writes any conflicts beside the design and stops the run so the user can decide; with no conflicts, planning
 starts from your constraints. Return JSON only, matching the schema the runner gives you.
 """
@@ -105,7 +106,7 @@ def blockers_path(design_document: str) -> str:
 
 
 def check(state: dict, value: dict, changed_files, workspace) -> None:
-    stray = sorted(str(path) for path in (changed_files or []))
+    stray = stage_access.stray(STAGE, changed_files)
     if stray:
         raise stray_writes.StrayWrites(
             "Checking a design must not change the repository; this attempt changed: " + ", ".join(stray), stray)

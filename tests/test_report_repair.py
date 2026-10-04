@@ -59,6 +59,35 @@ class RepairTests(unittest.TestCase):
         self.assertEqual('retry', self.state['stages'][-1]['decision']['action'])
         self.assertEqual(1, self.state['stages'][-1]['receipt']['evidence']['repair_attempts_used'])
 
+    def test_retry_after_timeout_recovery_repairs_the_original_report(self):
+        # Issue #377: the archived timeout produced no report, so it must not be
+        # paired with the original validation error as "the latest rejected report".
+        pending, _ = self.timed_out_repair()
+        error, original = pending['error'], copy.deepcopy(pending['original'])
+        with patch.object(runner.processes, 'live_processes', return_value=[]):
+            runner.reconcile_active(self.state, self.run, self.root)
+        self.state = support.read(self.run / 'state.json')
+        events = Path(next(row for row in self.state['stages'] if row.get('timed_out'))['events'])
+        logged = events.read_text()
+        for case in ('foreign error', 'terminal timeout'):  # the pairing guard still holds
+            with self.subTest(case=case):
+                try:
+                    if case == 'foreign error':
+                        self.state['pending_report_repair']['error'] = 'Not the original rejection'
+                    else:
+                        events.write_text(json.dumps({'type': 'turn.completed'}))
+                    self.assert_repair_blocked('PAUSED_STALE_VALIDATION')
+                finally:
+                    self.state['pending_report_repair']['error'] = error
+                    events.write_text(logged)
+        data = json.loads(self.repair_request()['prompt'].split('CURRENT HANDOFF DATA\n', 1)[1])
+        self.assertEqual(error, data['error'])
+        self.assertEqual(runner.repair_report_source(original), data['rejected_report'])
+        self.assertIsNone(data['original_report'])
+        saved = support.read(self.run / 'state.json')['pending_report_repair']
+        self.assertNotIn('latest_rejected', saved)
+        self.assertEqual(2, saved['attempts'])
+
     def test_timeout_recovery_fails_closed_without_changing_pending(self):
         pending, record = self.timed_out_repair()
         initial = copy.deepcopy(self.state)

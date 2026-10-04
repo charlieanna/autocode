@@ -47,8 +47,8 @@ of the fast modules' time anyway.
 --changed also leaves out the slow end-to-end modules listed, with their CI
 time, in tests/suite_slow.json (over 10 s each: they start the CLI, Git and fake
 models as real processes), unless the module itself changed or --include-slow
-is given. They run on master. Most tests are fast; those 19 modules are 345
-tests and about three quarters of the suite's time.
+is given. They run on master. Most tests are fast; the modules on that list take
+about three quarters of the suite's time.
 
 Exit code is 0 only when every non-excluded test passes (or is itself
 skipped by its own test-level skip guard) and every exclusion entry matched

@@ -87,6 +87,12 @@ def valid_truncated_report_attempt(record, stage_completed):
                 and not stage_completed)
 
 
+def recovered_timeout_attempt(record, stage_completed):
+    """A repair the runner archived after a nonterminal timeout: it produced no report to pair an error with."""
+    return bool(record.get('timed_out') and record.get('abandoned')
+                and record.get('automatic_recovery') and not stage_completed)
+
+
 def repair_report_instruction(pending):
     """State the stricter source-only rule when the original output was cut off."""
     truncated = bool((pending.get('original') or {}).get('truncated_output')

@@ -80,7 +80,7 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
 
-      - name: Verify chat, answers and Work in real browsers
+      - name: Verify chat, answers, Work, preview and recovery in real browsers
         # Read-only messages and exact-message confirmation must remain safe
         # with a pending question, after reload, and at narrow viewports.
         run: |
@@ -93,7 +93,14 @@ jobs:
                      "AUTOCODE_TEST_PYTHON": sys.executable}
               for script, cap in [("test_chat_intent_browser_ui.js", 180),
                                   ("test_work_summary_browser_ui.js", 240),
-                                  ("test_question_cards_browser_ui.js", 240)]:
+                                  ("test_question_cards_browser_ui.js", 240),
+                                  ("test_preview_browser_ui.js", 240),
+                                  ("test_recovery_browser_ui.js", 300),
+                                  ("test_draft_cadence_browser_ui.js", 300),
+                                  ("test_delete_browser_ui.js", 300),
+                                  ("test_setup_browser_ui.js", 300),
+                                  ("test_checkpoint_browser_ui.js", 300),
+                                  ("test_scoped_start_browser_ui.js", 240)]:
                   try:
                       result = run(["node", "tools/dashboard/tests/" + script],
                                    cwd=Path.cwd(), env=env, timeout=cap)
