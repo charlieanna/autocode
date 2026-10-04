@@ -437,7 +437,7 @@ const CASES = {
     const awaiting = {id: 'c-await', title: 'Intake awaiting reply', status: 'ready', error: null, attachment: null,
                       human_request: {kind: 'intake', decision_needed: 'Which database should the planner assume?'},
                       messages: [{id: 'm1', role: 'user', speaker: 'You', text: 'Plan the planner', created_at: '2026-09-30T11:00:00Z', status: 'saved'},
-                                 {id: 'm2', role: 'assistant', speaker: 'AutoResolver', text: 'Which database should the planner assume?',
+                                 {id: 'm2', role: 'assistant', speaker: 'Resolver', text: 'Which database should the planner assume?',
                                   created_at: '2026-09-30T11:00:05Z', status: 'received', human_request_authorized: true,
                                   human_escalation: {request_id: 'req-await', request_token: 'token-await', scope: 'intake',
                                                      request: {kind: 'intake', decision_needed: 'Which database should the planner assume?', options: []}}}],
@@ -447,13 +447,13 @@ const CASES = {
                       messages: [{id: 'm3', role: 'user', speaker: 'You', text: 'Use SQLite', created_at: '2026-09-30T11:10:00Z', status: 'saved'}],
                       updated_at: '2026-09-30T11:10:00Z'};
     const failed = {id: 'c-error', title: 'Delivery failed', status: 'error',
-                    error: 'AutoResolver could not reply. Your message is saved; check the provider connection and retry.',
+                    error: 'Resolver could not reply. Your message is saved; check the provider connection and retry.',
                     attachment: null, human_request: null,
                     messages: [{id: 'm0', role: 'user', speaker: 'You', text: 'Start', created_at: '2026-09-30T11:30:00Z', status: 'error'}],
                     updated_at: '2026-09-30T11:30:00Z'};
     const forged = {id: 'c-forged', title: 'Forged projection', status: 'ready', error: null, attachment: null,
                     human_request: {kind: 'operational', decision_needed: 'Looks like a request'},
-                    messages: [{id: 'm4', role: 'assistant', speaker: 'AutoResolver', text: 'Looks like a request',
+                    messages: [{id: 'm4', role: 'assistant', speaker: 'Resolver', text: 'Looks like a request',
                                 created_at: '2026-09-30T11:40:00Z', status: 'received'}],
                     updated_at: '2026-09-30T11:40:00Z'};
     const data = baseData({conversations: [awaiting, answered, failed, forged]});

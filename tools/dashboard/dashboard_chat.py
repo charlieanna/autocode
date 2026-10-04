@@ -105,6 +105,13 @@ class ConversationMixin(VerificationViewMixin):
             return self._conversation_store
 
     def conversation_create(self, data):
+        models = data.get('models', {})
+        if not isinstance(models, dict):
+            raise ValueError('Models must be an object')
+        chosen = self.joint_models(models)
+        efforts = self.joint_efforts(models)
+        settings = {key + '_model': value for key, value in chosen.items()}
+        settings.update({key + '_reasoning_effort': value for key, value in efforts.items()})
         text = data.get('text')
         if data.get('empty') is True and (not isinstance(text, str) or not text.strip()):
             # Pre-send creation: activating a New conversation control opens a
@@ -117,14 +124,7 @@ class ConversationMixin(VerificationViewMixin):
                 if not workspace:
                     raise ValueError('Select an existing Git project for the new conversation')
             return self.conversations.create_empty(str(workspace) if workspace else None,
-                                                   request_id=data.get('request_id'))
-        models = data.get('models', {})
-        if not isinstance(models, dict):
-            raise ValueError('Models must be an object')
-        chosen = self.joint_models(models)
-        efforts = self.joint_efforts(models)
-        settings = {key + '_model': value for key, value in chosen.items()}
-        settings.update({key + '_reasoning_effort': value for key, value in efforts.items()})
+                                                   request_id=data.get('request_id'), models=settings)
         # Creation-time project scoping: the saved record starts inside the
         # chosen project without launching a task handoff. Attaching a project
         # to an existing conversation stays a separate explicit action.
@@ -467,7 +467,7 @@ class ConversationMixin(VerificationViewMixin):
             elif data.get('delegate') or data.get('resolver_request') or data.get('resolver_token'):
                 raise ValueError('That question is no longer pending. Your message was not sent.')
             elif not read_only and object_value(view.get('human_escalation')).get('scope') in ('operational_exhaustion', 'blocker'):
-                raise ValueError('Use the current AutoResolver response action; feedback does not resolve this request.')
+                raise ValueError('Use the current Resolver response action; feedback does not resolve this request.')
             if (previous and previous.get('kind') == 'correction' and previous.get('confirmation')
                     and previous['confirmation'].get('goal_token') != view.get('goal_token')):
                 raise ValueError('The plan changed since this confirmation. Send a new message to review the current plan.')

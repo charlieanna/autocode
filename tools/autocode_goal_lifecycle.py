@@ -244,7 +244,7 @@ def render(state):
         if state.get("settings", {}).get("planning_flow") == "v2":
             public = human.current(state)
             questions = public["questions"] if public else human.internal_questions(state)
-            lines = ["No contract yet; resume with the Requirements Planner."]
+            lines = ["No contract yet; resume with Requirements."]
             for question in questions:
                 if not public:
                     lines.append("  Unissued proposal (not an actionable question):")
@@ -490,7 +490,7 @@ def wait_for_user(state, request, *, origin=None, evidence=None, next_stage=None
             key = {"answer_id": answer_id, "contract_token": answer["contract_token"]}
             if key in reused:
                 raise s.Paused("PAUSED_PERMISSION_RECONCILIATION",
-                    f"The decision in saved answer {answer_id} was already returned to the Completion Owner. "
+                    f"The decision in saved answer {answer_id} was already returned to the Completion Reviewer. "
                     "It must honor that answer rather than request the same permission again.")
             reused.append(key)
             state["permission_reuse_context"] = {
@@ -532,7 +532,7 @@ def assign_task(state, decision, current):
         return "implement"
     if not spec or spec["kind"] not in ("implement", "validate"):
         raise ValueError("CONTINUE or REWORK requires a concrete next task")
-    if decision["status"] == "REWORK" and (spec["kind"] != "implement" or not decision["evidence"]):
+    if decision["status"] == "REWORK" and not decision["evidence"]:
         raise ValueError("REWORK requires a correction task with defect evidence")
     for field in ("requirements", "acceptance_criteria", "validation_plan"):
         if not spec[field] or any(not entry.strip() for entry in spec[field]):

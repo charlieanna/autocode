@@ -124,6 +124,10 @@ elif stage == "requirements_gather":
     }
 elif stage == "astra_discovery":
     draft = body(questions=not data["saved_answers"], human=mode in ("standard", "human-pending"), task_kind=task_kind)
+    if os.environ.get("AUTOCODE_FIXTURE_TECHNICAL_FLOW_PENDING"):
+        draft["end_to_end_flow"].append("Install the CLI entry point and invoke it from another working directory")
+    if os.environ.get("AUTOCODE_FIXTURE_FLOW_AWAITS_REVIEW"):
+        draft["end_to_end_flow"].append("User approves C1")
     if builder_files:
         draft["milestones"][0]["affected_paths"] = sorted(builder_files)
     if mode == "milestones":
@@ -281,7 +285,7 @@ else:
     result = {**common, "verdict": "PASS" if passed else "FAIL", "findings": findings, "checks_run": [command],
               "unverified_criteria": [], "checks": [{"command": command, "exit_code": 0 if passed else 1, "evidence_ref": "event:check"}],
               "end_to_end_result": {"status": "PASS" if passed else "FAIL", "summary": "Executed both CLI user flows",
-                                    "evidence_refs": ["event:check"]},
+                                    "evidence_refs": ["event:check"], "technical_result": None, "pending_human_criteria": []},
               "criterion_results": [{"id": "C1", "status": "PASS" if passed else "FAIL", "evidence_refs": ["event:check"]}],
               "finding_dispositions": ([{"id": open_finding_id("sol", "Empty names are accepted"), "disposition": "resolved",
                                           "evidence": "event:check"}]
@@ -290,8 +294,18 @@ else:
         result['criterion_results'].append({'id': 'C2', 'status': 'PASS' if goodbye_passed else 'NOT_VERIFIED',
                                            'evidence_refs': ['event:check'] if goodbye_passed else []})
     if mode == "human-pending" and passed:
-        result.update(verdict="BLOCKED", unverified_criteria=["C1 human acceptance pending"])
+        result.update(verdict=os.environ.get("AUTOCODE_FIXTURE_HUMAN_VERDICT", "BLOCKED"),
+                      unverified_criteria=["C1 human acceptance pending"])
         result["criterion_results"][0]["status"] = "NOT_VERIFIED"
+        if os.environ.get("AUTOCODE_FIXTURE_FLOW_AWAITS_REVIEW"):
+            # The approved flow ends in the person's acceptance, so the flow itself stays unverified.
+            result["end_to_end_result"].update(status="NOT_VERIFIED", summary=os.environ["AUTOCODE_FIXTURE_FLOW_AWAITS_REVIEW"])
+            if not os.environ.get("AUTOCODE_FIXTURE_LEGACY_FLOW_GAP"):
+                unfinished = bool(os.environ.get("AUTOCODE_FIXTURE_TECHNICAL_FLOW_PENDING"))
+                result["end_to_end_result"].update(pending_human_criteria=["C1"], technical_result={
+                    "status": "NOT_VERIFIED" if unfinished else "PASS",
+                    "summary": "Installation and invocation were not executed" if unfinished else "Both CLI flows executed",
+                    "evidence_refs": ["check:1"]})
         if os.environ.get("AUTOCODE_FIXTURE_OMIT_CHECKS"):
             result["checks"] = []
         if os.environ.get("AUTOCODE_FIXTURE_NO_CHECK_EVENT"):
@@ -321,7 +335,8 @@ if stage=='terra' and (data.get('workflow') or {}).get('mode')=='glm_final_audit
         'command':command,'exit_code':0 if passed else 1,'aggregated_output':'fixture checks'}}))
     assessment={**common,'verdict':'PASS' if passed else 'FAIL','findings':[],'finding_dispositions':[],'checks_run':[command],
         'unverified_criteria':[], 'checks':[{'command':command,'exit_code':0 if passed else 1,'evidence_ref':'event:self-check'}],
-        'end_to_end_result':{'status':'PASS' if passed else 'FAIL','summary':'Builder self-check','evidence_refs':['event:self-check']},
+        'end_to_end_result':{'status':'PASS' if passed else 'FAIL','summary':'Builder self-check','evidence_refs':['event:self-check'],
+                             'technical_result':None,'pending_human_criteria':[]},
         'criterion_results':[{'id':'C1','status':'PASS' if passed else 'FAIL','evidence_refs':['event:self-check']}]}
     second=data.get('next_action')=='Second Builder batch'
     consulted=bool(data.get('consultation_reports'))

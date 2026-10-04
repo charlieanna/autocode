@@ -96,6 +96,7 @@ sys.path.insert(0, str(HERE))
 import live_profiles as profiles  # noqa: E402
 import live_trial as base  # noqa: E402
 from autopilot_testkit import Bundle, source_revision  # noqa: E402
+import autocode_grader_process as grader_process  # noqa: E402
 
 TrialError = base.TrialError
 
@@ -471,8 +472,9 @@ def judge_final_verdict(project: Path, run_dir: Path, frozen_test_path: Path,
     The isolated child only imports and invokes the candidate, returning JSON
     over a separate inherited socket. This is not a malicious-code sandbox:
     candidate Python still shares the adapter process and host permissions.
-    Process-group cleanup covers ordinary descendants, not deliberate escape
-    via setsid. No unittest status, stdout marker or bare exit can grant PASS.
+    Birth-identified cleanup waits for ordinary descendants before returning;
+    this is not a sandbox against deliberate process escape. No unittest
+    status, stdout marker or bare exit can grant PASS.
     """
     delivered = project / "convert.py"
     delivered_test = project / "test_convert.py"
@@ -510,19 +512,10 @@ def judge_final_verdict(project: Path, run_dir: Path, frozen_test_path: Path,
                                         pass_fds=(child.fileno(),), start_new_session=True)
                 child.close()
                 try:
-                    proc.wait(timeout=timeout)
-                except subprocess.TimeoutExpired:
-                    timed_out = True
-                finally:
-                    # Also kill descendants after a nominally successful exit.
-                    try:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    try:
-                        proc.wait(timeout=5)
-                    except subprocess.TimeoutExpired as error:
-                        raise TrialError("independent grader could not be reaped after termination") from error
+                    _, timed_out, cleanup = grader_process.wait(proc, timeout)
+                except grader_process.processes.ProcessError as error:
+                    raise TrialError(f"independent grader cleanup could not be verified: {error}") from error
+                verdict['grader_cleanup'] = cleanup
                 parent.setblocking(False)
                 chunks = bytearray()
                 while len(chunks) <= 65536:

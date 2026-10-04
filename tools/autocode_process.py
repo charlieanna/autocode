@@ -10,6 +10,11 @@ import time
 
 import psutil
 
+try:
+    from . import autocode_process_children as process_children
+except ImportError:
+    import autocode_process_children as process_children
+
 
 class ProcessError(RuntimeError):
     pass
@@ -70,6 +75,14 @@ def process_table(pids=None):
         except (psutil.Error, OSError, SystemError) as error:
             raise ProcessError(f"Cannot inspect process {pid}: {type(error).__name__}; workspace remains blocked") from error
     return table
+
+
+def preflight():
+    """Check enumeration and native metadata without inspecting unrelated PIDs."""
+    process_ids()
+    pid = os.getpid()
+    if pid not in process_table({pid}):
+        raise ProcessError("Cannot inspect controller process; refusing an unsafe provider launch")
 
 
 def identity(row):
@@ -155,7 +168,7 @@ class ProcessTree:
                 parent = psutil.Process(pid)
                 if _birth_identity(parent) != table[pid].get("birth_identity"):
                     continue
-                descendants = parent.children(recursive=True)
+                descendants = process_children.descendants(parent)
                 candidates = {child.pid: _birth_identity(child) for child in descendants}
             except psutil.NoSuchProcess:
                 continue
@@ -177,7 +190,7 @@ class ProcessTree:
                 table.update(found)
                 owned.update(found)
                 covered.update(found)
-            except psutil.Error as error:
+            except (psutil.Error, OSError) as error:
                 raise ProcessError(f"Cannot inspect descendants of owned process {pid}: {type(error).__name__}") from error
             found = process_table(candidates)
             found = {child_pid: row for child_pid, row in found.items()

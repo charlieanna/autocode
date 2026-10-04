@@ -33,11 +33,12 @@ class JournalBridgeTests(unittest.TestCase):
             self.calls.append(('gatherer', messages[-1]['text']))
             return 'I have updated the requirements.'
         def planner(messages, route, workdir):
-            self.calls.append(('planner', messages[-1]['text']))
-            turn = messages[-1]['logical_turn_id']
+            human = next(row for row in reversed(messages) if row['role'] == 'user')
+            self.calls.append(('planner', human['text']))
+            turn = human['logical_turn_id']
             revision = sum(row['role'] == 'user' for row in messages)
             return json.dumps({'contract_version': 1, 'kind': 'autocode.planner-structured-draft',
-                              'goal': messages[-1]['text'], 'requirements': [messages[-1]['text']],
+                              'goal': human['text'], 'requirements': [human['text']],
                               'milestones': ['Implement'], 'parallelism': [], 'unresolved_questions': [],
                               'source_revision': {'requirements_revision': revision, 'logical_turn_id': turn},
                               'attribution': {'role': 'planner', 'model': route['model'], 'reasoning_effort': 'high'},
@@ -64,12 +65,22 @@ class JournalBridgeTests(unittest.TestCase):
         self.assertEqual('current', doc['plan_drafts'][-1]['status'])
         return doc
 
+    def refresh_draft(self, doc):
+        target = doc['draft_update']
+        return self.console.conversations.refresh_draft(doc['id'],
+            requirements_revision=target['requirements_revision'],
+            logical_turn_id=target['logical_turn_id'], request_id='refresh-'+target['logical_turn_id'])
+
     def test_two_turn_draft_handoff_retains_independent_receipts_without_approval(self):
         doc = self.conversation()
         self.console.conversations.send(doc['id'], 'Preserve the existing interface', 'second')
         doc = self.console.conversation_get(doc['id'])
         self.assertEqual([1, 2], [row['revision'] for row in doc['requirements']['revisions']])
         self.assertEqual(2, doc['plan_drafts'][-1]['requirements_revision'])
+        self.assertTrue(doc['draft_update']['held'])
+        with self.assertRaisesRegex(ValueError, 'Update draft'):
+            self.console.conversation_attach({'id': doc['id'], 'workspace': str(self.workspace)})
+        self.refresh_draft(doc)
         attached = self.console.conversation_attach({'id': doc['id'], 'workspace': str(self.workspace)})
         args = self.actions[-1][-1]
         self.assertIn('--conversation-handoff', args)
@@ -100,6 +111,7 @@ class JournalBridgeTests(unittest.TestCase):
         doc = self.conversation()
         handoff = self.console.conversations.handoff(doc['id'])
         self.console.conversations.send(doc['id'], 'Also support Unicode names', 'second')
+        self.refresh_draft(self.console.conversation_get(doc['id']))
         with self.assertRaisesRegex(ValueError, 'conversation changed'):
             self.console.conversations.claim_attachment(doc['id'], {
                 'status': 'starting', 'workspace': str(self.workspace),

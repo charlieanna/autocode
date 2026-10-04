@@ -1,0 +1,103 @@
+/* The approved 1440×900 workspace uses a 128px identity/status region and a
+   684/536px chat/context split. Smaller views retain the existing drawers. */
+.task-progress-line{display:flex;align-items:center;gap:10px;flex-shrink:0;min-width:0}
+.task-progress-line #task-status{flex:none;max-width:42%}
+.task-progress-line #task-progress-summary{flex:1;min-width:0;border:0;background:transparent;padding:4px 0}
+#task-detail .work-summary{position:relative;padding:0;border:0;background:transparent;box-shadow:none;gap:12px}
+#task-detail .work-summary>.monitor-kicker{font-size:13px;line-height:20px;letter-spacing:0;color:var(--m2b-action-text);font-weight:600}
+#task-detail .work-current{padding:16px;border:1px solid var(--m2b-action-text);border-left-width:3px;border-radius:12px;background:var(--surface-default);display:grid;gap:6px}
+#task-detail .work-current>h2{font-size:17px;line-height:26px;font-weight:600;margin:0;color:var(--m2b-ink)}
+#task-detail .work-roles{font-family:var(--font);font-size:13px;line-height:20px}
+#task-detail .work-task-list{grid-column:1/-1;width:100%;margin:0;border:0;padding:0}
+#task-detail .work-task-list>summary{padding:0;margin:0;border:0;font-size:11px;line-height:17px;letter-spacing:.3px;color:var(--m2b-secondary)}
+#task-detail .work-task-rows{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+#task-detail .work-task-rows li{position:relative;display:flex;align-items:center;gap:10px;min-height:28px;padding:4px 10px;font-size:13px;line-height:20px;border-radius:8px;color:var(--m2b-secondary)}
+#task-detail .work-task-rows li>span{flex:1;min-width:0}
+#task-detail .work-task-rows li[data-task-state=working]{min-height:40px;background:var(--m2b-action-tint);color:var(--m2b-ink);font-weight:600}
+#task-detail .work-task-rows li small{font-size:11px;line-height:16px;max-width:42%;color:var(--m2b-action-text)}
+@media(min-width:1200px){
+ #task-detail.conversation-active{padding:18px 24px 0;background:var(--surface-default)}
+ #task-detail.conversation-active .detail-heading>div:first-child{gap:4px 10px}
+ #task-detail.conversation-active #task-project{font-size:11px;line-height:17px;letter-spacing:0;margin:0;font-weight:600;color:var(--m2b-secondary)}
+ #task-detail.conversation-active .task-now{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);padding:0}
+ #task-detail.conversation-active .task-progress-line{min-height:45px}
+ #task-detail.conversation-active .task-progress-line .badge{font-size:11px;line-height:18px;border:0;padding:3px 8px;background:var(--m2b-action-tint);color:var(--m2b-action-text);font-weight:600}
+ #task-detail.conversation-active .detail-grid{margin-inline:-24px;padding-top:0;grid-template-columns:minmax(0,56.0656%) minmax(0,1fr);overflow:hidden}
+ #task-detail.conversation-active .conversation-column{padding:32px;min-height:0}
+ #task-detail.conversation-active .conversation-column>#interview{padding:0;min-height:0}
+ #task-detail.conversation-active #live-controls{padding:0}
+ #task-detail .context-pane{padding:24px;border:0;gap:12px}
+ #task-detail .context-pane-content{padding-top:0}
+ #task-detail .work-checklist>h3,#task-detail .work-checklist>.work-checklist-counts{display:none}
+ #task-detail .work-task-list>summary{text-transform:uppercase;font-weight:600}
+ #task-detail .work-task-rows li:not([data-task-state=working]) small{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+}
+@media(max-width:1199px){
+ #task-detail .work-current{padding:12px 14px;gap:4px}
+ #task-detail .work-current>h2{font-size:14px;line-height:20px}
+}
+@media(max-width:759px){
+ .task-progress-line{align-items:flex-start;flex-direction:column;gap:0}
+ .task-progress-line #task-status{max-width:100%}
+ .task-progress-line #task-progress-summary{width:100%;flex:auto}
+}
+
+/* Keep project conversations foremost; inspection utilities remain reachable
+   from a labelled native disclosure, including on phones. */
+.sidebar .workspace-utilities{position:relative;width:100%;margin:0}
+.sidebar .workspace-utilities>summary{display:flex;align-items:center;min-height:44px;padding:0 10px;cursor:pointer;font-size:12px;color:var(--m2b-sidebar-secondary,#b8c2d1)}
+.sidebar .workspace-utilities>summary:after{content:'⌃';margin-left:auto}
+.sidebar .workspace-utilities[open]>summary:after{content:'⌄'}
+.sidebar .workspace-utilities .main-nav{margin:0;padding:0;order:0}
+.sidebar .workspace-utilities button{width:100%;display:flex;align-items:center;gap:10px;min-height:44px}
+.sidebar .workspace-utilities .display-controls{display:flex}
+.sidebar .sidebar-bottom{gap:0}
+.sidebar .sidebar-bottom>.local-status{display:none}
+.sidebar .sidebar-search{margin-block:0 8px}
+#task-detail .work-current .work-roles p{font-family:var(--font);font-size:13px;line-height:20px;color:var(--text-secondary);margin:0}
+#task-detail .work-task-rows li small{font-weight:400}
+#task-detail .work-task-rows li[data-task-state=done]>span{color:var(--text-secondary)}
+@media(min-width:1200px){
+ #task-detail.conversation-active .task-progress-line{min-height:51px}
+ #task-detail .detail-heading h1{font-size:24px;line-height:34px}
+ #task-detail #task-progress-summary{font-weight:400}
+ #task-detail .work-checklist{gap:8px}
+ #task-detail .work-summary .work-status{gap:6px}
+ #task-detail .work-summary .work-status h2{font-size:13px;font-weight:400;line-height:20px;margin:0}
+ #task-detail .work-current{gap:6px}
+ #task-detail #interview .chat-message.learner{width:90%;max-width:90%;box-sizing:border-box}
+ #task-detail #interview .chat-message.learner>.speaker{order:2;font-weight:400;font-size:12px;margin-top:6px;margin-bottom:0}
+ #task-detail #interview .chat-message.learner>.speaker>strong{display:none}
+ #task-detail #interview .chat-message.learner{display:flex;flex-direction:column}
+ #task-detail .work-task-list>summary{min-height:44px}
+ #task-detail .work-requirement-list{border:1px solid var(--m2b-hairline);border-radius:12px;background:var(--surface-default);padding:8px 16px}
+}
+
+#task-detail .task-progress-line .badge.complete{background:var(--m2b-success-tint);color:var(--m2b-success-text)}
+#task-detail .task-progress-line .badge.attention{background:var(--m2b-warning-tint);color:var(--m2b-warning-text)}
+#task-detail .task-progress-line .badge.failed{background:var(--danger-soft,#fff1f0);color:var(--danger,#a52525)}
+
+:root{--m2b-recovery-surface:#fef3c7;--m2b-success-tint:#e6f4eb;--m2b-success-text:#168447}
+:root[data-theme=dark]{--m2b-recovery-surface:#3a2c10;--m2b-success-tint:#183b36;--m2b-success-text:#86dfb9}
+/* Current lifecycle notices are part of chat; they never infer acceptance
+   from a saved check count or replace the underlying transcript. */
+#task-detail #conversation .chat-recovery,#task-detail #conversation .chat-ready{border:1px solid var(--m2b-hairline);border-radius:12px;padding:16px;display:grid;gap:8px;margin:16px 0;background:var(--m2b-recovery-surface);box-shadow:none}
+#task-detail #conversation .chat-ready{background:var(--m2b-success-tint)}
+#task-detail #conversation .chat-recovery h3,#task-detail #conversation .chat-ready h3{font-size:14px;line-height:22px;font-weight:500;margin:0;color:var(--text-primary)}
+#task-detail #conversation .chat-recovery p,#task-detail #conversation .chat-ready p{font-size:13px;line-height:20px;margin:0;color:var(--text-secondary)}
+#task-detail #conversation .chat-recovery>.monitor-kicker{font-size:14px;text-transform:none;letter-spacing:0;color:var(--text-primary)}
+#task-detail #conversation .chat-recovery>h3{display:none}
+#task-detail #conversation .chat-ready .lifecycle-actions{display:flex;flex-wrap:wrap;gap:12px}
+#task-detail #conversation .chat-ready button{min-height:44px;padding-inline:20px}
+#task-detail .plan-milestones{list-style:none;padding:0;margin:0 0 8px;display:grid;gap:4px}
+#task-detail .plan-milestones li{display:flex;align-items:center;gap:12px;min-height:40px;font-size:14px;line-height:21px;color:var(--text-secondary)}
+#task-detail .plan-milestones li>span:first-child{flex:0 0 16px;text-align:center}
+#task-detail .plan-milestones li[data-task-state=done]>span:first-child{color:var(--m2b-success-text)}
+#task-detail .plan-milestones li[data-task-state=working]>span:first-child{color:var(--m2b-action-text)}
+
+/* The approved action color supersedes the older blue draft palette within
+   the task workspace. Pause remains the secondary, non-destructive control. */
+#task-detail button.primary:not(:disabled){background:var(--m2b-action);border-color:var(--m2b-action);color:#fff}
+#task-detail button.primary:not(:disabled):hover{background:#5245ca;border-color:#5245ca}
+#task-detail #pause-run{background:var(--surface-default);border-color:var(--border-control);color:var(--text-primary)}
+#task-detail #pause-run:hover{background:var(--surface-subtle)}

@@ -675,7 +675,7 @@ class ChatHttpTests(ChatFixture, unittest.TestCase):
             page = response.read().decode()
             self.assertNotIn('{{role:', page)
             self.assertIn('Plan Reviewer <small>', page)
-            self.assertIn('Completion Owner <small>', page)
+            self.assertIn('Completion Reviewer <small>', page)
         finally:
             connection.close()
         self.assertEqual([], self.commands())

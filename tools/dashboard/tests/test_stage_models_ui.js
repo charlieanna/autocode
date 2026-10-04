@@ -22,7 +22,7 @@ const run = {status: 'RUNNING', stage: 'terra', active_stage: {stage: 'terra', r
       {stage: 'orchestrator', runner_owned: true, finished_at: '2026-09-24T22:01:00Z', execution: {kind: 'runner'}}]}};
 let panel = context.workflowModelsPanel(run), rendered = text(panel);
 for (const expected of ['Stages & models', 'Requirements', 'Combined with discovery', 'no independent plan-review stage',
-  'Plan Reviewer', 'Not enabled for this run', 'Orchestrator', 'Runner · No model call', 'Builder', 'Validator', 'Completion Owner', 'AutoResolver',
+  'Plan Reviewer', 'Not enabled for this run', 'Orchestrator', 'Runner · No model call', 'Builder', 'Tester', 'Completion Reviewer', 'Resolver',
   'Configured: terra-next · high reasoning', 'Launch: terra-executing · medium reasoning', 'Last launch: sol-at-launch', 'Conditional · not used yet']) {
   assert.ok(rendered.includes(expected), expected);
 }
@@ -44,6 +44,6 @@ assert.match(text(cards[2]), /Configured: reviewer-model.*Active now/);
 assert.equal(cards.filter(card => card.className.includes(' active')).length, 1);
 assert.ok(!text(panel).includes('no independent plan-review stage'));
 assert.equal(context.stageName({stage: 'requirements_gather'}), 'Requirements · Gathering requirements');
-assert.equal(context.stageName({stage: 'astra_resolve'}), 'AutoResolver · Diagnosing a failure');
+assert.equal(context.stageName({stage: 'astra_resolve'}), 'Resolver · Diagnosing a failure');
 assert.equal(context.executionLabel({kind: 'model'}), 'Model not recorded');
 console.log('Visible stage routes, missing roles, actual launches, and verified activity passed.');

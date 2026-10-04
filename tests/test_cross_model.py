@@ -38,7 +38,7 @@ class CrossModelTest(unittest.TestCase):
         with self.assertRaises(support.Paused) as ctx:
             dispatch.enforce_cross_model_verification(state)
         self.assertEqual("PAUSED_CROSS_MODEL", ctx.exception.status)
-        self.assertIn("Builder/Validator", str(ctx.exception))
+        self.assertIn("Builder/Tester", str(ctx.exception))
 
     def test_same_family_builder_completion_is_rejected(self):
         state = roles(terra="zai-coding-plan/glm-5.3",
@@ -48,7 +48,7 @@ class CrossModelTest(unittest.TestCase):
                       plan_reviewer="xiaomi-token-plan-sgp/mimo-v2.6-pro")
         with self.assertRaises(support.Paused) as ctx:
             dispatch.enforce_cross_model_verification(state)
-        self.assertIn("Builder/Completion Owner", str(ctx.exception))
+        self.assertIn("Builder/Completion Reviewer", str(ctx.exception))
 
     def test_same_family_planner_reviewer_is_rejected(self):
         state = roles(terra="xiaomi-token-plan-sgp/mimo-v2.6-pro",
@@ -74,7 +74,7 @@ class CrossModelTest(unittest.TestCase):
                       glm="zai-coding-plan/glm-5.3", plan_reviewer="openai/gpt-6-sol")
         with self.assertRaises(support.Paused) as ctx:
             dispatch.enforce_cross_model_verification(state)
-        self.assertIn("Builder/Validator: same family glm", str(ctx.exception))
+        self.assertIn("Builder/Tester: same family glm", str(ctx.exception))
         state = roles(terra="gpt-5.6-terra", sol="glm-5.3", completion="glm-5.3",
                       glm="mimo-v2.6-pro", plan_reviewer="xiaomi-token-plan-sgp/mimo-v2.5-pro")
         with self.assertRaises(support.Paused) as ctx:

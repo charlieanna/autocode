@@ -42,7 +42,7 @@ jobs:
           agent-browser install --with-deps
 
       - name: Install package and runtime dependencies
-        run: python3 -m pip install -e .
+        run: python3 -m pip install -e '.[visual]'
 
       - name: Run the suite gate
         # tools/run_suite.py wraps the same discovery as
@@ -94,7 +94,12 @@ jobs:
                                   ("test_work_summary_browser_ui.js", 240),
                                   ("test_question_cards_browser_ui.js", 240),
                                   ("test_preview_browser_ui.js", 240),
-                                  ("test_recovery_browser_ui.js", 300)]:
+                                  ("test_recovery_browser_ui.js", 300),
+                                  ("test_draft_cadence_browser_ui.js", 300),
+                                  ("test_delete_browser_ui.js", 300),
+                                  ("test_setup_browser_ui.js", 300),
+                                  ("test_checkpoint_browser_ui.js", 300),
+                                  ("test_scoped_start_browser_ui.js", 240)]:
                   try:
                       result = run(["node", "tools/dashboard/tests/" + script],
                                    cwd=Path.cwd(), env=env, timeout=cap)
@@ -119,3 +124,20 @@ jobs:
             echo "node $test_file"
             node "$test_file" || exit 1
           done
+
+  visual-comparison:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install image and browser test dependencies
+        run: |
+          python3 -m pip install -e '.[visual-test]'
+          python3 -m playwright install --with-deps chromium
+      - name: Run real-browser visual comparison controls
+        run: python3 -m unittest tests.test_visual_check_browser -v
+        env:
+          AUTOCODE_REQUIRE_VISUAL_BROWSER: "1"
+          PYTHONDONTWRITEBYTECODE: "1"

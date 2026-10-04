@@ -63,17 +63,17 @@ class StatusTests(unittest.TestCase):
     def test_role_name_translates_stage_codes(self):
         self.assertEqual('Builder', status.role_name('terra'))
         self.assertEqual('Builder', status.role_name('terra_report_repair'))
-        self.assertEqual('Validator', status.role_name('sol'))
-        self.assertEqual('Completion Owner', status.role_name('astra_review'))
+        self.assertEqual('Tester', status.role_name('sol'))
+        self.assertEqual('Completion Reviewer', status.role_name('astra_review'))
         self.assertEqual('', status.role_name(None))
-        self.assertEqual('AutoResolver', status.role_name('astra_diagnose'))
+        self.assertEqual('Astra Diagnose', status.role_name('astra_diagnose'))
 
     def test_running_stage_shows_the_launched_model(self):
         self.state['active_stage']['launch_route'] = {'model': 'gpt-x'}
         self.assertIn('Builder started: Fix routing [gpt-x]', status.record(self.state, timestamp=100)['text'])
         self.state['active_stage'] = {'stage': 'sol', 'started_at': 'now',
                                       'command': ['codex', 'exec', '--model', 'glm-y']}
-        self.assertIn('Validator started: Fix routing [glm-y]', status.record(self.state, timestamp=101)['text'])
+        self.assertIn('Tester started: Fix routing [glm-y]', status.record(self.state, timestamp=101)['text'])
 
     def test_terminal_null_stage_and_parallel_progress(self):
         self.state.update(active_stage=None, next_stage=None, status='TASK_COMPLETE')

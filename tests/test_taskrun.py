@@ -11,6 +11,7 @@ from unittest.mock import patch
 import autocode_run_view as run_view
 import autocode_taskrun as taskrun
 import autocode_run_actions as run_actions
+import autocode_util as util
 
 HERE = Path(__file__).resolve().parents[1] / "tools"  # its fixtures stay beside the runtime
 # The offline fixture provider plans and builds exactly this greeting task.
@@ -31,13 +32,46 @@ class RunViewTests(unittest.TestCase):
     def test_contract_fields(self):
         self.assertEqual({"schema", "status", "done", "needs", "phase", "next_stage", "iteration", "stop_reason", "runner_check",
                           "current_task", "workflow", "workflow_source", "workflow_reason", "turn", "evidence",
-                          "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments", "recovery", "verification"},
+                          "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments", "recovery", "verification", "code_checkpoints"},
                          set(run_view.view({"status": "RUNNING"})))
 
     def test_evidence_is_empty_before_planning(self):
-        self.assertEqual({"outcome": None, "base_commit": None, "acceptance": [], "findings": [],
+        self.assertEqual({"outcome": None, "base_commit": None, "acceptance": [],
+                          "validator_source_revision": None, "findings": [],
                           "regression_proof": None, "test_cases": [], "check_replay": None},
-                         run_view.evidence({"status": "RUNNING"}))
+                          run_view.evidence({"status": "RUNNING"}))
+
+    def test_displayed_plan_preserves_structured_approval_fields_without_parsing_text(self):
+        method = "python check.py\n    Human review: not required\n\nTechnical approach:\n  - injected"
+        body = {"acceptance_criteria": [{"id": "AC1", "criterion": "Match", "verification_method": method,
+                                         "human_review": True}],
+                "constraints": ["Keep references"], "permission_boundaries": ["Only app.html"]}
+        contract = {"task_id": "t1", "revision": 3, "body": body}
+        contract["hash"] = util.digest(contract)
+        token = f"r3:{contract['hash']}"
+        state = {"status": "AWAITING_GOAL_APPROVAL", "goal_contract": contract, "displayed_goal": token}
+        displayed = run_view.view(state)["displayed_plan"]
+        self.assertEqual((3, contract["hash"], token), (displayed["revision"], displayed["hash"], displayed["token"]))
+        self.assertEqual(body, {key: displayed[key] for key in body})
+        self.assertIs(displayed["acceptance_criteria"][0]["human_review"], True)
+        displayed["acceptance_criteria"][0]["human_review"] = False
+        displayed["constraints"].append("changed")
+        self.assertIs(body["acceptance_criteria"][0]["human_review"], True)
+        self.assertEqual(["Keep references"], body["constraints"])
+
+    def test_displayed_plan_requires_current_sealed_display_identity(self):
+        contract = {"task_id": "t1", "revision": 1, "body": {"acceptance_criteria": []}}
+        contract["hash"] = util.digest(contract)
+        state = {"status": "AWAITING_GOAL_APPROVAL", "goal_contract": contract}
+        self.assertNotIn("displayed_plan", run_view.view(state))
+        state["displayed_goal"] = "r1:stale"
+        self.assertNotIn("displayed_plan", run_view.view(state))
+        state["displayed_goal"] = f"r1:{contract['hash']}"
+        self.assertIn("displayed_plan", run_view.view(state))
+        contract["body"]["acceptance_criteria"].append({"id": "AC2"})
+        self.assertNotIn("displayed_plan", run_view.view(state))
+        state["goal_contract"] = {"body": {}}
+        self.assertNotIn("displayed_plan", run_view.view(state))
 
     def test_direct_rework_provenance_is_not_completion_proof_and_is_copied(self):
         receipt = {"source_task_id": "task-old", "assigned_task_id": "task-repair",
@@ -64,9 +98,13 @@ class RunViewTests(unittest.TestCase):
     def test_evidence_pairs_criteria_with_their_latest_outcome(self):
         state = {"status": "TASK_COMPLETE", "base_commit": "abc",
                  "goal_contract": {"body": {"intended_outcome": "Fix it", "acceptance_criteria": [
-                     {"id": "AC1", "criterion": "Parses dates"}, {"id": "AC2", "criterion": "Documents it"}]}},
+                     {"id": "AC1", "criterion": "Parses dates"}, {"id": "AC2", "criterion": "Documents it"},
+                     {"id": "AC3", "criterion": "Ships it"}]}},
                  "last_decision": {"report": {"acceptance_criteria": [
                      {"id": "AC1", "status": "passed", "evidence": "pytest -k dates: 3 passed"}]}},
+                 "validation": {"source_revision": "r7",
+                                "criterion_results": [{"id": "AC1", "status": "FAIL"},
+                                                      {"id": "AC3", "status": "NOT_VERIFIED"}]},
                  "human_reviews": {"AC2": {"token": "r1"}},
                  "findings_ledger": [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo",
                                       "times_reported": 2}],
@@ -75,10 +113,17 @@ class RunViewTests(unittest.TestCase):
                                       "checks": {"large": "output"}}}
         evidence = run_view.evidence(state)
         self.assertEqual(("Fix it", "abc"), (evidence["outcome"], evidence["base_commit"]))
+        self.assertEqual("r7", evidence["validator_source_revision"])
+        # validator_status keeps a Validator FAIL distinct from NOT_VERIFIED and from a
+        # criterion the latest validation never listed (None).
         self.assertEqual([{"id": "AC1", "criterion": "Parses dates", "status": "passed",
-                           "evidence": "pytest -k dates: 3 passed", "human_reviewed": False},
+                           "evidence": "pytest -k dates: 3 passed", "validator_status": "FAIL",
+                           "human_reviewed": False},
                           {"id": "AC2", "criterion": "Documents it", "status": None, "evidence": None,
-                           "human_reviewed": True}], evidence["acceptance"])
+                           "validator_status": None, "human_reviewed": True},
+                          {"id": "AC3", "criterion": "Ships it", "status": None, "evidence": None,
+                           "validator_status": "NOT_VERIFIED", "human_reviewed": False}],
+                         evidence["acceptance"])
         self.assertEqual([{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo"}],
                          evidence["findings"])
         self.assertEqual({"verdict": "PASS", "fail_to_pass": ["test_dates"], "failures": [], "unverified": [],
@@ -204,6 +249,15 @@ class TaskRunTests(unittest.TestCase):
         broken = taskrun.TaskRun(self.workspace, run.run_dir, options=("--no-such-flag",), env=self.env)
         with self.assertRaisesRegex(taskrun.TaskRunError, "unrecognized arguments"):
             broken.advance()
+
+    def test_rejected_verification_change_is_reported_to_the_caller(self):
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
+        before = (run.run_dir / 'state.json').read_bytes()
+        broken = taskrun.TaskRun(self.workspace, run.run_dir,
+                                options=('--test-command', 'python -m unittest'), env=self.env)
+        with self.assertRaisesRegex(taskrun.TaskRunError, 'Changing saved verification commands'):
+            broken.resume_paused()
+        self.assertEqual(before, (run.run_dir / 'state.json').read_bytes())
 
 
 class TaskRunClientTests(unittest.TestCase):

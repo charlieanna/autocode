@@ -24,7 +24,7 @@ MODEL_ID=re.compile(r'^[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._:/-]{0,120}$',re.I)
 def obj(x): return x if isinstance(x,dict) else {}
 def items(x): return x if isinstance(x,list) else []
 def pending_decisions(state):
- """Only a current durable AutoResolver receipt can expose a decision."""
+ """Only a current durable Resolver receipt can expose a decision."""
  public=resolver_human.projection(state)
  return public['pending_questions'],public['user_request'] or None
 def require_human_response(view,data,scopes):
@@ -33,7 +33,7 @@ def require_human_response(view,data,scopes):
      or not public.get('request_id') or not public.get('request_token')
      or data.get('resolver_request')!=public['request_id']
      or data.get('resolver_token')!=public['request_token']):
-  raise ValueError('Response requires the exact current AutoResolver request and token. Refresh the task.')
+  raise ValueError('Response requires the exact current Resolver request and token. Refresh the task.')
  return public
 def json_file(p):
  try:
@@ -452,7 +452,7 @@ class LegacyConsole:
   if engine=='opencode':
    selected=self.joint_models({role+'_model':model}).get(role)
   else:
-   if role=='glm' or model not in (CODEX_DEFAULT_MODELS.get(role),GLM_MODELS.get(role)):raise ValueError('This saved route does not support the selected replacement model')
+   if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]*',model):raise ValueError('Choose a bare Codex model name')
    selected=model
   action=self.enqueue(ws,run,'Confirm model replacement for '+role,['--'+role.replace('_','-')+'-model',selected,'--show-goal','--no-chat'])
   action['request_id']=request_id
@@ -476,7 +476,7 @@ class LegacyConsole:
   if d.get('glm_model'):raise ValueError('Planner discovery requires the default joint-planning engine')
   models={r:d.get(r+'_model',v) for r,v in CODEX_DEFAULT_MODELS.items()};provider=self.zai_probe()
   for r,m in models.items():
-   if m not in (CODEX_DEFAULT_MODELS[r],GLM_MODELS[r]):raise ValueError('Unsupported model')
+   if not isinstance(m,str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._:-]*',m):raise ValueError('Choose a bare Codex model name')
    if m==GLM_MODELS[r] and not provider:raise ValueError('Z.ai is not configured in local Codex')
   efforts={**DEFAULT_REASONING_EFFORTS,**self.joint_efforts(d)}
   extra=[goal,'--engine','codex','--no-chat']
@@ -497,7 +497,7 @@ class LegacyConsole:
     raise ValueError('Provide corrective information or leave the task paused')
    extra=['--resolver-request',public['request_id'],'--resolver-token',public['request_token'],'--resolver-response',response]
    if text:extra+=['--resolver-message',text]
-   return self.enqueue(ws,run,'Respond to AutoResolver',extra+['--no-chat'])
+   return self.enqueue(ws,run,'Respond to Resolver',extra+['--no-chat'])
   if action=='answer':
    public=require_human_response(v,d,('clarification','permission','goal_change'))
    ident,text=str(d.get('id','')),d.get('text','')
@@ -538,6 +538,8 @@ try:
  from .dashboard_project_controls import ProjectRemovalMixin
  from .dashboard_tasks import TaskArchiveMixin
  from .dashboard_delete import PermanentDeleteMixin
+ from .dashboard_setup import SetupMixin
+ from .dashboard_checkpoints import CheckpointMixin
  from .dashboard_evidence import stage_evidence
 except ImportError:  # Support running this file directly from a source checkout.
  from dashboard_backend import RegistryInterventionMixin, approved_goal_token
@@ -546,9 +548,11 @@ except ImportError:  # Support running this file directly from a source checkout
  from dashboard_project_controls import ProjectRemovalMixin
  from dashboard_tasks import TaskArchiveMixin
  from dashboard_delete import PermanentDeleteMixin
+ from dashboard_setup import SetupMixin
+ from dashboard_checkpoints import CheckpointMixin
  from dashboard_evidence import stage_evidence
 
-class Console(PermanentDeleteMixin, TaskArchiveMixin, ProjectRemovalMixin, ConversationMixin, RecoveryActionsMixin, RegistryInterventionMixin, LegacyConsole):
+class Console(CheckpointMixin, SetupMixin, PermanentDeleteMixin, TaskArchiveMixin, ProjectRemovalMixin, ConversationMixin, RecoveryActionsMixin, RegistryInterventionMixin, LegacyConsole):
  def model_catalogue(self,refresh=False):
   result=self.catalogue.fetch(refresh=refresh)
   try:
@@ -562,8 +566,8 @@ class Console(PermanentDeleteMixin, TaskArchiveMixin, ProjectRemovalMixin, Conve
 
 # Static presentation is kept separate from the read-only adapter and mutation API.
 INDEX = re.sub(r'\{\{role:(\w+)\}\}',lambda match:ROLE_NAMES['roles'][match[1]],Path(__file__).with_name('dashboard.html').read_text())
-STYLE = Path(__file__).with_name('dashboard.css').read_text()
-APP = 'globalThis.AUTOCODE_ROLE_NAMES = '+json.dumps(ROLE_NAMES)+';\n'+Path(__file__).with_name('dashboard_app.js').read_text()
+STYLE = Path(__file__).with_name('dashboard.css').read_text()+'\n'+Path(__file__).with_name('dashboard_scoped_start.css').read_text()+'\n'+Path(__file__).with_name('dashboard_reference_layout.css').read_text()
+APP = 'globalThis.AUTOCODE_ROLE_NAMES = '+json.dumps(ROLE_NAMES,sort_keys=True)+';\n'+Path(__file__).with_name('dashboard_app.js').read_text()+'\n'+Path(__file__).with_name('dashboard_setup.js').read_text()+'\n'+Path(__file__).with_name('dashboard_checkpoints.js').read_text()+'\n'+Path(__file__).with_name('dashboard_scoped_start.js').read_text()
 
 class LoopbackHTTPServer(ThreadingHTTPServer):
  def server_bind(self):
@@ -607,6 +611,7 @@ class Handler(BaseHTTPRequestHandler):
   if p.path=='/':return self.reply(200,INDEX,'text/html')
   if p.path=='/static/style.css':return self.reply(200,STYLE,'text/css')
   if p.path=='/static/app.js':return self.reply(200,APP,'application/javascript')
+  if p.path=='/static/connected.svg':return self.reply(200,(Path(__file__).parent/'assets/connected.svg').read_bytes(),'image/svg+xml')
   if p.path.startswith('/static/fonts/'):
    fonts=('Inter-Regular.woff2','Inter-SemiBold.woff2','JetBrainsMono-Regular.woff2')
    name=p.path[len('/static/fonts/'):]
@@ -645,7 +650,11 @@ class Handler(BaseHTTPRequestHandler):
   try:
    d=json.loads(self.rfile.read(int(self.headers.get('Content-Length','0'))));
    if not isinstance(d,dict):raise ValueError('JSON body must be an object')
-   if self.path=='/api/projects':x=self.console.project_action(d)
+   if self.path=='/api/setup/check':x=self.console.setup_check(d)
+   elif self.path=='/api/setup/project':x=self.console.setup_project(d)
+   elif self.path=='/api/checkpoint/compare':x=self.console.checkpoint_action(d)
+   elif self.path=='/api/checkpoint/restore':x=self.console.checkpoint_action(d,restore=True)
+   elif self.path=='/api/projects':x=self.console.project_action(d)
    elif self.path=='/api/tasks':x=self.console.task_archive_action(d)
    elif self.path=='/api/tasks/delete-preview':x=self.console.deletion_preview(d)
    elif self.path=='/api/tasks/delete':x=self.console.delete_permanently(d)
@@ -653,6 +662,9 @@ class Handler(BaseHTTPRequestHandler):
    elif self.path=='/api/conversation/archive':x=self.console.conversation_archive(d)
    elif self.path=='/api/conversation/message':
     self.console.require_unarchived_conversation(d.get('id'));x=self.console.conversations.send(d.get('id'),d.get('text'),d.get('request_id'))
+   elif self.path=='/api/conversation/refresh-draft':
+    self.console.require_unarchived_conversation(d.get('id'));x=self.console.conversations.refresh_draft(d.get('id'),requirements_revision=d.get('requirements_revision'),logical_turn_id=d.get('logical_turn_id'),request_id=d.get('request_id'))
+   elif self.path=='/api/conversation/confirm-scope':x=self.console.confirm_conversation_scope(d)
    elif self.path=='/api/conversation/retry':
     self.console.require_unarchived_conversation(d.get('id'));x=self.console.conversations.retry(d.get('id'))
    elif self.path=='/api/conversation/attach':x=self.console.conversation_attach(d)

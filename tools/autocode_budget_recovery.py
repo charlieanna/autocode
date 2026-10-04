@@ -272,6 +272,8 @@ def recover(state, *, kind, now) -> bool:
         tokens = metrics.get("provider_tokens") if isinstance(metrics, dict) else None
         if row.get("accounted") is not True or not _number(row.get("duration_seconds")) or not isinstance(tokens, dict):
             return False
+        if metrics.get("provider_tokens_partial") is True:
+            return False
         values = [tokens.get(name) for name in ("input_tokens", "output_tokens")]
         if all(type(value) is int and value >= 0 for value in values):
             total_tokens += sum(values)

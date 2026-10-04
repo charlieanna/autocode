@@ -28,7 +28,7 @@ assert.equal(classify(live).label, 'Running');
 assert.equal(context.taskOverviewState(live).verified, true);
 assert.equal(context.taskOverviewState(live).step, 'Current step · Builder · Implementing');
 assert.equal(context.taskOverviewState(live).objective, 'Finish validation');
-assert.equal(context.planningMode(live), 'Builder-led · Completion Owner final audit');
+assert.equal(context.planningMode(live), 'Builder-led · Completion Reviewer final audit');
 const exited = {...live, monitor: {...live.monitor, live: {state: 'exited'}}};
 assert.equal(classify(exited).group, 'stopped');
 assert.equal(context.taskOverviewState(exited).active, false);
@@ -39,7 +39,7 @@ const savedPause={status:'PAUSED_INTERVENTION',stage:'astra_challenge',model_set
   monitor:{next_stage:'astra_challenge',live:{state:'none'}},
   stages:[{stage:'astra_discovery',finished_at:'2026-09-21T19:09:12Z',exit_code:0}]};
 assert.equal(context.taskOverviewState(savedPause).step,'Next step · Plan Reviewer · Challenging the plan');
-assert.equal(context.taskOverviewState({...savedPause,monitor:{live:{state:'none'}}}).step,'Last completed step · Planner · Planning');
+assert.equal(context.taskOverviewState({...savedPause,monitor:{live:{state:'none'}}}).step,'Last completed step · Requirements · Planning');
 assert.equal(context.taskOverviewState({...savedPause,monitor:{},stages:[]}).step,'No active step');
 assert.equal(context.taskOverviewState(exited).step,'Last reported active step · Builder · Implementing');
 assert.equal(classify(activity).group, 'stopped');
@@ -91,7 +91,7 @@ const blocker = classify(projectedRun('clarification', {...review, questions: [q
 assert.equal(blocker.action, 'Answer 1 question');
 assert.equal(blocker.tab, 'interview');
 assert.equal(classify(projectedRun('blocker', {questions: [question], user_request: {decision_needed:'Choose the deployment target'}})).reason, 'Choose the deployment target');
-assert.equal(classify({status:'BLOCKED_HUMAN',questions:[question]}).label,'Awaiting AutoResolver');
+assert.equal(classify({status:'BLOCKED_HUMAN',questions:[question]}).label,'Awaiting Resolver');
 assert.equal(classify(projectedRun(null,{status:'WAITING_FOR_USER',questions:[question]})).group,'stopped');
 assert.equal(classify({status: 'DRY_RUN', questions: [question]}).group, 'other');
 assert.equal(classify({status: 'UNRECOGNIZED_STATE'}).group, 'other');

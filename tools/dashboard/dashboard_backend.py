@@ -329,7 +329,8 @@ class RegistryInterventionMixin:
                  'blocked_conditions': blocked, 'pause_intent': interventions.get('pause_intent'),
                  'stop_intent': interventions.get('stop_intent'),
                  'work_progress': progress_from_status(data if not error else {}),
-                 'recovery': recovery_projection(data if not error else {})}
+                 'recovery': recovery_projection(data if not error else {}),
+                 'code_checkpoints': mapping(mapping(data).get('view')).get('code_checkpoints') if not error else None}
         if capable and (error or inspect_error):
             value['mode'] = 'unavailable'
         self.status_cache[key] = {'at': time.monotonic(), 'value': value}

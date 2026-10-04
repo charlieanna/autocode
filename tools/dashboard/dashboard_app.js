@@ -1,3 +1,4 @@
+const setupInitiallyEmptyLocation=!globalThis.location?.hash;
 /* Local dashboard: render saved runner data; only explicit actions advance work. */
 let chosen = null, seq = 0, init = false, focusVersion = 0;
 let currentView = 'tasks', currentTab = 'now', taskFilter = 'all', projectFilter = '', searchText = '';
@@ -80,7 +81,7 @@ function resolverReplyCurrent(run,request,scopes) {
 }
 function chatPayload(run,text,question_id,request_id,delegate=false) {
   const fields=question_id?resolverResponseFields(run):{};
-  if((question_id||delegate)&&(!question_id||!resolverReplyCurrent(run,fields,['clarification','permission','goal_change'])||!(run.questions||[]).some(question=>String(question.id)===String(question_id))))throw Error('This answer needs the current AutoResolver request. Refresh the task.');
+  if((question_id||delegate)&&(!question_id||!resolverReplyCurrent(run,fields,['clarification','permission','goal_change'])||!(run.questions||[]).some(question=>String(question.id)===String(question_id))))throw Error('This answer needs the current Resolver request. Refresh the task.');
   return {workspace:run.workspace,run:run.run,text,request_id,...(question_id?{question_id,...fields}:{}),...(delegate?{delegate:true}:{})};
 }
 function messageTime(entry) {const value=entry.created_at||entry.timestamp||entry.at;if(typeof value==='number')return value<1e12?value*1000:value;return Date.parse(value)||0;}
@@ -180,7 +181,7 @@ function renderArchiveNotice(){
   else if(action==='archive')host.append(archiveButton(run,'restore','Undo'));
   host.append(button('Archived tasks',()=>setView('archived')),button('Dismiss',()=>{archiveNotice=null;renderArchiveNotice();},'text-button'));
 }
-function renderArchivedTasks(data){const host=$('#archived-task-list');host.replaceChildren();const entries=data.archived_tasks||[];$('#archive-count').textContent=entries.length;for(const run of entries){const row=card('','managed-project'),copy=card('','managed-project-copy');copy.append(n('h3',taskTitle(run)),n('p',projectTitle(run.workspace)),Object.assign(n('p',basename(run.run)),{className:'project-path'}));row.append(copy,archiveButton(run,'restore','Restore task'),button('Delete task & files…',()=>reviewTaskDelete(run),'text-button'));host.append(row);}if(!entries.length)host.append(n('p','No archived tasks.'));}
+function renderArchivedTasks(data){const host=$('#archived-task-list');host.replaceChildren();const entries=data.archived_tasks||[];$('#archive-count').textContent=entries.length;for(const run of entries){const row=card('','managed-project'),copy=card('','managed-project-copy');copy.append(n('h3',taskTitle(run)),n('p',projectTitle(run.workspace)),Object.assign(n('p',basename(run.run)),{className:'project-path'}));row.append(copy,archiveButton(run,'restore','Restore task'),button('Delete task & files…',()=>reviewTaskDelete(run),'text-button'));host.append(row);}if(!entries.length)host.append(n('p','No archived tasks.'));renderPendingDeletions(host,data);}
 function renderTaskArchiveReview(){
   const review=archiveReview,uncertain=review&&taskArchiveUncertain(review.run),confirm=$('#task-archive-confirm'),reconcile=$('#task-archive-reconcile'),message=$('#task-archive-uncertain');
   if(!review)return;
@@ -328,12 +329,12 @@ function deleteRequestKey(run){return 'task-delete:'+run.run;}
 function updateTaskDeleteConfirm(){
   const review=taskDeleteReview;if(!review)return;
   const matches=$('#task-delete-confirmation').value===review.preview?.confirmation;
-  $('#task-delete-confirm').disabled=review.busy||!review.preview?.preview_id||(!review.uncertain&&!matches);
-  $('#task-delete-confirm').textContent=review.busy?'Deleting…':review.uncertain?'Retry same deletion':'Delete selected files';
+  $('#task-delete-confirm').disabled=review.busy||review.blocked||!review.preview?.preview_id||(!review.uncertain&&!matches);
+  $('#task-delete-confirm').textContent=review.busy?'Deleting…':review.blocked?'Confirmation no longer valid':review.uncertain?'Retry same deletion':'Delete selected files';
 }
 function renderTaskDeletePreview(){
   const review=taskDeleteReview,preview=review?.preview;if(!review)return;
-  $('#task-delete-name').textContent=taskTitle(review.run);
+  $('#task-delete-name').textContent=taskTitle(review.run)+' · '+(preview?.workspace||review.run.workspace||'');
   $('#task-delete-phrase').textContent=preview?.confirmation||'the task name after the preview loads';
   const list=$('#task-delete-scope');list.replaceChildren();
   for(const entry of preview?.scope||[]){const item=n('li');item.append(n('strong',human(entry.kind||'File')),n('code',entry.path||String(entry)));list.append(item);}
@@ -349,12 +350,21 @@ async function loadTaskDeletePreview(){
   catch(error){$('#task-delete-error').textContent=error.message;$('#task-delete-error').hidden=false;}
   finally{review.busy=false;renderTaskDeletePreview();}
 }
-async function reviewTaskDelete(run){
-  if(taskReadError||taskDeleteReview?.busy)return;
-  const saved=readSavedRequest(deleteRequestKey(run));taskDeleteReview={run,opener:document.activeElement,preview:saved?.preview||null,uncertain:!!saved?.preview,busy:false};
+function renderPendingDeletions(host,data){
+  const pending=data.pending_deletions||[];if(!pending.length)return;
+  const section=card('','settings-block');section.id='pending-deletions';section.append(n('h2','Incomplete deletions'),n('p','Files may already have been removed. Review the saved receipt before retrying the same scope.'));
+  for(const receipt of pending){
+    const row=card('','managed-project');row.append(n('h3',receipt.title||'Saved deletion'),n('p',(receipt.errors||[]).join(' ')||'The earlier deletion has no final receipt.'),button('Review incomplete deletion',()=>reviewTaskDelete({run:receipt.run,workspace:receipt.workspace,task:receipt.title},receipt)));
+    section.append(row);
+  }
+  host.append(section);
+}
+async function reviewTaskDelete(run,receipt=null){
+  if((taskReadError&&!receipt)||taskDeleteReview?.busy)return;
+  const saved=receipt?{preview:receipt,blocked:receipt.retry_blocked}:readSavedRequest(deleteRequestKey(run));taskDeleteReview={run,opener:document.activeElement,preview:saved?.preview||null,uncertain:!!saved?.preview,blocked:!!saved?.blocked,busy:false};
   $('#task-delete-worktree').checked=false;$('#task-delete-branch').checked=false;$('#task-delete-confirmation').value='';$('#task-delete-error').hidden=true;$('#task-delete-result').hidden=true;
   $('#task-delete-dialog').showModal();$('#task-delete-cancel').focus();
-  if(taskDeleteReview.uncertain){$('#task-delete-error').textContent='The earlier deletion did not return a complete receipt. Retry the same saved deletion to reconcile its result; the scope cannot be expanded.';$('#task-delete-error').hidden=false;renderTaskDeletePreview();}
+  if(taskDeleteReview.uncertain){$('#task-delete-error').textContent=taskDeleteReview.blocked?'The saved confirmation cannot safely remove the retained resource. Close this dialog and inspect the remaining files or branch.':'The earlier deletion did not return a complete receipt. Retry the same saved deletion to reconcile its result; the scope cannot be expanded.';$('#task-delete-error').hidden=false;renderTaskDeletePreview();}
   else await loadTaskDeletePreview();
 }
 function closeTaskDelete(){
@@ -366,9 +376,9 @@ async function confirmTaskDelete(){
   try{
     const result=await deletionRequest('/api/tasks/delete',{preview_id:preview.preview_id,confirmation:preview.confirmation});
     if(result.status!=='deleted'){
-      review.uncertain=true;
+      review.uncertain=true;review.blocked=result.retry_blocked===true;persist(deleteRequestKey(review.run),JSON.stringify({preview,blocked:review.blocked}));
       const remaining=(result.remaining||[]).map(item=>typeof item==='string'?item:item.path||item.kind).filter(Boolean).join(', ');
-      $('#task-delete-error').textContent='Deletion is incomplete. '+(result.errors||[]).map(item=>typeof item==='string'?item:item.error||item.message||JSON.stringify(item)).join(' ') +(remaining?' Remaining: '+remaining:'')+' Retry uses the same approved scope.';
+      $('#task-delete-error').textContent='Deletion is incomplete. '+(result.errors||[]).map(item=>typeof item==='string'?item:item.error||item.message||JSON.stringify(item)).join(' ') +(remaining?' Remaining: '+remaining:'')+(review.blocked?' The old confirmation is disabled; retained work needs a new review.':' Retry uses the same approved scope.');
       $('#task-delete-error').hidden=false;return;
     }
     persist(deleteRequestKey(review.run),'');review.busy=false;closeTaskDelete();
@@ -460,15 +470,15 @@ function statusInfo(run) {
   if(status==='TASK_COMPLETE')return info('complete','complete','Completed','View result','The runner recorded this task as complete. No reply is needed.','execution');
   if(status==='WAITING_FOR_DEPENDENCY')return info('stopped','','Waiting for prerequisite','View progress',run.stop_reason||'Waiting for another task to finish and pass review. No action needed from you.','execution');
   if(status==='DRY_RUN')return info('other','','Preview only','View preview','This is a saved dry run. It did not start implementation.','execution');
-  if(status==='RESOLVER_PENDING'||(!authorized&&['WAITING_FOR_USER','AWAITING_GOAL_APPROVAL','BLOCKED_HUMAN'].includes(status)))return info('stopped','','Awaiting AutoResolver','Inspect details','No current AutoResolver request is published. Saved drafts and internal questions are available for inspection, not for answers or approval.');
-  if(status.startsWith('PAUSED_RESOLVER'))return info('stopped','','AutoResolver paused','Inspect details',run.stop_reason||'AutoResolver is paused. No execution or additional allowance is authorized.');
-  if(operationalRequest(run))return info('attention','attention','AutoResolver needs information','Respond to AutoResolver',request.decision_needed||questions[0]?.question||'Provide corrective information or leave the task paused.');
+  if(status==='RESOLVER_PENDING'||(!authorized&&['WAITING_FOR_USER','AWAITING_GOAL_APPROVAL','BLOCKED_HUMAN'].includes(status)))return info('stopped','','Awaiting Resolver','Inspect details','No current Resolver request is published. Saved drafts and internal questions are available for inspection, not for answers or approval.');
+  if(status.startsWith('PAUSED_RESOLVER'))return info('stopped','','Resolver paused','Inspect details',run.stop_reason||'Resolver is paused. No execution or additional allowance is authorized.');
+  if(operationalRequest(run))return info('attention','attention','Resolver needs information','Respond to Resolver',request.decision_needed||questions[0]?.question||'Provide corrective information or leave the task paused.');
   if(['PAUSED_PROVIDER_UNCERTAIN','PAUSED_UNCERTAIN_STAGE'].includes(status))return info('stopped','failed','Interrupted','Review interruption',run.stop_reason||'A provider attempt ended without a confirmed result. Review saved work before continuing.');
   // Saved questions and user requests may remain after a stage resumes. Honor
   // the current paused/running state before interpreting these old fields.
   if(status==='RUNNING') {
     const stage=run.active_stage||{};
-    if(run.monitor?.live?.state==='alive')return info('running','running','Running','View progress',stageName(run)+' · Worker verified alive');
+    if(run.monitor?.live?.state==='alive')return info('running','running',stage.stage==='astra_resolve'?'Recovering':'Running','View progress',stageName(run)+' · Worker verified alive');
     if(stage.stage&&run.monitor?.live?.state==='exited')return info('stopped','attention','Worker stopped','Review checkpoint','The saved step says running, but its worker has exited. Review the checkpoint before continuing.');
     if(stage.stage&&!stage.finished_at&&stage.exit_code==null)return info('stopped','attention','Worker unverified','Check worker status','No live worker is confirmed. '+(run.monitor?.live?.label||'Process inspection is unavailable.')+' Inspect the saved checkpoint before continuing.');
     if(archiveSuggestionKind(run)==='No worker recorded; check before archiving')return info('stopped','attention','Status needs review','Check saved status','This run still says running, but no worker was recorded and its checkpoint has not changed for two days. Check it before continuing or archiving.');
@@ -499,7 +509,7 @@ function statusInfo(run) {
 function runtimeLabel(run) {
   const info=statusInfo(run),live=run.monitor?.live||{},active=run.active_stage||{};
   if(run.status==='RUNNING') {
-    if(live.state==='alive')return 'Running · worker verified alive';
+    if(live.state==='alive')return (info.label==='Recovering'?'Recovering':'Running')+' · worker verified alive';
     if(live.state!=='exited'&&active.stage&&!active.finished_at&&active.exit_code==null)return 'Activity reported · live process not confirmed';
   }
   if(info.label==='Answer needed')return 'Waiting on you · Answer needed';
@@ -891,9 +901,11 @@ function renderProjectOverview(scope) {
   if(!actual.length)host.append(n('p','No saved task status is available for this project.'));
 }
 function setView(view) {
+  if(init&&view!=='draft-conversation'&&typeof returnSetupModels==='function')returnSetupModels();
   if (currentView !== view) seq++;
   if(view!=='task-detail'&&typeof cancelApprovalReceipts==='function')cancelApprovalReceipts();
   currentView = view;
+  const draftDialog=$('#draft-plan-dialog');if(view!=='draft-conversation'&&draftDialog?.open){draftDialog._returnFocus=null;draftDialog.close();}
   document.body.classList.toggle('monitor-focus',view==='task-detail'&&stored('focus')==='1');
   $('#focus-toggle').hidden=view!=='task-detail';
   $('#focus-toggle').textContent=stored('focus')==='1'?'Show navigation':'Focus view';
@@ -945,7 +957,7 @@ function openRun(run, tab = 'now') {
   taskReadError='';taskReadAt=null;$('#task-load-notice').hidden=true;
   rememberSelection(runSelection(run));
   renderTaskProjectActions(run.workspace);$('#task-removed-banner').hidden=true;$('#detail-grid').hidden=false;
-  if (changed) { $('#conversation').replaceChildren(); $('#brief-current').replaceChildren(); $('#plan-full').replaceChildren(); $('#goal').replaceChildren(); $('#live-controls').hidden=true; $('#task-attention').hidden=true; $('#continue-run').disabled=true; $('#pause-run').disabled=true; $('#stop-run').disabled=true; $('#task-project').textContent=projectTitle(run.workspace); $('#task-title').textContent=taskTitle(run); $('#task-subtitle').textContent='Loading current task state…'; $('#task-models').textContent=''; $('#task-status').replaceChildren();$('#task-progress-summary').hidden=true; }
+  if (changed) { $('#conversation').replaceChildren(); $('#brief-current').replaceChildren(); $('#plan-full').replaceChildren(); $('#goal').replaceChildren(); $('#live-controls').hidden=true; $('#task-attention').hidden=true; $('#continue-run').disabled=true; $('#pause-run').disabled=true; $('#stop-run').disabled=true; $('#task-project').textContent=projectLabel(run.workspace); $('#task-title').textContent=taskTitle(run); $('#task-subtitle').textContent='Loading current task state…'; $('#task-models').textContent=''; $('#task-status').replaceChildren();$('#task-progress-summary').hidden=true; }
   $('#task-back').textContent='← '+(taskReturn.project?projectTitle(taskReturn.project):'All work');
   setView('task-detail'); activateTab(tab); refresh(); window.scrollTo({top:0}); syncNewTaskScope();
 }
@@ -985,7 +997,7 @@ $('#conversation-search').oninput = event => { conversationSearch = event.target
 // A control the stylesheet does not paint (the mobile project sheet hides its
 // desktop-only utility rows) cannot take focus either, so it must not bound
 // the keyboard wrap.
-function navigationFocusables(){return [...$('#primary-navigation').querySelectorAll('a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')].filter(element=>!element.hidden&&!element.disabled&&drawerControlRendered(element)&&drawerControlPainted(element));}
+function navigationFocusables(){return [...$('#primary-navigation').querySelectorAll('summary,a[href],button:not([disabled]),input:not([disabled]):not([type=hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')].filter(element=>!element.hidden&&!element.disabled&&drawerControlRendered(element)&&drawerControlPainted(element));}
 function drawerControlPainted(element){
   if(typeof getComputedStyle!=='function')return true;
   const style=getComputedStyle(element),rect=element.getBoundingClientRect();
@@ -1065,9 +1077,9 @@ document.addEventListener('keydown',event => { if (event.key.toLowerCase()==='n'
 $('#interview').append($('#change-history'));
 function composerShouldSend(event) {return event.key==='Enter'&&!event.shiftKey&&!event.altKey&&!event.isComposing;}
 function conversationDeliveryBlocked(doc){return [doc?.pending_dispatch,doc?.planner_delivery].some(delivery=>delivery&&['UNCERTAIN','ACTIVE','DISPATCH_PREPARED','PROCESS_STARTING','PROCESS_STARTED','PROVIDER_IDENTIFIED','RESULT_CAPTURED','PENDING'].includes(String(delivery.state||delivery.status||'').toUpperCase()));}
-function conversationRetryAllowed(doc){const deliveries=[doc?.pending_dispatch,doc?.planner_delivery].filter(Boolean);return !conversationDeliveryBlocked(doc)&&(!deliveries.length||deliveries.some(delivery=>delivery.retryable===true));}
+function conversationRetryAllowed(doc){if(doc?.project_scope_error)return false;const deliveries=[doc?.pending_dispatch,doc?.planner_delivery].filter(Boolean);return !conversationDeliveryBlocked(doc)&&(!deliveries.length||deliveries.some(delivery=>delivery.retryable===true));}
 function draftSendBlocked(doc,pending,text) {return !doc||!!(doc.project_removed||doc.task_archived||doc.archived_at||pending||conversationDeliveryBlocked(doc)||doc.status==='thinking'||doc.attachment||doc.status==='error')||!String(text||'').trim();}
-function resizeComposer(input) {input.style.height='auto';input.style.height=Math.min(160,Math.max(48,input.scrollHeight))+'px';}
+function resizeComposer(input) {const minimum=(input.id==='draft-text'&&$('#draft-conversation').classList.contains('scoped-start'))?24:48;input.style.height='auto';input.style.height=Math.min(160,Math.max(minimum,input.scrollHeight))+'px';}
 for(const [input,form] of [['#change-text','#change-form'],['#draft-text','#draft-form']]){
   $(input).addEventListener('keydown',event=>{if(composerShouldSend(event)){event.preventDefault();const submit=$(form).querySelector('button[type="submit"]');if(submit&&!submit.disabled&&$(input).value.trim())$(form).requestSubmit();}});
   $(input).addEventListener('input',()=>resizeComposer($(input)));
@@ -1187,6 +1199,7 @@ function setup(data) {
     init=true;
      $('#retry-models').onclick=()=>loadModels(true);
      loadModels();
+     if(setupInitiallyEmptyLocation&&!(data.runs||[]).length&&!(data.conversations||[]).length&&typeof openWorkspaceSetup==='function')openWorkspaceSetup();
   }
   $('#registry-location').textContent=data.registry?.location || 'The registry location is currently unavailable.';
   renderArchivedTasks(data);
@@ -1203,7 +1216,7 @@ function unattachedConversations(data){return (data.conversations||[]).filter(do
    visible in a "No project" group without being attached to any project. */
 function conversationWorkspace(doc) {
   const attachment=doc?.attachment;
-  return attachment?.project_workspace||attachment?.workspace||doc?.project_workspace||'';
+  return attachment?.project_workspace||doc?.project_workspace||attachment?.workspace||'';
 }
 function runConversationAttention(run) {
   const info=statusInfo(run);
@@ -1211,6 +1224,7 @@ function runConversationAttention(run) {
   return ['Approve plan','Review output'].includes(info.label)?'Approval requested':'Awaiting your reply';
 }
 function docConversationAttention(doc) {
+  if(doc?.project_scope_confirmation&&!doc.archived_at&&!doc.project_removed)return 'Confirm project folder in chat';
   // Amber attention means saved human input is pending. The list summary
   // carries the store-verified intake projection; a delivery error or an
   // autonomous recovery is not a human request, so without that saved
@@ -1411,7 +1425,7 @@ for(const role of ['plan_reviewer','astra','terra','sol','completion']){const se
 function openConversation(doc) {
   $('#archive-conversation').disabled=true;$('#conversation-archived-banner').hidden=true;
   const id=typeof doc==='string'?doc:doc.id;if(!id)return;
-  if(activeConversation!==id){$('#draft-messages').replaceChildren();$('#draft-messages').dataset.rendered='';$('#draft-title').textContent='Loading conversation…';$('#draft-problem').hidden=true;$('#draft-text').value=stored('conversation-draft:'+id);$('#draft-text').dataset.conversation=id;$('#attach-mode').value='existing';$('#workspaces').value='';$('#project-path').value='';$('#attach-error').textContent='';attachModeChanged();}
+  if(activeConversation!==id){const dialog=$('#draft-plan-dialog');if(dialog?.open){dialog._returnFocus=null;dialog.close();}$('#draft-messages').replaceChildren();$('#draft-messages').dataset.rendered='';$('#draft-title').textContent='Loading conversation…';$('#draft-problem').hidden=true;$('#draft-text').value=stored('conversation-draft:'+id);$('#draft-text').dataset.conversation=id;$('#attach-mode').value='existing';$('#workspaces').value='';$('#project-path').value='';$('#attach-error').textContent='';attachModeChanged();}
   activeConversation=id;chosen=null;latestRun=null;seq++;setView('draft-conversation');rememberSelection('conversation='+encodeURIComponent(id));
   if(typeof doc==='object')renderDraftConversation(doc);refresh();window.scrollTo({top:0});
 }
@@ -1478,6 +1492,7 @@ function appendMessage(host,message) {
   const text=message.text||'',body=message.role==='user'?n('p',text):messageBody(text);
   const at=messageTime(message),stamp=at?new Date(at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';
   const meta=Object.assign(n('div',''),{className:'speaker'});
+  meta.dataset.initials=speaker.slice(0,1).toUpperCase();
   meta.append(n('strong',speaker));
   if(message.planning_history)meta.append(n('span','Planning discussion'));
   if(stamp){const time=n('time',new Date(at).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}));time.title=stamp;time.dateTime=new Date(at).toISOString();meta.append(time);}
@@ -1486,8 +1501,55 @@ function appendMessage(host,message) {
   if(!message.expanded&&(text.length>1000||(message.planning_history&&text.length>320))){row.append(n('p',concise(text,260)),disclosure(message.planning_history?'Read saved planning discussion':'Read the full message','message:'+speaker+':'+text.slice(0,90),[body],chosen?.run||activeConversation||''));}else row.append(body);
   if(message.role==='user'&&message.status&&!['saved','received'].includes(message.status))row.append(Object.assign(n('small',receiptLabel(message)),{className:'message-receipt'}));host.append(row);return row;
 }
+function draftUpdateCard(doc){
+  const update=doc.draft_update,host=card('','lifecycle-card');
+  host.dataset.draftUpdate='true';host.append(n('h3','Draft update'));
+  host.append(n('p',update.answers_since_update+' of your latest messages are saved. Automatic draft updates group '+update.answers_per_update+' messages to limit extra model calls.'));
+  host.append(n('p','You can keep answering or update the draft now. This does not approve a plan or start implementation.'));
+  const action=button('Update draft now',()=>refreshConversationDraft(doc),'secondary');
+  action.disabled=!update.can_refresh||conversationPending.has(doc.id)||conversationArchiveBlocked(doc)||doc.task_archived||doc.project_removed;
+  host.append(action);return host;
+}
+async function refreshConversationDraft(doc){
+  const update=doc.draft_update;
+  if(!update?.can_refresh||conversationPending.has(doc.id)||conversationArchiveBlocked(doc)||doc.task_archived||doc.project_removed||doc.id!==activeConversation)return;
+  const target={requirements_revision:update.requirements_revision,logical_turn_id:update.logical_turn_id};
+  const key='draft-refresh:'+doc.id,request=savedRequest(key,target);
+  conversationPending.add(doc.id);seq++;renderDraftConversation(doc);
+  try{
+    const saved=await api('/api/conversation/refresh-draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:doc.id,...target,request_id:request.id})});
+    persist(key,'');renderDraftConversation(saved);
+  }catch(error){dashboardNotice(error.message);}
+  finally{conversationPending.delete(doc.id);if(activeConversation===doc.id)renderDraftConversation(latestConversation||doc);refresh();}
+}
+
+function renderDraftDeliveryProblem(problem,doc,retry){
+  problem.replaceChildren();
+  const failedDraft=doc.plan_drafts?.at(-1)?.status==='failed';
+  const plannerFailed=failedDraft||['SAFE_NOT_DISPATCHED','UNCERTAIN'].includes(doc.planner_delivery?.state);
+  const message=retry?.error||doc.error||(plannerFailed?'The draft update could not finish. Your answers and previous draft are saved.':null);
+  if(!doc.archived_at&&!doc.task_archived&&!doc.project_removed&&message){
+    problem.append(Object.assign(n('p',message),{className:'error'}));
+    if(doc.project_scope_confirmation){
+      const scope=doc.project_scope_confirmation;problem.append(n('p',scope.workspace));
+      const action=button('Confirm this project folder',async()=>{
+        action.disabled=true;
+        try{const saved=await api('/api/conversation/confirm-scope',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:doc.id,token:scope.token})});renderDraftConversation(saved);refresh();}
+        catch(error){dashboardNotice(error.message);action.disabled=false;}
+      });problem.append(action);
+    }else if(doc.project_scope_error){
+      problem.append(n('p','Your conversation and project files are preserved.'));
+    }else if(conversationRetryAllowed(doc)){
+      const action=button(retry?'Retry sending':plannerFailed?'Retry draft update':'Retry planner',()=>retry?sendDraftMessage(doc,retry):retryConversation(doc));
+      action.disabled=conversationPending.has(doc.id);problem.append(action);
+    }else problem.append(n('p','Delivery is not safe to repeat. The saved turn and any provider result are preserved; no second request will be sent.'));
+  }
+  problem.hidden=!problem.childElementCount;
+}
+
 function renderDraftConversation(doc) {
   if(doc.id!==activeConversation)return;latestConversation=doc;
+  if(typeof returnSetupModels==='function')returnSetupModels();
   const scoped=conversationWorkspace(doc);
   if(!doc.attachment?.run&&scoped!==activeProject){activeProject=scoped;persist('active-project',activeProject);}
   if(!doc.attachment?.run)syncNewTaskScope();
@@ -1505,28 +1567,29 @@ function renderDraftConversation(doc) {
   $('#draft-subtitle').textContent=doc.attachment?.workspace?'Connecting '+basename(doc.attachment.workspace):scoped&&!doc.attachment?'Project '+projectLabel(scoped)+' · Planning model: '+model+'. This conversation starts inside that project.':'Planning model: '+model+'. Bring in a project when you’re ready.';
   $('#draft-subtitle').title=model;
   $('#draft-text').placeholder=scoped&&!doc.attachment?'Message your team in '+projectLabel(scoped)+'…':'Message your team…';
-  const host=$('#draft-messages'),signature=JSON.stringify([doc.messages||[],doc.status,conversationPending.has(doc.id)]);
-  if(host.dataset.rendered!==signature){const scroll=$('#draft-scroll'),first=!host.dataset.rendered,near=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90,position=scroll.scrollTop;host.replaceChildren();renderMessageHistory(host,doc.messages||[],doc.id);if(doc.status==='thinking'||conversationPending.has(doc.id)){const thinking=card('','chat-thinking');thinking.setAttribute('role','status');thinking.append(n('span',roleDisplayName('requirements')),n('span',doc.status==='thinking'?'Thinking through your reply…':'Sending your message…'));host.append(thinking);}host.dataset.rendered=signature;requestAnimationFrame(()=>{if(first&&restoreThreadAnchor(scroll,'conversation-scroll:'+doc.id))updateDraftScroll();else if(first||near)scrollDraftToEnd();else{scroll.scrollTop=position;updateDraftScroll();}});}
+  const host=$('#draft-messages'),signature=JSON.stringify([doc.messages||[],doc.status,doc.draft_update,conversationPending.has(doc.id)]);
+  if(host.dataset.rendered!==signature){const scroll=$('#draft-scroll'),first=!host.dataset.rendered,near=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<90,position=scroll.scrollTop;host.replaceChildren();renderMessageHistory(host,doc.messages||[],doc.id);if(doc.draft_update?.held&&!doc.archived_at&&!doc.attachment)host.append(draftUpdateCard(doc));if(doc.status==='thinking'||conversationPending.has(doc.id)){const thinking=card('','chat-thinking');thinking.setAttribute('role','status');thinking.append(n('span',roleDisplayName('requirements')),n('span',doc.status==='thinking'?'Thinking through your reply…':'Sending your message…'));host.append(thinking);}host.dataset.rendered=signature;requestAnimationFrame(()=>{if(first&&restoreThreadAnchor(scroll,'conversation-scroll:'+doc.id))updateDraftScroll();else if(first||near)scrollDraftToEnd();else{scroll.scrollTop=position;updateDraftScroll();}});}
+  if(typeof renderWorkspaceSetup==='function')renderWorkspaceSetup(doc);
   const pending=conversationPending.has(doc.id),thinking=doc.status==='thinking',linked=doc.attachment?.status==='linked',attaching=doc.attachment?.status==='starting';
   $('#draft-send').disabled=draftSendBlocked(doc,pending,$('#draft-text').value);$('#draft-send').textContent=pending?'Sending…':'Send ↑';
   $('#draft-delivery').textContent=thinking?'You can draft your next message while the team replies.':doc.status==='error'?'Retry the saved message to continue.':doc.attachment?'Connecting the project…':'Enter to send · Shift + Enter for a new line';
   requestAnimationFrame(()=>resizeComposer($('#draft-text')));
-  const problem=$('#draft-problem'),retry=conversationRetries.get(doc.id);problem.replaceChildren();
-  if(!doc.task_archived&&!doc.project_removed&&(doc.error||retry)){problem.append(Object.assign(n('p',retry?.error||doc.error),{className:'error'}));if(conversationRetryAllowed(doc))problem.append(button(retry?'Retry sending':'Retry planner',()=>retry?sendDraftMessage(doc,retry):retryConversation(doc)));else problem.append(n('p','Delivery is uncertain. The saved turn is preserved while its provider result is reconciled. A second request cannot be sent.'));}problem.hidden=!problem.childElementCount;
+  renderDraftDeliveryProblem($('#draft-problem'),doc,conversationRetries.get(doc.id));
   const attachment=$('#attachment-status');attachment.replaceChildren();
   if(doc.task_archived){attachment.append(n('h3','This task is archived.'),n('p','Restore the task to continue its saved conversation.'),archiveButton(doc.attachment,'restore','Restore task'));$('#draft-send').disabled=true;}
-  else if(doc.project_removed){attachment.append(n('h3','This project was removed from the dashboard.'),n('p','Your conversation and draft are saved. Restore the project to continue.'),Object.assign(n('p',doc.attachment?.workspace||''),{className:'project-path'}),projectActionButton(doc.attachment?.workspace,'restore','Restore project'));}
+  else if(doc.project_removed){attachment.append(n('h3','This project was removed from the dashboard.'),n('p','Your conversation and draft are saved. Restore the project to continue.'),Object.assign(n('p',doc.attachment?.workspace||''),{className:'project-path'}),projectActionButton(conversationWorkspace(doc),'restore','Restore project'));}
   else if(doc.attachment){const attached=doc.attachment;attachment.append(n('p',attached.status==='linked'?'Project attached: '+attached.workspace:attached.status==='starting'?'Connecting your project and opening the plan for review…':attached.error||'Project connection needs attention.'));if(attached.status==='linked'&&attached.run)attachment.append(button('Open project conversation →',()=>openRun(attached),'primary'));if(attached.status==='failed')attachment.append(button('Retry project handoff',()=>retryAttachment(doc)));if(attached.status==='uncertain')attachment.append(n('p','The previous handoff could not be confirmed. Inspect All tasks before trying another project.'));}
   $('#attach-disclosure').hidden=doc.project_removed||linked||attaching||!!doc.attachment;$('#attach-submit').disabled=doc.project_removed||pending||thinking||attaching||doc.status==='error'||conversationDeliveryBlocked(doc)||(Array.isArray(doc.plan_drafts)&&(!doc.plan_drafts.some(row=>row.status==='current'&&row.freshness?.state==='fresh')||['pending','failed'].includes(doc.plan_drafts.at(-1)?.status)));
   if(doc.task_archived){$('#draft-status').textContent='Task archived';$('#draft-delivery').textContent='Restore the task to continue.';$('#attach-disclosure').hidden=true;$('#attach-submit').disabled=true;}
   if(doc.project_removed)$('#draft-delivery').textContent='Restore the project to continue. Your unsent draft stays saved.';
   $('#draft-form').hidden=!!doc.archived_at;$('#draft-conversation .attach-section').hidden=!!doc.archived_at;
   if(doc.archived_at){$('#draft-status').textContent='Archived';$('#draft-send').disabled=true;$('#attach-submit').disabled=true;$('#draft-problem').hidden=true;}
+  if(typeof renderScopedConversationStart==='function')renderScopedConversationStart(doc);
 }
 $('#draft-text').oninput=event=>{persist('conversation-draft:'+event.target.dataset.conversation,event.target.value);$('#draft-send').disabled=draftSendBlocked(latestConversation,conversationPending.has(activeConversation),event.target.value);};
 $('#draft-form').onsubmit=event=>{event.preventDefault();if(latestConversation?.id===activeConversation)sendDraftMessage(latestConversation);};
 async function sendDraftMessage(doc,retry) {
-  if(conversationArchiveBlocked(doc)||doc.task_archived||taskArchiveBlocked(doc.attachment?.run)||doc.project_removed||projectBlocked(doc.attachment?.workspace)||conversationPending.has(doc.id)||conversationDeliveryBlocked(doc)||doc.status==='thinking')return;
+  if(conversationArchiveBlocked(doc)||doc.task_archived||taskArchiveBlocked(doc.attachment?.run)||doc.project_removed||doc.project_scope_error||projectBlocked(conversationWorkspace(doc))||conversationPending.has(doc.id)||conversationDeliveryBlocked(doc)||doc.status==='thinking')return;
   const text=$('#draft-text').value.trim(),request=retry||{text,request_id:savedRequest('conversation-request:'+doc.id,{text}).id};if(!request.text)return;
   conversationPending.add(doc.id);conversationRetries.delete(doc.id);seq++;renderDraftConversation(doc);
   try{const saved=await api('/api/conversation/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:doc.id,text:request.text,request_id:request.request_id})});persist('conversation-request:'+doc.id,'');persist('conversation-scroll:'+doc.id,'');if($('#draft-text').dataset.conversation===doc.id&&$('#draft-text').value.trim()===request.text){$('#draft-text').value='';persist('conversation-draft:'+doc.id,'');}renderDraftConversation(saved);if(activeConversation===doc.id)requestAnimationFrame(()=>{scrollDraftToEnd();$('#draft-text').focus();});}
@@ -1534,11 +1597,11 @@ async function sendDraftMessage(doc,retry) {
   finally{conversationPending.delete(doc.id);if(activeConversation===doc.id)renderDraftConversation(latestConversation||doc);refresh();}
 }
 async function retryConversation(doc) {
-  if(conversationArchiveBlocked(doc)||doc.task_archived||taskArchiveBlocked(doc.attachment?.run)||doc.project_removed||projectBlocked(doc.attachment?.workspace)||conversationPending.has(doc.id)||!conversationRetryAllowed(doc))return;conversationPending.add(doc.id);seq++;renderDraftConversation(doc);
+  if(conversationArchiveBlocked(doc)||doc.task_archived||taskArchiveBlocked(doc.attachment?.run)||doc.project_removed||doc.project_scope_error||projectBlocked(conversationWorkspace(doc))||conversationPending.has(doc.id)||!conversationRetryAllowed(doc))return;conversationPending.add(doc.id);seq++;renderDraftConversation(doc);
   try{const saved=await api('/api/conversation/retry',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:doc.id})});renderDraftConversation(saved);}catch(error){dashboardNotice(error.message);}
   finally{conversationPending.delete(doc.id);refresh();}
 }
-async function retryAttachment(doc) {if(conversationArchiveBlocked(doc)||doc.task_archived||taskArchiveBlocked(doc.attachment?.run)||doc.project_removed||projectBlocked(doc.attachment?.workspace))return;try{const saved=await api('/api/conversation/attach',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:doc.id,workspace:doc.attachment.workspace,retry:true})});renderDraftConversation(saved);refresh();}catch(error){dashboardNotice(error.message);}}
+async function retryAttachment(doc) {if(conversationArchiveBlocked(doc)||doc.task_archived||taskArchiveBlocked(doc.attachment?.run)||doc.project_removed||doc.project_scope_error||projectBlocked(conversationWorkspace(doc)))return;try{const saved=await api('/api/conversation/attach',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:doc.id,workspace:doc.attachment.workspace,retry:true})});renderDraftConversation(saved);refresh();}catch(error){dashboardNotice(error.message);}}
 function attachModeChanged() {const create=$('#attach-mode').value==='new';$('#existing-project-field').hidden=create;$('#attach-path-field').hidden=!create&&$('#workspaces').value!=='__custom__';$('#attach-path-label').textContent=create?'New project folder':'Existing project folder';$('#attach-submit').textContent=create?'Create project & review plan →':'Review this plan →';}
 $('#attach-mode').onchange=attachModeChanged;$('#workspaces').onchange=attachModeChanged;
 $('#attach-form').onsubmit=async event=>{
@@ -1579,7 +1642,7 @@ function renderAstraPlan(run) {
   if(briefs.childElementCount===1)briefs.append(n('p','Historical brief bodies unavailable.'));full.append(briefs);
   if(run.planning_messages?.length||run.discovery_summary)full.append(disclosure('Internal planning reports (not human requests)','internal-planning',[renderDocument(run.planning_messages?.length?run.planning_messages:run.discovery_summary)],run.run));
 }
-function waitingMessage(request){const lines=[];for(const [label,key]of [['Decision needed','decision_needed'],['Question','question'],['Discovered','discovered'],['Impact','impact'],['Options','options'],['Proposed change','proposed_delta']]){let value=request[key];if(Array.isArray(value))value=value.join(' · ');if(typeof value==='string'&&value.trim())lines.push(label+': '+value);}return lines.length?lines.join('\n'):'AutoResolver is waiting for your input. Details are unavailable in the saved state.';}
+function waitingMessage(request){const lines=[];for(const [label,key]of [['Decision needed','decision_needed'],['Question','question'],['Discovered','discovered'],['Impact','impact'],['Options','options'],['Proposed change','proposed_delta']]){let value=request[key];if(Array.isArray(value))value=value.join(' · ');if(typeof value==='string'&&value.trim())lines.push(label+': '+value);}return lines.length?lines.join('\n'):'Resolver is waiting for your input. Details are unavailable in the saved state.';}
 function questionDraftKey(run,id){return 'question-draft:'+run.run+':'+id;}
 function renderQuestionAnswer(element,question,run){
   const id=String(question.id),fields=resolverResponseFields(run),key=questionDraftKey(run,id),saved=readSavedRequest(key);
@@ -1606,7 +1669,7 @@ function renderQuestionAnswer(element,question,run){
 function renderQuestion(host,question,run) {
   if(!resolverReplyCurrent(run,resolverResponseFields(run),['clarification','permission','goal_change','operational_exhaustion','blocker'])||!(run.human_escalation.questions||[]).some(current=>String(current.id)===String(question.id)&&current.question===question.question))return;
   const id=String(question.id),element=card('','chat-message pending');element.dataset.questionCard=id;
-  element.append(Object.assign(n('p','AutoResolver · '+(operationalRequest(run)?'Corrective information':'Needs your answer')),{className:'speaker'}),n('p',question.question||'Question unavailable'));
+  element.append(Object.assign(n('p','Resolver · '+(operationalRequest(run)?'Corrective information':'Needs your answer')),{className:'speaker'}),n('p',question.question||'Question unavailable'));
   const context=card('','question-context');if(question.why)context.append(n('span',question.why));
   if(question.proposed_default)context.append(n('span','Suggested: '+question.proposed_default));
   if(Array.isArray(question.options)&&question.options.length)context.append(n('span','Options: '+question.options.map(option=>typeof option==='string'?option:option.label||JSON.stringify(option)).join(' · ')));
@@ -1738,19 +1801,6 @@ function checkpointAnswers(run,cp,isLatest) {
   for(const [question,answer] of [['What changed?',checkpointChangedText(cp)],['What was verified?',checkpointVerifiedText(run,cp)],['What findings existed?',checkpointFindingsText(run,cp,isLatest)],['Which candidate was this?',checkpointCandidateText(cp)]])list.append(n('dt',question),n('dd',answer));
   return list;
 }
-function requestCheckpointRestore(run,cp,control) {
-  const input=$('#change-text');
-  if(!input)return;
-  const revision=cp.sourceRevision?' (source revision '+cp.sourceRevision.slice(0,12)+')':'';
-  input.value='Restore the workspace to the saved checkpoint “'+cp.label+'” — candidate '+cp.candidate+', iteration '+(cp.iteration??'?')+revision+' — then continue from that state.';
-  changeDrafts.set(run.run,input.value);
-  persist('task-draft:'+run.run,input.value);
-  if(typeof resizeComposer==='function')resizeComposer(input);
-  if(typeof input.oninput==='function')input.oninput({target:input});
-  if(typeof input.focus==='function')input.focus();
-  input.scrollIntoView?.({block:'center'});
-  if(control){control.textContent='Restore request drafted below ✓';control.disabled=true;}
-}
 function revealChangeStage(run,stageIndex) {
   activateTab('changes');
   const key='details:'+run.run+'\0diff-stage:'+stageIndex;
@@ -1780,12 +1830,6 @@ function renderSessionCheckpoints(run,checkpoints,allowRestore=true) {
     detail.hidden=true;
     detail.append(checkpointAnswers(run,cp,cp===latest));
     if(cp.stageIndex!=null&&cp.hasDiff){const open=button('Open saved changes →',()=>revealChangeStage(run,cp.stageIndex),'text-button');open.dataset.staleSafe='true';detail.append(open);}
-    if(allowRestore&&cp.kind!=='plan'&&cp.kind!=='final'&&run.status!=='TASK_COMPLETE'&&!taskActionBusy(run)){
-      const restore=button('Restore to here',()=>requestCheckpointRestore(run,cp,restore),'text-button checkpoint-restore');
-      restore.dataset.staleSafe='true';
-      restore.title='Drafts a restore request in the composer below. Sending chat never approves a plan or starts work on its own.';
-      detail.append(restore);
-    }
     const item=Object.assign(n('li'),{className:'checkpoint-item checkpoint-'+cp.kind});
     item.append(toggle,detail);list.append(item);
   }
@@ -1913,17 +1957,20 @@ function planDraftPreviewCard(draft,options={}){
     const section=card('','quiet-plan-section');section.append(n('h3',title));const list=n('ul');
     for(const row of rows)list.append(n('li',typeof row==='string'?row:row.question||planEntryText(row)));section.append(list);host.append(section);
   }
+  const sources=Array.isArray(freshness.source_messages)?freshness.source_messages:[];
+  if(sources.length){const section=card('','quiet-plan-section');section.append(n('h3','Updated from your messages'));const list=n('ul');for(const item of sources){const row=n('li',item.excerpt||'Saved message');row.dataset.sourceMessage=item.message_id;list.append(row);}section.append(list);host.append(section);}
   const stamp=freshness.updated_at?new Date(freshness.updated_at).toLocaleString():'';
-  host.append(Object.assign(n('p',(labels[freshness.state]||'Saved draft')+(stamp?' · '+stamp:'')),{className:'quiet-plan-freshness'}));
+  host.append(Object.assign(n('p',((options.updateReason||freshness.reason)==='batching_answers'?'Answers saved · draft update batched':labels[options.updateState||freshness.state]||'Saved draft')+(stamp?' · '+stamp:'')),{className:'quiet-plan-freshness'}));
   const prior=(options.allDrafts||[]).filter(row=>row.revision!==draft.revision);
   if(prior.length)host.append(disclosure('Earlier drafts ('+prior.length+')','draft-history:'+options.key,[renderDocument(prior)],options.key||''));
-  host.append(Object.assign(n('p',options.frozen?'Frozen scope. Requirement changes need a newly reviewed and approved revision.':options.ready?'Plan reviewed. Approve this revision before building.':'Quiet draft — nothing approved, nothing runs.'),{className:'quiet-plan-safety'}));return host;
+  host.append(Object.assign(n('p',options.frozen?'Frozen scope. Requirement changes need a newly reviewed and approved revision.':options.ready?'Plan reviewed. Approve this revision before building.':'Draft only. Independent plan review and your approval are required before implementation.'),{className:'quiet-plan-safety'}));return host;
 }
 function renderQuietPlanPreview(doc){
   const host=$('#quiet-plan');if(!host)return;const draft=currentConversationDraft(doc);host.hidden=!draft;
   $('#draft-conversation').classList.toggle('has-plan',!!draft);
   if(!draft){host.replaceChildren();return;}
-  const full=planDraftPreviewCard(draft,{allDrafts:doc.plan_drafts,key:doc.id});full.classList.add('full-draft-preview');
+  const latest=doc.plan_drafts?.at(-1),options={allDrafts:doc.plan_drafts,key:doc.id,updateState:latest?.freshness?.state,updateReason:latest?.freshness?.reason};
+  const full=planDraftPreviewCard(draft,options);full.classList.add('full-draft-preview');
   const compact=card('','compact-draft-preview');
   compact.append(n('h2','Draft plan · r'+draft.revision),Object.assign(n('p',(draft.requirements||[]).length+' requirements · '+(draft.milestones||[]).length+' milestones · '+(draft.outstanding_questions||[]).length+' open questions'),{className:'quiet-plan-counts'}));
   const question=draft.outstanding_questions?.[0];
@@ -1931,7 +1978,7 @@ function renderQuietPlanPreview(doc){
   compact.append(button('View full draft plan',()=>{
     const dialog=$('#draft-plan-dialog');dialog._returnFocus=document.activeElement;
     $('#draft-plan-title').textContent='Draft plan · revision '+draft.revision;
-    $('#draft-plan-content').replaceChildren(planDraftPreviewCard(draft,{allDrafts:doc.plan_drafts,key:doc.id}));
+    $('#draft-plan-content').replaceChildren(planDraftPreviewCard(draft,options));
     dialog.showModal();$('#draft-plan-close').focus();
   },'text-button'));
   host.replaceChildren(full,compact);
@@ -2037,7 +2084,7 @@ function renderWorkflowTimeline(host,run){
 
 function renderConversation(run) {
   const checkpoints=sessionCheckpoints(run);
-  const root=$('#conversation'),signature=JSON.stringify([run.run,run.transcript,run.progress_messages,run.draft_messages,run.planning_messages,run.discovery_summary,run.answers,run.questions,run.chat_messages,run.user_request,run.human_request_authorized,run.human_escalation,run.status,run.goal?.approval_status,run.goal?.approval_event,run.completed_at,run.monitor?.findings_summary,run.monitor?.findings,run.monitor?.validation_verdict,run.validation?.source_revision,run.counts,taskChatPending.has(run.run),checkpoints,run.conversation,run.goal_token,run.validation,run.verification,run.completion_current,run.screenshots,run.stages,run.active_stage]);
+  const root=$('#conversation'),signature=JSON.stringify([run.run,run.transcript,run.progress_messages,run.draft_messages,run.planning_messages,run.discovery_summary,run.answers,run.questions,run.chat_messages,run.user_request,run.human_request_authorized,run.human_escalation,run.status,run.goal?.approval_status,run.goal?.approval_event,run.completed_at,run.monitor?.live,run.monitor?.objective,run.monitor?.findings_summary,run.monitor?.findings,run.monitor?.validation_verdict,run.validation?.source_revision,run.counts,taskChatPending.has(run.run),checkpoints,run.conversation,run.goal_token,run.validation,run.verification,run.completion_current,run.screenshots,run.stages,run.active_stage,run.interventions?.code_checkpoints]);
   $('#conversation-heading').textContent='Conversation';
   $('#conversation-avatar').textContent=planningSpeaker(run).slice(0,1);
   $('#conversation-description').textContent=jointPlanning(run)?'The '+roleDisplayName('requirements')+' role captures the scope. The '+roleDisplayName('planner')+' drafts and revises. The independent '+roleDisplayName('plan_reviewer')+' challenges and finalizes.':'Shape the work, then let your team build.';
@@ -2045,14 +2092,19 @@ function renderConversation(run) {
   root.dataset.conversationId=run.conversation?.id||run.conversation_id||'';
   if(run.transcript?.warning)root.append(Object.assign(n('p',run.transcript.warning),{className:'field-note'}));
   renderMessageHistory(root,taskMessages(run),run.run);
-  renderScreenshotEvidence(root,run);
-  if(checkpoints.length&&run.status!=='TASK_COMPLETE'&&!taskActionBusy(run)){
-    const choices=card('','checkpoint-restore-choices');
-    for(const cp of checkpoints.filter(cp=>cp.kind!=='plan'&&cp.kind!=='final')){
-      const restore=button('Restore · '+cp.label,()=>requestCheckpointRestore(run,cp,restore),'text-button checkpoint-restore');restore.dataset.staleSafe='true';choices.append(restore);
-    }
-    if(choices.children.length){const picker=disclosure('Restore a saved checkpoint','checkpoint-restore-picker',[choices],run.run);picker.className='checkpoint-history';root.append(picker);}
+  if(statusInfo(run).label==='Recovering'){
+    const recovery=workRecoveryPanel(run);recovery.classList.add('chat-recovery');
+    recovery.setAttribute('aria-label','Technical recovery in progress');root.append(recovery);
   }
+  if(statusInfo(run).group==='complete'){
+    const ready=card('','chat-ready');ready.append(n('h3','Ready to inspect'),
+      n('p','The runner recorded this task as complete. Inspect the preview, saved changes and verification evidence alongside this conversation.'));
+    const actions=card('','lifecycle-actions');
+    actions.append(button('Open preview',()=>activateTab('preview'),'primary'),button('View changes',()=>activateTab('changes')));
+    ready.append(actions);root.append(ready);
+  }
+  renderScreenshotEvidence(root,run);
+  if(typeof renderCodeCheckpoints==='function')renderCodeCheckpoints(root,run);
   if(statusInfo(run).label==='Answer needed'){
     const questions=run.questions||[];
     for(const question of questions)renderQuestion(root,question,run);
@@ -2063,7 +2115,7 @@ function renderConversation(run) {
     const note=card('','answer-safety');note.append(n('p','Provide corrective information or leave this task paused. Neither action approves a plan, changes permissions, resets budgets, or continues execution.'));
     const paused=button('Leave paused',()=>submitTaskAction(run,'resolver_response',{resolver_response:'leave_paused'}));paused.disabled=taskActionBusy(run)||taskChatPending.has(run.run);note.append(paused);root.append(note);
   }
-  if(run.human_request_authorized===true&&statusInfo(run).group==='attention'&&run.user_request&&!(run.questions||[]).length)appendMessage(root,{speaker:'AutoResolver',text:waitingMessage(run.user_request)});
+  if(run.human_request_authorized===true&&statusInfo(run).group==='attention'&&run.user_request&&!(run.questions||[]).length)appendMessage(root,{speaker:'Resolver',text:waitingMessage(run.user_request)});
   if(!root.childElementCount)appendMessage(root,{text:run.goal?.approval_status==='approved'?'The plan is approved. Follow the work here and send direction whenever you need to.':run.goal?.body?'Here’s the proposed plan. Review it and approve it when it reflects what you want to build.':planningSpeaker(run)+'’s questions and plan will appear here.'});
 }
 async function copyText(text,element){try{await navigator.clipboard.writeText(text);element.textContent='Copied';}catch{dashboardNotice('Select the displayed token to copy it. Clipboard access is unavailable.');}}
@@ -2123,7 +2175,16 @@ function renderBrief(run) {
     body.append(area);
   }
   const checklist=workChecklistPanel(run);checklist.classList.add('plan-checklist');
-  const current=card('','plan-current-task'),facts=stateFacts(run);current.append(n('h3','Current task'),n('p',facts.objective),n('p',facts.step));
+  const milestones=run.work_summary?.tasks?.length?run.work_summary.tasks:
+    (brief.milestones||[]).map(task=>({label:planEntryText(task),state:'unknown'}));
+  const overview=n('ol','');overview.className='plan-milestones';overview.setAttribute('aria-label','Saved plan milestones');
+  for(const task of milestones){
+    const item=n('li','');item.dataset.taskState=task.state;
+    const mark=n('span',({done:'✓',working:'◐',waiting:'·',unknown:'·'}[task.state]||'·'));
+    mark.setAttribute('aria-label',({done:'Recorded acceptance',working:'Current step',waiting:'Waiting',unknown:'Not verified'}[task.state]||'Not verified'));
+    item.append(mark,n('span',task.label));overview.append(item);
+  }
+  const current=card('','plan-current-task'),facts=stateFacts(run);current.append(n('h3','Current task'),n('p',run.work_summary?.tasks?.find(task=>task.state==='working')?.label||run.current_task?.objective||facts.objective),n('p',facts.step));
   // A plan awaiting approval must expose its constraints and work sequence
   // before the reader opens the complete saved-plan disclosure. The action
   // itself stays in the conversation transcript.
@@ -2131,13 +2192,13 @@ function renderBrief(run) {
     box.append(planDocumentSection('Constraints',brief.constraints),
                planDocumentSection('Implementation sequence',brief.implementation_sequence||brief.technical_approach||brief.milestones||brief.plan,true));
   }
-  box.append(checklist,current,disclosure('Saved plan details','saved-plan-details:'+run.goal_token,[provenance,body],run.run));
+  box.append(overview,current,disclosure('Requirements and verification','plan-requirements:'+run.goal_token,[checklist],run.run),disclosure('Saved plan details','saved-plan-details:'+run.goal_token,[provenance,body],run.run));
   if(run.astra_plan?.current_plan?.length){const strategy=card('','current-strategy');strategy.append(n('h3','Current execution approach'),n('p','The team’s latest work sequence within this task. This is separate from the plan approval above.'),planList(run.astra_plan.current_plan));box.append(strategy);}host.append(box);
 }
 function output(parent,actions) {for(const action of actions||[]){const status=action.exit_status===2?'needs attention':action.status;parent.append(disclosure(action.label+' · '+status,'action:'+action.id,[n('pre','Exit: '+(action.exit_status??'pending')+'\nstdout:\n'+(action.stdout||'')+'\nstderr:\n'+(action.stderr||''))],'actions'));}}
 function renderExecution(run){
   const host=$('#execution_view');host.replaceChildren(n('h2','Checks & evidence'));
-  if(!(run.criteria||[]).length&&!run.validation?.source_revision)host.append(emptyState('No checks recorded yet.','No verification evidence has been saved for “'+taskTitle(run)+'”. Checks appear here after the Validator runs.'));
+  if(!(run.criteria||[]).length&&!run.validation?.source_revision)host.append(emptyState('No checks recorded yet.','No verification evidence has been saved for “'+taskTitle(run)+'”. Checks appear here after the Tester runs.'));
   if(run.review_token&&run.review_criteria?.length){
     // Review approvals happen only in the chat transcript: the Checks pane
     // keeps read-only saved status plus a focus path to the chat controls.
@@ -2159,7 +2220,7 @@ function renderExecution(run){
   if(validation.end_to_end_result)host.append(disclosure('End-to-end result','e2e-check',[renderDocument(validation.end_to_end_result)],run.run));
   if(validation.findings?.length)host.append(disclosure('Review findings ('+validation.findings.length+')','review-findings',[renderDocument(validation.findings)],run.run));
   host.append(disclosure('Full acceptance criteria','criteria',[renderDocument(run.criteria||[])],run.run));
-  const steps=card('','saved-steps');for(const [index,stage]of (run.stages||[]).entries()){const row=card('','stage-row');row.append(n('span',stage.runner_owned?stageName({stage:stage.stage}):human(stage.stage||stage.role||'Stage')),n('small',typeof stage.duration_seconds==='number'?stage.duration_seconds.toFixed(1)+'s':'Duration not recorded'));row.append(disclosure('Stage details','stage:'+index,[renderDocument(stage)],run.run));steps.append(row);}host.append(disclosure('Step history ('+(run.stages||[]).length+')','step-history',[steps],run.run));
+  const steps=card('','saved-steps');for(const [index,stage]of (run.stages||[]).entries()){const row=card('','stage-row');row.append(n('span',stageName({...run,stage:stage.stage||stage.role})),n('small',typeof stage.duration_seconds==='number'?stage.duration_seconds.toFixed(1)+'s':'Duration not recorded'));row.append(disclosure('Stage details','stage:'+index,[renderDocument(stage)],run.run));steps.append(row);}host.append(disclosure('Step history ('+(run.stages||[]).length+')','step-history',[steps],run.run));
   const logs=$('#actions');logs.replaceChildren();if(!(run.actions||[]).length)logs.append(Object.assign(n('p','No command output in this dashboard session. Saved task state remains available after a restart.'),{className:'field-note'}));output(logs,run.actions);
 }
 
@@ -2171,7 +2232,7 @@ async function loadChanges(force=false){
     const data=await api(base);if(ticket!==evidenceRequest||chosen?.run!==run.run)return;host.replaceChildren();
     if(!data.stages?.length){host.append(emptyState('No saved changes yet.','No code snapshots have been saved for “'+taskTitle(latestRun&&latestRun.run===run.run?latestRun:run)+'”. Diffs appear when an implementation step finishes.'));return;}
     for(const stage of [...data.stages].reverse()){
-      const body=card('','diff-content'),item=disclosure(human(stage.stage||'Step')+' · '+(stage.finished_at?new Date(stage.finished_at).toLocaleString():'Saved snapshot')+(stage.rejected?' · rejected output':stage.interrupted?' · interrupted':''),'diff-stage:'+stage.index,[body],run.run);item.className='diff-stage';let loading=false,loaded=false;const remember=item.ontoggle;
+      const body=card('','diff-content'),item=disclosure(stageName({...latestRun,stage:stage.stage})+' · '+(stage.finished_at?new Date(stage.finished_at).toLocaleString():'Saved snapshot')+(stage.rejected?' · rejected output':stage.interrupted?' · interrupted':''),'diff-stage:'+stage.index,[body],run.run);item.className='diff-stage';let loading=false,loaded=false;const remember=item.ontoggle;
       const read=async()=>{if(!item.open||loading||loaded)return;loading=true;body.replaceChildren(n('p','Loading snapshot…'));try{
         const cacheKey=key+'\0'+stage.index,result=evidenceCache.get(cacheKey)||await api(base+'&stage='+stage.index);evidenceCache.set(cacheKey,result);if(!item.isConnected||ticket!==evidenceRequest)return;body.replaceChildren();
         if(Array.isArray(stage.changed_files))for(const [index,path]of stage.changed_files.entries()){
@@ -2250,7 +2311,7 @@ function primaryAction(run,busy=false){
   if(run.interventions?.stop_intent)return {kind:'checks',label:'Stopped'};
   if(info.group==='running')return {kind:'pause',label:'Pause after current step'};
   if(busy)return {kind:'none',label:'Working…',disabled:true};
-  if(['Awaiting AutoResolver','AutoResolver paused'].includes(info.label))return {kind:'checks',label:'Inspect details'};
+  if(['Awaiting Resolver','Resolver paused'].includes(info.label))return {kind:'checks',label:'Inspect details'};
   if(interruptedAttempt(run))return {kind:'recover',label:'Review recovery'};
   if(info.label==='Answer needed')return {kind:'answer',label:run.questions.length>1?'Answer '+run.questions.length+' questions':'Answer question'};
   if(info.label==='Approve plan')return {kind:'plan',label:'Review plan'};
@@ -2279,8 +2340,8 @@ function taskDecision(run,busy=false){
   if(run.error||run.state_error||run.interventions?.mode==='unavailable')return result('Status needs checking','Current controls are unavailable. Review the saved issue in History.','Restore access to the checkpoint before taking action.');
   if(busy&&info.group!=='running')return result('Your last action is being processed','Wait for the saved state to update.','This page will show the next decision when it is ready.');
   if(info.group==='complete')return result('No approval pending','This task is recorded as complete.','You can inspect the saved changes and verification.');
-  if(['Awaiting AutoResolver','AutoResolver paused'].includes(info.label))return result(info.label,info.reason,'Inspect the saved plan, reports, and evidence. No answer or approval is currently requested.');
-  if(operationalRequest(run))return result('AutoResolver needs information',info.reason,'Provide corrective information in Conversation or choose Leave paused. Neither response continues execution, approves goals, changes permissions, or resets budgets.',true);
+  if(['Awaiting Resolver','Resolver paused'].includes(info.label))return result(info.label,info.reason,'Inspect the saved plan, reports, and evidence. No answer or approval is currently requested.');
+  if(operationalRequest(run))return result('Resolver needs information',info.reason,'Provide corrective information in Conversation or choose Leave paused. Neither response continues execution, approves goals, changes permissions, or resets budgets.',true);
   if(info.label==='Answer needed')return result('Answer '+run.questions.length+' '+(run.questions.length===1?'question':'questions'),run.questions[0].question||info.reason,'Choose '+action.label+' above, or Conversation → Your reply → Send answer. Planning continues only when the controller returns to Running without a pending request. Plan approval is separate.',true);
   if(info.label==='Approve plan')return result('Approve plan revision '+revision,run.goal?.body?.intended_outcome||info.reason,'Review the Plan pane, then approve revision '+revision+' in the conversation transcript. This records approval; Start building or Resume task is the next action.',true);
   if(info.label==='Review output')return result('Review the finished work',info.reason,'Open Checks, inspect the evidence and approve each requested item. Then choose Finish task to run the final completion check.',true);
@@ -2325,31 +2386,34 @@ function workRoleAttributions(run) {
   const monitor=run.monitor||{};
   const history=Array.isArray(monitor.stage_history)&&monitor.stage_history.length?monitor.stage_history:run.stages||[];
   const lines=[];
-  const add=(role,execution)=>{
+  const add=(role,execution,stage)=>{
     if(!execution||execution.kind!=='model'||!execution.model)return;
     const effort=execution.reasoning_effort;
-    const line=roleDisplayName(role)+' · '+[execution.model,effort?effort+' reasoning':null].filter(Boolean).join(' · ');
+    const catalogue=globalThis.AUTOCODE_ROLE_NAMES,entry=catalogue.modes[monitor.workflow_mode]?.[stage]||catalogue.stages[stage];
+    const line=(entry?.role||roleDisplayName(role))+' · '+[execution.model,effort?effort+' reasoning':null].filter(Boolean).join(' · ');
     if(!lines.includes(line))lines.push(line);
   };
-  for(const record of history)add(record?.route_role||record?.role||stageRoleKey(record),record?.execution);
-  if(monitor.active_execution)add(monitor.active_role||run.active_stage?.route_role||run.active_stage?.role||stageRoleKey(run.active_stage||{}),monitor.active_execution);
+  for(const record of history)add(record?.route_role||record?.role||stageRoleKey(record),record?.execution,record?.stage);
+  if(monitor.active_execution)add(monitor.active_role||run.active_stage?.route_role||run.active_stage?.role||stageRoleKey(run.active_stage||{}),monitor.active_execution,run.active_stage?.stage);
   return lines;
 }
 function workSummaryPanel(run) {
   const info=statusInfo(run),facts=stateFacts(run),host=card('','work-summary monitor-panel');
-  host.append(Object.assign(n('p','NOW WORKING'),{className:'monitor-kicker'}),n('h2',taskTitle(run)||'Untitled task'));
+  const title=run.work_summary?.tasks?.find(task=>task.state==='working')?.label||run.current_task?.objective||(info.group==='complete'?'Work complete':taskTitle(run));
+  host.append(Object.assign(n('p',info.label==='Recovering'?'Recovering':run.status==='RUNNING'?'Now working':info.group==='complete'?'Completed work':'Saved work'),{className:'monitor-kicker'}));
+  const current=card('','work-current');current.append(n('h2',title));
   // 448:635 compact card: one saved-status line (state chip plus current
   // step) under the title, then the actual role/model attributions.
   const status=card('','monitor-state work-status');
   const state=n('p',facts.state);state.className='monitor-status-chip '+info.group;state.dataset.taskFact='state';state.dataset.taskFactVisible='state';state.dataset.taskFactFull='state';
   const step=n('h2',facts.step);step.dataset.taskFact='step';step.dataset.taskFactVisible='step';step.dataset.taskFactFull='step';
   status.append(state,step);
-  host.append(status);
+  current.append(status);
   const roles=card('','work-roles');
   const lines=workRoleAttributions(run);
   if(lines.length)for(const line of lines)roles.append(n('p',line));
   else roles.append(n('p','No saved role and model attributions yet.'));
-  host.append(roles);
+  current.append(roles);host.append(current);
   return host;
 }
 // The requirements lifecycle state: the saved open questions as a read-only
@@ -2416,7 +2480,7 @@ function appendWorkTasks(host,run){
   const summary=run.work_summary;if(!summary)return;
   const list=n('ol','');list.className='work-task-rows';
   for(const task of summary.tasks){const item=n('li','');item.dataset.taskState=task.state;item.append(n('span',({done:'✓',working:'●',waiting:'○',unknown:'?'}[task.state]||'?')+' '+task.label),n('small',({done:'Done · recorded acceptance',working:'Working · saved active step',waiting:'Waiting',unknown:'Completion not yet verified'}[task.state]||'Unknown')));list.append(item);}
-  const tasks=disclosure(summary.task_label,'work-task-list',[list],run.run);tasks.classList.add('work-task-list');host.append(tasks);
+  const tasks=disclosure(summary.task_label,'work-task-list',[list],run.run);tasks.classList.add('work-task-list');if(!detailsState.has(run.run+'\0work-task-list')&&matchMedia('(min-width:1200px)').matches)tasks.open=true;host.append(tasks);
   if(summary.verification_stale)for(const reason of summary.verification_reasons||['Current evidence needs verification.'])host.append(Object.assign(n('p',reason),{className:'field-note'}));
   if(summary.problems.length){const problems=n('div','');for(const problem of summary.problems)problems.append(button(problem.label,()=>openWorkDetail('problem',problem.id),'text-button work-detail-link'));host.append(disclosure('Open problems · '+summary.problems.length,'work-problem-list',[problems],run.run));}
 }
@@ -2424,7 +2488,7 @@ function renderTaskProgress(run){
   const control=$('#task-progress-summary'),summary=run.work_summary;
   control.hidden=!summary||!!run.task_archived||!!run.project_removed;
   if(control.hidden)return;
-  control.textContent=statusInfo(run).label+' · '+summary.line;control.title=control.textContent;
+  control.textContent=summary.line;control.title=control.textContent;
   control.onclick=()=>{activateTab('now');if(matchMedia('(max-width:759px)').matches)openDetailsDrawer();const list=$('#now .work-task-list');if(list){list.open=true;const summary=list.querySelector('summary');summary?.focus();requestAnimationFrame(()=>{if(summary?.isConnected&&document.activeElement===summary)summary.scrollIntoView({block:'start'});});}};
 }
 function workChecklistPanel(run,linked=false) {
@@ -2444,7 +2508,11 @@ function workChecklistPanel(run,linked=false) {
     item.append(Object.assign(n('span',row.state==='checked'?'✓':row.state==='failed'?'!':'○'),{className:'work-check-icon'}),(()=>{const copy=n('p','');if(linked)copy.append(button(planEntryText(row.criterion),()=>openWorkDetail('requirement',row.criterion.id),'text-button work-detail-link'));else copy.textContent=planEntryText(row.criterion);return copy;})());
     list.append(item);
   }
-  host.append(list,Object.assign(n('p','Requirements come from the saved plan. Checkmarks require current evidence.'),{className:'monitor-caption'}));
+  if(linked){
+    const details=disclosure('Requirements and evidence · '+rows.length,'work-requirement-list',[list],run.run);
+    details.classList.add('work-requirement-list');host.append(details);
+  }else host.append(list);
+  host.append(Object.assign(n('p','Requirements come from the saved plan. Checkmarks require current evidence.'),{className:'monitor-caption'}));
   return host;
 }
 function renderTaskNow(run){
@@ -2492,7 +2560,10 @@ function renderPrimaryAction(run){
   stopControl.onclick=()=>sendChange(run,'stop');
   const pauseRequested=run.interventions?.pause_intent&&!run.interventions.pause_intent.acknowledged_at||(run.interventions?.entries||[]).some(entry=>entry.kind==='pause'&&['queued','requested'].includes(entry.status));
   pause.textContent=pauseRequested?'Pause requested':sendingRequests.has(requestKey(run.run,'pause'))?'Requesting pause…':'Pause after current step';pause.disabled=!!pauseRequested||sendingRequests.has(requestKey(run.run,'pause'))||blocked;
-  pause.classList.toggle('primary',!pause.hidden);control.classList.toggle('primary',!control.hidden);
+  // Completed work has its primary inspection action in the chat's ready
+  // card. Keep Checks reachable without competing with Open preview. A
+  // completion whose evidence is stale still needs the primary Checks action.
+  pause.classList.toggle('primary',!pause.hidden);control.classList.toggle('primary',!control.hidden&&statusInfo(run).group!=='complete');
   pause.onclick=()=>sendChange(run,'pause');control.textContent=action.label;control.disabled=!!action.disabled||taskChatPending.has(run.run)||blocked||modelBlocked;
   const gate=$('#task-model-gate');if(gate){gate.hidden=!modelBlocked;gate.textContent=modelBlocked&&typeof taskModelGateCopy==='function'?taskModelGateCopy(run):'';if(modelBlocked)control.setAttribute?.('aria-describedby','task-model-gate');else control.removeAttribute?.('aria-describedby');}
   control.onclick=()=>{
@@ -2522,7 +2593,7 @@ async function submitTaskAction(run,action,extra={}){
   if(scopes&&(!resolverReplyCurrent(current,response,scopes)
       ||(action==='approve_goal'&&(statusInfo(current).label!=='Approve plan'||response.token!==current.goal_token||response.confirmation!==current.goal_token))
       ||(action==='approve_review'&&(statusInfo(current).label!=='Review output'||response.token!==current.review_token||!current.human_escalation.request?.criteria?.includes(response.id)))
-      ||(['answer','delegate'].includes(action)&&!(current.questions||[]).some(question=>String(question.id)===String(response.id))))) {dashboardNotice('The AutoResolver request changed. Refresh and review the current request before responding.');return;}
+      ||(['answer','delegate'].includes(action)&&!(current.questions||[]).some(question=>String(question.id)===String(response.id))))) {dashboardNotice('The Resolver request changed. Refresh and review the current request before responding.');return;}
   taskActionPending.add(run.run);seq++;renderLiveControls(run);renderBrief(run);renderExecution(run);renderTaskNow(run);renderInlineTaskAction(run);
   try{return await post('/api/action',{workspace:run.workspace,run:run.run,action,...response});}
   finally{taskActionPending.delete(run.run);if(chosen?.run===run.run){renderLiveControls(latestRun||run);renderBrief(latestRun||run);renderExecution(latestRun||run);renderTaskNow(latestRun||run);renderInlineTaskAction(latestRun||run);}}
@@ -2691,6 +2762,10 @@ function renderRecoveryCard(host,run,recovery){
     if(execute)mutations.push(control);
     group.append(control,effect);actions.append(group);
   }
+  if(/PROVIDER|TRANSPORT|ENVIRONMENT|PREFLIGHT|DEPENDENC|AUTH|CONFIG/.test(String(recovery.cause||run.status))&&typeof openWorkspaceSetup==='function'){
+    const setup=button('Check workspace setup',openWorkspaceSetup,'text-button');setup.dataset.setupRecovery='true';
+    actions.append(setup,n('p','Check local prerequisites and account instructions in a setup chat. This task stays paused.'));
+  }
   const update=()=>{for(const control of mutations)control.disabled=!inspection.open||!!taskReadError||taskActionBusy(run)||run.interventions?.mode==='unavailable'||!!(typeof unresolvedModelReplacement==='function'&&unresolvedModelReplacement(run));};
   inspection.addEventListener('toggle',update);update();host.append(actions);
 }
@@ -2723,7 +2798,7 @@ function renderTaskAttention(run){
     host.append(n('p','Inspect the saved failure and correct its cause before retrying.'));
     const retry=button('Retry saved step',()=>submitTaskAction(run,'continue'),'text-button');
     retry.disabled=busy||run.interventions?.mode==='unavailable';host.append(retry);
-  }else if(['Awaiting AutoResolver','AutoResolver paused'].includes(next.label)){host.append(n('p','Inspect the saved plan and evidence. No current answer or approval is requested.'));}
+  }else if(['Awaiting Resolver','Resolver paused'].includes(next.label)){host.append(n('p','Inspect the saved plan and evidence. No current answer or approval is requested.'));}
   else if((run.questions||[]).length){host.append(n('p','Your saved questions remain in the plan. Resume planning to continue.'));}
   else if(next.label==='Planning needs retry'){host.append(n('p','Retry planning makes a fresh planning request. It does not approve the plan or start implementation.'));}
   else if(jointPlanning(run)&&!planReady(run)&&run.goal?.approval_status!=='approved'){host.append(n('p','Resume to continue planning. You will approve the final plan before implementation.'));}
@@ -2759,8 +2834,8 @@ async function sendTaskChat(run,retry) {
     const scopes=request.resolver_response?['operational_exhaustion','blocker']:['clarification','permission','goal_change'];
     if(responding&&(!resolverReplyCurrent(current,request,scopes)
         ||(request.resolver_response&&(request.resolver_response!=='provide_information'||request.delegate||request.question_id))
-        ||(!request.resolver_response&&(!(current.questions||[]).some(question=>String(question.id)===String(request.question_id))||statusInfo(current).label!=='Answer needed'))))throw Error('This saved reply belongs to an outdated AutoResolver request. Review the current request and edit your draft before sending a new reply.');
-    if(!responding&&!isReadOnlyChatText(request.text)&&(operationalRequest(current)||statusInfo(current).label==='Answer needed'))throw Error('A new AutoResolver request is pending. Review it before sending this saved message.');
+        ||(!request.resolver_response&&(!(current.questions||[]).some(question=>String(question.id)===String(request.question_id))||statusInfo(current).label!=='Answer needed'))))throw Error('This saved reply belongs to an outdated Resolver request. Review the current request and edit your draft before sending a new reply.');
+    if(!responding&&!isReadOnlyChatText(request.text)&&(operationalRequest(current)||statusInfo(current).label==='Answer needed'))throw Error('A new Resolver request is pending. Review it before sending this saved message.');
     const text=request.submitted_text??request.text;
     const payload=request.resolver_response?{workspace:run.workspace,run:run.run,action:'resolver_response',resolver_request:request.resolver_request,resolver_token:request.resolver_token,resolver_response:request.resolver_response,resolver_message:text}:{...chatPayload(current,text,request.question_id,request.request_id,request.delegate),...(request.retry?{retry:true}:{}),...(request.explicit_answer?{explicit_answer:true}:{}),...(request.decision?{decision:request.decision,decision_token:request.decision_token}:{})};
     const response=await api(request.resolver_response?'/api/action':'/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
@@ -2783,17 +2858,17 @@ function renderLiveControls(run){
   const questions=statusInfo(run).label==='Answer needed'?run.questions||[]:[],operational=operationalRequest(run),target=$('#question-target'),selected=target.value,signature=JSON.stringify(questions.map(question=>[question.id,question.question]));
   if(target.dataset.options!==signature){target.replaceChildren();for(const question of questions)target.append(Object.assign(n('option',question.question||question.id),{value:String(question.id)}));target.value=questions.some(question=>String(question.id)===selected)?selected:String(questions[0]?.id||'');target.dataset.options=signature;}
   target.hidden=questions.length<2;$('#question-target-label').hidden=target.hidden;$('#question-target-label').textContent=questions.length>1?'Choose the first unresolved question ('+questions.length+' total)':'Your answer';
-  target.onchange=event=>document.querySelectorAll('[data-question-card]').forEach(element=>{const selected=questions.length?element.dataset.questionCard===target.value:operational;element.hidden=!selected;element.classList.toggle('selected-question',selected);if(selected&&questions.length){element.querySelector('.speaker').textContent='AutoResolver · Question '+(questions.findIndex(question=>String(question.id)===target.value)+1)+' of '+questions.length;if(event)element.scrollIntoView({block:'nearest'});}});target.onchange();
-  $('#change-label').textContent=operational?'Information for AutoResolver':questions.length?'Your answer':'Message your team';
+  target.onchange=event=>document.querySelectorAll('[data-question-card]').forEach(element=>{const selected=questions.length?element.dataset.questionCard===target.value:operational;element.hidden=!selected;element.classList.toggle('selected-question',selected);if(selected&&questions.length){element.querySelector('.speaker').textContent='Resolver · Question '+(questions.findIndex(question=>String(question.id)===target.value)+1)+' of '+questions.length;if(event)element.scrollIntoView({block:'nearest'});}});target.onchange();
+  $('#change-label').textContent=operational?'Information for Resolver':questions.length?'Your answer':'Message your team';
   input.placeholder=operational?'Provide corrective information; the task will stay paused':questions.length?'Answer the question above…':'Message the task…';
   const unavailable=data.mode==='unavailable',needsRecovery=!!interruptedAttempt(run),busy=taskActionBusy(run),sending=taskChatPending.has(run.run);
   const sendBlocked=!!taskReadError||run.status==='TASK_COMPLETE'||unavailable||sending||((questions.length>0||operational)&&busy);
-  $('#send-change').disabled=sendBlocked||!input.value.trim();$('#send-change').textContent=sending?'Sending…':operational?'Send to AutoResolver':questions.length?'Send answer ↑':'Send ↑';
+  $('#send-change').disabled=sendBlocked||!input.value.trim();$('#send-change').textContent=sending?'Sending…':operational?'Send to Resolver':questions.length?'Send answer ↑':'Send ↑';
   $('#send-change').title='Enter to send · Shift + Enter for a new line';
   input.oninput=()=>{changeDrafts.set(input.dataset.run,input.value);persist('task-draft:'+input.dataset.run,input.value);$('#send-change').disabled=sendBlocked||!!taskReadError||!input.value.trim();};
   requestAnimationFrame(()=>resizeComposer(input));
   $('#change-form').onsubmit=event=>{event.preventDefault();sendTaskChat(run);};renderPrimaryAction(run);renderTaskAttention(run);
-  $('#task-delivery').textContent=sending?'Saving your message…':operational?'Information is saved for AutoResolver. The task stays paused.':questions.length?'Planning continues only if the controller returns to Running with no pending request.':run.status==='TASK_COMPLETE'?(run.completion_current===false?'Completion was recorded earlier. Inspect current checks before starting more work in a new conversation.':'This task is complete. Start a new conversation for more work.'):'Questions use saved status. Plan changes need confirmation before being applied.';
+  $('#task-delivery').textContent=sending?'Saving your message…':operational?'Information is saved for Resolver. The task stays paused.':questions.length?'Planning continues only if the controller returns to Running with no pending request.':run.status==='TASK_COMPLETE'?(run.completion_current===false?'Completion was recorded earlier. Inspect current checks before starting more work in a new conversation.':'This task is complete. Start a new conversation for more work.'):'Questions use saved status. Plan changes need confirmation before being applied.';
   $('#live-mode').textContent=operational?'This does not approve goals, change permissions, reset budgets, or continue execution.':questions.length?'This does not approve a plan or start implementation.':unavailable?'Live controls are unavailable.':run.status==='TASK_COMPLETE'&&run.completion_current===false?'Saved messages are retained while you inspect current checks.':statusInfo(run).group==='stopped'&&!busy?'Messages stay saved while this task is paused.':'';
   $('#live-error').textContent=data.error||'';
   const host=$('#change-history');host.replaceChildren();const entries=data.entries||data.requests||[],chatIds=new Set((run.chat_messages||[]).map(entry=>entry.id));
@@ -2826,7 +2901,7 @@ function showRemovedRun(run) {
   stopPreview();evidenceRequest++;evidenceRun='';
   $('#archive-task').disabled=true;$('#delete-task').disabled=true;
   $('#task-overview').hidden=true;
-  latestRun=run;$('#task-title').textContent='Project removed';$('#task-project').textContent=projectTitle(run.workspace);$('#task-project').title=run.workspace;$('#task-subtitle').textContent='This task is hidden until you restore its project.';$('#task-models').textContent='';$('#task-model-settings').replaceChildren();$('#task-status').replaceChildren();$('#task-progress-summary').hidden=true;
+  latestRun=run;$('#task-title').textContent='Project removed';$('#task-project').textContent=projectLabel(run.workspace);$('#task-project').title=run.workspace;$('#task-subtitle').textContent='This task is hidden until you restore its project.';$('#task-models').textContent='';$('#task-model-settings').replaceChildren();$('#task-status').replaceChildren();$('#task-progress-summary').hidden=true;
   for(const id of ['conversation','brief-current','goal','plan-full','execution_view','actions','task-attention'])$('#'+id).replaceChildren();
   $('#task-attention').hidden=true;$('#detail-grid').hidden=true;$('#live-controls').hidden=true;for(const id of ['continue','continue-run','pause-run','stop-run'])$('#'+id).disabled=true;
   const host=$('#task-removed-banner');host.replaceChildren(n('h2','Restore '+projectTitle(run.workspace)+' to view this task'),n('p','Its files and history stay on disk. Running tasks keep going.'),Object.assign(n('p',run.workspace),{className:'project-path'}),projectActionButton(run.workspace,'restore','Restore project'));host.hidden=false;renderTaskProjectActions(run.workspace,true);
@@ -2834,7 +2909,7 @@ function showRemovedRun(run) {
 function showArchivedRun(run){
   stopPreview();evidenceRequest++;evidenceRun='';
   latestRun=run;$('#archive-task').disabled=true;$('#delete-task').disabled=true;
-  $('#task-title').textContent='Task archived';$('#task-project').textContent=projectTitle(run.workspace);$('#task-project').title=run.workspace;
+  $('#task-title').textContent='Task archived';$('#task-project').textContent=projectLabel(run.workspace);$('#task-project').title=run.workspace;
   $('#task-subtitle').textContent='Restore this task to view its history and controls.';$('#task-models').textContent='';$('#task-model-settings').replaceChildren();$('#task-status').replaceChildren();$('#task-progress-summary').hidden=true;
   for(const id of ['task-overview','task-attention','detail-grid','live-controls'])$('#'+id).hidden=true;
   for(const id of ['continue','continue-run','pause-run','stop-run'])$('#'+id).disabled=true;
@@ -2842,7 +2917,7 @@ function showArchivedRun(run){
   renderTaskProjectActions(run.workspace);
 }
 function showRun(run,focus){
-  taskReadError='';taskReadAt=Date.now();$('#task-load-notice').hidden=true;$('#sync-state').textContent='Task checked just now';
+  taskReadError='';taskReadAt=Date.now();$('#task-load-notice').hidden=true;$('#sync-state').replaceChildren(Object.assign(n('img'),{src:'/static/connected.svg',alt:'',width:6,height:6}),document.createTextNode('Task checked just now'));
   $('#task-stale-state').hidden=true;
   document.querySelectorAll('[data-stale-disabled]').forEach(control=>{control.disabled=control.dataset.staleDisabled==='true';if(control.dataset.staleDescription)control.setAttribute?.('aria-describedby',control.dataset.staleDescription);else control.removeAttribute?.('aria-describedby');delete control.dataset.staleDisabled;delete control.dataset.staleDescription;});
   if(run.task_archived){showArchivedRun(run);restoreFocus(focus);return;}
@@ -2851,7 +2926,7 @@ function showRun(run,focus){
   latestRun=run;$('#continue').disabled=false;if(typeof settleApprovalReceipt==='function')settleApprovalReceipt(run);
   $('#archive-task').disabled=archivePending.has(run.run);$('#archive-task').onclick=()=>reviewTaskArchive(run);$('#delete-task').disabled=false;$('#delete-task').onclick=()=>reviewTaskDelete(run);
   renderTaskOverview(run);
-  $('#task-project').textContent=projectTitle(run.workspace);$('#task-project').title=run.workspace;
+  $('#task-project').textContent=projectLabel(run.workspace);$('#task-project').title=run.workspace;
   const task=String(run.task||'Untitled task');$('#task-title').textContent=taskTitle(run);$('#task-title').title=task;
   $('#task-subtitle').textContent=taskSentence(run,taskActionBusy(run));$('#task-status').replaceChildren(typeof taskStatusBadge==='function'?taskStatusBadge(run):badge(run));
   $('#task-objective').textContent=taskPosition(run);
@@ -2881,7 +2956,7 @@ async function refreshOnce(){
   const listRead=(async()=>{
     try{
       const data=await api('/api/runs');if(mine!==seq)return;latestData=data;setup(data);if(restorePendingShortRun(data)||restorePendingShortProject(data))return;const focus=captureControls();renderTasks(data);renderConversations(data);expireNotices();restoreFocus(focus);
-      if(!selected)$('#sync-state').replaceChildren(Object.assign(n('span',''),{className:'status-dot'}),document.createTextNode('Task list checked just now'));
+      if(!selected)$('#sync-state').replaceChildren(Object.assign(n('img'),{src:'/static/connected.svg',alt:'',width:6,height:6}),document.createTextNode('Task list checked just now'));
     }catch(error){if(mine!==seq)return;if(!selected)$('#sync-state').textContent='Task list unavailable';dashboardNotice(actionProblem||error.message);}
   })();
   const detailRead=(async()=>{

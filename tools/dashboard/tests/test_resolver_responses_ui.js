@@ -108,7 +108,7 @@ async function runTests(){
   assert.equal(cards[0].hidden,false);assert.equal(cards[1].hidden,true);
   m.$('#question-target').value='Q2';m.$('#question-target').onchange();
   assert.equal(cards[0].hidden,true);assert.equal(cards[1].hidden,false);
-  assert.match(text(cards[1]),/AutoResolver/);assert.doesNotMatch(text(cards[1]),/Planner/);
+  assert.match(text(cards[1]),/Resolver/);assert.doesNotMatch(text(cards[1]),/Planner/);
   await m.c.sendTaskChat(material);
   assert.deepEqual(m.calls[0],{url:'/api/chat',payload:{workspace:base.workspace,run:base.run,text:'Browser',request_id:'request-1',question_id:'Q2',...fields(material)}});
   assert.equal(m.calls.length,1,'Saving a material reply does not itself send Continue from the browser');

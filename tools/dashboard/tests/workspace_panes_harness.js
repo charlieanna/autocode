@@ -401,7 +401,7 @@ const CASES = {
     // Every displayed value comes from the saved run record.
     assert.ok(work.includes('Fix login timeout'), 'the Work pane shows the saved current task');
     assert.ok(work.includes('gpt-5.6-terra'), 'the Work pane shows the saved Builder model attribution');
-    assert.ok(work.includes('gpt-5.6-sol'), 'the Work pane shows the saved Validator model attribution');
+    assert.ok(work.includes('gpt-5.6-sol'), 'the Work pane shows the saved Tester model attribution');
     assert.ok(work.includes('Iteration budget exhausted before verification'),
       'the Work pane shows the saved blocker note');
     assert.ok(work.includes('Re-run the login timeout test after raising the budget'),
@@ -518,8 +518,8 @@ const CASES = {
     assert.ok(!text.includes('configured-but-never-run'),
       'a configured-only Builder route is not listed as an actual role/model attribution');
     assert.ok(!text.includes('configured-sol-route'),
-      'a configured-only Validator route is not listed as an actual role/model attribution');
-    assert.ok(!/Builder ·|Validator ·/.test(text),
+      'a configured-only Tester route is not listed as an actual role/model attribution');
+    assert.ok(!/Builder ·|Tester ·/.test(text),
       'no attribution line is fabricated for a role that never ran');
     // Configured future routes stay inspectable, separately labeled, never as
     // actual stage attributions.
@@ -533,7 +533,7 @@ const CASES = {
     await tick();
     const executed = textOf(findFirst(pane('#now'), 'work-roles'));
     assert.ok(executed.includes('gpt-5.6-terra'), 'the saved executed Builder attribution still renders');
-    assert.ok(executed.includes('gpt-5.6-sol'), 'the saved executed Validator attribution still renders');
+    assert.ok(executed.includes('gpt-5.6-sol'), 'the saved executed Tester attribution still renders');
     assert.ok(executed.includes('medium reasoning'), 'the saved executed reasoning effort still renders');
   },
   // The same negative case, driven by the REAL dashboard_monitor.snapshot
@@ -556,8 +556,8 @@ const CASES = {
     assert.ok(!text.includes(String(projection.roles.terra.model)),
       'a settings-derived route from the real projection is not an actual role/model attribution: ' + text);
     assert.ok(!text.includes(String(projection.roles.sol?.model || '')),
-      'a settings-derived Validator route from the real projection is not an actual attribution');
-    assert.ok(!/Builder ·|Validator ·|Planner/.test(text),
+      'a settings-derived Tester route from the real projection is not an actual attribution');
+    assert.ok(!/Builder ·|Tester ·|Planner/.test(text),
       'no attribution line is fabricated for a role that never ran');
     assert.ok(/No saved role and model attributions/.test(text),
       'with zero recorded executions the summary states that truthfully');
@@ -584,12 +584,12 @@ const CASES = {
     const text = textOf(findFirst(pane('#now'), 'work-roles'));
     assert.ok(text.includes('Builder · gpt-5.6-terra · medium reasoning'),
       'the recorded Builder stage launch renders as the actual attribution: ' + text);
-    assert.ok(text.includes('Validator · gpt-5.6-sol · high reasoning'),
-      'the recorded active Validator launch renders as the actual attribution: ' + text);
+    assert.ok(text.includes('Tester · gpt-5.6-sol · high reasoning'),
+      'the recorded active Tester launch renders as the actual attribution: ' + text);
     assert.ok(!text.includes('configured-future-terra'),
       'the settings-derived future Builder route is never presented as an execution');
     assert.ok(!text.includes('configured-future-sol'),
-      'the settings-derived future Validator route is never presented as an execution');
+      'the settings-derived future Tester route is never presented as an execution');
     const configuredView = textOf(findFirst(pane('#now'), 'workflow-models-panel'));
     assert.ok(configuredView.includes('Configured: ') && configuredView.includes('configured-future-terra'),
       'the differing configured routes stay visible only in the configured view');
@@ -931,7 +931,7 @@ const CASES = {
       await approve.onclick();
       assert.equal(1, approvals().length, 'the stale submission posted no second approval');
       assert.ok(String(pane('#dashboard-notice').textContent)
-        .includes('The AutoResolver request changed. Refresh and review the current request before responding.'),
+        .includes('The Resolver request changed. Refresh and review the current request before responding.'),
         'the stale submission is refused with the stale-refusal message');
     } finally {
       serverState.onAction = null;

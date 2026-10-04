@@ -68,25 +68,28 @@ were archived at tag `archive/pre-restructure-2026-09-26`
 
 ## Names
 
-The code still uses internal stage names. Until they are renamed, this is the
-mapping (the unit column is `autopilot.unit_for`):
+The code still uses internal stage names. **Screen and doc names come from one
+list:** `tools/autocode_roles.py` (`SCREEN` / `STAGE_JOB` / `role_name`). Do not
+add a second table. Name the job being done, not the AI that does it: under
+reviewer routing (`glm_first_v1`), `astra_checkpoint` is **Tester**, because that
+stage runs the testing job on the Plan Reviewer. Unit names (AutoPlanner,
+AutoCode, AutoReview, AutoResolver) stay behind the scenes.
 
-| In code | Role in docs | Unit |
+| In code | Job on screen (`autocode_roles`) | Unit |
 | --- | --- | --- |
 | `recognize_workflow` | Job recognizer: which of the five workflows (`autocode_workflows.py`) | AutoPlanner |
-| `requirements_gather` | Requirements | AutoPlanner |
-| `astra_discovery`, `glm_revise` | Planner | AutoPlanner |
+| `requirements_gather`, `astra_discovery`, `glm_revise` | Requirements | AutoPlanner |
+| `astra_plan` | Planner | AutoCode build unit |
 | `astra_challenge`, `astra_finalize` | Plan Reviewer | AutoPlanner |
-| `orchestrator` | parallel milestone scheduling (no model) | AutoCode build unit |
-| `astra_plan` | next-task planning | AutoCode build unit |
+| `orchestrator` | Orchestrator: parallel milestone scheduling (no model) | AutoCode build unit |
 | `terra` | Builder | AutoCode build unit |
-| `sol` | Validator | AutoReview |
-| `review_change` | Reviewer: the review workflow's only stage (`autocode_review_job.py`) | AutoReview |
-| `review_design` | Architect: the design workflow's first stage (`autocode_design_job.py`) | AutoReview |
-| `check_design` | Architect: checks an approved design against the repository before a build implements it (`autocode_design_check_job.py`) | AutoReview |
-| `investigate_stuck` | Investigator: why a stage stopped converging, before the run pauses (`autocode_stuck_job.py`) | AutoResolver |
-| `astra_review`, `astra_checkpoint` | Completion Owner | AutoReview |
-| `astra_resolve` | AutoResolver | AutoResolver |
+| `sol` | Tester | AutoReview |
+| `review_change` | Code Reviewer: the review workflow's only stage (`autocode_review_job.py`) | AutoReview |
+| `review_design` | Designer: the design workflow's first stage (`autocode_design_job.py`) | AutoReview |
+| `check_design` | Design Reviewer: checks an approved design against the repository (`autocode_design_check_job.py`) | AutoReview |
+| `investigate_stuck` | Investigator: why a stage stopped converging (`autocode_stuck_job.py`) | AutoResolver |
+| `astra_review`, `astra_checkpoint` | Completion Reviewer (`astra_checkpoint` is Tester under reviewer routing) | AutoReview |
+| `astra_resolve` | Resolver | AutoResolver |
 | `investigate_bug` | Investigator: the bug-fix workflow's first stage (`autocode_bug_job.py`) | AutoResolver |
 | `answer_question` | Analyst: the discuss workflow's only stage (`autocode_discuss_job.py`) | AutoResolver |
 

@@ -15,7 +15,7 @@ const get=id=>{if(!ids.has(id))ids.set(id,new Element('div'));return ids.get(id)
 const context=vm.createContext({console,$:get,n:(tag,text)=>new Element(tag,text),card:()=>new Element('div'),
  button:(label,onclick)=>Object.assign(new Element('button',label),{onclick}),focusKey:element=>element,
  disclosure:(label,key,content)=>{const e=new Element('details',label);e.dataset.key=key;e.append(...content);return e;},
- statusInfo:run=>run.human_request_authorized&&run.human_escalation?.request_token?{group:'attention',label:'Answer needed',reason:'Answer the published question.'}:{group:'stopped',label:'Awaiting AutoResolver',reason:'No current AutoResolver request is published.'},
+ statusInfo:run=>run.human_request_authorized&&run.human_escalation?.request_token?{group:'attention',label:'Answer needed',reason:'Answer the published question.'}:{group:'stopped',label:'Awaiting Resolver',reason:'No current Resolver request is published.'},
  renderDocument:value=>new Element('pre',JSON.stringify(value)),taskActionBusy:()=>false,unresolvedModelReplacement:()=>false,
  dashboardNotice:message=>notices.push(message),submitTaskAction:(...args)=>calls.push(args),activateTab:tab=>tabs.push(tab),
  startProjectConversation:project=>calls.push(['new',project]),document:{querySelectorAll:()=>[]}});
@@ -53,7 +53,7 @@ const request={...recovery,category:'request',title:'Review checkpoint',actions:
 for(const authorized of [false,true]){
  const target=new Element('div');context.renderRecoveryCard(target,{...run,human_request_authorized:authorized,human_escalation:{request_token:'current'}},request);
  assert.equal(all(target).some(e=>e.dataset.recoveryAction==='decision'),authorized);
- assert.ok(text(target).includes(authorized?'Answer needed':'Awaiting AutoResolver'));
+ assert.ok(text(target).includes(authorized?'Answer needed':'Awaiting Resolver'));
  assert.equal(calls.length,7,'Rendering a saved request cannot answer or approve it');
 }
 const stale=new Element('div');context.renderRecoveryCard(stale,{...run,status:'RUNNING'},{...recovery,token:null,actions:recovery.actions.filter(a=>['inspect','feedback'].includes(a.kind))});
@@ -61,3 +61,8 @@ assert.match(text(stale),/Inspect this saved checkpoint/);
 assert.doesNotMatch(text(stale),/saved pause/);
 assert.match(text(stale),/do not start a new worker/);
 console.log('Recovery inspection, exact actions, stale refusal, source-aware history and preserved drafts passed.');
+
+context.openWorkspaceSetup=()=>calls.push(['setup']);
+const environment=new Element('div');context.renderRecoveryCard(environment,{...run,status:'PAUSED_TRANSPORT_CHANGED'},{...recovery,cause:'PAUSED_TRANSPORT_CHANGED',actions:[]});
+all(environment).find(e=>e.dataset.setupRecovery==='true').onclick();assert.deepEqual(calls.at(-1),['setup']);
+assert.match(text(environment),/task stays paused/);

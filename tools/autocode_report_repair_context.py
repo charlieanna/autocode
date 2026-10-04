@@ -1,20 +1,38 @@
-"""Carry current clarification sources into planning report repairs."""
+"""Ground report repairs in saved context without rewriting execution history."""
 from __future__ import annotations
 
 import copy
 
 
 PLANNING_STAGES = frozenset({"requirements_gather", "astra_discovery", "glm_revise", "astra_finalize"})
+DECISION_STAGES = frozenset({"astra_plan", "astra_review", "astra_checkpoint", "astra_resolve"})
 
 
 def baseline_instruction(stage: str) -> str:
-    """Distinguish planning drafts from immutable recorded execution history."""
+    """Distinguish planning and proposed tasks from immutable execution history."""
     if stage in PLANNING_STAGES:
         return (
             "If supplied, original_report is historical planning context; rejected_report "
             "is the latest failed repair and error applies to that draft. Repair the latest "
             "draft against the current clarification context and protected contract. Do not "
             "restore invalid machine_resolutions or other rejected fields from original_report. "
+        )
+    if stage in DECISION_STAGES:
+        return (
+            "If supplied, original_report remains the execution-history baseline; rejected_report "
+            "is the latest failed repair and error applies to that draft. Preserve executed commands, "
+            "outcomes, Validator facts, findings, failures and uncertainty. The rejected proposed next_task "
+            "is not executed history and may be corrected within the saved schema and existing approved scope "
+            "(decision.next_task in a combined checkpoint report). Read goal_contract.body.milestones "
+            "from the current approved contract through state_file: correct next_task.milestone_id only "
+            "to an existing approved milestone ID covering the task's criterion IDs. "
+            "Progressive slice IDs are never milestone IDs. For an implement/validate proposal, "
+            "requirements, acceptance_criteria and validation_plan must be nonempty and derived from "
+            "the existing approved scope and reviewed checks. Do not invent scope, milestones, "
+            "unreviewed checks, PASS or citations. Do not change current_task or report_identity, "
+            "grant authority or execute the proposed task during report repair. If the saved approved "
+            "context does not establish a valid correction, preserve the uncertainty and report a blocker "
+            "as the saved schema permits; do not guess an ID or default to M1. "
         )
     return (
         "If original_report is also supplied, it is the immutable execution-history baseline; "

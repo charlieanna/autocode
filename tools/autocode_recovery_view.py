@@ -62,7 +62,7 @@ def _explanation(status, role):
         'WAITING_FOR_DEPENDENCY': 'This task is waiting for the required accepted delivery from another task.',
         'AWAITING_GOAL_APPROVAL': 'The plan is at a saved review checkpoint before implementation can begin.',
         'WAITING_FOR_USER': 'The task is waiting at a saved review or response checkpoint.',
-        'RESOLVER_PENDING': 'AutoResolver has not yet published a decision request for you.',
+        'RESOLVER_PENDING': 'Resolver has not yet published a decision request for you.',
         'PAUSED_REQUESTED': 'The task finished and saved its current step, then paused as requested.',
         'PAUSED_INTERVENTION': 'The task paused at a saved boundary for your review.',
         'PAUSED_BUILDER_RETRY_LIMIT': 'The Builder used its configured attempts for this task and stopped.',
@@ -86,7 +86,7 @@ def _explanation(status, role):
         (('WORKSPACE_BUSY', 'RUN_BUSY', 'PROCESS_', 'ORCHESTRATOR_WORKERS'), 'Worker ownership or process cleanup needs to be resolved before another step can run.'),
         (('CONFLICT', 'DIRTY', 'OWNERSHIP', 'ASSIGNMENT_SCOPE', 'ORCHESTRATOR_'), 'The task stopped to protect work whose integration or ownership is unresolved.'),
         (('DESIGN_', 'PREFLIGHT', 'BLOCKED_ENV', 'BILLING_ROUTE', 'CROSS_MODEL', 'REVIEWER_FALLBACK'), 'A required environment, design input or saved model route needs correction.'),
-        (('RESOLVER',), 'AutoResolver paused while working out a safe next step.'),
+        (('RESOLVER',), 'Resolver paused while working out a safe next step.'),
     ]
     for fragments, text in groups:
         if any(part in status for part in fragments):

@@ -46,7 +46,7 @@ def report(data):
                                         "evidence_refs": ["event:check"]} for i in (1, 2, 3)],
                  "end_to_end_result": {"status": "PASS" if done else "NOT_VERIFIED",
                                        "summary": "Read combined output" if done else "Inputs pass; combined output is not built yet",
-                                       "evidence_refs": ["event:check"]},
+                                       "evidence_refs": ["event:check"], "technical_result": None, "pending_human_criteria": []},
                  "finding_dispositions": []}
         if data["current_task"].get("milestone_ids"):
             value["milestone_results"] = [{"milestone_id": mid, "status": "PASS", "summary": "Output executed", "evidence_refs": ["event:check"]}

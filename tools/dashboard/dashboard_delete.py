@@ -35,6 +35,29 @@ def git(root, *args):
     return result.stdout.strip()
 
 
+def remaining_scope(preview):
+    """Inspect every selected resource; an unreadable Git repository is not absence."""
+    result = []
+    for item in preview['scope']:
+        if item['kind'] == 'branch':
+            managed = preview['managed']
+            reference = 'refs/heads/' + managed['branch']
+            present = reference in git(managed['project'], 'for-each-ref', '--format=%(refname)', reference).splitlines()
+        else:
+            present = os.path.lexists(item['path'])
+        if present:
+            result.append(item)
+    return result
+
+
+def completed_scope(preview):
+    # Older completed receipts are authoritative about what was removed. Older
+    # partial receipts did not journal branch removal and cannot prove its result.
+    if preview['status'] == 'deleted':
+        return preview['scope']
+    return preview.get('completed_scope', [item for item in preview.get('deleted', []) if item['kind'] != 'branch'])
+
+
 def inventory(path):
     """Bind confirmation to actual directory identity and contents, without reading run state."""
     entries = []
@@ -107,6 +130,22 @@ class PermanentDeleteMixin:
     @property
     def deletions(self):
         return DeleteStore(root=self._project_store_root)
+
+    def dashboard_snapshot(self):
+        data = super().dashboard_snapshot()
+        store = self.deletions
+        with store._guard():
+            records = store.read()
+        fields = ('preview_id', 'title', 'workspace', 'run', 'scope', 'confirmation',
+                  'status', 'remaining', 'deleted', 'errors', 'retry_blocked',
+                  'include_worktree', 'include_branch', 'can_include_worktree',
+                  'can_include_branch', 'worktree_unavailable_reason')
+        # A removed run cannot supply its own retry control after a restart.
+        # Keep incomplete durable requests discoverable without reading it.
+        data['pending_deletions'] = [{key: row[key] for key in fields if key in row}
+                                    for row in records.values()
+                                    if row.get('status') in ('partial', 'deleting')]
+        return data
 
     def _deletion_stopped(self, workspace, run):
         if str(run) in self.pending or str(workspace) in self.workspace_busy:
@@ -196,8 +235,12 @@ class PermanentDeleteMixin:
                        'include_branch': include_branch, 'managed': managed if include_worktree else None,
                        'can_include_worktree': bool(managed), 'can_include_branch': bool(managed), 'worktree_unavailable_reason': reason,
                        'fingerprint': inventory(workspace if include_worktree else run), 'status': 'preview',
-                       'deleted': [], 'remaining': scope, 'errors': []}
-            preview['confirmation'] = 'Delete permanently: ' + preview['title'] + ' | ' + str(workspace) + ' | ' + ', '.join(item['kind'] + ': ' + item['path'] for item in scope)
+                       'deleted': [], 'remaining': scope, 'errors': [],
+                       'receipt_version': 2, 'completed_scope': []}
+            # The short challenge identifies this exact, immutable path preview.
+            # Requiring the user to retype every absolute path hides the action
+            # on small screens and adds no authority beyond the saved preview.
+            preview['confirmation'] = 'DELETE ' + preview['preview_id'][:12]
         store = self.deletions
         with store._guard(write=True):
             records = store.read()
@@ -221,13 +264,33 @@ class PermanentDeleteMixin:
             records = store.read()
             preview = records.get(data.get('preview_id'))
             if not preview or data.get('confirmation') != preview['confirmation']:
-                raise ValueError('Explicit confirmation must name the exact task, project, and deletion scope')
-            if preview['status'] == 'deleted':
-                recreated = [item for item in preview['scope'] if item['kind'] != 'branch' and os.path.lexists(item['path'])]
+                raise ValueError('Type the confirmation code for this exact task and deletion scope')
+            def record_step(kinds):
+                finished = completed_scope(preview)
+                preview['completed_scope'] = [item for item in preview['scope'] if item in finished or item['kind'] in kinds]
+                preview['remaining'] = remaining_scope(preview)
+                preview['deleted'] = [item for item in preview['scope'] if item not in preview['remaining']]
+                store.write(records)
+
+            try:
+                present = remaining_scope(preview)
+                finished = completed_scope(preview)
+                recreated = [item for item in present if item in finished]
                 if recreated:
-                    return {**preview, 'status': 'partial', 'remaining': recreated,
-                            'errors': ['Deletion previously completed, but the path has been recreated. Request a new preview; the old confirmation cannot delete new files.']}
-                return preview
+                    preview.update(status='partial', remaining=present, completed_scope=finished,
+                                   deleted=[item for item in preview['scope'] if item not in present], retry_blocked=True,
+                                   errors=['A previously removed path or branch has been recreated. The old confirmation cannot delete new work.'])
+                    store.write(records)
+                    return preview
+                if preview['status'] == 'deleted':
+                    return preview
+                if preview.get('retry_blocked'):
+                    return preview
+            except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+                # In particular, an unreadable repository cannot produce a
+                # successful replay of a completed branch-deletion receipt.
+                return {**preview, 'status': 'partial', 'remaining': preview['scope'],
+                        'errors': ['Deletion scope could not be inspected: ' + str(error)]}
             workspace, run = canonical(preview['workspace']), canonical(preview['run'])
             target = workspace if preview['include_worktree'] else run
             try:
@@ -252,6 +315,9 @@ class PermanentDeleteMixin:
                             shutil.rmtree(run)
                 elif not preview.get('execution_started'):
                     raise ValueError('Deletion scope disappeared before confirmation; refresh status')
+                if target.exists():
+                    raise ValueError('Deletion incomplete; selected files remain')
+                record_step({'run', 'worktree'} if preview['include_worktree'] else {'run'})
                 if preview['include_worktree']:
                     managed = preview['managed']
                     entries = git(managed['project'], 'worktree', 'list', '--porcelain').split('\n\n')
@@ -261,11 +327,28 @@ class PermanentDeleteMixin:
                     managed = preview['managed']
                     references = git(managed['project'], 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads/' + managed['branch'])
                     if references:
+                        if preview.get('branch_removal_started') or preview.get('receipt_version') != 2:
+                            preview['retry_blocked'] = True
+                            raise ValueError('The earlier branch removal has no durable result. Branch retained; the old confirmation cannot safely retry it.')
                         if references != 'refs/heads/' + managed['branch'] + ' ' + managed['branch_head']:
+                            preview['retry_blocked'] = True
                             raise ValueError('Branch changed since confirmation; branch retained')
-                        git(managed['project'], 'branch', '-D', '--', managed['branch'])
+                        preview['branch_removal_started'] = True
+                        store.write(records)
+                        try:
+                            git(managed['project'], 'branch', '-D', '--', managed['branch'])
+                        except ValueError:
+                            # A returned Git refusal can be retried. A timeout,
+                            # crash or failed receipt write keeps the ambiguity
+                            # marker, so it cannot authorize a second removal.
+                            preview['branch_removal_started'] = False
+                            store.write(records)
+                            raise
+                    record_step({'branch'})
                 if target.exists():
                     raise ValueError('Deletion incomplete; selected files remain')
+                if remaining_scope(preview):
+                    raise ValueError('Deletion incomplete; a selected path or branch still exists')
                 self._forget_deleted(preview)
                 preview.update(status='deleted', deleted=preview['scope'], remaining=[], errors=[],
                                deleted_at=datetime.now(timezone.utc).isoformat())
@@ -274,7 +357,11 @@ class PermanentDeleteMixin:
                     raise ValueError(str(error)) from error
                 # Keep the exact receipt retryable. Never convert a missing response into success.
                 preview.update(status='partial', errors=[str(error)])
-                preview['remaining'] = [item for item in preview['scope'] if item['kind'] == 'branch' or Path(item['path']).exists()]
+                try:
+                    preview['remaining'] = remaining_scope(preview)
+                except (ValueError, OSError, subprocess.TimeoutExpired) as inspection_error:
+                    preview['remaining'] = preview['scope']
+                    preview['errors'].append('Scope inspection unavailable: ' + str(inspection_error))
                 preview['deleted'] = [item for item in preview['scope'] if item not in preview['remaining']]
             store.write(records)
             return preview

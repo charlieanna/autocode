@@ -37,8 +37,8 @@ DEFAULTS = {"enabled": True, "max_parallel": 2}
 # producer's model. Family is the independence unit — MiMo checks GLM work and
 # GLM checks MiMo work. Same exact model is always illegal.
 _VERIFIER_PAIRS = (
-    ("terra", "sol", "Builder/Validator"),
-    ("terra", "completion", "Builder/Completion Owner"),
+    ("terra", "sol", "Builder/Tester"),
+    ("terra", "completion", "Builder/Completion Reviewer"),
 )
 
 

@@ -65,7 +65,7 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
   browser('screenshot',path.join(evidence,viewport+'-stale-worker.png'));
   open('internal');
   const internalFile=path.join(data('()=>latestRun.run'),'state.json'),internalBefore=fs.readFileSync(internalFile);
-  assert.match(data('()=>document.querySelector("#task-attention").textContent'),/Awaiting AutoResolver/);
+  assert.match(data('()=>document.querySelector("#task-attention").textContent'),/Awaiting Resolver/);
   assert.equal(data('()=>!!document.querySelector("#task-attention [data-recovery-action=decision]")'),false);
   assert.equal(data('()=>[...document.querySelectorAll("[data-question-card]")].some(e=>!e.hidden)'),false);
   assert.deepEqual(fs.readFileSync(internalFile),internalBefore,'An unpublished question remains an internal checkpoint');

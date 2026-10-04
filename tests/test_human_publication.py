@@ -269,6 +269,31 @@ class HumanResponseCLITests(unittest.TestCase):
         self.assertIn('requires a run paused for exhausted timeout recovery', result.stderr)
         self.assertEqual(before, (run / 'state.json').read_bytes())
 
+    def test_grant_accepts_corrected_timeouts_in_the_same_cli_invocation(self):
+        run, exhausted = self.timeout_exhausted_checkpoint()
+        published = human.current(exhausted)
+        probe = self.root / 'corrected-timeout-launches.jsonl'
+        self.env['AUTOCODE_REGISTRY_LAUNCH_PROBE'] = str(probe)
+        result = self.launch(['--run-dir', str(run), '--resume-paused', '--grant-recovery', '1',
+                             '--max-stage-seconds', '300', '--max-idle-seconds', '120', '--no-chat'], 2)
+        self.assertIn('Recovery grant recorded: 1', result.stdout)
+        self.assertTrue(probe.exists(), 'the corrected run must launch its next provider')
+        saved = self.saved()[1]
+        self.assertEqual(exhausted['automatic_timeout_recoveries'], saved['automatic_timeout_recoveries'])
+        self.assertEqual(published['request_id'], saved['recovery_grants'][-1]['request_id'])
+        self.assertEqual(2, saved['recovery_grants'][-1]['remaining_count'])
+
+    def test_changing_limits_cannot_authorize_an_already_stale_grant(self):
+        run, _ = self.timeout_exhausted_checkpoint()
+        (self.project / 'greet.py').write_text('# a different source after the request was issued\n')
+        probe = self.root / 'stale-grant-launches.jsonl'
+        self.env['AUTOCODE_REGISTRY_LAUNCH_PROBE'] = str(probe)
+        result = self.launch(['--run-dir', str(run), '--resume-paused', '--grant-recovery', '1',
+                             '--max-stage-seconds', '300', '--max-idle-seconds', '120', '--no-chat'], 2)
+        self.assertIn('requires a run paused for exhausted timeout recovery', result.stderr)
+        self.assertFalse(probe.exists(), 'a stale source binding must not launch a provider')
+        self.assertFalse(self.saved()[1].get('recovery_grants'))
+
     def test_grant_recovery_resumes_in_one_invocation_from_a_bare_timeout_pause(self):
         run, paused = self.timeout_exhausted_checkpoint(publish_request=False)
         self.assertIsNone(human.current(paused))

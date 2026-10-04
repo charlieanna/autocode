@@ -206,8 +206,10 @@ def run_checks(run: dict | None, *, workflow: str, no_build: bool = False, no_re
         # The plan was challenged by the Plan Reviewer and put to the user, who approved it.
         reviewed = [stage for stage in stages if stage in PLAN_REVIEW_STAGES]
         checks.append(Check("plan_reviewed", bool(reviewed), f"plan review stages: {reviewed}"))
-        approved = "approve-plan" in run.get("cli_calls", [])
-        checks.append(Check("plan_approved_by_user", approved, "" if approved else "no plan was put up for approval"))
+        approved = any(step.get("kind") == "approve-plan" and type(step.get("exit")) is int
+                       and step["exit"] == 0 for step in run.get("steps", []))
+        checks.append(Check("plan_approved_by_user", approved,
+                            "" if approved else "no successful plan approval was recorded"))
     if max_questions is not None:
         asked = len(run.get("answers") or [])
         checks.append(Check("question_budget", asked <= max_questions, f"asked {asked}, allowed {max_questions}"))

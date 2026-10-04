@@ -43,6 +43,7 @@ const run=projectedRun('goal_approval',{workspace:'/fixture/project',run:'/fixtu
   }}});
 class Element{
   constructor(tag='div',text=''){this.tagName=tag.toUpperCase();this.textContent=text;this.children=[];this.dataset={};this.open=false;this.disabled=false;this.classList={add:()=>{}};}
+  setAttribute(name,value){this[name]=value;}
   append(...children){this.children.push(...children);}
   replaceChildren(...children){this.children=children;}
   get childElementCount(){return this.children.length;}

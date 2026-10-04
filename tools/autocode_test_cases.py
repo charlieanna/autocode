@@ -142,9 +142,12 @@ def match_cases(cases: list[dict], test_ids: list[str]) -> dict[str, list[str]]:
             matched[case["id"]] = [test for test in test_ids
                                    if _test_function(test) == case["test_name"]]
         else:
-            want = _words(case["id"])
+            # The documented lowercase spelling keeps M1A as m1a. Retain the
+            # CamelCase spelling too, without accepting prefixes of either form.
+            wants = (_words(case["id"]), _words(case["id"].lower()))
             matched[case["id"]] = [test for test in test_ids
                                    if any(_words(_test_function(test))[i:i + len(want)] == want
+                                          for want in wants
                                           for i in range(len(_words(_test_function(test)))))]
     return matched
 

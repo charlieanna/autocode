@@ -260,7 +260,7 @@ def evidence_ready(state, current):
         and (not required.intersection(val.get("unverified_criteria", [])) or human_only_gap)
         and all((results.get(cid, {}).get("status") == "PASS" or
                  (human_only_gap and cid == human_ids[0])) and results[cid].get("evidence_refs") for cid in required)
-        and flow_ready)
+        and (flow_ready or (human_only_gap and flow.get("status") == "NOT_VERIFIED")))
 
 
 def release_obsolete_gate_request(state, published):

@@ -27,9 +27,9 @@ class RoleNamesTests(unittest.TestCase):
 
     def test_legacy_and_current_names_describe_the_same_job(self):
         for names, expected in [(('requirements_gather', 'requirements'), 'Requirements'),
-                                (('astra_discovery', 'plan', 'astra_plan'), 'Planner'),
+                                (('plan', 'astra_plan'), 'Planner'),
                                 (('astra_challenge', 'plan_review'), 'Plan Reviewer'),
-                                (('terra', 'builder'), 'Builder'), (('sol', 'validator'), 'Validator')]:
+                                (('terra', 'builder'), 'Builder'), (('sol', 'validator'), 'Tester')]:
             for stage in names:
                 self.assertEqual(expected, role_name(stage))
 
@@ -41,13 +41,22 @@ class RoleNamesTests(unittest.TestCase):
                                       'launch_route': {'model': 'provider/plan-reviewer-model'}}}
             before = copy.deepcopy(state['settings'])
             row = autocode_status.record(state, timestamp=1)
-            self.assertEqual('Validator / Completion Owner', row['speaker'])
+            expected = 'Tester' if mode == 'glm_first_v1' else 'Completion Reviewer'
+            self.assertEqual(expected, row['speaker'])
             self.assertIn('provider/plan-reviewer-model', row['text'])
             self.assertEqual(before, state['settings'])
-            self.assertEqual('Validator / Completion Owner', role_name('astra_checkpoint_report_repair', mode))
-        self.assertEqual('Completion Owner', role_name('astra_checkpoint'))
+            self.assertEqual(expected, role_name('astra_checkpoint_report_repair', mode))
+        self.assertEqual('Completion Reviewer', role_name('astra_checkpoint'))
 
     def test_registry_is_presentation_data_only(self):
         self.assertEqual({'roles', 'aliases', 'stages', 'modes'}, set(CATALOGUE))
         for entry in CATALOGUE['stages'].values():
             self.assertEqual({'role', 'activity'}, set(entry))
+
+    def test_browser_names_are_derived_from_the_canonical_job_catalogue(self):
+        import autocode_roles as roles
+        for stage in roles.STAGE_JOB:
+            for mode in (None, *roles.VALIDATION_ROUTING_MODES, 'glm_final_audit_v2'):
+                expected=roles.screen_name(stage, {'settings': {'workflow': {'mode': mode}}})
+                actual=CATALOGUE['modes'].get(mode, {}).get(stage) or CATALOGUE['stages'][stage]
+                self.assertEqual(expected, actual['role'])

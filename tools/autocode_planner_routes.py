@@ -1,4 +1,4 @@
-"""Approved continuous-conversation model profile.
+"""Default continuous-conversation model profile.
 
 This policy applies to conversations using this profile. It does not replace
 AutoCode's global defaults or modify routes saved by unrelated task runs.
@@ -21,7 +21,7 @@ class PlannerDispatchError(ValueError):
 
 
 class PlannerRouteError(PlannerDispatchError):
-    """The configured routes violate the mandated model policy."""
+    """The configured routes are malformed or violate verifier independence."""
 
     def __init__(self, message):
         super().__init__(message, stage='route_policy')
@@ -32,12 +32,8 @@ def _route(model, effort):
             'reasoning_effort': effort}
 
 
-# Mandated per-role model policy (saved user corrections, 2026-09-27/29):
-# openai/gpt-6-sol Low Gatherer, High Planner/Builder, Max Resolver;
-# zai-coding-plan/glm-5.3 High for independent architecture, validation,
-# review and completion. Saved Q4-VISUAL-ROUTE-SCOPE: future visual review uses
-# openai/gpt-6-astra at high reasoning, visual review only.  No other model
-# and no silent fallback.
+# Historical public name retained for compatibility. These routes are defaults;
+# explicit model and reasoning selections override them.
 MANDATED_ROUTES = {
     'requirements_gatherer': _route(SOL_PLANNER_MODEL, 'low'),
     'planner': _route(SOL_PLANNER_MODEL, 'high'),
@@ -57,7 +53,7 @@ NONVISUAL_ROLES = ('requirements_gatherer', 'planner', 'builder', 'resolver',
 
 # Usage/time/idle/tool/iteration caps are disabled (None/0 = unlimited, matching
 # the runner's execution-limits convention) while semantic safety checks are
-# retained: the deny-all tool-free Planner session, the mandated route policy
+# retained: the deny-all tool-free Planner session, route validation
 # and cross-model verifier separation below.
 DISPATCH_LIMITS = {
     'usage_cap': None,
@@ -80,29 +76,12 @@ def conversation_planner_routes():
 
 
 def visual_review_route():
-    """The mandated future visual-review route (saved Q4 answer): Astra High.
-
-    Shared backend policy only: this selection is valid for visual review
-    exclusively, every unsupported or misspelled visual selection fails
-    loudly with no fallback, and the visual-only model is rejected for all
-    nonvisual roles by :func:`enforce_route_policy`.  Selecting the route is
-    not visual evidence: source-matched visual PASS stays with the tasks
-    that capture real images, and historical Flash receipts stay historical.
-    """
+    """Default visual-review route; selecting it does not establish visual evidence."""
     return deepcopy(MANDATED_ROUTES['visual_review'])
 
 
 def select_visual_review_route(route=None):
-    """Select and validate the standalone future visual-review route (Q4).
-
-    Independent of any conversation Planner route: a standalone visual-only
-    selection is valid on its own — enforcing it must not demand an unrelated
-    Planner route — and a correct selection is exactly openai/gpt-6-astra at
-    high reasoning, visual review only.  Unsupported models, efforts and
-    misspelled roles fail loudly with no fallback.  This is shared backend
-    policy for the separately owned image-review consumers (Q5); it is not
-    visual evidence and makes no visual PASS claim.
-    """
+    """Validate an explicit visual route, or use the default when omitted."""
     candidate = visual_review_route() if route is None else route
     return enforce_route_policy({'visual_review': candidate})['visual_review']
 
@@ -127,47 +106,23 @@ RUNNER_POLICY_ROLES = {
 
 
 def enforce_fresh_runner_role_models(models, efforts=None, *, complete=False):
-    """Validate exact fresh built-in OpenCode role routes, never saved pins.
-
-    ``models`` may contain explicit model strings or constructed role settings;
-    ``efforts`` supplies explicit efforts before construction. Bare GPT aliases
-    are compared by their OpenCode identifiers. The final constructed settings
-    must contain every runner role with its mandated model AND effort. No
-    configured value is replaced with a default to make a route pass.
-    """
-    models = models or {}
-    efforts = efforts or {}
-    unknown = set(models) | set(efforts)
-    unknown -= set(RUNNER_POLICY_ROLES) | {'visual_review'}
+    """Validate fresh role names and model values without pinning model IDs."""
+    models, efforts = models or {}, efforts or {}
+    unknown = (set(models) | set(efforts)) - set(RUNNER_POLICY_ROLES) - {'visual_review'}
     if unknown:
         raise PlannerRouteError('Unknown fresh runner route(s): ' + ', '.join(sorted(unknown)))
     if complete and set(RUNNER_POLICY_ROLES) - set(models):
         raise PlannerRouteError('Missing fresh runner route(s): '
                                 + ', '.join(sorted(set(RUNNER_POLICY_ROLES) - set(models))))
-    for role in set(models) | set(efforts):
-        route = models.get(role)
+    for role, route in models.items():
         model = route.get('model') if isinstance(route, dict) else route
-        effort = route.get('reasoning_effort') if isinstance(route, dict) else efforts.get(role)
-        if isinstance(model, str) and '/' not in model and model.startswith('gpt-'):
-            model = 'openai/' + model
-        policy_role = RUNNER_POLICY_ROLES.get(role, role)
-        mandated = MANDATED_ROUTES[policy_role]
-        if model is not None and model != mandated['model']:
-            if model == ASTRA_VISUAL_MODEL and role != 'visual_review':
-                raise PlannerRouteError(
-                    f'The {role} ({policy_role}) route is nonvisual; {ASTRA_VISUAL_MODEL} '
-                    'is the visual-review-only model. No fallback is permitted.')
-            raise PlannerRouteError(
-                f'The {role} ({policy_role}) route must use {mandated["model"]} '
-                f'at {mandated["reasoning_effort"]} effort; got {model!r}. No fallback is permitted.')
-        if (effort is not None and effort != mandated['reasoning_effort']) or (
-                complete and effort is None):
-            raise PlannerRouteError(
-                f'The {role} ({policy_role}) route must use {mandated["model"]} '
-                f'at {mandated["reasoning_effort"]} effort; got {effort!r}. No fallback is permitted.')
-        if complete and model is None:
-            raise PlannerRouteError(f'The {role} ({policy_role}) route needs its mandated model.')
+        _validate_model(model, role)
     return True
+
+
+def _validate_model(model, role):
+    if not isinstance(model, str) or not model or any(c.isspace() for c in model):
+        raise PlannerRouteError(f'The {role} route needs a model without whitespace.')
 
 
 def _model_family(model):
@@ -178,106 +133,42 @@ def _model_family(model):
     """
     if not isinstance(model, str) or not model:
         return ''
-    if model.startswith('openai/'):
-        return 'openai'
-    if model.startswith('zai-coding-plan/'):
+    name = model.rsplit('/', 1)[-1].lower()
+    if model.startswith('zai-coding-plan/') or name.startswith('glm-'):
         return 'glm'
-    if model.startswith('xiaomi-token-plan-sgp/') or model.startswith('mimo-'):
+    if model.startswith('xiaomi-token-plan-sgp/') or name.startswith('mimo-'):
         return 'mimo'
     return model
 
 
 def enforce_route_policy(routes):
-    """Validate persisted/represented routes; fail loudly, never fall back.
-
-    Policy roles must match the mandated model/effort exactly.  The independent
-    Planner route is required. Unknown/misspelled route names are rejected (a
-    silent fallback to a default route is never attempted). Verifier roles
-    must never share the Planner's model family so no model grades its own work.
-    The saved Q4 visual route is visual-review-only: ``visual_review`` must
-    match openai/gpt-6-astra at high reasoning exactly, and the visual-only
-    model is rejected for every nonvisual role (including persisted Gatherer
-    representations) so it can never substitute for a nonvisual route.  A
-    standalone visual-only selection is valid without an unrelated Planner
-    route (Q5: separately owned image-review consumers select it through
-    :func:`select_visual_review_route`); the independent Planner route stays
-    required for every route set that carries a nonvisual role.
-    This validator keeps historical Gatherer selections representable so
-    already-persisted documents and dispatch records stay readable; it does not
-    authorize any route for newly configured dispatch — see
-    :func:`enforce_conversation_routes`.
-    """
+    """Validate represented routes and independence; preserve explicit selections."""
     if not isinstance(routes, dict) or not routes:
         raise PlannerRouteError('Planner pipeline routes must be a non-empty object.')
     unknown = sorted(set(routes) - set(MANDATED_ROUTES))
     if unknown:
-        raise PlannerRouteError(
-            'Unknown Planner pipeline route(s): ' + ', '.join(unknown)
-            + '. Allowed routes: ' + ', '.join(sorted(MANDATED_ROUTES)) + '.')
-    for name in POLICY_ROLES:
-        mandated = MANDATED_ROUTES[name]
-        if name in routes and routes[name] != mandated:
-            raise PlannerRouteError(
-                f'The {name} route must match the mandated model policy exactly '
-                f'({mandated["model"]} at {mandated["reasoning_effort"]} effort); '
-                'silent fallback to another model is not allowed.')
-    for name in NONVISUAL_ROLES:
-        configured = routes.get(name)
-        if isinstance(configured, dict) and configured.get('model') == ASTRA_VISUAL_MODEL:
-            raise PlannerRouteError(
-                f'The {name} route is nonvisual; {ASTRA_VISUAL_MODEL} is the '
-                'visual-review-only model (saved Q4 route: high reasoning, visual '
-                'review only). It cannot substitute for a nonvisual role and no '
-                'fallback is permitted.')
+        raise PlannerRouteError('Unknown Planner pipeline route(s): ' + ', '.join(unknown))
+    for name, route in routes.items():
+        if not isinstance(route, dict):
+            raise PlannerRouteError(f'The {name} route must be an object.')
+        _validate_model(route.get('model'), name)
     if any(role in routes for role in NONVISUAL_ROLES) and 'planner' not in routes:
         raise PlannerRouteError('The independent Planner route is required and must not be dropped.')
-    gatherer = routes.get('requirements_gatherer')
-    if gatherer is not None:
-        if not isinstance(gatherer, dict) or not isinstance(gatherer.get('model'), str) or not gatherer['model']:
-            raise PlannerRouteError('The Requirements Gatherer route needs a model.')
-        effort = gatherer.get('reasoning_effort') or 'low'
-        if effort != 'low':
-            raise PlannerRouteError('The Requirements Gatherer must run at the mandated low reasoning effort.')
     if 'planner' in routes:
         planner_family = _model_family(routes['planner']['model'])
         for verifier in VERIFIER_ROLES:
-            if verifier not in routes:
-                continue
-            verifier_family = _model_family(routes[verifier]['model'])
-            if verifier_family == planner_family:
+            if verifier in routes and _model_family(routes[verifier]['model']) == planner_family:
                 raise PlannerRouteError(
-                f'{verifier} must not grade Planner work: both use the {planner_family} family '
-                f'({routes["planner"]["model"]} / {routes[verifier]["model"]}). Cross-model verifier separation is required.')
+                    f'{verifier} must not grade Planner work: both use the {planner_family} family. '
+                    'Cross-model verifier separation is required.')
     return deepcopy(routes)
 
 
 def enforce_conversation_routes(routes):
-    """Validate the route set for NEW dispatch (create/model update/send/retry).
-
-    Everything :func:`enforce_route_policy` checks, plus the mandated Gatherer
-    route: an explicit override to any non-mandated model or effort — and a
-    persisted historical route that would dispatch a continued turn — is
-    rejected here, before any provider is invoked, with no fallback.  Reading
-    historical documents (load/normalize/handoff) never routes through this
-    check, so persisted legacy selections stay readable while every new
-    dispatch follows the saved openai-instead-of-glm correction exactly.  The
-    next turn is permitted again only after an explicit approved model update,
-    which rebuilds the routes under this same policy.
-    """
+    """Validate routes for new dispatch, including a configured Gatherer."""
     enforced = enforce_route_policy(routes)
-    gatherer = enforced.get('requirements_gatherer')
-    mandated = MANDATED_ROUTES['requirements_gatherer']
-    if gatherer is None:
-        raise PlannerRouteError(
-            'The Requirements Gatherer route is required for new dispatch; update the '
-            'conversation models to rebuild it. No fallback to a saved model is permitted.')
-    if gatherer != mandated:
-        raise PlannerRouteError(
-            f'The Requirements Gatherer route must match the mandated model policy exactly '
-            f'({mandated["model"]} at {mandated["reasoning_effort"]} effort); '
-            f'{gatherer.get("model")!r} is not allowed for new dispatch (new conversations, '
-            'model updates or continued turns). Update the conversation models to the '
-            'mandated route to continue; no fallback is permitted.')
+    if 'requirements_gatherer' not in enforced:
+        raise PlannerRouteError('The Requirements Gatherer route is required for new dispatch.')
     return enforced
 
 
@@ -305,11 +196,18 @@ def configure_runner_profile(settings, args):
     configured = deepcopy(settings)
     for role, policy_role in RUNNER_POLICY_ROLES.items():
         prior = configured.setdefault('roles', {}).get(role, {})
-        configured['roles'][role] = {**prior, **deepcopy(MANDATED_ROUTES[policy_role]), 'provider': None}
+        selected = {**prior, **deepcopy(MANDATED_ROUTES[policy_role]), 'provider': None}
+        if role in models:
+            model = models[role]
+            selected['model'] = 'openai/' + model if '/' not in model and model.startswith('gpt-') else model
+        if role in efforts:
+            selected['reasoning_effort'] = efforts[role]
+        configured['roles'][role] = selected
     configured['roles']['plan_reviewer']['model_pinned'] = True
     configured['conversation_profile'] = 'continuous-v1'
     configured.setdefault('builder_retry', {}).update(
-        strong_model=SOL_PLANNER_MODEL, strong_reasoning_effort='high')
+        strong_model=strong or configured['roles']['terra']['model'],
+        strong_reasoning_effort=configured['roles']['terra']['reasoning_effort'])
     limits = configured.setdefault('limits', {})
     for argument, field, value in (
             ('max_seconds', 'max_seconds', 0),

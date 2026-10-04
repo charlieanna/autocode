@@ -115,26 +115,18 @@ assert.match(built2Answers[1],/verdict PASS/);
 const plan=list.children[0].children[1];
 assert.equal(plan.children.length,1);
 
-// Restore drafts an explicit request in the composer; it never mutates directly.
-const restore=detail.children.find(child=>typeof child.onclick==='function'&&child.label==='Restore to here');
-const openChanges=detail.children.find(child=>typeof child.onclick==='function'&&child.label==='Open saved changes →');
-assert.ok(restore&&openChanges);
-restore.onclick();
-assert.match(composer.value,/Restore the workspace to the saved checkpoint/);
-assert.match(composer.value,/candidate 1, iteration 1/);
-assert.match(composer.value,/source revision aaa123bbb/);
-assert.equal(saved.get('task-draft:'+base.run),composer.value);
-assert.equal(restore.disabled,true);
-assert.match(restore.textContent,/drafted below/);
+// Historical metadata has no immutable source snapshot; it offers inspection only.
+assert.equal(detail.children.find(child=>child.label==='Restore to here'),undefined);
+assert.ok(detail.children.find(child=>child.label==='Open saved changes →'));
 // A completed task offers no restore path.
 const doneHost=context.renderSessionCheckpoints(done,finished);
 const doneBuilt=doneHost.children.at(-1).children[1].children[1];
 assert.equal(doneBuilt.children.find(child=>child.label==='Restore to here'),undefined);
 
 // History is read-only inspection: the complete saved timeline remains there,
-// while restore drafting stays exclusively in chat.
+// while real source restoration is a separate, source-bound chat action.
 const inspection=context.renderSessionCheckpoints(base,checkpoints,false);
 const allNodes=node=>[node,...(node.children||[]).flatMap(allNodes)];
 assert.equal(allNodes(inspection).filter(node=>String(node.className).includes('checkpoint-restore')).length,0);
 assert.equal(inspection.children.at(-1).children.length,checkpoints.length);
-console.log('Session checkpoint derivation, inspection answers, and restore drafting passed.');
+console.log('Session checkpoint derivation, inspection answers, and truthful historical inspection passed.');

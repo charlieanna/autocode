@@ -239,6 +239,99 @@ class PermanentDeleteTests(unittest.TestCase):
         self.assertEqual(['branch'], [item['kind'] for item in receipt['remaining']])
         self.assertEqual('deleted', self.delete(preview)['status'])
 
+    def test_completed_receipt_preserves_recreated_branch(self):
+        metadata = self.managed()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        self.assertEqual('deleted', self.delete(preview)['status'])
+        git(self.project, 'branch', metadata['branch'], preview['managed']['branch_head'])
+        receipt = self.delete(preview)
+        self.assertEqual('partial', receipt['status'], receipt)
+        self.assertEqual(['branch'], [item['kind'] for item in receipt['remaining']])
+        self.assertNotIn('branch', [item['kind'] for item in receipt['deleted']])
+        self.assertIn('recreated', ' '.join(receipt['errors']).lower())
+        self.assertEqual(preview['managed']['branch_head'], git(self.project, 'rev-parse', 'refs/heads/' + metadata['branch']))
+
+    def test_registry_failure_records_branch_as_removed(self):
+        self.managed()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        with patch.object(self.console, '_forget_deleted', side_effect=ValueError('discovery unavailable')):
+            receipt = self.delete(preview)
+        self.assertEqual('partial', receipt['status'])
+        self.assertEqual([], receipt['remaining'], 'Removed branch must not be reported as still present')
+        self.assertEqual(preview['scope'], receipt['deleted'])
+        self.assertEqual('deleted', self.delete(preview)['status'])
+
+    def test_partial_receipt_never_deletes_recreated_branch(self):
+        metadata = self.managed()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        with patch.object(self.console, '_forget_deleted', side_effect=ValueError('discovery unavailable')):
+            self.assertEqual('partial', self.delete(preview)['status'])
+        git(self.project, 'branch', metadata['branch'], preview['managed']['branch_head'])
+        receipt = self.delete(preview)
+        self.assertEqual('partial', receipt['status'], 'Old confirmation must not delete recreated same-head branch')
+        self.assertEqual(preview['managed']['branch_head'], git(self.project, 'rev-parse', 'refs/heads/' + metadata['branch']))
+        self.assertEqual(['branch'], [item['kind'] for item in receipt['remaining']])
+        self.assertNotIn('branch', [item['kind'] for item in receipt['deleted']])
+
+    def test_partial_receipt_never_deletes_recreated_empty_run(self):
+        preview = self.preview()
+        with patch.object(self.console, '_forget_deleted', side_effect=ValueError('discovery unavailable')):
+            self.assertEqual('partial', self.delete(preview)['status'])
+        self.run.mkdir()
+        receipt = self.delete(preview)
+        self.assertEqual('partial', receipt['status'])
+        self.assertTrue(self.run.is_dir())
+
+    def test_lost_branch_receipt_preserves_recreated_branch(self):
+        metadata = self.managed()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        class SimulatedCrash(BaseException):
+            pass
+        original = git
+        def crash_after_branch(root, *args):
+            result = original(root, *args)
+            if args[:2] == ('branch', '-D'):
+                raise SimulatedCrash()
+            return result
+        with patch('dashboard_delete.git', side_effect=crash_after_branch):
+            with self.assertRaises(SimulatedCrash):
+                self.console.delete_permanently({'preview_id': preview['preview_id'], 'confirmation': preview['confirmation']})
+        git(self.project, 'branch', metadata['branch'], preview['managed']['branch_head'])
+        receipt = self.delete(preview)
+        self.assertEqual('partial', receipt['status'])
+        self.assertTrue(receipt['retry_blocked'])
+        self.assertEqual(preview['managed']['branch_head'], git(self.project, 'rev-parse', 'refs/heads/' + metadata['branch']))
+        self.assertEqual('partial', self.delete(preview)['status'])
+
+    def test_lost_branch_receipt_reconciles_absence_without_second_delete(self):
+        self.managed()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        class SimulatedCrash(BaseException):
+            pass
+        original = git
+        def crash_after_branch(root, *args):
+            result = original(root, *args)
+            if args[:2] == ('branch', '-D'):
+                raise SimulatedCrash()
+            return result
+        with patch('dashboard_delete.git', side_effect=crash_after_branch):
+            with self.assertRaises(SimulatedCrash):
+                self.console.delete_permanently({'preview_id': preview['preview_id'], 'confirmation': preview['confirmation']})
+        def no_second_delete(root, *args):
+            self.assertNotEqual(('branch', '-D'), args[:2])
+            return original(root, *args)
+        with patch('dashboard_delete.git', side_effect=no_second_delete):
+            self.assertEqual('deleted', self.delete(preview)['status'])
+
+    def test_completed_receipt_cannot_claim_success_when_git_is_unreadable(self):
+        self.managed()
+        preview = self.preview(include_worktree=True, include_branch=True)
+        self.assertEqual('deleted', self.delete(preview)['status'])
+        with patch('dashboard_delete.git', side_effect=ValueError('Git repository unavailable')):
+            receipt = self.delete(preview)
+        self.assertEqual('partial', receipt['status'])
+        self.assertIn('inspected', ' '.join(receipt['errors']))
+
 
 if __name__ == '__main__':
     unittest.main()

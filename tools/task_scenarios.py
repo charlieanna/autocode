@@ -19,7 +19,6 @@ import json
 import os
 import re
 import shutil
-import signal
 import socket
 import subprocess
 import sys
@@ -32,8 +31,10 @@ from pathlib import Path
 
 try:
     from . import live_scenarios as base
+    from . import autocode_oracle_process as oracle_process, autocode_grader_process as supervisor
 except ImportError:  # pragma: no cover - script execution
     import live_scenarios as base
+    import autocode_oracle_process as oracle_process, autocode_grader_process as supervisor
 
 OracleResult = base.OracleResult
 PASS, FAIL, DEFERRED, ERROR = base.PASS, base.FAIL, base.DEFERRED, base.ERROR
@@ -70,31 +71,7 @@ class Checks:
 
 
 def _run(cmd: list[str], cwd: Path, timeout: int = 60, stdin: str | None = None) -> tuple[int, str, str]:
-    proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
-                            text=True, errors="replace", start_new_session=True)
-    try:
-        out, err = proc.communicate(input=stdin, timeout=timeout)
-        return proc.returncode, out, err
-    except subprocess.TimeoutExpired:
-        return -1, "", "TIMEOUT"
-    finally:
-        # A delivered test or launcher may leave children after exiting or timing out.
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        try:
-            proc.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            # Detached descendants can retain the pipes after the group is killed.
-            for stream in (proc.stdin, proc.stdout, proc.stderr):
-                if stream is not None:
-                    stream.close()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                pass  # Cleanup must not replace the structured timeout result.
+    return oracle_process.run(cmd, cwd, timeout=timeout, stdin=stdin)
 
 
 def workspace_files(project: Path) -> set[str]:
@@ -609,6 +586,7 @@ class _Services:
         self.project = project
         self.ports = {name: _free_port() for name in PROGRAM_SERVICES}
         self.proc: subprocess.Popen | None = None
+        self.stopped = False
 
     def url(self, name: str) -> str:
         return f"http://127.0.0.1:{self.ports[name]}"
@@ -622,6 +600,7 @@ class _Services:
         return False
 
     def start(self, tmp: Path) -> dict[str, bool]:
+        self.stopped = False
         command = [sys.executable, "scripts/run_local.py"]
         for name, port in self.ports.items():
             command.extend([f"--{name}-port", str(port)])
@@ -630,7 +609,7 @@ class _Services:
                                          stderr=subprocess.STDOUT, start_new_session=True)
         healthy = dict.fromkeys(PROGRAM_SERVICES, False)
         deadline = time.monotonic() + 20
-        while time.monotonic() < deadline and self.proc.poll() is None:
+        while time.monotonic() < deadline and supervisor.running(self.proc):
             for name in PROGRAM_SERVICES:
                 if not healthy[name]:
                     healthy[name] = _http("GET", self.url(name) + "/health", timeout=0.3) == (200, {"status": "ok"})
@@ -640,23 +619,20 @@ class _Services:
         return healthy
 
     def stop(self) -> bool:
-        if self.proc is None:
+        if self.proc is None or self.stopped:
             return False
         try:
-            if self.proc.poll() is None:
-                self.proc.terminate()  # Signal only the launcher, not its children.
+            if supervisor.running(self.proc):
+                supervisor.terminate(self.proc)  # Signal only the launcher, not its children.
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                if self.proc.poll() is not None and not self.listening():
+                if not supervisor.running(self.proc) and not self.listening():
                     return True
                 time.sleep(0.05)
             return False
         finally:
-            try:
-                os.killpg(self.proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            self.proc.wait(timeout=5)
+            supervisor.wait(self.proc, 0)
+            self.stopped = True
             # The launcher may already be reaped while killed children still own sockets.
             deadline = time.monotonic() + 2
             while self.listening() and time.monotonic() < deadline:
@@ -740,7 +716,7 @@ def program01_oracle(project: Path) -> OracleResult:
             healthy = services.start(Path(tmp))
             for name in PROGRAM_SERVICES:
                 checks.record(f"health[{name}]", True, healthy.get(name, False))
-            checks.record("launcher.running", True, services.proc is not None and services.proc.poll() is None)
+            checks.record("launcher.running", True, services.proc is not None and supervisor.running(services.proc))
             if all(healthy.values()):
                 journey()
         finally:

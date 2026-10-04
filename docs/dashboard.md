@@ -22,9 +22,18 @@ Or run it directly from a checkout:
 python3 tools/dashboard/agent_console.py --port 8767
 ```
 
-Open the printed loopback URL. New conversations do not require a project: the Requirements Planner
-can clarify the idea first, then the conversation can be attached to a Git
-workspace for joint requirements planning and review.
+Open the printed loopback URL. Projects contain multiple conversations. Use a project’s **+** button to start
+a conversation scoped to its repository and instructions. The top New conversation
+action names its current project. Conversations without a project remain in
+**No project**, and can be attached explicitly when ready.
+
+**Workspace setup** opens a chat with dependency checks, model settings and
+project creation. It never collects credentials or runs installers. New projects
+receive an empty initial Git commit; attaching an existing project requires a
+clean committed repository. Older scoped chats without a saved folder identity
+ask you to confirm the displayed folder in chat. Confirmation preserves history
+and starts no model work. A known replacement folder remains blocked until the
+original is restored.
 
 When `--watch-root` is used, discovery stops at each Git project boundary and
 skips generated or internal trees such as `.git`, `.autocode`, `node_modules`,
@@ -52,11 +61,21 @@ No image card approves a requirement or starts a task.
 
 ## What you can do
 
-A task's **Now** view presents the runner's
-saved current stage, the exact user action required, plan-revision
-approval, and output-review approval. Archiving tasks, conversations, or
-projects only changes the dashboard's local visibility; it never deletes source
-files or runner checkpoints.
+The conversation contains questions, exact-plan approval, output acceptance and
+recovery actions. Approving a reviewed plan and starting its build are separate
+actions. An amber marker beside a conversation means it requires your reply;
+opening it does not dismiss the request. A completed conversation shows a tick.
+
+Archive and Remove project change visibility and preserve files and checkpoints.
+**Delete permanently** is a separate explicit action in Archived. Its chat
+confirmation lists the selected files and owned Git resources. Live or uncertain
+workers, changed selections and shared resources prevent deletion. Partial
+cleanup retains a retry receipt and never treats a recreated resource as owned.
+
+Saved code checkpoints offer comparison and **Go back to here** in chat. An
+approved restore requires a stopped run and creates a new branch and paused
+continuation. It preserves the previous branch and history; later verification
+does not carry over as proof for the restored version.
 
 Choose initial reasoning under **Models & reasoning** when starting a conversation.
 For a saved task, open its **•••** menu and use **Reasoning for next steps**. The
@@ -68,15 +87,18 @@ The dashboard uses `$AUTOCODE_HOME/dashboard` by default (or
 It binds only to `127.0.0.1`, starts no development server for task previews,
 and uses documented Autocode commands for task changes.
 
-## One local dashboard, two layouts
+## Conversation and artifact panes
 
-The **Now** tab combines the live monitor with the project/task console:
-verified worker identity, exact saved role/model settings, current objective,
-filtered tool activity, review findings, acceptance counts, and artifact progress.
-**Focus view** hides navigation without starting a different server. Dark and
-light themes are local browser preferences. Task links use compact local
-`#run=r-…` identifiers; old `#task=…&run=…` links remain supported. A focused
-link can append `&focus=1` to either form.
+Chat stays visible throughout planning, building, verification and recovery.
+The **Work** pane shows the current task, recorded roles, factual task progress,
+requirements and blockers. **Plan**, **Preview**, **Changes**, **Checks** and
+**History** open beside it without replacing the conversation. On narrow screens,
+Projects and Details open as drawers and preserve the chat draft. Workspace
+options contains All work, Archived and display preferences.
+
+Pause and Stop beside the composer finish the current step before preventing
+further stages. Their pending labels do not claim the runner has stopped yet.
+Compact task links and older `#task=…&run=…` links remain supported.
 
 Saved status, worker liveness, artifact timestamps, and task-read freshness are
 separate signals. A disconnected task retains its last successful view, labels it

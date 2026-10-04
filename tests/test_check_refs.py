@@ -24,6 +24,17 @@ class CheckRefsTests(unittest.TestCase):
             with self.subTest(ref=ref), self.assertRaisesRegex(ValueError, "names no listed check"):
                 check_refs.resolve(self.report([ref]))
 
+    def test_technical_flow_proof_uses_authenticated_check_references(self):
+        report = self.report(["check:1"])
+        report["end_to_end_result"]["technical_result"] = {
+            "status": "PASS", "summary": "Executed technical flow", "evidence_refs": ["check:2"]}
+        check_refs.resolve(report)
+        self.assertEqual([".autocode/evidence/cli.json"],
+                         report["end_to_end_result"]["technical_result"]["evidence_refs"])
+        report["end_to_end_result"]["technical_result"]["evidence_refs"] = ["check:3"]
+        with self.assertRaisesRegex(ValueError, "names no listed check"):
+            check_refs.resolve(report)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -112,6 +112,13 @@ def pr_body(record: dict, view: dict, diffstat: str) -> str:
         proven = ((evidence.get("regression_proof") or {}).get("case_tests") or {})
         for row in rows:
             result = row.get("status") or "no outcome recorded"
+            # Validator FAIL and unchecked must both be visible: the decision report's
+            # own status cannot tell them apart (#17).
+            validator = row.get("validator_status")
+            if validator is not None:
+                result += f", validator: {validator}"
+            elif evidence.get("validator_source_revision"):
+                result += ", validator: unchecked"
             if row.get("human_reviewed"):
                 result += ", accepted by a person"
             if proven.get(row.get("id")):

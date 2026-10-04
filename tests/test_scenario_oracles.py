@@ -106,22 +106,61 @@ class OracleProcessTest(unittest.TestCase):
             self.assertEqual(0, code)
             self.assertEqual("\ufffd", out)
 
-    def test_cleanup_drain_timeout_preserves_result_and_bounds_reaping(self):
-        for wait_error in (None, subprocess.TimeoutExpired("child", 5)):
-            with self.subTest(wait_error=wait_error):
-                proc = mock.Mock()
-                proc.communicate.side_effect = [subprocess.TimeoutExpired("child", 1),
-                                                subprocess.TimeoutExpired("child", 5)]
-                proc.wait.side_effect = wait_error
-                with mock.patch.object(scenarios.subprocess, "Popen", return_value=proc), \
-                        mock.patch.object(scenarios.os, "killpg") as killpg:
-                    self.assertEqual((-1, "", "TIMEOUT"), scenarios._run(["child"], TOOLS, timeout=1))
-                killpg.assert_called_once_with(proc.pid, scenarios.signal.SIGKILL)
-                self.assertEqual([mock.call(input=None, timeout=1), mock.call(timeout=5)],
-                                 proc.communicate.call_args_list)
-                for stream in (proc.stdin, proc.stdout, proc.stderr):
-                    stream.close.assert_called_once_with()
-                proc.wait.assert_called_once_with(timeout=5)
+    def test_completed_output_is_not_lost_to_stale_group_cleanup(self):
+        # Deterministic EPERM injection supplements the saved real OS failures.
+        with _project({}) as root, mock.patch.object(os, 'killpg', side_effect=PermissionError):
+            result = scenarios._run([sys.executable, '-c',
+                "import sys; print('done'); print('error', file=sys.stderr); sys.exit(7)"], Path(root))
+        self.assertEqual((7, 'done\n', 'error\n'), result)
+
+    def test_large_input_and_both_outputs_are_preserved(self):
+        data = 'x' * 200000
+        with _project({}) as root:
+            result = scenarios._run([sys.executable, '-c',
+                "import sys; data=sys.stdin.read(); sys.stdout.write(data); sys.stderr.write(data)"],
+                Path(root), stdin=data)
+        self.assertEqual((0, data, data), result)
+
+    def test_uncertain_cleanup_cannot_publish_an_oracle_result(self):
+        from autocode_process import ProcessError
+        process = scenarios.oracle_process
+        with mock.patch.object(process.subprocess, 'Popen'), \
+                mock.patch.object(process.supervisor, 'wait', side_effect=ProcessError('cleanup unverified')):
+            with self.assertRaisesRegex(ProcessError, 'cleanup unverified'):
+                process.run(['unused'], TOOLS)
+
+    def test_unverified_cleanup_never_publishes_success_failure_or_timeout(self):
+        # An earlier guard swallowed EPERM after reaping an unowned numeric
+        # process group. The ownership supervisor must instead verify cleanup.
+        from autocode_process import ProcessError
+        process=scenarios.oracle_process
+        for code in (0, 7, -1):
+            with self.subTest(code=code), mock.patch.object(process.subprocess, 'Popen') as launch, \
+                    mock.patch.object(process.supervisor, 'wait', side_effect=ProcessError('ownership unavailable')):
+                launch.return_value.returncode=code
+                with self.assertRaisesRegex(ProcessError, 'ownership unavailable'):
+                    scenarios._run(['unused'], TOOLS, timeout=1)
+                self.assertTrue(launch.call_args.kwargs['start_new_session'])
+
+    def test_permission_errors_outside_group_cleanup_propagate(self):
+        process=scenarios.oracle_process
+        with mock.patch.object(process.subprocess, 'Popen', side_effect=PermissionError('launch denied')):
+            with self.assertRaisesRegex(PermissionError, 'launch denied'):
+                scenarios._run(['unused'], TOOLS)
+        # The real command exits and its descendants are cleaned before the
+        # captured output read fails. A read error must not become a verdict.
+        from contextlib import contextmanager
+        temporary_file=process.tempfile.TemporaryFile
+        class UnreadableOutput:
+            def __init__(self, file):self.file=file
+            def __getattr__(self, name):return getattr(self.file,name)
+            def read(self):raise PermissionError('output read denied')
+        @contextmanager
+        def blocked_read(*args, **kwargs):
+            with temporary_file(*args, **kwargs) as file:yield UnreadableOutput(file)
+        with _project({}) as root, mock.patch.object(process.tempfile, 'TemporaryFile', blocked_read):
+            with self.assertRaisesRegex(PermissionError, 'output read denied'):
+                scenarios._run([sys.executable, '-c', "print('done')"], Path(root))
 
 
 class BugfixOracleTest(unittest.TestCase):
@@ -197,6 +236,20 @@ class FeatureOracleTest(unittest.TestCase):
 
 
 class ArchOracleTest(unittest.TestCase):
+    def test_cleanup_permission_error_preserves_oracle_pass_and_fail(self):
+        for changes, expected in (({}, scenarios.PASS),
+                                  ({"architecture/check.py": "raise SystemExit(1)\n"}, scenarios.FAIL)):
+            with self.subTest(expected=expected), _project(_variant(references.ARCH_REFERENCE, changes)) as root:
+                with mock.patch.object(scenarios.os, "killpg", side_effect=PermissionError("group cleanup denied")) as killpg:
+                    result = scenarios.arch01_oracle(Path(root))
+                killpg.assert_not_called()  # Never signal a reaped numeric group.
+                self.assertEqual(expected, result.status, result.summary)
+                if expected == scenarios.PASS:
+                    self.assertTrue(all(row["ok"] for row in result.checks))
+                else:
+                    self.assertIn("check.py.passes_on_candidate", [row["name"] for row in result.failed])
+                    self.assertIn("check.py.rejects_injected_violation", [row["name"] for row in result.failed])
+
     def test_relative_comma_and_nested_imports_fail_both_checkers(self):
         variants = [
             ("services/catalog/api.py", "from ..notifications import api as notifications\n"),
@@ -371,7 +424,10 @@ class ProgramOracleTest(unittest.TestCase):
                 self.assertEqual(scenarios.PASS, result.status, result.summary)
 
     def test_reference_passes_the_full_journey(self):
-        with _project(references.PROGRAM_REFERENCE) as root:
+        # Both command and long-running launcher cleanup must avoid signaling
+        # a process group by a leader PID that has already been reaped.
+        with _project(references.PROGRAM_REFERENCE) as root, \
+                mock.patch.object(os, 'killpg', side_effect=PermissionError):
             result = scenarios.program01_oracle(Path(root))
             self.assertEqual(scenarios.PASS, result.status, result.summary)
             self.assertIn("never executed", result.summary)

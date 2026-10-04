@@ -30,17 +30,19 @@ be reconciled with the approved Figma brief and subsequent user instructions.
 
 | Issue | Observed implementation | Work still requiring proof or implementation |
 | --- | --- | --- |
-| #27 / #28 | Persistent chat, project/conversation sidebar, Work/artifact pane, narrow-screen drawers | Audit every shell acceptance case and final design fidelity |
-| #29 | Saved progress strip, milestone states, requirement/problem detail links implemented | Local gates passed; review pending. Old or absent proof stays unknown |
-| #30 | Inline answer fields, saved drafts, grouped answer history, provenance and re-asked-token rejection implemented | Local gates passed; review pending. Suggestions remain explicit per question |
-| #31 | Exact-token approval, stale refusal, separate approval/build action | Real-browser approval/start regression passed; issue closure still requires acceptance review |
-| #33 | Recovery/AutoResolver cards and guarded actions | Exhaustive status/action mapping, repeated-failure summaries and plain wording |
-| #34 | Per-project preview persistence, saved-code refresh and requirement-linked screenshot cards implemented | Local gates passed; review pending. App startup remains manual |
-| #35 | Checkpoint inspection, comparison and a drafted restore request | New-branch rollback semantics and evidence invalidation are not delivered by a draft request |
-| #36 | Existing project creation and model settings | First-run readiness checklist and provider setup guidance |
-| #60 | Scoped permanent-delete implementation and 12 safety tests exist | Audit current browser coverage and all preservation/discovery criteria; never delete real user data during verification |
-| #17 / #18 / #19 / #21 | Several backend projection/proof/naming/draft facilities exist | Trace each remaining issue criterion to current public data and evidence |
-| #250 / #251 / #262 / #297 | Reference/capture work exists on current master | Track complete reference inventory, deterministic comparison and independent visual adjudication separately; avoid duplicating concurrent work |
+| #27 / #28 | Persistent chat, grouped projects, scoped creation, Work/artifact panes, responsive drawers and Stop after current step | Final integrated gates and independent current-source visual review |
+| #29 | Public saved progress and fresh requirement evidence, all task/requirement/problem details | Final integrated gates; never infer progress from elapsed time |
+| #30 | Inline answers, explicit suggestions, provenance, preserved drafts and re-asked-token refusal | Final integrated gates |
+| #31 | Reviewed exact-token approval and separate Start building; stale cards refused | Final integrated gates; separate actions follow the user's later correction |
+| #33 | Public recovery projection, per-action guards, plain role names and a next step for all mapped states | Final integrated gates |
+| #34 | Per-project preview, saved-code refresh and requirement-linked screenshot cards | Final integrated gates; preview startup remains manual |
+| #35 | Supported stopped-run checkpoint restore creates a new branch and paused continuation, invalidates later proof and preserves original history | Final integrated gates and current browser restore check |
+| #36 | Setup chat, dependency guidance, committed projects, existing role settings, no credentials, safe legacy-folder confirmation | Final integrated gates; no automatic installation/sign-in |
+| #60 | Durable scoped deletion receipts, exact selected-resource confirmation, liveness/path/Git guards, partial retry and recreated-resource preservation | Final integrated gates and current browser lifecycle check; only disposable projects used |
+| #18 / #21 | Server transcript and bounded draft updates with exact answer provenance | Final integrated gates; the actual scripted to-do runner and public dashboard journey also passed, without a live-model claim |
+| #17 / #19 / #32 / #297 | Already closed upstream; current UI retains proof, naming, message-intent and visual comparison behavior | Preserve these existing gates in the integrated delivery |
+| #262 | Fresh native captures cover header/sidebar and Work hierarchy | Independent image adjudication pending; old Sol47 acceptance does not cover current source |
+| #250 / #251 | Upstream design-manifest and visual-check facilities retained; this UI delivery captures all 18 approved states | Broader multi-file/live-connector qualification is separate from accepting this particular UI; do not close those platform issues from UI screenshots alone |
 
 ## Verification rules
 
@@ -313,3 +315,180 @@ The earlier full-branch gate remains failed and requires integrated rechecking.
 Its exact unchanged worker-activity assertion passed on isolated recheck; this
 does not establish the other failed modules or make that old receipt green.
 No merge, install, issue closure or user artifact acceptance is claimed.
+
+## Batch 8 — bounded live draft updates (#21)
+
+The Requirements role still responds to every saved answer. The independent
+Planner schedules the first draft and then one update per three additional
+answers. A chat-only **Update draft now** action can release the latest held
+revision early. It is bound to that exact turn/revision and an idempotent request
+ID; it neither adds an invented user message nor approves or starts a build.
+The saved hold survives restart without spending a call. A released intent uses
+the existing delivery lease, recovery and immutable role rules. Uncertain
+provider outcomes remain non-retryable.
+
+Each draft retains the message IDs, requirements revisions and short human
+excerpts that produced it. A prior usable draft stays visible while an update
+is batched, running or failed. The rail distinguishes these states and labels
+the content as a draft; project handoff requires the latest fresh structured
+result. Existing independent plan review and approval are still mandatory.
+
+The deterministic 10-answer test produces four draft calls and ten Requirements
+replies, retaining every answer and source attribution. Seven new store tests
+cover restart, stale targets, archived/attached conversations, duplicate refresh,
+safe worker failure and superseded queued work. The prior real CLI regression
+for #25 still passes: recorded answers re-evaluate planning readiness without
+implicitly approving anything.
+
+The final browser matrix passed at 1440x1024, 1024x768 and 390x844. It exercises
+batching, explicit refresh, duplicate clicks, provenance, reload, preserved
+unsent text, safe failure/retry and uncertain-delivery refusal. It also caught a
+real navigation bug: the previous conversation's draft dialog remained open
+when hash navigation selected another conversation. Navigation now closes that
+obsolete dialog, and the test keeps the dialog open when switching to verify
+the repair. The supervisor confirmed no remaining owned workers. Desktop and
+phone captures were inspected; these are functional fixture checks, not Figma
+acceptance.
+
+All 359 dashboard Python tests and 27 standalone Node scripts passed on the
+final source. The handoff fixtures now explicitly refresh a held draft and bind
+their stub Planner report to the latest human turn, rather than the later
+assistant reply. The production exact-turn and stale-handoff gates were retained.
+Historical failed browser and suite receipts remain saved. The full canonical
+and fake gates are still running; no complete-branch PASS or issue closure is
+claimed by this entry.
+
+PR #305 was merged externally at 378c9f7a. Its published head ends at 74a08e6a;
+the later local batches require a separate follow-up PR and publication approval.
+
+## Batch 9 — durable deletion recovery (#60)
+
+Deletion now records each completed filesystem/Git step durably. A partial retry
+cannot delete a path or same-head branch recreated after an earlier removal.
+A lost branch-removal receipt is reconciled only when absence is verified; an
+existing branch remains blocked. Git inspection failure stays a partial result.
+The `deleted` and `remaining` lists describe current reality, while the retained
+completion ledger records historical actions. Failed discovery cleanup remains
+retryable without claiming that an already removed branch still exists.
+
+The public dashboard snapshot exposes compact incomplete-deletion receipts so
+an operator can reach the original request from Archived even after the task
+folder is gone and the server restarted. Blocked confirmations remain blocked
+across reload. The dialog lists the task, workspace and exact selected paths;
+a short per-preview confirmation code replaces retyping every absolute path.
+It does not expand scope or weaken stale-preview, ownership or liveness checks.
+
+Nineteen real HTTP/Git tests passed, including seven new interrupted-cleanup and
+recreated-resource cases. The integrated real browser matrix passed at desktop,
+tablet and phone sizes: Archive cancel/Undo, Delete cancel, exact selected scope,
+wrong confirmation, preserved siblings/project, stale/live/uncertain refusal,
+server restart, retry, retained recreated branch and no rediscovered deleted
+workspace. Cleanup verified no live owned workers. Phone/desktop captures were
+inspected. No real user task was deleted. Historical failed browser receipts
+remain retained, including test-harness selector/navigation failures.
+
+## Batch 10 — setup inside chat (#36)
+
+A first empty dashboard opens a saved setup chat. A persistent Setup entry
+reopens it; prerequisite checks and explicit project actions stay in the chat.
+The public `doctor --json` supplies local diagnostics. Missing prerequisites
+receive curated instructions, and a failed or malformed check never becomes
+ready. Raw diagnostic output is not shown or stored. OpenCode version/catalogue
+availability is explicitly not account authentication; accounts remain labeled
+unverified and sign-in stays in the provider's own tool. No installer, login,
+credential capture or model request is performed by setup.
+
+Explicit new-project creation saves a private folder, initializes Git and makes
+an empty first commit. Existing attach requires a clean committed repository.
+A durable idempotent request binds the path, mode and validated role settings.
+Partial failures preserve the folder and refuse uncertain/changed ownership.
+The existing per-role controls supply settings for the new scoped conversation;
+existing sessions retain their routes. Navigation restores those controls to
+the original new-conversation form, preserving the selected values.
+
+Fourteen HTTP/Git tests passed, including dirty-project preservation, duplicate
+requests, partial creation, path escapes, role authority and credential
+non-retention. The integrated browser matrix passed at 1440x1024, 1024x768 and
+390x844, with missing dependencies, recheck, committed projects, empty scoped
+chats, selected model settings, dirty refusal and no secret in dashboard storage.
+The supervisor confirmed no remaining owned workers. Initial browser testing
+found that default navigation populated the hash before first-run detection;
+the fix uses the initial URL. The full dashboard suite also exposed an older
+empty-conversation API incompatibility, which was repaired without changing
+legacy saved routes. The final dashboard gate passed all 380 tests.
+
+## Integrated test status and existing cleanup repair
+
+The two-worker full gate ran 3,027 tests in 224 modules in 3,825 seconds. Four
+modules failed. Four individual CLI cases exceeded their unchanged 60-second
+deadlines; all four passed unchanged on serial recheck in 39.962 seconds. The
+other failure was `PermissionError` from process-group cleanup after the oracle
+leader had been reaped. This branch adopts the existing PR #309 repair at
+`bf8e5b85fd572a76e5aea5a5132a494dea94ce04`, including its required unchanged
+`autocode_grader_process` supervisor, absent from this older branch. The adopted
+repair passed 53 process/oracle/architecture tests. Its source is attributed to
+that existing repair; no duplicate defect fix or merge is claimed.
+
+The final integrated dashboard gate passed 380 tests. Twenty-six standalone
+Node scripts passed in the aggregate gate; the archive harness then needed to
+load the newly called production deletion-history renderer, and passed with all
+its original assertions. All 54 offline scenarios passed; the one live-model
+case remained skipped as designed. These targeted and fake receipts do not
+convert the earlier failed full gate into a passing receipt. A fresh final full
+gate and independent visual review remain required before completion/merge.
+
+## Historical visual observations (#262)
+
+The two earlier observations are explicitly reconciled against the retained
+later Sol47 review and `m3-visuals-terra03/desktop-building-work.png`:
+
+- Sidebar under an extra full-width header: repaired. The later 1440x900 capture
+  starts the sidebar at the top of the page and puts the workspace header beside it.
+- Verbose saved-status content above current work: repaired. After the artifact
+  switcher the later capture leads with Now working, then the live checklist;
+  the larger saved-status block follows them.
+
+The inspected image still matches its manifest hash
+`921e45307bb2dfe936ee4960343e8481cd1eef2d8bdecd206377228b9073b6c8`.
+The independent Sol47 receipt is retained under iteration 047, archived Sol01,
+and has hash `d3bd8eff390eb745dcf00a37f56edda95bd4495e9519b5b3bdfb8469c12c730b`.
+Its accepted comparison used the native 1440x900 capture at the reference export
+scale of 1024x640. The separate 1024x640 CSS viewport was supplementary only.
+These historical repairs were not waivers. Current assets have changed since
+that receipt, so it is not current whole-branch Figma acceptance.
+
+
+## Final integration candidate (2026-10-04; verification in progress)
+
+The follow-up integrates current master without replacing its canonical role,
+recovery and visual-check modules. Shared role serialization is deterministic.
+The approved sidebar, header, Work hierarchy and six empty-conversation states
+are implemented with the exported connection asset. Native capture records bind
+served HTML/CSS/JavaScript, source, viewport and references; a 1024px browser
+viewport is explicitly supplementary to the 1440px reference canvas.
+
+Independent technical review exposed removed-project and folder-replacement
+edges. Empty and linked worktree conversations now honor root removal. New
+scoped chats retain a folder identity; older chats require explicit confirmation
+inside chat before dispatch. Confirmation is bound to the displayed Git folder,
+refuses changed or removed folders and preserves messages. Known replacements
+cannot be rebound silently. Both provider paths recheck scope before launch.
+
+Focused proof passed: setup HTTP/Git 19 cases, project/worktree removal 9 cases,
+project scoping 15 cases, console/control serialization 38 cases, and architecture
+4 cases. The setup browser matrix passed at desktop, tablet and phone, including
+legacy confirmation without a provider call. All six scoped-chat screens passed
+with draft persistence and zero model dispatch. A real scripted-provider to-do
+scenario reached TASK_COMPLETE and passed all ten oracle checks; its 16 saved
+transcript messages, including approval and completion, were visible in the real
+public dashboard at desktop and phone without inspecting the private save file.
+This is offline pipeline/UI evidence, not live-model reliability.
+
+Earlier full candidate gates failed and remain failed receipts. The causes
+included a mock DOM missing a newly used method, omitted disclosure keyboard
+focus, an exact status-field expectation missing an additive field, and a new
+project guard performing slow/full proof inspection before the busy-action
+check. Their repairs preserve the assertions. A final test initially sent fields
+outside the checkpoint endpoint's schema; its corrected valid payload retains
+the project-removal rejection assertion. Fresh integrated gates and independent
+visual acceptance remain required before publication or completion claims.

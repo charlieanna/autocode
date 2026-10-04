@@ -36,7 +36,7 @@ assert.equal(context.taskDecision({...approved,status:'TASK_COMPLETE'}).required
 const orchestration={...approved,stage:'orchestrator',stages:[],status:'RUNNING',
   monitor:{next_stage:'orchestrator',live:{state:'none'},orchestration:{enabled:true,max_parallel:2}}};
 assert.equal(context.stageName(orchestration),'Orchestrator · Coordinating Builders');
-assert.equal(context.stageName({stage:'resolver'}),'AutoResolver · Runner decision (no model call)');
+assert.equal(context.stageName({stage:'resolver'}),'Resolver · Runner decision (no model call)');
 assert.equal(context.taskPhase(orchestration),'orchestration');
 assert.equal(context.statusInfo(orchestration).label,'Ready to continue');
 const batch={id:'batch-1',status:'BUILDING',workers:[{milestone_id:'M1',status:'RUNNING',workspace:'/repo/builder-1',run_dir:'/repo/run/worker-1'},{milestone_id:'M2',status:'BUILT',workspace:'/repo/builder-2',run_dir:'/repo/run/worker-2'}]};
@@ -92,9 +92,9 @@ assert.match(source,/Recover saved work/);
 assert.match(source,/Resume separately/);
 console.log('Current approval authority, resume decisions, workflow phase, model identity, and conversation ordering passed.');
 
-const progress=context.taskMessages({transcript:transcript({planning_messages:[{text:'Plan',created_at:'2026-09-19T01:00:00Z'}],progress_messages:[{id:'progress-1',role:'assistant',speaker:'Builder',text:'Fix routing',created_at:'2026-09-19T02:00:00Z'},{id:'progress-2',role:'assistant',speaker:'Validator',text:'Blocked: test failed',created_at:'2026-09-19T03:00:00Z'}]})});
+const progress=context.taskMessages({transcript:transcript({planning_messages:[{text:'Plan',created_at:'2026-09-19T01:00:00Z'}],progress_messages:[{id:'progress-1',role:'assistant',speaker:'Builder',text:'Fix routing',created_at:'2026-09-19T02:00:00Z'},{id:'progress-2',role:'assistant',speaker:'Tester',text:'Blocked: test failed',created_at:'2026-09-19T03:00:00Z'}]})});
 assert.deepEqual(Array.from(progress,m=>m.text),['Fix routing','Blocked: test failed']);
-assert.equal(progress[1].speaker,'Validator');
+assert.equal(progress[1].speaker,'Tester');
 assert.match(source.slice(source.indexOf('function renderConversation('),source.indexOf('function renderConversation(')+500),/transcript/);
 
 const failedReport={...approved,status:'PAUSED_REPORT_REPAIR_LIMIT',stop_reason:'Bounded report-only repair attempts exhausted',questions:[{id:'old',question:'Old approval?'}]};

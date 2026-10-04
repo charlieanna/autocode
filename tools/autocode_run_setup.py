@@ -12,6 +12,7 @@ runner.opencode is the provider _main_body selected between the two. Neither imp
 """
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import json
 import uuid
@@ -164,6 +165,8 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
                 "reason": "Reconciled previously abandoned report repair",
                 "repair": state.pop("pending_report_repair")})
             runner.write_json(state_path, state)
+    # Preserve only this locked invocation's pre-change settings for grant validation.
+    args._recovery_grant_settings = copy.deepcopy(state.get("settings"))
     settings = runner.configure(args, state)
     settings = protected_oracles.reconcile(state, settings, args, workspace, run_dir,
         is_test_path=verify.is_test_path,
@@ -241,7 +244,11 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
                          pending_questions=[])
             state.pop("stop_reason", None)
             state.pop("paused_at", None)
-        runner.write_json(state_path, state)
+        # A grant validates the original request before its writer publishes
+        # the corrected settings. Normalizing here would replace that request
+        # with a different resolver decision before the grant can be checked.
+        if args.grant_recovery is None:
+            runner.write_json(state_path, state)
     state["settings"] = settings
     if args.run_dir and settings.get('planning_flow') == 'v2' and planning_artifacts.reconcile_orphans(state, run_dir):
         runner.write_json(state_path, state)

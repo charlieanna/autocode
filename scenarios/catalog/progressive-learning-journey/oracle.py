@@ -15,11 +15,19 @@ def check(project, scenario, run=None):
     if run is not None:
         view = run.get("view") or {}
         progressive = view.get("progressive") or {}
-        verified = progressive.get("demonstrated_slices") or []
-        ids = [row.get("slice_id", row.get("id")) if isinstance(row, dict) else row for row in verified]
-        checks.append(Check("two_independently_verified_slices", ids == ["S1", "S2"], str(progressive)))
-        checks.append(Check("current_whole_product_proof", (progressive.get("current_whole_product_proof") or {})
-                            .get("verified") is True, str(progressive.get("current_whole_product_proof"))))
+        verified = progressive.get("demonstrated_slices")
+        ids = [row.get("slice_id") if isinstance(row, dict) else None
+               for row in verified] if isinstance(verified, list) else []
+        proof = progressive.get("current_whole_product_proof")
+        # CLI status authenticates checkpoint bindings, cumulative replay and
+        # retained product obligations; projected history alone proves none of them.
+        current_proof = isinstance(proof, dict) and proof.get("verified") is True
+        checks.append(Check("two_independently_verified_slices",
+                            current_proof and len(ids) == 2
+                            and all(isinstance(id_, str) and id_.strip() for id_ in ids)
+                            and len(set(ids)) == 2,
+                            str(progressive)))
+        checks.append(Check("current_whole_product_proof", current_proof, str(proof)))
         checks.append(Check("approved_run_continued", run.get("cli_calls", []).count("resume") >= 1,
                             str(run.get("cli_calls"))))
         checks.append(Check("no_manual_paused_recovery", "resume-paused" not in run.get("cli_calls", [])))

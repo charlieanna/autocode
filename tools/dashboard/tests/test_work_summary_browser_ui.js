@@ -41,10 +41,13 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
     assert.equal(data('()=>currentTab'),'execution');
     browser('eval','(async()=>{await refresh();return true})()');
     assert.equal(data('()=>document.activeElement.dataset.workId'),'F7');
-    assert.match(data('()=>document.activeElement.textContent'),/Reported by Validator/);
+    assert.match(data('()=>document.activeElement.textContent'),/Reported by Tester/);
     data('()=>{activateTab("now");return true}');
    }
-   data('()=>{document.querySelector("#now .work-check-row button").click();return true}');
+   data('()=>{document.querySelector("#now .work-requirement-list>summary").scrollIntoView({block:"center"});return true}');
+   if(!data('()=>document.querySelector("#now .work-requirement-list").open'))browser('click','#now .work-requirement-list>summary');
+   data('()=>{document.querySelector("#now .work-check-row button").scrollIntoView({block:"center"});return true}');
+   browser('click','#now .work-check-row button');
    assert.equal(data('()=>currentTab'),'execution');
     browser('eval','(async()=>{await refresh();return true})()');
    assert.equal(data('()=>document.activeElement.dataset.workId'),'C1');

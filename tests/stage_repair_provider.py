@@ -9,12 +9,16 @@ handoff contents, not that a live model will follow the instructions.
 from __future__ import annotations
 
 import copy
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
+import runpy
 import shlex
 import subprocess
 import sys
+import traceback
 
 
 def initial_task(contract):
@@ -107,15 +111,32 @@ def main():
     data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
     repair = bool(data.get("report_repair"))
     stage = data["original"]["stage"] if repair else data["stage"]
-    completed = subprocess.run([sys.executable, delegate, *sys.argv[1:]], input=prompt,
-                               text=True, capture_output=True)
-    if completed.returncode:
-        sys.stdout.write(completed.stdout)
-        sys.stderr.write(completed.stderr)
-        return completed.returncode
+    # The runner already launched this provider process. Reuse it for the fake,
+    # rather than adding another interpreter and supervised descendant per turn.
+    stdout, stderr = io.StringIO(), io.StringIO()
+    original_stdin, sys.stdin = sys.stdin, io.StringIO(prompt)
+    returncode = 0
+    try:
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            try:
+                runpy.run_path(delegate, run_name="__main__")
+            except SystemExit as error:
+                if error.code is not None:
+                    returncode = error.code if isinstance(error.code, int) else 1
+                    if not isinstance(error.code, int):
+                        print(error.code, file=sys.stderr)
+            except Exception:
+                traceback.print_exc()
+                returncode = 1
+    finally:
+        sys.stdin = original_stdin
+    if returncode:
+        sys.stdout.write(stdout.getvalue())
+        sys.stderr.write(stderr.getvalue())
+        return returncode
     output = Path(sys.argv[sys.argv.index("-o") + 1])
     value = json.loads(output.read_text())
-    event_rows = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
+    event_rows = [json.loads(line) for line in stdout.getvalue().splitlines() if line.strip()]
     case = os.environ["STAGE_REPAIR_CASE"]
     row = {"stage": stage, "repair": repair, "error": data.get("error", ""), "output": str(output)}
     if stage == "astra_finalize" and case == "finalizer":

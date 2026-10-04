@@ -11,13 +11,13 @@ const context=vm.createContext({human:text=>String(text)});
 vm.runInContext(helpers,context);
 const joint={model_settings:{joint_planning:true}};
 for(const stage of ['astra_discovery','astra_discovery_report_repair']) {
- assert.equal(context.stageName({...joint,stage}),'Planner · Planning');
- assert.equal(context.stageName({stage}),'Planner · Planning');
+ assert.equal(context.stageName({...joint,stage}),'Requirements · Planning');
+ assert.equal(context.stageName({stage}),'Requirements · Planning');
 }
-assert.equal(context.stageName({...joint,stage:'glm_revise_report_repair'}),'Planner · Revising the plan');
+assert.equal(context.stageName({...joint,stage:'glm_revise_report_repair'}),'Requirements · Revising the plan');
 assert.equal(context.stageName({...joint,stage:'astra_challenge'}),'Plan Reviewer · Challenging the plan');
 assert.equal(context.stageName({...joint,stage:'astra_finalize'}),'Plan Reviewer · Finalizing the plan');
-assert.equal(context.stageName({...joint,stage:'astra_review'}),'Completion Owner · Deciding complete or rework');
+assert.equal(context.stageName({...joint,stage:'astra_review'}),'Completion Reviewer · Deciding complete or rework');
 assert.equal(context.planReady({...joint,status:'WAITING_FOR_USER',goal:{origin:'glm_draft'}}),false);
 assert.equal(context.planReady({...joint,status:'AWAITING_GOAL_APPROVAL',goal:{origin:'glm_revise'}}),false);
 assert.equal(context.planReady({...joint,status:'AWAITING_GOAL_APPROVAL',goal:{origin:'astra_finalize'}}),true);
@@ -37,13 +37,13 @@ assert.deepEqual(JSON.parse(JSON.stringify(context.workflowRoleConfig(approvedGo
  ['glm','Planner','Draft & revise'],
  ['astra','Planner','Plan & direct'],
  ['terra','Builder','Implement'],
- ['sol','Validator','Review']
+ ['sol','Tester','Review']
 ]);
 const approvedJoint={...joint,goal:{approval_status:'approved'}};
 assert.deepEqual(JSON.parse(JSON.stringify(context.workflowConfig(approvedJoint,{role:'sol'}))).map(item=>item[1]),
- ['Requirements','Planner','Plan Reviewer','Orchestrator','Builder','Validator','Completion Owner','AutoResolver']);
+ ['Requirements','Planner','Plan Reviewer','Orchestrator','Builder','Tester','Completion Reviewer','Resolver']);
 assert.deepEqual(JSON.parse(JSON.stringify(context.workflowConfig({model_settings:{joint_planning:false}},{role:'sol'}))).map(item=>item[1]),
- ['Requirements','Planner','Plan Reviewer','Orchestrator','Builder','Validator','Completion Owner','AutoResolver']);
+ ['Requirements','Planner','Plan Reviewer','Orchestrator','Builder','Tester','Completion Reviewer','Resolver']);
 const done=(stage,role,extra={})=>({stage,role,finished_at:'2026-09-22T10:00:00Z',exit_code:0,...extra});
 const idlePlanning={...joint,stages:[done('astra_discovery','glm'),done('astra_finalize','astra')]};
 assert.equal(context.completedPlanningStep(idlePlanning,'glm').stage,'astra_discovery');
@@ -65,7 +65,7 @@ assert.deepEqual(plain(payloadContext.conversationPayload('  Build a tracker  ',
 const question=projectedRun('clarification',{workspace:'/repo',run:'/repo/run',questions:[{id:'Q2',question:'Private or public?'}]});
 assert.deepEqual(plain(payloadContext.chatPayload(question,'Private','Q2','request-2')),
  {workspace:'/repo',run:'/repo/run',text:'Private',question_id:'Q2',request_id:'request-2',resolver_request:question.human_escalation.request_id,resolver_token:question.human_escalation.request_token});
-assert.throws(()=>payloadContext.chatPayload({workspace:'/repo',run:'/repo/run',questions:question.questions},'Private','Q2','request-2'),/current AutoResolver request/);
+assert.throws(()=>payloadContext.chatPayload({workspace:'/repo',run:'/repo/run',questions:question.questions},'Private','Q2','request-2'),/current Resolver request/);
 assert.deepEqual(plain(payloadContext.chatPayload({workspace:'/repo',run:'/repo/run'},'Revise the plan',null,'request-3')),
  {workspace:'/repo',run:'/repo/run',text:'Revise the plan',request_id:'request-3'});
 assert.equal(payloadContext.conversationStatus({status:'thinking'}),'Thinking…');

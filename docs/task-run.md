@@ -70,7 +70,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Grant N recoveries after resolving the cause | `autocode --resume-paused --grant-recovery N --no-chat [options]` | 0 complete, 2 stopped for input |
 | Accept a changed OpenCode transport | `autocode --resume-paused --accept-transport-change --no-chat [options]` | 0 complete, 2 stopped for input |
 | Answer | `autocode --answer QUESTION_ID=TEXT [--resolver-token TOKEN]` | 0 saved, 2 rejected |
-| Respond to an operational AutoResolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT` | 0 saved, 2 rejected |
+| Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT` | 0 saved, 2 rejected |
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
 | Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
 | Plan feedback | `autocode --feedback TEXT` | 0 saved, 2 rejected |
@@ -89,7 +89,7 @@ it so a mistyped flag is not mistaken for a pause. A rejection also exits 2,
 starting `Input rejected:`, and startup can exit 2 before any run exists;
 `TaskRun.start` raises with the tail of the CLI's output so a startup failure
 is never mistaken for a pause.
-`TaskRun.respond_operational()` uses the separate AutoResolver response command;
+`TaskRun.respond_operational()` uses the separate Resolver response command;
 an operational request cannot be answered with `TaskRun.answer()`.
 `TaskRun.accept_transport_change()` uses the explicit transport-change command
 after a person inspects the new route and the saved run reports
@@ -152,7 +152,9 @@ meaning must change.
   "evidence": {
     "outcome": "...",
     "base_commit": "...",
-    "acceptance": [{"id": "AC1", "criterion": "...", "status": "passed", "evidence": "...", "human_reviewed": false}],
+    "acceptance": [{"id": "AC1", "criterion": "...", "status": "passed", "evidence": "...",
+                    "validator_status": "PASS", "human_reviewed": false}],
+    "validator_source_revision": "...",
     "findings": [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "..."}],
     "regression_proof": null
   }
@@ -166,18 +168,37 @@ acceptance criterion with its latest recorded outcome and evidence, the
 findings ledger, and, for bug fixes, the runner's own fail-before/pass-after
 regression proof (`verdict`, `fail_to_pass`, `failures`, `unverified`,
 `commands`, `source_revision`, and `case_tests`: each English test case's
-proving tests; `null` otherwise). `test_cases` lists a reproduced bug's
-regression tests in plain English (`id`, `given`, `when`, `then`; empty
-otherwise; see [Bug fixes](workflow.md#bug-fixes)). `check_replay` is the
-current validation's checks as the runner itself re-ran them in a clean copy:
-`verdict`, `source_revision` and one row per command (`command`, `exit_code`,
-`timed_out`, `output`); `null` before a PASS validation and for validations
-that predate it (see [Execution](execution.md#the-runner-re-runs-the-validators-checks)).
+proving tests; `null` otherwise). Each acceptance row also carries
+`validator_status`: the latest saved validation's result for that criterion
+(`FAIL`, `PASS` or `NOT_VERIFIED`), or `null` when that validation has no row
+for it. A failed criterion must be distinguishable from an unchecked one; the
+decision report's own `status` is a separate field and a separate vocabulary
+(`verified` / not). `validator_source_revision` is the source revision that
+validation checked, or `null` before one. The view does not read the
+workspace: after rework, `validator_status` still reports that validation
+until a newer one replaces it, so compare `validator_source_revision` to the
+workspace before treating the status as current. `test_cases` lists a
+reproduced bug's regression tests in plain English (`id`, `given`, `when`,
+`then`; empty otherwise; see [Bug fixes](workflow.md#bug-fixes)). `check_replay`
+is the current validation's checks as the runner itself re-ran them in a clean
+copy: `verdict`, `source_revision` and one row per command (`command`,
+`exit_code`, `timed_out`, `output`); `null` before a PASS validation and for
+validations that predate it (see [Execution](execution.md#the-runner-re-runs-the-validators-checks)).
 
 `usage` is the run's tokens and cost so far: `stages` (finished), `active_stage` (the stage
 running now, or null), `tokens`, `cost_usd` (`reported`, `estimated`, `complete`), `unknown_stages`
 and `by_role` (see [Cost reporting](cost-reporting.md#every-task-continuously)). Unknown cost is
 not zero: `complete` is false while a stage has none or is running.
+
+`displayed_plan` is an optional structured approval projection: `revision`, `hash`,
+`token`, `acceptance_criteria`, `constraints` and `permission_boundaries`. It appears
+only when the last displayed token matches the current sealed contract. Missing,
+modified or stale contracts do not expose it. Criterion `verification_method` and
+`human_review` values are copied without interpreting or coercing model-authored
+text. Automation must check these structured fields and bind the token to
+`needs.token`; do not infer approval authority by parsing headings or review labels
+embedded in `--show-goal` prose. This projection is not approval, execution permission
+or completion proof; the existing CLI approval checks remain authoritative.
 
 `direct_rework_assignments` records a repair assigned directly from a Completion
 Owner's accepted REWORK report. Each entry binds the original and assigned tasks,
@@ -186,7 +207,7 @@ the runner. It is assignment provenance, not a Resolver diagnosis or completion
 proof. The list is empty for runs that have never used this path.
 
 Direct assignment is limited to the first ordinary repair of a single serial
-milestone, with an independent Validator's executed failure and a complete task
+milestone, with an independent Tester's executed failure and a complete task
 within the same approved scope. Ambiguous or incomplete tasks, repeated failures,
 parallel/integrated work and recovery cases retain the Resolver path. Pending
 human decisions remain intact and hold the handoff before either route. Modified
@@ -207,13 +228,13 @@ run is waiting for:
 | `kind` | Waiting for | Extra fields | Answer with |
 | --- | --- | --- | --- |
 | `approve_plan` | approval of the plan AutoCode displayed | `token` | Approve the plan |
-| `answer` | answers to clarifying questions or a decision | `questions` (id, question, why, options, proposed_default), `request_kind`; for a question AutoResolver published, also `resolver_request_id`, `resolver_token` and `resolver_scope` | Answer, once per question (with `--resolver-token` when given) |
+| `answer` | answers to clarifying questions or a decision | `questions` (id, question, why, options, proposed_default), `request_kind`; for a question Resolver published, also `resolver_request_id`, `resolver_token` and `resolver_scope` | Answer, once per question (with `--resolver-token` when given) |
 | `review` | a person to accept specific acceptance criteria | `criteria`, `token`, `question` | Approve a review, per criterion |
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `resume` | a person to inspect a pause and resolve its cause | `reason` | Resume a pause, once resolved |
 | `continue` | nothing; the run can simply proceed | | Continue |
 
-A `resolver_scope` of `operational_exhaustion` or `blocker` means AutoResolver
+A `resolver_scope` of `operational_exhaustion` or `blocker` means Resolver
 stopped the run because it could not continue safely (for example, the
 run time limit was reached). That question is for a person who has looked at
 the run; a caller must not answer it with a proposed default.
@@ -224,7 +245,7 @@ harness does for test runs.
 
 ## Runner checks in status
 
-`view.runner_check` describes a local check in progress before the Validator:
+`view.runner_check` describes a local check in progress before the Tester:
 its `stage`, plain-language `summary`, `started_at`, `updated_at`, `command` and
 `output` path. It is `null` when no such check is active. These checks do not
 consume a model turn. A resumed run saves its running state before the first
@@ -252,7 +273,7 @@ Run `python tools/autocode_dependencies.py --workspace CONSUMER --run-dir RUN --
 to supervise this binding. The worker uses `TaskRun.status`, never another run's
 private state. The additive `view.delivery` exists only for runner-verified current
 completion, with the source snapshot, approved contract and independently recorded
-Validator/completion review pins. The worker waits without model calls, copies only
+Tester/completion review pins. The worker waits without model calls, copies only
 the declared regular files into an atomic evidence bundle, checks the producer again,
 then calls `--receive-dependency MANIFEST` and continues the consumer. It never imports
 source into the consumer itself or accepts the consumer's integration result.
@@ -277,3 +298,34 @@ saved source, route and limits. The CLI equivalent is
 `--resume-paused --retry-failed-stage --job-retry-token TOKEN`. A plain resume
 keeps the pause. Stale source/configuration, a token for a different attempt,
 or unresolved restoration is rejected before any model request.
+
+### Saved code checkpoints
+
+`status()["code_checkpoints"]` adds immutable source receipts for recorded,
+code-changing Builder steps. Historical step metadata without source objects
+is inspectable but cannot be restored. `recorded_check` is historical, never
+current proof. This interface does not silently materialize snapshots for old runs.
+
+Use `compare_checkpoint(id)` to inspect all changed paths and a bounded textual
+diff (including uncommitted additions). `restore_checkpoint(id, expected_token,
+request_id)` requires that exact comparison and returns a new `TaskRun` on a new
+managed branch. The original branch, staged changes, run and later work remain
+intact. Restoration is supported at an explicit reconciled pause of an ordinary
+build run with the same approved contract. Active workers/checks, pending
+interventions, human decisions, terminal Stop, progressive contracts and other
+workflow kinds refuse with an explanation; no worker is interrupted.
+
+The new continuation is paused, with the exact plan approval, saved settings,
+model routes, limits and consumed allowances preserved. All milestones require
+fresh proof. Implementation/validation/completion and human artifact acceptance
+are not inherited as current. Earlier finding dispositions are restored; later
+open findings are marked rolled back, with complete original history retained
+in `restoration-history.json` and on the original run. Explicit `resume_paused()`
+uses the normal Builder/Validator/completion gates. No approval or provider call
+happens during restoration. Replaying the same request reconciles its owned
+candidate; changed or uncertain partial candidates are preserved and refused.
+
+The CLI equivalent is `autocode checkpoint --workspace WORKTREE --run-dir RUN
+--compare CHECKPOINT`, followed by the mutually exclusive `--restore CHECKPOINT
+--expected-token TOKEN --request-id ID`. The dashboard uses this supported
+interface, places confirmation in chat and comparison in the Changes pane.

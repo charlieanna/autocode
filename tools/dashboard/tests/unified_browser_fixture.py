@@ -170,7 +170,7 @@ def scenario_states(workspace):
          'options': ['Keep the saved revision', 'Start a new provider request'],
          'why': 'The first unresolved question is preserved.', 'proposed_default': 'Keep the saved revision'},
         {'id': 'question-2', 'question': 'Should recovery return to plan review?', 'options': ['Plan review', 'Remain paused']},
-        {'id': 'question-3', 'question': 'Who should verify the recovered checkpoint?', 'options': ['Validator', 'Plan Reviewer']},
+        {'id': 'question-3', 'question': 'Who should verify the recovered checkpoint?', 'options': ['Tester', 'Plan Reviewer']},
     ]
 
     plan = base_state(workspace, 'Approve the exact plan revision before building',
@@ -318,7 +318,7 @@ def scenario_states(workspace):
         {'role': 'assistant', 'speaker': 'Builder', 'status': 'received',
          'text': 'The pane switches now keep this chat visible.',
          'created_at': '2026-09-22T12:24:00Z'},
-        {'role': 'assistant', 'speaker': 'Validator', 'status': 'received',
+        {'role': 'assistant', 'speaker': 'Tester', 'status': 'received',
          'text': 'Persistence checks passed. Mobile and browser checks are next.',
          'created_at': '2026-09-22T12:28:00Z'},
     ]
@@ -385,6 +385,8 @@ def main():
             run = runs_root / name
             run.mkdir(parents=True)
             state.update(run_dir=str(run), task_id='browser-fixture-' + name)
+            if '_fixture_saved_diff' in state:
+                (run / 'saved.diff').write_text(state.pop('_fixture_saved_diff'), encoding='utf8')
             if preview_fixture and name.startswith('flow-preview-'):
                 import base64, hashlib
                 image = run / 'screen.png'

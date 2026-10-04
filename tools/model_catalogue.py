@@ -2,12 +2,11 @@
 """Discover available models and present role suggestions to the operator.
 
 Selection is never a hardcoded guess: we search the live `opencode models`
-catalogue, drop free/flash routes, then suggest a verifier≠producer map and
+catalogue, then suggest a verifier≠producer map and
 print the shortlist for the user to accept or override.
 
-When a new run's models cannot all be used (not in the user's plans, or an OpenAI
-route without the ChatGPT login), ``choose`` stops it before any model call and
-shows what is available, grouped by plan and tier, with a replacement for each
+When a new run's models are absent from the provider catalogue, ``choose`` stops
+it before any model call and shows what is available, grouped by plan and tier, with a replacement for each
 role. ``autocode models`` shows the same list at any time.
 """
 from __future__ import annotations
@@ -21,14 +20,9 @@ from collections import defaultdict
 from pathlib import Path
 
 try:
-    from .autocode_role_names import role_label
+    from . import autocode_roles as roles
 except ImportError:
-    from autocode_role_names import role_label
-
-# User rule (2026-09-26): subscription models only — never free-tier or flash.
-FORBIDDEN_SUBSTRINGS = ("-free", "flash", "highspeed")
-# No credential is configured for mimo-token-plan/ on this machine.
-DEAD_ROUTES = ("mimo-token-plan/",)
+    import autocode_roles as roles
 
 # Ladder entry points when both families are present (docs/models.md).
 PREFERRED = {
@@ -78,25 +72,14 @@ def list_catalogue(workspace: Path | None = None, command=("opencode", "models")
 
 
 def usable(models: list[str]) -> list[str]:
-    out = []
-    for m in models:
-        low = m.lower()
-        if any(bad in low for bad in FORBIDDEN_SUBSTRINGS):
-            continue
-        if any(m.startswith(p) for p in DEAD_ROUTES):
-            continue
-        if " " in m or "/" not in m:
-            continue
-        out.append(m)
-    return sorted(set(out))
+    """All well-formed provider routes, without model or provider blacklists."""
+    return sorted({m for m in models if isinstance(m, str) and "/" in m
+                   and all(m.split("/", 1)) and not any(c.isspace() for c in m)})
 
 
 def family(model: str) -> str:
-    if model.startswith("zai-coding-plan/"):
-        return "glm"
-    if model.startswith("xiaomi-token-plan-sgp/") or model.startswith("mimo-"):
-        return "mimo"
-    return model.split("/", 1)[0]
+    lineage_name = lineage(model)
+    return lineage_name if lineage_name in ("glm", "mimo") else model.split("/", 1)[0]
 
 
 def by_provider(models: list[str]) -> dict[str, list[str]]:
@@ -162,7 +145,7 @@ def suggest(models: list[str]) -> dict[str, dict]:
 
 
 def render(models: list[str], roles: dict[str, dict]) -> str:
-    lines = ["# Available subscription models", ""]
+    lines = ["# Available models", ""]
     for provider, ids in by_provider(models).items():
         lines.append(f"## {provider}")
         for m in ids:
@@ -194,11 +177,11 @@ def discover_and_suggest(workspace: Path | None = None) -> dict:
 # --- When a run's models cannot all be used ------------------------------------------
 
 # What a model is for, by its name after the provider prefix. Cheap workers plan and build,
-# strong judges check (user 2026-09-29); GPT-6 Astra is only for the Resolver (user
-# 2026-09-28). A model missing here is shown as "tier unknown", never guessed.
+# strong judges check. These are preferences, never model restrictions.
+# A model missing here is shown as "tier unknown", never guessed.
 TIERS = {"glm-5.3": "worker", "gpt-6-luna": "worker", "gpt-5.6-terra": "worker",
          "gpt-6-sol": "judge", "gpt-5.6-sol": "judge", "gpt-6-astra": "resolver"}
-TIER_LABELS = {"worker": "cheap worker", "judge": "strong judge", "resolver": "Resolver only",
+TIER_LABELS = {"worker": "cheap worker", "judge": "strong judge", "resolver": "Resolver tier",
                None: "tier unknown"}
 WANTED = {"worker": "cheap worker", "judge": "strong judge", "resolver": "Resolver-tier model"}
 # How a provider prefix bills. OpenAI depends on how OpenCode signs in (see ``plan``).
@@ -206,20 +189,21 @@ PLANS = {"zai-coding-plan": ("Z.AI Coding Plan", "subscription"),
          "github-copilot": ("GitHub Copilot", "subscription"),
          "zai": ("Z.AI API", "pay per token"), "opencode": ("OpenCode Zen", "pay per token"),
          "kilo": ("Kilo Gateway", "pay per token")}
-# A run's roles in pipeline order: label, the flag that selects its model, the tier it wants.
-ROLES = {"requirements": (role_label("requirements"), "--requirements-model", "worker"),
-         "glm": (role_label("planner"), "--glm-model", "worker"),
-         "terra": (role_label("builder"), "--terra-model", "worker"),
-         "plan_reviewer": (role_label("plan_reviewer"), "--plan-reviewer-model", "judge"),
-         "sol": (role_label("validator"), "--sol-model", "judge"),
-         "completion": (role_label("completion"), "--completion-model", "judge"),
-         "astra": (role_label("resolver"), "--astra-model", "resolver")}
+# A run's roles in pipeline order: screen name (autocode_roles), the flag that
+# selects its model, the tier it wants. Labels are not a second name table.
+ROLES = {"requirements": (roles.SCREEN["requirements"], "--requirements-model", "worker"),
+         "glm": (roles.SCREEN["planner"], "--glm-model", "worker"),
+         "terra": (roles.SCREEN["builder"], "--terra-model", "worker"),
+         "plan_reviewer": (roles.SCREEN["plan_reviewer"], "--plan-reviewer-model", "judge"),
+         "sol": (roles.SCREEN["tester"], "--sol-model", "judge"),
+         "completion": (roles.SCREEN["completion"], "--completion-model", "judge"),
+         "astra": (roles.SCREEN["resolver"], "--astra-model", "resolver")}
 # Producer and checker roles that must not share a model (autocode_dispatch._VERIFIER_PAIRS).
 CHECKS = (("glm", "plan_reviewer"), ("terra", "sol"), ("terra", "completion"))
 # Preference order: billing first (never nudge a subscription user onto per-token billing),
 # then the tier the role wants.
 BILLING_ORDER = ("subscription", None, "pay per token")
-TIER_ORDER = {"worker": ("worker", None, "judge"), "judge": ("judge", None, "worker"),
+TIER_ORDER = {"worker": ("worker", None, "judge", "resolver"), "judge": ("judge", None, "worker", "resolver"),
               "resolver": ("resolver", "judge", None, "worker")}
 
 
@@ -228,17 +212,15 @@ def tier(model: str) -> str | None:
 
 
 def plan(model: str, openai_auth: str | None = None) -> tuple[str, str | None]:
-    """(plan, billing) for a model. Billing is "subscription", "pay per token", None when
-    unknown, or "refused" for an OpenAI route without the ChatGPT login, which AutoCode never
-    uses (providers.opencode.check_subscription_routes). ``openai_auth`` None means not checked."""
+    """(plan, billing) for display; authentication never bans a model."""
     provider = model.split("/", 1)[0]
     if provider != "openai":
         return PLANS.get(provider, (provider, None))
     if openai_auth == "oauth":
         return "ChatGPT login", "subscription"
-    if openai_auth is None:
-        return "OpenAI", None
-    return ("OpenAI, not connected" if openai_auth == "missing" else f"OpenAI via {openai_auth}"), "refused"
+    if openai_auth == "api":
+        return "OpenAI via api", "pay per token"
+    return "OpenAI", None
 
 
 def lineage(model: str) -> str:
@@ -257,29 +239,24 @@ def independent(producer: str, checker: str) -> bool:
 
 
 def advise(roles: dict, available, *, openai_auth: str | None = None, refused_missing: bool = True) -> dict:
-    """Which of a run's models cannot be used, what can, and a replacement for each. Pure.
+    """Report unlisted routes and suggest independent replacements from the catalogue.
 
-    ``roles`` maps role → route; ``available`` is what the provider lists. A route is missing
-    when it is not listed, or (with ``refused_missing``) when it is a refused OpenAI route.
-    A replacement is never a refused route. It prefers a subscription, then the tier the
-    role wants, then a provider other than the role it checks or is checked by, then a
-    model the run already uses. It never shares a model with that role, and only the
-    Resolver gets a Resolver-only model.
+    Billing and tier guide suggestions; neither excludes a configured model.
+    ``refused_missing`` remains accepted for caller compatibility.
     """
     available = set(available)
     routes = {role: route["model"] for role, route in roles.items() if role in ROLES and route.get("model")}
     missing = {role: model for role, model in routes.items()
-               if model not in available or (refused_missing and plan(model, openai_auth)[1] == "refused")}
+               if model not in available}
     chosen = {role: model for role, model in routes.items() if role not in missing}
-    candidates = [m for m in usable(sorted(available)) if plan(m, openai_auth)[1] != "refused"]
+    candidates = usable(sorted(available))
     suggestions = {}
     for role, (_label, _flag, want) in ROLES.items():
         if role not in missing:
             continue
         others = [chosen[other] for pair in CHECKS if role in pair for other in pair
                   if other != role and other in chosen]
-        allowed = [m for m in candidates if (tier(m) != "resolver" or role == "astra")
-                   and tier(m) in TIER_ORDER[want] and all(independent(m, o) for o in others)]
+        allowed = [m for m in candidates if all(independent(m, o) for o in others)]
         pick = min(allowed, default=None, key=lambda m: (
             BILLING_ORDER.index(plan(m, openai_auth)[1]), TIER_ORDER[want].index(tier(m)),
             family(m) in {family(o) for o in others}, m not in chosen.values(), m))
@@ -313,7 +290,7 @@ def render_catalogue(advice: dict) -> list[str]:
         groups[(entry["plan"], entry["billing"])].append(entry)
     width = max((len(entry["model"]) for entry in advice["catalogue"]), default=0)
     billing_text = {"subscription": "subscription", "pay per token": "pay per token", None: "billing unknown",
-                    "refused": "not used: AutoCode bills OpenAI only through the ChatGPT login"}
+                    "refused": "billing unknown"}
     for (name, billing), entries in sorted(groups.items(), key=lambda item: (
             BILLING_ORDER.index(item[0][1]) if item[0][1] in BILLING_ORDER else len(BILLING_ORDER), item[0][0])):
         lines.append(f"{name} · {billing_text[billing]}")
@@ -325,7 +302,7 @@ def render_catalogue(advice: dict) -> list[str]:
         lines += ["  (none)", ""]
     if advice["hidden"]:
         count = advice["hidden"]
-        lines += [f"{count} free, flash or MiMo {'route is' if count == 1 else 'routes are'} not offered.", ""]
+        lines += [f"{count} malformed catalogue {'entry was' if count == 1 else 'entries were'} ignored.", ""]
     return lines
 
 
@@ -372,9 +349,7 @@ def choose(settings: dict, provider, workspace, *, interactive: bool, ask=input,
         return settings
     if available is None:
         return settings
-    # A listed OpenAI route without the ChatGPT login is not missing: the billing gate
-    # pauses the saved run, which resumes once the login is connected. Only replacements
-    # must avoid it.
+    # Availability comes from the provider, not a hardcoded model policy.
     advice = advise(roles, available, refused_missing=False)
     if not advice["missing"]:
         return settings
