@@ -1412,6 +1412,41 @@ class GoalTests(unittest.TestCase):
             runner.apply_result(self.state, "sol", value, {"events": str(self.run / "sol.jsonl")}, self.root, self.run)
         self.assertEqual(before, self.state)
 
+    def test_technical_flow_proof_cannot_cite_fabricated_events(self):
+        self.approve(); self.validation()
+        value = copy.deepcopy(self.state["validation"])
+        value["end_to_end_result"]["technical_result"] = {
+            "status": "PASS", "summary": "Executed technical steps", "evidence_refs": ["event:invented"]}
+        before = copy.deepcopy(self.state)
+        with self.assertRaisesRegex(ValueError, "missing executed event"):
+            runner.apply_result(self.state, "sol", value, {"events": str(self.run / "sol.jsonl")}, self.root, self.run)
+        self.assertEqual(before, self.state)
+
+    def test_passing_flow_cannot_hide_an_explicit_technical_gap(self):
+        self.approve(); self.validation()
+        for flow_status, status in (("PASS", "FAIL"), ("PASS", "NOT_VERIFIED"), ("NOT_VERIFIED", "FAIL")):
+            with self.subTest(flow_status=flow_status, status=status):
+                value = copy.deepcopy(self.state["validation"])
+                value["end_to_end_result"]["status"] = flow_status
+                value["end_to_end_result"]["technical_result"] = {
+                    "status": status, "summary": "Installation unfinished", "evidence_refs": ["event:check"]}
+                with self.assertRaisesRegex(ValueError, "End-to-end result conflicts"):
+                    runner.apply_result(self.state, "sol", value, {"events": str(self.run / "sol.jsonl")}, self.root, self.run)
+
+    def test_technical_flow_evidence_is_pinned_and_changes_block_completion(self):
+        self.approve(); current = self.validation()
+        artifact = self.run / "technical-flow.txt"
+        artifact.write_text("Executed all technical flow steps")
+        value = copy.deepcopy(self.state["validation"])
+        value["end_to_end_result"]["technical_result"] = {
+            "status": "PASS", "summary": "Executed technical steps", "evidence_refs": [str(artifact)]}
+        record = {"events": str(self.run / "sol.jsonl"), "source_revision": current["revision"],
+                  "output": str(self.run / "sol.jsonl")}
+        runner.apply_result(self.state, "sol", value, record, self.root, self.run)
+        self.assertTrue(completion_gate.completion_ready(self.state, self.decision("COMPLETE"), current))
+        artifact.write_text("Changed technical-flow evidence")
+        self.assertFalse(completion_gate.completion_ready(self.state, self.decision("COMPLETE"), current))
+
     def test_milestone_evidence_becomes_unverified_when_source_changes(self):
         self.approve(); current = self.validation()
         self.assertEqual("PASS", g.milestone_status(self.state, current)[0]["status"])

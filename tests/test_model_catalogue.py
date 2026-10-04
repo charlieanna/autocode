@@ -28,18 +28,11 @@ CATALOGUE = [
 
 
 class UsableTest(unittest.TestCase):
-    def test_drops_free_flash_highspeed_and_dead_routes(self):
-        kept = mc.usable(CATALOGUE)
-        self.assertIn("zai-coding-plan/glm-5.3", kept)
-        self.assertIn("xiaomi-token-plan-sgp/mimo-v2.6-pro", kept)
-        self.assertIn("openai/gpt-5.6-sol", kept)
-        self.assertIn("openai/gpt-6-sol", kept)
-        self.assertNotIn("zai-coding-plan/glm-5.3-flash", kept)
-        self.assertNotIn("zai-coding-plan/glm-5.2-highspeed", kept)
-        self.assertNotIn("xiaomi-token-plan-sgp/mimo-v2.6-flash", kept)
-        self.assertNotIn("mimo-token-plan/mimo-v2.6-pro", kept)
-        self.assertNotIn("opencode/mimo-v2.6-flash-free", kept)
-        self.assertNotIn("not a model", kept)
+    def test_all_provider_routes_are_offered_without_model_blacklists(self):
+        self.assertEqual(sorted(set(CATALOGUE) - {'not a model'}), mc.usable(CATALOGUE))
+        self.assertEqual(['new-plan/future-model'], mc.usable([
+            'new-plan/future-model', 'new-plan/future-model', '/missing-provider',
+            'missing-model/', 'model with space', 'plan/model\t']))
 
 
 class SuggestTest(unittest.TestCase):
@@ -118,37 +111,45 @@ class AdviseTest(unittest.TestCase):
                                       "openai/gpt-6-astra"], openai_auth="oauth")
         self.assertEqual("openai/gpt-6-luna", advice["suggestions"]["sol"]["model"])
 
+    def test_new_mimo_routes_keep_the_existing_family_independence_rule(self):
+        self.assertEqual('mimo', mc.family('mimo-token-plan/mimo-v2.6-pro'))
+        self.assertFalse(mc.independent('mimo-token-plan/mimo-v2.6-pro', 'opencode/mimo-v2.6-flash-free'))
+
     def test_a_producer_never_takes_the_model_that_checks_it(self):
         advice = mc.advise(routes(), ["openai/gpt-6-sol", "openai/gpt-6-astra", "zai/glm-5.3"], openai_auth="oauth")
-        self.assertEqual("zai/glm-5.3", advice["suggestions"]["terra"]["model"])
-        self.assertEqual("zai/glm-5.3", advice["suggestions"]["glm"]["model"])
+        self.assertEqual("openai/gpt-6-astra", advice["suggestions"]["terra"]["model"])
+        self.assertEqual("openai/gpt-6-astra", advice["suggestions"]["glm"]["model"])
 
-    def test_only_the_resolver_may_get_astra(self):
-        advice = mc.advise(routes(), ["zai-coding-plan/glm-5.3", "openai/gpt-6-astra"], openai_auth="oauth")
-        for role in ("plan_reviewer", "sol", "completion"):
-            self.assertIsNone(advice["suggestions"][role]["model"])
-        self.assertNotIn("openai/gpt-6-astra", advice["flags"])
-        self.assertIn("choose one from the list with --sol-model", mc.render_advice(advice))
+    def test_resolver_tier_can_be_suggested_for_other_roles(self):
+        advice = mc.advise(routes(), ['zai-coding-plan/glm-5.3', 'openai/gpt-6-astra'], openai_auth='oauth')
+        for role in ('plan_reviewer', 'sol', 'completion'):
+            self.assertEqual('openai/gpt-6-astra', advice['suggestions'][role]['model'])
 
-    def test_openai_without_the_chatgpt_login_is_never_suggested(self):
-        available = ["zai-coding-plan/glm-5.3", "openai/gpt-6-astra", "openai/gpt-6-sol", "kilo/some-judge"]
-        advice = mc.advise(routes(sol="openai/gpt-7"), available, openai_auth="api", refused_missing=False)
-        self.assertEqual({"sol": "openai/gpt-7"}, advice["missing"])
-        self.assertEqual("kilo/some-judge", advice["suggestions"]["sol"]["model"])
-        self.assertEqual({"openai/gpt-6-astra", "openai/gpt-6-sol"},
-                         {entry["model"] for entry in advice["catalogue"] if entry["billing"] == "refused"})
-        # `autocode models` counts refused routes as missing.
-        self.assertEqual({"plan_reviewer", "sol", "completion", "astra"},
-                         set(mc.advise(routes(), available, openai_auth="api")["missing"]))
+    def test_api_authenticated_openai_routes_are_offered_and_suggested(self):
+        available = ['zai-coding-plan/glm-5.3', 'openai/gpt-6-astra', 'openai/gpt-6-sol', 'kilo/some-judge']
+        advice = mc.advise(routes(sol='openai/gpt-7'), available, openai_auth='api')
+        self.assertEqual({'sol': 'openai/gpt-7'}, advice['missing'])
+        self.assertEqual('openai/gpt-6-sol', advice['suggestions']['sol']['model'])
+        self.assertEqual('pay per token', mc.plan('openai/gpt-6-sol', 'api')[1])
+        self.assertEqual({}, mc.advise(routes(), available, openai_auth='api')['missing'])
+
+    def test_mimo_token_plan_free_flash_and_unknown_routes_can_replace_missing_models(self):
+        for model in ('mimo-token-plan/mimo-v2.6-pro', 'opencode/mimo-v2.6-flash-free',
+                      'zai-coding-plan/glm-5.2-highspeed', 'new-plan/future-model'):
+            with self.subTest(model=model):
+                advice = mc.advise(routes(terra=model), [model, 'openai/gpt-6-sol'])
+                self.assertEqual(model, advice['suggestions']['glm']['model'])
+                self.assertIn(model, [entry['model'] for entry in advice['catalogue']])
 
     def test_the_stop_message_groups_by_plan_and_tier_and_names_per_token_billing(self):
-        available = ["zai-coding-plan/glm-5.3", "openai/gpt-6-astra", "kilo/some-judge", "opencode/x-free"]
+        available = ["zai-coding-plan/glm-5.3", "kilo/some-judge", "opencode/x-free"]
         text = mc.render_advice(mc.advise(routes(), available, openai_auth="oauth"))
-        self.assertIn("Cannot use with OpenCode: openai/gpt-6-sol (Plan Reviewer, Validator, Completion Owner).", text)
+        self.assertIn("Cannot use with OpenCode: openai/gpt-6-sol (Plan Reviewer, Validator, Completion Owner)", text)
         self.assertIn("Z.AI Coding Plan · subscription", text)
         self.assertIn("Kilo Gateway · pay per token", text)
         self.assertRegex(text, r"zai-coding-plan/glm-5\.3 +cheap worker +default for Requirements Gatherer, Planner, Builder")
-        self.assertIn("1 free, flash or MiMo route is not offered.", text)
+        self.assertIn("opencode/x-free", text)
+        self.assertNotIn("not offered", text)
         self.assertIn("--sol-model kilo/some-judge", text)
         self.assertIn("kilo/some-judge bills per token, not by subscription.", text)
         self.assertTrue(text.endswith("AutoCode never changes a model without you."))
@@ -210,20 +211,20 @@ class ChooseTest(unittest.TestCase):
                       ask=lambda _prompt: "", out=lambda _text: None)
         self.assertEqual(before, settings)
 
-    def test_a_role_without_a_replacement_stops_without_asking(self):
+    def test_a_role_without_an_independent_replacement_stops_without_asking(self):
         with self.assertRaises(RuntimeError) as raised:
-            mc.choose(new_settings(), FakeProvider({"zai-coding-plan/glm-5.3", "openai/gpt-6-astra"}), Path("."),
+            mc.choose(new_settings(), FakeProvider({"zai-coding-plan/glm-5.3"}), Path("."),
                       interactive=True, ask=self.fail)
         self.assertIn("choose one from the list with --sol-model", str(raised.exception))
 
-    def test_replacements_skip_openai_without_the_chatgpt_login(self):
+    def test_replacements_offer_api_authenticated_openai(self):
         provider = FakeProvider(self.AVAILABLE | {"kilo/some-judge"}, auth="api")
         with self.assertRaises(RuntimeError) as raised:
             mc.choose(new_settings(sol="openai/gpt-7"), provider, Path("."), interactive=False)
-        self.assertIn("--sol-model kilo/some-judge", str(raised.exception))
+        self.assertIn("--sol-model openai/gpt-6-sol", str(raised.exception))
         self.assertEqual(1, provider.auth_calls)
 
-    def test_a_listed_openai_route_without_the_login_is_left_to_the_billing_gate(self):
+    def test_a_listed_api_authenticated_openai_route_is_accepted(self):
         settings = new_settings()
         self.assertIs(settings, mc.choose(settings, FakeProvider(self.AVAILABLE, auth="api"), Path("."),
                                           interactive=False))

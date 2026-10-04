@@ -747,14 +747,13 @@ class JointFlow(unittest.TestCase):
         self.assertNotEqual(final["sessions"]["terra"], final["sessions"]["sol"])
         self.assertNotEqual(final["sessions"]["terra"], final["sessions"]["completion"])
 
-    def test_openai_api_connection_pauses_before_any_provider_stage(self):
+    def test_openai_api_connection_reaches_the_requirements_question(self):
         self.prepare()
         self.env['AUTOCODE_FIXTURE_OPENAI_AUTH'] = 'api'
-        self.launch(["Build a greeting tool", "--no-chat", "--terra-model", "openai/gpt-5.6-terra"], 2)
-        state = self.saved()[1]
-        self.assertEqual('PAUSED_BILLING_ROUTE', state['status'])
-        self.assertEqual([], state['stages'])
-        self.assertNotIn('active_stage', state)
+        result = self.launch(['Build a greeting tool', '--no-chat',
+                              '--terra-model', 'openai/gpt-5.6-terra'], 2)
+        self.assertIn('Should the greeting be a CLI or web endpoint?', result.stdout)
+        self.assertNotIn('PAUSED_BILLING_ROUTE', result.stdout + result.stderr)
 
     def test_unresolved_final_returns_to_user_without_approval_or_extra_calls(self):
         run, state = self.draft("planning-blocked")

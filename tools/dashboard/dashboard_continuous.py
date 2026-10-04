@@ -130,13 +130,7 @@ def _record_plan_draft_revision(doc, message, revision):
 
 
 def _configured_routes(models):
-    """Conversation routes for NEW dispatch: mandated Gatherer plus Planner.
-
-    The strict new-dispatch policy (enforce_conversation_routes) rejects an
-    explicit Gatherer override to any non-mandated model or effort before a
-    provider is invoked; historical documents keep their persisted routes
-    readable because load/normalize never rebuilds routes.
-    """
+    """Preserve the configured Gatherer and add the default independent Planner."""
     routes = {'requirements_gatherer': {
         'engine': 'opencode', 'provider': 'opencode', 'model': models['glm_model'],
         'reasoning_effort': models.get('glm_reasoning_effort') or 'low'}}
@@ -375,16 +369,9 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
 
 
     def _authorized_dispatch_routes(self, doc):
-        """Authorize the routes the NEXT turn dispatches under (send/retry).
+        """Validate the next turn's saved routes, preserving explicit model choices.
 
-        Strict route authorization runs before state mutation or provider
-        launch: a persisted non-mandated Gatherer route from a historical
-        record stays readable (load/normalize never rebuilds routes) but is
-        rejected clearly, without silent substitution, when it would dispatch a
-        new requirements turn.  The next turn is permitted after an explicit
-        approved model update, which rebuilds configured_routes under the same
-        policy.  A legacy document without configured_routes gets the mandated
-        default routes.
+        A legacy document without configured routes receives the defaults.
         """
         if 'configured_routes' not in doc:
             return doc.setdefault('configured_routes',

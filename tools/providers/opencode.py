@@ -172,31 +172,30 @@ def check_models(roles, workspace=None, *, env=None):
 
 
 def check_subscription_routes(roles, workspace=None, *, env=None):
-    """Check OpenCode's nonsecret CLI auth summary, never its credential file.
+    """Validate a configured OpenAI connection, accepting OAuth or API routes.
 
-    OpenAI selections in the subscription workflow must use the existing OAuth
-    connection. Unrecognized output is not permission to switch to API billing.
-    Other providers retain their existing configured authentication.
+    Explicit API credentials/endpoints belong to the selected transport. No
+    credentials are inspected or copied and no authentication fallback is made.
+    The historical function name remains for provider-interface compatibility.
     """
     if not any(config.get("model", "").startswith("openai/") for config in roles.values()):
         return
     if any(key in env_prep.combined_environment(env)
            for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL")):
-        raise RuntimeError("OpenAI API-key or endpoint environment overrides are present; "
-                           "subscription selection will not silently change billing routes")
+        return
     try:
         failed, modes = _openai_auth_modes(workspace, env)
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise RuntimeError("Cannot verify OpenCode's OpenAI OAuth connection; no provider request was launched") from error
-    if failed or modes != ["oauth"]:
-        raise RuntimeError("OpenCode OpenAI models require a ChatGPT OAuth connection. Use OpenCode /connect → "
-                           "OpenAI → ChatGPT Plus/Pro; API-key fallback is disabled")
+        raise RuntimeError("Cannot verify OpenCode's OpenAI connection; no provider request was launched") from error
+    if failed or modes not in (["oauth"], ["api"]):
+        raise RuntimeError("OpenCode OpenAI models require a configured OAuth or API connection; "
+                           "use OpenCode /connect. No provider request was launched")
 
 
 def openai_auth(workspace=None, *, env=None):
     """How OpenCode signs in to OpenAI: "oauth" (the ChatGPT login), another mode such as
     "api", "missing" when OpenAI is not connected, or None when the summary cannot be read.
-    Only "oauth" passes check_subscription_routes."""
+    OAuth and API connections pass check_subscription_routes."""
     try:
         failed, modes = _openai_auth_modes(workspace, env)
     except (OSError, subprocess.TimeoutExpired):

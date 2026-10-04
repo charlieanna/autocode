@@ -240,5 +240,22 @@ class SavedRunTest(unittest.TestCase):
         self.assertEqual(before, (self.root / "state.json").read_bytes())
 
 
+class ModelRoutingTests(unittest.TestCase):
+    def test_any_recorded_model_is_allowed_and_not_penalized_for_billing_or_ladder(self):
+        for model in ('mimo-token-plan/mimo-v2.6-pro', 'opencode/mimo-v2.6-flash-free',
+                      'zai-coding-plan/glm-5.2-highspeed', 'new-plan/future-model'):
+            with self.subTest(model=model), tempfile.TemporaryDirectory() as temp:
+                run = Path(temp)
+                state = {'status': 'RUNNING', 'settings': {'roles': {
+                    'terra': {'model': model}, 'sol': {'model': 'openai/gpt-6-sol'}}},
+                    'stages': [{'stage': 'terra', 'command': ['opencode', 'run', '--model', model]}]}
+                (run / 'state.json').write_text(json.dumps(state))
+                routing = scorer.model_route_checks(state, run)
+                self.assertIn(model, routing['launched_models'])
+                self.assertEqual([], routing['forbidden_seen'])
+                report = scorer.score_run(run)
+                self.assertEqual('PASS', report['scores']['model_routing']['score'])
+
+
 if __name__ == "__main__":
     unittest.main()

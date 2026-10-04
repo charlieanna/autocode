@@ -408,8 +408,16 @@ proves it, or retracted with evidence that the finding itself was wrong. Do not
 abbreviate commands or invent IDs. The runner saves full events locally.
 For human_review criteria report automated evidence; actual approval is a separate
 runner gate. If that approval is the approved flow's only unexecuted step, report
-end_to_end_result NOT_VERIFIED with evidence for the executed steps and name each such
-criterion ID in its summary. No evidence files need to be written. Return findings to the Plan Reviewer, who
+end_to_end_result NOT_VERIFIED with a technical_result containing status PASS, a summary
+and evidence_refs proving ALL technical steps of the approved flow were executed.
+List the exact outstanding human criterion IDs in pending_human_criteria. If any
+technical flow step is unfinished, technical_result is NOT_VERIFIED (or FAIL for a
+verified defect); naming a human criterion never substitutes for that technical proof.
+An explicit technical FAIL also makes end_to_end_result FAIL; end_to_end_result PASS
+cannot contradict incomplete technical proof or pending human criteria.
+Use technical_result=null and pending_human_criteria=[] when there is no separate
+human flow gate. Technical evidence uses the same check:<position> or artifact
+references as other results. No evidence files need to be written. Return findings to the Plan Reviewer, who
 decides what happens next. Do not declare project completion.
 """,
 }
