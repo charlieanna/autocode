@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from harness import baseline, build_compare, catalog, compare, plan_compare, profiles, routing, stats, verdict  # noqa: E402
 from harness.driver import (REPO, DriveError, Driver, default_autocode, fake_setup, live_setup, metrics,  # noqa: E402
-                            split_by_turn)
+                            changed_between, split_by_turn, workspace_files)
 from harness.project import materialize  # noqa: E402
 
 
@@ -207,6 +207,9 @@ def run_record(driver: Driver, state: dict) -> dict:
         steps = [0, *(mark["steps"] for mark in driver.turn_marks), len(driver.steps)]
         answers = [0, *(mark["answers"] for mark in driver.turn_marks), len(driver.answers)]
         record["turns"] = []
+        # Workspace snapshots at the start, at each follow-up and now (None where a record has none).
+        files = [getattr(driver, "start_files", None), *(mark.get("files") for mark in driver.turn_marks),
+                 workspace_files(driver.project) if getattr(driver, "project", None) else None]
         for index, stages in enumerate(stage_turns):
             turn_metrics = metrics({"stages": stages})
             record["turns"].append({
@@ -216,6 +219,9 @@ def run_record(driver: Driver, state: dict) -> dict:
                 "cli_calls": [step["kind"] for step in driver.steps[steps[index]:steps[index + 1]]],
                 "steps": [{"kind": step["kind"], "exit": step["exit"]}
                           for step in driver.steps[steps[index]:steps[index + 1]]],
+                # What this turn changed in the workspace, read from disk before and after it.
+                "changed_files": (changed_between(files[index], files[index + 1])
+                                  if files[index] is not None and files[index + 1] is not None else None),
                 "view": (driver.turn_marks[index].get("view") if index < len(driver.turn_marks) else view) or {}})
     return record
 
