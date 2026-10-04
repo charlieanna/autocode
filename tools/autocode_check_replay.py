@@ -63,10 +63,42 @@ TIMEOUT_SECONDS = 900
 TAIL_CHARS = 600
 
 
+def _get_replay_dir(run_dir, record) -> Path:
+    """Compute a unique replay directory for this iteration and attempt.
+
+    If the output is iterations/NNN/validator-MM.json, the directory is
+    check-replay/NNN-validator-MM. If it already exists (re-reserved attempt),
+    use a numeric suffix: NNN-validator-MM-2, etc.
+    For outputs without iteration components, use just the stem (backwards compatible).
+    """
+    output_path = Path(record.get("output") or "validation")
+    stem = output_path.stem
+    parent_name = output_path.parent.name
+
+    # If parent directory looks like an iteration number (e.g., "001", "002"), include it in the name
+    if parent_name and parent_name.isdigit():
+        base_name = f"{parent_name}-{stem}"
+    else:
+        base_name = stem
+
+    out = Path(run_dir) / "check-replay" / base_name
+
+    # If this directory already exists (same iteration+stem replayed twice),
+    # use a numeric suffix to get a fresh directory
+    if out.exists():
+        counter = 2
+        while (Path(run_dir) / "check-replay" / f"{base_name}-{counter}").exists():
+            counter += 1
+        out = Path(run_dir) / "check-replay" / f"{base_name}-{counter}"
+
+    return out
+
+
 def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_SECONDS, approved_state=None,
            required_commands=None, progressive_context=None) -> dict:
     """Re-run each distinct check command; return the result or raise ValueError on the first that fails."""
-    out = Path(run_dir) / "check-replay" / Path(record.get("output") or "validation").stem
+    out = _get_replay_dir(run_dir, record)
+    out.mkdir(parents=True, exist_ok=False)
     protected = protected_oracles.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout)
     checks = list(checks)
     prescribed = verification_plan.approved_commands(approved_state or {}, progressive_context=progressive_context)
@@ -95,7 +127,6 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
     failed = [row for row in rows if row["error"] or row["timed_out"] or row["exit_code"] != 0]
     result = {"verdict": FAIL if failed else PASS, "checks": rows, "source_revision": record.get("source_revision"),
               "protected_tests": protected, "timeout_seconds": timeout, "replayed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
-    out.mkdir(parents=True, exist_ok=True)
     (out / "replay.json").write_text(json.dumps(result, indent=2) + "\n")
     if failed:
         row = failed[0]

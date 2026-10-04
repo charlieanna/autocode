@@ -205,6 +205,214 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class IssueReplayDirectoriesTests(unittest.TestCase):
+    """Issue #341: check replay receipts are overwritten by the next iteration's Validator replay.
+
+    Each replay must write to a directory unique to its iteration and attempt, so a failed
+    replay's receipt and logs survive later replays.
+    """
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.run_dir = Path(temp.name)
+
+    def test_t1_failed_replay_receipt_survives_next_iteration(self):
+        """AC1: Two replays in different iterations get different replay.json files."""
+        calls = []
+        def scratch_run(workspace, run_dir, *, command, timeout):
+            calls.append(command)
+            if command == "pytest -q":
+                return receipt(1, tail="failure")
+            return receipt(0)
+
+        # First replay: iterations/001/validator-01.json, will fail
+        record1 = {"output": str(self.run_dir / "iterations" / "001" / "validator-01.json"),
+                   "source_revision": "rev1"}
+        try:
+            check_replay.replay([{"command": "pytest -q", "exit_code": 0, "evidence_ref": "event:a"}],
+                               "/ws", self.run_dir, record1, scratch_run)
+        except ValueError:
+            pass
+
+        # Second replay: iterations/002/validator-01.json, will pass
+        record2 = {"output": str(self.run_dir / "iterations" / "002" / "validator-01.json"),
+                   "source_revision": "rev2"}
+        result2 = check_replay.replay([{"command": "python cli.py --help", "exit_code": 0, "evidence_ref": "event:b"}],
+                                      "/ws", self.run_dir, record2, scratch_run)
+
+        # Both replay.json files should exist and contain their respective revisions
+        replay1_path = self.run_dir / "check-replay" / "001-validator-01" / "replay.json"
+        replay2_path = self.run_dir / "check-replay" / "002-validator-01" / "replay.json"
+
+        self.assertTrue(replay1_path.exists(), f"First replay.json should exist at {replay1_path}")
+        self.assertTrue(replay2_path.exists(), f"Second replay.json should exist at {replay2_path}")
+
+        replay1 = json.loads(replay1_path.read_text())
+        replay2 = json.loads(replay2_path.read_text())
+
+        self.assertEqual("FAIL", replay1["verdict"])
+        self.assertEqual("rev1", replay1["source_revision"])
+        self.assertEqual("PASS", replay2["verdict"])
+        self.assertEqual("rev2", replay2["source_revision"])
+
+    def test_t3_each_iteration_gets_its_own_replay_directory(self):
+        """AC1: An empty run_dir with exactly two replay.json files, one containing '001' with rev1 and one containing '002' with rev2."""
+        calls = []
+        def scratch_run(workspace, run_dir, *, command, timeout):
+            calls.append(command)
+            return receipt(0)
+
+        record1 = {"output": str(self.run_dir / "iterations" / "001" / "validator-01.json"),
+                   "source_revision": "rev1"}
+        check_replay.replay([{"command": "pytest -q", "exit_code": 0, "evidence_ref": "event:a"}],
+                           "/ws", self.run_dir, record1, scratch_run)
+
+        record2 = {"output": str(self.run_dir / "iterations" / "002" / "validator-01.json"),
+                   "source_revision": "rev2"}
+        check_replay.replay([{"command": "python cli.py --help", "exit_code": 0, "evidence_ref": "event:b"}],
+                           "/ws", self.run_dir, record2, scratch_run)
+
+        # Count replay.json files
+        replay_files = list((self.run_dir / "check-replay").glob("*/replay.json"))
+        self.assertEqual(2, len(replay_files), f"Should have exactly 2 replay.json files, found: {replay_files}")
+
+        paths = sorted([str(f.parent.name) for f in replay_files])
+        self.assertIn("001", paths[0], "First directory should contain iteration '001'")
+        self.assertIn("002", paths[1], "Second directory should contain iteration '002'")
+
+    def test_t2_logs_of_failed_replay_are_not_mixed_with_later_replay(self):
+        """AC2: First replay has checks a and b, second has only c; they should be in separate directories."""
+        def scratch_run(workspace, run_dir, *, command, timeout):
+            # Write command text to scratch-command.log
+            log_path = run_dir / "scratch-command.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_path.write_text(command)
+
+            # Fail only on 'b'
+            if command == "b":
+                return receipt(1, tail="failed")
+            return receipt(0)
+
+        # First replay with 'a' and 'b' will fail
+        record1 = {"output": str(self.run_dir / "iterations" / "001" / "validator-01.json"),
+                   "source_revision": "rev1"}
+        try:
+            check_replay.replay([{"command": "a", "exit_code": 0, "evidence_ref": "event:a"},
+                                {"command": "b", "exit_code": 0, "evidence_ref": "event:b"}],
+                               "/ws", self.run_dir, record1, scratch_run)
+        except ValueError:
+            pass
+
+        # Second replay with only 'c' will pass
+        record2 = {"output": str(self.run_dir / "iterations" / "002" / "validator-01.json"),
+                   "source_revision": "rev2"}
+        check_replay.replay([{"command": "c", "exit_code": 0, "evidence_ref": "event:c"}],
+                           "/ws", self.run_dir, record2, scratch_run)
+
+        # First directory should have check-01 and check-02
+        dir1 = self.run_dir / "check-replay" / "001-validator-01"
+        self.assertTrue((dir1 / "check-01" / "scratch-command.log").exists())
+        self.assertTrue((dir1 / "check-02" / "scratch-command.log").exists())
+        self.assertEqual("a", (dir1 / "check-01" / "scratch-command.log").read_text())
+        self.assertEqual("b", (dir1 / "check-02" / "scratch-command.log").read_text())
+
+        # Second directory should have only check-01
+        dir2 = self.run_dir / "check-replay" / "002-validator-01"
+        self.assertTrue((dir2 / "check-01" / "scratch-command.log").exists())
+        self.assertEqual("c", (dir2 / "check-01" / "scratch-command.log").read_text())
+        self.assertFalse((dir2 / "check-02").exists(), "Second replay should not have check-02")
+
+    def test_t4_report_repair_receipt_survives_next_iteration(self):
+        """AC3: Report repair stems also survive across iterations."""
+        def scratch_run(workspace, run_dir, *, command, timeout):
+            if command == "x":
+                return receipt(1, tail="failed")
+            return receipt(0)
+
+        # First replay of report repair: iterations/001/validator-report-repair-01.json
+        record1 = {"output": str(self.run_dir / "iterations" / "001" / "validator-report-repair-01.json"),
+                   "source_revision": "rev1"}
+        try:
+            check_replay.replay([{"command": "x", "exit_code": 0, "evidence_ref": "event:a"}],
+                               "/ws", self.run_dir, record1, scratch_run)
+        except ValueError:
+            pass
+
+        # Second replay of report repair: iterations/002/validator-report-repair-01.json
+        record2 = {"output": str(self.run_dir / "iterations" / "002" / "validator-report-repair-01.json"),
+                   "source_revision": "rev2"}
+        check_replay.replay([{"command": "y", "exit_code": 0, "evidence_ref": "event:b"}],
+                           "/ws", self.run_dir, record2, scratch_run)
+
+        # First repair receipt should still exist with its verdict
+        replay1_path = self.run_dir / "check-replay" / "001-validator-report-repair-01" / "replay.json"
+        replay1 = json.loads(replay1_path.read_text())
+        self.assertEqual("FAIL", replay1["verdict"])
+        self.assertEqual("rev1", replay1["source_revision"])
+
+    def test_t5_reused_attempt_name_gets_a_fresh_replay_directory(self):
+        """AC4: Same output path in later replay gets a fresh directory with numeric suffix."""
+        def scratch_run(workspace, run_dir, *, command, timeout):
+            if command == "x":
+                return receipt(1, tail="failed")
+            return receipt(0)
+
+        # First replay: iterations/003/validator-01.json
+        record = {"output": str(self.run_dir / "iterations" / "003" / "validator-01.json"),
+                  "source_revision": "rev1"}
+        try:
+            check_replay.replay([{"command": "x", "exit_code": 0, "evidence_ref": "event:a"}],
+                               "/ws", self.run_dir, record, scratch_run)
+        except ValueError:
+            pass
+
+        # Second replay with same output path
+        record2 = {"output": str(self.run_dir / "iterations" / "003" / "validator-01.json"),
+                   "source_revision": "rev2"}
+        result2 = check_replay.replay([{"command": "y", "exit_code": 0, "evidence_ref": "event:b"}],
+                                      "/ws", self.run_dir, record2, scratch_run)
+
+        # First replay.json should keep its verdict
+        replay1_path = self.run_dir / "check-replay" / "003-validator-01" / "replay.json"
+        replay1 = json.loads(replay1_path.read_text())
+        self.assertEqual("FAIL", replay1["verdict"])
+        self.assertEqual("rev1", replay1["source_revision"])
+
+        # Second replay should be at a different path (with suffix)
+        replay2_path = self.run_dir / "check-replay" / "003-validator-01-2" / "replay.json"
+        replay2 = json.loads(replay2_path.read_text())
+        self.assertEqual("PASS", replay2["verdict"])
+        self.assertEqual("rev2", replay2["source_revision"])
+
+        self.assertNotEqual(str(replay1_path), str(replay2_path), "Receipts should be at different paths")
+
+    def test_t6_single_replay_still_reruns_each_distinct_command_once(self):
+        """AC6: A single replay with duplicate commands still calls scratch_run for each distinct command once."""
+        calls = []
+        def scratch_run(workspace, run_dir, *, command, timeout):
+            calls.append(command)
+            return receipt(0)
+
+        record = {"output": str(self.run_dir / "iterations" / "001" / "validator-01.json"),
+                  "source_revision": "rev1"}
+        result = check_replay.replay(
+            [{"command": "pytest -q", "exit_code": 0, "evidence_ref": "event:a"},
+             {"command": "pytest -q", "exit_code": 0, "evidence_ref": "event:b"},
+             {"command": "python cli.py --help", "exit_code": 0, "evidence_ref": "event:c"}],
+            "/ws", self.run_dir, record, scratch_run)
+
+        self.assertEqual("PASS", result["verdict"])
+        self.assertEqual("rev1", result["source_revision"])
+        self.assertEqual(3, len(result["checks"]))
+        self.assertEqual(2, len(calls), "Should call scratch_run exactly twice for two distinct commands")
+        self.assertEqual(["pytest -q", "python cli.py --help"], calls)
+
+        # Should have exactly one replay.json under check-replay
+        replay_files = list((self.run_dir / "check-replay").glob("*/replay.json"))
+        self.assertEqual(1, len(replay_files), f"Should have exactly 1 replay.json, found: {replay_files}")
+
+
 class ValidatorNoteTests(unittest.TestCase):
     """A live Validator cited a check exiting 1 as a negative control inside a PASS (parallel-diamond,
     2026-09-29); every Validator request now says how to write one that exits 0."""

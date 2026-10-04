@@ -1,0 +1,77 @@
+{
+  "reproduced": true,
+  "observed": "autocode_check_replay.replay writes its receipt (replay.json) and per-check logs (check-NN/) under run_dir/check-replay/<stem of the Validator output>. The stem (validator-01, validator-report-repair-01, ...) has no iteration in it, and the attempt number restarts at 1 in every iteration. So iteration 2's first Validator replay overwrites iteration 1's receipt in place. The rejection message saved in state still cites .../check-replay/validator-01/replay.json, but that file now holds another attempt's verdict. Leftover check-NN/ directories from the earlier, longer replay mix with the new logs. Archiving a rejected stage copies only iterations/ files, not the replay directory.",
+  "reproduction": "In the investigation workspace I wrote .autocode/scratch/repro_341.py. It calls the real autocode_check_replay.replay with a fake scratch_run that writes a scratch-command.log per check directory. Step 1: a replay for output iterations/001/validator-01.json (source_revision rev1) with checks a (exit 0) and b (exit 1). It raises ValueError citing 'Receipt: .autocode/scratch/run/check-replay/validator-01/replay.json', and that file holds rev1. Step 2: a replay for iterations/002/validator-01.json (rev2) with one passing check c. Afterwards the receipt cited in step 1 holds verdict PASS, source_revision rev2. The directory holds check-01 (log 'c', from iteration 2) and check-02 (log 'b', left over from iteration 1). Receipt: .autocode/evidence/issue341-repro.json (exit 0). A single-command probe asserting the overwrite exits 0 on current code: .autocode/evidence/issue341-probe.json. Existing tests in tests.test_check_replay pass: 13 tests OK, .autocode/evidence/issue341-existing-tests.json.",
+  "root_cause": "replay() at tools/autocode_check_replay.py:69 computes its output directory as Path(run_dir) / 'check-replay' / Path(record['output']).stem. It drops the parent directory iterations/<NNN>/ that makes the stage output unique. autocode_artifacts.stage_base numbers attempts per iteration (iterations/<NNN>/<slug>-<attempt>), so the same stem recurs in every iteration. Within one iteration it can also recur: reject_completed_stage archives a rejected output and unlinks the originals, so the attempt name can be reserved again. replay() then writes into the existing directory without checking it. It uses out.mkdir(exist_ok=True), overwrites replay.json, has scratch_run overwrite check-NN/, and never clears check directories beyond the new count. The failure message embeds that non-unique path, so the receipt it cites is rewritten by the next replay that shares the stem. archive_rejected_stage (tools/autocode_run_records.py:321) only copies iterations/<base>.* files, so nothing else keeps the replay output.",
+  "affected_paths": [
+    "tools/autocode_check_replay.py"
+  ],
+  "test_paths": [
+    "tests/test_check_replay.py"
+  ],
+  "invariant": "A check replay never writes into a directory an earlier replay wrote. Each replay's directory is unique to its own call (it includes the iteration and the attempt stem, and is never reused). The replay.json path quoted in a rejection message keeps holding that replay's verdict, source_revision and checks after any number of later replays in the same run.",
+  "test_cases": [
+    {
+      "id": "T1",
+      "given": "An empty run_dir and a scratch_run fake that returns exit_code 1 for command 'pytest -q' and exit_code 0 for 'python cli.py --help'",
+      "when": "check_replay.replay([{'command':'pytest -q','exit_code':0,'evidence_ref':'event:a'}], '/ws', run_dir, {'output': str(run_dir/'iterations/001/validator-01.json'), 'source_revision':'rev1'}, scratch_run) raises ValueError. Then check_replay.replay([{'command':'python cli.py --help','exit_code':0,'evidence_ref':'event:b'}], '/ws', run_dir, {'output': str(run_dir/'iterations/002/validator-01.json'), 'source_revision':'rev2'}, scratch_run) is called.",
+      "then": "The replay.json path after 'Receipt: ' in the first ValueError message still exists and parses to verdict 'FAIL', source_revision 'rev1' and a single check row with command 'pytest -q' and exit_code 1. On the original code it holds 'PASS'/'rev2'.",
+      "kind": "restore"
+    },
+    {
+      "id": "T2",
+      "given": "An empty run_dir and a scratch_run fake that creates its directory argument, writes the command text to <dir>/scratch-command.log and returns exit_code 0 except for command 'b', which returns 1",
+      "when": "replay is called with checks 'a' and 'b' for output iterations/001/validator-01.json (raises ValueError). Then replay is called with the single check 'c' for output iterations/002/validator-01.json.",
+      "then": "The directory holding the first receipt contains check-01/scratch-command.log with text 'a' and check-02/scratch-command.log with text 'b'. The directory holding the second replay's replay.json contains exactly one check-NN directory, whose scratch-command.log reads 'c'.",
+      "kind": "restore"
+    },
+    {
+      "id": "T3",
+      "given": "An empty run_dir and a scratch_run fake that returns exit_code 0 for every command",
+      "when": "replay is called with one check for output iterations/001/validator-01.json (source_revision 'rev1'), then with one check for output iterations/002/validator-01.json (source_revision 'rev2')",
+      "then": "Exactly two replay.json files exist under run_dir/check-replay, at different paths. The one whose path contains '001' has source_revision 'rev1' and the one whose path contains '002' has source_revision 'rev2'.",
+      "kind": "restore"
+    },
+    {
+      "id": "T4",
+      "given": "An empty run_dir and a scratch_run fake that returns exit_code 1 for command 'x' and 0 for 'y'",
+      "when": "replay is called with check 'x' for report-repair output iterations/001/validator-report-repair-01.json (source_revision 'rev1', raises ValueError). Then replay is called with check 'y' for iterations/002/validator-report-repair-01.json (source_revision 'rev2').",
+      "then": "The replay.json cited in the first ValueError message still has verdict 'FAIL' and source_revision 'rev1'",
+      "kind": "restore"
+    },
+    {
+      "id": "T5",
+      "given": "An empty run_dir and a scratch_run fake that returns exit_code 1 for command 'x' and 0 for 'y' (models a rejected attempt whose iterations/ files were archived and unlinked, so the same output name is reserved again in the same iteration)",
+      "when": "replay is called with check 'x' for output iterations/003/validator-01.json (source_revision 'rev1', raises ValueError). Then replay is called again with check 'y' for the same output path iterations/003/validator-01.json (source_revision 'rev2').",
+      "then": "The replay.json cited in the first ValueError message still has verdict 'FAIL' and source_revision 'rev1'. The second call returns verdict 'PASS', and its replay.json is at a different path.",
+      "kind": "restore"
+    },
+    {
+      "id": "T6",
+      "given": "An empty run_dir and a scratch_run fake that returns exit_code 0 for 'pytest -q' and 'python cli.py --help'",
+      "when": "replay is called once with checks 'pytest -q' (twice) and 'python cli.py --help' for output iterations/001/validator-01.json, source_revision 'rev1'",
+      "then": "Returns verdict 'PASS', source_revision 'rev1' and 3 check rows. The scratch_run fake is called exactly twice. Exactly one replay.json exists under run_dir/check-replay, with verdict 'PASS'.",
+      "kind": "preserve"
+    }
+  ],
+  "conclusion": "Reproduced: the check-replay directory is keyed only by the output file's stem (validator-01), which repeats in every iteration. A later replay therefore overwrites an earlier failed replay's receipt and logs, and the 'Receipt:' path saved in state ends up pointing at the wrong verdict. Fix it in tools/autocode_check_replay.py. Build the directory from the iteration directory plus the stem, and never reuse an existing directory: add a unique suffix when it exists. A receipt path, once cited, then stays valid and nothing needs to be copied at archive time.",
+  "fix_size": "small",
+  "fix_plan": [
+    "In tools/autocode_check_replay.replay, derive the output directory from both the output's parent directory name (the iteration, e.g. '001') and its stem (e.g. 'validator-01'), e.g. run_dir/check-replay/001/validator-01.",
+    "If that directory already exists (a re-reserved attempt name after archive-and-unlink), pick a fresh unused sibling with a numeric or uuid suffix, created atomically with mkdir(exist_ok=False). No replay may write into a directory a previous replay used. Compute it before protected_oracles.replay so protected-test receipts also go to the unique directory.",
+    "Keep the rejection message citing the exact replay.json path written. Keep validation['check_replay'] content, hashes and evidence checks unchanged. Because the cited path is never rewritten, archive_rejected_stage needs no change: the receipt in rejection_reason / pending_report_repair.error stays valid. Optionally record the replay directory in the result (add-only).",
+    "Do not import autocode/autopilot or any cycle module. The change stays inside autocode_check_replay.py.",
+    "Add tests T1\u2013T6 to tests/test_check_replay.py, using check_replay.replay with fake scratch_run functions and outputs under iterations/<NNN>/. Update the existing assertion in test_every_distinct_command_is_rerun_once_and_bound_to_the_source that reads check-replay/sol-01/replay.json, so it uses the path the new layout produces. Better: glob for replay.json, or use a path returned or cited by replay.",
+    "Run .venv/bin/python -m unittest tests.test_check_replay tests.test_architecture, tools/run_suite.py --changed and scenarios/run.py run --fake."
+  ],
+  "questions": [],
+  "tests_run": [
+    "/Users/ankurkothari/Documents/workspace/autocode/.venv/bin/python .autocode/scratch/repro_341.py -> exit 0. Iteration 1's cited receipt then held PASS/rev2, and check-02 was left over from iteration 1 (receipt .autocode/evidence/issue341-repro.json).",
+    "sh -c '<probe>' -> exit 0, the bug is present (receipt .autocode/evidence/issue341-probe.json).",
+    "/Users/ankurkothari/Documents/workspace/autocode/.venv/bin/python -m unittest tests.test_check_replay -> 13 tests OK (receipt .autocode/evidence/issue341-existing-tests.json)."
+  ],
+  "changed": [],
+  "probe": "python3 -c \"\nimport sys,json,shutil;from pathlib import Path;sys.path.insert(0,\\\"tools\\\");import autocode_check_replay as cr\nb=Path(\\\".probe-341\\\");shutil.rmtree(b,ignore_errors=True)\nr=lambda res:(lambda ws,d,*,command,timeout:res[command])\nok={\\\"exit_code\\\":0,\\\"error\\\":\\\"\\\",\\\"tail\\\":\\\"\\\"};bad={\\\"exit_code\\\":1,\\\"error\\\":\\\"\\\",\\\"tail\\\":\\\"x\\\"}\nc=lambda n:[{\\\"command\\\":n,\\\"exit_code\\\":0,\\\"evidence_ref\\\":\\\"e\\\"}]\ntry:cr.replay(c(\\\"a\\\"),\\\"/ws\\\",b,{\\\"output\\\":str(b/\\\"iterations/001/validator-01.json\\\"),\\\"source_revision\\\":\\\"rev1\\\"},r({\\\"a\\\":bad}));raise SystemExit(1)\nexcept ValueError as e:p=Path(str(e).split(\\\"Receipt: \\\")[1].split(\\\".json\\\")[0]+\\\".json\\\")\ncr.replay(c(\\\"b\\\"),\\\"/ws\\\",b,{\\\"output\\\":str(b/\\\"iterations/002/validator-01.json\\\"),\\\"source_revision\\\":\\\"rev2\\\"},r({\\\"b\\\":ok}))\ns=json.loads(p.read_text());shutil.rmtree(b);assert (s[\\\"verdict\\\"],s[\\\"source_revision\\\"])==(\\\"PASS\\\",\\\"rev2\\\")\n\"",
+  "untestable": "",
+  "proven_by": "python3 -c \"\nimport sys,json,shutil;from pathlib import Path;sys.path.insert(0,\\\"tools\\\");import autocode_check_replay as cr\nb=Path(\\\".probe-341\\\");shutil.rmtree(b,ignore_errors=True)\nr=lambda res:(lambda ws,d,*,command,timeout:res[command])\nok={\\\"exit_code\\\":0,\\\"error\\\":\\\"\\\",\\\"tail\\\":\\\"\\\"};bad={\\\"exit_code\\\":1,\\\"error\\\":\\\"\\\",\\\"tail\\\":\\\"x\\\"}\nc=lambda n:[{\\\"command\\\":n,\\\"exit_code\\\":0,\\\"evidence_ref\\\":\\\"e\\\"}]\ntry:cr.replay(c(\\\"a\\\"),\\\"/ws\\\",b,{\\\"output\\\":str(b/\\\"iterations/001/validator-01.json\\\"),\\\"source_revision\\\":\\\"rev1\\\"},r({\\\"a\\\":bad}));raise SystemExit(1)\nexcept ValueError as e:p=Path(str(e).split(\\\"Receipt: \\\")[1].split(\\\".json\\\")[0]+\\\".json\\\")\ncr.replay(c(\\\"b\\\"),\\\"/ws\\\",b,{\\\"output\\\":str(b/\\\"iterations/002/validator-01.json\\\"),\\\"source_revision\\\":\\\"rev2\\\"},r({\\\"b\\\":ok}))\ns=json.loads(p.read_text());shutil.rmtree(b);assert (s[\\\"verdict\\\"],s[\\\"source_revision\\\"])==(\\\"PASS\\\",\\\"rev2\\\")\n\""
+}
