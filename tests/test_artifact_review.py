@@ -50,6 +50,19 @@ class ArtifactReviewCLITests(unittest.TestCase):
     def test_omitted_executed_checks_are_repaired_before_review(self):
         self.review_then_complete(AUTOCODE_FIXTURE_OMIT_CHECKS="1")
 
+    def test_flow_awaiting_only_human_acceptance_presents_review_without_repeating_validation(self):
+        # #195: the approved flow ends in the person's approval, so the Validator leaves it NOT_VERIFIED.
+        self.review_then_complete(AUTOCODE_FIXTURE_FLOW_AWAITS_REVIEW="CLI flows executed; C1 human acceptance pending")
+
+    def test_unexplained_flow_gap_is_not_offered_as_a_review(self):
+        self.env.update(AUTOCODE_FIXTURE_MODE="human-pending",
+                        AUTOCODE_FIXTURE_FLOW_AWAITS_REVIEW="One flow step was not executed")
+        self.launch(["Build greeting", "--chat", "--max-iterations", "2"], 2, answers="CLI\nyes\n")
+        run, _ = self.saved()
+        status = json.loads(self.launch(["--run-dir", str(run), "--status"], 0).stdout)
+        self.assertFalse(status["view"]["done"])
+        self.assertNotEqual("review", status["view"]["needs"]["kind"])
+
     def test_repair_cannot_invent_an_executed_check_and_does_not_repeat_validation(self):
         self.env.update(AUTOCODE_FIXTURE_MODE="human-pending", AUTOCODE_FIXTURE_NO_CHECK_EVENT="1")
         probe = self.root / "launches.jsonl"
@@ -138,4 +151,39 @@ class ArtifactReviewGateTests(unittest.TestCase):
         evidence = next(iter(state["validation"]["evidence_hashes"]))
         from pathlib import Path
         Path(evidence).write_text("Changed evidence")
+        self.assertIsNone(completion.artifact_review_request(state, decision, current))
+
+    def awaiting_flow(self, summary="Both CLI flows checked; C1 human acceptance pending"):
+        state, decision, current = self.fixture()
+        state["validation"]["end_to_end_result"].update(status="NOT_VERIFIED", summary=summary)
+        return state, decision, current
+
+    def test_flow_awaiting_only_human_acceptance_is_presented_and_completes_only_after_approval(self):
+        # #195: the approved flow ends in the person's approval, so the Validator leaves it NOT_VERIFIED.
+        state, decision, current = self.awaiting_flow()
+        request = completion.artifact_review_request(state, decision, current)
+        self.assertEqual(["C1"], request["criteria"])
+        complete = {**decision, "status": "TASK_COMPLETE",
+                    "acceptance_criteria": [{**row, "status": "verified"} for row in decision["acceptance_criteria"]]}
+        self.assertFalse(completion.completion_ready(state, complete, current))
+        lifecycle.wait_for_user(state, request)
+        lifecycle.human.evaluate(state)
+        lifecycle.present(state)
+        goals.approve_review(state, "C1", goals.review_token(state), current)
+        self.assertTrue(completion.completion_ready(state, complete, current))
+        state["validation"]["end_to_end_result"]["evidence_refs"] = []
+        self.assertFalse(completion.completion_ready(state, complete, current))
+
+    def test_flow_gap_that_does_not_name_every_pending_human_criterion_is_not_a_review(self):
+        for label, summary in {"unexplained": "One flow step was not executed",
+                               "longer ID": "Awaiting C10 acceptance", "prefixed ID": "Awaiting XC1 acceptance",
+                               "empty": ""}.items():
+            with self.subTest(label=label):
+                state, decision, current = self.awaiting_flow(summary)
+                self.assertIsNone(completion.artifact_review_request(state, decision, current))
+        state, decision, current = self.awaiting_flow()
+        state["validation"]["end_to_end_result"]["evidence_refs"] = []
+        self.assertIsNone(completion.artifact_review_request(state, decision, current))
+        state, decision, current = self.awaiting_flow()
+        state["validation"]["end_to_end_result"]["status"] = "FAIL"
         self.assertIsNone(completion.artifact_review_request(state, decision, current))

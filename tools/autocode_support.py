@@ -408,7 +408,9 @@ finding_dispositions with its exact id, disposition resolved and the check that
 proves it, or retracted with evidence that the finding itself was wrong. Do not
 abbreviate commands or invent IDs. The runner saves full events locally.
 For human_review criteria report automated evidence; actual approval is a separate
-runner gate. No evidence files need to be written. Return findings to the Plan Reviewer, who
+runner gate. If that approval is the approved flow's only unexecuted step, report
+end_to_end_result NOT_VERIFIED with evidence for the executed steps and name each such
+criterion ID in its summary. No evidence files need to be written. Return findings to the Plan Reviewer, who
 decides what happens next. Do not declare project completion.
 """,
 }
