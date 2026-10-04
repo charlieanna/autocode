@@ -30,14 +30,12 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 try:
-    from . import live_scenarios as base
+    from .scenario_verdicts import DEFERRED, ERROR, FAIL, PASS, OracleResult
     from . import autocode_oracle_process as oracle_process, autocode_grader_process as supervisor
 except ImportError:  # pragma: no cover - script execution
-    import live_scenarios as base
+    from scenario_verdicts import DEFERRED, ERROR, FAIL, PASS, OracleResult
     import autocode_oracle_process as oracle_process, autocode_grader_process as supervisor
 
-OracleResult = base.OracleResult
-PASS, FAIL, DEFERRED, ERROR = base.PASS, base.FAIL, base.DEFERRED, base.ERROR
 
 IGNORED_DIRS = {".git", ".autocode", "__pycache__", ".pytest_cache", "node_modules"}
 

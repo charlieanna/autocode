@@ -386,3 +386,19 @@ The CLI equivalent is `autocode checkpoint --workspace WORKTREE --run-dir RUN
 --compare CHECKPOINT`, followed by the mutually exclusive `--restore CHECKPOINT
 --expected-token TOKEN --request-id ID`. The dashboard uses this supported
 interface, places confirmation in chat and comparison in the Changes pane.
+
+### Conversation task provenance
+
+New dashboard attachments, including saved legacy conversations, carry a canonical
+`autocode.conversation-task` envelope. The full validated handoff remains in the
+task presented to workers: human and assistant messages, titles, structured drafts,
+routes and receipts are retained. Only its human messages are requirement sources;
+assistant suggestions and unapproved drafts do not become mandatory requirements.
+Later human feedback and answers retain their existing source rules. A human can
+adopt a suggested literal by requesting it in a message, feedback or answer.
+
+Source projection requires the complete canonical envelope and valid handoff digest.
+Extra instructions, altered envelopes and ordinary CLI tasks retain whole-task
+source semantics. Existing saved flattened tasks are not rewritten or reinterpreted.
+This format changes neither model routes nor the legacy/continuous handoff controls,
+and conveys no approval to implement.

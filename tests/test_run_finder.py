@@ -51,6 +51,8 @@ class Fixture(unittest.TestCase):
         self.project = self.root / "project"
         self.project.mkdir()
         git(self.project, "init", "-q")
+        # A detached maintenance child must not race the read-only tree snapshots.
+        git(self.project, "config", "maintenance.auto", "false")
         (self.project / "app.txt").write_text("committed\n")
         git(self.project, "add", "app.txt")
         git(self.project, "-c", "user.name=T", "-c", "user.email=t@example.test", "commit", "-qm", "base")

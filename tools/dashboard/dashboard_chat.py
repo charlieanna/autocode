@@ -275,12 +275,7 @@ class ConversationMixin(VerificationViewMixin):
             except ValueError as error:
                 raise ValueError('Task storage must stay inside the selected project') from error
             handoff = self.conversations.handoff(doc['id'])
-            transcript = '\n\n'.join(f"{message.get('speaker', message.get('role', 'Message'))}:\n{message.get('text', '')}" for message in doc['messages'])
-            goal = (doc['title'] + '\n\nConversation reference: ' + doc['id'] +
-                    '\nThe following is the user’s saved project-free planning discussion. Use it as context, including corrections. '
-                    'Inspect this repository, resolve remaining questions, and run the Planner/Plan Reviewer joint planning process. '
-                    'Prior discussion is a draft, not approval to implement. Present the final repository-aware plan for explicit approval.\n\n' + transcript
-                    + '\n\nStructured draft context (unapproved):\n' + json.dumps(handoff.get('plan_drafts', []), ensure_ascii=False))
+            goal = conversation_protocol.task_text(handoff)
             staged = (conversation_protocol.stage_handoff(workspace, handoff)
                       if self.conversations.is_continuous(doc['id']) else None)
             attachment = {'status': 'starting', 'workspace': str(workspace), 'goal_hash': hashlib.sha256(goal.encode()).hexdigest(), 'started_at': time.time(), 'run': None, 'action_id': None, 'error': None}
@@ -561,16 +556,23 @@ class ConversationMixin(VerificationViewMixin):
 
     def discover(self):
         result = super().discover()
+        for row in result:
+            handoff = conversation_protocol.task_handoff(row.get('task'))
+            if handoff is not None:
+                row.update(original_task=row['task'], task=handoff['title'])
         if self._conversation_store is not None:
             titles = {object_value(doc.get('attachment')).get('run'): doc['title'] for doc in self.conversations.list() if doc.get('attachment')}
             for row in result:
                 if row.get('run') in titles:
-                    row['original_task'] = row.get('task')
+                    row.setdefault('original_task', row.get('task'))
                     row['task'] = titles[row['run']]
         return result
 
     def view(self, workspace, run, s=None):
         view = super().view(workspace, run, s)
+        handoff = conversation_protocol.task_handoff(view.get('task'))
+        if handoff is not None:
+            view.update(original_task=view['task'], task=handoff['title'])
         # Avoid creating any new local files merely to poll pre-existing tasks.
         state = s
         if state is None:
@@ -605,7 +607,7 @@ class ConversationMixin(VerificationViewMixin):
                         view['conversation'] = view['conversation'] or doc
                         view['draft_messages'] = [row for row in view['conversation'].get('messages', doc['messages']) if not row.get('id', '').startswith('task-')]
                         view['conversation_id'] = doc['id']
-                        view['original_task'] = view.get('task')
+                        view.setdefault('original_task', view.get('task'))
                         view['task'] = doc['title']
                         startup = next((a for a in self.action_log(workspace) if a['id'] == attachment.get('action_id')), None)
                         if startup:
@@ -628,4 +630,10 @@ class ConversationMixin(VerificationViewMixin):
                         message['delivery_status'] = delivery.get('status')
                         if delivery.get('status') in ('applied', 'resumed'):
                             message['status'] = 'applied'
+        if view['conversation'] is None and handoff is not None:
+            # A cold reader may have neither the local intake nor a runner journal.
+            # Show only historical messages; current drafts and gates require the journal.
+            view['conversation'] = {'id': handoff['conversation_id'], 'title': handoff['title'],
+                'messages': copy.deepcopy(handoff['messages']), 'drafts': [], 'plan_drafts': []}
+            view['draft_messages'] = copy.deepcopy(handoff['messages'])
         return view

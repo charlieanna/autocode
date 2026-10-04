@@ -17,27 +17,18 @@ import sys
 import tempfile
 from pathlib import Path
 
-PASS = "PASS"
-FAIL = "FAIL"
-FALSE_COMPLETE = "FALSE_COMPLETE"
-HONEST_BLOCKER = "HONEST_BLOCKER"
-DEFERRED = "DEFERRED"
-ERROR = "ERROR"
+try:
+    from .scenario_verdicts import (DEFERRED, ERROR, FAIL, FALSE_COMPLETE, HONEST_BLOCKER, PASS,  # noqa: F401
+                                    OracleResult)
+except ImportError:
+    from scenario_verdicts import (DEFERRED, ERROR, FAIL, FALSE_COMPLETE, HONEST_BLOCKER, PASS,  # noqa: F401
+                                   OracleResult)
 
 # Statuses a driver may report when the runner stopped honestly rather than
 # finishing. These are never promoted to PASS.
 HONEST_PAUSE_PREFIXES = (
     "PAUSED_", "BLOCKED_HUMAN", "AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER",
 )
-
-
-class OracleResult:
-    def __init__(self, status: str, summary: str, checks: list[dict]):
-        self.status, self.summary, self.checks = status, summary, checks
-
-    @property
-    def failed(self) -> list[dict]:
-        return [row for row in self.checks if not row["ok"]]
 
 
 # --- FX01: greeting CLI (LIVE-01) ----------------------------------------
