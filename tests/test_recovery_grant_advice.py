@@ -170,3 +170,14 @@ class BoundChangeSupersede(unittest.TestCase):
         explicit = {'max_seconds'}
         self.assertFalse(any(f in explicit for f in relevant.get(paused_for, ())))
         self.assertTrue(any(f in explicit for f in set(relevant.get(paused_for, ())) | set(bound_flags)))
+
+
+class QuotaStopAdviceNamesAbandon(unittest.TestCase):
+    def test_inform_advice_includes_abandon_when_an_attempt_is_stuck(self):
+        text = limits.advice(allow_grant=False, pause_status='PAUSED_BUDGET', attempt='001/terra-01')
+        self.assertIn('--resolver-response', text)
+        self.assertIn('--abandon-stage 001/terra-01', text)
+        self.assertIn('--resume-paused', text)
+        self.assertNotIn('--grant-recovery', text)
+        text = limits.advice(allow_grant=False, pause_status='PAUSED_BUDGET')
+        self.assertNotIn('--abandon-stage', text)
