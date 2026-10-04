@@ -78,7 +78,14 @@ class ChatIntentTests(ChatFixture, unittest.TestCase):
         before=deepcopy(view)
         reply=status_reply(view)
         self.assertIn('R1: Saving survives restart (unchecked)',reply)
-        self.assertIn('R2: Errors stay visible (failed)',reply)
+        self.assertIn('R2: Errors stay visible (unchecked)',reply)
+        self.assertIn('not been inspected', reply)
+        from dashboard_verification import digest
+        inspected=deepcopy(view)
+        inspected['verification']={'version':1,'freshness':'current','contract_token':None,
+            'criteria_token':digest(view['criteria']),'report_token':digest(view['validation']),
+            'coverage':[{'id':'R2','state':'failed'}]}
+        self.assertIn('R2: Errors stay visible (failed)',status_reply(inspected))
         self.assertIn('F1: Saved edits disappear after restart',reply)
         self.assertEqual(before,view)
 

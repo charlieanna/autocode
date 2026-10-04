@@ -269,3 +269,47 @@ revision. Lower-concurrency failure rechecks and final integrated regression
 remain required. No deadlines or assertions were relaxed and no unrelated
 workers were interrupted. These receipts do not close #33, the remaining UI
 backlog, or final Figma visual acceptance.
+
+
+## Batch 7 — planned checks and current proof (#17, #29)
+
+Added read-only `--status --inspect-evidence` and additive
+`view.verification`. Requirements and their planned methods remain visible
+before testing. Current checked/failed/unchecked results require the report to
+match the source, task, contract and checklist, with intact pinned project-local
+evidence. A changing checkpoint/source or unavailable inspection fails closed.
+Authenticated human acceptance remains separate. Existing independent review,
+regression proof and completion gates are unchanged.
+
+Selected task detail and status questions in chat use that supported inspection.
+The Work and Checks panes keep old reports available but stop displaying their
+PASS labels as current checkmarks. Stale recorded completion is clearly labeled
+and does not reopen completed-task mutation controls. Binding also rejects a
+receipt for another displayed assignment/checklist or during a recorded attempt.
+
+Verification: the changed selection passed 266 tests in 15 modules at two-module
+concurrency, including the real CLI test that edits source and corrupts evidence
+while requiring the saved checkpoint to remain byte-identical. A further 29
+proof-boundary/architecture tests passed, including the existing missing-criterion,
+fabricated-event, blocking-finding and changed-human-review-evidence refusals.
+All 352 dashboard tests and 26 standalone Node scripts passed. All 54 fake
+scenarios passed; the one live-model-only scenario was skipped as designed.
+
+The real HTTP/page browser matrix passed five lifecycle/freshness states at
+1440x1024, 1024x768 and 390x844. Desktop and phone captures were inspected. The
+supervisor confirmed root reaping and no live owned descendants. These are
+fixture-based functional captures, not independent Figma acceptance. A final
+caption-only edit clarifies that current evidence supplies the checkmarks.
+
+Failed receipts are retained: a fixture initially changed a report after sealing
+its human-request token; the production authority check correctly refused it.
+The fixture now seals last. Two older display tests incorrectly counted raw saved
+results; they now exercise both inspected and uninspected records. The additional
+stale-result assertion exposed a real render-cache bug: the Work pane omitted
+verification changes from its fingerprint. That bug was fixed and the full
+dashboard/browser checks passed afterward.
+
+The earlier full-branch gate remains failed and requires integrated rechecking.
+Its exact unchanged worker-activity assertion passed on isolated recheck; this
+does not establish the other failed modules or make that old receipt green.
+No merge, install, issue closure or user artifact acceptance is claimed.

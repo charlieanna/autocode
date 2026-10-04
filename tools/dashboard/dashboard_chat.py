@@ -25,6 +25,7 @@ try:
     from .dashboard_transcript import project as transcript
     from .dashboard_screenshots import project as screenshot_evidence
     from .dashboard_work_summary import project as work_summary
+    from .dashboard_verification import VerificationViewMixin
 except ImportError:  # Direct source launch, as well as the installed entry point.
     from dashboard_conversation_journal import project_conversation, append_feedback
     from dashboard_monitor import snapshot
@@ -33,6 +34,7 @@ except ImportError:  # Direct source launch, as well as the installed entry poin
     from dashboard_transcript import project as transcript
     from dashboard_screenshots import project as screenshot_evidence
     from dashboard_work_summary import project as work_summary
+    from dashboard_verification import VerificationViewMixin
 
 
 def object_value(value):
@@ -81,7 +83,7 @@ def planning_messages(state, run=None):
     return result
 
 
-class ConversationMixin:
+class ConversationMixin(VerificationViewMixin):
     def __init__(self, *args, conversation_root=None, conversation_provider=None, conversation_planner=None, **kwargs):
         self._conversation_store = None
         self._conversation_root = conversation_root
@@ -451,6 +453,8 @@ class ConversationMixin:
                 elif data.get('retry') is not True or (previous.get('status') != 'error' and not lost_action):
                     return previous
             view = self.view(workspace, run)
+            if read_only and chat_intent.classify(text) == 'question':
+                self.inspect_verification(workspace, run, view)
             scope = object_value(view.get('human_escalation')).get('scope')
             questions = view.get('questions', []) if scope in ('clarification', 'permission', 'goal_change') else []
             if questions and not question_id and not read_only:
@@ -541,7 +545,11 @@ class ConversationMixin:
             view['monitor']['metrics'] = project_metrics(workspace, run)
         except (OSError, ValueError):
             view = self.view(workspace, run)
+        self.inspect_verification(workspace, run, view)
         view['work_summary'] = work_summary(view)
+        counts = view['work_summary']['counts']
+        view['recorded_counts'] = view.get('counts', {})
+        view['counts'] = {'pass': counts['checked'], 'fail': counts['failed'], 'unknown': counts['unchecked']}
         view['screenshots'] = screenshot_evidence(view)
         view['transcript'] = transcript(view)
         actions = self.action_log(workspace, run)
@@ -570,6 +578,8 @@ class ConversationMixin:
                 state = {}
         view['planning_messages'] = planning_messages(object_value(state), run)
         view['validation'] = object_value(object_value(state).get('validation'))
+        view['criteria_revision'] = object_value(state).get('criteria_revision')
+        view['runner_check'] = object_value(object_value(state).get('active_runner_check'))
         view['conversation'] = project_conversation(run, object_value(state))
         view['draft_messages'] = [row for row in (view['conversation'] or {}).get('messages', []) if not row.get('id', '').startswith('task-')]
         view['chat_messages'] = []

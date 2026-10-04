@@ -113,6 +113,23 @@ CLI callers can omit the flag; all ordinary liveness, scope and approval gates
 still apply. Abandoning an interrupted attempt preserves partial work and does
 not resume automatically. Stop remains terminal for that conversation.
 
+## Inspecting current verification
+
+`autocode --run-dir RUN --status --inspect-evidence` performs a read-only source
+and evidence inspection. The additive `view.verification` field lists every
+planned criterion and method, its recorded result and current checked / failed /
+unchecked state. A normal status projection labels saved results `not_inspected`;
+a saved PASS alone never establishes current proof.
+
+The inspection checks the report's source, task, plan and criterion identity,
+then hashes its pinned project-local evidence. It rereads the source and checkpoint
+to detect work changing during inspection. Missing, stale or unavailable evidence
+keeps current requirements unchecked while retaining the old report. Human
+acceptance remains a separately authenticated requirement. The inspection never
+runs tests, changes the checkpoint, approves work or substitutes for the full
+completion gate. The dashboard uses this supported inspection for selected task
+detail; list polling does not hash every project checkout.
+
 ## Status view
 
 Produced by `tools/autocode_run_view.py` from the saved state. Fields may be

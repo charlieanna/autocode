@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_console import Console, Handler, LoopbackHTTPServer, ThreadingHTTPServer, resolver_human
 from dashboard_work_summary import project as work_summary, progress_from_status
+import autocode_verification_view as verification_view
 
 
 
@@ -36,6 +37,9 @@ def publish_human_request(state):
     contract['body']['open_blocking_questions'] = questions if scope == 'clarification' else []
     contract['hash'] = resolver_human.support.digest({key: contract[key] for key in ('task_id', 'revision', 'body')})
     state['displayed_goal'] = f"r{contract['revision']}:{contract['hash']}"
+    if state.get('validation'):
+        # Finish test-only report construction before sealing the request.
+        state['validation'].update(contract_hash=contract['hash'],contract_revision=contract['revision'])
     evidence = {}
     if scope == 'goal_approval':
         output = Path(state['run_dir']) / 'fixture-final-plan.json'
@@ -206,7 +210,7 @@ def scenario_states(workspace):
     completed['validation'] = {
         'source_revision': 'abc123',
         'recorded_at': '2026-09-22T12:51:00Z',
-        'criterion_results': [{'id': 'C1', 'status': 'pass'}],
+        'criterion_results': [{'id': 'C'+str(i), 'status': 'PASS'} for i in range(1,7)],
         'checks': [{'name': '8 checks were recorded as passing'}],
     }
     completed['_fixture_monitor'].update({
@@ -342,7 +346,13 @@ def scenario_states(workspace):
         if name == 'complete':
             work['validation']['criterion_results'] = [{'id': 'C' + str(i), 'status': 'PASS'} for i in range(1, 7)]
             work['_fixture_monitor']['findings'] = []
+        if name == 'waiting':
+            work.pop('active_stage', None)
         states['flow-work-progress-' + name] = work
+    for mode in ('stale', 'unavailable'):
+        sample=copy.deepcopy(states['flow-work-progress-complete'])
+        sample['_fixture_verification']=mode
+        states['flow-work-progress-'+mode]=sample
     return states
 
 
@@ -382,6 +392,15 @@ def main():
                 state['validation'] = {'source_revision':'fixture-screen-source',
                     'evidence_hashes':{str(image):hashlib.sha256(image.read_bytes()).hexdigest()},
                     'criterion_results':[{'id':'C1','status':'FAIL','evidence_refs':[str(image)]}]}
+            if state.get('validation'):
+                # Explicit saved-report fixture identity, not real runner proof.
+                # Actual byte authentication is exercised by the CLI tests.
+                report=state['validation'];contract=state['goal_contract']
+                report.update(contract_hash=contract['hash'],contract_revision=contract['revision'],
+                              task_id=state['current_task'].get('id'),criteria_revision=state.get('criteria_revision'))
+                report.setdefault('source_revision',FIXTURE_SOURCE)
+                for result in report.get('criterion_results',[]):
+                    result.setdefault('evidence_refs',['fixture-check-output.txt'])
             if state['status'] in ('WAITING_FOR_USER', 'AWAITING_GOAL_APPROVAL'):
                 publish_human_request(state)
             (run / 'state.json').write_text(json.dumps(state), encoding='utf8')
@@ -405,7 +424,19 @@ def main():
                     requested = Path(command[command.index('--run-dir') + 1]).resolve()
                     if requested.parent != runs_root or not (requested / 'state.json').is_file():
                         return None, 'Unknown disposable fixture run'
-                    return self._state(requested), None
+                    state=self._state(requested)
+                    if '--inspect-evidence' in command:
+                        # Only the external source/proof inspection is supplied.
+                        # Production projection, binding and UI rendering run.
+                        mode=state.get('_fixture_verification','current')
+                        revision=state.get('validation',{}).get('source_revision')
+                        inspected=verification_view.project(state,
+                            current_revision='changed-fixture-source' if mode=='stale' else revision,
+                            evidence_matches=True,
+                            inspection_error='Fixture inspection unavailable' if mode=='unavailable' else None)
+                        return {'status':state['status'],'view':{'verification':inspected},
+                                'completion_current':state['status']=='TASK_COMPLETE' and inspected['freshness']=='current'},None
+                    return state, None
                 operation = command[1]
                 return {'registry_version': 1, 'operation': operation, 'registry_path': str(root / 'registry.json'), 'runs': [], 'workspaces': []}, None
 

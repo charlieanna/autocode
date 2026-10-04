@@ -456,6 +456,7 @@ function statusInfo(run) {
   const info=(group,tone,label,action,reason,tab='interview')=>({group,tone,label,action,reason,tab,
     stateLabel:group==='running'?'Worker confirmed running':group==='attention'?'Waiting for your decision':group==='complete'?'Complete':group==='stopped'?(tone==='failed'?'Internally blocked':'Stopped at a checkpoint'):label});
   if(run.error||run.state_error)return info('stopped','failed','Unavailable','Inspect issue',run.error||run.state_error);
+  if(status==='TASK_COMPLETE'&&run.completion_current===false)return {...info('stopped','','Checks need review','Inspect checks','Completion was recorded earlier, but current source and evidence do not establish completion now. Inspect the saved checks.','execution'),stateLabel:'Completion needs verification'};
   if(status==='TASK_COMPLETE')return info('complete','complete','Completed','View result','The runner recorded this task as complete. No reply is needed.','execution');
   if(status==='WAITING_FOR_DEPENDENCY')return info('stopped','','Waiting for prerequisite','View progress',run.stop_reason||'Waiting for another task to finish and pass review. No action needed from you.','execution');
   if(status==='DRY_RUN')return info('other','','Preview only','View preview','This is a saved dry run. It did not start implementation.','execution');
@@ -2036,7 +2037,7 @@ function renderWorkflowTimeline(host,run){
 
 function renderConversation(run) {
   const checkpoints=sessionCheckpoints(run);
-  const root=$('#conversation'),signature=JSON.stringify([run.run,run.transcript,run.progress_messages,run.draft_messages,run.planning_messages,run.discovery_summary,run.answers,run.questions,run.chat_messages,run.user_request,run.human_request_authorized,run.human_escalation,run.status,run.goal?.approval_status,run.goal?.approval_event,run.completed_at,run.monitor?.findings_summary,run.monitor?.findings,run.monitor?.validation_verdict,run.validation?.source_revision,run.counts,taskChatPending.has(run.run),checkpoints,run.conversation,run.goal_token,run.validation,run.screenshots,run.stages,run.active_stage]);
+  const root=$('#conversation'),signature=JSON.stringify([run.run,run.transcript,run.progress_messages,run.draft_messages,run.planning_messages,run.discovery_summary,run.answers,run.questions,run.chat_messages,run.user_request,run.human_request_authorized,run.human_escalation,run.status,run.goal?.approval_status,run.goal?.approval_event,run.completed_at,run.monitor?.findings_summary,run.monitor?.findings,run.monitor?.validation_verdict,run.validation?.source_revision,run.counts,taskChatPending.has(run.run),checkpoints,run.conversation,run.goal_token,run.validation,run.verification,run.completion_current,run.screenshots,run.stages,run.active_stage]);
   $('#conversation-heading').textContent='Conversation';
   $('#conversation-avatar').textContent=planningSpeaker(run).slice(0,1);
   $('#conversation-description').textContent=jointPlanning(run)?'The '+roleDisplayName('requirements')+' role captures the scope. The '+roleDisplayName('planner')+' drafts and revises. The independent '+roleDisplayName('plan_reviewer')+' challenges and finalizes.':'Shape the work, then let your team build.';
@@ -2151,8 +2152,8 @@ function renderExecution(run){
   const stats=card('','execution-summary');for(const [key,label]of [['pass','criteria passed'],['fail','need attention'],['unknown','not yet verified']]){const item=n('span',label);item.prepend(n('strong',currentCounts?.[key]||0));stats.append(item);}host.append(stats);
   const validation=run.validation||{},results=new Map((Array.isArray(validation.criterion_results)?validation.criterion_results:[]).filter(row=>row&&typeof row==='object').map(row=>[row.id,row]));
   host.append(Object.assign(n('p',validation.source_revision?'Saved verification · source '+String(validation.source_revision).slice(0,18):results.size?'Saved verification · source not recorded':'No verification report has been saved yet.'),{className:'field-note'}));
-  if(validation.contract_hash&&run.goal?.hash&&validation.contract_hash!==run.goal.hash)host.append(Object.assign(n('p','This report belongs to an earlier plan revision. Current work still needs verification.'),{className:'error'}));
-  for(const criterion of run.criteria||[]){const row=card('','check-row'),result=results.get(criterion.id)||{},status=run.work_summary?.verification_stale?'unverified':String(result.status||'Unverified').toLowerCase();row.dataset.workDetail='requirement';row.dataset.workId=String(criterion.id);row.tabIndex=-1;focusKey(row,'work-requirement:'+run.run+':'+criterion.id);row.append(Object.assign(n('span',human(status)),{className:'badge '+(status==='pass'?'complete':status==='fail'?'failed':'')}),n('strong',criterion.criterion||criterion.description||criterion.id));if(result.evidence_refs?.length)row.append(disclosure('Evidence · '+result.evidence_refs.length,'evidence:'+criterion.id,[renderDocument(result)],run.run));else row.append(n('p',criterion.verification_method||'Evidence will appear after verification.'));host.append(row);}
+  for(const reason of run.verification?.reasons||[])host.append(Object.assign(n('p',reason),{className:'field-note'}));
+  for(const criterion of run.criteria||[]){const row=card('','check-row'),result=results.get(criterion.id)||{},status=({checked:'pass',failed:'fail'}[workRequirementRows(run).find(item=>String(item.criterion.id)===String(criterion.id))?.state]||'unverified');row.dataset.workDetail='requirement';row.dataset.workId=String(criterion.id);row.tabIndex=-1;focusKey(row,'work-requirement:'+run.run+':'+criterion.id);row.append(Object.assign(n('span',human(status)),{className:'badge '+(status==='pass'?'complete':status==='fail'?'failed':'')}),n('strong',criterion.criterion||criterion.description||criterion.id));row.append(n('p',criterion.verification_method?'Planned check: '+criterion.verification_method:'No verification method was recorded.'));if(criterion.human_review)row.append(n('p','Human acceptance is required separately in chat.'));if(result.evidence_refs?.length)row.append(disclosure('Recorded evidence · '+result.evidence_refs.length,'evidence:'+criterion.id,[renderDocument(result)],run.run));host.append(row);}
   for(const problem of run.work_summary?.problems||[]){const row=card('','problem-detail');row.dataset.workDetail='problem';row.dataset.workId=String(problem.id);row.tabIndex=-1;focusKey(row,'work-problem:'+run.run+':'+problem.id);row.append(n('h3',problem.label),n('p',[problem.id,problem.severity,problem.source?'Reported by '+roleDisplayName(problem.source):null,problem.times_reported>1?'Reported '+problem.times_reported+' times':null].filter(Boolean).join(' · ')));host.append(row);}
   if(validation.checks?.length)host.append(disclosure('Executed checks ('+validation.checks.length+')','executed-checks',[renderDocument(validation.checks)],run.run));
   if(validation.end_to_end_result)host.append(disclosure('End-to-end result','e2e-check',[renderDocument(validation.end_to_end_result)],run.run));
@@ -2270,7 +2271,7 @@ function taskSentence(run,busy=false){
     const sentence=role+' is '+(phrases[stage]||'working on the current step');
     return run.monitor?.live?.state==='alive'?sentence:'Last reported: '+sentence;
   }
-  return info.label==='Answer needed'?'Your answer is needed to continue':info.label==='Approve plan'?'The plan is ready for your approval':info.label==='Review output'?'Your review is needed before completion':info.label==='Ready to finish'?'Your review is saved. Ready to finish.':info.group==='complete'?'The task is complete':info.label==='Planning needs retry'?'Planning stopped. A fresh draft is needed.':info.label==='Ready to continue'?'Ready for the next step':info.label==='Interrupted'?'An interrupted attempt needs review':info.group==='attention'?'Your decision is needed':info.label==='Worker stopped'?'The worker stopped at a saved checkpoint':'The task is paused';
+  return info.label==='Checks need review'?'Recorded completion needs verification':info.label==='Answer needed'?'Your answer is needed to continue':info.label==='Approve plan'?'The plan is ready for your approval':info.label==='Review output'?'Your review is needed before completion':info.label==='Ready to finish'?'Your review is saved. Ready to finish.':info.group==='complete'?'The task is complete':info.label==='Planning needs retry'?'Planning stopped. A fresh draft is needed.':info.label==='Ready to continue'?'Ready for the next step':info.label==='Interrupted'?'An interrupted attempt needs review':info.group==='attention'?'Your decision is needed':info.label==='Worker stopped'?'The worker stopped at a saved checkpoint':'The task is paused';
 }
 function taskDecision(run,busy=false){
   const info=statusInfo(run),approved=run.goal?.approval_status==='approved',revision=run.goal?.revision??'?',action=primaryAction(run,busy);
@@ -2401,13 +2402,9 @@ function workRecoveryPanel(run) {
 }
 function workRequirementRows(run) {
   if(run.work_summary?.requirements)return run.work_summary.requirements.map(row=>({criterion:{id:row.id,criterion:row.label},state:row.state}));
-  const stale=run.validation?.contract_hash&&run.goal?.hash&&run.validation.contract_hash!==run.goal.hash;
-  const results=new Map((Array.isArray(run.validation?.criterion_results)?run.validation.criterion_results:[]).filter(row=>row&&typeof row==='object').map(row=>[String(row.id),String(row.status||'').toLowerCase()]));
-  return (run.criteria||[]).map(criterion=>{
-    const status=stale?'unknown':results.get(String((criterion||{}).id??''))||'unknown';
-    const state=['pass','verified'].includes(status)?'checked':['fail','blocked'].includes(status)?'failed':'unchecked';
-    return {criterion,state};
-  });
+  // A saved PASS alone cannot authenticate the current checkout.
+  const results=new Map((run.verification?.freshness==='current'?run.verification.coverage||[]:[]).map(row=>[String(row.id),row.state]));
+  return (run.criteria||[]).map(criterion=>({criterion,state:results.get(String(criterion.id))||'unchecked'}));
 }
 function openWorkDetail(kind,id){
   activateTab('execution');
@@ -2420,7 +2417,7 @@ function appendWorkTasks(host,run){
   const list=n('ol','');list.className='work-task-rows';
   for(const task of summary.tasks){const item=n('li','');item.dataset.taskState=task.state;item.append(n('span',({done:'✓',working:'●',waiting:'○',unknown:'?'}[task.state]||'?')+' '+task.label),n('small',({done:'Done · recorded acceptance',working:'Working · saved active step',waiting:'Waiting',unknown:'Completion not yet verified'}[task.state]||'Unknown')));list.append(item);}
   const tasks=disclosure(summary.task_label,'work-task-list',[list],run.run);tasks.classList.add('work-task-list');host.append(tasks);
-  if(summary.verification_stale)host.append(Object.assign(n('p','The saved checks belong to an earlier plan; these requirements need verification again.'),{className:'field-note'}));
+  if(summary.verification_stale)for(const reason of summary.verification_reasons||['Current evidence needs verification.'])host.append(Object.assign(n('p',reason),{className:'field-note'}));
   if(summary.problems.length){const problems=n('div','');for(const problem of summary.problems)problems.append(button(problem.label,()=>openWorkDetail('problem',problem.id),'text-button work-detail-link'));host.append(disclosure('Open problems · '+summary.problems.length,'work-problem-list',[problems],run.run));}
 }
 function renderTaskProgress(run){
@@ -2436,7 +2433,7 @@ function workChecklistPanel(run,linked=false) {
   if(linked)appendWorkTasks(host,run);
   if(!rows.length){
     counts.append(n('p','No requirements have been saved for this work yet.'));
-    host.append(Object.assign(n('p','Rows and counts here read only from the saved acceptance checklist.'),{className:'monitor-caption'}));
+    host.append(Object.assign(n('p','Requirements come from the saved plan. Checkmarks require current evidence.'),{className:'monitor-caption'}));
     return host;
   }
   const checked=rows.filter(row=>row.state==='checked').length,failed=rows.filter(row=>row.state==='failed').length,unchecked=rows.length-checked-failed;
@@ -2447,13 +2444,13 @@ function workChecklistPanel(run,linked=false) {
     item.append(Object.assign(n('span',row.state==='checked'?'✓':row.state==='failed'?'!':'○'),{className:'work-check-icon'}),(()=>{const copy=n('p','');if(linked)copy.append(button(planEntryText(row.criterion),()=>openWorkDetail('requirement',row.criterion.id),'text-button work-detail-link'));else copy.textContent=planEntryText(row.criterion);return copy;})());
     list.append(item);
   }
-  host.append(list,Object.assign(n('p','Rows and counts here read only from the saved acceptance checklist.'),{className:'monitor-caption'}));
+  host.append(list,Object.assign(n('p','Requirements come from the saved plan. Checkmarks require current evidence.'),{className:'monitor-caption'}));
   return host;
 }
 function renderTaskNow(run){
   renderTaskProgress(run);
   const host=$('#now'),decision=taskDecision(run,taskActionBusy(run)),phase=taskPhase(run),assignment=run.astra_plan?.current_assignment;
-  const signature=JSON.stringify([run.run,run.task,run.display_title,run.status,run.stage,run.iteration,run.goal_token,run.goal?.approval_status,run.questions,run.user_request,run.stop_reason,run.monitor,run.criteria,run.validation,run.work_summary,assignment,decision]);
+  const signature=JSON.stringify([run.run,run.task,run.display_title,run.status,run.stage,run.iteration,run.goal_token,run.goal?.approval_status,run.questions,run.user_request,run.stop_reason,run.monitor,run.criteria,run.validation,run.verification,run.completion_current,run.work_summary,assignment,decision]);
   if(host.dataset.rendered===signature)return;host.dataset.rendered=signature;host.replaceChildren();
   const path=n('ol','');path.className='task-path';path.setAttribute('aria-label','Workflow stage');
   const stages=[['planning','Plan'],['approval','Your approval'],...(hasOrchestration(run)?[['orchestration','Orchestrator']]:[]),['implementation','Build'],['review','Review'],['complete','Complete']];
@@ -2548,7 +2545,7 @@ function saveModelReplacement(run,role,value){
   const key=modelReplacementKey(run,role);if(typeof modelReplacementState!=='undefined'){if(value)modelReplacementState.set(key,value);else modelReplacementState.delete(key);}persist(key,value?JSON.stringify(value):'');return value;
 }
 function modelRoleName(role){return roleDisplayName(role);}
-function canEditFutureTaskSettings(run){return !taskReadError&&!Object.keys(run.active_stage||{}).length&&!taskActionBusy(run)&&statusInfo(run).group!=='complete'&&run.interventions?.mode!=='unavailable';}
+function canEditFutureTaskSettings(run){return !taskReadError&&!Object.keys(run.active_stage||{}).length&&!taskActionBusy(run)&&run.status!=='TASK_COMPLETE'&&statusInfo(run).group!=='complete'&&run.interventions?.mode!=='unavailable';}
 function replacementCapability(run,role,saved){
   const catalogue=modelCatalogueSnapshot(),declared=run.model_settings?.replacement_support?.[role]||run.model_settings?.replacement_capabilities?.[role];
   if(declared===false||declared?.supported===false)return {supported:false,reason:declared?.reason||'This provider does not support replacement for this saved role.'};
@@ -2796,8 +2793,8 @@ function renderLiveControls(run){
   input.oninput=()=>{changeDrafts.set(input.dataset.run,input.value);persist('task-draft:'+input.dataset.run,input.value);$('#send-change').disabled=sendBlocked||!!taskReadError||!input.value.trim();};
   requestAnimationFrame(()=>resizeComposer(input));
   $('#change-form').onsubmit=event=>{event.preventDefault();sendTaskChat(run);};renderPrimaryAction(run);renderTaskAttention(run);
-  $('#task-delivery').textContent=sending?'Saving your message…':operational?'Information is saved for AutoResolver. The task stays paused.':questions.length?'Planning continues only if the controller returns to Running with no pending request.':run.status==='TASK_COMPLETE'?'This task is complete. Start a new conversation for more work.':'Questions use saved status. Plan changes need confirmation before being applied.';
-  $('#live-mode').textContent=operational?'This does not approve goals, change permissions, reset budgets, or continue execution.':questions.length?'This does not approve a plan or start implementation.':unavailable?'Live controls are unavailable.':statusInfo(run).group==='stopped'&&!busy?'Messages stay saved while this task is paused.':'';
+  $('#task-delivery').textContent=sending?'Saving your message…':operational?'Information is saved for AutoResolver. The task stays paused.':questions.length?'Planning continues only if the controller returns to Running with no pending request.':run.status==='TASK_COMPLETE'?(run.completion_current===false?'Completion was recorded earlier. Inspect current checks before starting more work in a new conversation.':'This task is complete. Start a new conversation for more work.'):'Questions use saved status. Plan changes need confirmation before being applied.';
+  $('#live-mode').textContent=operational?'This does not approve goals, change permissions, reset budgets, or continue execution.':questions.length?'This does not approve a plan or start implementation.':unavailable?'Live controls are unavailable.':run.status==='TASK_COMPLETE'&&run.completion_current===false?'Saved messages are retained while you inspect current checks.':statusInfo(run).group==='stopped'&&!busy?'Messages stay saved while this task is paused.':'';
   $('#live-error').textContent=data.error||'';
   const host=$('#change-history');host.replaceChildren();const entries=data.entries||data.requests||[],chatIds=new Set((run.chat_messages||[]).map(entry=>entry.id));
   for(const entry of entries)if(!chatIds.has(entry.id)&&!['applied','resumed','delivered'].includes(entry.status))host.append(requestRow(entry,run));

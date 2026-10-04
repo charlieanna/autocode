@@ -28,6 +28,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--run-dir", type=Path, help="Existing run directory to resume")
     parser.add_argument("--conversation-handoff", type=Path,
                         help="Validated conversation receipt to attach when creating a task; never grants approval")
+    parser.add_argument("--inspect-evidence", action="store_true",
+                        help="With --status, inspect current source and saved evidence without running checks")
     parser.add_argument("--expected-recovery-token",
                         help="Require this exact inspected pause before applying a recovery action")
     parser.add_argument("--expected-goal-token",
@@ -205,6 +207,8 @@ def parse(unit, argv, default_models):
                                                   if name.startswith(option)})
             if len(matched) == 1:
                 args._explicit_budget_flags.update(matched & budget_flags)
+    if args.inspect_evidence and (not args.run_dir or not args.status):
+        parser.error("--inspect-evidence requires --run-dir and --status")
     if args.max_parallel_builders is not None and args.max_parallel_builders < 1:
         parser.error('--max-parallel-builders must be positive')
     if args.expected_recovery_token is not None and (not args.run_dir or not (args.resume_paused or args.abandon_stage)):

@@ -32,6 +32,10 @@ def status_reply(view):
         result.append(reason.strip())
     summary = work_summary(view)
     counts = summary['counts']
+    if view.get('status') == 'TASK_COMPLETE' and view.get('completion_current') is not True:
+        result[0] = 'Completion was recorded earlier; current completion needs verification.'
+    if summary['verification_stale']:
+        result.extend(summary['verification_reasons'] or ['The saved check results have not been inspected against current source and evidence.'])
     if counts['requirements']:
         result.append(f"{counts['checked']} requirements checked; {counts['failed']} failed or blocked; "
                       f"{counts['unchecked']} unchecked.")

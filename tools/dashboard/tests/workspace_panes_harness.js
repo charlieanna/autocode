@@ -430,6 +430,10 @@ const CASES = {
   },
   async ac12() {
     const run = savedWorkRun();
+    // The /api/run adapter supplies inspected coverage; saved PASS text alone
+    // must not turn a checklist green. Actual inspection is tested through CLI.
+    run.verification={freshness:'current',coverage:[{id:'AC1',state:'checked'},
+      {id:'AC2',state:'checked'},{id:'AC3',state:'unchecked'}]};
     await openRun(run);
     app.activateTab('now');
     await tick();
@@ -441,7 +445,14 @@ const CASES = {
     const rowStates = findAll(work, 'work-check-row').map(row => String(row.className || '').split(/\s+/));
     assert.equal(2, rowStates.filter(classes => classes.includes('checked')).length, 'two requirement rows render as checked');
     assert.equal(1, rowStates.filter(classes => classes.includes('unchecked')).length, 'one requirement row renders as unchecked');
-    assert.equal(0, rowStates.filter(classes => classes.includes('failed')).length, 'no requirement row is failed in the saved record');
+    assert.equal(0, rowStates.filter(classes => classes.includes('failed')).length, 'no requirement row is failed in the inspected record');
+    run.verification={freshness:'stale_or_unverified',coverage:[]};
+    await openRun(run);
+    app.activateTab('now');
+    await tick();
+    const staleStates=findAll(pane('#now'),'work-check-row').map(row=>String(row.className||'').split(/\s+/));
+    assert.equal(0,staleStates.filter(classes=>classes.includes('checked')).length,'Saved PASS is not current proof');
+    assert.equal(3,staleStates.filter(classes=>classes.includes('unchecked')).length);
     const text = textOf(work);
     assert.ok(!text.includes('%'), 'no percentage is displayed for a record that stores none');
     assert.ok(!/\b\d+\s*percent\b/i.test(text), 'no percentage wording is displayed either');
