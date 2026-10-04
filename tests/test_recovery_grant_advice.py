@@ -110,7 +110,8 @@ class AdviceMatchesEligibility(unittest.TestCase):
                         self.assertIn('--max-seconds', decision)
                     else:
                         self.assertIn('--resolver-response', decision)
-                self.assertEqual(decision, state['stop_reason'])
+                self.assertTrue(state['stop_reason'].startswith('budget spent.'), state['stop_reason'])
+                self.assertTrue(state['stop_reason'].endswith(decision), state['stop_reason'])
                 # Whatever we just advertised, grant() agrees at this stop.
                 published = {'request_id': 'req-later', 'scope': 'operational_exhaustion'}
                 cause = pause_status
