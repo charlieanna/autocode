@@ -79,7 +79,10 @@ def completion_ready(state, decision, current, *, require_human_reviews=True, re
             return False
         if "end_to_end_flow" in contract["body"]:
             flow = validation.get("end_to_end_result", {})
-            if flow.get("status") != "PASS" or not flow.get("evidence_refs") or not flow.get("summary", "").strip():
+            # A flow that ends in the person's approval completes with that bound approval (#195).
+            awaits_review = human_only_gap and flow.get("status") == "NOT_VERIFIED"
+            if ((flow.get("status") != "PASS" and not awaits_review)
+                    or not flow.get("evidence_refs") or not flow.get("summary", "").strip()):
                 return False
     sol = state.get("validation", {})
     if decision.get("status") not in ("COMPLETE", "TASK_COMPLETE"):
