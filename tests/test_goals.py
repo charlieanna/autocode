@@ -5,6 +5,8 @@ import io
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -1023,6 +1025,39 @@ class GoalTests(unittest.TestCase):
         self.invoke("--show-goal")
         self.assertEqual(0, self.invoke("--approve-goal", g.token(self.state["goal_contract"])))
         self.assertEqual("READY_TO_EXECUTE", self.state["phase"])
+
+    def test_show_goal_explains_the_approval_it_asks_for(self):
+        # Issue #381: the plan approval says what the revision and its token are, what
+        # approving authorizes and the limits in effect, and names the command that approves.
+        self.draft()
+        self.state["settings"]["limits"].update(max_seconds=43200, stage_timeout_seconds=3600)
+        self.assertEqual(0, self.invoke("--show-goal"))
+        contract, shown = self.state["goal_contract"], self.stdout
+        selected = g.token(contract)
+        revision = contract["revision"]
+        self.assertIn(f"Plan revision {revision} (r{revision}) waits for your approval. Approving it "
+                      "authorizes implementation", shown)
+        self.assertIn("SHA-256 lock on this exact plan", shown)
+        self.assertIn("Limits in effect: 12 h of active time for the run, 1 h per stage, "
+                      "stops after iteration 5 (now at 1), one Builder at a time.", shown)
+        # The token line keeps its exact format: tools and live checks parse it.
+        self.assertEqual([selected], re.findall(r"^Approval token: ([^\n]*)$", shown, re.MULTILINE))
+        commands = re.findall(r"^To approve this plan: (.*)$", shown, re.MULTILINE)
+        self.assertEqual([f"autocode --run-dir {shlex.quote(str(self.run))} --approve-goal {selected}"], commands)
+        self.assertEqual(0, self.invoke(*shlex.split(commands[0])[1:]))
+        self.assertTrue(g.approved(self.state))
+
+    def test_brief_shows_a_structured_field_as_lines_not_json(self):
+        task = {"objective": "Build the greeting", "affected_paths": ["greet.py", "test_greeting.py"],
+                "kind": "implement", "milestone_id": "M1", "requirements": [], "acceptance_criteria": ["C1"],
+                "validation_plan": ["python3 -m unittest"]}
+        state = {"status": "AWAITING_GOAL_APPROVAL", "phase": "AWAITING_GOAL_APPROVAL",
+                 "goal_contract": {"revision": 2, "approval_status": "draft", "body": {"initial_task": task}}}
+        shown = lifecycle.render(state)
+        self.assertIn("Initial task:\n  Objective: Build the greeting\n  Affected paths:\n    - greet.py\n"
+                      "    - test_greeting.py\n  Kind: implement\n  Milestone id: M1\n  Requirements: (none)\n"
+                      "  Acceptance criteria:\n    - C1\n  Validation plan:\n    - python3 -m unittest\n", shown)
+        self.assertNotIn("{", shown)
 
     def test_cli_can_approve_reviewed_goal_after_unapproved_resume_pause(self):
         self.draft()
