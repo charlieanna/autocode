@@ -184,7 +184,7 @@ class ProgressiveCLI(unittest.TestCase):
 
     def edited_body(self, driver, original, *, marker="valid", permission=False):
         # The model's published plan is user-editable input, not mutable run state.
-        report = sorted(driver.run_dir.glob("iterations/*/astra_finalize-[0-9][0-9].json"))[0]
+        report = sorted(driver.run_dir.glob("iterations/*/plan-finalize-[0-9][0-9].json"))[0]
         body = json.loads(report.read_text())["contract"]
         body.pop("initial_task", None)
         body["intended_outcome"] = "Retain durable lesson answers and expose a browsable lesson catalog"
@@ -262,7 +262,7 @@ class ProgressiveCLI(unittest.TestCase):
             line = body["scope_exclusions"][0]
             shown = driver.call("show-goal", "--show-goal", action=True)
             self.assertIn(line, shown.stdout)
-            reviewed_path = sorted(driver.run_dir.glob("iterations/*/astra_finalize-[0-9][0-9].json"))[-1]
+            reviewed_path = sorted(driver.run_dir.glob("iterations/*/plan-finalize-[0-9][0-9].json"))[-1]
             reviewed = json.loads(reviewed_path.read_text())["contract"]
             self.assertIn(line, reviewed["scope_exclusions"])
             self.assertIn(line, reviewed["constraints"])
@@ -582,7 +582,7 @@ class ProgressiveCLI(unittest.TestCase):
             self.assertTrue(final["done"], final)
             self.assertTrue(final["progressive"]["current_whole_product_proof"]["verified"])
             self.assertTrue(all(row.ok for row in scenario.oracle()(driver.project, scenario)))
-            self.assertEqual(self.observed_stages(final).count("terra"), 2)
+            self.assertEqual(self.observed_stages(final).count("builder"), 2)
 
     def test_honest_regression_repaired_without_paused_resume(self):
         with tempfile.TemporaryDirectory(prefix="progressive-regression-") as directory:
@@ -590,11 +590,11 @@ class ProgressiveCLI(unittest.TestCase):
             final = driver.drive(scenario.brief)
             self.assertTrue(final["done"], final)
             names = self.observed_stages(final)
-            self.assertIn("astra_resolve", names)
-            self.assertGreaterEqual(names.count("terra"), 3)
-            self.assertGreaterEqual(names.count("sol"), 3)
+            self.assertIn("resolver", names)
+            self.assertGreaterEqual(names.count("builder"), 3)
+            self.assertGreaterEqual(names.count("validator"), 3)
             reports = [json.loads(path.read_text()) for path in
-                       driver.run_dir.glob("iterations/*/sol-[0-9][0-9].json")]
+                       driver.run_dir.glob("iterations/*/validator-[0-9][0-9].json")]
             failures = [report for report in reports if report.get("verdict") == "FAIL"]
             self.assertTrue(failures, reports)
             checks = {row["command"]: row["exit_code"] for row in failures[0]["checks"]}
@@ -609,7 +609,7 @@ class ProgressiveCLI(unittest.TestCase):
             scenario, driver = self.driver(directory, "progressive_fabricated_pass")
             final = driver.drive(scenario.brief)
             self.assertFalse(final["done"], final)
-            self.assertEqual(self.observed_stages(final).count("terra"), 2)
+            self.assertEqual(self.observed_stages(final).count("builder"), 2)
             self.assertEqual(command([sys.executable, "-m", "unittest", "test_journey.Skeleton"],
                                      driver.project).returncode, 1)
             # Rejected PASS is not applied as an accepted Validator FAIL. Inspect
@@ -629,7 +629,7 @@ class ProgressiveCLI(unittest.TestCase):
             scenario, driver = self.driver(directory, "progressive_missing_check")
             final = driver.drive(scenario.brief)
             self.assertFalse(final["done"], final)
-            self.assertEqual(self.observed_stages(final).count("terra"), 2)
+            self.assertEqual(self.observed_stages(final).count("builder"), 2)
             self.assertFalse(final["progressive"]["current_whole_product_proof"]["verified"])
 
     def test_source_changed_during_review_cannot_dispatch(self):
@@ -637,7 +637,7 @@ class ProgressiveCLI(unittest.TestCase):
             scenario, driver = self.driver(directory, "progressive_stale_source")
             final = driver.drive(scenario.brief)
             self.assertFalse(final["done"], final)
-            self.assertEqual(self.observed_stages(final).count("terra"), 1)
+            self.assertEqual(self.observed_stages(final).count("builder"), 1)
             self.assertIn("S2", str(final["progressive"]["tentative_next_work"]))
 
 

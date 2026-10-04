@@ -52,6 +52,59 @@ class ProcessTests(unittest.TestCase):
                           side_effect=[PermissionError('sysctl table refresh'), [101]]):
             self.assertEqual([101], processes.process_ids())
 
+    def test_stage_preflight_inspects_controller_not_unrelated_processes(self):
+        import autocode as runner
+
+        class Prepared(RuntimeError):
+            pass
+
+        pid = os.getpid()
+        controller = MagicMock()
+        controller.create_time.return_value = 1790019574.123
+        controller._ident = (pid, 1790019574.123)
+        controller.ppid.return_value = os.getppid()
+        controller.status.return_value = 'running'
+        controller._proc.name.return_value = 'fixture-controller'
+
+        def inspect(selected):
+            self.assertEqual(pid, selected, 'Preflight must not inspect unrelated processes')
+            return controller
+
+        with patch.object(processes.psutil, 'pids', return_value=[pid, *range(pid + 1, pid + 4097)]) as pids, \
+             patch.object(processes.psutil, 'Process', side_effect=inspect) as metadata, \
+             patch.object(processes.os, 'getpgid', return_value=pid), \
+             patch.object(runner.artifacts, 'reserve', side_effect=Prepared('preflight passed')):
+            with self.assertRaisesRegex(Prepared, 'preflight passed'):
+                runner.run_role(role='requirements', prompt='Fixture', sandbox='read-only',
+                    workspace=Path('.'), run_dir=Path('.'), schema=Path('unused.json'), model=None,
+                    state={'iteration': 1, 'next_stage': 'recognize_workflow',
+                           'settings': {'roles': {'requirements': {}}}},
+                    allow_write=False, dry_run=False)
+        pids.assert_called_once_with()
+        metadata.assert_called_once_with(pid)
+
+    def test_preflight_enumeration_failure_stops_before_metadata_inspection(self):
+        with patch.object(processes.psutil, 'pids', side_effect=PermissionError('enumeration denied')) as pids, \
+             patch.object(processes.time, 'sleep'), \
+             patch.object(processes.psutil, 'Process') as metadata:
+            with self.assertRaisesRegex(processes.ProcessError, 'Cannot enumerate'):
+                processes.preflight()
+        self.assertEqual(3, pids.call_count)
+        metadata.assert_not_called()
+
+    def test_preflight_requires_accessible_controller_identity(self):
+        pid = os.getpid()
+        for error, message in ((processes.psutil.AccessDenied(pid), 'access denied'),
+                               (SystemError('identity unavailable'), 'SystemError'),
+                               (processes.psutil.NoSuchProcess(pid), 'controller')):
+            with self.subTest(error=type(error).__name__), \
+                 patch.object(processes.psutil, 'pids', return_value=[pid]) as pids, \
+                 patch.object(processes.psutil, 'Process', side_effect=error) as metadata:
+                with self.assertRaisesRegex(processes.ProcessError, message):
+                    processes.preflight()
+                pids.assert_called_once_with()
+                metadata.assert_called_once_with(pid)
+
     def test_native_process_table_uses_birth_identity_without_shell_commands(self):
         process = MagicMock()
         process.create_time.return_value = 1790019574.123

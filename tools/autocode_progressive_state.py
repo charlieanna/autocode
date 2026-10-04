@@ -33,6 +33,7 @@ try:
     from . import autocode_progressive_activation as activation
     from . import autocode_progressive_progress as progress_policy
     from . import autocode_verification_plan as verification
+    from . import autocode_repair_provenance as repair_provenance
 except ImportError:
     import autocode_progressive_plan as rules
     import autocode_util as util
@@ -42,6 +43,7 @@ except ImportError:
     import autocode_progressive_activation as activation
     import autocode_progressive_progress as progress_policy
     import autocode_verification_plan as verification
+    import autocode_repair_provenance as repair_provenance
 
 KEY = "progressive"
 VERSION = 1
@@ -169,6 +171,39 @@ def _install(body, generated):
         + [line for line in approach if not line.startswith(_PREFIXES)]
 
 
+def _first_difference(left, right, path="$"):
+    """Return the first JSON path whose values differ, or None."""
+    if type(left) is not type(right):
+        return path
+    if isinstance(left, dict):
+        for key in sorted(set(left) | set(right)):
+            child = f"{path}.{key}"
+            if key not in left or key not in right:
+                return child
+            difference = _first_difference(left[key], right[key], child)
+            if difference:
+                return difference
+        return None
+    if isinstance(left, list):
+        for index in range(max(len(left), len(right))):
+            child = f"{path}[{index}]"
+            if index >= len(left) or index >= len(right):
+                return child
+            difference = _first_difference(left[index], right[index], child)
+            if difference:
+                return difference
+        return None
+    return None if left == right else path
+
+
+def _canonical_contract(body, proposal, criteria, limits, prior_disclosure=None):
+    canonical = copy.deepcopy(body)
+    if prior_disclosure:
+        _strip_disclosure(canonical, prior_disclosure)
+    _install(canonical, rules.disclosure(proposal, criteria, limits=limits))
+    return canonical
+
+
 def clear_candidate(state):
     record = state.get(KEY)
     if record:
@@ -245,6 +280,11 @@ def prepare_seal(state, contract_token):
     criteria no longer match what the user approved refuses sealing: the run
     pauses on that decision instead of continuing on a stale grant.
     """
+    reports = state.get("planning", {}).get("reports", {})
+    for row in state.get("stages", []):
+        if (row.get("report_only") and row.get("output")
+                == reports.get(row.get("original_stage"), {}).get("output")):
+            repair_provenance.verify_accepted_repair(state, row)
     record = state.get(KEY)
     candidate = (record or {}).get("candidate")
     if not candidate:
@@ -269,13 +309,10 @@ def prepare_seal(state, contract_token):
     # Approval consumes the actual final independent review, not a synthetic grant.
     reviewer = "plan_finalize" if state.get("settings", {}).get("planning_flow") == "v2" else "astra_finalize"
     planner = "plan_revise" if reviewer == "plan_finalize" else "glm_revise"
-    reports = state.get("planning", {}).get("reports", {})
     final = reports.get(reviewer) or {}
     prior = reports.get(planner) or {}
-    witness = next((row for row in reversed(state.get("stages", []))
-                    if row.get("output") == final.get("output") and row.get("stage") == reviewer
-                    and not row.get("rejected") and row.get("exit_code") == 0), None)
-    if (not witness or not prior.get("output") or prior["output"] == final.get("output")
+    witness, reviewer_session = repair_provenance.witness(state, reviewer, final.get("output"))
+    if (not prior.get("output") or prior["output"] == final.get("output")
             or candidate.get("origin") != reviewer
             or final.get("report", {}).get("progressive_proposal") != candidate["proposal"]
             or any(row.get("resolved") is not True for row in final["report"].get("decisions", []))):
@@ -283,12 +320,14 @@ def prepare_seal(state, contract_token):
     raw = util.read(Path(final["output"]))
     if raw.get("progressive_proposal") != candidate["proposal"]:
         raise ValueError("saved final review differs from its accepted progressive proposal")
-    raw_body = copy.deepcopy(raw.get("contract") or {})
-    if candidate.get("prior_disclosure"):
-        _strip_disclosure(raw_body, candidate["prior_disclosure"])
-    _install(raw_body, rules.disclosure(candidate["proposal"], criteria, limits=limits))
-    if raw_body != final["report"]["contract"]:
-        raise ValueError("saved final review differs from the approved progressive contract")
+    raw_body = _canonical_contract(raw.get("contract") or {}, candidate["proposal"], criteria,
+                                   limits, candidate.get("prior_disclosure"))
+    reviewed_body = _canonical_contract(final["report"]["contract"], candidate["proposal"], criteria,
+                                         limits, candidate.get("prior_disclosure"))
+    difference = _first_difference(raw_body, reviewed_body)
+    if difference:
+        raise ValueError("saved final review differs from the approved progressive contract "
+                         f"at {difference}")
     if (body != final["report"]["contract"]
             or state.get("planning", {}).get("final_token") != contract_token):
         raise ValueError("progressive approval requires the exact current independently reviewed displayed contract")
@@ -300,13 +339,11 @@ def prepare_seal(state, contract_token):
         raise ValueError("progressive initial_task validation must belong to the concrete first slice, not tentative future work")
     if any(first_task.get("objective") == row["intended_result"] for row in candidate["proposal"]["slices"][1:]):
         raise ValueError("progressive initial_task targets a tentative future slice")
-    planner_witness = next((row for row in state.get("stages", [])
-                           if row.get("output") == prior["output"] and row.get("stage") == planner
-                           and row.get("exit_code") == 0 and not row.get("rejected")), None)
-    if not planner_witness or planner_witness.get("role") == witness.get("role"):
+    planner_witness, planner_session = repair_provenance.witness(state, planner, prior["output"])
+    if planner_witness.get("role") == witness.get("role") or planner_session == reviewer_session:
         raise ValueError("initial progressive reviewer must be independent of the accepted Planner")
     snapshot = util.snapshot(Path(state["workspace"]))
-    if witness.get("source_revision") != snapshot["revision"]:
+    if any(row.get("source_revision") != snapshot["revision"] for row in (witness, planner_witness)):
         raise ValueError("source changed after initial progressive plan review")
     prepared["required_checks"] = product_checklist(body, rules.cumulative_checks(candidate["proposal"]))
     proposal_report = {"proposal": candidate["proposal"]}

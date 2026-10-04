@@ -82,12 +82,12 @@ def _run(cmd: list[str], cwd: Path, timeout: int = 60, stdin: str | None = None)
         # A delivered test or launcher may leave children after exiting or timing out.
         try:
             os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+        except (ProcessLookupError, PermissionError):
+            pass  # Best-effort signaling must not replace the probe outcome.
         try:
             proc.communicate(timeout=5)
         except subprocess.TimeoutExpired:
-            # Detached descendants can retain the pipes after the group is killed.
+            # Descendants can retain the pipes if group cleanup fails or they detach.
             for stream in (proc.stdin, proc.stdout, proc.stderr):
                 if stream is not None:
                     stream.close()

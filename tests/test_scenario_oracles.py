@@ -123,6 +123,62 @@ class OracleProcessTest(unittest.TestCase):
                     stream.close.assert_called_once_with()
                 proc.wait.assert_called_once_with(timeout=5)
 
+    def test_cleanup_permission_error_preserves_results_and_bounds_reaping(self):
+        outcomes = [(0, (0, "probe output", "probe stderr")),
+                    (7, (7, "failed probe", "failure details")),
+                    (None, (-1, "", "TIMEOUT"))]
+        for returncode, expected in outcomes:
+            for cleanup in ("drained", "reaped", "unreaped"):
+                with self.subTest(returncode=returncode, cleanup=cleanup):
+                    proc = mock.Mock(returncode=returncode)
+                    proc.communicate.side_effect = [
+                        subprocess.TimeoutExpired("child", 1) if returncode is None else expected[1:],
+                        ("cleanup output", "") if cleanup == "drained" else subprocess.TimeoutExpired("child", 5)]
+                    if cleanup == "unreaped":
+                        proc.wait.side_effect = subprocess.TimeoutExpired("child", 5)
+                    with mock.patch.object(scenarios.subprocess, "Popen", return_value=proc) as launch, \
+                            mock.patch.object(scenarios.os, "killpg", side_effect=PermissionError("group cleanup denied")) as killpg, \
+                            mock.patch.object(scenarios.os, "kill") as kill:
+                        self.assertEqual(expected, scenarios._run(["child"], TOOLS, timeout=1, stdin="probe input"))
+                    self.assertTrue(launch.call_args.kwargs["start_new_session"])
+                    killpg.assert_called_once_with(proc.pid, scenarios.signal.SIGKILL)
+                    kill.assert_not_called()
+                    proc.kill.assert_not_called()
+                    proc.terminate.assert_not_called()
+                    proc.send_signal.assert_not_called()
+                    self.assertEqual([mock.call(input="probe input", timeout=1), mock.call(timeout=5)],
+                                     proc.communicate.call_args_list)
+                    if cleanup == "drained":
+                        proc.wait.assert_not_called()
+                    else:
+                        proc.wait.assert_called_once_with(timeout=5)
+                    for stream in (proc.stdin, proc.stdout, proc.stderr):
+                        if cleanup == "drained":
+                            stream.close.assert_not_called()
+                        else:
+                            stream.close.assert_called_once_with()
+
+    def test_permission_errors_outside_group_cleanup_propagate(self):
+        for phase in ("launch", "probe read", "cleanup read"):
+            with self.subTest(phase=phase):
+                error = PermissionError(phase)
+                proc = mock.Mock(returncode=0)
+                proc.communicate.side_effect = ([error, ("", "")] if phase == "probe read"
+                                                else [("output", ""), error])
+                with mock.patch.object(scenarios.subprocess, "Popen", return_value=proc,
+                                       side_effect=error if phase == "launch" else None), \
+                        mock.patch.object(scenarios.os, "killpg", side_effect=PermissionError("group cleanup denied")) as killpg:
+                    with self.assertRaises(PermissionError) as caught:
+                        scenarios._run(["child"], TOOLS, timeout=1)
+                self.assertIs(error, caught.exception)
+                if phase == "launch":
+                    killpg.assert_not_called()
+                    proc.communicate.assert_not_called()
+                else:
+                    killpg.assert_called_once_with(proc.pid, scenarios.signal.SIGKILL)
+                    self.assertEqual([mock.call(input=None, timeout=1), mock.call(timeout=5)],
+                                     proc.communicate.call_args_list)
+
 
 class BugfixOracleTest(unittest.TestCase):
     def test_reference_passes_and_seed_alone_fails(self):
@@ -197,6 +253,20 @@ class FeatureOracleTest(unittest.TestCase):
 
 
 class ArchOracleTest(unittest.TestCase):
+    def test_cleanup_permission_error_preserves_oracle_pass_and_fail(self):
+        for changes, expected in (({}, scenarios.PASS),
+                                  ({"architecture/check.py": "raise SystemExit(1)\n"}, scenarios.FAIL)):
+            with self.subTest(expected=expected), _project(_variant(references.ARCH_REFERENCE, changes)) as root:
+                with mock.patch.object(scenarios.os, "killpg", side_effect=PermissionError("group cleanup denied")) as killpg:
+                    result = scenarios.arch01_oracle(Path(root))
+                self.assertTrue(killpg.called)
+                self.assertEqual(expected, result.status, result.summary)
+                if expected == scenarios.PASS:
+                    self.assertTrue(all(row["ok"] for row in result.checks))
+                else:
+                    self.assertIn("check.py.passes_on_candidate", [row["name"] for row in result.failed])
+                    self.assertIn("check.py.rejects_injected_violation", [row["name"] for row in result.failed])
+
     def test_relative_comma_and_nested_imports_fail_both_checkers(self):
         variants = [
             ("services/catalog/api.py", "from ..notifications import api as notifications\n"),
