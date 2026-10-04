@@ -368,48 +368,56 @@ def normalized_events(rows):
         elif row.get("type") == "step_finish":
             steps.append(part)
     normalized += errors
-    # Use the same unique-part ordering for terminal evidence and usage. A
-    # replayed older finish must not close a newer, still-unfinished step.
-    phase_types = ("step_start", "step_finish")
-    if any(not row.get("part", {}).get("id") for row in rows if row.get("type") in phase_types):
+    if not steps:
         return normalized
+    # Replayed finishes cannot close newer steps, even when the newer ID is missing.
+    phase_types = ("step_start", "step_finish")
     phases = [row for row in parts.values() if row.get("type") in phase_types]
+    terminal = (not any(not row.get("part", {}).get("id") for row in rows if row.get("type") in phase_types)
+                and phases[-1].get("type") == "step_finish"
+                and steps[-1].get("reason") in ("stop", "length", "tool-calls"))
+    partial = not terminal or bool(errors and steps[-1].get("reason") == "stop")
+
+    def total(field, subfield=None):
+        containers = [p.get("tokens") for p in steps]
+        values = [tokens.get(field) if isinstance(tokens, dict) else None for tokens in containers]
+        if subfield:
+            values = [v.get(subfield) if isinstance(v, dict) else None for v in values]
+        known = [v for v in values if type(v) is int and v >= 0]
+        return sum(known) if known and (partial or len(known) == len(values)) else None
+
+    # OpenCode input excludes cache reads/writes; output excludes reasoning.
+    input_parts = [total("input"), total("cache", "read"), total("cache", "write")]
+    output_parts = [total("output"), total("reasoning")]
+    usage = {"input_tokens": sum(input_parts) if all(v is not None for v in input_parts) else None,
+             "cached_input_tokens": total("cache", "read"),
+             "output_tokens": sum(output_parts) if all(v is not None for v in output_parts) else None,
+             "reasoning_output_tokens": total("reasoning")}
+    usage = {k: v for k, v in usage.items() if v is not None}
+    if not terminal:
+        # Completed-step consumption survives interruption, but is not terminal proof.
+        normalized.append({"type": "usage.partial", "usage": usage})
+        return normalized
     # A stream that ends on a "tool-calls" finish stopped mid-turn: the model asked
     # for tools and no later step followed (the process exited, for example after
     # every call was auto-rejected). Like "length", it is a failed turn whose
-    # Reported usage is retained for accounting, including cached input.
-    if (steps and phases[-1].get("type") == "step_finish"
-            and steps[-1].get("reason") in ("stop", "length", "tool-calls")):
-        def total(field, subfield=None):
-            containers = [p.get("tokens") for p in steps]
-            values = [tokens.get(field) if isinstance(tokens, dict) else None for tokens in containers]
-            if subfield:
-                values = [v.get(subfield) if isinstance(v, dict) else None for v in values]
-            return sum(values) if all(type(v) is int and v >= 0 for v in values) else None
-        # OpenCode input excludes cache reads/writes. Preserve all input usage for
-        # the runner's budget, including tokens served from a prompt cache.
-        input_parts = [total("input"), total("cache", "read"), total("cache", "write")]
-        output_parts = [total("output"), total("reasoning")]
-        usage = {"input_tokens": sum(input_parts) if all(v is not None for v in input_parts) else None,
-                 "cached_input_tokens": total("cache", "read"),
-                 "output_tokens": sum(output_parts) if all(v is not None for v in output_parts) else None,
-                 "reasoning_output_tokens": total("reasoning")}
-        usage = {k: v for k, v in usage.items() if v is not None}
-        if steps[-1].get("reason") == "length":
-            # A successful process exit can still be an incomplete model turn.
-            # Preserve reported consumption without granting completion evidence.
-            normalized.append({"type": "turn.failed", "usage": usage, "error": {
-                "code": "output_token_limit",
-                "message": "OpenCode exhausted its output token limit (finish reason: length). "
-                           "The attempt is incomplete; review saved work before recovery."}})
-        elif steps[-1].get("reason") == "tool-calls":
-            normalized.append({"type": "turn.failed", "usage": usage, "error": {
-                "code": "incomplete_turn",
-                "message": "OpenCode stopped after a step that requested tool calls, before the model "
-                           "finished its turn (finish reason: tool-calls). The attempt is incomplete; "
-                           "review saved work before recovery."}})
-        elif not errors:
-            normalized.append({"type": "turn.completed", "usage": usage})
+    # reported usage is retained for accounting, including cached input.
+    if steps[-1].get("reason") == "length":
+        # A successful process exit can still be an incomplete model turn.
+        normalized.append({"type": "turn.failed", "usage": usage, "error": {
+            "code": "output_token_limit",
+            "message": "OpenCode exhausted its output token limit (finish reason: length). "
+                       "The attempt is incomplete; review saved work before recovery."}})
+    elif steps[-1].get("reason") == "tool-calls":
+        normalized.append({"type": "turn.failed", "usage": usage, "error": {
+            "code": "incomplete_turn",
+            "message": "OpenCode stopped after a step that requested tool calls, before the model "
+                       "finished its turn (finish reason: tool-calls). The attempt is incomplete; "
+                       "review saved work before recovery."}})
+    elif not errors:
+        normalized.append({"type": "turn.completed", "usage": usage})
+    else:
+        normalized.append({"type": "usage.partial", "usage": usage})
     return normalized
 
 
