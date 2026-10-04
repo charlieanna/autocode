@@ -373,6 +373,12 @@ independent milestone evidence remains mandatory.
 CLI updates and `--status`'s `active_stage.activity` show provider/tool activity,
 elapsed and idle time, active tool time, applicable limits and an observation
 timestamp. A saved observation does not prove a recorded worker is still alive.
+`longest_idle_seconds` is the longest quiet period that ended with new activity or
+a tool start (the open one is `idle_seconds`), so earlier silences can be compared
+with the limit before changing it. An inactivity stop names its limit, whether that
+is the runner default or was set explicitly, and how to change it (`--resume-paused
+--max-idle-seconds N`). Once the automatic recovery allowance is spent, the new
+limit is saved but no provider launches until `--grant-recovery N` is also given.
 The task conversation also receives durable role-based progress messages: stage
 transitions, blockers with next steps, completion, and a heartbeat every 60 seconds
 while the code runner observes an active stage or Builder batch. Parallel-worker

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from autocode_activity import ActivityMonitor
+from autocode_activity import ActivityMonitor, idle_timeout_reason
 
 
 class ActivityTests(unittest.TestCase):
@@ -349,6 +349,48 @@ class ActivityTests(unittest.TestCase):
         self.codex('started')
         self.assertEqual('waiting_for_provider', snapshot['activity'])
         json.dumps(self.monitor.snapshot())
+
+    def test_new_text_and_steps_more_often_than_idle_keep_a_long_turn_alive(self):
+        for index in range(12):
+            self.now = 4 * (index + 1)
+            self.assertIsNone(self.monitor.expired())
+            if index % 2:
+                self.append({'type': 'step_finish', 'part': {'id': f'step-{index}'}})
+            else:
+                self.append({'type': 'text', 'part': {'id': f'text-{index}', 'text': f'Finding {index}'}})
+        self.now = 52.9
+        self.assertIsNone(self.monitor.expired())
+        self.now = 53
+        self.assertEqual('idle', self.monitor.expired()['kind'])
+
+    def test_longest_idle_counts_ended_quiet_periods_but_not_tool_time(self):
+        self.now = 2
+        self.codex('started')
+        self.now = 15
+        self.codex('completed')
+        self.now = 18
+        self.append({'type': 'text', 'part': {'id': 'after', 'text': 'Tests pass'}})
+        self.now = 30
+        snapshot = self.monitor.poll()
+        self.assertEqual((12, 3), (snapshot['idle_seconds'], snapshot['longest_idle_seconds']))
+        inferred = ActivityMonitor(self.path.with_name('inferred.jsonl'), idle_seconds=5, tool_seconds=20,
+                                   clock=lambda: self.now)
+        self.now = 34
+        inferred.poll(processes=[{'pid': 10}, {'pid': 11}], root_pid=10)
+        self.now = 50
+        inferred.poll(processes=[{'pid': 10}], root_pid=10)
+        self.assertEqual(4, inferred.snapshot()['longest_idle_seconds'])
+
+    def test_idle_stop_names_its_limit_origin_and_how_to_change_it(self):
+        self.monitor = ActivityMonitor(self.path, idle_seconds=300, clock=lambda: self.now,
+                                       idle_origin='runner_default')
+        self.now = 300
+        reason = self.monitor.expired()['reason']
+        self.assertEqual('No new provider activity within the inactivity limit (300 seconds, runner default; '
+                         'change it with --resume-paused --max-idle-seconds N)', reason)
+        self.assertEqual(('stalled', reason), (self.monitor.snapshot()['activity'], self.monitor.snapshot()['detail']))
+        self.assertIn('(90 seconds, set explicitly; change it', idle_timeout_reason(90, 'user_explicit'))
+        self.assertIn('(300 seconds; change it with --resume-paused --max-idle-seconds N)', idle_timeout_reason(300))
 
     def test_deduplication_cache_saturation_never_evicts_old_credit(self):
         self.monitor.MAX_SEEN = 2
