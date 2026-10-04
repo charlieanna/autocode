@@ -178,6 +178,11 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         state.pop('stop_reason', None)
         runner.write_json(state_path, state)
     if (not decision_action and not explicit_recovery_requested(args)
+            and resolver_runtime.republish_stale_operational(runner, state, run_dir)):
+        runner.write_json(state_path, state)
+        print(lifecycle.render(state))
+        return 2
+    if (not decision_action and not explicit_recovery_requested(args)
             and state.get('status') != 'RUNNING'
             and not acknowledged_planning_extension and not acknowledged_bound_change
             and str(state.get('status', '')).startswith('PAUSED_')

@@ -16,6 +16,7 @@
   "tests.test_campaign_oracles": "19 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_units": "19 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_bugfix_workflow": "17 s in CI (Ubuntu, one module at a time), 2026-09-29",
+  "tests.test_recovery_advice_cli": "16 s locally (Linux); real CLI operational stops and their advertised resumes, 2026-10-03",
   "tests.test_verify": "14 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_assignment_scenarios": "13 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_dashboard_consumer": "13 s in CI (Ubuntu, one module at a time), 2026-09-29"

@@ -783,7 +783,8 @@ def timeout_recovery_guard(state):
 def grant_recovery_allowance(state, run_dir, amount, *, previous_settings=None):
     return recovery_grants.grant(state, run_dir, amount, previous_settings=previous_settings,
         current_request=resolver_human.current, count=recovery_count(state),
-        supersede=resolver_human.supersede_operational, persist=write_json)
+        supersede=resolver_human.supersede_operational, persist=write_json,
+        stale_origin=resolver_human.stale_operational_origin, refresh=resolver_human.refresh_command)
 
 
 def repeated_failure_resume_guard(state, workspace, *, authorization=None):

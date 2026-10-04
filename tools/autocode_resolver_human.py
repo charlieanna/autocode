@@ -331,20 +331,35 @@ def projection(state):
             'user_request': public['request'] if public else None}
 
 
-def stale_request_message(state):
-    """How to answer after the displayed request stopped being current."""
-    live = current(state)
-    if live:
-        return ('This request is out of date; a newer AutoResolver request is active. '
-                'Answer request ' + live['request_id'] + ' with its own token.')
+def refresh_command(state):
+    """The invocation that publishes a current request in place of a stale one."""
     parts = ['autocode']
     if state.get('workspace'):
         parts.append('--workspace ' + shlex.quote(str(state['workspace'])))
     if state.get('run_dir'):
         parts.append('--run-dir ' + shlex.quote(str(state['run_dir'])))
     parts.append('--no-chat')
+    return ' '.join(parts)
+
+
+def stale_operational_origin(state):
+    """The recorded pause of an issued operational request that is no longer current."""
+    public = state.get(PUBLIC) or {}
+    entry = state.get('resolver', {}).get('human_escalations', {}).get(public.get('request_id')) or {}
+    if (public.get('scope') != 'operational_exhaustion' or entry.get('status') != 'pending'
+            or current(state) is not None):
+        return None
+    return ((entry.get('identity') or {}).get('proposal') or {}).get('origin', {}).get('pause_status')
+
+
+def stale_request_message(state):
+    """How to answer after the displayed request stopped being current."""
+    live = current(state)
+    if live:
+        return ('This request is out of date; a newer AutoResolver request is active. '
+                'Answer request ' + live['request_id'] + ' with its own token.')
     return ('This request is out of date (the run or AutoCode changed since it was shown). '
-            'Run `' + ' '.join(parts) + '` to publish a fresh request, then answer with its token.')
+            'Run `' + refresh_command(state) + '` to publish a fresh request, then answer with its token.')
 
 
 def require_response(state, request_id, request_token):
@@ -438,6 +453,20 @@ def review_operational_response(state):
     resolver['human_response_frontier'] = {'binding': _binding(state), 'pause_status': state['status'],
                                          'request_id': event['request_id']}
     return copy.deepcopy(resolution)
+
+
+def answered_operational_pause(state):
+    """The pause an answered operational request left the run in, while the run is still there."""
+    resolver = state.get('resolver') or {}
+    frontier = resolver.get('human_response_frontier') or {}
+    entry = resolver.get('human_escalations', {}).get(frontier.get('request_id')) or {}
+    proposal = (entry.get('identity') or {}).get('proposal') or {}
+    pause = proposal.get('origin', {}).get('pause_status')
+    if (entry.get('status') != 'consumed' or proposal.get('scope') != 'operational_exhaustion'
+            or state.get(PUBLIC) or not pause or frontier.get('pause_status') != pause
+            or state.get('status') != pause):
+        return None
+    return pause
 
 
 def response_holds_current_frontier(state):

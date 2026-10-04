@@ -214,6 +214,11 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         if any(flag in args._explicit_budget_flags for flag in relevant.get(paused_for, ())):
             if resolver_human.supersede_operational(state, 'Operator explicitly changed the exhausted bound'):
                 state['_authorized_bound_change'] = {'pause_status': paused_for, 'at': runner.now()}
+        elif not published:
+            # An answered request left nothing to supersede; the explicit change is the same authority.
+            answered = resolver_human.answered_operational_pause(state)
+            if any(flag in args._explicit_budget_flags for flag in relevant.get(answered, ())):
+                state['_authorized_bound_change'] = {'pause_status': answered, 'at': runner.now()}
         if args.autoresolver_managed_limits and entry.get('identity', {}).get('proposal', {}).get('origin', {}).get('budget', {}).get('kind'):
             kind = entry['identity']['proposal']['origin']['budget']['kind']
             if settings.get('budget_origins', {}).get(kind) == 'resolver_delegated':

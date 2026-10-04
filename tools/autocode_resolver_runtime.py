@@ -27,6 +27,8 @@ except ImportError:
 
 REVIEW_STAGES = ('astra_challenge', 'astra_finalize')
 MAX_PLANNING_RECOVERY_GRANTS = 2
+# The explicit flag that supersedes each limit pause (autocode_run_setup applies it).
+BOUND_FLAGS = {'PAUSED_TIME_LIMIT': '--max-seconds', 'PAUSED_ITERATION_LIMIT': '--max-iterations'}
 OPERATIONAL_INSTRUCTION = (
     'AutoResolver authorized only this read-only planning report recovery. Reuse retained '
     'evidence and the saved planning exchange; do not repeat exploratory tools or restart '
@@ -386,8 +388,14 @@ def record_operational_exhaustion(runner, state, run_dir, error):
     options = ['Provide corrective information', 'Leave paused']
     if error.status == 'PAUSED_TIMEOUT_RECOVERY':
         decision += (' After fixing the cause, authorize more automatic recoveries with '
-                     '--resume-paused --grant-recovery N.')
+                     '--resume-paused --grant-recovery N; corrected stage or idle limits may be given in the '
+                     'same command. If the workspace changes after this request is shown, first run `'
+                     + human.refresh_command(state) + '` to publish a current request.')
         options.append('Authorize more recoveries with --grant-recovery N')
+    elif error.status in BOUND_FLAGS:
+        decision += (f' To continue, set the limit explicitly with --resume-paused {BOUND_FLAGS[error.status]} N; '
+                     'the run continues in that command if the new limit is not yet reached.')
+        options.append(f'Set the limit with --resume-paused {BOUND_FLAGS[error.status]} N')
     request = {'kind': 'blocker', 'discovered': str(error),
                'impact': 'AutoResolver retained the attempts, work and evidence but cannot continue safely.',
                'decision_needed': decision,
@@ -396,6 +404,26 @@ def record_operational_exhaustion(runner, state, run_dir, error):
     human.queue(state, 'operational_exhaustion',
                 {'stage': state.get('next_stage') or 'operational_recovery', 'pause_status': error.status, 'budget': budget},
                 request=request, evidence={'resolver_receipt_id': receipt}, next_stage=state.get('next_stage'))
+    return True
+
+
+def republish_stale_operational(runner, state, run_dir):
+    """Ask again, at the current frontier, an operational request the run has moved past.
+
+    A stale request cannot be answered or granted. Its recorded pause is restored and
+    recorded afresh; counts, limits, history and approvals are unchanged and nothing is
+    authorized. The saved state changes only when the new request is staged.
+    """
+    if human.stale_operational_origin(state) is None:
+        return False
+    candidate = copy.deepcopy(state)
+    if not human.supersede_operational(candidate, 'The run changed after this request was shown; AutoResolver asked again'):
+        return False
+    error = support.Paused(candidate.get('status'), candidate.get('stop_reason', 'Operational recovery stopped'))
+    if not record_operational_exhaustion(runner, candidate, run_dir, error):
+        return False
+    state.clear()
+    state.update(candidate)
     return True
 
 

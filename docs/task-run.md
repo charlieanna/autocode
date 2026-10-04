@@ -230,7 +230,7 @@ the wait so the new decision can be reviewed. Keep the worker running while wait
 if it exits with an error, reconcile the reported cause and restart it against the same
 run. A failed/incomplete producer cannot release the consumer.
 
-`TaskRun.grant_recovery(N)` explicitly grants a positive number of additional recoveries after the operator inspects saved work and fixes the cause. It preserves recovery history and uses the CLI checkpoint guards. `resume_paused()` and operational guidance do not grant an allowance.
+`TaskRun.grant_recovery(N)` explicitly grants a positive number of additional recoveries after the operator inspects saved work and fixes the cause. It preserves recovery history and uses the CLI checkpoint guards. `resume_paused()` and operational guidance do not grant an allowance. If the run changed after the request was shown (for example, the fix edited the workspace), the grant is refused; `resume_paused()` then publishes a current request with the same pause, and the grant can be repeated against it.
 
 ### Failed workflow jobs
 

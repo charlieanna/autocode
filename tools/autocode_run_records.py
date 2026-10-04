@@ -85,7 +85,9 @@ def normalize_human_boundary(state, run_dir):
     if public and not (milestones.recover_review_only_request(state, public, ask_user=lifecycle.wait_for_user) or milestones.release_obsolete_gate_request(state, public)):
         return
     proposal = state.get(resolver_human.PRIVATE)
-    if not proposal and state.get('status') in ('WAITING_FOR_USER', 'AWAITING_GOAL_APPROVAL', 'PAUSED_GOAL_UNAPPROVED'):
+    # A stale operational request is re-asked with its recorded pause, not read as a legacy blocker.
+    if (not proposal and state.get('status') in ('WAITING_FOR_USER', 'AWAITING_GOAL_APPROVAL', 'PAUSED_GOAL_UNAPPROVED')
+            and resolver_human.stale_operational_origin(state) is None):
         # Explicit locked reconciliation of legacy decisions. Read-only status
         # and dashboard projections never enter this writer path.
         request = copy.deepcopy(state.get('user_request') or {})
