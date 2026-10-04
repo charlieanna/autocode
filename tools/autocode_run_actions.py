@@ -293,6 +293,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 runner.repeated_failure_resume_guard(state, workspace, authorization=authorization)
                 runner.prepare_planning_retry(state, run_dir)
                 runner.prepare_exhausted_execution_report_retry(state, run_dir, workspace)
+                discarded = runner.archive_stale_report_repair(state, run_dir, workspace)
+                if discarded:
+                    print(discarded, flush=True)
             # Reset report repair attempts on explicit resume, for whatever
             # repair record is still pending. An exhaustion-gated retry
             # above (which requires and archives the true attempt count)
