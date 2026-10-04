@@ -12,8 +12,10 @@ import uuid
 
 try:
     from .dashboard_projects import ProjectStore
+    from .dashboard_git_delete import delete_branch
 except ImportError:
     from dashboard_projects import ProjectStore
+    from dashboard_git_delete import delete_branch
 
 
 def canonical(raw):
@@ -180,7 +182,7 @@ class PermanentDeleteMixin:
                 raise ValueError('A live process still references this task or workspace')
         return data
 
-    def _managed_scope(self, workspace, run):
+    def _managed_scope(self, workspace, run, status):
         metadata = workspace / '.autocode/task-workspace.json'
         canonical(str(metadata))
         if not metadata.is_file():
@@ -195,15 +197,41 @@ class PermanentDeleteMixin:
         if (workspace / '.autocode/worktrees').exists():
             raise ValueError('The worktree contains nested workspaces')
         branch = data.get('branch')
-        if not isinstance(branch, str) or not branch.startswith('autocode/') or git(workspace, 'symbolic-ref', '--short', 'HEAD') != branch:
+        if branch != 'autocode/' + workspace.name:
             raise ValueError('The dedicated task branch could not be verified')
-        if git(project, 'rev-parse', '--path-format=absolute', '--git-common-dir') != git(workspace, 'rev-parse', '--path-format=absolute', '--git-common-dir'):
+        try:
+            project_git = git(project, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+            workspace_git = git(workspace, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+            records = [entry.splitlines() for entry in git(project, 'worktree', 'list', '--porcelain').split('\n\n')]
+            branch_head = git(project, 'rev-parse', '--verify', 'refs/heads/' + branch)
+            worktree_head = git(workspace, 'rev-parse', '--verify', 'HEAD')
+            message = git(project, 'show', '-s', '--format=%B', branch_head)
+        except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+            raise ValueError('Git could not verify this managed worktree and its dedicated branch. Inspect them before deleting.') from error
+        if project_git != workspace_git:
             raise ValueError('Worktree belongs to a different repository')
-        records = git(project, 'worktree', 'list', '--porcelain').split('\n\n')
-        owners = [entry for entry in records if 'branch refs/heads/' + branch in entry.splitlines()]
-        if len(owners) != 1 or 'worktree ' + str(workspace) not in owners[0].splitlines():
+        selected = [entry for entry in records if 'worktree ' + str(workspace) in entry]
+        owners = [entry for entry in records if 'branch refs/heads/' + branch in entry]
+        if (len(selected) != 1 or 'HEAD ' + worktree_head not in selected[0]
+                or any(line == 'bare' or line.startswith(('prunable', 'locked')) for line in selected[0])):
+            raise ValueError('The managed worktree registration could not be verified')
+        detached = 'detached' in selected[0]
+        if (detached and owners) or (not detached and owners != selected):
             raise ValueError('The task branch is shared or worktree registration changed')
-        return {'project': str(project), 'branch': branch, 'branch_head': git(project, 'rev-parse', 'refs/heads/' + branch)}
+        if detached:
+            # Delivery leaves HEAD at the earlier revision and advances the
+            # metadata branch. Bind this exceptional path to actual delivery,
+            # not merely an arbitrary detached checkout and an unclaimed ref.
+            marker = 'Delivered by AutoCode run ' + run.name + ' (contract revision '
+            if (status.get('status') not in ('TASK_COMPLETE', 'COMPLETE')
+                    or not any(line.startswith(marker) and line.endswith(').') for line in message.splitlines())):
+                raise ValueError('This detached worktree has no verified delivery for the selected task')
+            try:
+                git(project, 'merge-base', '--is-ancestor', worktree_head, branch_head)
+            except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+                raise ValueError('The delivered branch does not contain this worktree revision') from error
+        return {'project': str(project), 'branch': branch, 'branch_head': branch_head,
+                'worktree_head': worktree_head, 'detached': detached}
 
     def deletion_preview(self, data):
         workspace, run = canonical(data.get('workspace')), canonical(data.get('run'))
@@ -219,7 +247,7 @@ class PermanentDeleteMixin:
             status = self._deletion_stopped(workspace, run)
             managed, reason = None, None
             try:
-                managed = self._managed_scope(workspace, run)
+                managed = self._managed_scope(workspace, run, status)
             except (ValueError, OSError) as error:
                 reason = str(error)
             if include_worktree and not managed:
@@ -296,7 +324,7 @@ class PermanentDeleteMixin:
             try:
                 if target.exists():
                     with stopped_locks(workspace, run):
-                        self._deletion_stopped(workspace, run)
+                        status = self._deletion_stopped(workspace, run)
                         actual = inventory(target)
                         original = preview['fingerprint']
                         unchanged = actual == original
@@ -304,7 +332,7 @@ class PermanentDeleteMixin:
                             unchanged = actual['root'] == original['root'] and all(original['files'].get(key) == value for key, value in actual['files'].items())
                         if not unchanged:
                             raise ValueError('Deletion scope changed since preview; request a new preview')
-                        if preview['include_worktree'] and self._managed_scope(workspace, run) != preview['managed']:
+                        if preview['include_worktree'] and self._managed_scope(workspace, run, status) != preview['managed']:
                             raise ValueError('Managed ownership changed since preview')
                         preview['status'] = 'deleting'
                         preview['execution_started'] = True
@@ -333,10 +361,13 @@ class PermanentDeleteMixin:
                         if references != 'refs/heads/' + managed['branch'] + ' ' + managed['branch_head']:
                             preview['retry_blocked'] = True
                             raise ValueError('Branch changed since confirmation; branch retained')
+                        entries = git(managed['project'], 'worktree', 'list', '--porcelain').split('\n\n')
+                        if any('branch refs/heads/' + managed['branch'] in entry.splitlines() for entry in entries):
+                            raise ValueError('The task branch is now checked out elsewhere; branch retained')
                         preview['branch_removal_started'] = True
                         store.write(records)
                         try:
-                            git(managed['project'], 'branch', '-D', '--', managed['branch'])
+                            delete_branch(git, managed['project'], managed['branch'], managed['branch_head'])
                         except ValueError:
                             # A returned Git refusal can be retried. A timeout,
                             # crash or failed receipt write keeps the ambiguity

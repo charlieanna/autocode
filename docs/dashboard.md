@@ -67,8 +67,8 @@ actions. An amber marker beside a conversation means it requires your reply;
 opening it does not dismiss the request. A completed conversation shows a tick.
 
 Archive and Remove project change visibility and preserve files and checkpoints.
-**Delete permanently** is a separate explicit action in Archived. Its chat
-confirmation lists the selected files and owned Git resources. Live or uncertain
+**Delete permanently** is a separate explicit action in Archived. Its confirmation
+dialog lists the selected files and owned Git resources. Live or uncertain
 workers, changed selections and shared resources prevent deletion. Partial
 cleanup retains a retry receipt and never treats a recreated resource as owned.
 

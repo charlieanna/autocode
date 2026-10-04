@@ -28,7 +28,10 @@ function confirm(){const phrase=data('()=>taskDeleteReview.preview.confirmation'
 (async()=>{
  let fixture=await start();const captures=[];
  for(const [name,w,h] of [['desktop',1440,1024],['tablet',1024,768],['mobile',390,844]]){
-  const c=fixture.cases[name];browser('set','viewport',String(w),String(h));open(c);menu();browser('click','#archive-task');
+  const c=fixture.cases[name];
+  assert.equal(git(c.workspace,'rev-parse','--abbrev-ref','HEAD'),'HEAD','The real delivery detached this completed checkout');
+  assert.notEqual(git(c.workspace,'rev-parse','HEAD'),git(fixture.project,'rev-parse','refs/heads/'+c.branch),'The delivered branch contains the new source');
+  browser('set','viewport',String(w),String(h));open(c);menu();browser('click','#archive-task');
   assert.match(data('()=>document.querySelector("#task-archive-dialog").textContent'),/files|history/i);
   browser('click','#task-archive-cancel');assert.ok(fs.existsSync(c.run));
   browser('click','#archive-task');browser('click','#task-archive-confirm');wait('!document.querySelector("#task-archive-dialog").open&&!archivePending.size');assert.ok(fs.existsSync(c.run));
@@ -64,6 +67,6 @@ function confirm(){const phrase=data('()=>taskDeleteReview.preview.confirmation'
   assert.equal(rows.some(row=>row.workspace===gone.workspace),false,'Deleted workspace does not reappear as a diagnostic');
  }
  const errors=browser('errors').trim();assert.ok(!errors||/^No (?:page )?errors\.?$/i.test(errors),errors);
- fs.writeFileSync(path.join(evidence,'manifest.json'),JSON.stringify({captures,viewports:[1440,1024,390],archiveRestored:true,restartPreservedReceipt:true,recreatedBranchRetained:true,errors},null,2));
+ fs.writeFileSync(path.join(evidence,'manifest.json'),JSON.stringify({captures,viewports:[1440,1024,390],deliveredDetachedTasks:true,archiveRestored:true,restartPreservedReceipt:true,recreatedBranchRetained:true,errors},null,2));
  console.log('Archive/delete browser matrix passed: exact scope, cancellation, preserved siblings, stale/live/unknown refusal, restart and recreated-branch protection. '+evidence);
 })().catch(e=>{console.error(e);try{console.error(JSON.stringify(data('()=>({hash:location.hash,view:currentView,error:taskReadError,notice:document.querySelector("#dashboard-notice").textContent,deleteError:document.querySelector("#task-delete-error").textContent,run:latestRun?.run})')));browser('screenshot',path.join(evidence,'failure.png'))}catch{}process.exitCode=1;}).finally(()=>{try{browser('close')}catch{}if(server)server.kill('SIGTERM');});

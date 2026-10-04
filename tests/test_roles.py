@@ -37,6 +37,14 @@ class OneListOfNames(unittest.TestCase):
 
 
 class NamesFollowTheJobNotTheAi(unittest.TestCase):
+    def test_v2_names_follow_the_actual_planning_stages(self):
+        from units.autoplanner import V2_STAGES, V2_STAGE_ROLES
+        expected = {'requirements': 'Requirements', 'glm': 'Planner', 'plan_reviewer': 'Plan Reviewer'}
+        for stage in V2_STAGES:
+            with self.subTest(stage=stage):
+                self.assertEqual(expected[V2_STAGE_ROLES[stage]], status.role_name(stage))
+                self.assertEqual(expected[V2_STAGE_ROLES[stage]], status.role_name(stage + '_report_repair'))
+
     def test_testing_is_tester_even_when_the_plan_reviewer_runs_it(self):
         # sol is the Tester job on the Validator AI.
         self.assertEqual("Tester", status.role_name("sol"))

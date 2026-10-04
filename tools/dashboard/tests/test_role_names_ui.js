@@ -12,6 +12,7 @@ assert.equal(context.stageName({stage:'astra_plan'}),'Planner · Assigning imple
 assert.equal(context.stageName({stage:'requirements_gather'}),'Requirements · Gathering requirements');
 assert.match(context.stageName({stage:'astra_checkpoint',monitor:{workflow_mode:'glm_first_v1'}}),/^Tester/);
 assert.match(context.stageName({stage:'astra_checkpoint',monitor:{workflow_mode:'glm_final_audit_v2'}}),/^Completion Reviewer/);
+assert.equal(context.stageName({stage:'plan_revise'}),'Planner · Revising the plan');
 assert.equal(context.roleDisplayName('plan_reviewer'),'Plan Reviewer');
 assert.equal(context.roleDisplayName('requirements'),'Requirements');
 console.log('Every dashboard stage and report repair uses the shared job names, including reviewer-routing modes.');

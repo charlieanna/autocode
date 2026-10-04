@@ -23,26 +23,29 @@ No installed app change or merge is part of the current review branch.
   completed action before asserting that Start building is available. The
   separate approval/start assertions remain mandatory.
 
-## Remaining acceptance audit
+## Current acceptance status (2026-10-04)
 
-These are open work items, not completion claims. Older issue descriptions must
-be reconciled with the approved Figma brief and subsequent user instructions.
+The implementation below has passed local functional and independent visual
+acceptance. It is submitted for PR review; this ledger does not close issues or
+establish acceptance of unrelated platform work. Later approved product choices
+supersede illustrative behavior in older issue descriptions.
 
-| Issue | Observed implementation | Work still requiring proof or implementation |
+| Issue | Delivered behavior | Acceptance and boundary |
 | --- | --- | --- |
-| #27 / #28 | Persistent chat, grouped projects, scoped creation, Work/artifact panes, responsive drawers and Stop after current step | Final integrated gates and independent current-source visual review |
-| #29 | Public saved progress and fresh requirement evidence, all task/requirement/problem details | Final integrated gates; never infer progress from elapsed time |
-| #30 | Inline answers, explicit suggestions, provenance, preserved drafts and re-asked-token refusal | Final integrated gates |
-| #31 | Reviewed exact-token approval and separate Start building; stale cards refused | Final integrated gates; separate actions follow the user's later correction |
-| #33 | Public recovery projection, per-action guards, plain role names and a next step for all mapped states | Final integrated gates |
-| #34 | Per-project preview, saved-code refresh and requirement-linked screenshot cards | Final integrated gates; preview startup remains manual |
-| #35 | Supported stopped-run checkpoint restore creates a new branch and paused continuation, invalidates later proof and preserves original history | Final integrated gates and current browser restore check |
-| #36 | Setup chat, dependency guidance, committed projects, existing role settings, no credentials, safe legacy-folder confirmation | Final integrated gates; no automatic installation/sign-in |
-| #60 | Durable scoped deletion receipts, exact selected-resource confirmation, liveness/path/Git guards, partial retry and recreated-resource preservation | Final integrated gates and current browser lifecycle check; only disposable projects used |
-| #18 / #21 | Server transcript and bounded draft updates with exact answer provenance | Final integrated gates; the actual scripted to-do runner and public dashboard journey also passed, without a live-model claim |
-| #17 / #19 / #32 / #297 | Already closed upstream; current UI retains proof, naming, message-intent and visual comparison behavior | Preserve these existing gates in the integrated delivery |
-| #262 | Fresh native captures cover header/sidebar and Work hierarchy | Independent image adjudication pending; old Sol47 acceptance does not cover current source |
-| #250 / #251 | Upstream design-manifest and visual-check facilities retained; this UI delivery captures all 18 approved states | Broader multi-file/live-connector qualification is separate from accepting this particular UI; do not close those platform issues from UI screenshots alone |
+| #27 / #28 | Persistent chat, grouped projects, scoped creation, Work/artifact panes, responsive drawers and Stop after current step | Desktop/tablet/phone browser matrices; all 18 approved design states independently accepted |
+| #29 | Public saved progress, requirement evidence and task/requirement/problem detail | HTTP and real-browser proof; unknown results stay unknown |
+| #31 | Exact reviewed-plan approval and separate Start building; stale cards refused | Exact-token, revision race, duplicate and reload tests; separation follows the later user correction |
+| #33 | Public recovery projection, per-action guards, semantic role names and saved reason/next step | All mapped lifecycle states and three-size browser matrix; polling preserves focus, scroll and the action hit target |
+| #34 | Project-scoped preview, saved-code refresh and requirement-linked screenshots | Browser isolation/refresh and image integrity tests; preview startup remains manual |
+| #35 | Stopped-run checkpoint restore to a new branch and paused continuation | CLI/HTTP and browser restore; original history retained and fresh proof required |
+| #36 | Setup in chat, dependency guidance, project creation/attachment and safe legacy-folder confirmation | HTTP/Git and three-size browser checks; no automatic credential handling, installation or sign-in |
+| #18 / #21 | Server-built transcript and bounded draft updates with exact answer provenance | Python/Node/browser gates and an actual scripted-provider to-do run; no live-model qualification claim |
+| #342 | Completed delivered worktrees and their dedicated branches can be deleted with exact confirmation | Real delivery, packed refs, ownership/race/hook refusal tests; desktop/tablet/phone deletion flow with preserved siblings |
+| #343 | Legacy and V2 planning reports use the canonical job, including Planner for V2 plan revision | Canonical/browser catalogue consistency, report/clarification tests and JavaScript role rendering |
+| #262 | Native sidebar/header geometry and Work hierarchy match the approved frame | Fresh source-bound captures and independent image review; runtime content is not literal Figma placeholder text |
+| #30 / #60 | Already closed upstream; question-card and durable deletion behavior retained and extended | Current gates preserve answer provenance, exact scope, partial retry and recreated-resource protection |
+| #17 / #19 / #32 / #297 | Already closed upstream; proof, semantic names, message intent and visual comparison retained | Covered by current regression gates |
+| #250 / #251 / #256 | Upstream design-manifest and visual-check facilities retained; this delivery covers the approved UI | Broader multi-file/live-connector qualification and efficiency measurements remain separate platform work; UI screenshots do not close these issues |
 
 ## Verification rules
 
@@ -235,7 +238,7 @@ remaining alternate role labels, followed by another passing 24-script Node
 gate. The full suite result preceded that final copy-only cleanup. These are
 functional naming checks, not Figma visual acceptance or overall backlog closure.
 
-## Recovery cards (#33), verification still in progress
+## Historical recovery-card verification (#33)
 
 Stopped tasks now expose a three-part chat card from the additive public
 `recovery` view. Specific existing CLI actions are constructed on the server,
@@ -458,7 +461,7 @@ These historical repairs were not waivers. Current assets have changed since
 that receipt, so it is not current whole-branch Figma acceptance.
 
 
-## Final integration candidate (2026-10-04; verification in progress)
+## Integration and repair history (2026-10-04)
 
 The follow-up integrates current master without replacing its canonical role,
 recovery and visual-check modules. Shared role serialization is deterministic.
@@ -490,5 +493,61 @@ focus, an exact status-field expectation missing an additive field, and a new
 project guard performing slow/full proof inspection before the busy-action
 check. Their repairs preserve the assertions. A final test initially sent fields
 outside the checkpoint endpoint's schema; its corrected valid payload retains
-the project-removal rejection assertion. Fresh integrated gates and independent
-visual acceptance remain required before publication or completion claims.
+the project-removal rejection assertion. The completed gates and independent review below supersede that pending
+verification status; the failed receipts remain retained locally.
+
+
+## Final local verification and independent review (2026-10-04)
+
+The tested integration commit is `fa9ea034599293c8c4e0cad44024c46f48ad4902`,
+including upstream through `d0cd86c2`. Its full canonical gate passed 3,302
+cases across 238 modules, with 20 explicit skips (13 live-model cases, two
+optional pytest cases and five separately gated Playwright cases). The scenario
+harness passed all 179 cases. The fake catalog reported 54 PASS, one
+NOT_EXERCISED resolver path despite passing completion oracles, and one skipped
+live-model Investigator. Those two catalog limits are not successful coverage.
+
+Final bounded fixes followed that baseline: a polling focus/scroll repair,
+completed-worktree deletion (#342), and canonical planning names (#343).
+The final source passed the changed-code gate (20 tests across three modules),
+all 405 dashboard Python tests, all 27 standalone Node scripts, and another
+complete fake-catalog run with the same explicit coverage limits. Source hashes
+were checked before/after each gate; no running test observed a source edit.
+The broad baseline is not represented as a full-suite run after these final
+fixes. PR CI tests the submitted merge candidate separately.
+
+All 14 real-browser matrices passed on the focus-fixed candidate. After the
+last two bugs were repaired, the affected deletion matrix passed again with
+actual delivered detached Git worktrees at desktop, tablet and phone sizes.
+Fresh full and scoped captures cover all 18 approved states, plus one separate
+1024px supplementary viewport. Independent review checked image, reference,
+served-asset and source bindings, inspected changed images, and accepted the
+final visual inventory. Runtime project names, timestamps, model routes, counts,
+diffs and preview content stay truthful rather than copying illustrative text.
+An extra exact-revision approval option and a secondary completion Checks action
+retain capabilities; this is visual acceptance, not a pixel-identity claim.
+
+The deletion regression first reproduced the refusal after real delivery.
+Ownership is now bound to the exact task branch, registered worktree, completion
+and delivery provenance, and the displayed preview. Git's branch deletion keeps
+its checked-out-worktree guard; a prepared reference-transaction hook checks the
+confirmed tip while locked and rechecks ownership, preserving any existing hook
+and its refusal. Tests cover changed tips, a competing checkout, packed refs,
+custom hook refusal, partial cleanup, lost responses and recreated resources.
+The initial hook incorrectly assumed Git always supplies the old OID; the
+retained failure led to checking the real ref while the prepared transaction
+holds its lock. The corrected 29-case endpoint gate passed. Arbitrary external
+Git checkout operations remain subject to Git's normal concurrency limits.
+
+The role regression reproduced wrong speakers in legacy/V2 reports and
+clarification replies. Reports and the browser now share the canonical job
+mapping; V2 names no longer pass through incompatible legacy aliases. Historical
+reports, model settings and execution routes are unchanged. The focus regression
+forces a real polling refresh after scrolling to Retry/Resume and verifies that
+focus, scroll offset and the clickable action survive DOM replacement.
+
+Independent technical review found no remaining material blocker in these
+bounded fixes; independent visual review accepted all 18 approved states.
+Evidence and failed/superseded receipts remain local rather than being committed.
+The installed app, user projects, active providers and unrelated runs were not
+used as destructive test fixtures. Merge and installation remain review steps.

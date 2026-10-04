@@ -113,7 +113,9 @@ function restoreFocus(focus) {
   if (!focus || focus.version !== focusVersion) return;
   const target = [...document.querySelectorAll('[data-focus-key]')].find(element => element.dataset.focusKey === focus.key);
   if (!target || document.activeElement === target) return;
-  target.focus();
+  // Polling may replace the focused node after the reader has scrolled to a
+  // related action. Restore focus without moving that action out of reach.
+  target.focus({preventScroll:true});
   if (typeof target.setSelectionRange === 'function' && focus.start != null) target.setSelectionRange(focus.start, focus.end, focus.direction);
 }
 function disclosure(label, key, children, run = chosen?.run || '') {

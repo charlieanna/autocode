@@ -60,3 +60,14 @@ class RoleNamesTests(unittest.TestCase):
                 expected=roles.screen_name(stage, {'settings': {'workflow': {'mode': mode}}})
                 actual=CATALOGUE['modes'].get(mode, {}).get(stage) or CATALOGUE['stages'][stage]
                 self.assertEqual(expected, actual['role'])
+
+    def test_v2_plan_revision_keeps_its_planner_identity(self):
+        from units.autoplanner import V2_STAGES
+        expected = {'requirements': 'Requirements', 'plan': 'Planner',
+                    'plan_revise': 'Planner', 'plan_review': 'Plan Reviewer',
+                    'plan_finalize': 'Plan Reviewer'}
+        self.assertEqual(set(expected), set(V2_STAGES))
+        for stage, speaker in expected.items():
+            with self.subTest(stage=stage):
+                self.assertEqual(speaker, CATALOGUE['stages'][stage]['role'])
+                self.assertEqual(speaker, role_name(stage + '_report_repair'))

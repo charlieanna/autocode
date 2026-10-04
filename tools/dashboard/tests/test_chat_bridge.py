@@ -491,7 +491,7 @@ class ChatBridgeTests(ChatFixture, unittest.TestCase):
         by_text = {row['text']: row for row in messages}
         self.assertEqual('2026-09-20T10:01:00Z', by_text['First clarification reply']['created_at'])
         self.assertEqual('2026-09-20T10:02:00Z', by_text['Current Planner draft']['created_at'])
-        self.assertEqual(['Planner', 'Planner'], [row['speaker'] for row in messages])
+        self.assertEqual(['Requirements', 'Requirements'], [row['speaker'] for row in messages])
 
     def test_stale_question_and_conflicting_replay_are_rejected_without_commands(self):
         self.make_run([{'id': 'current', 'question': 'Current question'}])
@@ -762,6 +762,30 @@ class ChatHttpTests(ChatFixture, unittest.TestCase):
             self.assertEqual(403, code)
             self.assertIn('cross-origin', value['error'])
         self.assertEqual([], self.provider_calls)
+
+
+class PlanningReportNames(unittest.TestCase):
+    def test_reports_use_the_canonical_job_for_each_legacy_and_v2_stage(self):
+        from autocode_status import role_name
+        from units.autoplanner import V2_STAGES
+        stages = ['astra_discovery', 'astra_challenge', 'glm_revise', 'astra_finalize', *V2_STAGES]
+        state = {'planning': {'reports': {stage: {'report': {'summary': stage}} for stage in stages}}}
+        messages = planning_messages(state)
+        self.assertEqual(stages, [row['stage'] for row in messages])
+        self.assertEqual([role_name(stage, state) for stage in stages], [row['speaker'] for row in messages])
+        self.assertEqual(['Requirements', 'Planner', 'Plan Reviewer', 'Planner', 'Plan Reviewer'],
+                         [row['speaker'] for row in messages[-len(V2_STAGES):]])
+
+    def test_clarification_speaker_uses_stage_even_when_provider_role_is_missing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            run = Path(temporary)
+            stages = []
+            for number, role in enumerate([None, 'glm', 'astra']):
+                path = run / (str(number) + '.json')
+                path.write_text(json.dumps({'summary': 'Clarification ' + str(number)}))
+                stages.append({'stage': 'astra_discovery', 'role': role, 'output': str(path), 'exit_code': 0})
+            messages = planning_messages({'stages': stages}, run)
+            self.assertEqual(['Requirements'] * 3, [row['speaker'] for row in messages])
 
 
 if __name__ == '__main__':

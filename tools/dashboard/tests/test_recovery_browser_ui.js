@@ -8,6 +8,17 @@ const browser=(...args)=>execFileSync('agent-browser',['--session',session,...ar
 const data=fn=>JSON.parse(JSON.parse(browser('eval','JSON.stringify(('+fn+')())').trim()));
 const wait=expression=>browser('wait','--fn',expression);
 const click=selector=>{data('()=>{document.querySelector('+JSON.stringify(selector)+').scrollIntoView({block:"center"});return true}');wait('(()=>{const e=document.querySelector('+JSON.stringify(selector)+'),r=e?.getBoundingClientRect(),hit=r&&document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return e&&!e.disabled&&(hit===e||e.contains(hit))})()');browser('click',selector);};
+function assertPollingKeepsActionReachable(selector,viewport){
+  // A reader can leave focus on the inspection summary and scroll to its
+  // action. A background refresh must preserve both focus and that scroll,
+  // rather than pulling the button out from under the pointer.
+  const pollScroll=JSON.parse(JSON.parse(browser('eval','(async()=>{const selector='+JSON.stringify(selector)+';const action=document.querySelector(selector),thread=document.querySelector("#interview");const probe=()=>{const e=document.querySelector(selector),r=e.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return {scroll:thread.scrollTop,focus:document.activeElement?.dataset?.focusKey,hit:hit===e||e.contains(hit)}};action.scrollIntoView({block:"center",behavior:"instant"});const before=probe();await refresh();return JSON.stringify({before,after:probe(),replaced:action!==document.querySelector(selector)})})()').trim()));
+  assert.equal(pollScroll.before.hit,true,viewport+' recovery action is reachable before polling');
+  assert.equal(pollScroll.replaced,true,viewport+' probe exercises a real detail refresh');
+  assert.equal(pollScroll.after.focus,pollScroll.before.focus,viewport+' polling preserves the inspected control focus');
+  assert.ok(Math.abs(pollScroll.after.scroll-pollScroll.before.scroll)<=1,viewport+' polling preserves the reader scroll: '+JSON.stringify(pollScroll));
+  assert.equal(pollScroll.after.hit,true,viewport+' polling leaves the recovery action under the pointer');
+}
 const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout.on('data',chunk=>{output+=chunk;const line=output.split('\n').find(line=>line.startsWith('FIXTURE='));if(line)resolve(JSON.parse(line.slice(8)));});server.stderr.on('data',chunk=>errors+=chunk);server.on('error',reject);server.on('exit',code=>reject(Error('Fixture exited '+code+': '+errors)));});
 (async()=>{
  const fixture=await ready,results=[];
@@ -32,6 +43,8 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
   assert.ok(geometry.w>=44&&geometry.h>=44);assert.equal(geometry.overflow,false);
   browser('screenshot',path.join(evidence,viewport+'-builder.png'));
   const old=data('()=>({workspace:latestRun.workspace,run:latestRun.run,action:"recover_pause",recovery_token:latestRun.interventions.recovery.token,recovery_action:"retry_builder:M1"})');
+  assertPollingKeepsActionReachable(button('retry_builder:M1'),viewport);
+  assert.deepEqual(fs.readFileSync(file),before,'Polling and inspection preserve the saved task');
   click(button('retry_builder:M1'));
   wait('latestRun.actions?.some(row=>row.command?.includes("--retry-builder"))');
   const sent=data('()=>latestRun.actions.at(-1).command');
@@ -49,7 +62,7 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
   const recovered=data('()=>latestRun.actions.at(-1).command');
   assert.equal(recovered.includes('--abandon-stage'),true);assert.equal(recovered.includes('--resume-paused'),false);
   assert.equal(data('()=>document.querySelector('+JSON.stringify(button('resume'))+').disabled'),true,'Recovery leaves a separate inspected Resume');
-  click(inspect);click(button('resume'));wait('latestRun.status==="RUNNING"');
+  click(inspect);assertPollingKeepsActionReachable(button('resume'),viewport);click(button('resume'));wait('latestRun.status==="RUNNING"');
   assert.equal(data('()=>latestRun.actions.at(-1).command.includes("--resume-paused")'),true);
 
   open('unknown');assert.deepEqual(data('()=>[...document.querySelectorAll("#task-attention [data-recovery-action]")].map(e=>e.dataset.recoveryAction)'),['inspect','feedback']);

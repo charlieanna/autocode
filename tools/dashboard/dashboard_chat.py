@@ -14,8 +14,10 @@ import uuid
 
 try:
     from .. import autocode_conversation as conversation_protocol
+    from ..autocode_status import role_name
 except ImportError:
     import autocode_conversation as conversation_protocol
+    from autocode_status import role_name
 
 try:
     from .dashboard_conversation_journal import project_conversation, append_feedback
@@ -56,7 +58,7 @@ def planning_messages(state, run=None):
             if isinstance(summary, str) and summary:
                 record = by_output.get(entry.get('output'), {})
                 result.append({'id': f'planning-{number}-{stage}', 'role': 'assistant',
-                               'speaker': 'Planner' if stage in ('astra_discovery', 'glm_revise') else 'Plan Reviewer',
+                               'speaker': role_name(stage, state),
                                'text': summary, 'stage': stage, 'status': 'received',
                                'created_at': record.get('finished_at') or record.get('started_at')})
                 if entry.get('output'):
@@ -76,7 +78,7 @@ def planning_messages(state, run=None):
                 text = object_value(report).get('summary')
                 if isinstance(text, str) and text:
                     result.append({'id': 'discovery-' + hashlib.sha256(str(path).encode()).hexdigest()[:16],
-                                   'role': 'assistant', 'speaker': 'Planner' if record.get('role') == 'glm' else 'Plan Reviewer',
+                                   'role': 'assistant', 'speaker': role_name(record['stage'], state),
                                    'text': text, 'status': 'received', 'created_at': record.get('finished_at') or record.get('started_at')})
             except (KeyError, TypeError, OSError, ValueError):
                 continue

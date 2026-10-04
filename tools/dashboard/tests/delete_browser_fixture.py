@@ -10,6 +10,7 @@ from agent_console import Console,Handler,LoopbackHTTPServer
 from dashboard_delete import git
 import autocode_registry as registry
 from autocode_workspaces import create as worktree
+from autocode_worktrees import deliver
 
 root=Path(os.environ['AUTOCODE_FIXTURE_ROOT']).resolve()
 root.mkdir(parents=True,exist_ok=True)
@@ -29,6 +30,12 @@ if not manifest.exists():
         if name=='live':state.update(status='RUNNING',active_stage={'stage':'terra','pid':os.getpid()})
         if name=='unknown':state['active_stage_workers']={'checked':False}
         (run/'state.json').write_text(json.dumps(state));(run/'output.txt').write_text(name+' output')
+        if name in ['desktop','tablet','mobile']:
+            (ws/'feature.py').write_text('print("delivered '+name+'")\n')
+            state.update(status='TASK_COMPLETE',next_stage=None)
+            assert 'Delivered on branch' in deliver(state,ws)
+            assert git(ws,'rev-parse','--abbrev-ref','HEAD')=='HEAD'
+            (run/'state.json').write_text(json.dumps(state))
         registry.register_run(ws,run,state)
         cases[name]={'workspace':str(ws),'run':str(run),'branch':meta['branch'] if meta else None,'head':git(project,'rev-parse','HEAD')}
     manifest.write_text(json.dumps(cases))
