@@ -363,6 +363,24 @@ class ActivityTests(unittest.TestCase):
         self.now = 53
         self.assertEqual('idle', self.monitor.expired()['kind'])
 
+    def test_text_streamed_for_600_seconds_is_not_an_idle_stall_under_a_300_second_limit(self):
+        # #298 acceptance: idle means no provider event at all, not no tool call. A turn that keeps
+        # streaming text and finishing steps (with growing token totals) stays alive past the limit.
+        monitor = ActivityMonitor(self.path, idle_seconds=300, clock=lambda: self.now)
+        for index in range(6):
+            self.now = 100 * (index + 1)
+            self.assertIsNone(monitor.expired(), self.now)
+            event = ({'type': 'text', 'part': {'id': f'text-{index}', 'text': f'Reasoning step {index}'}} if index % 2
+                     else {'type': 'step_finish', 'part': {'id': f'step-{index}',
+                                                          'tokens': {'input': 1000, 'output': 200 * (index + 1)}}})
+            with self.path.open('ab') as stream:
+                stream.write(json.dumps(event).encode() + b'\n')
+            monitor.poll()
+        self.now = 899
+        self.assertIsNone(monitor.expired())
+        self.now = 900
+        self.assertEqual('idle', monitor.expired()['kind'])
+
     def test_longest_idle_counts_ended_quiet_periods_but_not_tool_time(self):
         self.now = 2
         self.codex('started')
