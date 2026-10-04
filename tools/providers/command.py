@@ -22,6 +22,12 @@ except ImportError:  # Script-style execution from tools/.
     from providers import codex_sandbox, env_prep, opencode as _opencode_events
 
 
+try:
+    from .. import autocode_tool_handoff as tool_handoff
+except ImportError:
+    import autocode_tool_handoff as tool_handoff
+
+
 REQUIRED_ROLES = ("astra", "terra", "sol", "completion", "glm", "plan_reviewer")
 PLACEHOLDERS = {"model", "effort", "workspace", "report", "schema", "prompt_file", "run_dir", "role", "sandbox", "sandbox_args"}
 RESUME_PLACEHOLDERS = (PLACEHOLDERS - {"sandbox_args"}) | {"session"}
@@ -171,6 +177,7 @@ class CommandProvider:
     def prompt_for_schema(self, prompt, schema, events):
         if self.OUTPUT == "opencode_events":
             return _opencode_events.prompt_for_schema(prompt, schema, events)
+        prompt = tool_handoff.with_capture_command(prompt)
         report = str(Path(events).with_suffix(".json"))
         persistence = "Write your final report as exactly one JSON object to this file: " + report + "\n"
         if self._config.get("sandbox_adapter") == codex_sandbox.ADAPTER:

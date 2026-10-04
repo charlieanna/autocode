@@ -193,6 +193,15 @@ Changing the config file or the tool version pauses a saved run.
   resumes each role's session with the required `resume` template, for example
   `resume = ["--session", "{session}"]`.
 
+Every structured handoff for these output modes includes an executable
+`capture_command`, including standalone review, design, discuss and investigation
+jobs. Models append `--output .autocode/evidence/<unique-name>.json -- <command>`
+to that value. It uses the public `autocode.py capture` entry point; the
+`autocode_capture_command.py` implementation module is not a standalone command.
+An existing handoff command and its explicit output mode are preserved; the
+supplied default inherits the runner's output-mode environment. This supplies
+tool context without granting additional filesystem permissions.
+
 The runner can fill an omitted check exit code from a unique executed event or
 the cited, verified capture receipt before checking the unchanged report schema.
 It never replaces a supplied exit code, guesses from output text, or resolves
