@@ -9,9 +9,10 @@ case and says what to do instead (issue #299). A log line the fix adds is no
 substitute: a fix with the real call removed and the log kept passes such a test.
 
 A Python test can also reach the seam only at run time (``mock.patch.object``):
-it loads on the unfixed code and errors there, which the proof cannot tell from
-a genuine AttributeError reproduction. The verdict stands, but the Validator and
-the Completion Owner are told to check why that test fails before the fix.
+it loads on the unfixed code and errors there. Explicit mock preparation and
+test-origin import failures are excluded by autocode_test_setup. Other errors
+may be genuine AttributeError reproductions; the Validator and the Completion
+Owner are told to check why those tests fail before the fix.
 
 Pure functions over text. Imports nothing from AutoCode.
 """
@@ -74,7 +75,8 @@ def reason(collection_errors, names) -> str:
             "public APIs (for example a real file, directory or input that makes the failing operation fail) and "
             "assert the behavior itself, such as the returned error, the result or the saved state. A log line "
             "or message alone does not prove the behavior. If no existing API can reach that path, report that "
-            "this bug needs a separately approved instrumentation-only base patch; the runner adds none. A test "
+            "this bug needs an instrumentation-only base patch, which the operator supplies with --base-patch "
+            "PATH; the runner adds none itself. A test "
             f"that fails on the unfixed code only because {seam} is missing there is not a reproduction, even if "
             f"it reaches {seam} at run time.")
 

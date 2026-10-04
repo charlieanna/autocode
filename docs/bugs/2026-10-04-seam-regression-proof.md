@@ -21,21 +21,54 @@ such a probe: a destination directory that is writable but not readable makes
 the post-rename directory open fail, and the same test builds and runs on the
 unfixed and the fixed code.
 
+Python runtime setup failures now have per-test attribution. The old runtime
+could accept an unchanged, broken `save()` after the candidate added an unused
+`replace_file` alias: the regression test only mocked and called that alias.
+On base it failed in `unittest.mock`, before `save()` ran; on the candidate it
+passed. Fresh native OpenCode Sol, GLM and MiMo calls each reproduced the PASS
+label alongside an actual `save()` call that still swallowed the rename error.
+
+`autocode_test_setup` recognizes explicit missing mock targets and test-origin
+import errors in unittest tracebacks and pytest JUnit failures. Every observed
+frame must belong to test code or `unittest.mock`; product frames, unknown
+helpers and chained exceptions remain unclassified. Recognized setup failures
+stay in the saved test results, with their names and reasons, but are excluded
+from bug-fix `fail_to_pass`. A required case cannot borrow another test's valid
+behavior proof. The diagnostic asks for an existing-API test or separately
+approved instrumentation. Genuine application `AttributeError`s and direct
+public-attribute assertions remain eligible. Feature `new_behavior` proof
+continues to allow newly introduced APIs.
+
+The real five-case control now rejects import-only and runtime mock hooks,
+rejects a broken implementation with an unused mocked hook, accepts an actual
+existing-API fix, and rejects the broken implementation under that behavior
+test. These controls use actual Git trees and test processes. Sol completed a
+fresh live review and ran all 19 focused tests (including pytest and Go) plus
+the five controls. MiMo ran the same tests and controls but timed out before a
+final review. GLM's broader code review timed out before executing the requested
+tests. These incomplete reviews remain recorded; they are not passes. A separate
+focused GLM Analyst run subsequently completed: it executed the unchanged broken-
+application probe, observed FAIL with no fail-to-pass tests, and independently
+confirmed the still-broken application behavior. The controller replayed its
+three executable claims successfully. This qualifies the execution path, not
+the timed-out code review. All runs retained the original 240s stage / 120s idle
+limits and unchanged source/test/runtime hashes.
+
+An operator base patch (`--base-patch PATH`, `autocode_base_patch`) covers a bug
+that can only be observed through a seam: it adds just the seam to the original
+code, so the seam test runs and fails there. The runner cannot tell whether a
+patch only adds instrumentation, so it is bounded: pinned by hash, no test files,
+it must apply to the base and be contained in the final change (so it cannot plant
+a defect the fix lacks), and every proof that uses it carries a review reason for
+the Tester and Completion Reviewer. A patch that changes behavior in a way the
+final change also contains is still possible; that review reason is the guard.
+
 Still open:
 
-- An operator-supplied base patch for a new run. The runner cannot tell whether
-  a patch only adds instrumentation. Requiring the candidate to contain the
-  patch limits what the Builder controls, but a patch that changes behavior
-  would still let the rest of the change flip tests without fixing the bug.
-  Today `review_reasons` reach only the Validator and the Completion Owner, so
-  no person is guaranteed to read the patch.
-- A Python test that reaches the seam only at run time
-  (`mock.patch.object(store, "replace_file")`) runs and errors on the unfixed
-  code, so it still counts as fail-to-pass. A negative control with the fix
-  reverted still fails that test. Rejecting such tests would need per-test error
-  attribution, which could also reject genuine `AttributeError` reproductions.
-  The verdict is unchanged, but when the unfixed run reports the seam missing,
-  the proof adds a review reason naming the seam and the fail-to-pass tests, so
-  the Validator and the Completion Owner check why each test fails before the
-  fix. The FAIL reason above no longer claims that every test using the seam
-  is rejected.
+- General attribution across other frameworks, hidden helper frames and
+  ambiguous runtime failures. This change is intentionally narrow. Missing-name
+  failures outside the recognized setup cases retain the review warning; it
+  does not promise that every test using a new hook is automatically rejected.
+- Native OpenCode review admission rejects even permitted new `review/tests/`
+  evidence (#332). Sol and GLM reproduced this separately during the before
+  checks; existing source/test/runtime hashes stayed unchanged.

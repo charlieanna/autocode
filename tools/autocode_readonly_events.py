@@ -20,7 +20,7 @@ except ImportError:
     import autocode_opencode_snapshots as native_snapshots
 
 
-def assert_unchanged_review(record):
+def assert_unchanged_review(record, *, workspace=None):
     """Refuse a read-only native OpenCode report after any recorded source drift."""
     if (record.get("engine") != "opencode"
             or record.get("output_mode", "opencode_events") != "opencode_events"
@@ -53,6 +53,8 @@ def assert_unchanged_review(record):
     if not changes:
         return
     protected = _protected_paths(record)
+    if workspace is not None and native_snapshots.workspace(record) != Path(workspace).resolve():
+        protected = None
     if protected is not None and native_snapshots.only_new_artifacts(
             record, sorted(changes), protected, review_job.ALLOWED_PREFIXES):
         return

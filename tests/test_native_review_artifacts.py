@@ -187,6 +187,19 @@ class NativeReviewArtifactTests(unittest.TestCase):
         with patch.dict(os.environ, {'XDG_DATA_HOME': str(self.data)}):
             self.assertEqual({'ok': True}, runner.load_stage_report(self.record))
 
+    def test_other_readonly_stage_cannot_add_new_tests(self):
+        self.add_test()
+        self.events_for([self.before, self.tree()])
+        self.record['stage'] = 'sol'
+        self.rejected()
+
+    def test_report_cannot_be_accepted_for_a_different_workspace(self):
+        self.add_test()
+        self.events_for([self.before, self.tree()])
+        with self.assertRaises(util.Paused) as caught:
+            runner.load_stage_report(self.record, workspace=self.directory / 'other')
+        self.assertEqual('PAUSED_STALE_VALIDATION', caught.exception.status)
+
     def test_report_repair_cannot_add_new_tests(self):
         self.add_test()
         self.events_for([self.before, self.tree()])

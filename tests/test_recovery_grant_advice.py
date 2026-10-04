@@ -63,6 +63,15 @@ class AdviceMatchesEligibility(unittest.TestCase):
         self.assertNotIn('--grant-recovery', limits.stop_reason({}, 3, 3, allow_grant=False)[1])
         self.assertIn('--resolver-response', limits.stop_reason({}, 3, 3, allow_grant=False)[1])
 
+    def test_time_limit_pause_names_max_seconds_not_grant(self):
+        text = limits.advice(allow_grant=False, pause_status='PAUSED_TIME_LIMIT')
+        self.assertIn('--max-seconds', text)
+        self.assertNotIn('--grant-recovery', text)
+        text = limits.advice(allow_grant=False, pause_status='PAUSED_NO_PROGRESS')
+        self.assertIn('--resolver-response', text)
+        self.assertNotIn('--grant-recovery', text)
+        self.assertNotIn('--max-seconds', text)
+
     def test_published_exhaustion_advertises_exactly_what_grant_accepts(self):
         class Runner:
             MAX_AUTOMATIC_RECOVERIES = 3
@@ -97,7 +106,10 @@ class AdviceMatchesEligibility(unittest.TestCase):
                     self.assertIn('--grant-recovery', decision)
                 else:
                     self.assertNotIn('--grant-recovery', decision)
-                    self.assertIn('--resolver-response', decision)
+                    if pause_status == 'PAUSED_TIME_LIMIT':
+                        self.assertIn('--max-seconds', decision)
+                    else:
+                        self.assertIn('--resolver-response', decision)
                 self.assertTrue(state['stop_reason'].startswith('budget spent.'), state['stop_reason'])
                 self.assertTrue(state['stop_reason'].endswith(decision), state['stop_reason'])
                 # Whatever we just advertised, grant() agrees at this stop.
@@ -133,3 +145,28 @@ class GrantStillAudited(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class BoundChangeSupersede(unittest.TestCase):
+    def test_explicit_budget_flags_count_as_recovery(self):
+        from types import SimpleNamespace
+        import autocode_run_actions as run_actions
+        self.assertFalse(run_actions.explicit_recovery_requested(SimpleNamespace(
+            _explicit_budget_flags=set(), grant_recovery=None, retry_builder=None,
+            retry_failed_stage=False, retry_report=None, abandon_stage=None,
+            diagnose_failed_stage=False)))
+        self.assertTrue(run_actions.explicit_recovery_requested(SimpleNamespace(
+            _explicit_budget_flags={'max_seconds'}, grant_recovery=None, retry_builder=None,
+            retry_failed_stage=False, retry_report=None, abandon_stage=None,
+            diagnose_failed_stage=False)))
+
+    def test_bound_flags_match_budget_kind_not_only_pause_status(self):
+        # An operational-exhaustion request after burn-out may name a different
+        # origin.pause_status than the bound the operator is raising (#301).
+        relevant = {'PAUSED_TIMEOUT_RECOVERY': ()}  # status map alone would miss it
+        budget_kind = 'max_seconds'
+        bound_flags = ('max_seconds',)
+        paused_for = 'PAUSED_TIMEOUT_RECOVERY'
+        explicit = {'max_seconds'}
+        self.assertFalse(any(f in explicit for f in relevant.get(paused_for, ())))
+        self.assertTrue(any(f in explicit for f in set(relevant.get(paused_for, ())) | set(bound_flags)))

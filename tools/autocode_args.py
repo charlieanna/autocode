@@ -75,6 +75,11 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         "repair a saved command at a reconciled pause with --resume-paused")
     parser.add_argument("--revise-protected-tests", type=Path,
                         help="Explicit user revision JSON for the original test inventory and command; requires a reconciled validation pause")
+    parser.add_argument("--base-patch", type=Path,
+                        help="Bug fixes: a patch that adds only instrumentation (a hook or variable the fix adds) to the "
+                        "original code, so a regression test using it can run and fail there; hash-pinned, no test "
+                        "files, must be contained in the final change; on a saved run use --resume-paused at a "
+                        "stop before the Validator")
     parser.add_argument("--regression-command", help="Shell command for new or changed regression tests (default: derived); "
                         "repair a saved command at a reconciled pause with --resume-paused")
     parser.add_argument("--max-iterations", type=int, help="Total iteration ceiling (new-run default: unlimited; resumes keep saved limits)")
