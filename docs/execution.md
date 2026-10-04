@@ -53,10 +53,11 @@ into `master`. Once a batch is integrated, each Builder's checkout and
 
 Failed workers, stale baselines, or overlapping worker changes pause the run and
 retain worktrees and logs for inspection. After inspecting a failed Builder, explicitly
-retry it once all workers have stopped:
+retry it once all workers have stopped (from the project or task worktree; add
+`--run-dir RUN` when there are several unfinished runs):
 
 ```sh
-autocode --run-dir RUN --resume-paused --retry-builder M2
+autocode --resume-paused --retry-builder M2
 ```
 
 Repeat `--retry-builder` to select additional failed milestones. Successful siblings

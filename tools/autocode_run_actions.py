@@ -33,6 +33,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_run_finder as run_finder
     from . import autocode_stop as stop
     from . import autocode_support as support
     from . import autocode_workflows as workflows
@@ -56,6 +57,7 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_recovery_progress as recovery_progress
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_run_finder as run_finder
     import autocode_stop as stop
     import autocode_support as support
     import autocode_workflows as workflows
@@ -446,7 +448,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         autopilot.publish_handoffs(candidate, run_dir)
         runner.commit_user_action(state, candidate, run_dir)
         print(rendered)
-        print("Saved. Resume with the same --workspace and --run-dir; no agent launched by this action.")
+        print(f"Saved; no agent launched by this action. {run_finder.continue_hint(run_dir, state, args.unit)}.")
         return 0
     if state["status"] == "TASK_COMPLETE":
         runner.recheck_completion(state, workspace)
