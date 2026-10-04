@@ -404,7 +404,13 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
         decision += ' ' + recovery_limits.GRANT_ADVICE
         options.append('Authorize more recoveries with --grant-recovery N')
     else:
-        decision += ' ' + recovery_limits.advice(allow_grant=False, pause_status=error.status)
+        active = state.get('active_stage') or {}
+        attempt = (f"{active['iteration']:03d}/{Path(active['output']).stem}"
+                   if active.get('output') and isinstance(active.get('iteration'), int) else None)
+        decision += ' ' + recovery_limits.advice(allow_grant=False, pause_status=error.status,
+                                                 attempt=attempt)
+        if attempt:
+            options.append(f'Abandon the uncertain attempt with --abandon-stage {attempt}')
     request = request or {'kind': 'blocker', 'discovered': str(error),
                           'impact': 'AutoResolver retained the attempts, work and evidence but cannot continue safely.',
                           'decision_needed': decision,
