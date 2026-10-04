@@ -56,6 +56,9 @@ _WORKTREE_LOCK = threading.Lock()
 GIT_IDENTITY = ("-c", "user.name=AutoCode", "-c", "user.email=autocode@localhost")
 EXCLUDE = (":(exclude).autocode", ":(exclude).autocode-ui", ":(exclude,glob)**/__pycache__/**",
           ":(exclude,glob)**/*.pyc")
+# Explicit --whitespace, so the user's or repository's apply.whitespace (error, fix)
+# can neither refuse nor silently rewrite a component's lines.
+APPLY = ("git", "apply", "--binary", "--whitespace=nowarn")
 # Component ids and contract names become path segments (a worktree directory, a
 # branch name, a contract filename); an architecture file is data a model wrote,
 # not trusted input, so reject anything that could escape its intended directory
@@ -376,37 +379,79 @@ class MultiComponentBuild:
             os.replace(scratch, self.manifest_path)
 
     def integrate(self, target: Path) -> dict:
-        """Apply every finished component's changes into ``target``, an existing
-        worktree of the same repository checked out at (or ahead of) the commit
-        every component was built from. Ownership is re-checked here, not just
-        requested in the brief: a component whose diff touches anything outside
-        its own directory is refused rather than silently combined. Stops at the
-        first patch that fails ownership or fails to apply, leaving earlier
-        components already applied; nothing is committed, matching how AutoCode
-        leaves a single task's own work for review before it is committed.
+        """Apply every finished component's changes into ``target``, the top
+        directory of an existing worktree of the same repository checked out at
+        (or ahead of) the commit every component was built from; any other
+        ``target`` raises ArchitectureError before anything is written.
+        Ownership is re-checked here, not just requested in the brief: a
+        component whose diff touches anything outside its own directory (moving
+        a file in from elsewhere included) is refused rather than silently
+        combined. Stops at the first component that fails ownership or fails to
+        apply, leaving earlier components already applied; nothing is committed,
+        matching how AutoCode leaves a single task's own work for review before
+        it is committed.
+
+        Integrating into the same ``target`` again is safe. A component is
+        ``already_applied`` (and also listed in ``integrated``) when ``target``
+        holds exactly its result: the same content and file mode at every path
+        it changed, and none of the paths it deleted. Its patch is applied only
+        when ``target`` holds none of that result yet, so a rerun never applies
+        a change twice. Any other target fails at that component, with the
+        paths that differ and the remedy that would work.
         """
         self._check_architecture()
+        target = Path(target)
+        _check_target(self.repo, target)
         finished = sorted((r for r in self.results.values() if r.ready_to_integrate), key=lambda r: r.component.id)
+        integrated: list[str] = []
+        already_applied: list[str] = []
+        outcome = {"target": str(target), "integrated": integrated, "already_applied": already_applied,
+                   "failed": None}
         if not finished:
-            return {"target": str(target), "integrated": [], "failed": None, "detail": "no finished component"}
-        integrated = []
+            return {**outcome, "detail": "no finished component"}
         for result in finished:
+            cid, prefix = result.component.id, result.component.owned_prefix
             snapshot = _snapshot_commit(result.workspace)
-            changed = _git(result.workspace, "diff", "--name-only", result.base_commit, snapshot).splitlines()
-            outside = [path for path in changed if not path.startswith(result.component.owned_prefix)]
+            changed = _changed_paths(result.workspace, result.base_commit, snapshot)
+            outside = [path for path in changed if not path.startswith(prefix)]
             if outside:
-                return {"target": str(target), "integrated": integrated, "failed": result.component.id,
-                        "detail": f"changed files outside {result.component.owned_prefix}: {outside}"}
-            patch = _git_bytes(result.workspace, "diff", "--binary", result.base_commit, snapshot)
-            if patch:
-                check = subprocess.run(["git", "apply", "--check", "--binary", "-"], cwd=target,
-                                       input=patch, capture_output=True)
+                return {**outcome, "failed": cid, "detail": f"changed files outside {prefix}: {outside}"}
+            unheld = _differences(target, snapshot, changed, prefix) if changed else []
+            if changed and not unheld:
+                already_applied.append(cid)
+            elif unheld and len(unheld) < len(changed):
+                held = sorted(set(changed) - set(unheld))
+                return {**outcome, "failed": cid, "detail": self._conflict(
+                    result, target, changed, f"{target} already holds {cid}'s version of {held} but not of {unheld}")}
+            elif unheld:
+                patch = _git_bytes(result.workspace, "diff-tree", "-r", "-p", "--binary", "--no-renames",
+                                   result.base_commit, snapshot)
+                check = subprocess.run([*APPLY, "--check", "-"], cwd=target, input=patch, capture_output=True)
                 if check.returncode != 0:
-                    return {"target": str(target), "integrated": integrated, "failed": result.component.id,
-                            "detail": check.stderr.decode(errors="replace")[-800:]}
-                subprocess.run(["git", "apply", "--binary", "-"], cwd=target, input=patch, check=True)
-            integrated.append(result.component.id)
-        return {"target": str(target), "integrated": integrated, "failed": None}
+                    reason = check.stderr.decode(errors="replace")[-800:].strip() or "git apply --check failed"
+                    return {**outcome, "failed": cid, "detail": self._conflict(result, target, changed, reason)}
+                subprocess.run([*APPLY, "-"], cwd=target, input=patch, check=True, capture_output=True)
+            integrated.append(cid)
+        return outcome
+
+    def _conflict(self, result: ComponentResult, target: Path, changed: list[str], reason: str) -> str:
+        """``reason`` plus the remedy that would work. A target holding what the
+        component was built on at every path it changed is not a version
+        mismatch, so git's own reason stands alone. Otherwise a new target, made
+        from HEAD, helps only while HEAD still holds what the component was
+        built on there; once HEAD has changed those paths, only rebuilding the
+        component on the current HEAD does."""
+        cid, prefix, base = result.component.id, result.component.owned_prefix, result.base_commit
+        off_base = _differences(target, base, changed, prefix)
+        if not off_base:
+            return reason
+        moved = sorted(set(changed) & set(_changed_paths(self.repo, base, "HEAD", prefix)))
+        if moved:
+            return (f"{reason}; HEAD changed {moved} since {cid} was built, so a new target made from HEAD "
+                    f"would not take {cid} either: rebuild it on the current HEAD by removing its worktree "
+                    f".autocode-components/{cid} and running the build again")
+        return (f"{reason}; {target} differs at {off_base} from the commit {cid} was built on (changed there, "
+                f"or checked out at another commit): integrate into a new target")
 
 
 def _serve(run: TaskRun, need: dict) -> dict:
@@ -446,14 +491,68 @@ def _snapshot_commit(workspace: Path) -> str:
         index.unlink(missing_ok=True)
 
 
+def _check_target(repo: Path, target: Path) -> None:
+    """Refuse an integration ``target`` that is not the top directory of a
+    worktree of ``repo``. From a plain subdirectory, `git apply` skips every
+    path outside it and still succeeds, so nothing would be written while the
+    integration reported success."""
+    try:
+        top = _git(target, "rev-parse", "--show-toplevel")
+        common = Path(target, _git(target, "rev-parse", "--git-common-dir"))
+        ours = Path(repo, _git(repo, "rev-parse", "--git-common-dir"))
+        usable = os.path.samefile(top, target) and os.path.samefile(common, ours)
+    except (OSError, subprocess.CalledProcessError):
+        usable = False
+    if not usable:
+        raise ArchitectureError(f"integration target {target} is not the top directory of a worktree of {repo}")
+
+
+def _changed_paths(cwd: Path, old: str, new: str, *pathspec: str) -> list[str]:
+    """Every path that differs between two commits, as is: a rename is listed as
+    its deletion and its addition (so the source is ownership-checked too), and
+    names are not quoted. Plumbing, so the user's diff settings do not apply."""
+    listing = _git_bytes(cwd, "diff-tree", "-r", "-z", "--no-renames", "--name-only", old, new, "--", *pathspec)
+    return [os.fsdecode(name) for name in listing.split(b"\0") if name]
+
+
+def _differences(target: Path, commit: str, paths: list[str], prefix: str) -> list[str]:
+    """The ``paths`` (all under ``prefix``) where ``target``'s working tree does
+    not hold exactly what ``commit`` holds: other content, another file mode or
+    type, a file ``commit`` does not have, or a missing one. Compared through a
+    scratch index outside the worktree, so Git's own rules (clean filters,
+    core.fileMode, core.symlinks) decide what counts as the same file, as they
+    did when the component's snapshot was taken."""
+    wanted = set(paths)
+    entries = {}
+    for entry in _git_bytes(target, "ls-tree", "-r", "-z", commit, "--", prefix).split(b"\0"):
+        path = os.fsdecode(entry.partition(b"\t")[2])
+        if path in wanted:
+            entries[path] = entry
+    differ = [path for path in wanted - entries.keys() if os.path.lexists(target / path)]
+    if entries:
+        index = Path(tempfile.gettempdir()) / f"autocode-multicomponent-index-{uuid.uuid4().hex}"
+        env = {"GIT_INDEX_FILE": str(index)}
+        try:
+            records = b"".join(entry + b"\0" for entry in entries.values())
+            _git_bytes(target, "update-index", "-z", "--index-info", env=env, input=records)
+            _git_bytes(target, "update-index", "-q", "--refresh", env=env)
+            listing = _git_bytes(target, "diff-files", "--name-only", "-z", env=env)
+            differ += [os.fsdecode(name) for name in listing.split(b"\0") if name]
+        finally:
+            index.unlink(missing_ok=True)
+    return sorted(differ)
+
+
 def _git(cwd: Path, *args: str, env: dict | None = None) -> str:
     full_env = {**os.environ, **env} if env else {**os.environ}
     return subprocess.run(["git", *GIT_IDENTITY, *args], cwd=cwd, check=True, env=full_env,
                           capture_output=True, text=True).stdout.strip()
 
 
-def _git_bytes(cwd: Path, *args: str) -> bytes:
-    return subprocess.run(["git", *GIT_IDENTITY, *args], cwd=cwd, check=True, capture_output=True).stdout
+def _git_bytes(cwd: Path, *args: str, env: dict | None = None, input: bytes | None = None) -> bytes:
+    full_env = {**os.environ, **env} if env else None
+    return subprocess.run(["git", *GIT_IDENTITY, *args], cwd=cwd, check=True, env=full_env, input=input,
+                          capture_output=True).stdout
 
 
 def _read_json(path: Path):
