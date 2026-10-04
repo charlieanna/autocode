@@ -34,6 +34,7 @@ import uuid
 
 try:
     from . import autocode_util as util, autocode_goals as goals, autocode_verify as verify
+    from . import autocode_base_patch as operator_patch
     from . import autocode_workspaces as workspaces
     from . import autocode_bug_job as bug_job, autocode_test_cases as test_cases
     from . import autocode_follow_up as follow_up
@@ -46,6 +47,7 @@ except ImportError:
     import autocode_util as util
     import autocode_goals as goals
     import autocode_verify as verify
+    import autocode_base_patch as operator_patch
     import autocode_workspaces as workspaces
     import autocode_runner_check as runner_check
     import autocode_status as status
@@ -175,6 +177,7 @@ def prove(state, workspace, run_dir):
     python = options.get("python") or verify.python_for(state.get("project_workspace") or workspace)
     framework = verify.detect_framework(workspace, python=python)
     base = base_commit(state, workspace)
+    operator = operator_patch.pinned(state)
     # Stored only in regression_proof; prove reads it before reusing evidence.
     # A repaired test environment must invalidate a prior failure (or PASS)
     # even when the source and acceptance criteria have not changed.
@@ -190,6 +193,7 @@ def prove(state, workspace, run_dir):
                     {"source_revision": current, "reuse_supported": False},
         "base": base,
         "base_patch": schedule.tree_identity(reviewed_patch(state, workspace)) if reviewed_patch(state, workspace) else None,
+        "operator_base_patch": {"pin": operator, "file": schedule.tree_identity(operator["path"])} if operator else None,
         "contract_identity": util.digest(state.get("goal_contract")), "cases_identity": util.digest(cases(state)),
     }
     if (saved.get("source_revision") == current and saved.get("case_scope", scope) == scope
@@ -217,16 +221,25 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
     base = base_commit(state, workspace)
     options = settings(state)
     base_patch = reviewed_patch(state, workspace)
-    unappliable = base and base_patch and (
+    operator = operator_patch.pinned(state)
+    refused = ""
+    if base and operator:
+        if base_patch:
+            refused = ("Both a reviewed change and an operator base patch would change the original code; "
+                       "the proof applies only one, so it cannot compare the fix with either")
+        else:
+            base_patch, problem = operator_patch.check(operator, workspace, base)
+            refused = problem and f"The original code cannot be prepared: {problem}"
+    unappliable = base and base_patch and not refused and (
         "it is missing" if not base_patch.is_file() else verify.patch_applies(workspace, base, base_patch))
-    if not base or unappliable:
-        why = ("No base commit is recorded for this run, so the fix cannot be compared with the original code"
+    if not base or unappliable or refused:
+        why = refused or ("No base commit is recorded for this run, so the fix cannot be compared with the original code"
                if not base else f"The reviewed change {base_patch.name} cannot be applied to the base revision "
                f"({unappliable}), so the fix cannot be compared with the change the review judged")
         proof = {"verdict": verify.UNVERIFIED, "failures": [], "notes": [], "review_reasons": [],
                  "unverified": [why], "fail_to_pass": None, "commands": {},
-                 "base": base, "base_patch": str(base_patch) if base_patch else None, "source_revision": current,
-                 "test_files": [], "source_files": []}
+                 "base": base, "base_patch": str(base_patch) if base_patch and not refused else None,
+                 "source_revision": current, "test_files": [], "source_files": []}
         path = None
     else:
         dependencies = state.get("project_workspace") or str(workspace)
@@ -243,6 +256,8 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
                                new_behavior=goals.task_kind(state) != "bugfix", base_patch=base_patch)
         path = out / "verification.json"
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
+        if operator:
+            proof["review_reasons"] = [*(proof.get("review_reasons") or []), operator_patch.review_reason(operator)]
         check_cases(proof, cases(state))
         proof["checks"] = {label: {"command": receipt["command"], "exit_code": receipt["exit_code"],
                                    "timed_out": receipt["timed_out"], "output": receipt["output"]}
@@ -301,7 +316,10 @@ def check_cases(proof, cases):
         proof["case_tests"] = {case["id"]: [] for case in cases}
         if proof["verdict"] == verify.PASS:
             proof["unverified"] = list(proof.get("unverified") or []) + [
-                "The English test cases could not be matched to tests: the test run reported no per-test results"]
+                "The English test cases could not be matched to tests: the test run reported no per-test results. "
+                "Use a supported named-test runner (unittest/pytest, Go, or node:test via node --test). "
+                "Printed PASS labels and package-script summaries are not named proof; keep the existing "
+                "assertions and suite, and register each approved case with the supported runner."]
             proof["verdict"] = verify.UNVERIFIED
         return
     restore = [case for case in cases if case.get("kind", "restore") == "restore"]

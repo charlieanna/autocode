@@ -14,6 +14,7 @@ Claude example provider writes it), "estimated" (tokens at the flat comparison r
 for models listed there) and unknown. An estimate is never added to a reported cost without being
 shown separately, and unknown is never zero: `complete` is false while any stage lacks a cost.
 A stage that only the runner executed costs nothing. Imports only the standard library.
+`metrics.provider_tokens_partial` marks known consumption from an interrupted stream as a lower bound.
 """
 from __future__ import annotations
 
@@ -37,8 +38,7 @@ except ImportError:
 # These are not verified current provider prices or subscription charges.
 REFERENCE_PRICES = {
     "zai-coding-plan/glm-5.3": {"input": 0.60, "output": 2.20},
-    # Only for pricing saved runs from before MiMo was dropped (user 2026-09-27); new runs
-    # never use it (score_autocode_run.FORBIDDEN_MODEL_MARKERS).
+    # Historical comparison rates also apply to configured MiMo routes.
     "xiaomi-token-plan-sgp/mimo-v2.6-pro": {"input": 0.30, "output": 1.20},
 }
 LEDGER = "usage.jsonl"
@@ -112,6 +112,7 @@ def stage_rows(state):
             cost, basis = None, "unknown"
         rows.append({"stage": record.get("stage"), "role": str(record.get("role") or record.get("route_role") or ""),
                      "model": model, "tokens": {key: _count(tokens.get(key)) for key in TOKEN_KEYS},
+                     "partial": metrics.get("provider_tokens_partial") is True,
                      "cost_usd": cost, "basis": basis})
     return rows
 
@@ -135,13 +136,15 @@ def summary(state):
     reported = _sum(row["cost_usd"] for row in rows if row["basis"] == "reported")
     guessed = _sum(row["cost_usd"] for row in rows if row["basis"] == "estimated")
     unknown = sum(row["basis"] == "unknown" for row in rows)
+    partial = sum(row["partial"] for row in rows)
     return {
         "stages": len(rows),
         "active_stage": _dict(state.get("active_stage")).get("stage"),
         "tokens": {key: _sum(row["tokens"][key] for row in rows) for key in TOKEN_KEYS},
         "cost_usd": {"reported": round(reported, 6), "estimated": round(guessed, 6),
-                     "complete": unknown == 0 and not state.get("active_stage")},
+                     "complete": unknown == 0 and partial == 0 and not state.get("active_stage")},
         "unknown_stages": unknown,
+        "partial_stages": partial,
         "by_role": {role: {key: round(value, 6) if isinstance(value, float) else value for key, value in entry.items()}
                     for role, entry in sorted(roles.items())},
         # Unlike the legacy known subtotals above, totals here are nullable and
@@ -421,7 +424,7 @@ def report(project):
                  f"{_sum((row.get('tokens') or {}).get('output_tokens') for row in rows):>9,} "
                  f"{'$%.2f' % _sum((row.get('cost_usd') or {}).get('reported') for row in rows):>10} "
                  f"{'$%.2f' % _sum((row.get('cost_usd') or {}).get('estimated') for row in rows):>10}")
-    lines.append("* a stage has no cost yet or none was reported: the total is a floor. Reported is the provider's "
+    lines.append("* a stage has no cost or only partial usage is known: the total is a floor. Reported is the provider's "
                  "own cost; estimated is tokens at flat comparison rates, not a bill.")
     return "\n".join(lines)
 

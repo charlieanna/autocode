@@ -142,9 +142,12 @@ def match_cases(cases: list[dict], test_ids: list[str]) -> dict[str, list[str]]:
             matched[case["id"]] = [test for test in test_ids
                                    if _test_function(test) == case["test_name"]]
         else:
-            want = _words(case["id"])
+            # The documented lowercase spelling keeps M1A as m1a. Retain the
+            # CamelCase spelling too, without accepting prefixes of either form.
+            wants = (_words(case["id"]), _words(case["id"].lower()))
             matched[case["id"]] = [test for test in test_ids
                                    if any(_words(_test_function(test))[i:i + len(want)] == want
+                                          for want in wants
                                           for i in range(len(_words(_test_function(test)))))]
     return matched
 
@@ -174,6 +177,17 @@ def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "
     return shown
 
 
+NAMED_PROOF_NOTE = """
+NAMED TEST PROOF: the runner can attribute cases with Python unittest/pytest, Go tests, or Node's built-in
+node:test. In Node projects register each named case with node:test, for example
+`const {test} = require('node:test'); test('test_c2_example', async () => { /* existing assertions */ });`,
+and run `node --test tests/example.cjs`. Keep fixture helpers and assertions; await every async check.
+Custom scripts printing PASS labels, or npm/Jest/Vitest/Mocha summaries, do not supply named proof.
+Keep the existing project suite and protected tests intact. Add supported named tests within the approved
+test paths; plan any needed test paths before approval. Do not replace test:/guard: criteria with prose to
+avoid proof. If no supported runner fits the project, raise the compatibility blocker before approval.
+"""
+
 BUILDER_NOTE = """
 TESTS NAMED IN THE PLAN: every acceptance criterion of your milestone whose verification_method starts with
 "test:" is a concrete example you must write as its own test, named with that criterion's id (C2 ->
@@ -184,8 +198,29 @@ that already works and must keep working: write its test the same way (C4 -> tes
 before and after the change, so put it where it imports only code that exists before the change. Criteria without "test:" or "guard:" are checked by the Validator as usual.
 Keep existing test names and assertions intact. Add a new case test when needed; do not rename or remove an
 existing test to make its name match a planned case id. The regression proof rejects removed test names.
+""" + NAMED_PROOF_NOTE
+
+
+# Issue #299: a seam the fix adds cannot compile on the unfixed code, and a log line the fix adds proves nothing.
+BUGFIX_TEST_NOTE = """
+BUG FIX TESTS: each regression test must build and run on the unfixed code. A test of behavior the fix
+restores must fail there because of the bug; a guard: (preserve) test must pass there and after the fix.
+Do not make a test import or reference anything the fix adds (a new function, package variable, hook or
+injectable seam): on the unfixed code such a test only fails to compile or import, which is not a
+reproduction, and adding the seam with the fix does not change that. Drive the real failure path through
+public APIs that exist before the fix (for example a real file, directory or input that makes the failing
+operation fail) and assert the behavior itself: the returned error, the result, the saved state. A log line
+or message alone does not prove the behavior.
 """
 
 
+def bugfix(state: dict) -> bool:
+    """The approved contract is a bug fix, whose tests must run and fail on the unfixed code (autocode_regression)."""
+    return ((state.get("goal_contract") or {}).get("body") or {}).get("task_kind") == "bugfix"
+
+
 def builder_note(state: dict) -> str:
-    return BUILDER_NOTE if contract_cases(state) else ""
+    fix_note = BUGFIX_TEST_NOTE if bugfix(state) else ""
+    if contract_cases(state):
+        return BUILDER_NOTE + fix_note
+    return (NAMED_PROOF_NOTE if (state.get("investigation") or {}).get("test_cases") else "") + fix_note

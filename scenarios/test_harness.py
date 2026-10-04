@@ -579,11 +579,28 @@ class RunChecksTests(unittest.TestCase):
 
     def test_a_planned_fix_needs_plan_review_and_the_users_approval(self):
         planned = {"view": {"workflow": "bugfix"}, "cli_calls": ["start", "approve-plan", "resume"],
+                   "steps": [{"kind": "approve-plan", "exit": 0}],
                    "stages": ["investigate_bug", "astra_discovery", "astra_challenge", "terra"], "answers": []}
         self.assertTrue(all(c.ok for c in oracle.run_checks(planned, workflow="bugfix", plan_approved=True)))
-        small = {**planned, "cli_calls": ["start", "resume"], "stages": ["investigate_bug", "terra"]}
+        small = {**planned, "cli_calls": ["start", "resume"], "steps": [], "stages": ["investigate_bug", "terra"]}
         failed = {c.name for c in oracle.run_checks(small, workflow="bugfix", plan_approved=True) if not c.ok}
         self.assertEqual({"plan_reviewed", "plan_approved_by_user"}, failed)
+
+    def test_attempted_or_rejected_plan_approval_is_not_accepted(self):
+        for steps in ([], [{"kind": "approve-plan", "exit": 2}], [{"kind": "resume", "exit": 0}]):
+            with self.subTest(steps=steps):
+                run = {"view": {"workflow": "build"}, "cli_calls": ["start", "approve-plan"],
+                       "steps": steps, "stages": ["astra_challenge", "glm_revise"]}
+                checks = {row.name: row for row in oracle.run_checks(run, workflow="build", plan_approved=True)}
+                self.assertFalse(checks["plan_approved_by_user"].ok)
+
+    def test_successful_approval_remains_evidence_after_completion_or_archival(self):
+        run = {"view": {"workflow": "build", "done": True, "status": "COMPLETE"},
+               "cli_calls": ["start", "approve-plan", "resume"],
+               "steps": [{"kind": "approve-plan", "exit": 0}],
+               "stages": ["astra_challenge", "glm_revise", "terra"]}
+        checks = oracle.run_checks(run, workflow="build", plan_approved=True)
+        self.assertTrue(all(row.ok for row in checks))
 
 
     def test_the_stage_budget_counts_only_model_stages(self):
@@ -596,6 +613,62 @@ class RunChecksTests(unittest.TestCase):
         del run_record["model_stages"]  # older records: everything but orchestration counts
         check, = [c for c in oracle.run_checks(run_record, workflow="bugfix", max_model_stages=5) if c.name == "stage_budget"]
         self.assertFalse(check.ok)
+
+
+class ProgressiveLearningOracleTests(unittest.TestCase):
+    def setUp(self):
+        from harness.project import materialize
+        self.scenario = catalog.load("progressive-learning-journey")
+        temporary = tempfile.TemporaryDirectory(prefix="learning-oracle-test-")
+        self.addCleanup(temporary.cleanup)
+        self.project = materialize(self.scenario.seed, Path(temporary.name) / "project", self.scenario.reference)
+
+    def score(self, demonstrated, proof):
+        record = {"status": "TASK_COMPLETE", "view": {"workflow": "build", "progressive": {
+            "demonstrated_slices": demonstrated, "current_whole_product_proof": proof}},
+            "stages": ["astra_challenge", "glm_revise", "terra", "sol", "astra_review"],
+            "cli_calls": ["start", "approve-plan", "resume"],
+            "steps": [{"kind": "approve-plan", "exit": 0}]}
+        result = verdict.evaluate(self.scenario, self.project, record)
+        self.assertEqual("", result.error)
+        return result
+
+    def test_distinct_slice_names_are_not_part_of_the_product_contract(self):
+        for ids in (("S1", "S2"), ("journey-persist", "recommendations-finish")):
+            with self.subTest(ids=ids):
+                result = self.score([{"slice_id": id_} for id_ in ids],
+                                    {"verified": True, "status": "current", "source_revision": "current-source"})
+                self.assertEqual(verdict.PASS, verdict.judge("TASK_COMPLETE", result)[0], result.summary)
+
+    def test_exactly_two_nonempty_distinct_slice_ids_are_required(self):
+        cases = [None, [], [{"slice_id": "one"}],
+                 [{"slice_id": id_} for id_ in ("one", "two", "three")],
+                 [{"slice_id": "one"}, {"slice_id": "one"}],
+                 [{}, {"slice_id": "two"}], [{"id": "one"}, {"slice_id": "two"}],
+                 ["one", "two"], {"one": {}, "two": {}}]
+        cases.extend([[{"slice_id": id_}, {"slice_id": "two"}]
+                      for id_ in (None, "", " \t ", 1, True, [], {})])
+        for demonstrated in cases:
+            with self.subTest(demonstrated=demonstrated):
+                result = self.score(demonstrated,
+                                    {"verified": True, "status": "current", "source_revision": "current-source"})
+                checks = {check.name: check.ok for check in result.checks}
+                self.assertFalse(checks["two_independently_verified_slices"])
+                self.assertEqual(verdict.FALSE_COMPLETE, verdict.judge("TASK_COMPLETE", result)[0])
+
+    def test_checkpoint_claims_need_current_cli_completion_proof(self):
+        claims = [{"slice_id": id_, "status": "PASS", "verified": True,
+                   "artifact": {"path": "invented-checkpoint.json", "sha256": "0" * 64}}
+                  for id_ in ("journey-persist", "recommendations-finish")]
+        for proof in (None, {}, True, {"verified": 1},
+                      {"verified": False, "status": "not_established"},
+                      {"verified": False, "status": "stale_or_incomplete"}):
+            with self.subTest(proof=proof):
+                result = self.score(claims, proof)
+                checks = {check.name: check.ok for check in result.checks}
+                self.assertFalse(checks["two_independently_verified_slices"])
+                self.assertFalse(checks["current_whole_product_proof"])
+                self.assertEqual(verdict.FALSE_COMPLETE, verdict.judge("TASK_COMPLETE", result)[0])
 
 
 class ExercisedTests(unittest.TestCase):
@@ -671,6 +744,20 @@ class TurnTests(unittest.TestCase):
         first, second = split_by_turn(state, [{"said_at": "2026-09-28T10:04:00+00:00"}])
         self.assertEqual(["review_change"], [stage["stage"] for stage in first])
         self.assertEqual(["orchestrator", "terra"], [stage["stage"] for stage in second])
+
+    def test_run_and_turn_records_preserve_successful_and_rejected_approval_exits(self):
+        driver = argparse.Namespace(run_dir=None, answers=[],
+            steps=[{"kind": "start", "exit": 2}, {"kind": "approve-plan", "exit": 0},
+                   {"kind": "follow-up", "exit": 2}, {"kind": "approve-plan", "exit": 2}],
+            turn_marks=[{"steps": 2, "answers": 0, "say": "Change the goal",
+                         "said_at": "2026-09-28T10:04:00+00:00", "view": {"workflow": "build"}}])
+        record = run.run_record(driver, {"stages": []})
+        self.assertEqual(driver.steps, record["steps"])
+        approved = lambda row: next(check.ok for check in oracle.run_checks(
+            row, workflow="build", plan_approved=True) if check.name == "plan_approved_by_user")
+        self.assertTrue(approved(record))
+        self.assertTrue(approved(record["turns"][0]))
+        self.assertFalse(approved(record["turns"][1]))
 
 
 class MetricsTests(unittest.TestCase):

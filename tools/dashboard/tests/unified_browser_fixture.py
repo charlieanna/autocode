@@ -17,6 +17,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agent_console import Console, Handler, LoopbackHTTPServer, ThreadingHTTPServer, resolver_human
+from dashboard_work_summary import project as work_summary, progress_from_status
 
 
 
@@ -73,7 +74,8 @@ def plan_contract(*, approval_status='approved', origin='astra_finalize'):
         'hash': 'fixture-plan-revision-7',
         'origin': origin,
         'approval_status': approval_status,
-        'approval_event': {'at': FIXTURE_NOW, 'actor': 'Fixture reviewer'},
+        'approval_event': {'at': FIXTURE_NOW, 'actor': 'Fixture reviewer',
+                           'kind': 'goal_approval', 'token': 'r7:fixture-plan-revision-7'},
         'body': {
             'intended_outcome': 'Repair runtime monitoring, approval receipts, and interrupted-task recovery.',
             'requirements': ['Keep runtime truth and saved activity distinct.',
@@ -299,6 +301,48 @@ def scenario_states(workspace):
     # the original mutation.
     states['flow-model-uncertain'] = copy.deepcopy(unavailable_model)
     states['flow-model-uncertain']['_fixture_model_confirm_mode'] = 'uncertain'
+    # Isolated running conversation with a saved transcript for the M3
+    # workspace drawer and keyboard cases (AC19/AC20). The flow- prefix keeps
+    # it out of the mixed Workspace inventory the pinned matrices drive.
+    m3_chat = base_state(workspace, 'Drawer-safe running build', status='RUNNING')
+    m3_chat['_fixture_monitor']['live'] = {'state': 'alive', 'label': 'Worker verified alive', 'pid': 2430, 'elapsed': '00:04:05'}
+    m3_chat['_fixture_monitor']['objective'] = 'Keep the chat transcript and the unsent draft intact while the project and details drawers open and close.'
+    m3_chat['progress_messages'] = [
+        {'role': 'assistant', 'speaker': 'Builder', 'status': 'received',
+         'text': 'Navigation is complete. I’m adding the context panel.',
+         'created_at': '2026-09-22T12:20:00Z'},
+        {'role': 'assistant', 'speaker': 'Builder', 'status': 'received',
+         'text': 'The pane switches now keep this chat visible.',
+         'created_at': '2026-09-22T12:24:00Z'},
+        {'role': 'assistant', 'speaker': 'Validator', 'status': 'received',
+         'text': 'Persistence checks passed. Mobile and browser checks are next.',
+         'created_at': '2026-09-22T12:28:00Z'},
+    ]
+    states['flow-m3-chat'] = m3_chat
+    for viewport in ('desktop', 'tablet', 'mobile'):
+        intent = copy.deepcopy(states['recovery'])
+        intent['task'] = 'Inspect chat intent before changing a plan'
+        states['flow-chat-intent-' + viewport] = intent
+    for viewport in ('desktop','tablet','mobile'):
+        for mode in ('partial','suggested'):
+            answer_cards=copy.deepcopy(pending_answer)
+            answer_cards['pending_questions']=[
+                {'id':'card-1','question':'What should the action button say?', 'proposed_default':'Continue', 'why':'Keep the action clear', 'options':[]},
+                {'id':'card-2','question':'Where should delivery stay?', 'proposed_default':'Local workspace', 'why':'Preserve the project scope', 'options':[]}]
+            states['flow-answer-cards-'+mode+'-'+viewport]=answer_cards
+    for name, source in [('running', 'running'), ('waiting', 'pending-answer'), ('complete', 'completed')]:
+        work = copy.deepcopy(states[source])
+        work['task'] = 'Saved task progress · ' + name
+        work['goal_contract']['body']['milestones'] = [
+            {'id': 'M1', 'objective': 'Build the form'}, {'id': 'M2', 'objective': 'Check delivery'}]
+        work['current_task']['milestone_id'] = 'M2'
+        work['_fixture_accepted'] = ['M1', 'M2'] if name == 'complete' else ['M1']
+        work.setdefault('validation', {})['criterion_results'] = [{'id': 'C1', 'status': 'PASS'}, {'id': 'C2', 'status': 'FAIL'}]
+        work['_fixture_monitor']['findings'] = [{'id': 'F7', 'finding': 'Error message is hidden', 'source': 'sol', 'severity': 'major', 'times_reported': 2}]
+        if name == 'complete':
+            work['validation']['criterion_results'] = [{'id': 'C' + str(i), 'status': 'PASS'} for i in range(1, 7)]
+            work['_fixture_monitor']['findings'] = []
+        states['flow-work-progress-' + name] = work
     return states
 
 
@@ -357,7 +401,12 @@ def main():
                 state = json.loads((run / 'state.json').read_text(encoding='utf8'))
                 configured = state.get('_fixture_interventions', {})
                 return {'mode': configured.get('mode', 'legacy'), 'capable': False, 'entries': configured.get('entries', []),
-                        'attempt_id': state.get('_fixture_attempt'), 'blocked_conditions': [], 'pause_intent': None}
+                        'attempt_id': state.get('_fixture_attempt'), 'blocked_conditions': [], 'pause_intent': None,
+                        'work_progress': progress_from_status({
+                            'status': state['status'], 'contract_token': f"r{state['goal_contract']['revision']}:{state['goal_contract']['hash']}",
+                            'active_stage': state.get('active_stage'), 'current_task': state.get('current_task'),
+                            'milestone_checkpoint': {'accepted_milestones': state['_fixture_accepted']}})
+                            if '_fixture_accepted' in state else {}}
 
             def _fixture_monitor(self, run):
                 state = json.loads((run / 'state.json').read_text(encoding='utf8'))
@@ -437,7 +486,24 @@ def main():
                     self._save_state(run, state)
                 view = super().task_view(workspace, run)
                 view['monitor'] = self._fixture_monitor(run)
+                view['work_summary'] = work_summary(view)
                 return view
+
+            def intervene(self, workspace, run, kind, text, ident):
+                if not run.name.startswith('flow-chat-intent-'):
+                    return super().intervene(workspace, run, kind, text, ident)
+                if kind != 'feedback':
+                    raise ValueError('The chat intent fixture accepts feedback only')
+                state = self._state(run)
+                entries = state.setdefault('_fixture_interventions', {}).setdefault('entries', [])
+                previous = next((entry for entry in entries if entry['id'] == ident), None)
+                if previous:
+                    return previous
+                receipt = {'id': ident, 'kind': kind, 'text': text, 'status': 'queued',
+                           'durable': True, 'observed_goal_token': self.view(workspace, run).get('goal_token')}
+                entries.append(receipt)
+                self._save_state(run, state)
+                return receipt
 
             def mutate(self, data):
                 """Authoritative, disposable transitions used only by browser flows.
@@ -463,7 +529,11 @@ def main():
                     if token != state.get('displayed_goal') or data.get('confirmation') != token:
                         raise ValueError('Displayed fixture plan revision changed before approval')
                     state['goal_contract']['approval_status'] = 'approved'
-                    state['goal_contract']['approval_event'] = {'at': FIXTURE_NOW, 'actor': 'Fixture developer'}
+                    # The real runner stamps the exact sealed token into the
+                    # saved approval event (autocode_goal_lifecycle.approve).
+                    state['goal_contract']['approval_event'] = {
+                        'at': FIXTURE_NOW, 'actor': 'Fixture developer',
+                        'kind': 'goal_approval', 'token': token}
                     state.setdefault('user_events', []).append({'kind': 'goal_approval', 'token': token, 'at': FIXTURE_NOW, 'actor': 'Fixture developer'})
                     state['resolver']['human_escalations'][public['request_id']]['status'] = 'consumed'
                     state.pop(resolver_human.PUBLIC)
@@ -528,10 +598,14 @@ def main():
                     # the separately required successful receipt path.
                     if not Path(run).name.startswith('flow-answer-'):
                         raise ValueError('Fixture delivery could not be confirmed; preserve the draft before retrying.')
-                    answer_index = extra.index('--answer') if '--answer' in extra else -1
-                    if answer_index < 0 or answer_index + 1 >= len(extra):
-                        raise ValueError('Fixture answer is missing its explicit question value')
-                    question_id, text = extra[answer_index + 1].split('=', 1)
+                    delegated = '--delegate' in extra
+                    if delegated:
+                        question_id, text = extra[extra.index('--delegate') + 1], None
+                    else:
+                        answer_index = extra.index('--answer') if '--answer' in extra else -1
+                        if answer_index < 0 or answer_index + 1 >= len(extra):
+                            raise ValueError('Fixture answer is missing its explicit question value')
+                        question_id, text = extra[answer_index + 1].split('=', 1)
                     state = self._state(run)
                     public = resolver_human.current(state)
                     if public is None or '--resolver-token' not in extra:
@@ -543,7 +617,12 @@ def main():
                     if question_id not in {str(question.get('id')) for question in pending}:
                         raise ValueError('Fixture question is no longer pending')
                     question = next(question for question in pending if str(question.get('id')) == question_id)
-                    answer = {'text': text, 'question': copy.deepcopy(question), 'actor': 'user_cli', 'at': FIXTURE_NOW,
+                    if delegated:
+                        text = question.get('proposed_default')
+                        if not text:
+                            raise ValueError('This question has no suggested answer')
+                    answer = {'text': text, 'kind': 'delegated' if delegated else 'answer', 'question_id': question_id,
+                              'question': copy.deepcopy(question), 'actor': 'user_cli', 'at': FIXTURE_NOW,
                               'resolver_request': public['request_id'], 'resolver_token': public['request_token']}
                     state.setdefault('answers', {})[question_id] = answer
                     state.setdefault('user_events', []).append(copy.deepcopy(answer))

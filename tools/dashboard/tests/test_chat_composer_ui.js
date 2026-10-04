@@ -58,6 +58,7 @@ class Element {
     this.tagName = tag.toUpperCase();
     this.textContent = text;
     this.children = [];
+    this.dataset = {};
   }
   append(...children) { this.children.push(...children); }
   prepend(...children) { this.children.unshift(...children); }
@@ -80,7 +81,7 @@ const formatting = vm.createContext({
   activeConversation: 'conversation-one',
   latestRun: null,
 });
-vm.runInContext(functionSource('appendMessage') + '\n' + functionSource('renderMessageHistory'), formatting);
+vm.runInContext(functionSource('messageAnchorKey') + '\n' + functionSource('appendMessage') + '\n' + functionSource('answerHistoryItems') + '\n' + functionSource('renderMessageHistory'), formatting);
 
 const earlierText = 'Earlier draft. ' + 'Detail. '.repeat(180);
 const latestText = 'The revised plan. ' + 'Detail. '.repeat(180) + '\nWhich option do you prefer?';
@@ -112,3 +113,14 @@ assert.doesNotMatch(functionSource('requestRow').split("else if(entry.status==='
   'an uncertain receipt must be reconciled before any retry is offered');
 
 console.log('Chat keyboard handling, blocked sends, and visible latest assistant reply passed.');
+
+const answerHistory=new Element('div');
+formatting.renderMessageHistory(answerHistory,[
+ {id:'a1',role:'user',question_id:'Q1',text:'JSON',status:'received',delegate:true},
+ {id:'a2',role:'user',question_id:'Q2',text:'Local',status:'received',delegate:false},
+ {id:'a3',role:'user',question_id:'Q1',text:'A revised answer',status:'received'},
+ {id:'a4',role:'user',question_id:'Q3',text:'Retained failed draft',status:'error',error:'Delivery failed'}
+],'fixture-history');
+assert.equal(answerHistory.children[0].label,'You answered 2 questions · 1 used the suggestion');
+assert.equal(answerHistory.children[1].label,'You answered 1 question · 0 used the suggestion');
+assert.notEqual(answerHistory.children[2].tagName,'DETAILS','Failed delivery remains visible outside accepted answer history');

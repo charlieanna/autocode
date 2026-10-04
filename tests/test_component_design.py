@@ -140,6 +140,8 @@ class ComponentDesignCliTests(unittest.TestCase):
 
     def setUp(self):
         fixture.BuildAndIntegrateTests.setUp(self)
+        from tests.visual_capture_fixtures import install_native_hook
+        install_native_hook(self.root / 'bin' / 'codex', result='report', asset="spec['file']", indent='    ')
         self.env["CODEX_HOME"] = str(self.root / "codex-config")
         self.ui_run = accepted_ui_run(self.root / "accepted-alpha")
         self.observations = self.root / "observations"

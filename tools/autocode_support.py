@@ -115,15 +115,14 @@ def events(path):
 def event_metrics(path):
     rows = events(path)
     completed = [r for r in rows if r.get("type") == "turn.completed" and isinstance(r.get("usage"), dict)]
-    usages = [r["usage"] for r in rows if r.get("type") in ("turn.completed", "turn.failed")
+    usages = [r["usage"] for r in rows if r.get("type") in ("turn.completed", "turn.failed", "usage.partial")
               and isinstance(r.get("usage"), dict)]
     keys = ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"]
     usage = {k: sum(u[k] for u in usages) if usages and all(k in u for u in usages) else None for k in keys}
     return {"provider_tokens": usage, "request_context": request_usage.read(path),
+            "provider_tokens_partial": any(r.get("type") == "usage.partial" for r in rows),
             "provider_requests": None, "provider_retries": None,
             "completed_turns": len(completed), "headroom_transformed": None, "provider_cost_usd": token_usage.reported_cost(rows)}
-
-
 
 
 def terminal_failure_reason(path):
@@ -408,7 +407,17 @@ finding_dispositions with its exact id, disposition resolved and the check that
 proves it, or retracted with evidence that the finding itself was wrong. Do not
 abbreviate commands or invent IDs. The runner saves full events locally.
 For human_review criteria report automated evidence; actual approval is a separate
-runner gate. No evidence files need to be written. Return findings to the Plan Reviewer, who
+runner gate. If that approval is the approved flow's only unexecuted step, report
+end_to_end_result NOT_VERIFIED with a technical_result containing status PASS, a summary
+and evidence_refs proving ALL technical steps of the approved flow were executed.
+List the exact outstanding human criterion IDs in pending_human_criteria. If any
+technical flow step is unfinished, technical_result is NOT_VERIFIED (or FAIL for a
+verified defect); naming a human criterion never substitutes for that technical proof.
+An explicit technical FAIL also makes end_to_end_result FAIL; end_to_end_result PASS
+cannot contradict incomplete technical proof or pending human criteria.
+Use technical_result=null and pending_human_criteria=[] when there is no separate
+human flow gate. Technical evidence uses the same check:<position> or artifact
+references as other results. No evidence files need to be written. Return findings to the Plan Reviewer, who
 decides what happens next. Do not declare project completion.
 """,
 }

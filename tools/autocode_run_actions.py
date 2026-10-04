@@ -20,6 +20,7 @@ try:
     from . import autocode_dependency as dependency
     from . import autocode_conversation_ingress as conversation_ingress
     from . import autocode_dispatch as dispatch
+    from . import autocode_finding_close as finding_close
     from . import autocode_follow_up as follow_up
     from . import autocode_goals as goals
     from . import autocode_interventions as interventions
@@ -32,6 +33,7 @@ try:
     from . import autocode_resolver_human as resolver_human
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_resolver_runtime as resolver_runtime
+    from . import autocode_stop as stop
     from . import autocode_support as support
     from . import autocode_workflows as workflows
     from . import autocode_worktrees as worktrees
@@ -41,6 +43,7 @@ except ImportError:
     import autocode_dependency as dependency
     import autocode_conversation_ingress as conversation_ingress
     import autocode_dispatch as dispatch
+    import autocode_finding_close as finding_close
     import autocode_follow_up as follow_up
     import autocode_goals as goals
     import autocode_interventions as interventions
@@ -53,6 +56,7 @@ except ImportError:
     import autocode_resolver_human as resolver_human
     import autocode_recovery_progress as recovery_progress
     import autocode_resolver_runtime as resolver_runtime
+    import autocode_stop as stop
     import autocode_support as support
     import autocode_workflows as workflows
     import autocode_worktrees as worktrees
@@ -60,17 +64,28 @@ except ImportError:
 
 def explicit_recovery_requested(args):
     """Whether this invocation carries a scoped operator recovery action."""
+    # An explicit bound change is a recovery action (#301): it must not be held
+    # behind an unchanged operational frontier.
+    budget_flags = getattr(args, '_explicit_budget_flags', None) or set()
     return any((getattr(args, 'retry_builder', None),
                 getattr(args, 'retry_failed_stage', False),
                 getattr(args, 'retry_report', None),
                 getattr(args, 'abandon_stage', None),
                 getattr(args, 'diagnose_failed_stage', False),
-                getattr(args, 'grant_recovery', None) is not None))
+                getattr(args, 'grant_recovery', None) is not None,
+                bool(budget_flags)))
 
 
 def handle(runner, args, parser, state, state_path, run_dir, workspace):
     """Apply this invocation's action to the saved run; return an exit code to stop, or None to build."""
     args._failure_retry_authorization = None  # Invocation-local; saved history is audit data, not credit.
+    # An applied durable stop is terminal: no recovery, user action, answer,
+    # approval, feedback or resume may relaunch a stopped run or complete it.
+    if stop.applied_stop(state) is not None:
+        if stop.assert_stopped(state):
+            runner.write_json(state_path, state)
+        print(f"{state['status']}: {state['stop_reason']}")
+        return 2
     try:
         conversation_ingress.require_expected_goal(state, getattr(args, 'expected_goal_token', None),
                                                    token_for=goals.token, is_approved=goals.approved)
@@ -105,7 +120,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     decision_action = any((args.answer, args.delegate, args.approve_goal, args.edit_goal,
                            args.approve_review, args.reconcile_review, args.feedback is not None, args.follow_up is not None,
                            args.show_goal, args.accept_completion, args.resolver_response,
-                           args.planning_review_call_limit is not None))
+                           args.planning_review_call_limit is not None, bool(args.close_finding)))
     if (args.resume_paused and not decision_action and not explicit_recovery_requested(args)
             and recovery_progress.reconcile(state, issued=resolver_human.current(state),
                 approved=goals.approved(state), supersede=resolver_human.supersede_operational,
@@ -282,6 +297,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 runner.repeated_failure_resume_guard(state, workspace, authorization=authorization)
                 runner.prepare_planning_retry(state, run_dir)
                 runner.prepare_exhausted_execution_report_retry(state, run_dir, workspace)
+                discarded = runner.archive_stale_report_repair(state, run_dir, workspace)
+                if discarded:
+                    print(discarded, flush=True)
             # Reset report repair attempts on explicit resume, for whatever
             # repair record is still pending. An exhaustion-gated retry
             # above (which requires and archives the true attempt count)
@@ -302,6 +320,14 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                   f"partial work archived; the Plan Reviewer will inspect before the next writer", flush=True)
         elif not (runner.automatically_recover_timed_out_stage(state, run_dir, workspace, error)
                   or runner.automatically_recover_external_directory_denial(state, run_dir, workspace, error)):
+            # Reconciliation above retained the crash-uncertain stage and its
+            # evidence without inventing completion. A stop recorded before the
+            # crash is still authoritative: consume and apply it exactly once at
+            # this saved boundary, before this invocation exits, so no manual
+            # recovery is needed to stop the run and no later stage is admitted.
+            if stop.pending_stop(run_dir) is not None and runner.consume_interventions(state, run_dir, workspace):
+                print(f"{state['status']}: {state['stop_reason']}")
+                return 2
             raise
     if state.get("uncertain_artifacts"):
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Legacy partial stage remains unresolved: " + state["uncertain_artifacts"])
@@ -341,7 +367,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                        args.approve_goal, args.edit_goal,
                        args.approve_review, args.reconcile_review,
                        args.feedback is not None, args.follow_up is not None, args.accept_completion,
-                       args.planning_review_call_limit is not None))
+                       args.planning_review_call_limit is not None, bool(args.close_finding)))
     if user_action:
         metadata = runner.intervention_metadata(workspace, run_dir, state)
         if metadata["pending_count"] or metadata["inbox_error"]:
@@ -410,6 +436,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                                               args.review_token, support.snapshot(workspace))
             if args.accept_completion:
                 runner.accept_completion(candidate, workspace)
+            if args.close_finding:
+                finding_close.close(candidate, args.close_finding, args.close_reason,
+                                    current=resolver_human.current, supersede=resolver_human.supersede_operational)
             if published and any((args.answer, args.delegate, args.approve_goal, args.approve_review)):
                 runner.finish_human_action(candidate, published)
         except (ValueError, KeyError) as error:
@@ -460,7 +489,10 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             if state.get("pause_intent") and not state["pause_intent"].get("acknowledged_at"):
                 state["pause_intent"]["acknowledged_at"] = resumed_at
             for receipt in state.get("applied_interventions", []):
-                if isinstance(receipt, dict) and not receipt.get("resumed_at"):
+                # Pause receipts acknowledge their resume; a stop receipt is
+                # terminal and never receives a resumed_at stamp.
+                if (isinstance(receipt, dict) and not receipt.get("resumed_at")
+                        and not stop.is_stop_receipt(receipt)):
                     receipt["resumed_at"] = resumed_at
             state.update(status="RUNNING", phase="PLANNING" if planning.is_planning(state, state["next_stage"])
                          else "DISCOVERING" if state["next_stage"] == "astra_discovery" else "READY_TO_EXECUTE")

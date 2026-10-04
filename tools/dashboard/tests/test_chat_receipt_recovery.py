@@ -81,8 +81,10 @@ class ChatReceiptRecoveryTests(unittest.TestCase):
 
     def test_crash_after_durable_acceptance_repairs_on_restart_without_resubmit(self):
         first = self.open()
+        proposal = first.chat(self.request())
         with self.assertRaises(ProcessLost):
-            first.chat(self.request())
+            first.chat({**self.request(), 'decision': 'confirm',
+                        'decision_token': proposal['confirmation']['token']})
         self.assertEqual(1, first.submissions)
         self.assertEqual('r1:prior', first._chat_rows(self.run)[0]['prior_goal_token'])
         self.assertEqual(1, len(self.messages()))

@@ -130,18 +130,55 @@ def _record_plan_draft_revision(doc, message, revision):
 
 
 def _configured_routes(models):
-    """Conversation routes for NEW dispatch: mandated Gatherer plus Planner.
-
-    The strict new-dispatch policy (enforce_conversation_routes) rejects an
-    explicit Gatherer override to any non-mandated model or effort before a
-    provider is invoked; historical documents keep their persisted routes
-    readable because load/normalize never rebuilds routes.
-    """
+    """Preserve the configured Gatherer and add the default independent Planner."""
     routes = {'requirements_gatherer': {
         'engine': 'opencode', 'provider': 'opencode', 'model': models['glm_model'],
         'reasoning_effort': models.get('glm_reasoning_effort') or 'low'}}
     routes.update(planner_dispatch.conversation_planner_routes())
     return planner_dispatch.enforce_conversation_routes(routes)
+
+
+PROJECT_INSTRUCTIONS_FILE = 'AGENTS.md'
+MAX_PROJECT_INSTRUCTIONS_CHARS = 12_000
+
+
+def _project_scope_context(doc):
+    """Validated creation-time project scope for provider dispatch.
+
+    Returns (workspace Path, leading provider message) for a saved scoped
+    conversation, or (None, None) for scratch conversations. The saved scope
+    was validated against the dashboard's Git projects at creation; it is
+    re-resolved here so a removed project fails safely instead of silently
+    planning outside the repository. Repository instructions come from the
+    project's AGENTS.md, bounded, and are supplied as conversation context.
+    """
+    raw = doc.get('project_workspace')
+    if not isinstance(raw, str) or not raw.strip():
+        return None, None
+    workspace = Path(raw).expanduser()
+    try:
+        workspace = workspace.resolve(strict=True)
+    except OSError as error:
+        raise ConversationProviderError(
+            'The saved project scope is unavailable. Restore the project before continuing this conversation.') from error
+    if not workspace.is_dir():
+        raise ConversationProviderError(
+            'The saved project scope is not a repository folder. Restore the project before continuing this conversation.')
+    instructions = ''
+    instructions_path = workspace / PROJECT_INSTRUCTIONS_FILE
+    try:
+        resolved = instructions_path.resolve(strict=True)
+        if resolved.parent == workspace and resolved.is_file():
+            instructions = resolved.read_text(encoding='utf-8', errors='replace')[:MAX_PROJECT_INSTRUCTIONS_CHARS]
+    except OSError:
+        instructions = ''
+    text = ('This conversation is scoped to the project at ' + str(workspace)
+            + '. All planning in this conversation targets that repository.'
+            + (' Repository instructions from ' + PROJECT_INSTRUCTIONS_FILE
+               + ' follow below and govern the work:\n\n' + instructions
+               if instructions else ' No ' + PROJECT_INSTRUCTIONS_FILE + ' is saved in the project.'))
+    message = {'id': 'project-scope', 'role': 'system', 'speaker': 'Project scope', 'text': text}
+    return workspace, message
 
 
 class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
@@ -180,11 +217,12 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
         except (UnicodeError, json.JSONDecodeError) as error:
             raise ValueError('This saved conversation could not be read.') from error
         if (not isinstance(doc, dict) or doc.get('id') != conversation_id
-                or not isinstance(doc.get('messages'), list) or not doc['messages']
-                or not all(isinstance(row, dict) and row.get('role') in ('user', 'assistant')
-                           and isinstance(row.get('text'), str) and isinstance(row.get('id'), str)
-                           for row in doc['messages'])
-                or not any(row['role'] == 'user' for row in doc['messages'])
+                or not isinstance(doc.get('messages'), list)
+                or (doc['messages'] and (not all(isinstance(row, dict) and row.get('role') in ('user', 'assistant')
+                            and isinstance(row.get('text'), str) and isinstance(row.get('id'), str)
+                            for row in doc['messages'])
+                    or not any(row['role'] == 'user' for row in doc['messages'])))
+                or (not doc['messages'] and doc.get('status') != 'ready')
                 or not all(isinstance(doc.get(key), str) for key in ('title', 'created_at', 'updated_at'))
                 or not isinstance(doc.get('models'), dict)
                 or not isinstance(doc['models'].get('glm_model'), str)
@@ -207,20 +245,25 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
         return value
 
 
-    def create(self, text, models=None, request_id=None):
+    def create(self, text, models=None, request_id=None, workspace=None):
         text, models, request_id = _text(text), _models(models), _request_id(request_id)
+        if workspace is not None and (not isinstance(workspace, str) or not workspace.strip() or len(workspace) > 4096):
+            raise ValueError('The creation-time project scope must be a short non-empty path.')
         with self._guard():
             self._ensure_open()
             for summary in self.list(include_archived=True):
                 doc = self._load(summary['id'])
                 if doc.get('_create_request_id') == request_id:
-                    if doc['messages'][0]['text'] != text or doc['models'] != models:
+                    if ((doc['messages'] and doc['messages'][0]['text'] != text)
+                            or doc['models'] != models
+                            or (doc.get('project_workspace') or None) != (workspace or None)):
                         raise ValueError('That request ID was already used for a different conversation.')
                     return self._public(doc)
             created = _now()
             doc = {'id': uuid.uuid4().hex, 'title': ' '.join(text.split())[:80],
                    'created_at': created, 'updated_at': created, 'status': 'thinking', 'error': None,
                    'messages': [], 'models': models, 'attachment': None,
+                   **({'project_workspace': workspace} if workspace else {}),
                    'schema_version': conversation_protocol.HANDOFF_VERSION, 'drafts': [],
                    'requirements': {'revisions': [], 'provenance': []}, 'plan_drafts': [],
                    'configured_routes': _configured_routes(models),
@@ -229,6 +272,38 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
                    '_dispatches': {}, '_planner_dispatches': {}}
             self._append_user(doc, text, request_id)
             return self._start(doc)
+
+    def create_empty(self, workspace=None, request_id=None):
+        """Save an empty scoped conversation before the first message is sent.
+
+        Activating a New conversation control opens this saved record with its
+        project scope already attached; the first message continues it through
+        the normal turn pipeline, providers included.
+        """
+        request_id = _request_id(request_id)
+        if workspace is not None and (not isinstance(workspace, str) or not workspace.strip() or len(workspace) > 4096):
+            raise ValueError('The creation-time project scope must be a short non-empty path.')
+        with self._guard():
+            self._ensure_open()
+            for summary in self.list(include_archived=True):
+                doc = self._load(summary['id'])
+                if doc.get('_create_request_id') == request_id:
+                    if doc['messages'] or (doc.get('project_workspace') or None) != (workspace or None):
+                        raise ValueError('That request ID was already used for a different conversation.')
+                    return self._public(doc)
+            created = _now()
+            doc = {'id': uuid.uuid4().hex, 'title': 'New conversation',
+                   'created_at': created, 'updated_at': created, 'status': 'ready', 'error': None,
+                   'messages': [], 'models': _models(None), 'attachment': None,
+                   **({'project_workspace': workspace} if workspace else {}),
+                   'schema_version': conversation_protocol.HANDOFF_VERSION, 'drafts': [],
+                   'requirements': {'revisions': [], 'provenance': []}, 'plan_drafts': [],
+                   'configured_routes': _configured_routes(_models(None)),
+                   'provider_capabilities': conversation_protocol.capabilities(),
+                   '_create_request_id': request_id, '_requests': {},
+                   '_dispatches': {}, '_planner_dispatches': {}}
+            self._save(doc)
+            return self._public(doc)
 
 
     def send(self, conversation_id, text, request_id=None):
@@ -251,6 +326,10 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
                 raise ValueError('This conversation is attached to a project. Continue in its task conversation.')
             if doc['status'] == 'error':
                 raise ValueError('Retry the saved message before sending another one.')
+            if not doc['messages']:
+                # The first message titles a pre-send conversation opened from
+                # the sidebar's New conversation control.
+                doc['title'] = ' '.join(text.split())[:80]
             self._append_user(doc, text, request_id)
             return self._start(doc)
 
@@ -290,16 +369,9 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
 
 
     def _authorized_dispatch_routes(self, doc):
-        """Authorize the routes the NEXT turn dispatches under (send/retry).
+        """Validate the next turn's saved routes, preserving explicit model choices.
 
-        Strict route authorization runs before state mutation or provider
-        launch: a persisted non-mandated Gatherer route from a historical
-        record stays readable (load/normalize never rebuilds routes) but is
-        rejected clearly, without silent substitution, when it would dispatch a
-        new requirements turn.  The next turn is permitted after an explicit
-        approved model update, which rebuilds configured_routes under the same
-        policy.  A legacy document without configured_routes gets the mandated
-        default routes.
+        A legacy document without configured routes receives the defaults.
         """
         if 'configured_routes' not in doc:
             return doc.setdefault('configured_routes',
@@ -426,11 +498,19 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
             model = gatherer.get('model') or doc['models']['glm_model']
             effort = gatherer.get('reasoning_effort') or 'low'
         try:
-            workdir = self.root / 'scratch' / conversation_id
-            workdir.mkdir(parents=True, exist_ok=True, mode=0o700)
-            if workdir.is_symlink() or self.root not in workdir.resolve().parents:
-                raise ConversationProviderError('The conversation scratch directory is invalid.')
-            response = self._invoke_provider(conversation_id, turn_id, logical_turn, messages,
+            # A saved project scope routes this turn's Requirements Gatherer
+            # into the selected repository with its instructions as context;
+            # unscoped conversations keep their scratch working directory.
+            scope_workspace, scope_message = _project_scope_context(doc)
+            if scope_workspace is not None:
+                workdir = scope_workspace
+            else:
+                workdir = self.root / 'scratch' / conversation_id
+                workdir.mkdir(parents=True, exist_ok=True, mode=0o700)
+                if workdir.is_symlink() or self.root not in workdir.resolve().parents:
+                    raise ConversationProviderError('The conversation scratch directory is invalid.')
+            provider_messages = [scope_message, *messages] if scope_message is not None else messages
+            response = self._invoke_provider(conversation_id, turn_id, logical_turn, provider_messages,
                                              model, workdir, effort)
             if not isinstance(response, str) or not response.strip():
                 raise ConversationProviderError('The Requirements Gatherer returned no text. Your message is saved; retry when ready.')
@@ -673,17 +753,25 @@ class ContinuousConversationStore(RecoveryMixin, legacy.ConversationStore):
             messages = deepcopy(doc['messages'])
             self._save(doc)
         try:
-            workdir = self.root / 'scratch' / conversation_id
-            workdir.mkdir(parents=True, exist_ok=True, mode=0o700)
-            if workdir.is_symlink() or self.root not in workdir.resolve().parents:
-                raise planner_dispatch.PlannerDispatchError('The conversation scratch directory is invalid.',
-                                                             stage='planner_provider')
+            # The same saved project scope routes the structured Planner into
+            # the selected repository with its instructions as context; the
+            # Gatherer turn and the Planner turn cannot drift apart.
+            scope_workspace, scope_message = _project_scope_context(doc)
+            if scope_workspace is not None:
+                workdir = scope_workspace
+            else:
+                workdir = self.root / 'scratch' / conversation_id
+                workdir.mkdir(parents=True, exist_ok=True, mode=0o700)
+                if workdir.is_symlink() or self.root not in workdir.resolve().parents:
+                    raise planner_dispatch.PlannerDispatchError('The conversation scratch directory is invalid.',
+                                                                 stage='planner_provider')
+            planner_messages = [scope_message, *messages] if scope_message is not None else messages
             if captured is not None:
                 raw = captured.get('text')
                 if not isinstance(raw, str) or captured.get('sha256') != hashlib.sha256(raw.encode()).hexdigest():
                     raise planner_dispatch.PlannerDispatchError('Saved Planner result failed integrity validation.', stage='recovery')
             else:
-                raw = self._invoke_planner(conversation_id, logical_turn, messages, route, workdir, revision)
+                raw = self._invoke_planner(conversation_id, logical_turn, planner_messages, route, workdir, revision)
                 self._capture_planner_result(conversation_id, logical_turn, raw)
             draft = planner_dispatch.extract_structured_draft(raw)
             validated = planner_dispatch.validate_structured_result(

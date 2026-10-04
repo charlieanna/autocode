@@ -153,7 +153,7 @@ class JournalBridgeTests(unittest.TestCase):
         run.mkdir(parents=True)
         self.console.workspace_for = lambda raw: self.workspace
         self.console.run_for = lambda workspace, raw: run
-        self.console.view = lambda workspace, run: {'goal_token': 'r2:abc', 'goal': {'approval_status': 'approved'}}
+        self.console.view = lambda workspace, run: {'goal_token': 'r2:abc', 'goal': {'revision': 2, 'hash': 'abc', 'approval_status': 'approved', 'approval_event': {'token': 'r2:abc'}}}
         self.console._intervention_view = lambda workspace, run: {'mode': 'durable', 'capable': True}
         request = {'action': 'continue', 'workspace': str(self.workspace), 'run': str(run),
                    'token': 'r2:abc', 'confirmation': 'r2:abc', 'expected_goal_token': 'r2:abc'}

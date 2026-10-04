@@ -135,6 +135,22 @@ class SavedRunTest(unittest.TestCase):
             self.assertIsNone(report["token_usage"]["estimated_api_equivalent_usd"])
             scorer.render(report)
 
+    def test_partial_archived_usage_keeps_subtotal_without_complete_cost_or_pass(self):
+        failed = record(timed_out=True, abandoned=True, exit_code=1)
+        failed["metrics"]["provider_tokens_partial"] = True
+        state = {"stages": [failed, record()]}
+        self.save(state)
+        before = (self.root / "state.json").read_bytes()
+        report = scorer.score_run(self.root)
+        usage = report["token_usage"]
+        self.assertAlmostEqual(0.000306, usage["known_estimated_api_equivalent_usd"])
+        self.assertEqual(290, usage["totals"]["input_tokens"])
+        self.assertEqual(60, usage["totals"]["output_tokens"])
+        self.assertEqual((None, "PARTIAL"), (usage["estimated_api_equivalent_usd"],
+                         report["scores"]["token_discipline"]["score"]))
+        self.assertIn("**Estimated API-equivalent cost:** unknown", scorer.render(report))
+        self.assertEqual(before, (self.root / "state.json").read_bytes())
+
     def test_runner_owned_transition_costs_zero_without_fabricated_model(self):
         self.save({"stages": [record(command=[], engine="runner", runner_owned=True,
                                       metrics={"provider_tokens": {"input_tokens": 0, "output_tokens": 0}})]})
@@ -222,6 +238,23 @@ class SavedRunTest(unittest.TestCase):
                 self.assertEqual(0, result.returncode, result.stderr)
                 self.assertIn("unknown", result.stdout)
         self.assertEqual(before, (self.root / "state.json").read_bytes())
+
+
+class ModelRoutingTests(unittest.TestCase):
+    def test_any_recorded_model_is_allowed_and_not_penalized_for_billing_or_ladder(self):
+        for model in ('mimo-token-plan/mimo-v2.6-pro', 'opencode/mimo-v2.6-flash-free',
+                      'zai-coding-plan/glm-5.2-highspeed', 'new-plan/future-model'):
+            with self.subTest(model=model), tempfile.TemporaryDirectory() as temp:
+                run = Path(temp)
+                state = {'status': 'RUNNING', 'settings': {'roles': {
+                    'terra': {'model': model}, 'sol': {'model': 'openai/gpt-6-sol'}}},
+                    'stages': [{'stage': 'terra', 'command': ['opencode', 'run', '--model', model]}]}
+                (run / 'state.json').write_text(json.dumps(state))
+                routing = scorer.model_route_checks(state, run)
+                self.assertIn(model, routing['launched_models'])
+                self.assertEqual([], routing['forbidden_seen'])
+                report = scorer.score_run(run)
+                self.assertEqual('PASS', report['scores']['model_routing']['score'])
 
 
 if __name__ == "__main__":

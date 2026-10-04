@@ -27,11 +27,14 @@ function harness(storage=new Map()) {
     renderDocument:value=>new Element('pre',JSON.stringify(value)),messageBody:value=>new Element('p',value),planList:()=>new Element(),
     stageName:()=> 'Saved step',stageSucceeded:()=>true,human:value=>String(value),
     taskArchiveBlocked:()=>false,projectBlocked:()=>false,interruptedAttempt:()=>null,
+    stateFacts:()=>({objective:'Saved objective',step:'Saved step'}),
     sessionCheckpoints:()=>[],renderSessionCheckpoints:()=>null,renderMessageHistory:()=>{},renderWorkflowTimeline:()=>{},approveBuildState:new Map(),
     monitorDetailsPanel:()=>new Element(),output:()=>{},renderPrimaryAction:()=>{},renderTaskAttention:()=>{},renderTaskNow:()=>{},
+    emptyState:()=>new Element(),basename:value=>String(value||'').split('/').filter(Boolean).pop()||'',
     resizeComposer:()=>{},requestAnimationFrame:callback=>callback(),dashboardNotice:value=>notices.push(value),
     document:{querySelectorAll:()=>flatten($('#conversation')).filter(row=>row.dataset.questionCard)},
     localStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>storage.set(key,value)},crypto:{randomUUID:()=> 'request-'+(++id)},
+    approveBuildStatusLine:()=>'',
     api:async(url,options)=>{calls.push({url,payload:JSON.parse(options.body)});return {status:'received'};},
     post:async(url,payload)=>{calls.push({url,payload:JSON.parse(JSON.stringify(payload))});return {status:'queued'};},
     refresh:async()=>{},latestRun:null,latestData:null,chosen:null,currentTab:'interview',scrollThreadToEnd:false,
@@ -42,20 +45,25 @@ function harness(storage=new Map()) {
     +range('function conversationStatus(', 'function icon(')
     +range('function concise(', 'function badge(')
     +range('function jointPlanning(', 'function setView(')
+    +range('function messageAnchorKey(', 'function threadAnchorMessages(')
     +range('function appendMessage(', 'function renderDraftConversation(')
     +range('function waitingMessage(', 'function renderMessageHistory(')
     +range('function taskMessages(', 'function settleThreadScroll(')
     +range('function answerSafetyPanel(', '/* Session checkpoints:')
+    +range('function focusChatAction(', 'function inlineSavedChanges(')
     +range('function renderConversation(', 'async function copyText(')
     +range('function planEntryText(', 'function output(')
+    // The reviewed Plan pane leads with the live checklist, so renderBrief
+    // now calls the real checklist builder; load it instead of stubbing it.
+    +range('function workRequirementRows(', 'function renderTaskNow(')
     +range('function renderExecution(', 'async function loadChanges(')
     +range('function requestKey(', 'function taskSentence(')
     +range('async function submitTaskAction(', 'function modelCatalogueSnapshot(')
-    +range('async function sendTaskChat(', 'function disableStaleControls('),c);
+    +range('function isReadOnlyChatText(', 'function disableStaleControls('),c);
   function show(run,draft='A useful update'){
     c.latestRun=run;c.chosen={run:run.run,workspace:run.workspace};
     $('#change-text').dataset.run=run.run;$('#change-text').value=draft;
-    c.renderConversation(run);c.renderLiveControls(run);c.renderBrief(run);c.renderExecution(run);
+    c.renderConversation(run);c.renderLiveControls(run);c.renderInlineTaskAction(run);c.renderBrief(run);c.renderExecution(run);
   }
   return {c,$,calls,notices,storage,show};
 }
@@ -176,19 +184,23 @@ async function runTests(){
   await pending.c.sendTaskChat(op,{...pending.c.taskChatErrors.get(base.run),retry:true});
   assert.deepEqual(pending.calls[1],pending.calls[0]);
 
-  // Only receipt-backed buttons send approval. Exact plan/artifact identities
-  // remain authoritative in addition to the resolver envelope.
+  // Only receipt-backed buttons send approval, and those live in the chat
+  // transcript (saved feedback intervention-figma-chat-plan-alignment-20260930-2113
+  // confines human actions to chat). Exact plan/artifact identities remain
+  // authoritative in addition to the resolver envelope.
   const plan=projectedRun('goal_approval',{...base,goal:{revision:4,origin:'astra_finalize'},model_settings:{joint_planning:true}}),p=harness();p.show(plan);
-  const approve=buttons(p.$('#brief-current')).find(row=>/Approve plan revision/.test(row.textContent));
+  assert.equal(buttons(p.$('#brief-current')).some(row=>/Approve/.test(row.textContent)),false,'the Plan pane carries no approval control');
+  const approve=buttons(p.$('#inline-task-action')).find(row=>/Approve plan revision/.test(row.textContent));
   assert.ok(approve);assert.equal(approve.disabled,false);await approve.onclick();
   assert.deepEqual(p.calls[0].payload,{workspace:base.workspace,run:base.run,action:'approve_goal',...fields(plan),token:plan.goal_token,confirmation:plan.goal_token});
   p.c.latestRun={...plan,goal_token:'changed'};await approve.onclick();assert.equal(p.calls.length,1);
   const initial=projectedRun('goal_approval',{...base,goal:{revision:1,origin:'astra_discovery'},model_settings:{joint_planning:false}}),i=harness();i.show(initial);
-  await buttons(i.$('#brief-current')).find(row=>/Approve plan revision/.test(row.textContent)).onclick();
+  await buttons(i.$('#inline-task-action')).find(row=>/Approve plan revision/.test(row.textContent)).onclick();
   assert.equal(i.calls[0].payload.action,'approve_goal');assert.equal(i.calls[0].payload.token,initial.goal_token);
   assert.equal(i.calls[0].payload.resolver_response,undefined,'Initial plan approval is separate from operational recovery');
   const review=projectedRun('human_review',{...base,review_criteria:[{id:'C1',criterion:'Inspect output'}]}),r=harness();r.show(review);
-  const reviewButton=buttons(r.$('#execution_view')).find(row=>row.textContent==='Approve C1');
+  assert.equal(buttons(r.$('#execution_view')).some(row=>/Approve/.test(row.textContent)),false,'the Checks pane carries no approval control');
+  const reviewButton=buttons(r.$('#inline-task-action')).find(row=>row.textContent==='Approve C1');
   assert.ok(reviewButton);await reviewButton.onclick();
   assert.deepEqual(r.calls[0].payload,{workspace:base.workspace,run:base.run,action:'approve_review',...fields(review),id:'C1',token:review.review_token});
   r.show(review,'Please adjust the contrast');

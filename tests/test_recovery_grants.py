@@ -26,7 +26,7 @@ class RecoveryGrantTests(unittest.TestCase):
     def grant(self, amount=1, previous=True):
         return grants.grant(self.state, Path('/run'), amount,
                             previous_settings=self.previous if previous else None,
-                            current_request=self.current, count=3,
+                            current_request=self.current, count=3, maximum=3,
                             supersede=self.supersede, persist=self.persist)
 
     def test_settings_change_uses_exact_prior_request_without_resetting_history(self):
@@ -56,8 +56,8 @@ class RecoveryGrantTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'exhausted timeout recovery'):
             self.grant(previous=False)
         self.assertEqual(before, self.state)
-        self.current.assert_called_once_with(self.state)
         self.persist.assert_not_called()
+        self.supersede.assert_not_called()
 
     def test_invalid_amounts_do_not_change_state_or_publish(self):
         for amount in (True, 0, -1, 1.5):

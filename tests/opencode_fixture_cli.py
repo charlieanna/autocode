@@ -23,6 +23,17 @@ if data["stage"] == "astra_challenge":
         import time
         time.sleep(60)
 with tempfile.TemporaryDirectory() as temp:'''
+TRANSIENT_VALIDATOR_WRITE = '''
+    if data.get("stage") == "sol":
+        probe = Path("validator-probe.tmp")
+        emit("step_start", {"id": "probe-start", "type": "step-start", "snapshot": "a" * 40})
+        probe.write_text("a forbidden reviewer probe")
+        emit("step_finish", {"id": "probe-write", "type": "step-finish", "snapshot": "b" * 40,
+                             "reason": "tool-calls", "tokens": {"input": 0, "output": 0, "reasoning": 0,
+                                                               "cache": {"read": 0, "write": 0}}})
+        probe.unlink()
+        emit("step_start", {"id": "probe-restored", "type": "step-start", "snapshot": "a" * 40})
+'''
 
 
 def entrypoint(entry):
@@ -41,7 +52,9 @@ def checked_fixture(executable="opencode", *, env=None):
     selected = Path(selected).resolve()
     original = (TOOLS / "fake_opencode.py").read_bytes()
     allowed = (original, original.replace(b"with tempfile.TemporaryDirectory() as temp:",
-                                         TIMEOUT_ONCE.encode()))
+                                         TIMEOUT_ONCE.encode()),
+               original.replace(b"    final = report.read_text()",
+                                TRANSIENT_VALIDATOR_WRITE.encode() + b"    final = report.read_text()"))
     if selected.read_bytes() not in allowed:
         raise RuntimeError("Offline bootstrap refuses an unknown OpenCode executable")
     for name, source in (("codex", "fake_codex.py"), ("goal_fixtures.py", "goal_fixtures.py")):

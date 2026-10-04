@@ -15,6 +15,7 @@ from pathlib import Path
 
 SUBCOMMANDS = {"visual-capture": "autocode_visual_capture", "output": "autocode_output", "tasks": "autocode_tasks", "components": "autocode_components", "ui": "autocode_ui",
                "program": "autocode_program", "compare-baseline": "autocode_baseline",
+               "visual-check": "autocode_visual_check",
                "doctor": "autocode_doctor", "clean-worktrees": "autocode_worktrees", "models": "model_catalogue"}
 DISTRIBUTION = "autocode-supervisor"
 HERE = Path(__file__).resolve().parent
@@ -50,17 +51,40 @@ def package_version() -> str:
 
 
 def source_commit() -> str | None:
-    """The checkout's commit, with ``+modified`` when its tools/ has uncommitted changes."""
+    """The AutoCode checkout's commit, with ``+modified`` when its tools/ has uncommitted changes.
+
+    A commit is reported only when ``HERE`` sits in a Git work tree whose top level
+    is this project's root (``HERE.parent`` with AutoCode's ``pyproject.toml``).
+    An installed package inside some other repository (a venv under a user project)
+    must print ``commit unknown``, never that project's HEAD (#339).
+    """
     def git(*args):
         try:
             return subprocess.run(["git", "-C", str(HERE), *args], capture_output=True, text=True, timeout=10)
         except (OSError, subprocess.TimeoutExpired):
             return None
+    top = git("rev-parse", "--show-toplevel")
+    if top is None or top.returncode != 0 or not top.stdout.strip():
+        return None
+    try:
+        top_path = Path(top.stdout.strip()).resolve()
+    except OSError:
+        return None
+    if top_path != HERE.parent.resolve() or not _is_autocode_checkout(top_path):
+        return None
     head = git("rev-parse", "--short", "HEAD")
     if head is None or head.returncode != 0 or not head.stdout.strip():
         return None
     dirty = git("status", "--porcelain", "--", str(HERE))
     return head.stdout.strip() + ("+modified" if dirty and dirty.stdout.strip() else "")
+
+
+def _is_autocode_checkout(root: Path) -> bool:
+    try:
+        project = tomllib.loads((root / "pyproject.toml").read_text()).get("project") or {}
+    except (OSError, ValueError):
+        return False
+    return project.get("name") == DISTRIBUTION and bool(project.get("version"))
 
 
 if __name__ == "__main__":

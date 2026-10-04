@@ -421,7 +421,7 @@ class OpenCodeFlow(unittest.TestCase):
 
     def test_a_model_the_plans_do_not_offer_stops_a_new_run_before_any_model_call(self):
         result = self.launch(["Greeting tool", "--no-chat", "--sol-model", "openai/gpt-7-nope"], 2)
-        self.assertIn("Cannot use with OpenCode: openai/gpt-7-nope (Validator).", result.stderr)
+        self.assertIn("Cannot use with OpenCode: openai/gpt-7-nope (Tester).", result.stderr)
         self.assertIn("Z.AI Coding Plan · subscription", result.stderr)
         self.assertIn("--sol-model openai/gpt-6-sol", result.stderr)
         runs = self.project / ".autocode/runs"
@@ -444,15 +444,23 @@ class OpenCodeFlow(unittest.TestCase):
         result = models("oauth")
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn("ChatGPT login · subscription", result.stdout)
-        self.assertRegex(result.stdout, r"openai/gpt-6-sol +strong judge +default for Plan Reviewer, Validator, "
-                                        r"Completion Owner")
+        self.assertRegex(result.stdout, r"openai/gpt-6-sol +strong judge +default for Plan Reviewer, Tester, "
+                                        r"Completion Reviewer")
         self.assertNotIn("MiMo route is not offered.", result.stdout)
         self.assertIn("xiaomi-token-plan-sgp/mimo-v2.6-pro", result.stdout)
         self.assertIn("Every default route can be used:", result.stdout)
         result = models("api")
-        self.assertEqual(1, result.returncode, result.stderr)
-        self.assertIn("OpenAI via api · not used: AutoCode bills OpenAI only through the ChatGPT login", result.stdout)
-        self.assertIn("Validator (--sol-model): openai/gpt-6-sol → xiaomi-token-plan-sgp/mimo-v2.6-pro", result.stdout)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("OpenAI via api · pay per token", result.stdout)
+        self.assertIn("Every default route can be used:", result.stdout)
+
+    def test_cli_completes_with_mimo_token_plan_builder_and_api_authenticated_checker(self):
+        self.env['AUTOCODE_FIXTURE_OPENAI_AUTH'] = 'api'
+        self.launch(['Greeting tool', '--chat', '--terra-model', 'mimo-token-plan/mimo-v2.6-pro'], 0,
+                    answers='CLI\nyes\nyes\n')
+        run, state = self.saved()
+        self.assertEqual('mimo-token-plan/mimo-v2.6-pro', state['settings']['roles']['terra']['model'])
+        self.assertEqual('COMPLETE', state['phase'])
 
     def test_standalone_cli_full_interview_approval_review_and_completion(self):
         result = self.launch(["Greeting tool", "--chat"], 0, answers="CLI\nyes\nyes\n")
@@ -507,6 +515,16 @@ class OpenCodeFlow(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("refuses an unknown delegated fixture: codex", result.stderr)
 
+    def test_bootstrap_refuses_an_altered_transient_write_fixture(self):
+        fixture = self.root / "fixture-bin/opencode"
+        changed = fixture_cli.TRANSIENT_VALIDATOR_WRITE.replace("validator-probe.tmp", "unreviewed-probe.tmp")
+        fixture.write_text(fixture.read_text().replace("    final = report.read_text()",
+                                                      changed + "    final = report.read_text()"))
+        result = subprocess.run([*self.entry, "models"], cwd=self.root, env=self.env,
+                                capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("refuses an unknown OpenCode executable", result.stderr)
+
     def test_fixture_environment_without_bootstrap_does_not_bypass_native_admission(self):
         self.entry = [sys.executable, str(fixture_cli.TOOLS / "autocode.py")]
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
@@ -515,6 +533,19 @@ class OpenCodeFlow(unittest.TestCase):
         _, state = self.saved()
         self.assertFalse(any(row["stage"] == "terra" for row in state["stages"]))
         self.assertFalse((self.project / "greet.py").exists())
+
+    def test_cli_rejects_transient_validator_write_with_clean_final_source(self):
+        fixture = self.root / "fixture-bin/opencode"
+        fixture.write_text(fixture.read_text().replace('    final = report.read_text()',
+                                                       fixture_cli.TRANSIENT_VALIDATOR_WRITE + '    final = report.read_text()'))
+        self.launch(["Greeting tool", "--chat"], 2, answers="CLI\nyes\nyes\n")
+        run, state = self.saved()
+        self.assertEqual("PAUSED_STALE_VALIDATION", state["status"])
+        self.assertFalse((self.project / "validator-probe.tmp").exists())
+        self.assertTrue((self.project / "greet.py").is_file())
+        self.assertNotEqual("COMPLETE", state["phase"])
+        self.assertFalse(state.get("pending_report_repair"))
+        self.assertTrue(any("probe-write" in path.read_text() for path in run.rglob("*.jsonl")))
 
 
 if __name__ == "__main__":

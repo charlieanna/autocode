@@ -21,10 +21,14 @@ try:
     from .dashboard_conversation_journal import project_conversation, append_feedback
     from .dashboard_monitor import snapshot
     from .dashboard_metrics import project_metrics
+    from . import dashboard_chat_intent as chat_intent
+    from .dashboard_work_summary import project as work_summary
 except ImportError:  # Direct source launch, as well as the installed entry point.
     from dashboard_conversation_journal import project_conversation, append_feedback
     from dashboard_monitor import snapshot
     from dashboard_metrics import project_metrics
+    import dashboard_chat_intent as chat_intent
+    from dashboard_work_summary import project as work_summary
 
 
 def object_value(value):
@@ -95,6 +99,19 @@ class ConversationMixin:
             return self._conversation_store
 
     def conversation_create(self, data):
+        text = data.get('text')
+        if data.get('empty') is True and (not isinstance(text, str) or not text.strip()):
+            # Pre-send creation: activating a New conversation control opens a
+            # saved empty conversation carrying the validated project scope
+            # before any message exists. The first send continues this record.
+            workspace = None
+            raw = data.get('project') or data.get('workspace')
+            if isinstance(raw, str) and raw.strip():
+                workspace = self.selected_workspace(raw)
+                if not workspace:
+                    raise ValueError('Select an existing Git project for the new conversation')
+            return self.conversations.create_empty(str(workspace) if workspace else None,
+                                                   request_id=data.get('request_id'))
         models = data.get('models', {})
         if not isinstance(models, dict):
             raise ValueError('Models must be an object')
@@ -102,7 +119,17 @@ class ConversationMixin:
         efforts = self.joint_efforts(models)
         settings = {key + '_model': value for key, value in chosen.items()}
         settings.update({key + '_reasoning_effort': value for key, value in efforts.items()})
-        return self.conversations.create(data.get('text'), models=settings, request_id=data.get('request_id'))
+        # Creation-time project scoping: the saved record starts inside the
+        # chosen project without launching a task handoff. Attaching a project
+        # to an existing conversation stays a separate explicit action.
+        workspace = None
+        raw = data.get('project') or data.get('workspace')
+        if isinstance(raw, str) and raw.strip():
+            workspace = self.selected_workspace(raw)
+            if not workspace:
+                raise ValueError('Select an existing Git project for the new conversation')
+        return self.conversations.create(text, models=settings, request_id=data.get('request_id'),
+                                         workspace=str(workspace) if workspace else None)
 
     def _attachment_state(self, doc):
         attachment = object_value(doc.get('attachment'))
@@ -378,10 +405,24 @@ class ConversationMixin:
         if not isinstance(text, str) or len(text) > 16000 or (not text.strip() and data.get('delegate') is not True):
             raise ValueError('Enter a message of up to 16000 characters')
         question_id = data.get('question_id')
+        explicit_answer = data.get('explicit_answer') is True
+        if explicit_answer and (not question_id or data.get('decision') or data.get('delegate')):
+            raise ValueError('An explicit answer must target one current question')
+        read_only = not explicit_answer and chat_intent.classify(text, question_id) in ('question', 'control', 'approval')
+        if read_only:
+            # The composer may already target a question. Asking about status
+            # or typing a control must not accidentally answer that question.
+            question_id = None
+            data = {**data, 'question_id': None, 'delegate': False,
+                    'resolver_request': None, 'resolver_token': None}
         with self._chat_guard(run):
             previous = next((item for item in self._chat_rows(run) if item['id'] == ident), None)
+            decision = data.get('decision')
+            if decision and not previous:
+                raise ValueError('Review the saved message before confirming a change')
             if previous:
                 if (previous.get('submitted_text') != text or previous.get('question_id') != question_id
+                        or bool(previous.get('explicit_answer')) != explicit_answer
                         or previous.get('delegate') != (data.get('delegate') is True)
                         or previous.get('resolver_request') != data.get('resolver_request')
                         or previous.get('resolver_token') != data.get('resolver_token')):
@@ -393,12 +434,22 @@ class ConversationMixin:
                     previous = next(item for item in self._chat_rows(run) if item['id'] == ident)
                 lost_action = (previous.get('status') == 'saved' and previous.get('question_id')
                                and previous.get('action_id') not in {row['id'] for row in self.action_log(workspace, run)})
-                if data.get('retry') is not True or (previous.get('status') != 'error' and not lost_action):
+                if decision:
+                    pending_decision = (previous.get('confirmation') or {}).get('status') == 'pending'
+                    previous = chat_intent.decide(copy.deepcopy(previous), decision, data.get('decision_token'),
+                                                  self.view(workspace, run), time.time())
+                    if (not pending_decision and data.get('retry') is not True
+                            or previous.get('kind') != 'correction' or previous.get('status') not in ('saved', 'error')):
+                        return copy.deepcopy(self._save_chat(run, previous))
+                    # Save a confirmed correction only after the current request
+                    # and plan checks below allow delivery. A new question must
+                    # not consume the pending confirmation without an effect.
+                elif data.get('retry') is not True or (previous.get('status') != 'error' and not lost_action):
                     return previous
             view = self.view(workspace, run)
             scope = object_value(view.get('human_escalation')).get('scope')
             questions = view.get('questions', []) if scope in ('clarification', 'permission', 'goal_change') else []
-            if questions and not question_id:
+            if questions and not question_id and not read_only:
                 raise ValueError('Choose which question this message answers')
             question = next((q for q in questions if q.get('id') == question_id), None)
             if question_id and not question:
@@ -407,13 +458,29 @@ class ConversationMixin:
                 public = self.require_human_response(view, data, ('clarification', 'permission', 'goal_change'))
             elif data.get('delegate') or data.get('resolver_request') or data.get('resolver_token'):
                 raise ValueError('That question is no longer pending. Your message was not sent.')
-            elif object_value(view.get('human_escalation')).get('scope') in ('operational_exhaustion', 'blocker'):
+            elif not read_only and object_value(view.get('human_escalation')).get('scope') in ('operational_exhaustion', 'blocker'):
                 raise ValueError('Use the current AutoResolver response action; feedback does not resolve this request.')
+            if (previous and previous.get('kind') == 'correction' and previous.get('confirmation')
+                    and previous['confirmation'].get('goal_token') != view.get('goal_token')):
+                raise ValueError('The plan changed since this confirmation. Send a new message to review the current plan.')
             row = {'id': ident, 'role': 'user', 'speaker': 'You', 'text': text, 'submitted_text': text, 'question_id': question_id,
                    'question_text': question.get('question') if question else None, 'delegate': data.get('delegate') is True,
+                   'explicit_answer': explicit_answer,
                    'resolver_request': data.get('resolver_request'), 'resolver_token': data.get('resolver_token'),
                    'prior_goal_token': previous.get('prior_goal_token') if previous else view.get('goal_token'),
                    'created_at': previous.get('created_at') if previous else time.time(), 'status': 'saved', 'error': None}
+            if previous and previous.get('confirmation'):
+                row.update(kind=previous['kind'], confirmation=copy.deepcopy(previous['confirmation']),
+                           classification_rule=previous.get('classification_rule'), reply=previous.get('reply'))
+            elif previous and not previous.get('kind') and not question:
+                # Previously submitted durable feedback keeps its original authority on retry.
+                row.update(kind='correction', classification_rule='legacy-explicit-feedback')
+            elif question and explicit_answer:
+                row.update(kind='answer', classification_rule='explicit-question-card')
+            else:
+                chat_intent.prepare(row, view)
+            if not question and row['kind'] != 'correction':
+                return copy.deepcopy(self._save_chat(run, row))
             if question and row['delegate']:
                 row['delegated_default'] = question.get('proposed_default', '')
                 row['text'] = 'Use the suggested default: ' + row['delegated_default']
@@ -470,6 +537,7 @@ class ConversationMixin:
             view['monitor']['metrics'] = project_metrics(workspace, run)
         except (OSError, ValueError):
             view = self.view(workspace, run)
+        view['work_summary'] = work_summary(view)
         actions = self.action_log(workspace, run)
         if view.get('startup_action'):
             actions = [view.pop('startup_action'), *actions]

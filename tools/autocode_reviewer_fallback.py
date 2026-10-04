@@ -15,10 +15,6 @@ except ImportError:
     import autocode_support as support
 
 
-ELIGIBLE_MODELS = frozenset({
-    "zai-coding-plan/glm-5.3",
-    "xiaomi-token-plan-sgp/mimo-v2.6-pro",
-})
 REVIEW_STAGES = frozenset({"astra_challenge", "astra_finalize", "plan_review", "plan_finalize"})
 SCOPE = "planning_reviewer_provider_stream_silence"
 
@@ -28,9 +24,10 @@ def _stop(message):
 
 
 def _family(model):
-    if model.startswith("zai-coding-plan/"):
+    name = model.rsplit("/", 1)[-1].lower()
+    if model.startswith("zai-coding-plan/") or name.startswith("glm-"):
         return "glm"
-    if model.startswith("xiaomi-token-plan-sgp/") or model.startswith("mimo-"):
+    if model.startswith("xiaomi-token-plan-sgp/") or name.startswith("mimo-"):
         return "mimo"
     return model
 
@@ -152,7 +149,7 @@ def _candidate(state, stage, current_role, current):
         if role == current_role or not isinstance(config, dict):
             continue
         route = _route(config)
-        if (route["model"] not in ELIGIBLE_MODELS or route["model"] == current.get("model")
+        if (not isinstance(route["model"], str) or not route["model"] or route["model"] == current.get("model")
                 or route["engine"] != "opencode" or route["engine"] != current.get("engine")
                 or route["provider"] != current.get("provider")
                 or config.get("available") is False
@@ -207,7 +204,7 @@ def reserve(state, run_dir, workspace, stage=None):
     reviewer_role = _reviewer_role(state)
     reviewer = roles.get(reviewer_role) or {}
     current = _route(reviewer)
-    if (current["model"] not in ELIGIBLE_MODELS or current["engine"] != "opencode"
+    if (not isinstance(current["model"], str) or not current["model"] or current["engine"] != "opencode"
             or _explicitly_pinned(settings, reviewer_role, reviewer)):
         return None
     cycle = _cycle(state, stage)

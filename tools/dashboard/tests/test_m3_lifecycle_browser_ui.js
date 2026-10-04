@@ -254,7 +254,7 @@ function creationCatalogueEvidence(snapshot) {
     openScenario(info, 'unavailable-model', 1440, 1024);
     data('()=>{' +
       'syncModelOptions({usable:true,models:["openai/gpt-5.6-terra","openai/gpt-5.6-sol"],reasoning_levels:{astra:["medium","high"],terra:["medium","high"]}});' +
-      'document.querySelector("#task-detail .context-menu").open=true;' +
+      'document.querySelector("#composer-models").open=true;' +
       'return {saved:latestRun.model_settings.roles.astra,selector:!!document.querySelector("#task-astra-replacement")};' +
     '}');
     browser('wait', '--fn', 'document.querySelector("#task-astra-replacement")?.disabled===false');
@@ -287,7 +287,7 @@ function creationCatalogueEvidence(snapshot) {
     // Reload the disposable scenario to abandon the browser-only deferred
     // request before exercising the remaining deterministic fixture states.
     openScenario(info, 'unavailable-model', 1440, 1024);
-    data('()=>{syncModelOptions({usable:true,models:["openai/gpt-5.6-terra","openai/gpt-5.6-sol"]});document.querySelector("#task-detail .context-menu").open=true;return true;}');
+    data('()=>{syncModelOptions({usable:true,models:["openai/gpt-5.6-terra","openai/gpt-5.6-sol"]});document.querySelector("#composer-models").open=true;return true;}');
 
     // A persisted uncertain record has a distinct status-only reconciliation
     // path rather than an automatic mutation retry.
@@ -305,7 +305,7 @@ function creationCatalogueEvidence(snapshot) {
     // control. The saved value is still the original unavailable value.
     openScenario(info, 'unavailable-model', 1024, 768);
     data('()=>{' +
-      'syncModelOptions({usable:true,models:[]});document.querySelector("#task-detail .context-menu").open=true;' +
+      'syncModelOptions({usable:true,models:[]});document.querySelector("#composer-models").open=true;' +
       'return document.querySelector("#task-model-settings").textContent;' +
     '}');
     replacement = data('()=>{const select=document.querySelector("#task-astra-replacement");return {text:document.querySelector("#task-model-settings").textContent,disabled:select.disabled,description:select.getAttribute("aria-describedby"),saved:latestRun.model_settings.roles.astra};}');
@@ -313,7 +313,7 @@ function creationCatalogueEvidence(snapshot) {
     assert.equal(replacement.disabled, true);
     assert.equal(replacement.description, 'task-astra-replacement-reason');
     assert.match(replacement.text, /compatible-model catalogue is unavailable\. Retry catalogue/);
-    const tabletLayout = data('()=>{const now=document.querySelector(".task-now"),lead=now.children[0],actions=now.querySelector(".task-actions"),step=document.querySelector("#task-subtitle"),box=e=>{const r=e.getBoundingClientRect();return {width:Math.round(r.width),height:Math.round(r.height)}};return {lead:box(lead),actions:box(actions),step:box(step),stepOverflow:step.scrollWidth>step.clientWidth+1,horizontalOverflow:document.documentElement.scrollWidth>document.documentElement.clientWidth};}');
+    const tabletLayout = data('()=>{const now=document.querySelector(".task-now"),lead=now.children[0],actions=document.querySelector(".composer-run-controls"),step=document.querySelector("#task-subtitle"),box=e=>{const r=e.getBoundingClientRect();return {width:Math.round(r.width),height:Math.round(r.height)}};return {lead:box(lead),actions:box(actions),step:box(step),stepOverflow:step.scrollWidth>step.clientWidth+1,horizontalOverflow:document.documentElement.scrollWidth>document.documentElement.clientWidth};}');
     assert.ok(tabletLayout.lead.width >= 300, 'model gate leaves a readable tablet column for the current step');
     assert.equal(tabletLayout.stepOverflow, false);assert.equal(tabletLayout.horizontalOverflow, false);
     capture(captures, 'model-unsupported-disabled-tablet', {width: 1024, height: 768});
@@ -323,7 +323,7 @@ function creationCatalogueEvidence(snapshot) {
     // failure, and requires a fresh explicit confirmation rather than replay.
     openScenario(info, 'unavailable-model', 1440, 1024);
     data('()=>{' +
-      'syncModelOptions({usable:true,models:["openai/gpt-5.6-terra"]});document.querySelector("#task-detail .context-menu").open=true;' +
+      'syncModelOptions({usable:true,models:["openai/gpt-5.6-terra"]});document.querySelector("#composer-models").open=true;' +
       'saveModelReplacement(latestRun,"astra",{state:"failed",saved:"openai/retired-model",proposed:"openai/gpt-5.6-terra",request_id:"req-model-failed",error:"Fixture confirmation was rejected."});' +
       'renderTaskModelSettings(latestRun);return {saved:latestRun.model_settings.roles.astra,text:document.querySelector("#task-model-settings").textContent};' +
     '}');
@@ -345,7 +345,7 @@ function creationCatalogueEvidence(snapshot) {
     const confirmedModelFlows = [];
     for (const viewport of lifecycleViewports) {
       openScenario(info, 'flow-model-' + viewport.name, viewport.width, viewport.height);
-      data('()=>{syncModelOptions({usable:true,models:["openai/gpt-5.6-terra","openai/gpt-5.6-sol"],reasoning_levels:{astra:["medium","high"]}});document.querySelector("#task-detail .context-menu").open=true;const select=document.querySelector("#task-astra-replacement");select.value="openai/gpt-5.6-terra";select.dispatchEvent(new Event("change",{bubbles:true}));return {saved:latestRun.model_settings.roles.astra,proposed:select.value};}');
+      data('()=>{syncModelOptions({usable:true,models:["openai/gpt-5.6-terra","openai/gpt-5.6-sol"],reasoning_levels:{astra:["medium","high"]}});document.querySelector("#composer-models").open=true;const select=document.querySelector("#task-astra-replacement");select.value="openai/gpt-5.6-terra";select.dispatchEvent(new Event("change",{bubbles:true}));return {saved:latestRun.model_settings.roles.astra,proposed:select.value};}');
       const beforeConfirm = data('()=>({saved:latestRun.model_settings.roles.astra,proposed:document.querySelector("#task-astra-replacement").value,confirmDisabled:[...document.querySelectorAll("#task-model-settings button")].find(button=>button.textContent.trim()==="Confirm model replacement")?.disabled})');
       assert.equal(beforeConfirm.saved, 'openai/retired-model', viewport.name + ' keeps the saved unavailable model before confirmation');
       assert.equal(beforeConfirm.proposed, 'openai/gpt-5.6-terra', viewport.name + ' keeps the proposal in its separate selector');
@@ -364,7 +364,7 @@ function creationCatalogueEvidence(snapshot) {
     // The fixture returns a real failed action response. The original saved
     // model remains visible and only an explicit later confirmation is offered.
     openScenario(info, 'flow-model-failed-desktop', 1440, 1024);
-    data('()=>{syncModelOptions({usable:true,models:["openai/gpt-5.6-sol"]});document.querySelector("#task-detail .context-menu").open=true;const select=document.querySelector("#task-astra-replacement");select.value="openai/gpt-5.6-sol";select.dispatchEvent(new Event("change",{bubbles:true}));return true;}');
+    data('()=>{syncModelOptions({usable:true,models:["openai/gpt-5.6-sol"]});document.querySelector("#composer-models").open=true;const select=document.querySelector("#task-astra-replacement");select.value="openai/gpt-5.6-sol";select.dispatchEvent(new Event("change",{bubbles:true}));return true;}');
     browser('click', '#task-model-settings button.primary');
     browser('wait', '--fn', 'document.querySelector("#task-model-settings")?.textContent.includes("Fixture replacement was rejected")');
     const failedModel = data('()=>({saved:latestRun.model_settings.roles.astra,text:document.querySelector("#task-model-settings").textContent,action:(latestRun.actions||[]).find(action=>action.label?.includes("Confirm model replacement"))||null,retryDisabled:[...document.querySelectorAll("#task-model-settings button")].find(button=>button.textContent.trim()==="Confirm model replacement")?.disabled})');
@@ -376,7 +376,7 @@ function creationCatalogueEvidence(snapshot) {
     // An uncertain response is not retried blindly. Retry status performs an
     // authoritative read that reconciles the original request and its receipt.
     openScenario(info, 'flow-model-uncertain-desktop', 1440, 1024);
-    data('()=>{syncModelOptions({usable:true,models:["openai/gpt-5.6-sol"]});document.querySelector("#task-detail .context-menu").open=true;const select=document.querySelector("#task-astra-replacement");select.value="openai/gpt-5.6-sol";select.dispatchEvent(new Event("change",{bubbles:true}));return true;}');
+    data('()=>{syncModelOptions({usable:true,models:["openai/gpt-5.6-sol"]});document.querySelector("#composer-models").open=true;const select=document.querySelector("#task-astra-replacement");select.value="openai/gpt-5.6-sol";select.dispatchEvent(new Event("change",{bubbles:true}));return true;}');
     browser('click', '#task-model-settings button.primary');
     browser('wait', '--fn', 'document.querySelector("#task-model-settings")?.textContent.includes("Confirmation is unconfirmed")');
     const uncertainModel = data('()=>({saved:latestRun.model_settings.roles.astra,text:document.querySelector("#task-model-settings").textContent,action:(latestRun.actions||[]).find(action=>action.label?.includes("Confirm model replacement"))||null,retry:[...document.querySelectorAll("#task-model-settings button")].find(button=>button.textContent.trim()==="Retry status")?.disabled})');

@@ -140,7 +140,7 @@ class CaptureEvidenceTests(unittest.TestCase):
             visual.native_refs(self.state, report)
 
     def test_unapproved_or_conflicting_exclusion_never_skips_visual_proof(self):
-        for change in ('unapproved', 'changed_body', 'prose', 'strict_visual'):
+        for change in ('unapproved', 'changed_body', 'prose', 'strict_visual', 'strict_profile'):
             with self.subTest(change=change):
                 report = self.approve_functional_scope()
                 goal = self.state['goal_contract']
@@ -151,8 +151,10 @@ class CaptureEvidenceTests(unittest.TestCase):
                 else:
                     if change == 'prose':
                         goal['body']['scope_exclusions'][-1] = 'Do not skip visual acceptance'
-                    else:
+                    elif change == 'strict_visual':
                         goal['body']['constraints'].append('VISUAL_CASE_CRITERIA={"case":["C1"]}')
+                    else:
+                        goal['body']['constraints'].append('VISUAL_REVIEW_PROFILE=strict')
                     goal['hash'] = util.digest({key: goal[key] for key in ('task_id', 'revision', 'body')})
                     goal['approval_event']['token'] = identity.token(goal)
                     self.state['user_events'] = [copy.deepcopy(goal['approval_event'])]

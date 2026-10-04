@@ -44,7 +44,7 @@ formed, execution falls back to a serial Builder.
 
 Each selected milestone gets a fresh Builder subprocess, session, and Git worktree.
 The runner combines their patches into the parent workspace only if it still matches
-the captured baseline. The Validator checks the combined result before the Completion Owner
+the captured baseline. The Tester checks the combined result before the Completion Reviewer
 and required human acceptance gates can authorize completion. Builder success or
 patch integration alone does not satisfy those gates. There is no automatic merge
 into `master`. Once a batch is integrated, each Builder's checkout and
@@ -112,8 +112,8 @@ unsupported observations into passing validation.
 
 New runs enforce a milestone checkpoint in the runner. Each task names an outcome,
 affected paths, requirements, acceptance criteria and a validation plan. The Builder can
-implement, test and repair within the task; every completed handoff goes to the Validator and
-then the Plan Reviewer. A switch to a different milestone requires the Validator's passing evidence for
+implement, test and repair within the task; every completed handoff goes to the Tester and
+then the Plan Reviewer. A switch to a different milestone requires the Tester's passing evidence for
 **all criteria in the current milestone**, current source/contract/task identities,
 intact evidence, no blocking findings, and its required human reviews. The findings
 that count are its own, a prerequisite milestone's, unscoped ones, and another
@@ -165,7 +165,7 @@ for judging whether the changed approach is substantively useful.
 Milestones have a 5,400-second active-time budget by default. This includes writer,
 reviewer and report-repair attempts after the milestone is assigned (or after an
 existing run adopts checkpoints). The budget is checked at stage boundaries and
-prevents further writing; the Validator and Plan Reviewer can still validate finished work. It does not
+prevents further writing; the Tester and Plan Reviewer can still validate finished work. It does not
 replace per-stage timeouts. Use `--max-milestone-seconds N` to change the saved
 budget or `0` to disable this time limit. `--status` includes `milestone_checkpoint`
 with the current milestone, evidence progress, budget, replans, completed stage hours
@@ -202,19 +202,19 @@ their usual explicit resume. Use `--show-goal` to apply and inspect without laun
 a provider. Preexisting operator pause
 markers are preserved. Migration keeps models, sessions, the approved contract and
 artifacts; final-only or combined-review overrides are archived in the user event,
-and existing bounded work goes to the Validator first. Legacy briefs retain their current
+and existing bounded work goes to the Tester first. Legacy briefs retain their current
 task's criterion scope without rewriting or implicitly approving a new contract.
 If an old stage first needs report-only repair, the upgrade remains queued. An
 explicit `--resume-paused` can finish that bounded read-only repair under the old
-schema, then apply the upgrade and continue to the Validator. It never repeats implementation to migrate.
+schema, then apply the upgrade and continue to the Tester. It never repeats implementation to migrate.
 
 ## Handoffs and context
 
-The Plan Reviewer finalizes the plan, the Builder implements one bounded task, and the Validator independently validates
+The Plan Reviewer finalizes the plan, the Builder implements one bounded task, and the Tester independently validates
 actual source with evidence per criterion. Each task records its milestone, requirements,
 applicable criteria and validation plan. Every role receives the complete approved
-contract and current task and echoes the contract revision/hash and task ID. The Validator gets
-the Builder's full implementation report, workspace/revision and actual changes. The Completion Owner gets
+contract and current task and echoes the contract revision/hash and task ID. The Tester gets
+the Builder's full implementation report, workspace/revision and actual changes. The Completion Reviewer gets
 both reports, milestone status and references to prior validation evidence.
 Bulky evidence indexes, archived-validation indexes, legacy checkpoints and source
 file maps move into hashed run-local `context/*.json` artifacts. The handoff keeps
@@ -224,7 +224,7 @@ Compact JSON reduces repeated formatting overhead. Per-stage context metrics rec
 externalized fields and bytes saved. This does not remove provider session history
 or alter independent-review requirements.
 
-Validator and Completion Owner handoffs also replace exact repeated text with
+Tester and Completion Reviewer handoffs also replace exact repeated text with
 inline JSON pointers when that makes the packet smaller. `acceptance_criteria_ref`
 points to the complete definitions in `goal_contract.body.acceptance_criteria`;
 the approved contract stays intact. A replay check's `command_ref` can point to
@@ -257,15 +257,15 @@ known to be equivalent but installed at different relative depths, the explicit
 remain significant, and the report records this option. Exit codes are 0 for
 matching failure evidence, 1 for new/changed failures, and 2 for invalid evidence.
 The report preserves diagnostics and raw input hashes. A match does **not** grant a
-baseline exception or prove task completion: the Validator must still verify the
+baseline exception or prove task completion: the Tester must still verify the
 approved exception, source provenance and equivalent test selection. Baseline-only
 failures are listed for investigation, not automatically claimed as fixed.
 
-## Completion Owner decisions
+## Completion Reviewer decisions
 
-The Completion Owner chooses `CONTINUE`, `REWORK`, `BLOCKED` or `COMPLETE`. The first two require a
+The Completion Reviewer chooses `CONTINUE`, `REWORK`, `BLOCKED` or `COMPLETE`. The first two require a
 concrete next task; rework describes the smallest correction for a verified defect.
-A `CONTINUE` task with `kind=validate` sends existing work directly to the Validator when it only
+A `CONTINUE` task with `kind=validate` sends existing work directly to the Tester when it only
 needs revalidation. Required behaviors and success cannot be changed by a plan.
 
 A material ambiguity, contradiction, infeasible constraint, scope change or extra
@@ -276,17 +276,17 @@ to discovery; a revised goal needs new approval. Useful partial work is retained
 
 ## Completion gate
 
-Completion requires the current approved revision, a Validator PASS on the current artifact,
+Completion requires the current approved revision, a Tester PASS on the current artifact,
 passing evidence for every required criterion, no blocking findings, intact evidence
-hashes, actual human approvals where required, and the Completion Owner's completion request against
-that same revision. New build briefs also require the Validator's explicit end-to-end flow result
+hashes, actual human approvals where required, and the Completion Reviewer's completion request against
+that same revision. New build briefs also require the Tester's explicit end-to-end flow result
 and its pinned evidence on the current source revision. Completion prints each criterion
 with its evidence and any agreed limitations. Unknown, skipped and untested results cannot pass. Green tests
 cannot substitute for missing criterion results.
 
-### The runner re-runs the Validator's checks
+### The runner re-runs the Tester's checks
 
-A Validator's checks are first matched against its own session: the provider's
+A Tester's checks are first matched against its own session: the provider's
 event log or a capture receipt must show each command ran with the reported exit
 code. That shows the command ran, not that it passes on the code as it is. So
 before a PASS is accepted, the runner requires its own current execution of each check
@@ -301,22 +301,24 @@ before a PASS is accepted, the runner requires its own current execution of each
 - **What must hold.** Every check exits 0. There are no exceptions a model can
   claim: a check that needs a server or other setup starts and stops it itself,
   for example with a script in the repository.
-- **When one does not reproduce.** The Validator's report is rejected with the
+- **When one does not reproduce.** The Tester's report is rejected with the
   command, the runner's exit code and the end of its output. That is the ordinary
   rejected-report path: a bounded report repair may drop the check or cite
   another command that ran (each is replayed again), then the run pauses and
   `--resume-paused` asks for a fresh validation.
 - **Record.** The result is saved with the validation, bound to its source
   revision, under `<run>/check-replay/`, and shown in the status view as
-  `evidence.check_replay`.
+  `evidence.check_replay`. Each invocation gets a fresh directory, including
+  retries of the same report. Later replays preserve the earlier receipt and
+  logs at their original paths; a failed replay remains available after a pass.
 
 If the controller stops after saving a successful supplementary check but before
 committing validation, it may reuse that exact completed runner receipt when the
-same Validator obligation resumes. Reuse requires unchanged source, command,
+same Tester obligation resumes. Reuse requires unchanged source, command,
 task and contract, purpose, execution environment, interpreter, runtime and
 dependencies, plus intact original output and complete nonzero collected test
 results. It does not turn a Builder receipt into independent proof. Approved
-canonical commands, protected checks and a fresh Validator's obligations still
+canonical commands, protected checks and a fresh Tester's obligations still
 execute; unsupported test inventories are not guessed. Public evidence records
 the scheduling decision and preserves the original receipt, output hashes and
 execution interval. Those artifacts remain pinned by the Completion gate.
@@ -326,9 +328,9 @@ source, task or command identity changed. Starting a new identity does not prove
 that the previous process stopped. Missing, partial, stale or altered receipts
 cannot authorize reuse.
 
-This replaces trust in the Validator's own session with a run the runner owns.
+This replaces trust in the Tester's own session with a run the runner owns.
 It does not judge whether the checks test the right thing: that is still the
-Validator's and the Completion Owner's job.
+Tester's and the Completion Reviewer's job.
 
 For a human-review criterion, inspect the displayed validation and the actual artifact,
 then record your decision in chat or using the displayed artifact-specific token:
@@ -342,7 +344,7 @@ autocode --workspace /path/to/project --run-dir /path/to/run
 Changing the source or validation invalidates reuse of human approval. Goal approval
 does not count as approval of a subsequently produced artifact. Resuming a completed
 run rechecks its source and evidence before reporting success. Stale completion pauses
-for fresh Validator validation; `--status` reports `completion_current` without changing state.
+for fresh Tester validation; `--status` reports `completion_current` without changing state.
 Source snapshots include executable modes and changes inside initialized submodules.
 
 Logical phases are `DISCOVERING`, `AWAITING_GOAL_APPROVAL`, `READY_TO_EXECUTE`,
@@ -365,7 +367,7 @@ tool execution and total stage runtime:
 | `--max-seconds` | `43200` | Total active provider time for the run, checked at stage boundaries. |
 
 Each flag accepts `0` to disable that limit. The iteration ceiling has no new-run
-default; the two time limits above bound a run's spend instead, and AutoResolver may
+default; the two time limits above bound a run's spend instead, and Resolver may
 double each once (see [Budget ownership](#budget-ownership-and-human-escalation)).
 Runs created before these defaults keep the limits they saved. Saved stage limits are preserved,
 including an existing five-minute cap or an explicit zero; use
@@ -389,6 +391,22 @@ independent milestone evidence remains mandatory.
 CLI updates and `--status`'s `active_stage.activity` show provider/tool activity,
 elapsed and idle time, active tool time, applicable limits and an observation
 timestamp. A saved observation does not prove a recorded worker is still alive.
+`longest_idle_seconds` is the longest quiet period that ended with new activity or
+a tool start (the open one is `idle_seconds`), so earlier silences can be compared
+with the limit before changing it. An inactivity stop names its limit, whether that
+is the runner default or was set explicitly, and how to change it (`--resume-paused
+--max-idle-seconds N`). Once the automatic recovery allowance is spent, the new
+limit is saved but no provider launches until `--grant-recovery N` is also given.
+Routes of a model family that reasons in long silent blocks run under a higher default:
+MiMo routes get 900 seconds when the limit is the runner default (`autocode_idle_policy`).
+OpenCode reports reasoning only as completed blocks, so a live MiMo Builder can emit no event
+for over 300 seconds. An explicit `--max-idle-seconds` is always used as given, and the saved
+setting is not rewritten.
+A workflow job's stop (review, design, design check, bug investigation, question,
+stuck-stage investigation) says instead that its exact retry runs under the same
+limit: that retry is bound to the limits the job ran under, so a changed limit
+would make it stale. Resolver never changes this limit, even when limits were
+delegated to it.
 The task conversation also receives durable role-based progress messages: stage
 transitions, blockers with next steps, completion, and a heartbeat every 60 seconds
 while the code runner observes an active stage or Builder batch. Parallel-worker
@@ -401,7 +419,7 @@ applications. Existing raw event logs remain available for complete history.
 Timeout records and recovery context distinguish `idle`, `tool` and `stage` causes,
 and preserve the failed task ID and its effective timeout limits. Recovery instructions
 require a changed execution plan: inspect partial work, reuse valid completed checks,
-split long calls, or address the diagnosed stall. The Completion Owner cannot assign
+split long calls, or address the diagnosed stall. The Completion Reviewer cannot assign
 the identical writer task again under unchanged limits. This guard does not change
 timeouts or grant permission to extend a budget.
 Deadline enforcement runs independently of process-table sampling, state writes
@@ -410,7 +428,7 @@ and event-file reads. A blocked observer cannot leave a worker unsupervised.
 ## Open findings
 
 The runner keeps one list of reviewer findings in `state.json` under
-`findings_ledger`. Every Validator finding and every structured Plan Reviewer finding (the
+`findings_ledger`. Every Tester finding and every structured Plan Reviewer finding (the
 optional `findings` array of a decision, with severity, finding, evidence and
 blocking) gets a stable ID derived from the reviewer and the finding text, the
 report that raised it, the task assigned to fix it, and the report that resolved
@@ -423,7 +441,7 @@ repair that reformats an earlier report, leaves the finding open and marks it as
 not rechecked. Findings written only as prose in `next_task.requirements`
 are not tracked. Role handoffs include `open_findings` for both reviewers, and the
 dashboard's task view shows the list with each finding's source, fix task and
-repeat count. `unresolved_findings` still holds the Validator's latest findings unchanged.
+repeat count. `unresolved_findings` still holds the Tester's latest findings unchanged.
 
 The Plan Reviewer can keep a correction batch small by naming the ledger IDs a REWORK task
 addresses in `next_task.findings`; an empty or missing list takes every open finding.
@@ -476,7 +494,7 @@ tracked workers are gone, archives the incomplete request and preserves its part
 edits/logs, clears the uncertain role session, and continues from a fresh recovery
 checkpoint. It never replays that timed-out request. Each automatic recovery consumes
 the existing no-progress budget. Consecutive timeouts without an accepted stage also
-pause at that configured limit for every role, including the Plan Reviewer and Validator.
+pause at that configured limit for every role, including the Plan Reviewer and Tester.
 A successful stage resets the consecutive-timeout counter. A separate ceiling of
 three automatic recoveries covers timeouts and external-directory denials. Accepted
 intermediate reports and milestone-budget extensions do not reset this ceiling.
@@ -505,7 +523,15 @@ first.
 
 An execution report whose two read-only repairs are exhausted can be retried with
 `--resume-paused`. Autocode archives the rejected reports and starts a fresh role
-session; it does not replay implementation or planning. A transport-change pause
+session; it does not replay implementation or planning. When the source changes
+while a run is paused (an operator edit), a queued report repair can no longer
+run: `--resume-paused` archives it, evidence intact, and starts a fresh attempt
+of the same stage, in a new provider session, on the current source. It does
+not do this while a Resolver operational request is published or queued:
+that request is answered or withdrawn only through its own actions. A finished read-only response that was
+never applied stays paused instead, and its message names the `--abandon-stage`
+step. `--accept-completion` refuses a validation of another source, goal
+revision or task and says so; resume to re-validate first. A transport-change pause
 can be resumed with `--resume-paused --accept-transport-change` after Autocode checks
 that the current OpenCode models and subscription routes are available.
 
@@ -521,10 +547,10 @@ autocode --workspace /path/to/project --run-dir /path/to/run --resume-paused
 Abandoning a stage preserves its logs, source snapshots and partial edits, clears that
 role's uncertain session and invalidates previous validation. It launches no agent.
 On explicit resume, if the saved guards permit another stage, an abandoned Builder
-or Validator returns to its owning stage with the retained-work recovery context.
+or Tester returns to its owning stage with the retained-work recovery context.
 Abandoned planning and report-repair attempts return to their owning workflow
-stage, not an internal repair stage. An abandoned Completion Owner first routes
-through the workflow's review stage to obtain fresh evidence (the Validator in
+stage, not an internal repair stage. An abandoned Completion Reviewer first routes
+through the workflow's review stage to obtain fresh evidence (the Tester in
 the standard workflow). Alternate workflow approvals and routing still apply.
 Neither the retained partial work nor the abandoned report counts as accepted
 implementation or validation; subsequent completion must pass the normal gates.
@@ -532,7 +558,7 @@ It does not approve an unapproved brief or stop an already-running worker.
 
 ### Resolver-owned operational recovery
 
-Runner-observed stalls are operational work for AutoResolver, not requests for a
+Runner-observed stalls are operational work for Resolver, not requests for a
 user to buy another retry or approve a larger planning allowance. Timeout,
 capacity, and permitted workspace-path recovery retain diagnostic receipts and
 the original evidence. Planning retries receive that diagnosis and a bounded
@@ -587,7 +613,7 @@ bound is a runner default or an explicit CLI constraint, including abbreviated
 CLI options. Limits saved without provenance remain protected; they are not
 silently reinterpreted as permission to spend more.
 
-AutoResolver can extend an internal default once when accepted, current progress
+Resolver can extend an internal default once when accepted, current progress
 and known reported usage justify it. Extensions are separate durable ledger
 entries; elapsed time, failed attempts and token records never reset. Each eligible
 limit can at most double, with these policy ceilings:
@@ -608,15 +634,15 @@ zero. Billing routes and provider quota cannot be changed by this mechanism.
 The planning extension requires a changed accepted plan and matching review/revision
 evidence; it is not granted for narrative churn or recycled failed calls.
 
-**AutoResolver is the only human-request publisher.** Other roles stage internal
+**Resolver is the only human-request publisher.** Other roles stage internal
 proposals. The serialized runner boundary first evaluates permitted recovery or
 the human-only decision, then issues a bound request before status, chat or the
 dashboard may present actionable controls. Draft questions remain in the sealed
 draft but are not actionable merely because a model wrote them. Read-only views
 verify receipts; they do not create authority. Project-free intake also uses the
-AutoResolver request-only adapter, without fabricating a run or approved contract.
+Resolver request-only adapter, without fabricating a run or approved contract.
 
-If recovery cannot proceed safely, AutoResolver asks for human help, retaining the
+If recovery cannot proceed safely, Resolver asks for human help, retaining the
 original pause cause, attempts and evidence. This is not a fake requirements
 question or a completion claim. Material replies use the current `--resolver-token`;
 goal and artifact approval retain their existing exact approval/review tokens.
@@ -624,7 +650,7 @@ Operational responses use `--resolver-request ID --resolver-token TOKEN
 --resolver-response provide_information --resolver-message TEXT` or
 `--resolver-response leave_paused`. They are information, not implicit permission
 to retry, increase limits, change scope or approve work. The response returns to
-AutoResolver, and an unchanged stopped condition is not repeatedly reissued as a
+Resolver, and an unchanged stopped condition is not repeatedly reissued as a
 new question. Explicit administrative actions remain separately validated.
 
 Source/contract/evidence changes, stale tokens and queued interventions invalidate
@@ -632,7 +658,7 @@ old requests. Real requirements questions, permission changes, plan approval and
 declared artifact acceptance remain human decisions. External service failures
 cannot be guaranteed resolvable; automatic recovery is bounded rather than infinite.
 
-The Plan Reviewer and Validator use the read-only sandbox with the Codex engine; the Builder uses workspace-write.
+The Plan Reviewer and Tester use the read-only sandbox with the Codex engine; the Builder uses workspace-write.
 Built-in OpenCode execution launches in this checkout additionally require the
 qualified macOS Seatbelt shell boundary on OpenCode 1.18.33. Each launch uses a
 fresh provider session, preserves effective Bash restrictions, and disables other

@@ -23,6 +23,12 @@ except ImportError:  # Script-style execution from tools/ remains supported.
     import autocode_tool_containment as tool_containment
 
 
+try:
+    from .. import autocode_tool_handoff as tool_handoff
+except ImportError:
+    import autocode_tool_handoff as tool_handoff
+
+
 DEFAULT_MODELS = {
     # Planning path (Z.ai): Requirements medium → Planner high.
     "requirements": "zai-coding-plan/glm-5.3",
@@ -208,31 +214,30 @@ def check_models(roles, workspace=None, *, env=None):
 
 
 def check_subscription_routes(roles, workspace=None, *, env=None):
-    """Check OpenCode's nonsecret CLI auth summary, never its credential file.
+    """Validate a configured OpenAI connection, accepting OAuth or API routes.
 
-    OpenAI selections in the subscription workflow must use the existing OAuth
-    connection. Unrecognized output is not permission to switch to API billing.
-    Other providers retain their existing configured authentication.
+    Explicit API credentials/endpoints belong to the selected transport. No
+    credentials are inspected or copied and no authentication fallback is made.
+    The historical function name remains for provider-interface compatibility.
     """
     if not any(config.get("model", "").startswith("openai/") for config in roles.values()):
         return
     if any(key in env_prep.combined_environment(env)
            for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL")):
-        raise RuntimeError("OpenAI API-key or endpoint environment overrides are present; "
-                           "subscription selection will not silently change billing routes")
+        return
     try:
         failed, modes = _openai_auth_modes(workspace, env)
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise RuntimeError("Cannot verify OpenCode's OpenAI OAuth connection; no provider request was launched") from error
-    if failed or modes != ["oauth"]:
-        raise RuntimeError("OpenCode OpenAI models require a ChatGPT OAuth connection. Use OpenCode /connect → "
-                           "OpenAI → ChatGPT Plus/Pro; API-key fallback is disabled")
+        raise RuntimeError("Cannot verify OpenCode's OpenAI connection; no provider request was launched") from error
+    if failed or modes not in (["oauth"], ["api"]):
+        raise RuntimeError("OpenCode OpenAI models require a configured OAuth or API connection; "
+                           "use OpenCode /connect. No provider request was launched")
 
 
 def openai_auth(workspace=None, *, env=None):
     """How OpenCode signs in to OpenAI: "oauth" (the ChatGPT login), another mode such as
     "api", "missing" when OpenAI is not connected, or None when the summary cannot be read.
-    Only "oauth" passes check_subscription_routes."""
+    OAuth and API connections pass check_subscription_routes."""
     try:
         failed, modes = _openai_auth_modes(workspace, env)
     except (OSError, subprocess.TimeoutExpired):
@@ -317,6 +322,7 @@ def launch(role, workspace, run_dir, session, model, effort, allow_write, *, pla
 
 
 def prompt_for_schema(prompt, schema, events):
+    prompt = tool_handoff.with_capture_command(prompt)
     instructions = ("\nOPENCODE OUTPUT CONTRACT\n"
         "Return your final report as exactly one JSON object matching the following schema. "
         "Do not wrap it in explanation. OpenCode's --format json emits transport events; "
@@ -410,48 +416,56 @@ def normalized_events(rows):
         elif row.get("type") == "step_finish":
             steps.append(part)
     normalized += errors
-    # Use the same unique-part ordering for terminal evidence and usage. A
-    # replayed older finish must not close a newer, still-unfinished step.
-    phase_types = ("step_start", "step_finish")
-    if any(not row.get("part", {}).get("id") for row in rows if row.get("type") in phase_types):
+    if not steps:
         return normalized
+    # Replayed finishes cannot close newer steps, even when the newer ID is missing.
+    phase_types = ("step_start", "step_finish")
     phases = [row for row in parts.values() if row.get("type") in phase_types]
+    terminal = (not any(not row.get("part", {}).get("id") for row in rows if row.get("type") in phase_types)
+                and phases[-1].get("type") == "step_finish"
+                and steps[-1].get("reason") in ("stop", "length", "tool-calls"))
+    partial = not terminal or bool(errors and steps[-1].get("reason") == "stop")
+
+    def total(field, subfield=None):
+        containers = [p.get("tokens") for p in steps]
+        values = [tokens.get(field) if isinstance(tokens, dict) else None for tokens in containers]
+        if subfield:
+            values = [v.get(subfield) if isinstance(v, dict) else None for v in values]
+        known = [v for v in values if type(v) is int and v >= 0]
+        return sum(known) if known and (partial or len(known) == len(values)) else None
+
+    # OpenCode input excludes cache reads/writes; output excludes reasoning.
+    input_parts = [total("input"), total("cache", "read"), total("cache", "write")]
+    output_parts = [total("output"), total("reasoning")]
+    usage = {"input_tokens": sum(input_parts) if all(v is not None for v in input_parts) else None,
+             "cached_input_tokens": total("cache", "read"),
+             "output_tokens": sum(output_parts) if all(v is not None for v in output_parts) else None,
+             "reasoning_output_tokens": total("reasoning")}
+    usage = {k: v for k, v in usage.items() if v is not None}
+    if not terminal:
+        # Completed-step consumption survives interruption, but is not terminal proof.
+        normalized.append({"type": "usage.partial", "usage": usage})
+        return normalized
     # A stream that ends on a "tool-calls" finish stopped mid-turn: the model asked
     # for tools and no later step followed (the process exited, for example after
     # every call was auto-rejected). Like "length", it is a failed turn whose
-    # Reported usage is retained for accounting, including cached input.
-    if (steps and phases[-1].get("type") == "step_finish"
-            and steps[-1].get("reason") in ("stop", "length", "tool-calls")):
-        def total(field, subfield=None):
-            containers = [p.get("tokens") for p in steps]
-            values = [tokens.get(field) if isinstance(tokens, dict) else None for tokens in containers]
-            if subfield:
-                values = [v.get(subfield) if isinstance(v, dict) else None for v in values]
-            return sum(values) if all(type(v) is int and v >= 0 for v in values) else None
-        # OpenCode input excludes cache reads/writes. Preserve all input usage for
-        # the runner's budget, including tokens served from a prompt cache.
-        input_parts = [total("input"), total("cache", "read"), total("cache", "write")]
-        output_parts = [total("output"), total("reasoning")]
-        usage = {"input_tokens": sum(input_parts) if all(v is not None for v in input_parts) else None,
-                 "cached_input_tokens": total("cache", "read"),
-                 "output_tokens": sum(output_parts) if all(v is not None for v in output_parts) else None,
-                 "reasoning_output_tokens": total("reasoning")}
-        usage = {k: v for k, v in usage.items() if v is not None}
-        if steps[-1].get("reason") == "length":
-            # A successful process exit can still be an incomplete model turn.
-            # Preserve reported consumption without granting completion evidence.
-            normalized.append({"type": "turn.failed", "usage": usage, "error": {
-                "code": "output_token_limit",
-                "message": "OpenCode exhausted its output token limit (finish reason: length). "
-                           "The attempt is incomplete; review saved work before recovery."}})
-        elif steps[-1].get("reason") == "tool-calls":
-            normalized.append({"type": "turn.failed", "usage": usage, "error": {
-                "code": "incomplete_turn",
-                "message": "OpenCode stopped after a step that requested tool calls, before the model "
-                           "finished its turn (finish reason: tool-calls). The attempt is incomplete; "
-                           "review saved work before recovery."}})
-        elif not errors:
-            normalized.append({"type": "turn.completed", "usage": usage})
+    # reported usage is retained for accounting, including cached input.
+    if steps[-1].get("reason") == "length":
+        # A successful process exit can still be an incomplete model turn.
+        normalized.append({"type": "turn.failed", "usage": usage, "error": {
+            "code": "output_token_limit",
+            "message": "OpenCode exhausted its output token limit (finish reason: length). "
+                       "The attempt is incomplete; review saved work before recovery."}})
+    elif steps[-1].get("reason") == "tool-calls":
+        normalized.append({"type": "turn.failed", "usage": usage, "error": {
+            "code": "incomplete_turn",
+            "message": "OpenCode stopped after a step that requested tool calls, before the model "
+                       "finished its turn (finish reason: tool-calls). The attempt is incomplete; "
+                       "review saved work before recovery."}})
+    elif not errors:
+        normalized.append({"type": "turn.completed", "usage": usage})
+    else:
+        normalized.append({"type": "usage.partial", "usage": usage})
     return normalized
 
 

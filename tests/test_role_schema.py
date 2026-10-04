@@ -1,5 +1,7 @@
 """Cycle-free role schema extraction preserves ordinary roles and opt-in checkpoints."""
 import copy
+import json
+from pathlib import Path
 import unittest
 
 import autocode_goals as goals
@@ -39,3 +41,20 @@ class RoleSchemaTests(unittest.TestCase):
     def test_product_permission_request_enum_is_unchanged(self):
         self.assertEqual(["none", "clarification", "contradiction", "infeasible", "permission", "goal_change", "blocker"],
                          reports.USER_REQUEST["properties"]["kind"]["enum"])
+
+    def test_technical_flow_proof_is_optional_for_saved_reports_and_explicit_in_new_reports(self):
+        legacy = json.loads((Path(__file__).resolve().parents[1] /
+                             "tools/autocode-schemas/v2/sol-report.schema.json").read_text())
+        schema = reports.role_schema(legacy, "sol")["properties"]["end_to_end_result"]
+        old = {"status": "PASS", "summary": "Executed flow", "evidence_refs": ["event:check"]}
+        util.validate_schema(old, schema)
+        current = {**old, "technical_result": None, "pending_human_criteria": []}
+        strict = util.model_output_schema(schema)
+        util.validate_schema(current, strict)
+        proof = {"status": "PASS", "summary": "Executed technical steps", "evidence_refs": ["check:1"]}
+        util.validate_schema({**current, "status": "NOT_VERIFIED", "technical_result": proof,
+                              "pending_human_criteria": ["C1"]}, strict)
+        with self.assertRaisesRegex(ValueError, "missing"):
+            util.validate_schema(old, strict)
+        with self.assertRaisesRegex(ValueError, "invalid enum"):
+            util.validate_schema({**current, "technical_result": {**proof, "status": "CLAIMED"}}, strict)

@@ -1,13 +1,17 @@
 """Initial provider inspection and persistence cannot disable its deadlines."""
+from pathlib import Path
+import shutil
 import signal
+import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
 import autocode_process as processes
+from autocode_activity import CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT, ActivityMonitor
 
 
 class StartupDeadlineTests(unittest.TestCase):
-    def run_provider(self, phase, *, idle=False):
+    def run_provider(self, phase, *, idle=False, monitor_for=None):
         # Drive the real supervisor with a fake provider, clock and scheduler.
         # A suspended event wait resumes at the next clock tick; nothing sleeps.
         class Suspended(BaseException):
@@ -40,27 +44,43 @@ class StartupDeadlineTests(unittest.TestCase):
             def cancel(self):
                 self.due = None
 
+        ticking = [False]
+
         class Thread:
             def __init__(self, target, daemon=False):
                 self.target = target
 
             def tick(self):
+                previous, ticking[0] = ticking[0], True
                 try:
                     self.target()
                 except Suspended:
                     pass
+                finally:
+                    ticking[0] = previous
 
             def start(self):
                 threads.append(self)
-                self.tick()
+                if self.target.__name__ != "own_processes":
+                    self.tick()
 
             def is_alive(self):
                 return False
 
+            def join(self, timeout=None):
+                pass
+
         def event_wait(event, timeout=None):
             if event.is_set():
                 return True
-            raise Suspended()
+            if ticking[0]:
+                raise Suspended()
+            # Let the independent process worker progress when the controller
+            # waits; background waits still yield to this deterministic clock.
+            for thread in threads:
+                if thread.target.__name__ == "own_processes":
+                    thread.tick()
+            return event.is_set()
 
         running_after_cap, owned = [], []
 
@@ -107,7 +127,8 @@ class StartupDeadlineTests(unittest.TestCase):
                 return {'idle_seconds': 0, 'tool_elapsed_seconds': None,
                         'idle_limit_seconds': 5, 'tool_limit_seconds': 0}
 
-        monitor = Monitor() if idle or phase == 'fast_exit' else None
+        monitor = (monitor_for(lambda: clock[0]) if monitor_for
+                   else Monitor() if idle or phase == 'fast_exit' else None)
         proc = MagicMock()
         proc._ident = (child.pid, 1.0)
         proc.create_time.return_value = 1.0
@@ -152,6 +173,29 @@ class StartupDeadlineTests(unittest.TestCase):
 
     def test_idle_cap_during_initial_inspection(self):
         self.assert_bounded('inspection', idle=True)
+
+    def test_idle_stop_reason_comes_from_the_stages_own_monitor(self):
+        # The supervisor stops the stage first when the observer's last poll lags; its reason must still be
+        # the one the real monitor run_role built names: the limit, its origin and the stage's advice.
+        events = Path(tempfile.mkdtemp(prefix='idle-reason-')) / 'events.jsonl'
+        self.addCleanup(shutil.rmtree, events.parent, True)
+        events.touch()
+        for origin, hint, expected in (
+                ('runner_default', CHANGE_IDLE_LIMIT,
+                 '(5 seconds, runner default; change it with --resume-paused --max-idle-seconds N)'),
+                ('user_explicit', JOB_IDLE_LIMIT,
+                 '(5 seconds, set explicitly; an exact job retry runs under the same limit; '
+                 'a different limit needs a new run)'),
+                (None, CHANGE_IDLE_LIMIT, '(5 seconds; change it with --resume-paused --max-idle-seconds N)')):
+            with self.subTest(origin=origin, hint=hint):
+                def monitor_for(clock):
+                    return ActivityMonitor(events, idle_seconds=5, tool_seconds=0, clock=clock,
+                                           idle_origin=origin, idle_hint=hint)
+                _, expired, _, monitor, _ = self.run_provider('inspection', idle=True, monitor_for=monitor_for)
+                self.assertTrue(expired)
+                self.assertEqual('idle', monitor.timeout['kind'])
+                self.assertEqual('No new provider activity within the inactivity limit ' + expected,
+                                 monitor.timeout['reason'])
 
     def test_watchdog_cannot_reap_before_identity_is_captured(self):
         code, expired, owned, _, _ = self.run_provider('fast_exit')

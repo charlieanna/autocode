@@ -131,4 +131,10 @@ const doneHost=context.renderSessionCheckpoints(done,finished);
 const doneBuilt=doneHost.children.at(-1).children[1].children[1];
 assert.equal(doneBuilt.children.find(child=>child.label==='Restore to here'),undefined);
 
+// History is read-only inspection: the complete saved timeline remains there,
+// while restore drafting stays exclusively in chat.
+const inspection=context.renderSessionCheckpoints(base,checkpoints,false);
+const allNodes=node=>[node,...(node.children||[]).flatMap(allNodes)];
+assert.equal(allNodes(inspection).filter(node=>String(node.className).includes('checkpoint-restore')).length,0);
+assert.equal(inspection.children.at(-1).children.length,checkpoints.length);
 console.log('Session checkpoint derivation, inspection answers, and restore drafting passed.');

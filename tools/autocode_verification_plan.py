@@ -49,6 +49,8 @@ def executable(text):
     if not words:
         return False
     name = PurePosixPath(words[0]).name
+    if name == "autocode":
+        return words[1:2] == ["visual-check"]  # a check, not permission to launch another task run
     if name in ("sh", "bash") or re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", name):
         return not UNQUOTED_CODE.search(text)
     return name in RUNNERS

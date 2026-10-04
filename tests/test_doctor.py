@@ -1,6 +1,8 @@
 """autocode doctor and autocode --version (issue #67)."""
 import json
 import os
+import shutil
+import importlib.util
 import subprocess
 import sys
 import tempfile
@@ -102,3 +104,31 @@ class CliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SourceCommitTests(unittest.TestCase):
+    def test_commit_is_reported_only_from_the_autocode_checkout(self):
+        import autocode_subcommands as sub
+        # Running from this checkout: the commit is AutoCode's.
+        commit = sub.source_commit()
+        self.assertTrue(commit and commit[:1] in "0123456789abcdef", commit)
+
+    def test_an_installed_package_inside_another_repository_reports_unknown(self):
+        import autocode_subcommands as sub
+        with tempfile.TemporaryDirectory() as folder:
+            project = Path(folder)
+            subprocess.run(["git", "init", "-q", str(project)], check=True)
+            subprocess.run(["git", "-C", str(project), "config", "user.name", "F"], check=True)
+            subprocess.run(["git", "-C", str(project), "config", "user.email", "f@t"], check=True)
+            (project / "app.py").write_text("hi\n")
+            subprocess.run(["git", "-C", str(project), "add", "app.py"], check=True)
+            subprocess.run(["git", "-C", str(project), "commit", "-qm", "user project"], check=True)
+            site = project / ".venv/lib/python3/site-packages/autocode_cli"
+            site.mkdir(parents=True)
+            # A real checkout's tools/ module, relocated under the user's repository.
+            shutil.copy2(Path(sub.__file__), site / "autocode_subcommands.py")
+            loaded = importlib.util.spec_from_file_location("installed_subcommands", site / "autocode_subcommands.py")
+            module = importlib.util.module_from_spec(loaded)
+            loaded.loader.exec_module(module)
+            self.assertIsNone(module.source_commit())
+            self.assertIn("commit unknown", module.version_line())

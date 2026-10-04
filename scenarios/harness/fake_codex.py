@@ -213,7 +213,8 @@ def progressive_report(stage, data, common):
                                        "evidence_refs": [ref for _, ref in results]}],
                 "end_to_end_result": {"status": "PASS" if fabricated else product,
                                       "summary": "Cumulative required checks executed; S1 is not full product proof",
-                                      "evidence_refs": [ref for _, ref in results]}}
+                                      "evidence_refs": [ref for _, ref in results],
+                                      "technical_result": None, "pending_human_criteria": []}}
     if stage in ("astra_review", "astra_plan", "astra_resolve"):
         failed = (data.get("validation") or {}).get("verdict") == "FAIL"
         permission_repair = (scoped and permission_answer is not None and
@@ -756,7 +757,8 @@ def report_for(stage: str, data: dict) -> dict:
                     "finding_dispositions": [], "unverified_criteria": [], "checks": checks,
                     "criterion_results": criteria,
                     "end_to_end_result": {"status": status, "summary": f"{CHECK} exited {code}",
-                                          "evidence_refs": ["event:check"]}}
+                                          "evidence_refs": ["event:check"],
+                                          "technical_result": None, "pending_human_criteria": []}}
         checks, criteria, member_results = [], [], []
         for milestone_id in members:
             row = milestone_row(milestone_id)
@@ -776,7 +778,8 @@ def report_for(stage: str, data: dict) -> dict:
                   "end_to_end_result": {"status": verdict,
                                         "summary": "; ".join(f"{row['milestone_id']}: {row['status']}"
                                                              for row in member_results),
-                                        "evidence_refs": [row["evidence_refs"][0] for row in member_results]}}
+                                        "evidence_refs": [row["evidence_refs"][0] for row in member_results],
+                                        "technical_result": None, "pending_human_criteria": []}}
         if task.get("milestone_ids"):
             # An integrated batch: report every member's milestone result.
             report["milestone_results"] = member_results
@@ -795,7 +798,7 @@ def report_for(stage: str, data: dict) -> dict:
                                       for row in ((data.get("goal_contract") or {}).get("body") or {})
                                       .get("acceptance_criteria") or [{"id": "C1"}]],
                 "end_to_end_result": {"status": status, "summary": f"{CHECK} exited {code}",
-                                      "evidence_refs": [ref]}}
+                                      "evidence_refs": [ref], "technical_result": None, "pending_human_criteria": []}}
     if stage in ("astra_review", "astra_plan") and MILESTONES and not (data.get("goal_contract") or {}).get("revision"):
         # Report repair: the handoff has no live contract or current task; fix
         # the rejected draft's identity fields and return it as instructed.

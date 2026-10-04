@@ -83,6 +83,11 @@ def recover(runtime, state, run_dir, workspace, error=None, *, abandoned=False):
     record.update(job_failure_kind=kind, write_diagnosis=restoration, abandoned=abandoned)
     config = record.get('job_configuration') or configuration(state)
     source_identity = (record.get('job_source') or {}).get('before_identity')
+    if not source_identity and not (record.get('changed_files') or []):
+        # Crashed before capturing its source binding, changed nothing: anchor the
+        # retry gate on the live workspace identity so an exact retry stays possible
+        # (authorize still refuses if the workspace changes before the retry).
+        source_identity = util.digest(source.identity(workspace))
     token = 'jr:' + util.digest({'run': str(run_dir), 'attempt': original_attempt,
                     'started_at': record.get('started_at'), 'source': source_identity, 'configuration': config})
     originals = runtime.archive_rejected_stage(state, run_dir, record, reason)
@@ -109,9 +114,15 @@ def authorize(runtime, state, run_dir, workspace, token):
         raise ValueError('Exact job retry requires a paused failed workflow job')
     if not token or token != failure.get('job_retry_token'):
         raise ValueError('Job retry token does not match the current failed attempt')
-    if failure.get('unrestored') or not failure.get('source_identity'):
-        raise ValueError('Unrestored source blocks job retry: ' + ', '.join(failure.get('unrestored') or []))
-    if util.digest(source.identity(workspace)) != failure['source_identity']:
+    if not failure.get('source_identity'):
+        raise ValueError('Exact retry is unavailable: this attempt has no saved original source identity. '
+                         'Inspect the archived attempt and current changes before starting a new run.')
+    # The restoration diagnosis describes the failed attempt. Missing capture
+    # files or a later exact manual restoration must not make it a permanent
+    # veto: recheck the saved full identity, then check it again at admission.
+    if not source.matches_original(workspace, failure['source_identity']):
+        if failure.get('unrestored'):
+            raise ValueError('Unrestored source blocks job retry: ' + ', '.join(failure['unrestored']))
         raise ValueError('Source changed since the failed attempt; retry is stale')
     if configuration(state) != failure['configuration']:
         raise ValueError('Provider configuration or limits changed; retry is stale')

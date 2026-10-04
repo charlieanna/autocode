@@ -106,22 +106,47 @@ class OracleProcessTest(unittest.TestCase):
             self.assertEqual(0, code)
             self.assertEqual("\ufffd", out)
 
-    def test_cleanup_drain_timeout_preserves_result_and_bounds_reaping(self):
-        for wait_error in (None, subprocess.TimeoutExpired("child", 5)):
-            with self.subTest(wait_error=wait_error):
-                proc = mock.Mock()
-                proc.communicate.side_effect = [subprocess.TimeoutExpired("child", 1),
-                                                subprocess.TimeoutExpired("child", 5)]
-                proc.wait.side_effect = wait_error
-                with mock.patch.object(scenarios.subprocess, "Popen", return_value=proc), \
-                        mock.patch.object(scenarios.os, "killpg") as killpg:
-                    self.assertEqual((-1, "", "TIMEOUT"), scenarios._run(["child"], TOOLS, timeout=1))
-                killpg.assert_called_once_with(proc.pid, scenarios.signal.SIGKILL)
-                self.assertEqual([mock.call(input=None, timeout=1), mock.call(timeout=5)],
-                                 proc.communicate.call_args_list)
-                for stream in (proc.stdin, proc.stdout, proc.stderr):
-                    stream.close.assert_called_once_with()
-                proc.wait.assert_called_once_with(timeout=5)
+    def test_nonzero_exit_preserves_both_output_streams(self):
+        with _project({}) as root:
+            result = scenarios._run([sys.executable, '-c',
+                "import sys; print('done'); print('error', file=sys.stderr); sys.exit(7)"], Path(root))
+        self.assertEqual((7, 'done\n', 'error\n'), result)
+
+    def test_large_input_and_both_outputs_are_preserved(self):
+        data = 'x' * 200000
+        with _project({}) as root:
+            result = scenarios._run([sys.executable, '-c',
+                "import sys; data=sys.stdin.read(); sys.stdout.write(data); sys.stderr.write(data)"],
+                Path(root), stdin=data)
+        self.assertEqual((0, data, data), result)
+
+    def test_uncertain_cleanup_cannot_publish_an_oracle_result(self):
+        from autocode_process import ProcessError
+        process = scenarios.oracle_process
+        with mock.patch.object(process.subprocess, 'Popen'), \
+                mock.patch.object(process.supervisor, 'wait', side_effect=ProcessError('cleanup unverified')):
+            with self.assertRaisesRegex(ProcessError, 'cleanup unverified'):
+                process.run(['unused'], TOOLS)
+
+    def test_cleanup_permission_error_fails_closed_without_publishing_a_partial_result(self):
+        # The retired killpg path swallowed EPERM (#311's interim fix). The
+        # supervisor signals birth-verified pids individually; a denied signal
+        # on a lingering same-group child is uncertain cleanup: the typed
+        # ProcessError reaches the caller, never a partial probe outcome.
+        from autocode_process import ProcessError
+        probe = ("import subprocess, sys; subprocess.Popen(['sleep', '5']); "
+                 "print('done'); sys.exit(7)")
+        with _project({}) as root, mock.patch.object(os, 'kill', side_effect=PermissionError('denied')):
+            with self.assertRaisesRegex(ProcessError, 'permission denied'):
+                scenarios._run([sys.executable, '-c', probe], Path(root))
+
+    def test_launch_permission_error_propagates(self):
+        with _project({}) as root:
+            denied = Path(root) / 'denied-probe'
+            denied.write_text('#!/bin/sh\ntrue\n')
+            denied.chmod(0)
+            with self.assertRaises(PermissionError):
+                scenarios._run([str(denied)], Path(root))
 
 
 class BugfixOracleTest(unittest.TestCase):
@@ -197,6 +222,18 @@ class FeatureOracleTest(unittest.TestCase):
 
 
 class ArchOracleTest(unittest.TestCase):
+    def test_reference_passes_and_injected_violation_fails(self):
+        for changes, expected in (({}, scenarios.PASS),
+                                  ({"architecture/check.py": "raise SystemExit(1)\n"}, scenarios.FAIL)):
+            with self.subTest(expected=expected), _project(_variant(references.ARCH_REFERENCE, changes)) as root:
+                result = scenarios.arch01_oracle(Path(root))
+                self.assertEqual(expected, result.status, result.summary)
+                if expected == scenarios.PASS:
+                    self.assertTrue(all(row["ok"] for row in result.checks))
+                else:
+                    self.assertIn("check.py.passes_on_candidate", [row["name"] for row in result.failed])
+                    self.assertIn("check.py.rejects_injected_violation", [row["name"] for row in result.failed])
+
     def test_relative_comma_and_nested_imports_fail_both_checkers(self):
         variants = [
             ("services/catalog/api.py", "from ..notifications import api as notifications\n"),

@@ -75,6 +75,11 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         "repair a saved command at a reconciled pause with --resume-paused")
     parser.add_argument("--revise-protected-tests", type=Path,
                         help="Explicit user revision JSON for the original test inventory and command; requires a reconciled validation pause")
+    parser.add_argument("--base-patch", type=Path,
+                        help="Bug fixes: a patch that adds only instrumentation (a hook or variable the fix adds) to the "
+                        "original code, so a regression test using it can run and fail there; hash-pinned, no test "
+                        "files, must be contained in the final change; on a saved run use --resume-paused at a "
+                        "stop before the Validator")
     parser.add_argument("--regression-command", help="Shell command for new or changed regression tests (default: derived); "
                         "repair a saved command at a reconciled pause with --resume-paused")
     parser.add_argument("--max-iterations", type=int, help="Total iteration ceiling (new-run default: unlimited; resumes keep saved limits)")
@@ -179,6 +184,10 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--approve-review", action="append", default=[], metavar="CRITERION_ID")
     parser.add_argument("--reconcile-review", metavar="CRITERION_ID=ANSWER_ID",
                         help="Bind an authenticated legacy acceptance to current validated evidence without a new approval")
+    parser.add_argument("--close-finding", action="append", default=[], metavar="FINDING_ID",
+                        help="Close an open reviewer finding as your own decision (repeatable), for example a "
+                        "duplicate of a problem already settled; needs --close-reason; launches no agent")
+    parser.add_argument("--close-reason", metavar="TEXT", help="Why the findings named by --close-finding no longer apply")
     parser.add_argument("--accept-completion", action="store_true",
                         help="Operator-accept completion after the runner itself verifies every gate; use when the model's completion report cannot be produced")
     parser.add_argument("--review-token", help="Exact displayed contract/artifact/validation token; "
@@ -253,8 +262,11 @@ def parse(unit, argv, default_models):
                bool(args.approve_goal), bool(args.edit_goal),
                bool(args.approve_review), bool(args.reconcile_review),
                args.feedback is not None, args.follow_up is not None, args.accept_completion, args.abandon_stage is not None,
+               bool(args.close_finding),
                args.request_milestone_checkpoints, args.planning_review_call_limit is not None,
                args.bind_dependency, args.receive_dependency]
+    if args.close_finding and not args.run_dir:
+        parser.error("--close-finding requires --run-dir")
     if sum(bool(a) for a in actions) > 1:
         parser.error("Choose one action per invocation; answering and approving are separate events")
     if args.retry_builder and any(actions):

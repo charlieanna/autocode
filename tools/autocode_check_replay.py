@@ -82,8 +82,12 @@ def evidence_pins(result):
 def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_SECONDS, approved_state=None,
             required_commands=None, progressive_context=None, execution_identity=None) -> dict:
     """Re-run each distinct check command; return the result or raise ValueError on the first that fails."""
-    out = Path(run_dir) / "check-replay" / Path(record.get("output") or "validation").stem
     schedule.guard(Path(run_dir) / "check-replay" / "obligations")
+    # Report stems repeat across iterations, repairs and retries of one attempt.
+    # Allocate before any scratch/protected-test writes so old citations stay intact.
+    stem = Path(record.get("output") or "validation").stem
+    out = Path(run_dir) / "check-replay" / f"{stem}-{uuid.uuid4().hex}"
+    out.mkdir(parents=True, exist_ok=False)
     protected = protected_oracles.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout)
     checks = list(checks)
     prescribed = verification_plan.approved_commands(approved_state or {}, progressive_context=progressive_context)
@@ -167,7 +171,6 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
         "avoided_seconds": sum(row.get("duration_seconds") or 0 for row in decisions
                                if row["scheduling"]["action"] == "reuse"),
         "duration_basis": "Original command subprocess seconds, not net wall-time savings or scheduling overhead"}
-    out.mkdir(parents=True, exist_ok=True)
     (out / "replay.json").write_text(json.dumps(result, indent=2) + "\n")
     if failed:
         row = failed[0]

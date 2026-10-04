@@ -142,7 +142,9 @@ def report_for(stage: str, component_id: str, spec: dict, data: dict) -> dict:
         return {**common, "verdict": status, "checks_run": [spec["check"]], "findings": [], "finding_dispositions": [],
                 "unverified_criteria": [], "checks": [{"command": spec["check"], "exit_code": code, "evidence_ref": "event:check"}],
                 "criterion_results": [{"id": "C1", "status": status, "evidence_refs": ["event:check"]}],
-                "end_to_end_result": {"status": status, "summary": f"{spec['check']} exited {code}", "evidence_refs": ["event:check"]}}
+                "end_to_end_result": {"status": status, "summary": f"{spec['check']} exited {code}",
+                                      "evidence_refs": ["event:check"], "technical_result": None,
+                                      "pending_human_criteria": []}}
     if stage in ("astra_review", "astra_plan", "astra_resolve"):
         return {**common, "status": "COMPLETE",
                 "acceptance_criteria": [{"id": "C1", "criterion": "The check command passes",

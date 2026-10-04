@@ -265,6 +265,19 @@ class BudgetRecoveryTests(unittest.TestCase):
             state["stages"].insert(0, old)
             self.denied(state)
 
+    def test_partial_archived_usage_blocks_extension_despite_accepted_progress(self):
+        for kind in HARD_CEILINGS:
+            for origin in ("runner_default", "resolver_delegated"):
+                with self.subTest(kind=kind, origin=origin):
+                    state = fixture(kind)
+                    state["settings"]["budget_origins"][kind] = origin
+                    old = copy.deepcopy(state["stages"][0])
+                    old.update(rejected=True, abandoned=True, timed_out=True, exit_code=1)
+                    state["stages"].insert(0, old)
+                    self.assertTrue(recover(copy.deepcopy(state), kind=kind, now=NOW))
+                    old["metrics"]["provider_tokens_partial"] = True
+                    self.denied(state, kind)
+
     def test_retired_token_settings_do_not_restrict_recovery(self):
         for cap in (1, 15, None, True, "100", -1):
             with self.subTest(cap=cap):

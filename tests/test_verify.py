@@ -70,6 +70,35 @@ class VerifyCase(unittest.TestCase):
         self.addCleanup(project.close)
         return project
 
+    @unittest.skipUnless(shutil.which('node'), 'Node is required for named Node proof')
+    def test_node_named_case_flip_preserves_original_custom_suite(self):
+        import autocode_regression as regression
+        seed = {'package.json': '{"scripts":{"test":"node tests/check.cjs"}}',
+                'app.cjs': 'module.exports = n => n + 1;\n',
+                'tests/check.cjs': "require('node:assert/strict').equal(require('../app.cjs')(1),2);\n"}
+        project = self.project(seed)
+        project.write({'app.cjs': 'module.exports = n => n === 2 ? 4 : n + 1;\n',
+                       'tests/cases.cjs': "const {test}=require('node:test');"
+                       "const assert=require('node:assert/strict'); const app=require('../app.cjs');"
+                       "test('test_c1_two',()=>assert.equal(app(2),4));"
+                       "test('test_c2_one',()=>assert.equal(app(1),2));\n"})
+        result = project.verify()
+        regression.check_cases(result, [{'id': 'C1', 'text': 'two gives four', 'test_name': 'test_c1_two'},
+                                       {'id': 'C2', 'text': 'one stays two', 'test_name': 'test_c2_one',
+                                        'kind': 'preserve'}])
+        self.assertEqual(verify.PASS, result['verdict'], result)
+        self.assertEqual('derived:node', result['commands']['regression_source'])
+        self.assertEqual('npm test --silent', result['commands']['suite'])
+        self.assertEqual(['tests/cases.cjs::test_c1_two'], result['fail_to_pass'])
+        self.assertEqual(['tests/cases.cjs::test_c2_one'], result['pass_to_pass'])
+        self.assertEqual(seed['tests/check.cjs'], project_file(project, 'tests/check.cjs'))
+        for source in ('module.exports = n => n + 1; // still broken\n',
+                       'module.exports = n => n === 2 ? 4 : 0; // breaks the protected suite\n'):
+            with self.subTest(source=source):
+                project.write({'app.cjs': source})
+                rejected = project.verify()
+                self.assertEqual(verify.FAIL, rejected['verdict'], rejected)
+
     def test_ignored_vendor_reaches_scratch_probe_without_sharing_writes(self):
         project = self.project({**SEED, '.gitignore': 'vendor/\n'})
         project.write({'vendor/example/resource.txt': 'offline'})

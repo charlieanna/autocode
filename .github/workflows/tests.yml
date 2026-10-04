@@ -30,8 +30,19 @@ jobs:
         with:
           python-version: "3.11"
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dashboard browser test dependencies
+        # AC15 runs a real browser from the Python suite, before the Node gate.
+        # Pin the version used for the local feature acceptance checks.
+        run: |
+          npm install --global agent-browser@0.25.3
+          agent-browser install --with-deps
+
       - name: Install package and runtime dependencies
-        run: python3 -m pip install -e .
+        run: python3 -m pip install -e '.[visual]'
 
       - name: Run the suite gate
         # tools/run_suite.py wraps the same discovery as
@@ -68,19 +79,58 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
+      - name: Verify chat, answers and Work in real browsers
+        # Read-only messages and exact-message confirmation must remain safe
+        # with a pending question, after reload, and at narrow viewports.
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, sys, tempfile
+          from pathlib import Path
+          from tests.browser_suite_process import run
+          with tempfile.TemporaryDirectory(prefix="ab-", dir="/tmp") as sockets:
+              env = {**os.environ, "AGENT_BROWSER_SOCKET_DIR": sockets,
+                     "AUTOCODE_TEST_PYTHON": sys.executable}
+              for script, cap in [("test_chat_intent_browser_ui.js", 180),
+                                  ("test_work_summary_browser_ui.js", 240),
+                                  ("test_question_cards_browser_ui.js", 240)]:
+                  try:
+                      result = run(["node", "tools/dashboard/tests/" + script],
+                                   cwd=Path.cwd(), env=env, timeout=cap)
+                  except BaseException as error:
+                      print(json.dumps(getattr(error, "receipt", {"error": str(error)})))
+                      raise
+                  print(json.dumps(result.receipt))
+                  if result.returncode:
+                      sys.exit(result.returncode)
+          PYTHON
 
       - name: Run the dashboard Node tests
-        # The two browser tests drive the agent-browser CLI, which this job
-        # doesn't install; the log names each one it leaves out.
+        # Browser checks invoked by Python tests run in the suite above.
+        # Standalone browser matrices remain part of local visual acceptance;
+        # the log names those omitted from this separate Node gate.
         run: |
           for test_file in tools/dashboard/tests/test_*.js; do
             if grep -q "agent-browser" "$test_file"; then
-              echo "Not run here (needs agent-browser): $test_file"
+              echo "Standalone browser matrix (verified separately): $test_file"
               continue
             fi
             echo "node $test_file"
             node "$test_file" || exit 1
           done
+
+  visual-comparison:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install image and browser test dependencies
+        run: |
+          python3 -m pip install -e '.[visual-test]'
+          python3 -m playwright install --with-deps chromium
+      - name: Run real-browser visual comparison controls
+        run: python3 -m unittest tests.test_visual_check_browser -v
+        env:
+          AUTOCODE_REQUIRE_VISUAL_BROWSER: "1"
+          PYTHONDONTWRITEBYTECODE: "1"

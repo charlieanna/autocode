@@ -21,6 +21,7 @@ import autocode_milestones as milestones
 import autocode_planning as planning
 import autopilot
 import autocode_support as support
+from autocode_activity import ActivityMonitor
 from goal_fixtures import assert_operational_wait, envelope
 
 
@@ -161,7 +162,7 @@ class ActivityRuntimeTests(unittest.TestCase):
 
                 with patch.object(runner.subprocess, 'Popen', Child), \
                      patch.object(support, 'snapshot', return_value={'head': 'h', 'files': {}, 'revision': 'r'}), \
-                     patch.object(runner.processes, 'process_table', return_value={}), \
+                     patch.object(runner.processes, 'preflight', return_value=None), \
                      patch.object(runner.processes, 'wait_for_stage', side_effect=wait), \
                      contextlib.redirect_stdout(io.StringIO()), self.assertRaises(support.Paused) as caught:
                     runner.run_role(role='terra', prompt='Finish the bounded greeting task',
@@ -179,6 +180,108 @@ class ActivityRuntimeTests(unittest.TestCase):
                 self.assertIn('observed_at', observed[0])
                 self.assertGreaterEqual(observed[0]['elapsed_seconds'], 0)
                 self.assertEqual(20, observed[0]['stage_limit_seconds'])
+
+    def idle_stop(self, *, supervisor_first, model='fixture-terra', limit=300, origin='runner default'):
+        """Run a Builder whose provider falls quiet, through run_role with the real ActivityMonitor.
+
+        The supervisor (autocode_process.wait_for_stage) usually stops the stage before the observer's own
+        poll marks it stalled; it then publishes the last observation merged with its timeout_reason. When
+        the observer polls first, the monitor's own detail carries the reason."""
+        self.start_task()
+        self.state['settings']['limits'].update(stage_timeout_seconds=3600, idle_timeout_seconds=300,
+                                                tool_timeout_seconds=1800)
+        self.state['settings']['budget_origins'] = {'idle_timeout_seconds': 'runner_default'}
+        clock = [0.0]
+
+        class Child:
+            pid = 987654321
+
+            def __init__(child, command, **kwargs):
+                child.stdout = kwargs['stdout']  # the provider writes its events through its own handle
+                child.stdout.write('{"type":"thread.started","thread_id":"fixture"}\n')
+                child.stdout.flush()
+
+        def monitor(*args, **kwargs):
+            return ActivityMonitor(*args, clock=lambda: clock[0], **kwargs)
+
+        def wait(child, hard_limit, checkpoint, *, activity, activity_checkpoint, startup_grace):
+            checkpoint([])
+            activity_checkpoint(activity.poll())
+            clock[0] = 181
+            child.stdout.write(json.dumps({'type': 'item.completed', 'item': {
+                'id': 'note', 'type': 'agent_message', 'text': 'Reading the failing module'}}) + '\n')
+            child.stdout.flush()
+            activity_checkpoint(activity.poll())
+            if supervisor_first:
+                # Shaped like autocode_process.stop_at_deadline: polling lag fired the limit at 299.5 s.
+                clock[0] = 181 + limit - 0.5
+                activity.timeout = {'kind': 'idle', 'reason': activity.idle_reason()}
+                activity_checkpoint({**activity.poll(), 'activity': 'stalled', 'timeout_kind': 'idle',
+                                     'timeout_reason': activity.timeout['reason']})
+            else:
+                clock[0] = 181 + limit
+                activity_checkpoint(activity.poll())
+                activity.timeout = activity.expired()
+            return -15, True
+
+        output = io.StringIO()
+        with patch.object(runner, 'ActivityMonitor', monitor), \
+             patch.object(runner.subprocess, 'Popen', Child), \
+             patch.object(support, 'snapshot', return_value={'head': 'h', 'files': {}, 'revision': 'r'}), \
+             patch.object(runner.processes, 'preflight', return_value=None), \
+             patch.object(runner.processes, 'process_table', return_value={}), \
+             patch.object(runner.processes, 'wait_for_stage', side_effect=wait), \
+             contextlib.redirect_stdout(output), self.assertRaises(support.Paused) as caught:
+            runner.run_role(role='terra', prompt='Finish the bounded greeting task',
+                sandbox='workspace-write', workspace=self.root, run_dir=self.run,
+                state=self.state, schema=runner.SCHEMA_DIR / 'v2/terra-report.schema.json',
+                model=model, allow_write=True, dry_run=False)
+        reason = (f'No new provider activity within the inactivity limit ({limit} seconds, {origin}; '
+                  'change it with --resume-paused --max-idle-seconds N)')
+        self.assertEqual('PAUSED_PROVIDER_TIMEOUT', caught.exception.status)
+        self.assertIn(reason, str(caught.exception))
+        stalled = [line for line in output.getvalue().splitlines() if line.startswith('Builder: stalled;')]
+        self.assertEqual(1, len(stalled))
+        self.assertTrue(stalled[0].endswith('; ' + reason), stalled[0])
+        active = support.read(self.run / 'state.json')['active_stage']
+        self.assertEqual(('idle', reason), (active['timeout_kind'], active['timeout_reason']))
+        self.assertEqual(181, active['activity']['longest_idle_seconds'])
+        return stalled[0], active
+
+    def test_idle_stop_names_saved_limit_origin_when_the_supervisor_stops_first(self):
+        stalled, active = self.idle_stop(supervisor_first=True)
+        self.assertIn('idle=299.5s/300', stalled)
+        self.assertEqual(299.5, active['activity']['idle_seconds'])
+
+    def test_a_mimo_route_runs_under_its_longer_default_and_says_so(self):
+        # #298: live MiMo Builders were stopped at 300 s mid-turn and finished at 900 s. The saved
+        # setting stays the runner default; only this launch's limit is raised.
+        stalled, active = self.idle_stop(supervisor_first=False, model='xiaomi-token-plan-sgp/mimo-v2.6-pro',
+                                         limit=900, origin='runner default for MiMo routes')
+        self.assertIn('idle=900s/900', stalled)
+        self.assertEqual(300, active['idle_timeout_seconds'])
+        self.assertEqual(300, support.read(self.run / 'state.json')['settings']['limits']['idle_timeout_seconds'])
+
+    def test_idle_stop_names_saved_limit_origin_when_the_monitor_sees_it_first(self):
+        stalled, active = self.idle_stop(supervisor_first=False)
+        self.assertIn('idle=300s/300', stalled)
+        self.assertEqual(300, active['activity']['idle_seconds'])
+
+    def test_resume_with_max_idle_seconds_applies_to_the_next_launch(self):
+        self.start_task()
+        self.state['settings']['limits']['idle_timeout_seconds'] = 300
+        self.state['settings']['budget_origins'] = {'idle_timeout_seconds': 'runner_default'}
+        self.state.update(status='PAUSED_PROVIDER_TIMEOUT', stop_reason='Builder idle stop')
+        launched = []
+
+        def inspect(**kwargs):
+            settings = kwargs['state']['settings']
+            launched.append((settings['limits']['idle_timeout_seconds'],
+                             settings['budget_origins']['idle_timeout_seconds']))
+            raise support.Paused('PAUSED_TEST', 'Offline dispatch inspected')
+
+        test_goals.GoalTests.invoke(self, '--resume-paused', '--max-idle-seconds', '900', role=inspect)
+        self.assertEqual([(900, 'user_explicit')], launched)
 
     def interrupted_attempt(self, *, terminal=False):
         before = support.snapshot(self.root)

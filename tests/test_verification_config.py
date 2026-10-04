@@ -144,6 +144,37 @@ class VerificationCommandGuards(unittest.TestCase):
 
 
 class VerificationProofCache(unittest.TestCase):
+    def test_operator_patch_mutation_invalidates_a_cached_complete_proof(self):
+        import difflib
+        import autocode_base_patch as base_patch
+        import autocode_regression as regression
+        import autocode_verify as verify
+        from .test_verify import Project, REFERENCE, SEED
+
+        project = Project()
+        self.addCleanup(project.close)
+        marker = '# Operator instrumentation marker\n'
+        patch = Path(project.temp.name) / 'base.patch'
+        patch.write_text(''.join(difflib.unified_diff(
+            SEED['greet.py'].splitlines(True), (marker + SEED['greet.py']).splitlines(True),
+            'a/greet.py', 'b/greet.py')))
+        pinned = base_patch.pin(patch, project.root, project.base)
+        project.write({**REFERENCE, 'greet.py': marker + REFERENCE['greet.py']})
+        state = {'goal_contract': {'body': {'task_kind': 'bugfix'}}, 'base_commit': project.base,
+                 'settings': {'regression': {'python': sys.executable, 'test_timeout': 15, 'base_patch': pinned}}}
+        identity = {'source_revision': verify.util.snapshot(project.root)['revision'], 'reuse_supported': True}
+        with mock.patch.object(verify, 'execution_identity', return_value=identity):
+            first = regression.prove(state, project.root, project.evidence)
+            self.assertEqual('PASS', first['verdict'], first)
+            self.assertTrue(any("operator's base patch" in reason for reason in first['review_reasons']))
+            self.assertEqual(first['path'], regression.prove(state, project.root, project.evidence)['path'])
+            patch.write_text(patch.read_text() + '\n')
+            changed = regression.prove(state, project.root, project.evidence)
+        self.assertEqual(first['source_revision'], changed['source_revision'])
+        self.assertEqual('UNVERIFIED', changed['verdict'], changed)
+        self.assertIn('changed after it was set', ' '.join(changed['unverified']))
+        self.assertFalse(regression.complete(state, changed['source_revision']))
+
     def test_current_complete_proof_reuses_but_tampered_output_and_environment_do_not(self):
         import autocode_regression as regression
         from .test_verify import Project, REFERENCE

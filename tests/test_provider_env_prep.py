@@ -28,7 +28,7 @@ from tools.providers import opencode as oc
 
 REPO = Path(__file__).resolve().parents[1]
 HEX64 = re.compile(r"[0-9a-f]{64}")
-MODELS = {"xiaomi-token-plan-sgp/mimo-v2.6-pro", "zai-coding-plan/glm-5.3", "openai/gpt-6-astra",
+MODELS = {"mimo-token-plan/mimo-v2.6-pro", "opencode/mimo-v2.6-flash-free", "xiaomi-token-plan-sgp/mimo-v2.6-pro", "zai-coding-plan/glm-5.3", "openai/gpt-6-astra",
           "openai/gpt-6-sol", "openai/gpt-6-luna", "openai/gpt-5.6-terra", "openai/gpt-5.6-sol"}
 
 ROLES = """
@@ -219,11 +219,9 @@ class ProviderEnvPrepTests(unittest.TestCase):
         with contextlib.redirect_stdout(captured_out), contextlib.redirect_stderr(captured_err):
             settings = oc.local_settings(self.workspace, env=mapping)
             models = oc.available_models(self.workspace, env=mapping)
-            with self.assertRaisesRegex(RuntimeError,
-                                        "OpenAI API-key or endpoint environment overrides are present") as raised:
-                oc.check_subscription_routes({"sol": {"model": "openai/gpt-6-sol"}}, env=mapping)
+            oc.check_subscription_routes({"sol": {"model": "openai/gpt-6-sol"}}, env=mapping)
         self.assertEqual(MODELS, models)
-        for text in (captured_out.getvalue(), captured_err.getvalue(), str(raised.exception),
+        for text in (captured_out.getvalue(), captured_err.getvalue(),
                      json.dumps(settings)):
             self.assertNotIn(api_secret, text)
             self.assertNotIn(oauth_secret, text)
@@ -351,10 +349,7 @@ class ProviderEnvPrepTests(unittest.TestCase):
             os.environ.pop(key, None)
 
         env = self.mapping_for(wrapper_bin, INVOCATION_LOG=str(log), OPENAI_API_KEY="ac13-mapping-secret")
-        with self.assertRaisesRegex(RuntimeError,
-                                    "OpenAI API-key or endpoint environment overrides are present") as raised:
-            oc.check_subscription_routes({"sol": {"model": "openai/gpt-6-sol"}}, env=env)
-        self.assertNotIn("ac13-mapping-secret", str(raised.exception))
+        oc.check_subscription_routes({"sol": {"model": "openai/gpt-6-sol"}}, env=env)
         self.assertTrue(not log.exists() or not log.read_text().strip(), "an auth-list subprocess ran")
 
         marker = self.root / "ac13-auth-ran"
@@ -380,10 +375,7 @@ class ProviderEnvPrepTests(unittest.TestCase):
         self.assertFalse(marker.exists())
 
         os.environ["OPENAI_API_KEY"] = "ac13-process-secret"
-        with self.assertRaisesRegex(RuntimeError,
-                                    "OpenAI API-key or endpoint environment overrides are present") as raised:
-            oc.check_subscription_routes({"sol": {"model": "openai/gpt-6-sol"}})
-        self.assertNotIn("ac13-mapping-secret", str(raised.exception))
+        oc.check_subscription_routes({"sol": {"model": "openai/gpt-6-sol"}})
         with self.assertRaisesRegex(RuntimeError, "OPENAI_API_KEY") as raised:
             provider.check_subscription_routes({"astra": {"model": "openai/x"}})
         self.assertIn("will not silently change billing", str(raised.exception))

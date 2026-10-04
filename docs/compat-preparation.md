@@ -61,7 +61,55 @@ directories, not in commits.
 ```
 
 These maintained offline controls qualify preparation, nodeid accounting and
-the synthetic adapter. They do not qualify the real Headroom PyO3 T3/T5 tests,
-foreign-caller behavior, usage credentials or current core/server integration.
-Those remain external acceptance gates. The original pilot FAIL is retained;
-a later synthetic PASS does not replace it or claim real-pilot completion.
+the synthetic adapter. Real application and live-model evidence is separate.
+
+## Real application qualification, October 3, 2026
+
+The follow-up for #223 used the original Headroom source
+`8538a831531bb277a6083ed2a010312a849c3050`, its historical candidate production
+and test changes, and the complete #3863 overlay at
+`2d764f3eb6b0e558ebd71c0222d15dac53910fcc`. Candidate hashes and the complete
+overlay pin are recorded separately from the two-line validation-copy adapter.
+The original candidate remains unchanged.
+
+The actual application checks produced these distinct results:
+
+- The unchanged T3/T5 tests pass on the pre-overlay API.
+- The complete unadapted compatibility copy executes all 258 required cases:
+  256 pass and exactly T3/T5 fail.
+- Adding explicit local-operator provenance to those two synthetic calls,
+  without changing assertions or other callers, passes all 258 cases with no
+  skips or missing cases.
+- Deliberately disabling learned-token fallback fails T3/T5 and an existing
+  tracker success test; the other 255 cases pass. The adapter does not hide
+  that real behavior defect.
+- Omitting candidate tests and truncating the pinned overlay are each rejected
+  as INCOMPLETE before they can earn compatibility credit.
+- The selected suite includes foreign/forwarded-caller guards, absent-operator
+  behavior, and actual Uvicorn/current PyO3 integration. The loaded compiled
+  core is hash-bound, with its 228 selected native build inputs matched against
+  the original qualified build. Ruff and format checks pass on all eight
+  changed Python files.
+
+A fresh AutoCode review run using OpenCode and `openai/gpt-6-sol` independently
+inspected the adapter and executed the same 258-case native application suite.
+Its report approved the adapter with no findings. The executed receipt has
+exact case accounting, no skips, the pinned loaded core, and zero refused
+network attempts. All pinned qualification inputs remained unchanged.
+
+This qualification uses synthetic application credentials, fresh per-test
+state, pinned local tokenizer assets, and the documented opt-out from upstream
+health probes. It makes no real vendor API calls. An initial invalid setup let
+an upstream fixture clear isolation settings and changed the local savings
+ledger's modification time; without a pre-run copy, its content change cannot
+be established. That run is excluded and retained. Corrected runs guard access
+to real application/account files and preserve both ledger bytes and modification
+time relative to the post-error pin. Intermediate environment failures and
+blocked background-network attempts are also retained, not relabeled PASS.
+
+The original pilot FAIL and every subsequent result remain separate in ignored
+`.scenario-runs/remaining-defect-proof/headroom-223/` evidence. These results
+qualify the compatibility preparation and adapter for this pinned application
+case. The review task's completion does not establish completion or acceptance
+of the whole Headroom #3913 implementation pilot or reliability across all
+models and projects.

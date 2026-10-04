@@ -1,8 +1,12 @@
 """The report repair handoff retains human clarification provenance."""
 import unittest
 import copy
+import json
 
 import autocode_report_repair_context as context
+import autocode_goal_lifecycle as lifecycle
+from . import test_report_repair as repair_fixtures
+from goal_fixtures import approve_fixture
 
 
 class ClarificationContextTests(unittest.TestCase):
@@ -136,6 +140,93 @@ class ClarificationContextTests(unittest.TestCase):
         self.assertIn("Do not restore invalid machine_resolutions", text)
         self.assertNotIn("immutable execution-history baseline", text)
         self.assertIn("immutable execution-history baseline", context.baseline_instruction("terra"))
+
+
+class DecisionRepairContextTests(unittest.TestCase):
+    setUp = repair_fixtures.base.RetrofitTest.setUp
+
+    def test_decision_repair_distinguishes_proposed_tasks_from_executed_history(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        self.state["settings"]["roles"]["resolver"] = copy.deepcopy(self.state["settings"]["roles"]["astra"])
+        before = copy.deepcopy(self.state)
+        for stage in ("astra_plan", "astra_review", "astra_checkpoint", "astra_resolve"):
+            with self.subTest(stage=stage):
+                self.state = copy.deepcopy(before)
+                self.state["next_stage"] = stage
+                # l9folr37's last rejected handoff used this slice ID as a milestone.
+                decision = {"status": "CONTINUE", "next_objective": "Revalidate the approved behavior",
+                            "affected_paths": ["greet.py"], "next_task": {
+                                "kind": "validate", "milestone_id": "s2-recommendations",
+                                "requirements": ["Preserve the approved behavior"],
+                                "acceptance_criteria": ["C1"], "validation_plan": ["python3 -m unittest"]}}
+                if stage == "astra_resolve":
+                    decision.update(status="REWORK", evidence=[str(self.evidence)])
+                    decision["next_task"]["kind"] = "implement"
+                with self.assertRaisesRegex(ValueError, "Task must belong to an approved milestone") as rejected:
+                    lifecycle.assign_task(self.state, decision, runner.support.snapshot(self.root))
+                report = ({"decision": decision, "validation": {"verdict": "FAIL"}}
+                          if stage == "astra_checkpoint" else decision)
+                repair_fixtures.RepairTests.queue(self, error=rejected.exception, stage=stage,
+                                                role="astra", report=json.dumps(report))
+                request = repair_fixtures.RepairTests.repair_request(self)
+                prompt = request["prompt"]
+                data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+                self.assertEqual(report, data["rejected_report"]["content"])
+                self.assertIn("Task must belong to an approved milestone", data["error"])
+                self.assertEqual(["M1"], [row["id"] for row in runner.support.read(
+                    data["state_file"])["goal_contract"]["body"]["milestones"]])
+                self.assertEqual("read-only", request["sandbox"])
+                self.assertFalse(request["allow_write"])
+                self.assertTrue(request["report_only"])
+                self.assertNotIn("original_report is also supplied, it is the immutable execution-history baseline",
+                                 prompt)
+                for instruction in ("proposed next_task is not executed history",
+                                    "goal_contract.body.milestones", "existing approved milestone ID",
+                                    "Progressive slice IDs are never milestone IDs",
+                                    "requirements, acceptance_criteria and validation_plan must be nonempty",
+                                    "Do not invent scope, milestones, unreviewed checks, PASS or citations",
+                                    "Preserve executed commands, outcomes, Validator facts, findings, failures and uncertainty",
+                                    "Do not change current_task or report_identity"):
+                    self.assertIn(instruction, prompt)
+                self.assertIn("decision.next_task", prompt)
+
+    def test_missing_requirements_and_unknown_ids_are_not_repaired_by_guessing(self):
+        runner = repair_fixtures.runner
+        approve_fixture(self.state, runner.goals)
+        self.state["next_stage"] = "astra_review"
+        report = {"next_task": {"milestone_id": "unknown-milestone", "requirements": []},
+                  "acceptance_criteria": [{"id": "C1", "status": "unverified", "evidence": ""}]}
+        repair_fixtures.RepairTests.queue(self, stage="astra_review", role="astra",
+                                        error=ValueError("The bounded task needs requirements"),
+                                        report=json.dumps(report))
+        prompt = repair_fixtures.RepairTests.repair_request(self)["prompt"]
+        data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(report, data["rejected_report"]["content"])
+        self.assertIn("requirements, acceptance_criteria and validation_plan must be nonempty", prompt)
+        self.assertIn("If the saved approved context does not establish a valid correction, preserve the uncertainty", prompt)
+        self.assertIn("do not guess an ID or default to M1", prompt)
+        self.assertIn("Missing evidence must remain NOT_VERIFIED, never invented PASS", prompt)
+        latest = copy.deepcopy(report)
+        latest["next_task"].update(milestone_id="s2-recommendations", requirements=["Preserve approved behavior"])
+        with self.assertRaises(runner.ReportRepairQueued):
+            repair_fixtures.RepairTests.reject_repair(self, 6,
+                ValueError("Task must belong to an approved milestone and its acceptance criteria"),
+                report=json.dumps(latest))
+        prompt = repair_fixtures.RepairTests.repair_request(self)["prompt"]
+        data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual(report, data["original_report"]["content"])
+        self.assertEqual(latest, data["rejected_report"]["content"])
+        self.assertIn("proposed next_task is not executed history", prompt)
+        self.assertIn("existing approved milestone ID", prompt)
+
+    def test_other_roles_and_saved_planning_aliases_keep_the_existing_baseline(self):
+        expected = ("If original_report is also supplied, it is the immutable execution-history baseline; "
+                    "rejected_report is the latest failed repair and error applies to that draft. ")
+        for stage in ("terra", "sol", "astra_challenge", "astra_diagnose", "investigate_stuck",
+                      "unknown-stage", "requirements", "plan", "plan_review", "plan_revise", "plan_finalize"):
+            with self.subTest(stage=stage):
+                self.assertEqual(expected, context.baseline_instruction(stage))
 
 
 if __name__ == "__main__":

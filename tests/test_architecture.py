@@ -18,6 +18,12 @@ TANGLED = frozenset({
     "score_autocode_run", "task_scenarios", "units.autoplanner", "units.common",
 })
 
+# Line counts on 2026-09-28, after merging master at 24617cc and moving subcommand dispatch out of
+# autocode.py. Lower these when a module shrinks.
+# 2026-10-01: the durable-intervention application policy (metadata, consume,
+# boundary effects) moved to autocode_stop, shrinking autocode.py further.
+MAX_LINES = {"autocode.py": 1491, "autocode_goals.py": 1375, "autocode_support.py": 679, "autopilot.py": 1176}
+
 
 def source_modules() -> dict[str, Path]:
     modules = {}
@@ -89,6 +95,13 @@ class ArchitectureTests(unittest.TestCase):
         left = TANGLED - modules_in_cycles(import_graph())
         self.assertFalse(left, f"progress: these modules are no longer in an import cycle; remove them from TANGLED: "
                          f"{sorted(left)}")
+
+    def test_largest_modules_do_not_grow(self):
+        for name, limit in MAX_LINES.items():
+            with self.subTest(module=name):
+                lines = len((TOOLS / name).read_text().splitlines())
+                self.assertLessEqual(lines, limit, f"{name} grew to {lines} lines (limit {limit}); "
+                                     "move behavior into a lower-level module instead")
 
     def test_the_shared_helpers_import_nothing_from_autocode(self):
         # autocode_util is the bottom layer; one AutoCode import would drag its 18 users back into the cycle.

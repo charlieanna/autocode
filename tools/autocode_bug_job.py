@@ -41,16 +41,17 @@ import re
 from pathlib import Path
 
 try:
-    from . import autocode_stray_writes as stray_writes
+    from . import autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
     from . import autocode_workflows as workflows
     from .autocode_test_cases import case_text, case_test_name, match_cases, run_probes  # noqa: F401 (used by callers)
 except ImportError:
+    import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_workflows as workflows
     from autocode_test_cases import case_text, case_test_name, match_cases, run_probes  # noqa: F401
 
 STAGE = workflows.INVESTIGATE_STAGE
-NOTES_PREFIX = "docs/bugs/"
+NOTES_PREFIX, = stage_access.job_writes(STAGE)
 OUTCOMES = ("reproduced", "not_reproduced")
 TEXT = {"type": "string"}
 TEXTS = {"type": "array", "items": TEXT}
@@ -114,7 +115,11 @@ What to do:
      call or command) and then (the exact expected result, with literal values: "returns 1", "prints
      'Hello, Ada'", "exits 2"). No vague words such as "correctly" or "gracefully". The Builder writes one
      test per case named test_<id>_<what it checks> (for example test_t1_new_year_week_is_one_row), and
-     the runner checks that each case's test fails on the original code and passes after the fix. A case
+     the runner checks that each case's test fails on the original code and passes after the fix. So each
+     case's when uses only calls, commands and inputs that exist before the fix (never a hook, variable or
+     helper the fix would add: a test using one cannot even build on the original code), driving the real
+     failure path, and its then is the behavior (a result, an error, saved state), never only a log line
+     or message. A case
      may carry kind (restore by default, or preserve): restore is behavior the fix restores; preserve is
      behavior that already worked and must keep working (for example "an exact multiple still gives the
      same page count") — its test must pass on the original code and after the fix, and a preserve case
@@ -187,7 +192,7 @@ def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int =
 
 def check(value: dict, changed_files) -> None:
     """Reject an investigation that wrote into the repository or does not say what it found."""
-    stray = sorted(path for path in (changed_files or []) if not str(path).startswith(NOTES_PREFIX))
+    stray = stage_access.stray(STAGE, changed_files)
     if stray:
         raise stray_writes.StrayWrites(
             "An investigation must not change the repository; this attempt changed: " + ", ".join(stray), stray)

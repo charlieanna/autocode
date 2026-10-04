@@ -120,6 +120,10 @@ class BuildBlackbox(unittest.TestCase):
     def state(self):
         return json.loads((self.run / 'state.json').read_text())
 
+    def progress(self):
+        status = self.invoke('autocode', ['--run-dir', str(self.run), '--status'])
+        return json.loads(status.stdout)['view']['progress']
+
     def events(self, kind='start', stage='terra'):
         return [e for e in map(json.loads, (self.root/'events.jsonl').read_text().splitlines())
                 if e['event'] == kind and e['stage'] == stage]
@@ -170,7 +174,18 @@ class BuildBlackbox(unittest.TestCase):
         self.seed(notes()); self.build(); self.candidate()
         self.assertEqual(['M1'],[e['milestone'] for e in self.events()])
         self.invoke('autoreview',['--run-dir',str(self.run),'--no-chat'])
+        # The status view counts the accepted task and its check, and names the next job (#29).
+        progress = self.progress()
+        self.assertEqual(['done', 'waiting', 'waiting', 'waiting'], [t['state'] for t in progress['tasks']['items']])
+        self.assertEqual(['checked', 'unchecked', 'unchecked', 'unchecked'],
+                         [r['state'] for r in progress['requirements']['items']])
+        self.assertEqual('Next: Orchestrator', progress['headline'])
         self.build(); self.candidate()
+        # Integrating the parallel Builders set M1's check aside: its pass is now from an earlier check.
+        progress = self.progress()
+        self.assertEqual('checked_earlier', progress['requirements']['items'][0]['state'])
+        self.assertEqual('1 of 4 requirements checked (1 from earlier checks)', progress['requirements']['label'])
+        self.assertEqual(1, progress['tasks']['done'])
         self.assertEqual({'M1','M2','M3'},{e['milestone'] for e in self.events()})
         for event in self.events()[1:]:
             self.assertIn('notes/storage.py',event['inputs'])

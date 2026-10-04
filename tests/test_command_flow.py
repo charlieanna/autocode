@@ -126,7 +126,10 @@ class ConfigToolFlow(unittest.TestCase):
         self.assertFalse(report["checks"][0]["evidence_ref"].startswith("event:"))
         self.assertTrue(Path(report["checks"][0]["evidence_ref"]).is_file())
         self.assertEqual('', Path(sol['events']).read_text())
-        self.assertEqual("read-only", sol["command"][sol["command"].index("--sandbox") + 1])
+        # The Validator must write runner-owned capture receipts and its report under
+        # .autocode/, so it launches operational-write; its read-only SOURCE contract
+        # stays enforced by the runner's after-stage snapshot, not the sandbox.
+        self.assertEqual("workspace-write", sol["command"][sol["command"].index("--sandbox") + 1])
         terra = next(record for record in state["stages"] if record["stage"] == "terra")
         self.assertEqual("workspace-write", terra["command"][terra["command"].index("--sandbox") + 1])
 

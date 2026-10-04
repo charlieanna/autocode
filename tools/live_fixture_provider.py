@@ -315,7 +315,7 @@ def main() -> int:
             "criterion_results": [{"id": "C1", "status": "PASS", "evidence_refs": ["event:check"]}],
             "end_to_end_result": {"status": "PASS",
                                   "summary": "Greeting and usage paths checked",
-                                  "evidence_refs": ["event:check"]},
+                                  "evidence_refs": ["event:check"], "technical_result": None, "pending_human_criteria": []},
         }
     elif stage in ("astra_review", "astra_plan", "astra_resolve"):
         report = {

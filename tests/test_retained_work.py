@@ -5,6 +5,7 @@ already excused it (autocode_assignment.build_output); the retained-work routes 
 not hand it to the Validator as a changed file.
 """
 import json
+import copy
 from pathlib import Path
 import tempfile
 import unittest
@@ -60,6 +61,38 @@ class RetainedWorkTests(unittest.TestCase):
         (self.workspace / "policy").write_text("#!/bin/sh\n")  # executable text is not build output
         state, retry = self.state({"src/new.go": "1", "policy": "executable:x"})
         self.assertIsNone(retained_work.fresh_candidate(state, retry, "r1"))
+
+    def repaired_assignment(self):
+        state, retry = self.state({"src/new.go": "1"})
+        earlier = {**state['current_task'], 'contract_hash': 'c', 'milestone_id': 'M1'}
+        state['task_archive'] = [earlier]
+        state['current_task'] = {**earlier, 'id': 'repair-2', 'source_revision': 'r1'}
+        retry['task_id'] = 'repair-2'
+        return state, retry
+
+    def test_new_repair_assignment_retains_same_milestone_candidate_for_fresh_review(self):
+        state, retry = self.repaired_assignment()
+        self.assertEqual({'source_revision': 'r1', 'retained_paths': ['src/new.go'], 'origin_task_id': 'task-1'},
+                         retained_work.fresh_candidate(state, retry, 'r1'))
+
+    def test_repair_cannot_inherit_other_contract_milestone_scope_or_source(self):
+        state, retry = self.repaired_assignment()
+        for change in ({'contract_hash': 'other'}, {'milestone_id': 'M2'}, {'affected_paths': ['elsewhere']},
+                       {'kind': 'validate'}):
+            with self.subTest(change=change):
+                modified = copy.deepcopy(state)
+                modified['task_archive'][0].update(change)
+                self.assertIsNone(retained_work.fresh_candidate(modified, retry, 'r1'))
+        self.assertIsNone(retained_work.fresh_candidate(state, retry, 'changed-again'))
+        Path(state['stages'][0]['before_ref']).unlink()
+        self.assertIsNone(retained_work.fresh_candidate(state, retry, 'r1'))
+
+    def test_repair_does_not_hide_an_earlier_out_of_scope_edit(self):
+        state, retry = self.repaired_assignment()
+        after = Path(retry['after_ref'])
+        data = json.loads(after.read_text()); data['files']['outside.txt'] = 'stray'
+        after.write_text(json.dumps(data))
+        self.assertIsNone(retained_work.fresh_candidate(state, retry, 'r1'))
 
 
 if __name__ == "__main__":

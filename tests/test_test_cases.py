@@ -92,6 +92,22 @@ class ContractCasesTests(unittest.TestCase):
         self.assertEqual([], test_cases.contract_cases({}))
         self.assertEqual("", test_cases.builder_note({}))
 
+    def test_a_bug_fix_builder_is_told_to_test_through_code_that_exists_before_the_fix(self):
+        # Issue #299: tests using a seam the fix added could not build on the unfixed code.
+        def note(kind, criteria=(EXAMPLE,)):
+            body = {"task_kind": kind, "milestones": [{"id": "M1"}], "acceptance_criteria": list(criteria)}
+            return " ".join(test_cases.builder_note({"goal_contract": {"body": body}}).split())
+        for criteria in ((EXAMPLE,), ()):
+            with self.subTest(criteria=criteria):
+                fix = note("bugfix", criteria)
+                self.assertIn("Do not make a test import or reference anything the fix adds", fix)
+                self.assertIn("Drive the real failure path through public APIs that exist before the fix", fix)
+                self.assertIn("A log line or message alone does not prove the behavior", fix)
+                # A guard keeps its own rule: it must pass before the fix, not fail there.
+                self.assertIn("a guard: (preserve) test must pass there and after the fix", fix)
+        self.assertIn("TESTS NAMED IN THE PLAN", note("bugfix"))
+        self.assertNotIn("BUG FIX TESTS", note("build"))
+
     def test_the_proof_is_required_only_when_the_plan_names_tests(self):
         project = type("Committed", (), {"base": "b"})()
         self.assertTrue(regression.required(feature_state(project, [ORDINARY, EXAMPLE])))
@@ -367,7 +383,9 @@ class PromptTests(unittest.TestCase):
         state = approved_small_fix()
         schemas = Path(test_cases.__file__).with_name("autocode-schemas")
         state_path = Path(state["workspace"]) / "state.json"
-        self.assertNotIn("TESTS NAMED IN THE PLAN", common.execution_request(state, "terra", state_path, schemas).prompt)
+        prompt = common.execution_request(state, "terra", state_path, schemas).prompt
+        self.assertNotIn("TESTS NAMED IN THE PLAN", prompt)
+        self.assertIn("BUG FIX TESTS", prompt.split("\nCURRENT HANDOFF DATA\n")[0])
         with patch.object(test_cases, "contract_cases", return_value=[{"id": "C2", "text": "x"}]):
             prompt = common.execution_request(state, "terra", state_path, schemas).prompt
         self.assertIn("TESTS NAMED IN THE PLAN", prompt.split("\nCURRENT HANDOFF DATA\n")[0])
@@ -461,3 +479,44 @@ class FileListingRuleTests(unittest.TestCase):
         self.assertIn(rule, autoplanner.EXAMPLE_CRITERIA_RULE)
         self.assertIn(rule, prompt)
         self.assertIn('checked by the Validator reading the\nrepository', prompt)
+
+
+class MixedCaseIdTests(unittest.TestCase):
+    def test_documented_lowercase_names_match_ids_with_letters_after_digits(self):
+        for cid in ("M1A", "M1C", "AC18", "Feature2A"):
+            name = "test_" + cid.lower() + "_behavior"
+            ids = ["tests.test_sample.Sample." + name,
+                   "tests/test_sample.py::Sample::" + name + "[blue]", name]
+            with self.subTest(case=cid):
+                self.assertEqual({cid: ids}, test_cases.match_cases([{"id": cid}], ids))
+        self.assertEqual({"T1": ["TestT1X"], "M1A": ["TestM1A_Behavior"]},
+                         test_cases.match_cases([{"id": "T1"}, {"id": "M1A"}],
+                                               ["TestT1X", "TestM1A_Behavior"]))
+
+    def test_case_ids_still_require_whole_tokens_in_the_test_function(self):
+        for cid, other in (("M1A", "m1alpha"), ("M1A", "m1a2"), ("T1", "t10"), ("AC18", "ac180")):
+            names = ["test_" + other + "_behavior", "test_" + cid.lower() + ".Test" + cid + ".test_other",
+                     "tests/test_sample.py::Test" + cid + "::test_other[" + cid + "]"]
+            with self.subTest(case=cid, other=other):
+                self.assertEqual({cid: []}, test_cases.match_cases([{"id": cid}], names))
+
+    def test_explicit_approved_test_name_never_falls_back_to_case_id(self):
+        case = {"id": "M1A", "test_name": "test_specific_behavior"}
+        names = ["test_m1a_behavior", "test_specific_behavior_extra", "test_specific_behavior"]
+        self.assertEqual({"M1A": ["test_specific_behavior"]}, test_cases.match_cases([case], names))
+
+    def test_real_bug_proof_attributes_restore_and_preserve_mixed_ids(self):
+        project = Project(BUG_SEED)
+        self.addCleanup(project.close)
+        project.write({**BUG_FIX, "test_pager.py": BUG_FIX["test_pager.py"]
+                       .replace("test_t1_partial", "test_m1a_partial")
+                       .replace("test_t4_exact", "test_m1c_exact")})
+        state = {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
+                 "goal_contract": {"body": {"task_kind": "bugfix", "acceptance_criteria": [],
+                                            "milestones": [{"id": "M1"}]}},
+                 "investigation": {"outcome": "reproduced", "test_cases":
+                                   [{**T1, "id": "M1A"}, {**T4, "id": "M1C"}]}}
+        proof = regression.prove(state, project.root, project.evidence)
+        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual(["test_pager.PagerTests.test_m1a_partial_page_counts"], proof["case_tests"]["M1A"])
+        self.assertEqual(["test_pager.PagerTests.test_m1c_exact_multiple_and_zero"], proof["case_tests"]["M1C"])

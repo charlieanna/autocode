@@ -193,6 +193,79 @@ class DraftVerificationRevisionTests(unittest.TestCase):
                         revision_guard(state, after, [], "glm_revise")
 
 
+class GreetingRevisionTests(unittest.TestCase):
+    def report(self):
+        # Sanitized retained greeting revision: additions were declared as one
+        # aggregate delta alongside M1 and technical_approach, with review receipts.
+        before = {
+            "acceptance_criteria": [{"id": "AC1", "criterion": "Print Hello, World with a trailing newline",
+                "verification_method": "test: test_ac1_greeting", "human_review": False}],
+            "required_behaviors": ["Print every nonempty name verbatim"],
+            "constraints": ["Python standard library only"], "scope_exclusions": [],
+            "important_failure_cases": [r'Single empty-string argument (python3 greet.py \""): exit 2'],
+            "permission_boundaries": ["No network"],
+            "technical_approach": ["Test success and argument counts"],
+            "milestones": [{"id": "M1", "objective": "Deliver greet.py and tests",
+                            "acceptance_criteria": ["AC1"], "depends_on": []}],
+        }
+        after = copy.deepcopy(before)
+        for number, name in enumerate((" ", " Ada ", "Jos\u00e9", "--help"), 11):
+            after["acceptance_criteria"].append({"id": f"AC{number}",
+                "criterion": f"Given name {name!r}, print {'Hello, ' + name!r} and exit 0",
+                "verification_method": f"test: test_ac{number}_verbatim", "human_review": False})
+        after["milestones"][0].update(objective="Deliver greeting with verbatim-name regressions",
+                                    acceptance_criteria=[row["id"] for row in after["acceptance_criteria"]])
+        after["technical_approach"] = ["Assert usage content and exact verbatim greetings before comparing repeats"]
+        changes = [{"item": item, "change": "reworded", "basis": "agent_proposed", "answer_id": "",
+                    "replacement": replacement, "example_correction": {
+                        "concern_id": concern, "before": "Coverage was missing", "after": replacement}}
+                   for item, concern, replacement in (
+                       ("acceptance_criteria", "PR2", "Add AC11-AC14; retain existing criteria verbatim"),
+                       ("M1", "PR1", "Include the added criteria and fail-first tests"),
+                       ("technical_approach", "PR1", "Require content-bearing usage assertions"))]
+        state = {"goal_contract": {"body": before, "origin": "glm_draft", "approval_status": "draft",
+                                    "approval_event": None}}
+        return state, {"contract": after, "contract_changes": changes, "summary": "Close review coverage gaps"}
+
+    def test_greeting_revision_accepts_aggregate_additions_without_dropping_criteria(self):
+        state, report = self.report()
+        retained = copy.deepcopy((state, report))
+        changes = revision_guard(state, report["contract"], report["contract_changes"], "glm_revise")
+        self.assertEqual(report["contract_changes"], changes)
+        self.assertEqual(retained, (state, report))
+
+    def test_aggregate_additions_cannot_authorize_protected_edits_or_forged_receipts(self):
+        for kind in ("criterion", "proof", "review", "removed", "no_additions", "permission",
+                     "behavior", "collision", "forged_user", "removed_delta"):
+            with self.subTest(kind=kind):
+                state, report = self.report()
+                after = report["contract"]
+                if kind == "criterion": after["acceptance_criteria"][0]["criterion"] = "Print anything"
+                if kind == "proof": after["acceptance_criteria"][0]["verification_method"] = "Inspect it"
+                if kind == "review": after["acceptance_criteria"][0]["human_review"] = True
+                if kind == "removed": after["acceptance_criteria"].pop(0)
+                if kind == "no_additions": after["acceptance_criteria"] = after["acceptance_criteria"][:1]
+                if kind == "permission": after["permission_boundaries"] = ["Network allowed"]
+                if kind == "behavior": after["required_behaviors"] = []
+                if kind == "collision":
+                    state["goal_contract"]["body"]["required_behaviors"].append("acceptance_criteria")
+                    after["required_behaviors"].append("acceptance_criteria")
+                if kind == "forged_user":
+                    report["contract_changes"][0].update(basis="user_answer", answer_id="invented")
+                if kind == "removed_delta": report["contract_changes"][0]["change"] = "removed"
+                with self.assertRaises(ValueError):
+                    revision_guard(state, after, report["contract_changes"], "glm_revise")
+
+    def test_aggregate_additions_do_not_normalize_a_changed_command_backslash(self):
+        state, report = self.report()
+        report["contract"]["important_failure_cases"] = [
+            r'Single empty-string argument (python3 greet.py \"\"): exit 2']
+        retained = copy.deepcopy((state, report))
+        with self.assertRaisesRegex(ValueError, "drops or changes .*Single empty-string argument"):
+            revision_guard(state, report["contract"], report["contract_changes"], "glm_revise")
+        self.assertEqual(retained, (state, report))
+
+
 class DraftExampleRevisionTests(unittest.TestCase):
     def inputs(self):
         before = '{"rows": 1, "errors": []}\\n'

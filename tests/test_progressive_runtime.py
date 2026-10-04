@@ -80,7 +80,32 @@ class ProgressiveRuntimeTests(unittest.TestCase):
             progressive.admit_attempt(self.state, record, util.snapshot(self.workspace))
             self.state["active_stage"] = record
         runner.account_stage(self.state, record)
-        runner.apply_result(self.state, stage, copy.deepcopy(value), record, self.workspace, self.run_dir)
+        session = getattr(self, "sessions", {}).get(stage)
+        if session:
+            record.update(thread_id=session, supports_sessions=True)
+            events = output.with_suffix(".jsonl")
+            events.write_text(json.dumps({"type": "thread.started", "thread_id": session}) + "\n"
+                              + json.dumps({"type": "turn.completed"}) + "\n")
+            record["events"] = str(events)
+        if stage in getattr(self, "repair_stages", ()):
+            if not session:
+                record["supports_sessions"] = False
+                record["events"] = str(output.with_suffix(".jsonl"))
+                Path(record["events"]).write_text("")
+            output.write_text(json.dumps({"summary": "Rejected incomplete draft"}))
+            runner.archive_rejected_stage(self.state, self.run_dir, record, "repair fixture")
+            self.state["pending_report_repair"] = {"original": copy.deepcopy(record), "attempts": 1,
+                "contract_hash": self.state["goal_contract"]["hash"],
+                "pins": {record[key]: util.file_hash(record[key]) for key in ("output", "events")}}
+            repair = {**copy.deepcopy(record), "stage": stage + "_report_repair", "original_stage": stage,
+                "report_only": True, "output": str(output), "events": str(output.with_suffix(".repair.jsonl"))}
+            for key in ("rejected", "rejection_reason", "thread_id"):
+                repair.pop(key, None)
+            Path(repair["events"]).write_text("")
+            output.write_text(json.dumps(value))
+            runner.accept_repaired_report(self.state, self.run_dir, self.workspace, copy.deepcopy(value), repair)
+        else:
+            runner.apply_result(self.state, stage, copy.deepcopy(value), record, self.workspace, self.run_dir)
         return record
 
     def plan(self):
@@ -115,6 +140,192 @@ class ProgressiveRuntimeTests(unittest.TestCase):
         old_planner.pop("accounted")
         runner.account_stage(self.state, old_planner)
         self.assertEqual(400, self.state["active_seconds"])
+
+    def test_final_review_artifact_disclosure_is_canonicalized_after_reload(self):
+        self.plan()
+        output = Path(self.state["planning"]["reports"]["astra_finalize"]["output"])
+        saved = json.loads(output.read_text())
+        generated = progressive.rules.disclosure(self.proposal, ["C1"],
+                                                 limits=progressive.initial_limits(self.state))
+        saved["contract"]["constraints"] = (generated["constraints"]
+                                               + saved["contract"]["constraints"])
+        output.write_text(json.dumps(saved))
+        report_contract = self.state["planning"]["reports"]["astra_finalize"]["report"]["contract"]
+        ordinary = [line for line in report_contract["constraints"]
+                    if line not in generated["constraints"]]
+        report_contract["constraints"] = generated["constraints"] + ordinary
+        loaded = json.loads(output.read_text())
+        loaded_contract = progressive._canonical_contract(
+            loaded["contract"], self.proposal, ["C1"],
+            progressive.initial_limits(self.state))
+        reviewed_contract = progressive._canonical_contract(
+            report_contract, self.proposal, ["C1"],
+            progressive.initial_limits(self.state))
+        self.assertEqual(loaded_contract, reviewed_contract)
+        tampered = copy.deepcopy(reviewed_contract)
+        tampered["acceptance_criteria"][0]["description"] = "Changed after review"
+        self.assertEqual("$.acceptance_criteria[0].description",
+                         progressive._first_difference(loaded_contract, tampered))
+
+    def test_repaired_planner_and_reviewer_activate_from_original_sessions(self):
+        self.repair_stages = ("glm_revise", "astra_finalize")
+        self.sessions = {"glm_revise": "planner-session", "astra_finalize": "reviewer-session"}
+        self.approve()
+        self.assertTrue(goals.approved(self.state))
+        self.assertEqual("S1", progressive.require_active(self.state)["definition"]["id"])
+
+    def test_sessionless_repaired_planner_and_reviewer_activate(self):
+        self.repair_stages = ("glm_revise", "astra_finalize")
+        self.approve()
+        self.assertTrue(goals.approved(self.state))
+
+    def test_repaired_approval_pins_accepted_bytes_not_the_rejected_original(self):
+        self.repair_stages = ("glm_revise", "astra_finalize")
+        self.sessions = {"glm_revise": "planner-session", "astra_finalize": "reviewer-session"}
+        self.plan()
+        self.state = json.loads(json.dumps(self.state))
+        for receipt in self.state["report_repair_history"]:
+            self.assertEqual(util.file_hash(receipt["repair"]["output"]), receipt["output_hash"])
+            self.assertNotEqual(util.file_hash(receipt["original_output"]), receipt["output_hash"])
+            original = next(row for row in self.state["stages"] if row["output"] == receipt["original_output"])
+            self.assertTrue(original["rejected"])
+        lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
+        self.assertTrue(goals.approved(self.state))
+        self.assertEqual("S1", progressive.require_active(self.state)["definition"]["id"])
+
+    def test_repaired_report_tampering_refuses_approval_without_mutating_state_or_source(self):
+        self.repair_stages = ("glm_revise", "astra_finalize")
+        self.sessions = {"glm_revise": "planner-session", "astra_finalize": "reviewer-session"}
+        self.plan()
+        saved = copy.deepcopy(self.state)
+        source = util.snapshot(self.workspace)
+        for stage in self.repair_stages:
+            output = Path(saved["planning"]["reports"][stage]["output"])
+            accepted = output.read_bytes()
+            for change in ("decisions", "constraint", "null", "list", "missing"):
+                with self.subTest(stage=stage, change=change):
+                    self.state = copy.deepcopy(saved)
+                    value = json.loads(accepted)
+                    if change == "decisions":
+                        value["decisions"] = [{"concern_id": "unreviewed", "decision": "blocked",
+                            "rationale": "Changed after acceptance", "acceptance_test": "Not verified",
+                            "resolved": False}]
+                    elif change == "constraint":
+                        value["contract"]["constraints"].append("New unreviewed constraint")
+                    elif change == "null":
+                        value = None
+                    elif change == "list":
+                        value = []
+                    if change == "missing":
+                        output.unlink()
+                    else:
+                        output.write_text(json.dumps(value))
+                    try:
+                        with self.assertRaisesRegex(ValueError, "accepted repair.*hash"):
+                            lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
+                        self.assertEqual(saved, self.state)
+                        self.assertEqual(source, util.snapshot(self.workspace))
+                    finally:
+                        output.write_bytes(accepted)
+
+    def test_repaired_approval_requires_a_saved_acceptance_hash_without_repinning(self):
+        self.repair_stages = ("glm_revise", "astra_finalize")
+        self.plan()
+        saved = copy.deepcopy(self.state)
+        for index in range(len(saved["report_repair_history"])):
+            for digest in (None, "", "0" * 64, {"sha256": "0" * 64}, "missing"):
+                with self.subTest(index=index, digest=digest):
+                    self.state = copy.deepcopy(saved)
+                    receipt = self.state["report_repair_history"][index]
+                    if digest == "missing":
+                        receipt.pop("output_hash", None)
+                    else:
+                        receipt["output_hash"] = digest
+                    before = copy.deepcopy(self.state)
+                    with self.assertRaisesRegex(ValueError, "accepted repair.*hash"):
+                        lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
+                    self.assertEqual(before, self.state)
+
+    def test_ordinary_repaired_plan_checks_accepted_hash_before_approval(self):
+        self.proposal = {"version": 0, "needed_because": "", "shared_decisions": [],
+            "outstanding_criteria": [], "done_slices": [], "slices": []}
+        self.repair_stages = ("glm_revise", "astra_finalize")
+        self.plan()
+        output = Path(self.state["planning"]["reports"]["astra_finalize"]["output"])
+        accepted = output.read_bytes()
+        value = json.loads(accepted)
+        value["decisions"] = [{"resolved": False}]
+        output.write_text(json.dumps(value))
+        before = copy.deepcopy(self.state)
+        source = util.snapshot(self.workspace)
+        with self.assertRaisesRegex(ValueError, "accepted repair.*hash"):
+            lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
+        self.assertEqual(before, self.state)
+        self.assertEqual(source, util.snapshot(self.workspace))
+        output.write_bytes(accepted)
+        lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
+        self.assertTrue(goals.approved(self.state))
+
+    def test_original_reviewer_session_cannot_be_the_planner_session(self):
+        self.sessions = {"glm_revise": "shared-session", "astra_finalize": "shared-session"}
+        self.plan()
+        before = copy.deepcopy(self.state)
+        with self.assertRaises(ValueError):
+            lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
+        self.assertEqual(before, self.state)
+
+    def test_repaired_approval_rejects_missing_or_changed_original_provenance(self):
+        self.repair_stages = ("glm_revise", "astra_finalize")
+        self.sessions = {"glm_revise": "planner-session", "astra_finalize": "reviewer-session"}
+        self.plan()
+        saved = copy.deepcopy(self.state)
+        for stage in self.repair_stages:
+            for change in ("receipt", "events", "role", "source", "session", "output", "rejected", "stage",
+                           "expected_session", "iteration", "changed_files", "session_capability"):
+                with self.subTest(stage=stage, change=change):
+                    self.state = copy.deepcopy(saved)
+                    repair = next(row for row in self.state["stages"] if row.get("original_stage") == stage)
+                    original = next(row for row in self.state["stages"] if row["stage"] == stage)
+                    if change == "receipt":
+                        self.state["report_repair_history"] = []
+                    elif change == "events":
+                        repair["applied_original_events"] = repair["events"]
+                    elif change == "role":
+                        original["role"] = "other"
+                    elif change == "source":
+                        original["source_revision"] = "other"
+                    elif change == "session":
+                        original["thread_id"] = "invented"
+                    elif change == "output":
+                        original["output"] = str(self.run_dir / "missing-original.json")
+                    elif change == "rejected":
+                        repair["rejected"] = True
+                    elif change == "stage":
+                        repair["original_stage"] = "astra_discovery"
+                    elif change == "expected_session":
+                        original["expected_session"] = "different-session"
+                    elif change == "iteration":
+                        original["iteration"] += 1
+                    elif change == "changed_files":
+                        original["changed_files"] = ["greet.py"]
+                    else:
+                        original.pop("thread_id")
+                    before = copy.deepcopy(self.state)
+                    with self.assertRaises(ValueError):
+                        lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
+                    self.assertEqual(before, self.state)
+
+    def test_repair_transport_session_cannot_substitute_for_original_reviewer(self):
+        self.repair_stages = ("glm_revise", "astra_finalize")
+        self.sessions = {"glm_revise": "shared-session", "astra_finalize": "shared-session"}
+        self.plan()
+        for row in self.state["stages"]:
+            if row.get("report_only"):
+                row["thread_id"] = row["stage"] + "-transport-session"
+        before = copy.deepcopy(self.state)
+        with self.assertRaisesRegex(ValueError, "independent"):
+            lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
+        self.assertEqual(before, self.state)
 
     def test_non_review_attempt_time_is_bound_at_launch_and_accounted_once(self):
         self.approve()

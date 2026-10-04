@@ -75,6 +75,11 @@ class DashboardCase(kit.CatalogueCase):
             raise
         self.bundle.log("dashboard_suite", suite=name, kind=kind, **completed.receipt)
         ok = completed.returncode == 0
+        if not ok:
+            # CI retains the unittest log, but not the disposable catalogue bundle.
+            # Show the underlying browser assertion instead of only its Boolean verdict.
+            print(f"Dashboard suite {name!r} exited {completed.returncode}:\n"
+                  f"{completed.stdout}\n{completed.stderr}", file=sys.stderr)
         self.check(f"[{name}] browser_suite_passes", True, ok)
         return ok
 
@@ -116,13 +121,15 @@ class DashboardScenarios(DashboardCase):
 
     def test_ui03_twenty_one_state_matrix(self):
         """UI-03. Partial: lifecycle suite captures states/viewports; the full 7x3
-        matrix belongs to the FX04 fixture and is an explicit gap here."""
+        matrix is owned by the Figma design-coverage track and is an explicit gap here."""
         ok = self.browser("lifecycle")
         self.check("lifecycle_captures_pass", True, ok)
         self.bundle.log("scoped_gap", capability="21-screen capture manifest",
                         note="existing suites capture lifecycle states at selected viewports; a "
-                             "complete 7-state x 3-viewport manifest requires the frozen FX04 "
-                             "reference fixture and is not part of the current dashboard tests")
+                             "complete 7-state x 3-viewport manifest belongs to the Figma "
+                             "design-coverage track (#250 coverage manifests, #251 rendered "
+                             "comparison, #297 deterministic PNG comparison), which superseded "
+                             "the planned FX04 frozen-reference fixture")
         self.finish(summary="MATRIX_PARTIAL: named missing combinations recorded as a gap")
 
     def test_ui04_recovery_requires_separate_resume(self):

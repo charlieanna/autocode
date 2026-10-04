@@ -101,18 +101,33 @@ class PrBodyTests(unittest.TestCase):
         view = {"workflow": "bugfix", "evidence": {
             "outcome": "Dates parse", "base_commit": "0123456789abcdef",
             "acceptance": [{"id": "AC1", "criterion": "Parses a|b", "status": "passed", "evidence": "3 passed",
-                            "human_reviewed": True}],
+                            "validator_status": "PASS", "human_reviewed": True}],
+            "validator_source_revision": "abc",
             "findings": [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo"}],
             "regression_proof": {"verdict": "PASS", "fail_to_pass": ["test_dates"], "failures": [],
                                  "unverified": [], "commands": {"suite": "pytest"}}}}
         body = issue_cli.pr_body(self.RECORD, view, " dates.py | 2 +-")
         self.assertTrue(body.startswith("Resolves acme/widgets#7.\n"))
-        self.assertIn("| AC1 | Parses a\\|b | passed, accepted by a person | 3 passed |", body)
+        self.assertIn("| AC1 | Parses a\\|b | passed, validator: PASS, accepted by a person | 3 passed |", body)
         self.assertIn("verdict **PASS**", body)
         self.assertIn("`test_dates`", body)
         self.assertIn("- F1 [resolved, minor]: Typo", body)
         self.assertIn("dates.py | 2 +-", body)
         self.assertIn("run `run-1` from base commit `0123456789ab`", body)
+
+    def test_body_shows_a_validator_failure_beside_an_unchecked_criterion(self):
+        view = {"workflow": "build", "evidence": {
+            "acceptance": [{"id": "AC1", "criterion": "Parses dates", "status": "unverified",
+                            "evidence": "checked", "validator_status": "FAIL", "human_reviewed": False},
+                           {"id": "AC2", "criterion": "Documents it", "status": "unverified",
+                            "evidence": "", "validator_status": "NOT_VERIFIED", "human_reviewed": False},
+                           {"id": "AC3", "criterion": "Ships it", "status": None,
+                            "evidence": None, "validator_status": None, "human_reviewed": False}],
+            "validator_source_revision": "abc"}}
+        body = issue_cli.pr_body(self.RECORD, view, "")
+        self.assertIn("unverified, validator: FAIL", body)
+        self.assertIn("unverified, validator: NOT_VERIFIED", body)
+        self.assertIn("no outcome recorded, validator: unchecked", body)
 
     def test_body_lists_the_english_regression_tests_and_what_proves_them(self):
         view = {"workflow": "bugfix", "evidence": {

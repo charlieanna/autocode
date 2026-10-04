@@ -65,6 +65,185 @@ For an assigned implementation or review task, Figma instructions cover the affe
 visual work. Test/parser/harness-only repairs can reuse applicable design evidence;
 they do not require a fresh canvas inspection unless they affect presentation or verify
 a visual criterion. Final visual acceptance requirements remain in force.
+An implementation capture must still match the current source snapshot when used
+for acceptance; see [implementation capture bundles](visual-captures.md).
+
+## Executable pixel comparison
+
+`autocode visual-check` is an opt-in, provider-neutral check for **exported** reference
+bundles. It runs a project-owned capture command afresh, then compares every declared
+case with its pinned reference. A mismatch exits 1; invalid or unavailable evidence
+exits 2. Exit 0 means the declared pixel policy passed, **not** that independent
+visual review, behavior, accessibility or complete Figma discovery passed.
+
+Install the optional image dependency with `python -m pip install 'autocode-supervisor[visual]'`
+(from this checkout, `python -m pip install -e '.[visual]'`). The capture fixture owns
+its browser dependency; the comparator does not download browsers, fonts or assets.
+
+Keep the policy, reference bundle and capture fixture in normal project source, not
+in ignored directories or `.autocode/`. An approved verification command should pin
+the exact policy file hash:
+
+```sh
+python -m autocode_cli.autocode_visual_check --workspace . --policy visual-policy.json --policy-sha256 APPROVED_SHA256
+```
+
+Use that full command as a non-human criterion's `verification_method` or an approved
+task's `validation_plan`. The existing runner replays prescribed commands in a clean
+copy even if the Validator reports an unrelated successful check. The bare interactive
+alias `autocode visual-check ...` is also recognized for replay; other AutoCode task
+commands are not admitted as verification checks. The chosen Python interpreter must
+have AutoCode and its visual extra installed.
+
+Compute the hash when reviewing the policy, not dynamically inside the verification
+command. Changing a baseline, removing a case or relaxing a tolerance requires a
+reviewed policy change and a newly approved command; verification never auto-updates it.
+The source revision also binds the project-owned fixture. Its implementation still
+needs review: a dishonest fixture could copy reference pixels instead of rendering.
+
+### Policy and references
+
+Example `visual-policy.json` (replace digests with actual file SHA-256 values):
+
+```json
+{
+  "version": 1,
+  "manifest": {"path": "design/manifest.json", "sha256": "MANIFEST_SHA256"},
+  "capture_command": ["python", "tests/capture_visual.py"],
+  "timeout_seconds": 120,
+  "cases": [{
+    "id": "workspace.desktop", "channel_tolerance": 0,
+    "max_changed_ratio": 0.0, "regions": []
+  }]
+}
+```
+
+The manifest uses the [exported-reference version-1 format](#multi-file-reference-inventory-opt-in)
+below. Comparison policy stays separate rather than extending that format implicitly.
+Its case IDs must exactly match the reference inventory.
+
+Paths in `manifest` are relative to the policy; artifact paths are relative to the
+manifest. All inputs must remain within the workspace, with no symlink components.
+Every declared file/node needs a case, and every case needs exactly one comparison
+and capture. This verifies the declared inventory, not that no Figma frame was omitted
+from the inventory itself. Exports and context are read-only.
+Declared `implementation_paths` must exist as source-owned files or nonempty source
+directories. Missing paths, symlinks and ignored implementation inputs are refused;
+directory declarations cannot quietly include ignored build outputs. List the actual
+source files and rebuild generated assets inside the capture fixture when needed.
+Include the capture fixture and its project-owned data/configuration in those paths,
+not just the application's visible components. The checker does not discover an
+arbitrary command's dependency graph or authenticate external tool installations.
+
+The exact default is zero channel tolerance and zero differing pixels. Explicit
+tolerances must be finite: `channel_tolerance` is an integer from 0 to 254 and
+`max_changed_ratio` is at least 0 and less than 1. A pixel differs when its maximum
+RGBA channel difference exceeds the channel tolerance. No masks are supported.
+For important small controls, add stricter reference-pixel rectangles to `regions`:
+`{"id":"submit","x":100,"y":200,"width":80,"height":32,"max_changed_ratio":0}`.
+A failing region fails the case even if its global changed-pixel fraction is allowed.
+The narrow decoder accepts single-frame, at-most-8-bit PNGs interpreted as sRGB.
+Embedded ICC profiles, orientation/EXIF, chromaticity/HDR metadata and nonstandard
+gamma are refused rather than silently ignored. Export normalized sRGB PNGs first;
+untagged PNGs, valid sRGB intents and the standard PNG gamma value 0.45455 are accepted.
+
+Native CSS viewport, browser device scale and reference export scale are distinct.
+The command requires candidate dimensions `round(viewport * device_scale_factor)`
+and reference dimensions `round(viewport * export_scale)`. If these resolutions differ,
+only the candidate is resampled to the declared export dimensions with the recorded
+LANCZOS normalization. A 1024px-wide export of a 1440px frame is not permission to
+render at a 1024px CSS viewport. Prefer native-resolution reference exports when
+checking fine detail: downsampling necessarily loses information.
+
+### Capture fixture
+
+The command runs `capture_command` as an argument array, without implicit shell
+expansion, from the workspace root. It provides:
+
+- `AUTOCODE_VISUAL_MANIFEST`: absolute path to the verified reference manifest.
+- `AUTOCODE_VISUAL_OUTPUT`: a new empty directory for this attempt's captures.
+
+The fixture must start and stop its own application/browser, render the actual
+application for every specified route/state at the native viewport, and write PNGs
+plus `captures.json` in that output directory:
+
+```json
+{
+  "version": 1,
+  "cases": [{
+    "id": "workspace.desktop", "path": "workspace.png",
+    "state": "building", "route": "/workspace",
+    "viewport": {"width": 1440, "height": 900, "device_scale_factor": 1}
+  }]
+}
+```
+
+Use a pinned browser, local fonts/assets, deterministic data, explicit theme/locale,
+disabled animations and a readiness assertion plus `document.fonts.ready`. Assert
+the actual route, viewport and UI state; reporting requested metadata alone does not
+prove them. Missing fonts/assets or unavailable states must make the fixture fail.
+Require separate functional and accessibility checks. The fixture must not mutate
+source or references while rendering, or rely on an old ignored build being current.
+
+Every attempt retains `report.json`, its capture log, candidates, differences and
+overlays under a new `.autocode/visual-checks/` directory. Existing output directories
+are refused rather than overwritten. Reports bind source before/after, policy,
+manifest, input and image hashes, comparator identity, per-case measurements and
+difference bounds. They explicitly say independent visual review was not performed
+and browser provenance is project-owned rather than authenticated by the collector.
+Reference and candidate digests bind the exact immutable byte buffers decoded for
+comparison, not a later reread of their paths. A temporary replacement restored before
+the final source check still fails its approved-image or captured-image digest check.
+Capture supervision also watches the checker's lifetime so a clean-replay timeout
+does not orphan the capture process group. Fixtures must still clean up any resources
+they explicitly detach outside that group.
+
+The complete JSON report is also printed to stdout. Clean replay removes its scratch
+tree, including images created there; the runner's hashed command log preserves the
+JSON measurements. Retain the ordinary workspace attempt's image artifacts as
+criterion evidence for inspection; do not cite deleted scratch paths as live evidence.
+
+This check does not retrofit existing runs, collect Figma inputs automatically, or
+replace the [capture-provenance mechanisms](visual-captures.md) delivered in #291.
+Connecting the comparator to those collector-owned captures is separate from this
+project-owned command. Discovery, independent image review and efficiency work remain
+tracked in #250, #251 and #255. See the [implementation plan](plans/figma-visual-comparison.md).
+
+### Opt-in live qualification
+
+The reproducible qualification uses a real local Chromium reference and the existing
+`codex-only` live model profile. Despite its name, that profile uses OpenCode transport;
+its exact role routes are defined in `scenarios/harness/profiles.py`. It is not a live
+Figma integration test, and does not claim independent visual judgment or efficiency.
+
+Install `.[visual-test]` and Chromium before running. From the repository root:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python tests/visual_check_live.py \
+  --profile codex-only --i-authorize-live-model-spend \
+  --timeout-minutes 15 --max-steps 24 \
+  --out .scenario-runs/visual-check-live-qualification
+```
+
+Without the spend flag, nothing launches. Each authorized invocation creates a new
+retained attempt, freezes its reference/capture/policy inputs, plants visual defects,
+and asks real models to repair the HTML and add one targeted visual regression test.
+A supplied interaction test stays frozen and passes even before the visual repair.
+The runner must prove the new regression fails on original code and passes on the fix;
+the qualification never waives that bugfix gate. It approves only a displayed non-human
+criterion containing the exact pinned command. PASS requires actual Builder/Validator
+receipts, current public completion, successful clean replay of that command, unchanged
+protected inputs and runtime, a zero-difference final capture, and independently
+rejected sidebar-offset and missing-control variants. Functional click assertions
+must pass even in those visually broken controls.
+
+The driving limit is 15 minutes and 24 public CLI calls; runtime limits are 720 seconds,
+300 seconds per stage and three iterations. Setup/scoring commands are separately
+bounded. It never grants additional budget, changes model routes or billing setup,
+approves human review, or automatically resumes an operational pause. Time limits are
+not a dollar cap. `summary.json`, command logs, approval receipts, usage and images
+remain in the attempt directory, including on failures; unknown cost is not zero.
+Routine CI runs only the harness's no-spend guard tests, not this live command.
 
 See also: [Models and escalation](models.md) · [Execution and completion](execution.md)
 
@@ -72,7 +251,7 @@ See also: [Models and escalation](models.md) · [Execution and completion](execu
 
 New implementation runs can receive an exported reference bundle through
 `--figma-manifest /absolute/path/to/bundle/manifest.json`. This input works with
-Codex, GoCode and OpenCode and preserves the selected role routes, pins and limits.
+Codex and OpenCode and preserves the selected role routes, pins and limits.
 It does not change the native `--figma-file` authentication requirements. When
 combined with native Figma input, that file must also be declared in the manifest.
 
@@ -120,11 +299,16 @@ Saved runs cannot replace or add a manifest; start a new run for a changed inven
 Planning and execution contexts carry the full inventory and its hash. The
 independent Validator reports `design_manifest_hash` and `design_results`, one row
 per case, with `id`, `status` (PASS/FAIL/NOT_VERIFIED), `criterion_ids`,
-`candidate_ref` and `comparison_ref`. A passing row needs passing approved criteria,
+`candidate_ref`, `comparison_ref`, `capture_ref` and `capture_sha256`.
+A passing row needs passing approved criteria,
 a PNG candidate at the declared viewport/device scale, and a separate nonempty
 comparison artifact inside the task workspace. The reference itself cannot be cited
-as the rendered candidate. The runner pins these evidence files alongside the
-existing independent check evidence.
+as the rendered candidate. `capture_ref` identifies a current
+[browser capture manifest](visual-captures.md), and `capture_sha256` pins that
+manifest. Its candidate must be the exact image in the review. The runner pins
+the capture inputs and artifacts alongside the independent check evidence and
+rechecks them at completion. FAIL/NOT_VERIFIED rows may leave the evidence
+fields empty when acquisition is unavailable.
 
 Intermediate milestones can explicitly leave future cases NOT_VERIFIED. Whole-task
 completion requires every case PASS in the same current independent validation;
@@ -135,10 +319,11 @@ and cases without a reported PASS. It deliberately leaves
 `current_visual_acceptance` unknown: the status projection alone authenticates no
 current source or screenshot.
 
-This is a coverage foundation, not a guarantee of pixel fidelity. It cannot detect a
-file/frame absent from the supplied inventory, authenticate screenshot acquisition,
-or determine whether a comparison artifact's conclusion is visually correct.
-Automatic discovery and plan coverage remain in issue #250; runner-owned capture,
-image comparison and independent visual adjudication are issue #251, with screenshot
-freshness tracked in #227. The offline fixture exercises these gates without any
-Figma access or model spend; its PNGs are not real visual acceptance evidence.
+Coverage and capture provenance do not guarantee pixel fidelity. They cannot detect
+a file/frame absent from the supplied inventory or determine whether a comparison
+artifact's conclusion is visually correct. Automatic discovery and plan coverage
+remain in issue #250; image comparison and independent visual adjudication remain
+in issue #251. Capture freshness is checked separately from those judgments.
+The offline provider tests use synthetic images to exercise completion gates;
+the optional Chromium tests exercise real capture acquisition. Neither performs
+a live Figma/model review.

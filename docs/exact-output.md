@@ -60,6 +60,15 @@ fall back to complete output; retrieving corrupt bytes fails explicitly.
 A killed capture leaves its partial log without a completion receipt and
 refuses reuse of that filename. Use a fresh name for a new execution.
 
+During a run, capture and retrieval share the main workspace's output store,
+including when a model enters a nested investigation copy. The runner supplies
+`AUTOCODE_OUTPUT_WORKSPACE`, `AUTOCODE_OUTPUT_STORE` and the attempt identity;
+provider tools must preserve that environment. The helper checks that the
+resolved current directory remains inside the bound workspace and the store
+remains inside its `.autocode` directory. This binding does not grant filesystem
+permissions or broaden `output read` beyond its current directory. A standalone
+command without the runner binding continues to use its current directory.
+
 Operation measurements live in `.autocode/output/operations`. The runner tags
 them with the provider attempt and saves completed-stage totals; they survive
 process restarts. They are best-effort observations, not proof. Do not delete

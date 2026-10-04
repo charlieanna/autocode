@@ -321,6 +321,19 @@ run.mkdir(parents=True,exist_ok=True)
         with self.assertRaisesRegex(ValueError, 'joint-planning'):
             self.console.create({'project': str(self.workspace), 'goal': 'reject', 'engine': 'codex', 'glm_model': 'zai-coding-plan/glm-5.3'})
 
+    def test_legacy_codex_accepts_models_beyond_its_old_default_list(self):
+        action = self.console.create({'project': str(self.workspace), 'goal': 'custom',
+                                      'engine': 'codex', 'terra_model': 'gpt-future-model'})
+        index = action['command'].index('--terra-model')
+        self.assertEqual('gpt-future-model', action['command'][index + 1])
+        self.wait()
+        view = {'model_settings': {'engine': 'codex', 'roles': {'terra': 'gpt-5.6-terra'}}, 'status': 'PAUSED'}
+        action = self.console.confirm_model_replacement(
+            {'role': 'terra', 'model': 'gpt-future-model', 'request_id': 'custom-replacement'},
+            self.workspace, self.run, view)
+        self.assertIn('gpt-future-model', action['command'])
+        self.wait()
+
     def test_catalogue_retry_requires_same_origin_and_polling_does_not_invoke_it(self):
         server = LoopbackHTTPServer(('127.0.0.1', 0), Handler)
         server.console = self.console
@@ -363,7 +376,8 @@ run.mkdir(parents=True,exist_ok=True)
         self.assertIn("action:'set_reasoning'", APP)
         self.assertIn('id="task-reasoning-form"', INDEX)
         self.assertIn('later struggle advances the automatic ladder', APP)
-        self.assertIn("conversationPayload(text,models,conversationRequest.id)", APP)
+        # M1 chat workspace: creation now carries the authorized project scope field.
+        self.assertIn("conversationPayload(text,models,conversationRequest.id,newTaskProject)", APP)
         self.assertIn('No project needed yet.', INDEX)
         self.assertIn("Unavailable selection: ", APP)
         self.assertIn("loadModels(true)", APP)

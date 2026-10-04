@@ -198,6 +198,7 @@ def run_record(driver: Driver, state: dict) -> dict:
     record = {"status": state.get("status", ""), "view": view, "stages": metrics(state)["stage_names"],
               "model_stages": metrics(state)["model_stage_names"],
               "answers": driver.answers, "cli_calls": [step["kind"] for step in driver.steps],
+              "steps": [{"kind": step["kind"], "exit": step["exit"]} for step in driver.steps],
               # AutoResolver's accepted diagnoses, oldest first, for oracles that score them (issue #59).
               "resolutions": [{"diagnosis": row.get("diagnosis"), "evidence": row.get("evidence")}
                               for row in state.get("resolution_history") or [] if isinstance(row, dict)]}
@@ -213,6 +214,8 @@ def run_record(driver: Driver, state: dict) -> dict:
                 "stages": turn_metrics["stage_names"], "model_stages": turn_metrics["model_stage_names"],
                 "answers": driver.answers[answers[index]:answers[index + 1]],
                 "cli_calls": [step["kind"] for step in driver.steps[steps[index]:steps[index + 1]]],
+                "steps": [{"kind": step["kind"], "exit": step["exit"]}
+                          for step in driver.steps[steps[index]:steps[index + 1]]],
                 "view": (driver.turn_marks[index].get("view") if index < len(driver.turn_marks) else view) or {}})
     return record
 

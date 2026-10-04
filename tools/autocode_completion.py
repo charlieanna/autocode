@@ -38,6 +38,25 @@ def rejection(state) -> str:
             "task may recheck accepted milestones' criteria).")
 
 
+def stale_validation(state, current):
+    """How the saved validation belongs to another source, goal revision or task than the current one, or None.
+
+    Issue #302: after an operator edited a paused run's source, --accept-completion gave only the generic
+    refusal, which did not say that the missing step was a fresh validation."""
+    validation = state.get("validation") or {}
+    checked = validation.get("source_revision")
+    if checked and checked != current["revision"]:
+        return f"it checked source {checked[:12]}, but the workspace is now at {current['revision'][:12]}"
+    contract = state.get("goal_contract") or {}
+    if validation.get("contract_hash") and validation["contract_hash"] != contract.get("hash"):
+        return (f"it belongs to goal revision {validation.get('contract_revision')}, "
+                f"but the approved goal is now revision {contract.get('revision')}")
+    task = (state.get("current_task") or {}).get("id")
+    if validation.get("task_id") and task and validation["task_id"] != task:
+        return f"it belongs to task {validation['task_id']}, but the current task is {task}"
+    return None
+
+
 def completion_ready(state, decision, current, *, require_human_reviews=True, require_independent=True):
     # Design coverage is an independent-validation obligation (sol / checkpoint).
     # The final-audit self-check probe passes require_independent=False and must
@@ -79,7 +98,10 @@ def completion_ready(state, decision, current, *, require_human_reviews=True, re
             return False
         if "end_to_end_flow" in contract["body"]:
             flow = validation.get("end_to_end_result", {})
-            if flow.get("status") != "PASS" or not flow.get("evidence_refs") or not flow.get("summary", "").strip():
+            # A flow that ends in the person's approval completes with that bound approval (#195).
+            awaits_review = human_only_gap and flow.get("status") == "NOT_VERIFIED"
+            if ((flow.get("status") != "PASS" and not awaits_review)
+                    or not flow.get("evidence_refs") or not flow.get("summary", "").strip()):
                 return False
     sol = state.get("validation", {})
     if decision.get("status") not in ("COMPLETE", "TASK_COMPLETE"):
