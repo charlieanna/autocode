@@ -297,7 +297,8 @@ class DraftExampleRevisionTests(unittest.TestCase):
         self.assertEqual(snapshot, state)
 
     def test_approval_and_user_authorship_always_protect_the_example(self):
-        for kind in ("approved", "receipt", "history", "user_edit", "user_answer", "literal", "literal_formatting", "feedback"):
+        for kind in ("approved", "receipt", "history", "user_edit", "user_answer", "literal", "literal_formatting",
+                     "feedback", "requirement_quote"):
             state, after, changes = self.inputs()
             contract = state["goal_contract"]
             if kind == "approved":
@@ -317,6 +318,11 @@ class DraftExampleRevisionTests(unittest.TestCase):
                 state["task"] += " Expected stdout: " + changes[0]["example_correction"]["before"]
             elif kind == "literal_formatting":
                 state["task"] += ' Expected stdout: {"rows":1,"errors":[]}.'
+            elif kind == "requirement_quote":
+                # Run state keeps the requirements report under "report" (autopilot.py).
+                quote = "Expected stdout: " + changes[0]["example_correction"]["before"]
+                state["requirements_handoff"] = {"report": {"requirements": [{"id": "R1", "source_quote": quote}]},
+                                                 "output": "requirements.json"}
             else:
                 state["brief_feedback"] = [{"text": "Expected stdout: " + changes[0]["example_correction"]["before"]}]
             with self.subTest(kind=kind), self.assertRaises(ValueError):
