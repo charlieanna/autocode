@@ -404,7 +404,7 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
         decision += ' ' + recovery_limits.GRANT_ADVICE
         options.append('Authorize more recoveries with --grant-recovery N')
     else:
-        decision += ' ' + recovery_limits.INFORM_ADVICE
+        decision += ' ' + recovery_limits.advice(allow_grant=False, pause_status=error.status)
     request = request or {'kind': 'blocker', 'discovered': str(error),
                           'impact': 'AutoResolver retained the attempts, work and evidence but cannot continue safely.',
                           'decision_needed': decision,

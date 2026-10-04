@@ -13,11 +13,26 @@ INFORM_ADVICE = (
     "After fixing the cause, send the AutoResolver request corrective information "
     "with --resolver-request ID --resolver-token TOKEN --resolver-response "
     "provide_information --resolver-message TEXT, then --resume-paused.")
+BOUND_ADVICE = {
+    'PAUSED_TIME_LIMIT': (
+        "After fixing the cause, raise the bound and continue in the same command with "
+        "--resume-paused --max-seconds N (a different N supersedes this request)."),
+    'PAUSED_ITERATION_LIMIT': (
+        "After fixing the cause, raise the bound and continue in the same command with "
+        "--resume-paused --max-iterations N (a different N supersedes this request)."),
+    'PAUSED_MILESTONE_TIME_LIMIT': (
+        "After fixing the cause, raise the bound and continue in the same command with "
+        "--resume-paused --max-milestone-seconds N (a different N supersedes this request)."),
+}
 
 
-def advice(*, allow_grant):
+def advice(*, allow_grant, pause_status=None):
     """The recovery-exhaustion next step. Never names a command the CLI will refuse."""
-    return GRANT_ADVICE if allow_grant else INFORM_ADVICE
+    if allow_grant:
+        return GRANT_ADVICE
+    if pause_status in BOUND_ADVICE:
+        return BOUND_ADVICE[pause_status]
+    return INFORM_ADVICE
 
 
 def stop_reason(state, count, maximum, *, allow_grant=True):
