@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import uuid
 from pathlib import Path
 
 try:
@@ -66,7 +67,11 @@ TAIL_CHARS = 600
 def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_SECONDS, approved_state=None,
            required_commands=None, progressive_context=None) -> dict:
     """Re-run each distinct check command; return the result or raise ValueError on the first that fails."""
-    out = Path(run_dir) / "check-replay" / Path(record.get("output") or "validation").stem
+    # Report stems repeat across iterations, repairs and retries of one attempt.
+    # Allocate before any scratch/protected-test writes so old citations stay intact.
+    stem = Path(record.get("output") or "validation").stem
+    out = Path(run_dir) / "check-replay" / f"{stem}-{uuid.uuid4().hex}"
+    out.mkdir(parents=True, exist_ok=False)
     protected = protected_oracles.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout)
     checks = list(checks)
     prescribed = verification_plan.approved_commands(approved_state or {}, progressive_context=progressive_context)
@@ -95,7 +100,6 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
     failed = [row for row in rows if row["error"] or row["timed_out"] or row["exit_code"] != 0]
     result = {"verdict": FAIL if failed else PASS, "checks": rows, "source_revision": record.get("source_revision"),
               "protected_tests": protected, "timeout_seconds": timeout, "replayed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
-    out.mkdir(parents=True, exist_ok=True)
     (out / "replay.json").write_text(json.dumps(result, indent=2) + "\n")
     if failed:
         row = failed[0]

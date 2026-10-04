@@ -8,6 +8,7 @@ import unittest
 from . import test_subprocess
 import autocode_check_replay as check_replay
 import autocode_verify as verify
+import autocode_util as util
 
 
 def receipt(exit_code=0, *, timed_out=False, error="", tail=""):
@@ -37,7 +38,8 @@ class ReplayTests(unittest.TestCase):
         result, calls = self.replay(checks, {"pytest -q": receipt(), "python cli.py --help": receipt()})
         self.assertEqual(["pytest -q", "python cli.py --help"], calls)
         self.assertEqual(("PASS", "rev1", 3), (result["verdict"], result["source_revision"], len(result["checks"])))
-        saved = json.loads((self.run_dir / "check-replay" / "sol-01" / "replay.json").read_text())
+        [saved_path] = (self.run_dir / "check-replay").glob("sol-01-*/replay.json")
+        saved = json.loads(saved_path.read_text())
         self.assertEqual("PASS", saved["verdict"])
 
     def test_a_check_that_does_not_reproduce_rejects_the_report_and_says_why(self):
@@ -89,6 +91,56 @@ class ScratchReplayTests(unittest.TestCase):
         return check_replay.replay([{"command": command, "exit_code": 0, "evidence_ref": "event:a"}],
                                    self.workspace, self.run_dir, {"output": "sol-01.json", "source_revision": "r"},
                                    verify.scratch_run, timeout=60)
+
+    def test_later_replays_preserve_the_receipt_and_every_log_cited_by_a_rejection(self):
+        variants = (
+            ("iterations", "iterations/001/validator-01.json", "iterations/002/validator-01.json"),
+            ("repairs", "iterations/001/validator-report-repair-01.json",
+             "iterations/002/validator-report-repair-01.json"),
+            ("same-attempt", "iterations/001/validator-01.json", "iterations/001/validator-01.json"),
+            ("fallback", None, None),
+        )
+        for name, first_output, second_output in variants:
+            with self.subTest(name=name):
+                run = self.run_dir / name
+                (self.workspace / "app.txt").write_text("first source\n")
+                first_record = {"source_revision": util.snapshot(self.workspace)["revision"]}
+                if first_output:
+                    first_record["output"] = str(run / first_output)
+                checks = [{"command": "printf 'original failure\\n'; exit 1", "exit_code": 0,
+                           "evidence_ref": "event:first"},
+                          {"command": "printf 'original second check\\n'", "exit_code": 0,
+                           "evidence_ref": "event:second"}]
+                with self.assertRaisesRegex(ValueError, "exited 1") as rejected:
+                    check_replay.replay(checks, self.workspace, run, first_record, verify.scratch_run, timeout=30)
+                cited = Path(str(rejected.exception).split("Receipt: ", 1)[1].split(". Cite", 1)[0])
+                first = json.loads(cited.read_text())
+                self.assertEqual("FAIL", first["verdict"])
+                self.assertEqual([1, 0], [row["exit_code"] for row in first["checks"]])
+                paths = [cited, *[Path(row["output"]) for row in first["checks"]]]
+                original_bytes = {path: path.read_bytes() for path in paths}
+                (self.workspace / "app.txt").write_text("second source\n")
+                second_record = {"source_revision": util.snapshot(self.workspace)["revision"]}
+                if second_output:
+                    second_record["output"] = str(run / second_output)
+                second = check_replay.replay(
+                    [{"command": "printf 'later success\\n'", "exit_code": 0, "evidence_ref": "event:later"}],
+                    self.workspace, run, second_record, verify.scratch_run, timeout=30)
+                self.assertEqual("PASS", second["verdict"])
+                self.assertNotEqual(first["source_revision"], second["source_revision"])
+                for path, contents in original_bytes.items():
+                    self.assertEqual(contents, path.read_bytes(), f"Later replay overwrote {path}")
+                self.assertNotIn(second["checks"][0]["output"], [row["output"] for row in first["checks"]])
+
+    def test_successful_replays_of_one_attempt_keep_independent_logs(self):
+        first = self.replay("printf 'first successful check\\n'")
+        original_log = Path(first["checks"][0]["output"])
+        contents = original_log.read_bytes()
+        second = self.replay("printf 'second successful check\\n'")
+        self.assertEqual(["PASS", "PASS"], [first["verdict"], second["verdict"]])
+        self.assertEqual(first["source_revision"], second["source_revision"])
+        self.assertEqual(contents, original_log.read_bytes())
+        self.assertNotEqual(str(original_log), second["checks"][0]["output"])
 
     def test_the_copy_has_committed_and_delivered_files_but_nothing_ignored(self):
         self.assertEqual("PASS", self.replay("test -f app.txt && test -f new.txt")["verdict"])
