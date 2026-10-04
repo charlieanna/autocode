@@ -996,6 +996,8 @@ def human_only_pending_validation(state, validation, criterion):
     Any number of human-review criteria may be pending together, provided
     every technical criterion passes with evidence and the pending set is
     exactly the human set (a single pending criterion remains the common case).
+    The overall verdict may be BLOCKED or PASS: live GLM 5.3 Validators report
+    PASS for a technically complete task whose only gap is human acceptance (#195).
     """
     criteria = state["goal_contract"]["body"]["acceptance_criteria"]
     human = {row["id"] for row in criteria if row["human_review"]}
@@ -1005,7 +1007,7 @@ def human_only_pending_validation(state, validation, criterion):
                    for entry in validation.get("unverified_criteria", [])}
     if (criterion not in human or not human
             or set(results) != {row["id"] for row in criteria} or len(rows) != len(criteria)
-            or validation.get("verdict") != "BLOCKED" or not pending_ids or pending_ids != human
+            or validation.get("verdict") not in ("BLOCKED", "PASS") or not pending_ids or pending_ids != human
             or validation.get("findings") or not flow_awaits_only(validation.get("end_to_end_result", {}), human)):
         return False
     return all(row.get("evidence_refs") and

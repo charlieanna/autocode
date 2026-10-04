@@ -12,7 +12,10 @@ appeared.
 The gap now also holds when the flow is NOT_VERIFIED, cites evidence for its
 executed steps, and names every pending human-review criterion as a whole token
 in its summary (`flow_awaits_only`). The Validator instructions ask for exactly
-that. Everything else is unchanged:
+that. The gap also accepts an overall verdict of PASS as well as BLOCKED: in the
+original run the GLM 5.3 Validator reported PASS three times and BLOCKED once with
+the same pending rows, and a live rerun of that task on this fix's first version
+(BLOCKED only) reported PASS and looped again. Everything else is unchanged:
 
 - A FAIL flow, a flow without evidence, or a summary that does not name every
   pending human criterion (`C10` does not name `C1`) is not a review gap.

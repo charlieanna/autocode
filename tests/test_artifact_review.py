@@ -54,6 +54,11 @@ class ArtifactReviewCLITests(unittest.TestCase):
         # #195: the approved flow ends in the person's approval, so the Validator leaves it NOT_VERIFIED.
         self.review_then_complete(AUTOCODE_FIXTURE_FLOW_AWAITS_REVIEW="CLI flows executed; C1 human acceptance pending")
 
+    def test_passing_verdict_with_only_human_acceptance_pending_presents_review(self):
+        # The live GLM 5.3 Validator reported PASS, not BLOCKED, with the human criterion and flow pending.
+        self.review_then_complete(AUTOCODE_FIXTURE_HUMAN_VERDICT="PASS",
+                                  AUTOCODE_FIXTURE_FLOW_AWAITS_REVIEW="CLI flows executed; C1 human acceptance pending")
+
     def test_unexplained_flow_gap_is_not_offered_as_a_review(self):
         self.env.update(AUTOCODE_FIXTURE_MODE="human-pending",
                         AUTOCODE_FIXTURE_FLOW_AWAITS_REVIEW="One flow step was not executed")
@@ -160,7 +165,14 @@ class ArtifactReviewGateTests(unittest.TestCase):
 
     def test_flow_awaiting_only_human_acceptance_is_presented_and_completes_only_after_approval(self):
         # #195: the approved flow ends in the person's approval, so the Validator leaves it NOT_VERIFIED.
+        self.check_awaiting_flow_review("BLOCKED")
+
+    def test_passing_verdict_awaiting_only_human_acceptance_is_presented_and_completes_only_after_approval(self):
+        self.check_awaiting_flow_review("PASS")
+
+    def check_awaiting_flow_review(self, verdict):
         state, decision, current = self.awaiting_flow()
+        state["validation"]["verdict"] = verdict
         request = completion.artifact_review_request(state, decision, current)
         self.assertEqual(["C1"], request["criteria"])
         complete = {**decision, "status": "TASK_COMPLETE",
@@ -186,4 +198,7 @@ class ArtifactReviewGateTests(unittest.TestCase):
         self.assertIsNone(completion.artifact_review_request(state, decision, current))
         state, decision, current = self.awaiting_flow()
         state["validation"]["end_to_end_result"]["status"] = "FAIL"
+        self.assertIsNone(completion.artifact_review_request(state, decision, current))
+        state, decision, current = self.awaiting_flow()
+        state["validation"]["verdict"] = "FAIL"
         self.assertIsNone(completion.artifact_review_request(state, decision, current))

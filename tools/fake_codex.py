@@ -290,7 +290,8 @@ else:
         result['criterion_results'].append({'id': 'C2', 'status': 'PASS' if goodbye_passed else 'NOT_VERIFIED',
                                            'evidence_refs': ['event:check'] if goodbye_passed else []})
     if mode == "human-pending" and passed:
-        result.update(verdict="BLOCKED", unverified_criteria=["C1 human acceptance pending"])
+        result.update(verdict=os.environ.get("AUTOCODE_FIXTURE_HUMAN_VERDICT", "BLOCKED"),
+                      unverified_criteria=["C1 human acceptance pending"])
         result["criterion_results"][0]["status"] = "NOT_VERIFIED"
         if os.environ.get("AUTOCODE_FIXTURE_FLOW_AWAITS_REVIEW"):
             # The approved flow ends in the person's acceptance, so the flow itself stays unverified.
