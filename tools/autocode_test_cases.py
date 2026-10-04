@@ -183,6 +183,10 @@ node:test. In Node projects register each named case with node:test, for example
 `const {test} = require('node:test'); test('test_c2_example', async () => { /* existing assertions */ });`,
 and run `node --test tests/example.cjs`. Keep fixture helpers and assertions; await every async check.
 Custom scripts printing PASS labels, or npm/Jest/Vitest/Mocha summaries, do not supply named proof.
+A node:test case must assert the behavior itself, never spawn another test runner (npm/pnpm/yarn test,
+npx vitest, jest, mocha or node --test through child_process): its pass would be that runner's exit code,
+which is 0 even when a -t filter matches no test, so the runner refuses such a file as named proof.
+Running the product's own CLI from a node:test case is fine.
 Keep the existing project suite and protected tests intact. Add supported named tests within the approved
 test paths; plan any needed test paths before approval. Do not replace test:/guard: criteria with prose to
 avoid proof. If no supported runner fits the project, raise the compatibility blocker before approval.
