@@ -491,6 +491,30 @@ class OpenCodeFlow(unittest.TestCase):
             self.assertNotIn("--auto", command)
             self.assertEqual(expected[role], command[command.index("--model") + 1])
 
+    def test_cli_rejects_transient_validator_write_with_clean_final_source(self):
+        fixture = self.root / "fixture-bin/opencode"
+        injected = '''
+    if data.get("stage") == "sol":
+        probe = Path("validator-probe.tmp")
+        emit("step_start", {"id": "probe-start", "type": "step-start", "snapshot": "a" * 40})
+        probe.write_text("a forbidden reviewer probe")
+        emit("step_finish", {"id": "probe-write", "type": "step-finish", "snapshot": "b" * 40,
+                             "reason": "tool-calls", "tokens": {"input": 0, "output": 0, "reasoning": 0,
+                                                               "cache": {"read": 0, "write": 0}}})
+        probe.unlink()
+        emit("step_start", {"id": "probe-restored", "type": "step-start", "snapshot": "a" * 40})
+'''
+        fixture.write_text(fixture.read_text().replace('    final = report.read_text()',
+                                                       injected + '    final = report.read_text()'))
+        self.launch(["Greeting tool", "--chat"], 2, answers="CLI\nyes\nyes\n")
+        run, state = self.saved()
+        self.assertEqual("PAUSED_STALE_VALIDATION", state["status"])
+        self.assertFalse((self.project / "validator-probe.tmp").exists())
+        self.assertTrue((self.project / "greet.py").is_file())
+        self.assertNotEqual("COMPLETE", state["phase"])
+        self.assertFalse(state.get("pending_report_repair"))
+        self.assertTrue(any("probe-write" in path.read_text() for path in run.rglob("*.jsonl")))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -250,6 +250,7 @@ class OutputLimitTests(unittest.TestCase):
 
         snapshot = {"head": "h", "files": {}, "revision": "r"}
         with patch.object(runner.opencode, "launch", return_value=(["fixture-provider"], {}, {})), \
+             patch.object(runner.readonly_events, "prepare_opencode_snapshots"), \
              patch.object(runner.subprocess, "Popen", Child), \
              patch.object(support, "snapshot", return_value=snapshot), \
              patch.object(runner.processes, "preflight", return_value=None), \
