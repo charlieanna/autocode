@@ -220,7 +220,7 @@ class HumanResponseCLITests(unittest.TestCase):
         self.assertNotEqual('PAUSED_UNANSWERED_QUESTION', resumed['status'])
         self.assertGreater(len(resumed['stages']), stages_before)
 
-    def test_real_cli_stale_request_answer_says_how_to_refresh(self):
+    def test_real_cli_stale_request_response_rebinds_in_one_invocation(self):
         run, exhausted = self.timeout_exhausted_checkpoint()
         published = human.current(exhausted)
         self.assertIsNotNone(published)
@@ -228,12 +228,33 @@ class HumanResponseCLITests(unittest.TestCase):
         saved = json.loads(path.read_text())
         saved['active_seconds'] = saved.get('active_seconds', 0) + 1
         path.write_text(json.dumps(saved))
-        before = path.read_bytes()
         result = self.launch(['--run-dir', str(run), '--resolver-request', published['request_id'],
                               '--resolver-response', 'provide_information', '--resolver-message', 'Cause fixed',
-                              '--resolver-token', published['request_token']], 2)
-        self.assertIn('out of date', result.stderr)
-        self.assertIn('--no-chat', result.stderr)
+                              '--resolver-token', published['request_token']], 0)
+        self.assertIn('AutoResolver received the response', result.stdout)
+        _, answered = self.saved()
+        self.assertIsNone(human.current(answered))
+        resolution = answered['resolver']['human_response_resolutions']
+        self.assertEqual(1, len(resolution))
+        reborn = answered['resolver']['human_escalations'][published['request_id']]
+        self.assertEqual('superseded', reborn['status'])
+        self.assertIn('Re-bound', reborn['superseded_reason'])
+        self.assertEqual('user_cli', next(iter(resolution.values()))['response']['actor'])
+        self.assertEqual(len(exhausted['stages']), len(answered['stages']),
+                         'recording a response must not launch a provider')
+
+    def test_stale_rebind_rejects_forged_tokens_and_newer_requests(self):
+        run, exhausted = self.timeout_exhausted_checkpoint()
+        published = human.current(exhausted)
+        path = run / 'state.json'
+        saved = json.loads(path.read_text())
+        saved['active_seconds'] = saved.get('active_seconds', 0) + 1
+        path.write_text(json.dumps(saved))
+        before = path.read_bytes()
+        result = self.launch(['--run-dir', str(run), '--resolver-request', published['request_id'],
+                              '--resolver-response', 'provide_information', '--resolver-message', 'no',
+                              '--resolver-token', published['request_token'][:-4] + 'beef'], 2)
+        self.assertIn('requires the exact current', result.stderr)
         self.assertEqual(before, path.read_bytes())
 
     def test_real_cli_grant_recovery_resumes_an_exhausted_timeout_run(self):

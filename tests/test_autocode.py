@@ -324,6 +324,15 @@ class RetrofitTest(unittest.TestCase):
         self.assertIn('Source writes must stay within current_task.affected_paths',text)
         self.assertGreater(metrics["estimated_prompt_tokens"],0)
 
+    def test_every_pipeline_stage_prompt_forbids_external_scratch_paths(self):
+        for stage in ("terra", "sol", "astra_review", "astra_plan", "astra_checkpoint"):
+            with self.subTest(stage=stage):
+                text,_=stage_context.context_packet(self.state,stage,self.run/"state.json")
+                self.assertIn("must stay inside the current workspace",text)
+                self.assertIn("provider sandbox",text)
+                self.assertIn("/tmp",text)
+                self.assertIn("mktemp",text)
+
     def test_context_packet_includes_only_runner_provided_private_source_exceptions(self):
         self.state["private_source_exceptions"]=[{
             "sourceId":"fixture-source", "workspacePath":".autocode/private/source.pdf",
