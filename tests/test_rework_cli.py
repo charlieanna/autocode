@@ -148,6 +148,51 @@ class CompletionReworkCLI(unittest.TestCase):
         checks = self.scenario.oracle()(self.project, self.scenario)
         self.assertTrue(all(check.ok for check in checks), checks)
 
+    def test_validation_only_rounds_stop_before_another_validator_for_the_same_open_finding(self):
+        # Issue #300: the Completion Owner keeps sending a finding the Validator never closes back to it.
+        driver = self.driver("bookkeeping")
+        view = driver.drive(self.scenario.brief)
+        stages = [row["stage"] for row in self.trace()]
+        self.assertEqual(["terra", "sol", "astra_review", "terra", "sol", "astra_review",
+                          "sol", "astra_review", "sol", "astra_review"], stages)
+        rounds = [row for row in self.trace()[6:] if row["stage"] == "sol"]
+        self.assertEqual(1, len({(row["source_revision"], row["source_sha256"]) for row in rounds}))
+        self.assertEqual([0, 0], [row["exit_code"] for row in rounds])
+        state = driver.state()
+        blocking = [row["id"] for row in state["findings_ledger"] if row["status"] == "open" and row["blocking"]]
+        self.assertEqual(1, len(blocking), state["findings_ledger"])
+        self.assertEqual("validate", state["current_task"]["kind"])
+        self.assertNotIn("investigate_stuck", [row.get("stage") for row in state["stages"]])
+        need = view["needs"]
+        self.assertEqual(("answer", "operational_exhaustion"), (need["kind"], need.get("resolver_scope")), view)
+        [question] = need["questions"]
+        self.assertIn(blocking[0], question["question"])
+        self.assertIn(f"{blocking[0]} (Validator): the Validator's latest accepted report did not recheck it",
+                      question["why"])
+        self.assertIn(blocking[0], view["stop_reason"])
+        # Neither resuming nor answering launches another round or closes the finding.
+        driver.call("resume", "--resume-paused")
+        driver.call("respond", "--resolver-request", need["resolver_request_id"],
+                    "--resolver-token", need["resolver_token"], "--resolver-response", "leave_paused", action=True)
+        driver.call("resume", "--resume-paused")
+        self.assertEqual(stages, [row["stage"] for row in self.trace()])
+        self.assertFalse(driver.view()["done"])
+        self.assertEqual(["open"], [row["status"] for row in driver.state()["findings_ledger"]
+                                    if row["id"] == blocking[0]])
+
+    def test_validator_closing_its_own_finding_on_the_one_revalidation_completes(self):
+        driver = self.driver("bookkeeping_late")
+        view = driver.drive(self.scenario.brief)
+        self.assertTrue(view["done"], view)
+        self.assertEqual(["terra", "sol", "astra_review", "terra", "sol", "astra_review",
+                          "sol", "astra_review", "sol", "astra_review"],
+                         [row["stage"] for row in self.trace()])
+        ledger = driver.state()["findings_ledger"]
+        self.assertTrue(ledger and all(row["status"] == "resolved" for row in ledger), ledger)
+        self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
+        checks = self.scenario.oracle()(self.project, self.scenario)
+        self.assertTrue(all(check.ok for check in checks), checks)
+
     def test_exhausted_pinned_builder_keeps_existing_pause(self):
         driver = self.driver("exhausted", "--pin-model-role", "terra")
         view = driver.drive(self.scenario.brief)

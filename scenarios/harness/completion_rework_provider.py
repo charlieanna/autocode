@@ -16,8 +16,15 @@ def report_for(stage, data, common, config, run_check, requirements):
     body = data["goal_contract"]["body"]
     fault = config["fault"]
     validation_only = fault == "completion_rework_validate"
+    # #300: the Validator leaves its finding open (always, or until its third PASS); the Owner re-validates.
+    bookkeeping = fault in ("completion_rework_bookkeeping", "completion_rework_bookkeeping_late")
     dispositions = [{"id": ident, "disposition": "resolved", "evidence": "event:check"}
                     for ident in (data.get("review_identity_policy") or {}).get("own_open_finding_ids", [])]
+    passes = sum(row["stage"] == "sol" and row["status"] == "PASS" for row in previous)
+    if bookkeeping and stage == "sol" and (fault == "completion_rework_bookkeeping" or passes < 2):
+        dispositions = []
+    stranded = [row["id"] for row in data.get("open_findings") or []
+                if row.get("source") == "sol" and row.get("blocking")] if bookkeeping else []
     finding = {"id": "", "severity": "high", "blocking": True,
                "finding": "The required greeting regression checks fail",
                "evidence": "event:check"}
@@ -57,7 +64,8 @@ def report_for(stage, data, common, config, run_check, requirements):
                   "end_to_end_result": {"status": status, "summary": f"Real greeting tests exited {code}",
                                         "evidence_refs": ["check:1"]}}
     else:
-        recheck = validation_only and not any(row["stage"] == "astra_resolve" for row in previous)
+        recheck = ((validation_only and not any(row["stage"] == "astra_resolve" for row in previous))
+                   or (stage == "astra_review" and data["validation"]["verdict"] == "PASS" and bool(stranded)))
         failed = data["validation"]["verdict"] == "FAIL" or recheck
         result = {**common, "status": "REWORK" if failed else "COMPLETE",
                   "acceptance_criteria": [{"id": row["id"], "criterion": row["criterion"],
@@ -90,6 +98,11 @@ def report_for(stage, data, common, config, run_check, requirements):
             result["findings"] = []
             if stage == "astra_resolve":
                 result["diagnosis"] = "The source already passes; the remaining requested work is fresh independent validation, not a code repair"
+            if stranded:
+                result.update(status="CONTINUE", finding_dispositions=dispositions,
+                              next_objective="Route the Validator's own open findings " + ", ".join(stranded)
+                              + " to the Validator for its disposition without modifying source")
+                result["plan"] = [result["next_objective"]]
     row = {"stage": stage, "task_id": common["task_id"], "contract_hash": common["contract_hash"],
            "contract_revision": common["contract_revision"], "source_revision": data["source_revision"],
            "source_sha256": hashlib.sha256(Path("greet.py").read_bytes()).hexdigest(),
