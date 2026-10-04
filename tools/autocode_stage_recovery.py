@@ -238,9 +238,12 @@ def automatically_recover_report_repair_timeout(state, run_dir, workspace, error
 def automatically_recover_capacity_stage(state, run_dir, workspace, error):
     """Archive a confirmed model-capacity failure for bounded recovery.
 
-    The next stage is a Plan Reviewer recovery review, so partial work is inspected
-    before another writer runs. Repeated capacity failures stop after two
-    recoveries and require an explicit resume.
+    Workflow-job stages (``autocode_jobs.STAGES``) leave at once through
+    ``job_failure.recover``, which pauses the run for an explicit retry. For every
+    other stage, ``records.timeout_recovery_route`` picks the stage that inspects
+    the archived partial work next. Once ``MAX_AUTOMATIC_CAPACITY_RECOVERIES``
+    recoveries are recorded, the next capacity failure pauses the run and requires
+    an explicit resume.
     """
     record = state.get("active_stage")
     if job_failure.owner(record or {}):
