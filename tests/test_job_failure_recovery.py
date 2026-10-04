@@ -97,10 +97,11 @@ if mode not in ('success','terminal','abandon','exit42','capacity','rate','exter
   activity.timeout={'kind':'stage','reason':f'Stage exceeded its {seconds}-second hard runtime limit (injected clock)'}
   return code,True
  autocode.processes.wait_for_stage=deadline
-if source and mode in ('later','missing','corrupt','replace_error','staging_error'):
+if source and mode in ('later','missing','corrupt','replace_error','staging_error','nocapture'):
  real=source.stopped
  def witness(workspace,base,record):
   real(workspace,base,record)
+  if mode=='nocapture':record.pop('job_source',None)
   if mode=='later':(Path(workspace)/'calc.py').write_text('def double(n):\n    return n - 2\n')
   if mode in ('missing','corrupt'):
    capture=json.loads(Path(record['job_source']['capture']).read_text())
@@ -289,6 +290,17 @@ class JobFailureTaskRunTests(unittest.TestCase):
             again=TaskRun(self.workspace,run.run_dir,command=run.command,options=run.options,env=run.env,timeout=60)
             again.advance();self.paused(again)
         self.assertEqual(1,len(list(Path(need['archive']).parent.glob('archived-review-change-01-*'))))
+
+    def test_ac29_crash_before_capture_with_unchanged_source_keeps_exact_retry(self):
+        run=self.start('nocapture');need=self.paused(run)
+        self.assertEqual([],need['unrestored'])
+        run.retry_job(need['job_retry_token']);self.assertEqual(2,self.count())
+
+    def test_ac30_crash_before_capture_retry_refuses_a_later_workspace_edit(self):
+        run=self.start('nocapture');need=self.paused(run)
+        (self.workspace/'calc.py').write_text(LATER)
+        with self.assertRaisesRegex(TaskRunError,'Source changed'):run.retry_job(need['job_retry_token'])
+        self.assertEqual(1,self.count())
 
     def test_ac20_created_file_is_deleted(self):
         run=self.start('create');need=self.paused(run);self.assertFalse((self.workspace/'scratch.py').exists())

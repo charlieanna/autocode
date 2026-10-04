@@ -181,7 +181,7 @@ class ActivityRuntimeTests(unittest.TestCase):
                 self.assertGreaterEqual(observed[0]['elapsed_seconds'], 0)
                 self.assertEqual(20, observed[0]['stage_limit_seconds'])
 
-    def idle_stop(self, *, supervisor_first):
+    def idle_stop(self, *, supervisor_first, model='fixture-terra', limit=300, origin='runner default'):
         """Run a Builder whose provider falls quiet, through run_role with the real ActivityMonitor.
 
         The supervisor (autocode_process.wait_for_stage) usually stops the stage before the observer's own
@@ -214,12 +214,12 @@ class ActivityRuntimeTests(unittest.TestCase):
             activity_checkpoint(activity.poll())
             if supervisor_first:
                 # Shaped like autocode_process.stop_at_deadline: polling lag fired the limit at 299.5 s.
-                clock[0] = 480.5
+                clock[0] = 181 + limit - 0.5
                 activity.timeout = {'kind': 'idle', 'reason': activity.idle_reason()}
                 activity_checkpoint({**activity.poll(), 'activity': 'stalled', 'timeout_kind': 'idle',
                                      'timeout_reason': activity.timeout['reason']})
             else:
-                clock[0] = 481
+                clock[0] = 181 + limit
                 activity_checkpoint(activity.poll())
                 activity.timeout = activity.expired()
             return -15, True
@@ -235,8 +235,8 @@ class ActivityRuntimeTests(unittest.TestCase):
             runner.run_role(role='terra', prompt='Finish the bounded greeting task',
                 sandbox='workspace-write', workspace=self.root, run_dir=self.run,
                 state=self.state, schema=runner.SCHEMA_DIR / 'v2/terra-report.schema.json',
-                model='fixture-terra', allow_write=True, dry_run=False)
-        reason = ('No new provider activity within the inactivity limit (300 seconds, runner default; '
+                model=model, allow_write=True, dry_run=False)
+        reason = (f'No new provider activity within the inactivity limit ({limit} seconds, {origin}; '
                   'change it with --resume-paused --max-idle-seconds N)')
         self.assertEqual('PAUSED_PROVIDER_TIMEOUT', caught.exception.status)
         self.assertIn(reason, str(caught.exception))
@@ -252,6 +252,15 @@ class ActivityRuntimeTests(unittest.TestCase):
         stalled, active = self.idle_stop(supervisor_first=True)
         self.assertIn('idle=299.5s/300', stalled)
         self.assertEqual(299.5, active['activity']['idle_seconds'])
+
+    def test_a_mimo_route_runs_under_its_longer_default_and_says_so(self):
+        # #298: live MiMo Builders were stopped at 300 s mid-turn and finished at 900 s. The saved
+        # setting stays the runner default; only this launch's limit is raised.
+        stalled, active = self.idle_stop(supervisor_first=False, model='xiaomi-token-plan-sgp/mimo-v2.6-pro',
+                                         limit=900, origin='runner default for MiMo routes')
+        self.assertIn('idle=900s/900', stalled)
+        self.assertEqual(300, active['idle_timeout_seconds'])
+        self.assertEqual(300, support.read(self.run / 'state.json')['settings']['limits']['idle_timeout_seconds'])
 
     def test_idle_stop_names_saved_limit_origin_when_the_monitor_sees_it_first(self):
         stalled, active = self.idle_stop(supervisor_first=False)

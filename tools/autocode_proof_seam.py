@@ -9,9 +9,10 @@ case and says what to do instead (issue #299). A log line the fix adds is no
 substitute: a fix with the real call removed and the log kept passes such a test.
 
 A Python test can also reach the seam only at run time (``mock.patch.object``):
-it loads on the unfixed code and errors there, which the proof cannot tell from
-a genuine AttributeError reproduction. The verdict stands, but the Validator and
-the Completion Owner are told to check why that test fails before the fix.
+it loads on the unfixed code and errors there. Explicit mock preparation and
+test-origin import failures are excluded by autocode_test_setup. Other errors
+may be genuine AttributeError reproductions; the Validator and the Completion
+Owner are told to check why those tests fail before the fix.
 
 Pure functions over text. Imports nothing from AutoCode.
 """

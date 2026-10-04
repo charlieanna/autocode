@@ -241,6 +241,17 @@ class ResolverSafety(unittest.TestCase):
         record['changed_files'] = ['greet.py']
         self.rejected(value, record)
 
+    def test_judging_stages_launch_operational_write_while_planning_stays_read_only(self):
+        # The Validator/Completion Owner/checkpoint must write runner-owned capture
+        # receipts and reports under .autocode/, which a read-only sandbox forbids;
+        # their source contract stays enforced by the after-stage snapshot.
+        from units import common
+        for stage in ('sol', 'astra_review', 'astra_checkpoint'):
+            self.assertEqual('workspace-write', common.launch_sandbox(stage, False), stage)
+        for stage in ('requirements_gather', 'astra_plan', 'glm_revise', 'astra_discovery'):
+            self.assertEqual('read-only', common.launch_sandbox(stage, False), stage)
+        self.assertEqual('workspace-write', common.launch_sandbox('terra', True))
+
 
 class UnitHandoffs(unittest.TestCase):
     setUp = test_goals.GoalTests.setUp

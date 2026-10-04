@@ -32,6 +32,23 @@ class ModelRequest:
 
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 
+# Judging stages whose product contract requires writing runner-owned operational
+# files: the capture_command receipts under .autocode/ promised to every Validator
+# (autoplanner.EVIDENCE_FACTS) and the judging reports themselves. They keep
+# allow_write False — the runner's after-stage source snapshot is what enforces
+# their read-only source contract — so the launch sandbox alone is loosened.
+OPERATIONAL_WRITE_STAGES = ("sol", "astra_review", "astra_checkpoint")
+
+
+def launch_sandbox(stage, allow_write):
+    """The OS sandbox for a stage launch; source integrity is checked after the stage.
+
+    workspace-write for the Builder and write-enabled jobs; read-only for planning;
+    workspace-write for judging stages that must write operational evidence under
+    .autocode/ (their source contract stays enforced by the after-stage snapshot,
+    not the sandbox)."""
+    return "workspace-write" if allow_write or stage in OPERATIONAL_WRITE_STAGES else "read-only"
+
 
 def capped_route(route, cap="medium"):
     """A copy of ``route`` whose reasoning effort is at most ``cap`` (unset or unknown become ``cap``).
