@@ -147,7 +147,8 @@ class HumanPublicationTests(unittest.TestCase):
             reconcile_review=None, feedback=None, follow_up=None, show_goal=None,
             accept_completion=None, resolver_response=None, planning_review_call_limit=None,
             resume_paused=False, retry_builder=False, retry_failed_stage=False, retry_report=False,
-            abandon_stage='001/terra-01', grant_recovery=None, diagnose_failed_stage=False)
+            abandon_stage='001/terra-01', grant_recovery=None, diagnose_failed_stage=False,
+            close_finding=None, close_reason=None)
         fake_runner = Mock()
         fake_runner.abandon_stage.side_effect = lambda state, *_: state.update(
             status='PAUSED_STAGE_ABANDONED', stop_reason='Stage set aside')
