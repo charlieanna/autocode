@@ -178,6 +178,9 @@ def analyze(run_dir: Path, out: Path | None) -> int:
     report = decision.get("report") if isinstance(decision.get("report"), dict) else decision
     outcomes = {row.get("id"): row for row in report.get("acceptance_criteria") or [] if isinstance(row, dict)}
     human = set(state.get("human_reviews") or {}) if isinstance(state.get("human_reviews"), dict) else set()
+    validation = state.get("validation") if isinstance(state.get("validation"), dict) else {}
+    validated = {row.get("id"): row.get("status") for row in validation.get("criterion_results") or []
+                 if isinstance(row, dict)}
     lines += ["", "## Acceptance criteria", ""]
     for item in criteria:
         if not isinstance(item, dict):
@@ -185,7 +188,12 @@ def analyze(run_dir: Path, out: Path | None) -> int:
             continue
         outcome = outcomes.get(item.get("id")) or {}
         reviewed = ", human-reviewed" if item.get("id") in human else ""
-        lines.append(f"- **{item.get('id', '?')}** [{outcome.get('status', 'no outcome recorded')}{reviewed}]: "
+        # A Validator FAIL and an unchecked criterion must both be visible (#17).
+        validator = validated.get(item.get("id"))
+        validator_note = f", validator: {validator}" if validator is not None else (
+            ", validator: unchecked" if validation.get("source_revision") else "")
+        lines.append(f"- **{item.get('id', '?')}** [{outcome.get('status', 'no outcome recorded')}"
+                     f"{validator_note}{reviewed}]: "
                      f"{item.get('criterion') or item.get('text') or json.dumps(item)}")
         if item.get("verification_method"):
             lines.append(f"  - Verification: {item['verification_method']}")
