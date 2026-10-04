@@ -17,8 +17,10 @@ try:
     from . import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage
     from .units import autoplanner as planning_unit
     from . import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay, autocode_check_refs as check_refs
+    from . import autocode_validation_rounds as validation_rounds
 except ImportError:
     import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay, autocode_check_refs as check_refs
+    import autocode_validation_rounds as validation_rounds
     import autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs
     import autocode_stuck_job as stuck, autocode_goals as goals, autocode_goal_lifecycle as lifecycle
     import autocode_planning_artifacts as planning_artifacts, autocode_planning_graph as planning_graph
@@ -129,6 +131,20 @@ def publish_handoffs(state, run_dir):
     return handoffs
 
 
+def admit_validation(runtime, state, stage, workspace, run_dir):
+    """Ask the user instead of launching another validation-only round that cannot close its blockers."""
+    blocking = findings_ledger.blocking_entries(state) if stage == "sol" else []
+    stop = blocking and validation_rounds.admit(state, blocking, support.snapshot(workspace)["revision"])
+    if not stop:
+        return
+    error = support.Paused(validation_rounds.STATUS, stop["reason"])
+    state.update(status=error.status, phase="PAUSED_OR_BLOCKED", stop_reason=stop["reason"], paused_at=support.now())
+    runtime.resolver_runtime.record_operational_exhaustion(runtime, state, run_dir, error, request=stop["request"])
+    runtime.write_json(Path(run_dir) / "state.json", state)
+    print(f"{error.status}: {stop['reason']}\n{lifecycle.render(state)}", flush=True)
+    raise LoopExit(2)
+
+
 def dispatch_unit(runtime, state, stage, workspace, run_dir):
     """Call one unit using the runner's durable provider/recovery services."""
     progressive_state.guard_dispatch(state, stage)
@@ -136,6 +152,7 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
         builder_policy.guard(state)
     runtime.milestones.dispatch_guard(state, stage)
     runtime.workflow.dispatch_guard(state, stage, workspace)
+    admit_validation(runtime, state, stage, workspace, run_dir)
     unit = unit_module(stage)
     if stage == "orchestrator":
         return unit.dispatch(state, workspace, run_dir)
@@ -150,8 +167,9 @@ def dispatch_unit(runtime, state, stage, workspace, run_dir):
     schema_path = run_dir / "schemas" / f"v3-{stage}.json"
     runtime.write_json(schema_path, runtime.support.model_output_schema(request.schema))
     try:
+        from .units import common as units_common
         value, record = runtime.run_role(role=request.role, prompt=request.prompt,
-            sandbox="workspace-write" if request.allow_write else "read-only",
+            sandbox=units_common.launch_sandbox(stage, request.allow_write),
             workspace=workspace, run_dir=run_dir, state=state, schema=schema_path,
             model=state["settings"]["roles"][request.route_role]["model"],
             allow_write=request.allow_write, dry_run=False)

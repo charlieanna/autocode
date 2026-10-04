@@ -3,11 +3,15 @@
 Fixture completion is evidence for the runtime, not proof of live model recovery.
 """
 import copy
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 
 import autocode_stuck_job as stuck
 import autocode_verify as verify
@@ -18,6 +22,57 @@ from . import test_report_repair as repair_support
 from . import test_subprocess as cli_support
 
 support = repair_support.support
+
+
+class StageRepairProviderTests(unittest.TestCase):
+    def invoke(self, exit_code, *, crash=False):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            delegate, report, trace = root / "delegate.py", root / "report.json", root / "trace.jsonl"
+            prompt = 'CURRENT HANDOFF DATA\n{"stage": "astra_discovery"}'
+            delegate.write_text(
+                "import json, os, sys\nfrom pathlib import Path\n"
+                "Path(sys.argv[sys.argv.index('-o') + 1]).write_text(json.dumps({\n"
+                "    'pid': os.getpid(), 'prompt': sys.stdin.read(), 'args': sys.argv[1:]}))\n"
+                "print(json.dumps({'type': 'turn.completed'}))\n"
+                "print('delegate diagnostic', file=sys.stderr)\n"
+                + ("raise RuntimeError('delegate crashed')\n" if crash else f"raise SystemExit({exit_code!r})\n"))
+            args = ["codex", "exec", "-o", str(report)]
+            stdin, stdout, stderr = io.StringIO(prompt), io.StringIO(), io.StringIO()
+            with patch.dict(os.environ, STAGE_REPAIR_DELEGATE=str(delegate),
+                            STAGE_REPAIR_TRACE=str(trace), STAGE_REPAIR_CASE="finalizer"), \
+                 patch.object(sys, "argv", args), patch.object(sys, "stdin", stdin), \
+                 contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                code = provider.main()
+                self.assertIs(sys.stdin, stdin)
+                self.assertEqual("codex", sys.argv[0])
+            payload = json.loads(report.read_text())
+            self.assertEqual(prompt, payload["prompt"])
+            self.assertEqual(args[1:], payload["args"])
+            self.assertEqual([{"type": "turn.completed"}], [json.loads(row) for row in stdout.getvalue().splitlines()])
+            self.assertEqual(code == 0, trace.exists())
+            return code, payload, stderr.getvalue()
+
+    def test_delegate_reuses_provider_process_without_changing_transport(self):
+        code, payload, stderr = self.invoke(0)
+        self.assertEqual(0, code)
+        self.assertEqual(os.getpid(), payload["pid"])
+        self.assertEqual("", stderr)
+
+    def test_delegate_exit_status_and_failure_diagnostics_are_preserved(self):
+        for exit_code, expected in ((None, 0), (7, 7), ("fixture failed", 1)):
+            with self.subTest(exit_code=exit_code):
+                code, _, stderr = self.invoke(exit_code)
+                self.assertEqual(expected, code)
+                self.assertEqual("delegate diagnostic\n" + ("fixture failed\n" if expected == 1 else "")
+                                 if expected else "", stderr)
+
+    def test_delegate_exception_keeps_transport_output_and_traceback(self):
+        code, _, stderr = self.invoke(None, crash=True)
+        self.assertEqual(1, code)
+        self.assertIn("delegate diagnostic\n", stderr)
+        self.assertIn("Traceback (most recent call last)", stderr)
+        self.assertIn("RuntimeError: delegate crashed", stderr)
 
 
 class StageRepairPromptContracts(unittest.TestCase):

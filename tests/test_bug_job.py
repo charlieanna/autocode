@@ -302,6 +302,19 @@ class SmallCorrectionTests(unittest.TestCase):
                                        "astra_discovery", Path(state["workspace"]) / "state.json")
         self.assertNotIn(autoplanner.BUG_DIAGNOSIS_RULE, small)
 
+    def test_investigation_and_planning_keep_regression_tests_off_the_fixs_seams(self):
+        # Issue #299: tests that spied on a variable the fix added could not build on the unfixed code.
+        from units import autoplanner
+        investigation = " ".join(bug_job.prompt(state_for('/repo'))[0].split())
+        self.assertIn("never a hook, variable or helper the fix would add", investigation)
+        self.assertIn("never only a log line or message", investigation)
+        state = self.start(fix_size="large")
+        state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
+        for stage in ("astra_discovery", "astra_finalize"):
+            prompt = " ".join(autoplanner.context(state, stage, Path(state["workspace"]) / "state.json")[0].split())
+            self.assertIn("do not plan it around a hook, package variable or other seam the fix adds", prompt, stage)
+            self.assertIn("a log line or message alone does not prove the behavior", prompt, stage)
+
     def test_planning_is_told_how_execution_captures_evidence(self):
         from units import autoplanner
         state = self.start(fix_size="large")

@@ -41,14 +41,17 @@ try:
     from . import autocode_util as util, autocode_agent_env as agent_env
     from . import autocode_test_environment as test_env
     from . import autocode_investigation_workspace as investigation_workspace
-    from . import autocode_node_tests as node_tests
+    from . import autocode_node_tests as node_tests, autocode_proof_seam as proof_seam
     from . import autocode_scratch_overlay as scratch_overlay
+    from . import autocode_test_setup as test_setup
 except ImportError:
     import autocode_util as util, autocode_agent_env as agent_env
     import autocode_test_environment as test_env
     import autocode_investigation_workspace as investigation_workspace
     import autocode_node_tests as node_tests
     import autocode_scratch_overlay as scratch_overlay
+    import autocode_proof_seam as proof_seam
+    import autocode_test_setup as test_setup
 
 PASS, FAIL, UNVERIFIED = "PASS", "FAIL", "UNVERIFIED"
 # Directories that hold tests wherever they appear, and ones that do only at the repository root:
@@ -417,7 +420,7 @@ def _unittest_id(name, owner):
     return owner if owner.endswith("." + name) else f"{owner}::{name}"
 
 
-def per_test_results(framework, receipt, xml_path) -> dict | None:
+def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
     """Passed, failed and skipped test ids, or None when the run produced no parseable results.
 
     ``collection_errors`` are failures of a module to import or collect; they are
@@ -431,20 +434,24 @@ def per_test_results(framework, receipt, xml_path) -> dict | None:
         output = receipt.get("output")
         return _go_results(Path(output).read_text(errors="replace")) if output and Path(output).is_file() else None
     passed, failed, skipped, collection = set(), set(), set(), set()
+    setup_errors = {}
     if framework.name == "pytest":
         if not Path(xml_path).is_file():
             return None
         try:
-            tree = ET.parse(xml_path)
+            result_tree = ET.parse(xml_path)
         except ET.ParseError:
             return None
         total = 0
-        for case in tree.iter("testcase"):
+        for case in result_tree.iter("testcase"):
             total += 1
             test = f"{case.get('classname', '')}::{case.get('name', '')}"
             problem = case.find("failure") if case.find("failure") is not None else case.find("error")
             if problem is not None:
                 failed.add(test)
+                reason = test_setup.setup_error(problem.text or "", tree, is_test_path)
+                if reason:
+                    setup_errors[test] = reason
                 if not case.get("classname") or "collection failure" in (problem.get("message") or ""):
                     collection.add(test)
             elif case.find("skipped") is not None:
@@ -479,13 +486,20 @@ def per_test_results(framework, receipt, xml_path) -> dict | None:
             if word:
                 (passed if word == "ok" else skipped if word in ("skipped", "expected failure") else failed).add(current)
                 current = None
-        for name, owner in re.findall(r"^(?:FAIL|ERROR): (\S+) \(([\w.]+)\)", text, re.M):
-            failed.add(_unittest_id(name, owner))
+        for name, owner, detail in test_setup.failure_details(text):
+            test = _unittest_id(name, owner)
+            failed.add(test)
+            reason = test_setup.setup_error(detail, tree, is_test_path)
+            if reason:
+                setup_errors[test] = reason
         passed -= failed
         collection = {test for test in failed if COLLECTION_ERROR.search(test)}
         complete = len(passed) + len(skipped) + len(failed) >= total
-    return {"passed": sorted(passed), "failed": sorted(failed), "skipped": sorted(skipped),
-            "collection_errors": sorted(collection), "total": total, "complete": complete}
+    results = {"passed": sorted(passed), "failed": sorted(failed), "skipped": sorted(skipped),
+               "collection_errors": sorted(collection), "total": total, "complete": complete}
+    if setup_errors:
+        results["setup_errors"] = setup_errors
+    return results
 
 
 # --- scratch trees ----------------------------------------------------------
@@ -697,7 +711,7 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout):
     xml.unlink(missing_ok=True)  # never parse a previous run's results
     receipt = run_command(_with_results(framework, command, xml), tree, Path(evidence_dir) / f"{label}.log",
                           timeout=timeout)
-    receipt["results"] = per_test_results(framework, receipt, xml)
+    receipt["results"] = per_test_results(framework, receipt, xml, tree=tree)
     receipt["results_expected"] = expects_results(framework, command)
     return receipt
 
@@ -847,7 +861,8 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
             _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons,
                               new_behavior=new_behavior, known_failures=lambda: _pre_existing(
                                   framework, commands, changes, runnable_tests, workspace, base, run_dir, checks,
-                                  timeout=timeout, dependencies_from=dependencies_from, base_patch=base_patch))
+                                  timeout=timeout, dependencies_from=dependencies_from, base_patch=base_patch),
+                              seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt))
         elif "base_with_tests" in trees and commands["suite"]:
             # No targeted command: the whole suite proves the flip when base was green.
             if base_suite is None or base_suite["health"] != "passing":
@@ -900,13 +915,14 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
 
 
 def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons, *, known_failures,
-                      new_behavior=False):
+                      new_behavior=False, seam_names=None):
     """Judge the targeted runs of the changed test files.
 
     With per-test results, the proof is a named test that ran and failed on base
     and ran and passed on the candidate. A module that fails to import on base
     (for example because the test imports a name the fix adds) is not a test that
-    ran. A test in the same files that already fails on the pristine base (for
+    ran; ``seam_names(on_base)`` names such added names so the failure can say so.
+    A test in the same files that already fails on the pristine base (for
     example one needing a network) neither blocks the fix nor counts as proof.
     Without per-test results, exit codes decide and the change needs review.
     """
@@ -948,9 +964,15 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
             review_reasons.append("the regression proof is a timeout on base, not a named test")
             return
         if base is None:
-            unverified.append("The regression run on the base code reported no test results")
+            # A module that reads a seam while loading can stop the whole run before it reports any test.
+            seam = seam_names(on_base) if seam_names and not new_behavior else []
+            unverified.append("The regression run on the base code reported no test results"
+                              + (". " + proof_seam.reason([], seam) if seam else ""))
             return
-        ran_and_failed = set(base["failed"]) - set(base["collection_errors"])
+        setup_errors = base.get("setup_errors", {}) if not new_behavior else {}
+        ran_and_failed = set(base["failed"]) - set(base["collection_errors"]) - set(setup_errors)
+        if setup_errors:
+            notes.append(test_setup.proof_note(setup_errors))
         # New behavior: a test that did not pass on base (failed, or could not even import
         # the code it tests) and passes now. A bug fix needs a test that ran and failed.
         flipped = sorted(passed - set(base["passed"])) if new_behavior else sorted(ran_and_failed & passed)
@@ -961,17 +983,29 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         # Passing tests that never ran on the original code (their module did not import there): a
         # guard's test there is not shown to fail before, only not shown to pass (check_cases).
         proof["not_run_on_base"] = sorted(passed - set(base["passed"]) - set(base["failed"]))
+        # Recognized test preparation failures are excluded above. Other missing-name
+        # errors may be real product bugs, so preserve the reviewer warning for them.
+        seam = (seam_names(on_base) if seam_names and (base["collection_errors"] or flipped) and not new_behavior
+                else [])
         if not flipped and new_behavior:
             fail.append("No new or changed test passes with the change and did not pass without it, "
                         "so the tests do not show the new behavior")
         elif not flipped:
-            if base["collection_errors"]:
+            if setup_errors:
+                fail.append(test_setup.proof_note(setup_errors))
+            elif seam:
+                fail.append(proof_seam.reason(base["collection_errors"], seam))
+            elif base["collection_errors"]:
                 fail.append("On the unfixed code the new tests only fail to import or collect ("
                             + ", ".join(base["collection_errors"][:5]) + "), so no test shows the bug. "
                             "Write the regression test against behavior that exists before the fix.")
             else:
                 fail.append("No test fails on the unfixed base code and passes with the fix, "
                             "so the tests do not reproduce the bug")
+        elif seam:
+            if base["collection_errors"]:
+                notes.append(proof_seam.note(base["collection_errors"], seam))
+            review_reasons.append(proof_seam.review_reason(flipped, seam))
         return
     # Exit codes only: honest, but weaker, so a person or the Reviewer must read the change.
     review_reasons.append("the regression proof rests on exit codes, not named tests")
@@ -983,6 +1017,22 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         fail.append("The regression tests also pass on the unfixed base code, so they do not reproduce the bug")
     elif on_base["timed_out"]:
         notes.append("The regression tests timed out on the base code; counted as a failure on base")
+
+
+def _seam_names(workspace, base, changes, receipt):
+    """Names the unfixed run reports missing that the candidate's source change adds and its tests use."""
+    added, test_words = set(), set()
+    for path, status in changes.items():
+        file = Path(workspace) / path
+        if status == "deleted" or not is_code_path(path) or not file.is_file() or file.is_symlink():
+            continue
+        after = _read(file)
+        if is_test_path(path):
+            test_words |= proof_seam.words(after)
+        else:
+            before = "" if status == "added" else _git(workspace, "show", f"{base}:{path}", check=False)
+            added |= proof_seam.added_names(path, before, after)
+    return proof_seam.used(_read(receipt.get("output") or ""), added, test_words)
 
 
 def _pre_existing(framework, commands, changes, runnable_tests, workspace, base, run_dir, checks, *,

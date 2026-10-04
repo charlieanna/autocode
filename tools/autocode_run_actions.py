@@ -62,12 +62,16 @@ except ImportError:
 
 def explicit_recovery_requested(args):
     """Whether this invocation carries a scoped operator recovery action."""
+    # An explicit bound change is a recovery action (#301): it must not be held
+    # behind an unchanged operational frontier.
+    budget_flags = getattr(args, '_explicit_budget_flags', None) or set()
     return any((getattr(args, 'retry_builder', None),
                 getattr(args, 'retry_failed_stage', False),
                 getattr(args, 'retry_report', None),
                 getattr(args, 'abandon_stage', None),
                 getattr(args, 'diagnose_failed_stage', False),
-                getattr(args, 'grant_recovery', None) is not None))
+                getattr(args, 'grant_recovery', None) is not None,
+                bool(budget_flags)))
 
 
 def handle(runner, args, parser, state, state_path, run_dir, workspace):
@@ -288,6 +292,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 runner.repeated_failure_resume_guard(state, workspace, authorization=authorization)
                 runner.prepare_planning_retry(state, run_dir)
                 runner.prepare_exhausted_execution_report_retry(state, run_dir, workspace)
+                discarded = runner.archive_stale_report_repair(state, run_dir, workspace)
+                if discarded:
+                    print(discarded, flush=True)
             # Reset report repair attempts on explicit resume, for whatever
             # repair record is still pending. An exhaustion-gated retry
             # above (which requires and archives the true attempt count)

@@ -12,8 +12,10 @@ import psutil
 
 try:
     from . import autocode_process_children as process_children
+    from .autocode_activity import idle_timeout_reason
 except ImportError:
     import autocode_process_children as process_children
+    from autocode_activity import idle_timeout_reason
 
 
 class ProcessError(RuntimeError):
@@ -392,8 +394,9 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
             elapsed = tool_elapsed if kind == "tool" else snapshot.get("idle_seconds", 0)
             limit = snapshot.get(kind + "_limit_seconds", 0)
             if limit and elapsed + lag >= limit:
-                description = "Tool execution exceeded its fixed time limit" if kind == "tool" else "No new provider activity within the inactivity limit"
-                stop_at_deadline({"kind": kind, "reason": f"{description} ({limit:g} seconds)"})
+                reason = (f"Tool execution exceeded its fixed time limit ({limit:g} seconds)" if kind == "tool"
+                          else getattr(activity, "idle_reason", idle_timeout_reason)(limit))
+                stop_at_deadline({"kind": kind, "reason": reason})
                 return
             if stopped.wait(.05):
                 return

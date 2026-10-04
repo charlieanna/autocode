@@ -90,13 +90,18 @@ if mode not in ('success','terminal','abandon','exit42','capacity','rate','exter
  def deadline(child, seconds, checkpoint, *, activity=None, **kwargs):
   code=child.wait(timeout=10);checkpoint([])
   if mode=='cleanup':raise autocode.processes.ProcessError('injected cleanup cannot be proved')
+  if mode=='idle':
+   # Move the real monitor run_role built past its limit: its own reason is the stop reason.
+   later=activity.clock()+activity.idle_limit;activity.clock=lambda:later
+   activity.timeout=activity.expired();return code,True
   activity.timeout={'kind':'stage','reason':f'Stage exceeded its {seconds}-second hard runtime limit (injected clock)'}
   return code,True
  autocode.processes.wait_for_stage=deadline
-if source and mode in ('later','missing','corrupt','replace_error','staging_error','lost_manifest','lost_witness','corrupt_manifest'):
+if source and mode in ('later','missing','corrupt','replace_error','staging_error','lost_manifest','lost_witness','corrupt_manifest','nocapture'):
  real=source.stopped
  def witness(workspace,base,record):
   real(workspace,base,record)
+  if mode=='nocapture':record.pop('job_source',None)
   if mode=='later':(Path(workspace)/'calc.py').write_text('def double(n):\n    return n - 2\n')
   if mode in ('lost_manifest','lost_witness','corrupt_manifest'):
    artifact=Path(record['job_source']['witness' if mode=='lost_witness' else 'capture'])
@@ -188,6 +193,17 @@ class JobFailureTaskRunTests(unittest.TestCase):
         finished=[json.loads(line) for line in (run.run_dir/'activity.jsonl').read_text().splitlines() if json.loads(line).get('event')=='stage_finished' and json.loads(line).get('stage')=='review_change']
         self.assertEqual(1,len(finished));self.assertTrue(finished[0]['timed_out']);self.assertEqual(-15,finished[0]['exit_code']);self.assertEqual(0,finished[0]['changed_files'])
 
+    def test_idle_stop_of_a_job_names_its_limit_and_the_retry_that_keeps_it(self):
+        # #298 review: the generic advice (--resume-paused --max-idle-seconds N) saves a new limit, and
+        # a changed limit makes this job's exact retry stale, so a job's idle stop must not offer it.
+        options=list(self.options);options[options.index('--max-idle-seconds')+1]='240';self.options=tuple(options)
+        run=self.start('idle');need=self.paused(run)
+        self.assertIn('Reviewer: No new provider activity within the inactivity limit (240 seconds, set explicitly; '
+                      'an exact job retry runs under the same limit; a different limit needs a new run)',need['reason'])
+        self.assertNotIn('--max-idle-seconds',need['reason'])
+        run.env['JOB_MODE']='success'
+        view=run.retry_job(need['job_retry_token']);self.assertTrue(view['done'],view);self.assertEqual(2,self.count())
+
     def test_t2_abandon_names_the_owning_reviewer_and_retains_fragments(self):
         run=self.start('abandon')
         proc=subprocess.run([*run.command,'--status','--workspace',str(self.workspace),'--run-dir',str(run.run_dir)],
@@ -278,6 +294,17 @@ class JobFailureTaskRunTests(unittest.TestCase):
             again=TaskRun(self.workspace,run.run_dir,command=run.command,options=run.options,env=run.env,timeout=60)
             again.advance();self.paused(again)
         self.assertEqual(1,len(list(Path(need['archive']).parent.glob('archived-review-change-01-*'))))
+
+    def test_ac29_crash_before_capture_with_unchanged_source_keeps_exact_retry(self):
+        run=self.start('nocapture');need=self.paused(run)
+        self.assertEqual([],need['unrestored'])
+        run.retry_job(need['job_retry_token']);self.assertEqual(2,self.count())
+
+    def test_ac30_crash_before_capture_retry_refuses_a_later_workspace_edit(self):
+        run=self.start('nocapture');need=self.paused(run)
+        (self.workspace/'calc.py').write_text(LATER)
+        with self.assertRaisesRegex(TaskRunError,'Source changed'):run.retry_job(need['job_retry_token'])
+        self.assertEqual(1,self.count())
 
     def test_ac20_created_file_is_deleted(self):
         run=self.start('create');need=self.paused(run);self.assertFalse((self.workspace/'scratch.py').exists())
