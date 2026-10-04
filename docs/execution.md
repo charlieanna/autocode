@@ -308,7 +308,9 @@ before a PASS is accepted, the runner re-runs every check itself
   `--resume-paused` asks for a fresh validation.
 - **Record.** The result is saved with the validation, bound to its source
   revision, under `<run>/check-replay/`, and shown in the status view as
-  `evidence.check_replay`.
+  `evidence.check_replay`. Each invocation gets a fresh directory, including
+  retries of the same report. Later replays preserve the earlier receipt and
+  logs at their original paths; a failed replay remains available after a pass.
 
 This replaces trust in the Tester's own session with a run the runner owns.
 It does not judge whether the checks test the right thing: that is still the
