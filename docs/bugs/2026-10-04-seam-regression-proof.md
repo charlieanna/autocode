@@ -21,14 +21,17 @@ such a probe: a destination directory that is writable but not readable makes
 the post-rename directory open fail, and the same test builds and runs on the
 unfixed and the fixed code.
 
+An operator base patch (`--base-patch PATH`, `autocode_base_patch`) covers a bug
+that can only be observed through a seam: it adds just the seam to the original
+code, so the seam test runs and fails there. The runner cannot tell whether a
+patch only adds instrumentation, so it is bounded: pinned by hash, no test files,
+it must apply to the base and be contained in the final change (so it cannot plant
+a defect the fix lacks), and every proof that uses it carries a review reason for
+the Tester and Completion Reviewer. A patch that changes behavior in a way the
+final change also contains is still possible; that review reason is the guard.
+
 Still open:
 
-- An operator-supplied base patch for a new run. The runner cannot tell whether
-  a patch only adds instrumentation. Requiring the candidate to contain the
-  patch limits what the Builder controls, but a patch that changes behavior
-  would still let the rest of the change flip tests without fixing the bug.
-  Today `review_reasons` reach only the Validator and the Completion Owner, so
-  no person is guaranteed to read the patch.
 - A Python test that reaches the seam only at run time
   (`mock.patch.object(store, "replace_file")`) runs and errors on the unfixed
   code, so it still counts as fail-to-pass. A negative control with the fix
