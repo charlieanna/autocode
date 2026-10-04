@@ -91,6 +91,11 @@ profile, and the profile that passed is recorded (for example `glm53-openai`,
 live runs are spent only at qualification rungs and need explicit spend
 authorization.
 
+The FX04 frozen-reference fixture for LIVE-04's 7-state × 3-viewport matrix
+was not created. That matrix is owned by the Figma design-coverage track
+(#250 coverage manifests, #251 rendered comparison, #297 deterministic PNG
+comparison); `tests/test_catalogue_t12.py` records the remaining gap.
+
 ## Limits, stated plainly
 
 - All five task types were attempted on 2026-09-26 with the `glm53-mimo` profile.

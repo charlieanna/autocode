@@ -65,11 +65,13 @@ class RunViewTests(unittest.TestCase):
     def test_evidence_pairs_criteria_with_their_latest_outcome(self):
         state = {"status": "TASK_COMPLETE", "base_commit": "abc",
                  "goal_contract": {"body": {"intended_outcome": "Fix it", "acceptance_criteria": [
-                     {"id": "AC1", "criterion": "Parses dates"}, {"id": "AC2", "criterion": "Documents it"}]}},
+                     {"id": "AC1", "criterion": "Parses dates"}, {"id": "AC2", "criterion": "Documents it"},
+                     {"id": "AC3", "criterion": "Ships it"}]}},
                  "last_decision": {"report": {"acceptance_criteria": [
                      {"id": "AC1", "status": "passed", "evidence": "pytest -k dates: 3 passed"}]}},
                  "validation": {"source_revision": "r7",
-                                "criterion_results": [{"id": "AC1", "status": "FAIL"}]},
+                                "criterion_results": [{"id": "AC1", "status": "FAIL"},
+                                                      {"id": "AC3", "status": "NOT_VERIFIED"}]},
                  "human_reviews": {"AC2": {"token": "r1"}},
                  "findings_ledger": [{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo",
                                       "times_reported": 2}],
@@ -79,13 +81,16 @@ class RunViewTests(unittest.TestCase):
         evidence = run_view.evidence(state)
         self.assertEqual(("Fix it", "abc"), (evidence["outcome"], evidence["base_commit"]))
         self.assertEqual("r7", evidence["validator_source_revision"])
-        # validator_status keeps a Validator FAIL distinct from a criterion that was
-        # never checked (None), independent of the decision report's own outcome.
+        # validator_status keeps a Validator FAIL distinct from NOT_VERIFIED and from a
+        # criterion the latest validation never listed (None).
         self.assertEqual([{"id": "AC1", "criterion": "Parses dates", "status": "passed",
                            "evidence": "pytest -k dates: 3 passed", "validator_status": "FAIL",
                            "human_reviewed": False},
                           {"id": "AC2", "criterion": "Documents it", "status": None, "evidence": None,
-                           "validator_status": None, "human_reviewed": True}], evidence["acceptance"])
+                           "validator_status": None, "human_reviewed": True},
+                          {"id": "AC3", "criterion": "Ships it", "status": None, "evidence": None,
+                           "validator_status": "NOT_VERIFIED", "human_reviewed": False}],
+                         evidence["acceptance"])
         self.assertEqual([{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo"}],
                          evidence["findings"])
         self.assertEqual({"verdict": "PASS", "fail_to_pass": ["test_dates"], "failures": [], "unverified": [],
