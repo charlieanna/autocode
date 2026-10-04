@@ -75,13 +75,16 @@ ending at iteration two. The only user event was normal plan approval; this is
 a successful recovery run, not a no-repair claim. The refreshed affected-file
 gate passed 674 cases across 39 modules.
 
-The full integrated gate was deliberately interrupted when the native check
-proved that another runtime correction was necessary; cleanup confirmed no owned
-processes remained. The final supplemental catalog passed 54 scenarios, with
-one existing NOT_EXERCISED and one live-only SKIPPED; the final full suite is
-still running. The original full run covered
-3398 cases across 246 modules and failed five modules: the two fixture assumptions
-above, two stale fixtures now fixed upstream, and a browser test that exceeded its
-420-second timeout. A later browser invocation passed, but that does not turn the
-original full gate into a pass. No timeout was raised. Evidence is ignored under
-`.scenario-runs/fresh-migration-366/`.
+The final full gate passed 3496 tests across 251 modules in 2445 seconds with
+four workers. The final supplemental catalog passed 54 scenarios, with one
+existing NOT_EXERCISED and one live-only SKIPPED. All gates used the same runtime
+source as the final native qualification.
+
+An earlier integrated full gate was deliberately interrupted when the native
+check proved another runtime correction was necessary; cleanup confirmed no
+owned processes remained. The original full run covered 3398 cases across 246
+modules and failed five modules: the two fixture assumptions above, two stale
+fixtures now fixed upstream, and a browser test that exceeded its 420-second
+timeout. These earlier results remain failures or interruptions; the later
+complete passing gate does not replace their evidence. No timeout was raised.
+Evidence is ignored under `.scenario-runs/fresh-migration-366/`.
