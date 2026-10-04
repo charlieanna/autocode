@@ -10,8 +10,8 @@ The runner cannot tell whether a patch only adds instrumentation, so every use i
 
 - it is pinned by hash when set, and a later change to the file makes the proof UNVERIFIED;
 - it may not change test files, so the proof still runs the candidate's tests unchanged;
-- it must apply to the base and be contained in the candidate (every line it adds is in the final
-  code), so it cannot plant a defect the delivered change does not have;
+- it must apply to the base; its additions and deletions must appear in candidate edits at the
+  corresponding original source locations, rather than borrowing text elsewhere in the file;
 - every proof that uses it carries a review reason naming it, so the Validator and the Completion
   Owner check that it changes no behavior.
 
@@ -20,40 +20,16 @@ and autocode_regression reads it. Setting it on a saved run is a ``base_patch_se
 """
 from __future__ import annotations
 
-import collections
 import hashlib
-import re
 from pathlib import Path
 
 try:
     from . import autocode_util as util, autocode_verify as verify
+    from . import autocode_patch_containment as containment
 except ImportError:
     import autocode_util as util
     import autocode_verify as verify
-
-GIT_HEADER = re.compile(r"^diff --git a/(.+) b/(.+)$", re.M)
-FILE_HEADER = re.compile(r"^(?:---|\+\+\+) (?:a|b)/(.+)$", re.M)
-
-
-def changed_files(text):
-    """Every path a patch touches (both sides of a rename)."""
-    names = {name for pair in GIT_HEADER.findall(text) for name in pair} | set(FILE_HEADER.findall(text))
-    return sorted(name.strip() for name in names)
-
-
-def added_lines(text):
-    """{path: lines the patch adds}; a deleted file adds none."""
-    added, current = collections.defaultdict(list), None
-    for line in text.splitlines():
-        if line.startswith("+++ "):
-            current = line[6:].strip() if line.startswith("+++ b/") else None
-        elif line.startswith("+") and current:
-            added[current].append(line[1:])
-    return dict(added)
-
-
-def _hash(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    import autocode_patch_containment as containment
 
 
 def pin(path, workspace, base):
@@ -61,17 +37,17 @@ def pin(path, workspace, base):
     patch = Path(path).expanduser().resolve()
     if not patch.is_file():
         raise ValueError(f"--base-patch {path}: no such file")
-    files = changed_files(patch.read_text(errors="replace"))
-    if not files:
-        raise ValueError(f"--base-patch {path}: not a patch (no file headers)")
+    contents = patch.read_bytes()
+    try:
+        changes = containment.applied_files(workspace, base or "HEAD", contents)
+    except ValueError as exc:
+        raise ValueError(f"--base-patch {path} does not apply to the original code: {exc}") from exc
+    files = sorted(change.name for change in changes)
     tests = [name for name in files if verify.is_test_path(name)]
     if tests:
         raise ValueError("--base-patch may not change test files, so the proof runs the candidate's tests "
                          "unchanged: " + ", ".join(tests))
-    problem = verify.patch_applies(workspace, base or "HEAD", patch)
-    if problem:
-        raise ValueError(f"--base-patch {path} does not apply to the original code: {problem}")
-    return {"path": str(patch), "sha256": _hash(patch), "files": files}
+    return {"path": str(patch), "sha256": hashlib.sha256(contents).hexdigest(), "files": files}
 
 
 def pinned(state):
@@ -83,21 +59,20 @@ def check(saved, workspace, base):
     patch = Path(saved["path"])
     if not patch.is_file():
         return None, f"the operator base patch {patch} is missing"
-    if _hash(patch) != saved["sha256"]:
+    contents = patch.read_bytes()
+    if hashlib.sha256(contents).hexdigest() != saved["sha256"]:
         return None, f"the operator base patch {patch.name} changed after it was set"
-    problem = verify.patch_applies(workspace, base, patch)
-    if problem:
-        return None, f"the operator base patch {patch.name} does not apply to the base revision ({problem})"
-    for name, lines in added_lines(patch.read_text(errors="replace")).items():
-        target = Path(workspace) / name
-        have = collections.Counter(target.read_text(errors="replace").splitlines() if target.is_file() else [])
-        for line in lines:
-            if not line.strip():
-                continue
-            if have[line] <= 0:
-                return None, (f"the change does not contain the operator base patch {patch.name}: {name} lacks "
-                              f"{line.strip()[:120]!r}, so the patch could add something the fix does not")
-            have[line] -= 1
+    try:
+        changes = containment.applied_files(workspace, base, contents)
+        for change in changes:
+            if verify.is_test_path(change.name):
+                return None, f"the operator base patch {patch.name} changes a test file: {change.name}"
+            problem = containment.candidate_problem(change, workspace)
+            if problem:
+                return None, (f"the change does not contain the operator base patch {patch.name}: "
+                              f"{change.name}: {problem}")
+    except (ValueError, OSError) as exc:
+        return None, f"cannot verify the operator base patch {patch.name} against the base revision ({exc})"
     return patch, ""
 
 

@@ -14,21 +14,29 @@ import uuid
 
 try:
     from .. import autocode_conversation as conversation_protocol
+    from ..autocode_status import role_name
 except ImportError:
     import autocode_conversation as conversation_protocol
+    from autocode_status import role_name
 
 try:
     from .dashboard_conversation_journal import project_conversation, append_feedback
     from .dashboard_monitor import snapshot
     from .dashboard_metrics import project_metrics
     from . import dashboard_chat_intent as chat_intent
+    from .dashboard_transcript import project as transcript
+    from .dashboard_screenshots import project as screenshot_evidence
     from .dashboard_work_summary import project as work_summary
+    from .dashboard_verification import VerificationViewMixin
 except ImportError:  # Direct source launch, as well as the installed entry point.
     from dashboard_conversation_journal import project_conversation, append_feedback
     from dashboard_monitor import snapshot
     from dashboard_metrics import project_metrics
     import dashboard_chat_intent as chat_intent
+    from dashboard_transcript import project as transcript
+    from dashboard_screenshots import project as screenshot_evidence
     from dashboard_work_summary import project as work_summary
+    from dashboard_verification import VerificationViewMixin
 
 
 def object_value(value):
@@ -50,7 +58,7 @@ def planning_messages(state, run=None):
             if isinstance(summary, str) and summary:
                 record = by_output.get(entry.get('output'), {})
                 result.append({'id': f'planning-{number}-{stage}', 'role': 'assistant',
-                               'speaker': 'Planner' if stage in ('astra_discovery', 'glm_revise') else 'Plan Reviewer',
+                               'speaker': role_name(stage, state),
                                'text': summary, 'stage': stage, 'status': 'received',
                                'created_at': record.get('finished_at') or record.get('started_at')})
                 if entry.get('output'):
@@ -70,14 +78,14 @@ def planning_messages(state, run=None):
                 text = object_value(report).get('summary')
                 if isinstance(text, str) and text:
                     result.append({'id': 'discovery-' + hashlib.sha256(str(path).encode()).hexdigest()[:16],
-                                   'role': 'assistant', 'speaker': 'Planner' if record.get('role') == 'glm' else 'Plan Reviewer',
+                                   'role': 'assistant', 'speaker': role_name(record['stage'], state),
                                    'text': text, 'status': 'received', 'created_at': record.get('finished_at') or record.get('started_at')})
             except (KeyError, TypeError, OSError, ValueError):
                 continue
     return result
 
 
-class ConversationMixin:
+class ConversationMixin(VerificationViewMixin):
     def __init__(self, *args, conversation_root=None, conversation_provider=None, conversation_planner=None, **kwargs):
         self._conversation_store = None
         self._conversation_root = conversation_root
@@ -99,6 +107,13 @@ class ConversationMixin:
             return self._conversation_store
 
     def conversation_create(self, data):
+        models = data.get('models', {})
+        if not isinstance(models, dict):
+            raise ValueError('Models must be an object')
+        chosen = self.joint_models(models)
+        efforts = self.joint_efforts(models)
+        settings = {key + '_model': value for key, value in chosen.items()}
+        settings.update({key + '_reasoning_effort': value for key, value in efforts.items()})
         text = data.get('text')
         if data.get('empty') is True and (not isinstance(text, str) or not text.strip()):
             # Pre-send creation: activating a New conversation control opens a
@@ -111,14 +126,7 @@ class ConversationMixin:
                 if not workspace:
                     raise ValueError('Select an existing Git project for the new conversation')
             return self.conversations.create_empty(str(workspace) if workspace else None,
-                                                   request_id=data.get('request_id'))
-        models = data.get('models', {})
-        if not isinstance(models, dict):
-            raise ValueError('Models must be an object')
-        chosen = self.joint_models(models)
-        efforts = self.joint_efforts(models)
-        settings = {key + '_model': value for key, value in chosen.items()}
-        settings.update({key + '_reasoning_effort': value for key, value in efforts.items()})
+                                                   request_id=data.get('request_id'), models=settings)
         # Creation-time project scoping: the saved record starts inside the
         # chosen project without launching a task handoff. Attaching a project
         # to an existing conversation stays a separate explicit action.
@@ -267,12 +275,7 @@ class ConversationMixin:
             except ValueError as error:
                 raise ValueError('Task storage must stay inside the selected project') from error
             handoff = self.conversations.handoff(doc['id'])
-            transcript = '\n\n'.join(f"{message.get('speaker', message.get('role', 'Message'))}:\n{message.get('text', '')}" for message in doc['messages'])
-            goal = (doc['title'] + '\n\nConversation reference: ' + doc['id'] +
-                    '\nThe following is the user’s saved project-free planning discussion. Use it as context, including corrections. '
-                    'Inspect this repository, resolve remaining questions, and run the Planner/Plan Reviewer joint planning process. '
-                    'Prior discussion is a draft, not approval to implement. Present the final repository-aware plan for explicit approval.\n\n' + transcript
-                    + '\n\nStructured draft context (unapproved):\n' + json.dumps(handoff.get('plan_drafts', []), ensure_ascii=False))
+            goal = conversation_protocol.task_text(handoff)
             staged = (conversation_protocol.stage_handoff(workspace, handoff)
                       if self.conversations.is_continuous(doc['id']) else None)
             attachment = {'status': 'starting', 'workspace': str(workspace), 'goal_hash': hashlib.sha256(goal.encode()).hexdigest(), 'started_at': time.time(), 'run': None, 'action_id': None, 'error': None}
@@ -447,6 +450,8 @@ class ConversationMixin:
                 elif data.get('retry') is not True or (previous.get('status') != 'error' and not lost_action):
                     return previous
             view = self.view(workspace, run)
+            if read_only and chat_intent.classify(text) == 'question':
+                self.inspect_verification(workspace, run, view)
             scope = object_value(view.get('human_escalation')).get('scope')
             questions = view.get('questions', []) if scope in ('clarification', 'permission', 'goal_change') else []
             if questions and not question_id and not read_only:
@@ -459,7 +464,7 @@ class ConversationMixin:
             elif data.get('delegate') or data.get('resolver_request') or data.get('resolver_token'):
                 raise ValueError('That question is no longer pending. Your message was not sent.')
             elif not read_only and object_value(view.get('human_escalation')).get('scope') in ('operational_exhaustion', 'blocker'):
-                raise ValueError('Use the current AutoResolver response action; feedback does not resolve this request.')
+                raise ValueError('Use the current Resolver response action; feedback does not resolve this request.')
             if (previous and previous.get('kind') == 'correction' and previous.get('confirmation')
                     and previous['confirmation'].get('goal_token') != view.get('goal_token')):
                 raise ValueError('The plan changed since this confirmation. Send a new message to review the current plan.')
@@ -537,7 +542,13 @@ class ConversationMixin:
             view['monitor']['metrics'] = project_metrics(workspace, run)
         except (OSError, ValueError):
             view = self.view(workspace, run)
+        self.inspect_verification(workspace, run, view)
         view['work_summary'] = work_summary(view)
+        counts = view['work_summary']['counts']
+        view['recorded_counts'] = view.get('counts', {})
+        view['counts'] = {'pass': counts['checked'], 'fail': counts['failed'], 'unknown': counts['unchecked']}
+        view['screenshots'] = screenshot_evidence(view)
+        view['transcript'] = transcript(view)
         actions = self.action_log(workspace, run)
         if view.get('startup_action'):
             actions = [view.pop('startup_action'), *actions]
@@ -545,16 +556,23 @@ class ConversationMixin:
 
     def discover(self):
         result = super().discover()
+        for row in result:
+            handoff = conversation_protocol.task_handoff(row.get('task'))
+            if handoff is not None:
+                row.update(original_task=row['task'], task=handoff['title'])
         if self._conversation_store is not None:
             titles = {object_value(doc.get('attachment')).get('run'): doc['title'] for doc in self.conversations.list() if doc.get('attachment')}
             for row in result:
                 if row.get('run') in titles:
-                    row['original_task'] = row.get('task')
+                    row.setdefault('original_task', row.get('task'))
                     row['task'] = titles[row['run']]
         return result
 
     def view(self, workspace, run, s=None):
         view = super().view(workspace, run, s)
+        handoff = conversation_protocol.task_handoff(view.get('task'))
+        if handoff is not None:
+            view.update(original_task=view['task'], task=handoff['title'])
         # Avoid creating any new local files merely to poll pre-existing tasks.
         state = s
         if state is None:
@@ -564,6 +582,8 @@ class ConversationMixin:
                 state = {}
         view['planning_messages'] = planning_messages(object_value(state), run)
         view['validation'] = object_value(object_value(state).get('validation'))
+        view['criteria_revision'] = object_value(state).get('criteria_revision')
+        view['runner_check'] = object_value(object_value(state).get('active_runner_check'))
         view['conversation'] = project_conversation(run, object_value(state))
         view['draft_messages'] = [row for row in (view['conversation'] or {}).get('messages', []) if not row.get('id', '').startswith('task-')]
         view['chat_messages'] = []
@@ -587,7 +607,7 @@ class ConversationMixin:
                         view['conversation'] = view['conversation'] or doc
                         view['draft_messages'] = [row for row in view['conversation'].get('messages', doc['messages']) if not row.get('id', '').startswith('task-')]
                         view['conversation_id'] = doc['id']
-                        view['original_task'] = view.get('task')
+                        view.setdefault('original_task', view.get('task'))
                         view['task'] = doc['title']
                         startup = next((a for a in self.action_log(workspace) if a['id'] == attachment.get('action_id')), None)
                         if startup:
@@ -610,4 +630,10 @@ class ConversationMixin:
                         message['delivery_status'] = delivery.get('status')
                         if delivery.get('status') in ('applied', 'resumed'):
                             message['status'] = 'applied'
+        if view['conversation'] is None and handoff is not None:
+            # A cold reader may have neither the local intake nor a runner journal.
+            # Show only historical messages; current drafts and gates require the journal.
+            view['conversation'] = {'id': handoff['conversation_id'], 'title': handoff['title'],
+                'messages': copy.deepcopy(handoff['messages']), 'drafts': [], 'plan_drafts': []}
+            view['draft_messages'] = copy.deepcopy(handoff['messages'])
         return view

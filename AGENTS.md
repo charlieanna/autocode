@@ -33,10 +33,9 @@ were archived at tag `archive/pre-restructure-2026-09-26`
    `autocode_support.py` and `autopilot.py` already carry broad responsibilities.
    New behavior goes in a module with one purpose at the appropriate layer.
    Review responsibilities and dependency direction.
-2. **Do not join an import cycle.** 12 modules are in one (listed in
-   `tests/test_architecture.py`): milestones, findings, the goal lifecycle,
-   workflow, the planning unit and the stage context around them, and two
-   pairs of live-trial tools. `autocode.py`, `autopilot`, `autocode_goals`
+2. **Do not join an import cycle.** 6 modules are in one (listed in
+   `tests/test_architecture.py`): the goal lifecycle, workflow, the planning
+   unit and the stage context around them. `autocode.py`, `autopilot`, `autocode_goals`
    (the contract; the steps that act on it are in `autocode_goal_lifecycle`)
    and `autocode_support` (the completion gate is `autocode_completion`, the
    stage prompt `autocode_stage_context`) are no longer in one. A new module

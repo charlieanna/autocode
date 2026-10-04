@@ -1,5 +1,5 @@
 // Approval is two ordered, revision-bound requests; uncertain outcomes never start work.
-const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('./dashboard_vm'),path=require('node:path');
 const source=fs.readFileSync(path.join(__dirname,'../dashboard_app.js'),'utf8');
 const cleanup=vm.createContext({});vm.runInContext(source.slice(source.indexOf('function expiredTemporaryEntry('),source.indexOf('function dashboardProjects(')),cleanup);
 assert.equal(cleanup.expiredTemporaryEntry({workspace:'/tmp/old',error:'workspace_missing'}),false,'Error strings do not prove absence or stopped workers');
@@ -30,7 +30,7 @@ function harness({receipt={status:'finished',id:'approve-1'},fresh={},started={s
  // all three revision pins; a later resume keeps the legacy continuation shape.
  const nodes=new Map(),posts=[];const node=id=>{if(!nodes.has(id))nodes.set(id,{hidden:false,disabled:false,textContent:'',classList:{toggle(){}},setAttribute(){},removeAttribute(){}});return nodes.get(id);};
  const initial={run:'/fixture/first',workspace:'/fixture',goal_token:'r7:abc',goal:{revision:7,hash:'abc',approval_status:'approved',approval_event:{token:'r7:abc'}},stages:[],monitor:{}};
- const sender=vm.createContext({$:node,primaryAction:r=>({kind:'continue',label:r.stages.length?'Resume task':'Start building'}),taskSentence:()=>'',taskActionBusy:()=>false,taskArchiveBlocked:()=>false,projectBlocked:()=>false,currentTab:'now',taskChatPending:new Set(),sendingRequests:new Set(),requestKey:()=>'',taskReadError:'',latestRun:initial,taskActionPending:new Set(),seq:0,chosen:initial,
+ const sender=vm.createContext({$:node,primaryAction:r=>({kind:'continue',label:r.stages.length?'Resume task':'Start building'}),statusInfo:()=>({group:'stopped'}),taskSentence:()=>'',taskActionBusy:()=>false,taskArchiveBlocked:()=>false,projectBlocked:()=>false,currentTab:'now',taskChatPending:new Set(),sendingRequests:new Set(),requestKey:()=>'',taskReadError:'',latestRun:initial,taskActionPending:new Set(),seq:0,chosen:initial,
    renderLiveControls(){},renderBrief(){},renderExecution(){},renderTaskNow(){},renderInlineTaskAction(){},dashboardNotice:m=>{throw Error(m);},post:async(endpoint,payload)=>{posts.push(payload);return {status:'queued'};}});
  vm.runInContext(approvalSource,sender);
  vm.runInContext(source.slice(source.indexOf('function renderPrimaryAction('),source.indexOf('function modelCatalogueSnapshot(')),sender);

@@ -23,11 +23,19 @@ OpenCode 1.x is the default engine. To use a logged-in Codex CLI instead, add
 `--engine codex`. See [installation](docs/install.md),
 [provider setup](docs/providers.md) and [model selection](docs/models.md).
 
-When a run stops for input, use the workspace and run directory it prints:
+When a run stops for input, continue it from the project or its task worktree:
 
 ```sh
-autocode --workspace /path/to/run-workspace --run-dir /path/to/run --status
-autocode --workspace /path/to/run-workspace --run-dir /path/to/run --chat
+autocode --status    # what the run needs
+autocode resume      # continue it; plain `autocode` does the same
+```
+
+AutoCode acts on the only unfinished run there. With several, it lists them and
+changes nothing; name one with `--run-dir`, which works from any directory:
+
+```sh
+autocode --run-dir /path/to/run --status
+autocode --run-dir /path/to/run --chat
 ```
 
 The [workflow guide](docs/workflow.md) explains questions, plan approval and
@@ -95,3 +103,11 @@ for the architecture format, approvals and integration.
 - [Testing](docs/testing.md) and [scenario harness](scenarios/README.md)
 - [Check a coding tool/model's conformance](docs/provider-conformance.md)
 - [Task-run interface for integrations](docs/task-run.md)
+
+
+### Role names
+
+The terminal and dashboard use the same job names: Requirements, Planner,
+Plan Reviewer, Builder, Tester, Completion Reviewer and Resolver.
+A configured model can perform different jobs; the current step names the job
+being done. See [roles and reviewer-routing modes](docs/models.md#roles).

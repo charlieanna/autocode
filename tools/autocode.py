@@ -48,6 +48,7 @@ try:
     from . import autocode_reviewer_fallback as reviewer_fallback
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants
+    from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_progressive_state as progressive_state
     from . import autocode_findings as findings_ledger
     from . import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
@@ -81,6 +82,7 @@ except ImportError:
     import autocode_reviewer_fallback as reviewer_fallback
     import autocode_planning_artifacts as planning_artifacts
     import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants
+    import autocode_recovery_accounting as recovery_accounting
     import autocode_progressive_state as progressive_state
     import autocode_findings as findings_ledger
     import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
@@ -409,7 +411,7 @@ def run_role(
         return {"status": "DRY_RUN"}, record
 
     if engine == "opencode" and not configured_tool:
-        readonly_events.prepare_opencode_snapshots(workspace)
+        readonly_events.prepare_opencode_snapshots(workspace, record=record, env=child_options["env"])
     before = support.snapshot(workspace)
     if record['output_mode'] == 'report_file':
         record['capture_context'] = {'attempt': str(output), 'nonce': uuid.uuid4().hex,
@@ -784,7 +786,7 @@ def save_record(state, record):
     state.setdefault("history", []).append(record)
     state["evidence_locations"] = [r["output"] for r in state["stages"][-3:]]
     state.pop("active_stage", None)
-    state["consecutive_timeout_recoveries"] = 0
+    recovery_accounting.stage_saved(state)
 
 
 def _apply_result(state, stage, value, record, workspace, run_dir):
@@ -792,7 +794,7 @@ def _apply_result(state, stage, value, record, workspace, run_dir):
     return autopilot._apply_result(sys.modules[__name__], state, stage, value, record, workspace, run_dir)
 
 
-MAX_AUTOMATIC_RECOVERIES = 3
+MAX_AUTOMATIC_RECOVERIES = recovery_accounting.MAX_AUTOMATIC_RECOVERIES
 def timeout_recovery_guard(state):
     reason = recovery_limits.stop_reason(state, recovery_count(state), MAX_AUTOMATIC_RECOVERIES)
     if reason:

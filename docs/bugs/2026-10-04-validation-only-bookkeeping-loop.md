@@ -54,4 +54,3 @@ the decision. Nothing closes a finding because its text matches another; the
 validation-only stop only points out a stalled finding with the same text or
 evidence as a resolved one and names the command. Closing every finding the stop
 asked about answers it, and the next resume continues.
-

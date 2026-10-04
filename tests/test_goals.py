@@ -92,17 +92,18 @@ class GoalTests(unittest.TestCase):
                 "agreed_limitations": [],
                 "blocker": "", "evidence": ["event:check"], "plan": ["Greeting and checks"], "affected_paths": ["greet.py"]}
 
-    def validation(self):
+    def validation(self, *, passed=True):
+        outcome, exit_code = ("PASS", 0) if passed else ("FAIL", 1)
         evidence = self.run / "sol.jsonl"
         evidence.write_text(json.dumps({"type": "item.completed", "item": {"id": "check", "type": "command_execution",
-            "command": "python3 -m unittest", "exit_code": 0, "aggregated_output": "PASS"}}))
+            "command": "python3 -m unittest", "exit_code": exit_code, "aggregated_output": outcome}}))
         current = s.snapshot(self.root)
-        value = {**envelope(self.state), "verdict": "PASS", "findings": [], "unverified_criteria": [],
-                 "checks_run": ["python3 -m unittest"], "checks": [{"command": "python3 -m unittest", "exit_code": 0,
-                    "evidence_ref": "event:check"}], "criterion_results": [
-                        {"id": c["id"], "status": "PASS", "evidence_refs": ["event:check"]}
-                        for c in self.state["acceptance_criteria"]]}
-        value["end_to_end_result"] = {"status": "PASS", "summary": "Both CLI flows checked", "evidence_refs": ["event:check"]}
+        value = {**envelope(self.state), "verdict": outcome, "findings": [], "unverified_criteria": [],
+                 "checks_run": ["python3 -m unittest"], "checks": [{"command": "python3 -m unittest", "exit_code": exit_code,
+                     "evidence_ref": "event:check"}], "criterion_results": [
+                         {"id": c["id"], "status": outcome, "evidence_refs": ["event:check"]}
+                         for c in self.state["acceptance_criteria"]]}
+        value["end_to_end_result"] = {"status": outcome, "summary": "Both CLI flows checked", "evidence_refs": ["event:check"]}
         record = {"events": str(evidence), "source_revision": current["revision"], "output": str(evidence)}
         runner.apply_result(self.state, "sol", value, record, self.root, self.run)
         return current
@@ -358,6 +359,15 @@ class GoalTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "changed execution plan"):
             lifecycle.assign_task(self.state, decision, current)
         self.assertEqual(unchanged, self.state)
+        for paths in (["previous-milestone.py"], ["greet.py", "unowned.py"]):
+            with self.subTest(paths=paths):
+                self.state = copy.deepcopy(unchanged)
+                revised = copy.deepcopy(decision)
+                revised["affected_paths"] = paths
+                with self.assertRaisesRegex(ValueError, "changed execution plan"):
+                    lifecycle.assign_task(self.state, revised, current)
+                self.assertEqual(unchanged, self.state)
+        self.state = copy.deepcopy(unchanged)
         self.state["settings"]["limits"]["stage_timeout_seconds"] = 7200
         with self.assertRaisesRegex(ValueError, "changed execution plan"):
             lifecycle.assign_task(self.state, decision, current)
@@ -369,6 +379,27 @@ class GoalTests(unittest.TestCase):
         self.state = unchanged
         self.state["settings"]["limits"]["tool_timeout_seconds"] = 3600
         lifecycle.assign_task(self.state, decision, current)
+
+    def test_stalled_replan_requires_a_change_to_the_effective_assignment(self):
+        import autocode_milestones as milestones
+        self.approve()
+        self.state["settings"]["milestone_checkpoints"] = {**milestones.DEFAULTS, "stalled_reviews": 1}
+        lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
+        current = self.validation(passed=False)
+        unchanged = copy.deepcopy(self.state)
+        for paths in (["greet.py"], ["previous-milestone.py"], ["greet.py", "unowned.py"]):
+            with self.subTest(paths=paths):
+                self.state = copy.deepcopy(unchanged)
+                decision = self.decision("REWORK")
+                decision["affected_paths"] = paths
+                with self.assertRaises(s.Paused) as caught:
+                    lifecycle.assign_task(self.state, decision, current)
+                self.assertEqual("PAUSED_MILESTONE_REPLAN", caught.exception.status)
+                self.assertEqual(unchanged, self.state)
+        self.state = copy.deepcopy(unchanged)
+        decision = self.decision("REWORK")
+        decision["next_task"]["validation_plan"] = ["Isolate the failing empty-input case before the full suite"]
+        self.assertEqual("implement", lifecycle.assign_task(self.state, decision, current))
 
     def test_human_only_pending_review_can_be_presented_accepted_and_completed(self):
         import autocode_milestones as milestones
@@ -452,8 +483,8 @@ class GoalTests(unittest.TestCase):
         runner.apply_result(self.state, "astra_review", decision, {"output": "complete"}, self.root, self.run)
         self.assertEqual("TASK_COMPLETE", self.state["status"])
 
-    def test_task_ownership_merges_the_named_milestone_paths(self):
-        """LIVE-06 regression: milestone ownership merges into the task, not the builder's blame."""
+    def test_task_ownership_uses_only_the_named_milestone_paths(self):
+        """A completed milestone's reported paths do not grant the next task writes."""
         import autocode_milestones as milestones
         draft = body()
         draft["acceptance_criteria"].append({"id": "C2", "criterion": "Server behavior",
@@ -466,24 +497,51 @@ class GoalTests(unittest.TestCase):
         lifecycle.approve(self.state, self.state["displayed_goal"])
         self.state["settings"]["milestone_checkpoints"] = copy.deepcopy(milestones.DEFAULTS)
         lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))  # M1 assigned
-        current = self.validation()  # M1's independent validation passes
+        self.validation()  # M1's independent validation passes
         stray = self.decision()
         stray["next_task"] = {"kind": "implement", "milestone_id": "M2", "requirements": ["server"],
                               "acceptance_criteria": ["C2"], "validation_plan": ["run"],
                               "findings": []}
         stray["affected_paths"] = ["greet.py"]  # M1's path, not M2's server/
-        lifecycle.assign_task(self.state, stray, s.snapshot(self.root))
-        task = self.state["current_task"]
-        # The milestone's contract ownership is merged in, so the builder's
-        # contract-legal server work is within the assignment (LIVE-06 fix).
-        self.assertIn("server/", task["affected_paths"])
-        self.assertIn("greet.py", task["affected_paths"])
-        self.assertEqual("M2", task["milestone_id"])
-        # Another milestone's exclusive path stays outside this task's ownership.
-        self.assertNotIn("client/request.py", task["affected_paths"])
-        self.assertTrue(all("client/" != p for p in task["affected_paths"]),
-                        "M2's task must not own M3-style client paths")
+        for paths in (["greet.py"], ["server/handler.py"], ["greet.py", "server/handler.py"]):
+            with self.subTest(paths=paths):
+                state = copy.deepcopy(self.state)
+                stray["affected_paths"] = paths
+                lifecycle.assign_task(state, stray, s.snapshot(self.root))
+                task = state["current_task"]
+                # Contract-legal new outputs stay allowed, but previous/other owners do not.
+                self.assertEqual(["server/"], task["affected_paths"])
+                self.assertEqual("M2", task["milestone_id"])
+                self.assertEqual(stray["next_task"]["requirements"], task["requirements"])
+                self.assertEqual(stray["next_task"]["validation_plan"], task["validation_plan"])
+                prompt, _ = stage_context.context_packet(state, "terra", self.run / "state.json")
+                packet = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+                self.assertEqual(["server/"], packet["affected_paths"])
+                # Read-only revalidation can still check already accepted M1 criteria.
+                recheck = copy.deepcopy(stray)
+                recheck["next_task"].update(kind="validate", acceptance_criteria=["C1", "C2"],
+                    validation_plan=["Execute greeting CLI and server handler checks"])
+                lifecycle.assign_task(state, recheck, s.snapshot(self.root))
+                self.assertEqual(["C1", "C2"], state["current_task"]["acceptance_criteria"])
+                self.assertEqual(recheck["next_task"]["validation_plan"], state["current_task"]["validation_plan"])
+                self.assertEqual(["server/"], state["current_task"]["affected_paths"])
 
+    def test_task_paths_fall_back_to_report_without_milestone_ownership(self):
+        for ownership in (None, []):
+            with self.subTest(ownership=ownership):
+                draft = body()
+                if ownership is None:
+                    draft["milestones"][0].pop("affected_paths")
+                else:
+                    draft["milestones"][0]["affected_paths"] = ownership
+                lifecycle.install_draft(self.state, draft, origin="test")
+                lifecycle.human.evaluate(self.state)
+                lifecycle.present(self.state)
+                lifecycle.approve(self.state, self.state["displayed_goal"])
+                decision = self.decision()
+                decision["affected_paths"] = ["greet.py", "test_greeting.py"]
+                lifecycle.assign_task(self.state, decision, s.snapshot(self.root))
+                self.assertEqual(decision["affected_paths"], self.state["current_task"]["affected_paths"])
 
     def test_execution_handoff_scopes_design_and_highlights_saved_permission(self):
         self.approve()
@@ -835,6 +893,7 @@ class GoalTests(unittest.TestCase):
         self.assertEqual("saved-terra.json", legacy["stages"][0]["output"])
         self.assertTrue(legacy["validation_archive"])
         self.assertEqual("Known answer", legacy["answers"]["saved-question"]["text"])
+        self.assertIn("Reconstruct the goal from the request and saved work", lifecycle.render(legacy))
 
     def test_active_or_uncertain_migration_refuses_without_discarding_work(self):
         for field in ["active_stage", "uncertain_artifacts"]:

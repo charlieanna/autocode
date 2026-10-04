@@ -136,9 +136,25 @@ class OracleProcessTest(unittest.TestCase):
         from autocode_process import ProcessError
         probe = ("import subprocess, sys; subprocess.Popen(['sleep', '5']); "
                  "print('done'); sys.exit(7)")
-        with _project({}) as root, mock.patch.object(os, 'kill', side_effect=PermissionError('denied')):
-            with self.assertRaisesRegex(ProcessError, 'permission denied'):
-                scenarios._run([sys.executable, '-c', probe], Path(root))
+        process = scenarios.oracle_process
+        original_launch, children = process.subprocess.Popen, []
+        def launch(*args, **kwargs):
+            child = original_launch(*args, **kwargs)
+            children.append(child)
+            return child
+        with _project({}) as root:
+            try:
+                with mock.patch.object(process.subprocess, 'Popen', side_effect=launch), \
+                        mock.patch.object(os, 'kill', side_effect=PermissionError('denied')):
+                    with self.assertRaisesRegex(ProcessError, 'permission denied'):
+                        scenarios._run([sys.executable, '-c', probe], Path(root))
+            finally:
+                # The injected denial deliberately prevents cleanup. Restore
+                # signals, then supervise/reap only this test's owned session.
+                for child in children:
+                    if child.returncode is None:
+                        _, _, receipt = process.supervisor.wait(child, timeout=0)
+                        self.assertEqual([], receipt['live_pids'])
 
     def test_launch_permission_error_propagates(self):
         with _project({}) as root:
@@ -148,6 +164,39 @@ class OracleProcessTest(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 scenarios._run([str(denied)], Path(root))
 
+
+    def test_unverified_cleanup_never_publishes_success_failure_or_timeout(self):
+        # An earlier guard swallowed EPERM after reaping an unowned numeric
+        # process group. The ownership supervisor must instead verify cleanup.
+        from autocode_process import ProcessError
+        process=scenarios.oracle_process
+        for code in (0, 7, -1):
+            with self.subTest(code=code), mock.patch.object(process.subprocess, 'Popen') as launch, \
+                    mock.patch.object(process.supervisor, 'wait', side_effect=ProcessError('ownership unavailable')):
+                launch.return_value.returncode=code
+                with self.assertRaisesRegex(ProcessError, 'ownership unavailable'):
+                    scenarios._run(['unused'], TOOLS, timeout=1)
+                self.assertTrue(launch.call_args.kwargs['start_new_session'])
+
+    def test_permission_errors_outside_group_cleanup_propagate(self):
+        process=scenarios.oracle_process
+        with mock.patch.object(process.subprocess, 'Popen', side_effect=PermissionError('launch denied')):
+            with self.assertRaisesRegex(PermissionError, 'launch denied'):
+                scenarios._run(['unused'], TOOLS)
+        # The real command exits and its descendants are cleaned before the
+        # captured output read fails. A read error must not become a verdict.
+        from contextlib import contextmanager
+        temporary_file=process.tempfile.TemporaryFile
+        class UnreadableOutput:
+            def __init__(self, file):self.file=file
+            def __getattr__(self, name):return getattr(self.file,name)
+            def read(self):raise PermissionError('output read denied')
+        @contextmanager
+        def blocked_read(*args, **kwargs):
+            with temporary_file(*args, **kwargs) as file:yield UnreadableOutput(file)
+        with _project({}) as root, mock.patch.object(process.tempfile, 'TemporaryFile', blocked_read):
+            with self.assertRaisesRegex(PermissionError, 'output read denied'):
+                scenarios._run([sys.executable, '-c', "print('done')"], Path(root))
 
 class BugfixOracleTest(unittest.TestCase):
     def test_reference_passes_and_seed_alone_fails(self):

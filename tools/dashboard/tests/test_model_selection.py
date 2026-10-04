@@ -357,11 +357,11 @@ run.mkdir(parents=True,exist_ok=True)
 
     def test_served_form_has_prominent_isolated_role_selectors_and_retention_logic(self):
         from agent_console import APP, INDEX
-        self.assertIn('Requirements planner <small>Drafts the requirements plan and applies reviewer feedback</small>', INDEX)
-        self.assertIn('Plan reviewer <small>Automatic ladder: Sol High → Sol XHigh → Astra High', INDEX)
+        self.assertIn('Planner <small>Drafts the requirements plan and applies reviewer feedback</small>', INDEX)
+        self.assertIn('Plan Reviewer <small>Automatic ladder: Sol High → Sol XHigh → Astra High', INDEX)
         self.assertIn('Builder <small>Automatic ladder: Terra Medium → Terra High → Terra XHigh → Terra Max', INDEX)
-        self.assertIn('Validator <small>Automatic ladder: Sol High → Sol XHigh → Astra High', INDEX)
-        self.assertIn('Completion owner <small>Automatic ladder: Sol Medium → Sol High → Astra High', INDEX)
+        self.assertIn('Tester <small>Automatic ladder: Sol High → Sol XHigh → Astra High', INDEX)
+        self.assertIn('Completion Reviewer <small>Automatic ladder: Sol Medium → Sol High → Astra High', INDEX)
         self.assertIn('Default · GLM-5.3', INDEX)
         self.assertIn('id="astra-reasoning-effort"', INDEX)
         self.assertIn('id="plan_reviewer-model"', INDEX)

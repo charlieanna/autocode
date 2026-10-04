@@ -1,6 +1,6 @@
 // Execute the shipped composer, cards, approval buttons and mutation routing.
 // No server or model calls: positive inputs use the real server projection.
-const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('./dashboard_vm');
 const projectedRun=require('./resolver_fixture');
 const source=fs.readFileSync(path.join(__dirname,'../dashboard_app.js'),'utf8');
 const range=(start,end)=>source.slice(source.indexOf(start),source.indexOf(end));
@@ -51,6 +51,7 @@ function harness(storage=new Map()) {
     +range('function taskMessages(', 'function settleThreadScroll(')
     +range('function answerSafetyPanel(', '/* Session checkpoints:')
     +range('function focusChatAction(', 'function inlineSavedChanges(')
+    +range('function renderScreenshotEvidence(', 'function requestKey(')
     +range('function renderConversation(', 'async function copyText(')
     +range('function planEntryText(', 'function output(')
     // The reviewed Plan pane leads with the live checklist, so renderBrief
@@ -107,7 +108,7 @@ async function runTests(){
   assert.equal(cards[0].hidden,false);assert.equal(cards[1].hidden,true);
   m.$('#question-target').value='Q2';m.$('#question-target').onchange();
   assert.equal(cards[0].hidden,true);assert.equal(cards[1].hidden,false);
-  assert.match(text(cards[1]),/AutoResolver/);assert.doesNotMatch(text(cards[1]),/Planner/);
+  assert.match(text(cards[1]),/Resolver/);assert.doesNotMatch(text(cards[1]),/Planner/);
   await m.c.sendTaskChat(material);
   assert.deepEqual(m.calls[0],{url:'/api/chat',payload:{workspace:base.workspace,run:base.run,text:'Browser',request_id:'request-1',question_id:'Q2',...fields(material)}});
   assert.equal(m.calls.length,1,'Saving a material reply does not itself send Continue from the browser');

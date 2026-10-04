@@ -41,16 +41,17 @@ import re
 from pathlib import Path
 
 try:
-    from . import autocode_stray_writes as stray_writes
+    from . import autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
     from . import autocode_workflows as workflows
     from .autocode_test_cases import case_text, case_test_name, match_cases, run_probes  # noqa: F401 (used by callers)
 except ImportError:
+    import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_workflows as workflows
     from autocode_test_cases import case_text, case_test_name, match_cases, run_probes  # noqa: F401
 
 STAGE = workflows.INVESTIGATE_STAGE
-NOTES_PREFIX = "docs/bugs/"
+NOTES_PREFIX, = stage_access.job_writes(STAGE)
 OUTCOMES = ("reproduced", "not_reproduced")
 TEXT = {"type": "string"}
 TEXTS = {"type": "array", "items": TEXT}
@@ -191,7 +192,7 @@ def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int =
 
 def check(value: dict, changed_files) -> None:
     """Reject an investigation that wrote into the repository or does not say what it found."""
-    stray = sorted(path for path in (changed_files or []) if not str(path).startswith(NOTES_PREFIX))
+    stray = stage_access.stray(STAGE, changed_files)
     if stray:
         raise stray_writes.StrayWrites(
             "An investigation must not change the repository; this attempt changed: " + ", ".join(stray), stray)

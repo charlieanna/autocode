@@ -18,11 +18,15 @@ try:
     from . import autocode_usage, autocode_design_coverage as design_coverage
     from . import autocode_contract_identity as contract_identity
     from . import autocode_progressive_plan as progressive_rules
+    from . import autocode_verification_view as verification_view
+    from . import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
 except ImportError:
     import autocode_output_policy as output_policy, autocode_request_usage as request_usage
     import autocode_usage, autocode_design_coverage as design_coverage
     import autocode_contract_identity as contract_identity
     import autocode_progressive_plan as progressive_rules
+    import autocode_verification_view as verification_view
+    import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
 
 SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -43,6 +47,9 @@ def view(state: dict) -> dict:
         "status": status,
         "done": status in COMPLETE,
         "needs": needs(state),
+        "recovery": recovery_view.project(state, needs(state)),
+        "verification": verification_view.project(state),
+        "code_checkpoints": code_checkpoints.project(state),
         "phase": state.get("phase"),
         "next_stage": state.get("next_stage"),
         "iteration": state.get("iteration"),
@@ -250,7 +257,9 @@ def needs(state: dict) -> dict | None:
                                                      when the view carries one)
     approve_plan  approval of the displayed plan    --approve-goal TOKEN
     planning_budget  more planning review calls     --feedback TEXT or --planning-review-call-limit N
-    resume        a person to inspect a pause       --resume-paused, after resolving stop_reason
+    resume        a person to inspect a pause       --resume-paused, after resolving stop_reason;
+                                                     when `abandon_stage` is set, --abandon-stage
+                                                     ATTEMPT first (the attempt is uncertain)
     recover_source missing original identity       inspect archive and source before a new run
     continue      nothing; relaunch to proceed      the same command with --run-dir
     """
@@ -314,6 +323,12 @@ def needs(state: dict) -> dict | None:
         return {"kind": "planning_budget", "reason": state.get("stop_reason")}
     if status.startswith(("PAUSED_", "BLOCKED_")) or status not in CONTINUE:
         need = {"kind": "resume", "reason": state.get("stop_reason") or status}
+        # An uncertain attempt must be set aside before a resume can continue (#340).
+        active = state.get("active_stage") or {}
+        if active.get("output") and isinstance(active.get("iteration"), int):
+            attempt = f"{active['iteration']:03d}/{Path(active['output']).stem}"
+            need["abandon_stage"] = attempt
+            need["action"] = f"--abandon-stage {attempt} then --resume-paused"
         pending = state.get("pending_report_repair") or {}
         rejected = pending.get("latest_rejected") or {}
         if (status == "PAUSED_REPEATED_FAILURE"

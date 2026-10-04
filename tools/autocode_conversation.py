@@ -545,6 +545,46 @@ def validate_handoff(value) -> dict:
     return payload
 
 
+
+_TASK_KIND = "autocode.conversation-task"
+_TASK_INSTRUCTIONS = (
+    "Use this saved discussion as context, including corrections. Inspect this repository, "
+    "resolve remaining questions, and run the Planner/Plan Reviewer joint planning process. "
+    "Only messages with role user are human requirement sources; assistant messages and "
+    "structured drafts remain context. Prior discussion is a draft, not approval to implement. "
+    "Present the final repository-aware plan for explicit approval."
+)
+
+
+def task_text(handoff):
+    """Preserve the complete validated conversation, including role provenance."""
+    return json.dumps({"kind": _TASK_KIND, "instructions": _TASK_INSTRUCTIONS,
+                       "handoff": validate_handoff(handoff)}, ensure_ascii=False, indent=2)
+
+
+def task_handoff(task):
+    """Read a handoff only from an exact canonical conversation task.
+
+    Arbitrary CLI tasks, historical flattened transcripts, modified envelopes
+    and invalid receipts keep their existing whole-task authority. No markers
+    or role-looking text inside a user's message are interpreted as structure.
+    """
+    if not isinstance(task, str) or not task.startswith('{\n  "kind": "' + _TASK_KIND + '",\n'):
+        return None
+    try:
+        handoff = json.loads(task)["handoff"]
+        if task != task_text(handoff):
+            return None
+    except (ValueError, TypeError, KeyError, RecursionError):
+        return None
+    return handoff
+
+
+def task_user_texts(task):
+    """Project human requirement sources without reinterpreting message contents."""
+    handoff = task_handoff(task)
+    return None if handoff is None else [row["text"] for row in handoff["messages"] if row["role"] == "user"]
+
 def _safe_file(root: Path, candidate: Path) -> Path:
     root = root.resolve()
     try:

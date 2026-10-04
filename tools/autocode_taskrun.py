@@ -105,6 +105,11 @@ class TaskRun:
         self._invoke("resume", "--resume-paused", "--no-chat", *self.options, advancing=True)
         return self.status()
 
+    def abandon_stage(self, attempt_id: str) -> dict:
+        """Set aside the inspected uncertain attempt (retains edits and evidence)."""
+        self._act("abandon stage", "--abandon-stage", attempt_id)
+        return self.status()
+
     def retry_job(self, token: str) -> dict:
         """Retry exactly the inspected failed workflow job, retaining route and limits."""
         self._invoke('retry job', '--resume-paused', '--retry-failed-stage', '--job-retry-token', token,
@@ -118,6 +123,17 @@ class TaskRun:
         self._invoke('grant recovery', '--resume-paused', '--grant-recovery', str(amount),
                      '--no-chat', *self.options, advancing=True)
         return self.status()
+
+    def compare_checkpoint(self, checkpoint_id: str) -> dict:
+        """Read a source-bound comparison; no execution, approval or file rewrite."""
+        return json.loads(self._invoke("compare checkpoint", "checkpoint", "--compare", checkpoint_id).stdout)
+
+    def restore_checkpoint(self, checkpoint_id: str, expected_token: str, request_id: str) -> "TaskRun":
+        """Create a paused continuation on a new branch; keep this run untouched."""
+        result = json.loads(self._invoke("restore checkpoint", "checkpoint", "--restore", checkpoint_id,
+            "--expected-token", expected_token, "--request-id", request_id).stdout)
+        return TaskRun(Path(result["workspace"]), Path(result["run_dir"]), self.command,
+                       self.options, self.env, self.timeout)
 
     def accept_transport_change(self) -> dict:
         """Explicitly accept a validated OpenCode transport change and continue."""

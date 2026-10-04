@@ -27,8 +27,15 @@ class OneListOfNames(unittest.TestCase):
             self.assertNotIn("validator", tokens, name)
 
     def test_unknown_stages_title_case_but_are_not_in_the_table(self):
-        self.assertEqual("Astra Diagnose", status.role_name("astra_diagnose"))
-        self.assertNotIn("astra_diagnose", roles.STAGE_JOB)
+        self.assertEqual("Unlisted Stage", status.role_name("unlisted_stage"))
+        self.assertNotIn("unlisted_stage", roles.STAGE_JOB)
+
+    def test_stages_the_runner_queues_have_job_names(self):
+        # Written as next_stage by AutoResolver diagnosis and the --planning-v2 flow (#29 shows them).
+        for stage, name in {"astra_diagnose": "Resolver", "requirements": "Requirements", "plan": "Planner",
+                            "plan_revise": "Planner", "plan_review": "Plan Reviewer",
+                            "plan_finalize": "Plan Reviewer"}.items():
+            self.assertEqual(name, status.role_name(stage), stage)
 
     def test_status_reexports_the_same_table(self):
         for stage in roles.STAGE_JOB:
@@ -37,6 +44,14 @@ class OneListOfNames(unittest.TestCase):
 
 
 class NamesFollowTheJobNotTheAi(unittest.TestCase):
+    def test_v2_names_follow_the_actual_planning_stages(self):
+        from units.autoplanner import V2_STAGES, V2_STAGE_ROLES
+        expected = {'requirements': 'Requirements', 'glm': 'Planner', 'plan_reviewer': 'Plan Reviewer'}
+        for stage in V2_STAGES:
+            with self.subTest(stage=stage):
+                self.assertEqual(expected[V2_STAGE_ROLES[stage]], status.role_name(stage))
+                self.assertEqual(expected[V2_STAGE_ROLES[stage]], status.role_name(stage + '_report_repair'))
+
     def test_testing_is_tester_even_when_the_plan_reviewer_runs_it(self):
         # sol is the Tester job on the Validator AI.
         self.assertEqual("Tester", status.role_name("sol"))

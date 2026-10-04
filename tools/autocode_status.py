@@ -130,6 +130,11 @@ def persist(path, state):
         import autocode_checkpoints as checkpoints
         import autocode_activity_log as activity_log
         import autocode_usage as token_usage
+    try:
+        from . import autocode_code_checkpoints as code_checkpoints
+    except ImportError:
+        import autocode_code_checkpoints as code_checkpoints
+    code_checkpoints.update(state, util.Path(path).parent)
     checkpoints.update(state)
     entry = record(state)
     util.atomic_json(path, state)

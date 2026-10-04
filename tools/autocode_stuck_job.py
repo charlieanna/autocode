@@ -51,10 +51,11 @@ from dataclasses import replace
 from pathlib import Path
 
 try:
-    from . import autocode_stray_writes as stray_writes
+    from . import autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
     from . import autocode_progressive_state as progressive
     from .autocode_test_cases import run_probes
 except ImportError:
+    import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_progressive_state as progressive
     from autocode_test_cases import run_probes
@@ -304,7 +305,7 @@ def prompt(state: dict, state_path, inventory: dict | None = None, soft_budget_t
 
 
 def check(value: dict, changed_files) -> None:
-    stray = sorted(str(path) for path in (changed_files or []))
+    stray = stage_access.stray(STAGE, changed_files)
     if stray:
         raise stray_writes.StrayWrites(
             "An investigation must not change the repository; this attempt changed: " + ", ".join(stray), stray)
