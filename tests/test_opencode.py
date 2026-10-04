@@ -418,7 +418,7 @@ class OpenCodeFlow(unittest.TestCase):
 
     def test_a_model_the_plans_do_not_offer_stops_a_new_run_before_any_model_call(self):
         result = self.launch(["Greeting tool", "--no-chat", "--sol-model", "openai/gpt-7-nope"], 2)
-        self.assertIn("Cannot use with OpenCode: openai/gpt-7-nope (Validator).", result.stderr)
+        self.assertIn("Cannot use with OpenCode: openai/gpt-7-nope (Tester).", result.stderr)
         self.assertIn("Z.AI Coding Plan · subscription", result.stderr)
         self.assertIn("--sol-model openai/gpt-6-sol", result.stderr)
         runs = self.project / ".autocode/runs"
