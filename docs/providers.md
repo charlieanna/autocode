@@ -171,7 +171,12 @@ roles break that pauses with `PAUSED_CROSS_MODEL` before any agent is launched.
 
 Placeholders are `{model}`, `{effort}`, `{workspace}`, `{report}`, `{schema}`,
 `{prompt_file}`, `{run_dir}`, `{role}`, and `{sandbox}`. `{sandbox}` is
-`read-only` for planning and review and `workspace-write` for the builder.
+`read-only` for planning, `workspace-write` for the builder, and
+`workspace-write` for the judging stages (Validator, Completion Owner,
+milestone checkpoint): their contract requires writing runner-owned
+operational files under `.autocode/` (capture receipts, reports), which
+`read-only` forbids. Their source contract stays enforced by the runner's
+after-stage workspace snapshot, not by the sandbox.
 `{effort}` reaches the tool only if the command uses it.
 Use `{{` and `}}` for literal braces in a command argument, such as
 `${{VAR}}` or `{{"key":1}}`; single braces are reserved for placeholders.
