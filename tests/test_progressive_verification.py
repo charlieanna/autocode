@@ -136,7 +136,7 @@ class ProgressiveVerificationTests(unittest.TestCase):
                           approved_state=self.state, progressive_context=context())
         self.assertEqual(original, report, "rejection must not rewrite the claimed PASS into an accepted FAIL")
         self.assertEqual(["python3 check_b.py", "python3 task_check.py", "python3 check_a.py"], calls)
-        receipt = json.loads((self.workspace / "run/check-replay/sol/replay.json").read_text())
+        receipt = json.loads(next((self.workspace / "run").glob("check-replay/*/replay.json")).read_text())
         self.assertEqual("FAIL", receipt["verdict"])
         self.assertEqual("current-source", receipt["source_revision"])
         self.assertEqual(1, next(row["exit_code"] for row in receipt["checks"] if "check_a" in row["command"]))

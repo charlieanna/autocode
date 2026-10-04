@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import uuid
 from pathlib import Path
 
 try:
@@ -66,7 +67,9 @@ TAIL_CHARS = 600
 def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_SECONDS, approved_state=None,
            required_commands=None, progressive_context=None) -> dict:
     """Re-run each distinct check command; return the result or raise ValueError on the first that fails."""
-    out = Path(run_dir) / "check-replay" / Path(record.get("output") or "validation").stem
+    # Unique per call (issue #341): stage attempt stems restart at 1 each iteration, so a stem-only
+    # directory would let a later iteration's replay overwrite an earlier cited receipt in place.
+    out = Path(run_dir) / "check-replay" / (Path(record.get("output") or "validation").stem + "-" + uuid.uuid4().hex)
     protected = protected_oracles.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout)
     checks = list(checks)
     prescribed = verification_plan.approved_commands(approved_state or {}, progressive_context=progressive_context)
