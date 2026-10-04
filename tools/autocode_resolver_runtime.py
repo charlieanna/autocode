@@ -413,8 +413,12 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
     human.queue(state, 'operational_exhaustion',
                 {'stage': state.get('next_stage') or 'operational_recovery', 'pause_status': error.status, 'budget': budget},
                 request=request, evidence={'resolver_receipt_id': receipt}, next_stage=state.get('next_stage'))
-    # Keep the printed stop reason on the same contract as the published request.
-    state['stop_reason'] = request.get('decision_needed') or decision
+    # Keep the printed stop reason on the same contract as the published request, after the cause it
+    # stops for (an external_directory denial, a spent budget), which the advice alone does not name.
+    cause = str(error).strip()
+    advice = request.get('decision_needed') or decision
+    state['stop_reason'] = advice if not cause or cause in advice else (
+        cause + ('' if cause.endswith('.') else '.') + ' ' + advice)
     return True
 
 
