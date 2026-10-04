@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -54,6 +55,41 @@ class TaskForTests(unittest.TestCase):
         for field in ("requirements", "validation_plan", "affected_paths", "acceptance_criteria", "findings"):
             task[field].append("child-only")
         self.assertEqual(before, state)
+
+
+class SnapshotCommitTests(unittest.TestCase):
+    def test_snapshot_with_untracked_source_and_runner_directories(self):
+        for tracked_seed in (False, True):
+            for ignored_runner in (False, True):
+                with self.subTest(tracked_seed=tracked_seed, ignored_runner=ignored_runner), tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    d.git(root, "init", "-q")
+                    if tracked_seed:
+                        (root / "seed.txt").write_text("seed\n")
+                        d.git(root, "add", "seed.txt")
+                    d.git(root, "-c", "user.name=Fixture", "-c", "user.email=f@example.test",
+                          "commit", "--allow-empty", "-qm", "fixture")
+                    if ignored_runner:
+                        (root / ".git/info/exclude").write_text("/.autocode/\n/.autocode-ui/\n__pycache__/\n*.pyc\n")
+                    for name in (".autocode/runs/fixture/log", ".autocode-ui/log",
+                                 "__pycache__/root.pyc", "contract/__pycache__/schema.pyc", "contract/other.pyc"):
+                        path = root / name
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_bytes(b"not source")
+                    empty = d.snapshot_commit(root, root / ".autocode/runs/fixture")
+                    self.assertEqual(["seed.txt"] if tracked_seed else [],
+                                     list(filter(None, d.git(root, "ls-tree", "-rz", "--name-only", empty).decode().split("\0"))))
+                    (root / "contract/schema.json").write_text('{"version": 1}\n')
+                    (root / "dependency_trace.json").write_text('{"edges": []}\n')
+                    head = d.git(root, "rev-parse", "HEAD")
+                    index = (root / ".git/index").read_bytes()
+                    before = s.snapshot(root)
+                    commit = d.snapshot_commit(root, root / ".autocode/runs/fixture")
+                    self.assertEqual(sorted(before["files"]), d.git(root, "ls-tree", "-rz", "--name-only", commit).decode().strip("\0").split("\0"))
+                    self.assertEqual(b'{"version": 1}\n', d.git(root, "show", f"{commit}:contract/schema.json"))
+                    self.assertEqual(head, d.git(root, "rev-parse", "HEAD"))
+                    self.assertEqual(index, (root / ".git/index").read_bytes())
+                    self.assertEqual(before, s.snapshot(root))
 
 
 class DispatchTests(unittest.TestCase):
@@ -263,6 +299,60 @@ class DispatchTests(unittest.TestCase):
                                         batch["base_commit"], commit).decode().split("\0")))
         self.assertEqual(["a.txt"], paths)
         self.assertEqual(revision, s.snapshot(workspace)["revision"])
+
+    def test_snapshot_uses_literal_inventory_and_preserves_ignored_policy_and_deletions(self):
+        self.prepare()
+        # A staged deletion is absent from ls-files but still present in HEAD.
+        d.git(self.root, "rm", "greet.py")
+        (self.root / "new.txt").write_text("staged before ignore\n")
+        d.git(self.root, "add", "new.txt")
+        (self.root / "new.txt").write_text("working source after staging\n")
+        (self.root / ".autocode/staged.log").write_text("runner output\n")
+        (self.root / "__pycache__").mkdir(exist_ok=True)
+        (self.root / "__pycache__/staged.pyc").write_bytes(b"generated")
+        d.git(self.root, "add", ".autocode/staged.log", "__pycache__/staged.pyc")
+        (self.root / "test_greeting.py").write_text("tracked despite ignore rule\n")
+        with (self.root / ".git/info/exclude").open("a") as exclude:
+            exclude.write("/test_greeting.py\n/new.txt\n/secret.env\n")
+        (self.root / "secret.env").write_text("must not be captured\n")
+        names = (":(glob)*.txt", "space\nname.txt", "--odd[1].txt")
+        for name in names:
+            (self.root / name).write_bytes(b"\x00\xffliteral source\n")
+        head = d.git(self.root, "rev-parse", "HEAD")
+        index = (self.root / ".git/index").read_bytes()
+        before = s.snapshot(self.root)
+        commit = d.snapshot_commit(self.root, self.run)
+        paths = set(filter(None, d.git(self.root, "ls-tree", "-rz", "--name-only", commit).decode().split("\0")))
+        self.assertEqual(set(before["files"]), paths)
+        self.assertNotIn("greet.py", paths)
+        self.assertNotIn("secret.env", paths)
+        self.assertEqual(b"working source after staging\n", d.git(self.root, "show", f"{commit}:new.txt"))
+        self.assertEqual(b"tracked despite ignore rule\n", d.git(self.root, "show", f"{commit}:test_greeting.py"))
+        for name in names:
+            self.assertEqual(b"\x00\xffliteral source\n", d.git(self.root, "show", f"{commit}:{name}"))
+        self.assertEqual(head, d.git(self.root, "rev-parse", "HEAD"))
+        self.assertEqual(index, (self.root / ".git/index").read_bytes())
+        self.assertEqual(before, s.snapshot(self.root))
+
+    def test_snapshot_reads_working_contents_without_changing_user_index_flags(self):
+        self.prepare()
+        name = "test_greeting.py"
+        for flag in ("--assume-unchanged", "--skip-worktree"):
+            with self.subTest(flag=flag):
+                for reset in ("--no-assume-unchanged", "--no-skip-worktree"):
+                    d.git(self.root, "update-index", reset, "--", name)
+                d.git(self.root, "add", name)
+                d.git(self.root, "update-index", flag, "--", name)
+                expected = f"working contents under {flag}\n".encode()
+                (self.root / name).write_bytes(expected)
+                head = d.git(self.root, "rev-parse", "HEAD")
+                index = (self.root / ".git/index").read_bytes()
+                before = s.snapshot(self.root)
+                commit = d.snapshot_commit(self.root, self.run)
+                self.assertEqual(expected, d.git(self.root, "show", f"{commit}:{name}"))
+                self.assertEqual(head, d.git(self.root, "rev-parse", "HEAD"))
+                self.assertEqual(index, (self.root / ".git/index").read_bytes())
+                self.assertEqual(before, s.snapshot(self.root))
 
     def test_explicit_retry_only_restarts_failed_member_and_counts_once(self):
         self.prepare()
@@ -490,6 +580,9 @@ class DispatchCliTests(unittest.TestCase):
 
     def test_full_cli_parallel_wave_then_dependency_then_completion(self):
         self.fixture()
+        (self.project / ".git/info/exclude").write_text("/.autocode/\n/.autocode-ui/\n__pycache__/\n*.pyc\n")
+        (self.project / ".autocode-ui").mkdir()
+        (self.project / ".autocode-ui/log").write_text("runner only\n")
         self.launch(["Produce two outputs and combine", "--max-parallel-builders", "2", "--chat"], 0, answers="yes\n")
         run, state = self.saved()
         self.assertEqual("TASK_COMPLETE", state["status"])
