@@ -66,7 +66,7 @@ try:
         archive_stale_report_repair, prepare_abandoned_completion_revalidation, stale_report_repair,
         prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
         recover_legacy_report_repair, retry_format_failed_report)
-    from .autocode_activity import ActivityMonitor
+    from .autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT
 except ImportError:
     import autocode_job_source as job_source, autocode_job_failure as job_failure
     import autocode_workspaces as task_workspaces
@@ -98,7 +98,7 @@ except ImportError:
         archive_stale_report_repair, prepare_abandoned_completion_revalidation, stale_report_repair,
         prepare_exhausted_execution_report_retry, prepare_planning_retry, reconcile_rate_limited_stage,
         recover_legacy_report_repair, retry_format_failed_report)
-    from autocode_activity import ActivityMonitor
+    from autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT
 
 
 write_json = stop_policy.state_writer(ordinary_write_json, status_records.persist)
@@ -450,7 +450,9 @@ def run_role(
                 prepared.unlink(missing_ok=True)
             raise
         print(f"{autocode_status.role_name(stage, state)}: started; model={model or 'default'}; log={events}", flush=True)
-        activity = ActivityMonitor(events, idle_seconds=idle_timeout, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage, state), model))
+        activity = ActivityMonitor(events, idle_seconds=idle_timeout, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
+                                   idle_origin=state["settings"].get("budget_origins", {}).get("idle_timeout_seconds"),
+                                   idle_hint=JOB_IDLE_LIMIT if stage in jobs.STAGES else CHANGE_IDLE_LIMIT)
         activity_label = None
         last_activity_print = 0
         def activity_checkpoint(snapshot):
@@ -462,11 +464,12 @@ def run_role(
             label = (snapshot.get("activity"), snapshot.get("detail"))
             current = time.monotonic()
             if label != activity_label or current - last_activity_print >= 60:
+                stop = snapshot.get("timeout_reason") or (snapshot.get("detail") if snapshot.get("activity") == "stalled" else None)
                 print(f"{autocode_status.role_name(stage, state)}: {snapshot.get('activity', 'waiting_for_provider')}; model={model or 'default'}; "
                       f"elapsed={record['activity']['elapsed_seconds']:g}s; "
                       f"idle={snapshot.get('idle_seconds', 0):g}s/{idle_timeout or 'off'}; "
                       f"tool={snapshot.get('tool_elapsed_seconds', 0) or 0:g}s/{tool_timeout or 'off'}; "
-                      f"stage_limit={stage_timeout or 'off'}", flush=True)
+                      f"stage_limit={stage_timeout or 'off'}" + (f"; {stop}" if stop else ""), flush=True)
                 activity_label, last_activity_print = label, current
         def checkpoint(owned):
             record["processes"] = owned
