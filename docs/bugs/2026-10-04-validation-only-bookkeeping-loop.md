@@ -45,3 +45,13 @@ was about to choose rework instead.
 Not changed, deliberately: findings are not resolved by matching text or evidence,
 and a user's answer never closes a reviewer's finding. Only the raising reviewer
 closes it through a fresh, independently evidenced report (`autocode_findings`).
+
+A duplicate that no reviewer report can close (the etcd case: the user settled the
+problem, and only one of its two findings closed) is now closed by the user, by
+name: `--close-finding ID --close-reason TEXT` (`autocode_finding_close`). The row
+records that the user closed it and why, and a `findings_closed` user event records
+the decision. Nothing closes a finding because its text matches another; the
+validation-only stop only points out a stalled finding with the same text or
+evidence as a resolved one and names the command. Closing every finding the stop
+asked about answers it, and the next resume continues.
+
