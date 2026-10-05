@@ -92,6 +92,14 @@ class ApplyTests(unittest.TestCase):
         self.assertIs(design_job, jobs.ended_in(state))
         self.assertIn("1 blocking, 0 advisory, 1 question(s) for you", jobs.render(state, lambda _: "build"))
 
+    def test_the_reply_hint_appears_only_when_the_review_asks_something(self):
+        # A design review never waits: its questions are answered with --follow-up in the next turn.
+        hint = "Reply with --follow-up TEXT to answer them in this run."
+        asked, _ = self.apply(report())
+        self.assertIn(hint, design_job.render(asked))
+        settled, _ = self.apply(report(questions=[]))
+        self.assertNotIn("--follow-up", design_job.render(settled))
+
     def test_a_request_for_a_new_design_is_handed_to_the_build_pipeline(self):
         state, workspace = self.apply(report("propose"))
         self.assertFalse((workspace / "review").exists())

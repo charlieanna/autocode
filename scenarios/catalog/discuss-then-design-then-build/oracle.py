@@ -148,9 +148,12 @@ def conversation_checks(run):
 
     checks += named("discuss_turn", [*run_checks(discuss, workflow="discuss", no_build=True, max_questions=3),
                                      changed_only(discuss, "docs/decisions/")])
-    checks += named("design_turn", [*run_checks(design, workflow="design"), changed_only(design, "docs/design/")])
-    checks += named("build_turn", [*run_checks(build, workflow="build", no_requirements=True, max_questions=0),
-                                   changed_only(build, "app/", "tests/")])
+    # A new design is produced by the build pipeline, and "Build it." builds that design as
+    # approved: the user still approves each turn's plan.
+    checks += named("design_turn", [*run_checks(design, workflow="design", plan_approved=True),
+                                    changed_only(design, "docs/design/")])
+    checks += named("build_turn", [*run_checks(build, workflow="build", no_requirements=True, plan_approved=True,
+                                               max_questions=0), changed_only(build, "app/", "tests/")])
     checks.append(Check("build_turn_checked_the_design", "check_design" in (build.get("model_stages") or []),
                         f"turn 3 model stages: {build.get('model_stages')}"))
     return checks

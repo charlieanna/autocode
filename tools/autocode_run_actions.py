@@ -505,6 +505,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         try:
             published = resolver_human.current(candidate)
             if args.answer or args.delegate:
+                if not published and candidate.get('status') == 'TASK_COMPLETE':
+                    raise ValueError(follow_up.ANSWER_FINISHED)
                 if not published or not args.resolver_token:
                     raise ValueError('Answers require the current --resolver-token shown by AutoResolver')
                 try:

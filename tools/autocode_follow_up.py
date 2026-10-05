@@ -15,13 +15,24 @@ State keys written here:
         Planning receives its exact text and ID through the standard handoff; the
         contract guard accepts that ID as user_feedback for declared revisions.
         Recording a follow-up does not grant plan approval or recovery allowance.
-    turns: [{"at", "say", "previous": {"task", "workflow", "status", "completed_at", "first_stage",
-             "review": {"report_path", "change_under_review", "change_patch", "verdict",
-                        "blocking": [...], "advisory": [...]} or absent}}]
+    turns: [{"at", "say", "stage_index", "event_id",
+             "previous": {"task", "workflow", "status", "completed_at", "first_stage", "wrote": [path],
+                          "review": {"report_path", "change_under_review", "change_patch", "verdict",
+                                     "blocking": [...], "advisory": [...]} or absent,
+                          "design": {"mode": "propose", "documents": [path]}
+                                    or {"mode": "review", "report_path", "design_under_review", "verdict",
+                                        "blocking": [...], "advisory": [...], "questions": [...]} or absent}}]
         One entry per follow-up. Read by autocode_workflows.follow_up (the recognizer judges the
-        newest message), by review_findings (the Planner's handoff) and by the status view.
-    task: rewritten to the follow-up, followed by the earlier request as context, so every
-        later stage reads what the user now wants. The original request stays in turns.
+        newest message; it also gets previous.design, so "Build it." after a design turn names that
+        design), by review_findings (the Planner's handoff) and by the status and progress views.
+        stage_index is len(state["stages"]) when the turn was said: the turn's stage records start
+        there, and turn_changes reads it when the NEXT follow-up is said. event_id is the turn's
+        brief_feedback receipt. previous.wrote is what the finished job left in the workspace: its
+        report or note, then the files its stages changed as the runner measured them; the
+        rewritten task names it.
+    task: rewritten to the follow-up, followed by the earlier request (and what it wrote) as
+        context, so every later stage reads what the user now wants. The original request stays
+        in turns.
 """
 from __future__ import annotations
 
@@ -36,6 +47,14 @@ except ImportError:
     import autocode_contract_identity as identity
 
 FINDING_FIELDS = ("id", "severity", "file", "lines", "summary", "evidence")
+CONCERN_FIELDS = ("id", "area", "summary")
+# Where each read-only job leaves its report or note: (state key, field).
+REPORTS = {"review": ("review", "report_path"), "design": ("design_review", "report_path"),
+           "discuss": ("answer", "note_path")}
+NAMED = 8  # at most this many written paths are named in the rewritten task
+# --answer and --delegate answer a question the run is waiting on; a finished run waits on none.
+ANSWER_FINISHED = ("This run is finished and waits for no answer; reply to the questions in its report "
+                   "with --follow-up TEXT")
 
 
 def accept(state: dict, text: str, workspace, now: str) -> None:
@@ -48,16 +67,20 @@ def accept(state: dict, text: str, workspace, now: str) -> None:
         raise ValueError("A follow-up must be nonempty")
     if state.get("status") != "TASK_COMPLETE":
         raise ValueError(f"--follow-up continues a finished run; this one is {state.get('status')}. "
-                         "Answer its question, send --feedback, or resume it instead")
+                         "Answer its question (--answer or --delegate), approve or correct it "
+                         "(--approve-goal or --feedback), or resume it (--resume-paused) instead")
     # The stage the run's first request went to after recognition. A follow-up that skipped
     # requirements gathering changed the saved one, so it is kept from the first turn.
     first = (state.get("turns") or [{}])[0].get("previous", {}).get("first_stage")
     first_stage = first or (state.get("workflow") or {}).get("then") or workflows.planner_stage(state)
     previous = {"task": state.get("task", ""), "workflow": workflows.kind(state), "status": state["status"],
-                "completed_at": state.get("completed_at"), "first_stage": first_stage}
+                "completed_at": state.get("completed_at"), "first_stage": first_stage, "wrote": wrote(state)}
     review = carried_review(state, workspace)
     if review:
         previous["review"] = review
+    design = carried_design(state, workspace)
+    if design:
+        previous["design"] = design
     # A new request can revise the previous contract. Reuse the recorded-feedback
     # identity understood by planning and the contract guard, without granting approval.
     contract = state.get("goal_contract")
@@ -66,14 +89,77 @@ def accept(state: dict, text: str, workspace, now: str) -> None:
              "contract_token": identity.token(contract) if contract else state.get("requirements_artifact_token", "")}
     state.setdefault("brief_feedback", []).append(event)
     state.setdefault("user_events", []).append(event)
-    state.setdefault("turns", []).append({"at": now, "say": say, "previous": previous})
+    state.setdefault("turns", []).append({"at": now, "say": say, "stage_index": len(state.get("stages") or []),
+                                          "event_id": event["id"], "previous": previous})
     state["task"] = (f"{say}\n\nThis follows up an earlier request in the same conversation"
-                     f" ({previous['workflow'] or 'a finished job'}): {previous['task']}")
+                     f" ({previous['workflow'] or 'a finished job'}{_named(previous['wrote'])}): {previous['task']}")
     # The findings of a review stand in for requirements gathering when the next job acts on them.
     workflows.begin(state, workflows.planner_stage(state) if review and review["blocking"] else first_stage)
     state.update(status="RUNNING", phase="DISCOVERING")
     for key in ("completed_at", "stop_reason"):
         state.pop(key, None)
+
+
+def turn_changes(state: dict) -> list[str]:
+    """The files the stages of the turn now finishing changed, as the runner measured them.
+
+    The turn's stage records start at its ``stage_index`` (0 for the first request); records
+    whose output the runner rejected are left out. A turn recorded before stage_index existed
+    has no known start, so nothing is attributed to it."""
+    turns = state.get("turns") or []
+    start = turns[-1].get("stage_index") if turns else 0
+    if not isinstance(start, int):
+        return []
+    changed = {str(path) for record in (state.get("stages") or [])[start:]
+               if isinstance(record, dict) and not record.get("rejected")
+               for path in record.get("changed_files") or []}
+    return sorted(path for path in changed if not path.startswith(".autocode/"))
+
+
+def wrote(state: dict) -> list[str]:
+    """What the finished job left in the workspace: its report or note (the runner writes those
+    after the stage, so no stage measured them), then the files its stages changed."""
+    key, field = REPORTS.get(workflows.kind(state), (None, None))
+    report = str((state.get(key) or {}).get(field) or "") if key else ""
+    return list(dict.fromkeys([*([report] if report else []), *turn_changes(state)]))
+
+
+def _named(paths: list[str]) -> str:
+    if not paths:
+        return ""
+    more = len(paths) - NAMED
+    return "; it wrote " + ", ".join(paths[:NAMED]) + (f" and {more} more" if more > 0 else "")
+
+
+def carried_design(state: dict, workspace) -> dict | None:
+    """What a finished design job produced, or None when the run was no design job.
+
+    A new design (propose mode) is the Markdown documents its turn wrote, README.md files left
+    out (a design folder's index is no design); a design review is its saved report's verdict,
+    concerns and questions. An unreadable report raises ValueError."""
+    found = state.get("design_review") or {}
+    if workflows.kind(state) != "design" or found.get("mode") not in ("propose", "review"):
+        return None
+    if found["mode"] == "propose":
+        return {"mode": "propose", "documents": [
+            path for path in turn_changes(state)
+            if path.endswith(".md") and Path(path).name != "README.md" and (Path(workspace) / path).is_file()]}
+    if not found.get("report_path"):
+        return None
+    try:
+        report = json.loads((Path(workspace) / found["report_path"]).read_text())
+        if not isinstance(report, dict):
+            raise ValueError("it is not a JSON object")
+    except (OSError, ValueError) as error:
+        raise ValueError(f"The design review's report {found['report_path']} cannot be read: {error}") from None
+    concerns = [concern for concern in report.get("concerns") or [] if isinstance(concern, dict)]
+    return {"mode": "review", "report_path": found["report_path"],
+            "design_under_review": report.get("design_under_review", found.get("design_under_review", "")),
+            "verdict": report.get("verdict"),
+            "blocking": [{key: c.get(key) for key in CONCERN_FIELDS} for c in concerns if c.get("severity") == "blocking"],
+            "advisory": [{key: c.get(key) for key in CONCERN_FIELDS} for c in concerns if c.get("severity") != "blocking"],
+            "questions": [{"id": q.get("id"), "question": q.get("question")}
+                          for q in report.get("questions") or [] if isinstance(q, dict)]}
 
 
 def carried_review(state: dict, workspace) -> dict | None:

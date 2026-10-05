@@ -100,6 +100,27 @@ class ModuleTests(unittest.TestCase):
         self.assertGreater(metrics["estimated_prompt_tokens"], 0)
 
 
+class FollowUpContextTests(unittest.TestCase):
+    """What the recognizer is told about the turn a follow-up continues (autocode_follow_up)."""
+
+    def followed(self, previous):
+        state = fresh(task="Build it.")
+        state["turns"] = [{"at": "t1", "say": "Build it.", "stage_index": 0, "event_id": "feedback-1",
+                           "previous": {"task": "Shared it is; design it.", "workflow": "design", **previous}}]
+        workflows.begin(state, "requirements_gather")
+        return state
+
+    def test_a_follow_up_to_a_design_turn_carries_what_that_turn_produced(self):
+        design = {"mode": "propose", "documents": ["docs/design/cache.md"]}
+        context = workflows.packet(self.followed({"design": design}))["follow_up"]
+        self.assertEqual(("Build it.", "design", design),
+                         (context["message"], context["previous_workflow"], context["previous_design"]))
+        self.assertNotIn("previous_design", workflows.packet(self.followed({}))["follow_up"])
+        # The recognizer is told that building it is a build of that one document.
+        self.assertIn("build, with design_document set to the one document in follow_up.previous_design.documents",
+                      " ".join(workflows.PROMPT.split()))
+
+
 class PlannerUnitTests(unittest.TestCase):
     def test_recognition_is_a_read_only_planning_stage_on_every_run(self):
         self.assertTrue(autoplanner.is_planning(fresh(joint=True), autoplanner.RECOGNIZE))

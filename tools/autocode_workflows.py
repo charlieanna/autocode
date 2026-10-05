@@ -105,14 +105,16 @@ How to decide:
   the user's new message and follow_up says what came before. Judge the new message in that context.
   Asking to act on a review's findings ("fix them", "land it with those fixed", "apply the fixes") is
   build: the review already found and located the problems, and they are the task list.
+  Asking to build or implement what a design turn produced ("build it", "implement the design") is
+  build, with design_document set to the one document in follow_up.previous_design.documents.
 - Do not guess build when unsure. Build is the most expensive path; the other kinds are cheaper and can
   lead to a build later in the same conversation.
 
 Return JSON only: {"workflow": one of build|bugfix|review|design|discuss, "reason": one sentence,
 "signals": the words or phrases in the request that decided it, "design_document": for a build that asks
-to implement an EXISTING design document as written (approved, decided, "don't redesign it"), that
-document's path in the repository; otherwise ""}. Read nothing but the request and the file listing
-below; do not open files.
+to implement an EXISTING design document as written (approved, decided, "don't redesign it", or the
+design a follow-up asks to build), that document's path in the repository; otherwise ""}. Read nothing
+but the request and the file listing below; do not open files.
 """
 
 
@@ -141,7 +143,9 @@ def follow_up(state: dict) -> dict | None:
     return {"message": turns[-1]["say"], "previous_workflow": previous.get("workflow"),
             "previous_request": previous.get("task", ""),
             **({"previous_review": {"verdict": review.get("verdict"), "blocking": len(review.get("blocking") or []),
-                                    "advisory": len(review.get("advisory") or [])}} if review else {})}
+                                    "advisory": len(review.get("advisory") or [])}} if review else {}),
+            # What a design turn produced: a build of it names the document (approved_design checks it).
+            **({"previous_design": previous["design"]} if previous.get("design") else {})}
 
 
 def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000,
