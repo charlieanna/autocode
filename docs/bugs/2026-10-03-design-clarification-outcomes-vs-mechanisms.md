@@ -71,8 +71,8 @@ which is correct.
   invocation, a bare `--resume-paused` republishes the request. That is by
   design (`17ea12b3`, `active-time-pause-acknowledgment.md`): a saved bound is
   acknowledged by reasserting it on resume. Reasserting it then crashed with
-  "Role result belongs to another implementation task"; fixed on branch
-  `salvage/recovery-tests-412` (`75c866a3`, PR pending).
+  "Role result belongs to another implementation task"; fixed by
+  [#482](https://github.com/charlieanna/autocode/pull/482).
 - Still open (#448): the pause's advice (`recovery_limits.INFORM_ADVICE`) says
   to answer and then `--resume-paused`, while `run_actions.next_command` names
   `--no-progress-limit`. Following the advice leads into the sequence above.
