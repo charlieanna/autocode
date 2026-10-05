@@ -1,4 +1,5 @@
 """Complete browser-consumer protocol through the real CLI and fake OpenCode."""
+import datetime
 import json
 from pathlib import Path
 import subprocess
@@ -28,6 +29,29 @@ class DashboardConsumerTests(unittest.TestCase):
                                     capture_output=True,text=True,timeout=20)
             self.assertEqual(expected,result.returncode,result.stdout+result.stderr)
             return json.loads(result.stdout)
+        def missed_barrier(worker,started):
+            # #314: tell a slow start from an early product/provider exit. State is read before the
+            # terminate, so it shows the run at the miss; the output wait keeps the 20 s cleanup bound.
+            waited,code,at=time.monotonic()-started,worker.poll(),datetime.datetime.now(datetime.timezone.utc).isoformat()
+            try:
+                saved=json.loads((run/'state.json').read_text())
+                active,last=saved.get('active_stage') or {},(saved.get('stages') or [{}])[-1]
+                where=(f"status={saved.get('status')} next_stage={saved.get('next_stage')} "
+                       f"active_stage={active.get('stage')} started_at={active.get('started_at')} "
+                       f"last_stage={last.get('stage')} finished_at={last.get('finished_at')}")
+            except (OSError,ValueError) as error:
+                where=f'unreadable: {error!r}'
+            if code is None:
+                worker.terminate()
+            try:
+                out,err=worker.communicate(timeout=20)
+            except subprocess.TimeoutExpired as error:
+                out,err=(f'<no exit 20 s after terminate; partial: {text!r}>' for text in (error.output,error.stderr))
+            ended=(f'exited with code {code}' if code is not None else
+                   f'still running; terminated, code {worker.returncode}' if worker.returncode is not None else
+                   'still running; terminate sent, no exit within 20 s')
+            return (f'\nwaited {waited:.3f} s (miss at {at}); worker {ended}; state.json at the miss: {where}'
+                    f'\n--- worker stdout ---\n{out}\n--- worker stderr ---\n{err}')
         identity=['--workspace',str(flow.project),'--run-dir',str(run)]
         listed=cli(['registry','list','--json'])
         self.assertEqual([str(run)], [row['run_dir'] for row in listed['runs']])
@@ -43,10 +67,11 @@ class DashboardConsumerTests(unittest.TestCase):
         worker=subprocess.Popen([*flow.entry,*identity,'--no-chat'],cwd=flow.root,env=flow.env,
                                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         try:
-            deadline=time.monotonic()+10
+            started=time.monotonic(); deadline=started+10
             while not barrier.with_suffix('.entered').exists() and worker.poll() is None and time.monotonic()<deadline:
                 time.sleep(.02)
-            self.assertTrue(barrier.with_suffix('.entered').exists(),'Fake implementation never reached its barrier')
+            entered=barrier.with_suffix('.entered').exists()
+            self.assertTrue(entered,'Fake implementation never reached its barrier'+('' if entered else missed_barrier(worker,started)))
             self.assertIsNone(worker.poll())
             request=['intervention','submit',*identity,'--request-id','feedback-1','--kind','feedback','--text','Keep the original plan history','--json']
             receipt=cli(request)
