@@ -144,15 +144,20 @@ def _narrows(failed, scope):
 
 
 def _returned_nothing(row):
-    """Automatic recovery archived this stopped attempt because it ended without a terminal
-    turn (a timeout, capacity or startup failure, a denied path). It returned no report."""
-    return bool(row.get("automatic_recovery") and row.get("abandoned") and row.get("rejected"))
+    """Automatic recovery archived this stopped attempt because it ended without a completed
+    turn (a timeout, capacity or startup failure, a denied path). Each of those routes checks
+    the attempt's log or output for that before it accounts the attempt and archives it as
+    abandoned and rejected, so it returned no report. A truncated review report came back cut
+    short, so it still counts."""
+    return (all(row.get(key) for key in ("accounted", "automatic_recovery", "abandoned", "rejected"))
+            and not row.get("truncated_output"))
 
 
 def receipts(state, *, returned=False):
     """Dispatch receipts. With ``returned``, only those of attempts that could have returned a
     result: relaunching one that returned nothing repeats no experiment (#422), and each of those
-    recovery routes keeps its own bound. Any dispatch still spends an operator's grant."""
+    recovery routes keeps its own bound. Any dispatch still spends an operator's grant
+    (``_explicit_grant`` checks it against every receipt)."""
     rows = [*state.get("stages", [])]
     if state.get("active_stage"):
         rows.append(state["active_stage"])
@@ -396,6 +401,25 @@ def validate_decision(state, value, record):
         request["recovery_change_id"] = ident
 
 
+def diagnosis_change(request, change, run_dir):
+    """The change a diagnosis proposed, kept only when its packet attests it (#422).
+
+    validate_decision refuses a Resolver decision whose change the packet cannot attest, and
+    admit_dispatch would refuse the Builder for it. A diagnosis's accepted retry needs no change:
+    an operational packet's incident names the failed stage, not a check command, so a proposal
+    is usually unprovable. Such a proposal is left out of the repair plan rather than voiding the
+    retry; the diagnosis's archived output keeps it. It never raises, because its caller,
+    finish_operational_diagnosis, must not.
+    """
+    if not change or not request.get("recovery_packet"):
+        return copy.deepcopy(change) or None
+    try:
+        _change(load_packet(request["recovery_packet"], run_dir), change)
+    except (util.Paused, ValueError, KeyError, TypeError, OSError):
+        return None
+    return copy.deepcopy(change)
+
+
 def prepare_diagnosis(state, request, record, run_dir):
     """Use the same exact packet for an explicitly requested operational diagnosis."""
     candidate = copy.deepcopy(state)
@@ -517,13 +541,19 @@ def _builder_grant(state, packet, request, record, prior):
 def _diagnosis_grant(state, packet, request, record):
     """The Builder retry an accepted operational diagnosis recommended (#422).
 
-    The repeated failures it diagnosed were operational (invalid output, a timeout), so
-    there is usually no source change to propose: the diagnosis, which the Builder receives
-    in its repair plan, is the new information. As with --retry-failed-stage, novelty admits
-    one attempt that returns a result. A further one needs new evidence or an explicit retry:
-    the same failure cannot buy a second diagnosis (the Resolver's per-failure budget, or
-    novelty for an unchanged incident, refuses it before any charge), and the run's
-    diagnostic cap still applies.
+    The failure it diagnosed is a repeated rejected Builder report (a diagnosis is admitted
+    only for a pending report repair), so there is usually no source change to propose: the
+    diagnosis, which the Builder receives in its repair plan, is the new information.
+
+    The grant is spent by one Builder attempt that returns a result; novelty decides that
+    against returned receipts. An operator's grant (--retry-failed-stage, a Builder retry) is
+    bound to one invocation or failure and is spent by the dispatch it admits, even one that
+    times out. This one is bound to the accepted outcome and its packet, which a timeout does
+    not change, so an attempt automatic recovery archived without a report does not spend it;
+    that recovery route's own budget bounds the relaunch. A further returned attempt needs new
+    evidence or an explicit retry. The same unchanged failure cannot buy a second diagnosis:
+    novelty holds its incident at dispatch, before the diagnostic cap is charged (every
+    --resume-paused clears the Resolver's per-failure attempts, so they are not that guard).
     """
     pointer = request.get("recovery_packet")
     recommendation = request.get("recommendation") or {}

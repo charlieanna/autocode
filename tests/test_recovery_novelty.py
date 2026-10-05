@@ -465,13 +465,17 @@ class RecoveryPacketTests(unittest.TestCase):
         self.assertNotIn("resolver", restarted)
 
     def test_only_an_attempt_archived_without_a_report_leaves_its_incident_untried(self):
-        # #422: automatic recovery archives a stopped attempt that ended without a terminal
-        # turn (timeout, capacity, startup). It returned no report, so its relaunch is admitted.
-        # A timeout whose late terminal turn was reconciled, an operator-abandoned uncertain
-        # attempt and a rejected report may each carry a result, so each still holds (#254).
-        for flags, admitted in (({"timed_out": True, "automatic_recovery": True, "abandoned": True, "rejected": True}, True),
-                                ({"timed_out": True}, False), ({"abandoned": True, "rejected": True}, False),
-                                ({"rejected": True, "exit_code": 0}, False)):
+        # #422: automatic recovery accounts and archives a stopped attempt that ended without a
+        # completed turn (timeout, capacity, startup). It returned no report, so its relaunch is
+        # admitted. A timeout whose late terminal turn was reconciled, an operator-abandoned
+        # uncertain attempt, a rejected report and a truncated report may each carry a result,
+        # so each still holds (#254).
+        archived = {"timed_out": True, "accounted": True, "automatic_recovery": True, "abandoned": True, "rejected": True}
+        for flags, admitted in ((archived, True), ({"timed_out": True}, False),
+                                ({"abandoned": True, "rejected": True}, False),
+                                ({"rejected": True, "exit_code": 0}, False),
+                                ({**archived, "timed_out": False, "exit_code": 0, "truncated_output": True}, False),
+                                ({**archived, "accounted": False}, False)):
             with self.subTest(flags=flags):
                 state = copy.deepcopy(self.state)
                 first = {"stage": "astra_resolve", "output": str(self.run / "first.json"), "started_at": "first"}
@@ -690,6 +694,20 @@ class RecoveryPacketTests(unittest.TestCase):
                 recovery.admit_dispatch(state, {"stage": "astra_resolve", "output": "replacement"}, self.root, self.run)
             for key, value in active.items():
                 self.assertEqual(value, state[key])
+
+    def test_diagnosis_keeps_only_a_change_its_packet_attests(self):
+        # #422: a diagnosis's accepted retry does not depend on its proposed change, so one the
+        # packet cannot attest is left out of the repair plan instead of voiding the retry.
+        change = {"hypothesis": "Wrong answer return branch", "target": "app.py", "before": "return 2",
+                  "after": "return 3", "expected_check": "python -m unittest test_app", "expected_result": "exit 0",
+                  "evidence_refs": [str(self.events)], "question": ""}
+        self.assertEqual(change, recovery.diagnosis_change(self.request, change, self.run))
+        for mutation in ({"expected_check": "ruby test.rb"}, {"target": "source.rb"},
+                         {"evidence_refs": ["invented"]}, {"before": "return 9"}):
+            with self.subTest(mutation=mutation):
+                self.assertIsNone(recovery.diagnosis_change(self.request, {**change, **mutation}, self.run))
+        self.assertIsNone(recovery.diagnosis_change(self.request, None, self.run))
+        self.assertIsNone(recovery.diagnosis_change(self.request, "not an object", self.run))
 
     def test_specific_changed_repair_is_admitted_but_not_marked_accepted(self):
         self.request["recovery_change"] = {"hypothesis": "Wrong answer return branch", "target": "app.py",
@@ -919,8 +937,8 @@ class RecoveryPacketTests(unittest.TestCase):
                    "recovery_novelty": {"dispatch_id": "earlier-repair", "action": "repair",
                                         "incident_ids": [novelty.Incident(**row).id for row in packet["incidents"]],
                                         "change_id": state["resolution_request"]["recovery_change_id"]}}
-        for flags, routed in (({"timed_out": True, "automatic_recovery": True, "abandoned": True, "rejected": True}, True),
-                              ({"exit_code": 0}, False)):
+        for flags, routed in (({"timed_out": True, "accounted": True, "automatic_recovery": True,
+                                "abandoned": True, "rejected": True}, True), ({"exit_code": 0}, False)):
             with self.subTest(flags=flags):
                 trial, trial_record = copy.deepcopy(state), copy.deepcopy(current_record)
                 trial["stages"].append({**earlier, **flags})

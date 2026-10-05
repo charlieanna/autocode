@@ -143,20 +143,25 @@ intact pinned evidence; unresolved user decisions and hard budgets still stop it
 Repetition may stop a repair path before its configured repair allowance is exhausted.
 
 Each fresh diagnostic provider attempt receives a durable reservation at final launch
-admission. Timeout replacements, invalid-output retries, new blockers and new iterations
-consume new reservations. Reloading the same attempt does not consume another, and an
-ambiguous launch is not refunded. The default run-level diagnostic allowance is two;
-explicit resume does not reset it. Report-only format repair has its separate existing
+admission. Timeout replacements, new blockers and new iterations consume new
+reservations. A diagnosis whose report was rejected is not relaunched for the same
+failure: it holds as `PAUSED_NO_PROGRESS` without another reservation. Reloading the same
+attempt does not consume another, and an ambiguous launch is not refunded. The default
+run-level diagnostic allowance is two; explicit resume does not reset it. Report-only format repair has its separate existing
 allowance and remains subject to the parent's time/token limits. The diagnostic limit
 is not a count of every internal model/tool step or separately budgeted report repair.
 
 The model can recommend a bounded retry or escalation, not grant permissions, change
 approved requirements, implement a repair, or declare completion. The controller records
 the policy outcome before applying it. Escalation remains a durable pause; an admitted
-retry returns to the original owner and normal independent validation/review. Like
-`--retry-failed-stage`, it admits one Builder attempt without a proposed source change,
-because an operational failure usually has none. Another attempt at the same unchanged
-failure needs new evidence or an explicit `--retry-failed-stage`.
+retry returns to the original owner and normal independent validation/review. It admits
+the Builder without a proposed source change, because a rejected report usually has none,
+until one Builder attempt returns a result. An attempt that automatic recovery archives
+without a report does not use it up; that recovery's own budget bounds the relaunches.
+(`--retry-failed-stage` differs: the attempt it admits spends it even if it times out.)
+Another attempt at the same unchanged failure needs new evidence or an explicit
+`--retry-failed-stage`. A proposed `recovery_change` the incident packet cannot attest is
+left out of the repair plan rather than blocking the retry.
 
 ## When a stage stops making progress
 

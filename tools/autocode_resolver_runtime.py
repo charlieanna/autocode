@@ -971,8 +971,10 @@ def finish_operational_diagnosis(state, run_dir, recommendation, *, recovery_cha
         plan = {'kind': 'operational-diagnosis', 'tasks': [copy.deepcopy(state.get('current_task') or {})],
                 'recommendation': copy.deepcopy(recommendation)}
         recovery.finish_resolution_packet(state, request, plan)
+        # An unattestable proposal is left out: it must not void the accepted retry (#422).
+        recovery_change = recovery.diagnosis_change(request, recovery_change, run_dir)
         if recovery_change:
-            plan['recovery_change'] = copy.deepcopy(recovery_change)
+            plan['recovery_change'] = recovery_change
         state['repair_plan'] = plan
         state.setdefault('resolution_history', []).append(copy.deepcopy(plan))
         state.update(status='RUNNING', phase='EXECUTING', next_stage=original_stage)
