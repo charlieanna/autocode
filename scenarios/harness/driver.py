@@ -111,8 +111,8 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
                         "SCENARIO_FAKE_CONFIG": str(config)}
 
 
-def live_setup(profile_name: str) -> tuple[list[str], dict]:
-    return profiles.flags(profiles.resolve(profile_name)), {}
+def live_setup(profile_name: str, provider: str | None = None) -> tuple[list[str], dict]:
+    return profiles.flags(profiles.with_provider(profiles.resolve(profile_name), provider)), {}
 
 
 class Driver:

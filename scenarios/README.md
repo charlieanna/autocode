@@ -116,6 +116,12 @@ unnoticed (issue #15).
 wrong solution. Because its own checks pass, AutoCode completes, and the
 harness must report `FALSE_COMPLETE`. That is how the harness itself is tested.
 
+`run --profile NAME --provider OTHER` runs the profile's models and efforts
+through another provider (`kilocode`, or any tool set up as in
+`docs/providers.md`). The result records the provider, and its mode is
+`NAME-via-OTHER`, so `stats` keeps it apart from runs through the profile's own
+provider.
+
 ## Verdicts
 
 | Verdict | Meaning |
