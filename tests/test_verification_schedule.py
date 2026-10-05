@@ -420,9 +420,10 @@ class VerificationRestartCLI(unittest.TestCase):
         hooks.mkdir()
         shutil.copy2(scenario.dir / "restart_hook.py", hooks / "sitecustomize.py")
         marker = root / "verification-committed.json"
+        # Exercise the repair packet before the crash: it has no live goal contract.
         env.update(PYTHONPATH=str(hooks), SCENARIO_VERIFICATION_CRASH=str(marker),
                    XDG_CONFIG_HOME=str(root / "config"), CODEX_HOME=str(root / "codex-home"),
-                   AUTOCODE_PROVIDER="opencode")
+                   AUTOCODE_PROVIDER="opencode", SCENARIO_VERIFICATION_FORCE_REPAIR="1")
         driver = Driver(project, root, flags, env, autocode=default_autocode(), max_steps=20, timeout_seconds=180)
         try:
             stopped = driver.drive(scenario.brief)
