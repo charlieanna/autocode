@@ -28,3 +28,23 @@ disposition guard, so this fix is not claimed to cure their recorded stops.
 
 No trial emitted an output-token-limit `length` signal. Requirements-stage
 truncation remains unreproduced in this campaign and was not changed.
+
+## Follow-up: an edited closure row (#459, 2026-10-05)
+
+In live run `8soi9a5s` the repair prompt said "Correct format and evidence
+citations", so a Validator report repair also rewrote the evidence inside a
+closure row (`check:1` became a receipt path). The guard refused it with a
+message that named no row, the next repair dropped the closures, the finding
+stayed open, and the validation and repair cycle repeated. The repair prompt now
+says to copy each kept row byte-for-byte, evidence included, to omit a row
+rather than edit it, and to omit one whose cited `check:N` it corrected or
+renumbered. The refusal names every refused row of open findings, with the
+fields that differ, or says that the original review cannot authorize any row
+(then no copy, however exact, would be kept). The guard itself is unchanged:
+only exact rows from a completed, nonblocked original review survive a repair.
+
+This reduces churn only when the repairer follows the prompt and the refusal.
+A repairer that keeps editing or dropping the closure still cycles as before
+(in the CLI fixture: two Validator rounds, four repairs, then completion is
+refused and the run pauses). Bounding repeated closure refusals belongs with
+the report-repair limits in #446.
