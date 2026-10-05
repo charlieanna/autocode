@@ -20,6 +20,7 @@ try:
     from . import autocode_progressive_plan as progressive_rules
     from . import autocode_verification_view as verification_view
     from . import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
+    from . import autocode_quota_route as quota_route
 except ImportError:
     import autocode_output_policy as output_policy, autocode_request_usage as request_usage
     import autocode_usage, autocode_design_coverage as design_coverage
@@ -27,6 +28,7 @@ except ImportError:
     import autocode_progressive_plan as progressive_rules
     import autocode_verification_view as verification_view
     import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
+    import autocode_quota_route as quota_route
 
 SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -71,6 +73,10 @@ def view(state: dict) -> dict:
         "output_transport": output_policy.view(state),
         # Runner-owned assignment provenance, never a model diagnosis or completion proof.
         "direct_rework_assignments": deepcopy(state.get("direct_rework_assignments", [])),
+        # The model and engine each role's next launch uses, and every model a person named for a
+        # role after its quota ran out (autocode_quota_route): role, from, to, stage, at, via.
+        "routes": quota_route.routes(state),
+        "route_assignments": quota_route.assignments(state),
     }
     contract = state.get("goal_contract") or {}
     if isinstance(contract, dict) and isinstance(contract.get("body"), dict):
@@ -254,7 +260,8 @@ def needs(state: dict) -> dict | None:
     kind          what it asks for                  answered with
     review        human acceptance of criteria      --approve-review CRITERION --review-token TOKEN
     answer        answers to pending questions      --answer QUESTION_ID=TEXT (plus --resolver-token
-                                                     when the view carries one)
+                                                     when the view carries one); with `route` set, a
+                                                     role's quota ran out: --answer route-ROLE=MODEL
     approve_plan  approval of the displayed plan    --approve-goal TOKEN
     planning_budget  more planning review calls     --feedback TEXT or --planning-review-call-limit N
     resume        a person to inspect a pause       --resume-paused, after resolving stop_reason;
@@ -315,6 +322,13 @@ def needs(state: dict) -> dict | None:
             answer["resolver_request_id"] = published.get("request_id")
             answer["resolver_token"] = published.get("request_token")
             answer["resolver_scope"] = published.get("scope")
+        # A quota stop asks for a model (#184): answer --answer route-ROLE=MODEL. It has no default
+        # and is a person's decision, never a delegable requirements answer.
+        route = next((q for q in questions if q.get("category") == quota_route.CATEGORY
+                      and quota_route.asked_route(questions, q.get("id"))), None)
+        if route:
+            answer["route"] = {"question_id": route["id"], "role": route["route_role"], "job": route.get("job"),
+                               "current_model": route.get("current_model"), "engine": route.get("engine")}
         return answer
     if status == "AWAITING_GOAL_APPROVAL":
         # The approval token is saved when the CLI displays the plan; until then, relaunch to display it.

@@ -424,6 +424,35 @@ class DriverAnswerTests(unittest.TestCase):
                                           "--resolver-token", "token", action=True)
         self.assertEqual([selected], [answer["answer"] for answer in self.driver.answers])
 
+    QUOTA_NEED = {"kind": "answer", "resolver_scope": "operational_exhaustion", "resolver_token": "token",
+                  "questions": [{"id": "route-sol", "proposed_default": "", "options": []}],
+                  "route": {"question_id": "route-sol", "role": "sol"}}
+
+    def views(self, *needs):
+        return [{"done": need is None, "needs": need, "status": "S", "next_stage": "sol", "iteration": 1,
+                 "phase": "P"} for need in needs]
+
+    def test_a_person_only_question_is_left_for_the_person_without_an_explicit_answer(self):
+        with patch.object(self.driver, "view", side_effect=self.views(self.QUOTA_NEED)):
+            self.assertEqual(self.QUOTA_NEED, self.driver.until_stopped()["needs"])
+        self.call.assert_not_called()
+
+    def test_explicit_answer_is_given_then_its_pause_resumed_once(self):
+        driver = Driver(Path.cwd(), Path.cwd(), ["--sol-model", "gpt-5.6-sol"], {}, autocode=[], max_steps=5,
+                        timeout_seconds=60, explicit_answers=(("route-sol", "gpt-6-luna"),))
+        resume = {"kind": "resume", "reason": "Partial work retained"}
+        with patch.object(driver, "call") as call, \
+                patch.object(driver, "view", side_effect=self.views(self.QUOTA_NEED, resume, None)):
+            self.assertTrue(driver.until_stopped()["done"])
+        self.assertEqual([(("answer", "--answer", "route-sol=gpt-6-luna", "--resolver-token", "token"),
+                           {"action": True}), (("resume", "--resume-paused"), {})],
+                         [(c.args, c.kwargs) for c in call.call_args_list])
+        self.assertEqual(["--sol-model", "gpt-6-luna"], driver.flags, "the old model is never passed back")
+        self.assertTrue(driver.answers[0]["explicit"])
+        with patch.object(driver, "call") as call, patch.object(driver, "view", side_effect=self.views(resume)):
+            self.assertEqual(resume, driver.until_stopped()["needs"])
+        call.assert_not_called()
+
     def test_substantive_default_is_preserved_even_when_it_is_not_an_option(self):
         for default in ("Keep the existing behavior.",
                         "No default value should be persisted; reject absent keys."):

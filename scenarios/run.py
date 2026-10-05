@@ -152,7 +152,8 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     env = {**env, **(extra_env or {})}
     driver = Driver(project, out, flags, env, autocode=args.autocode or default_autocode(),
                     max_steps=args.max_steps or scenario.max_steps,
-                    timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes))
+                    timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes),
+                    explicit_answers=scenario.fake_answers if args.fake else ())
     drive_error = ""
     started = time.monotonic()
     try:

@@ -7,7 +7,10 @@ clarifying questions (answered with AutoCode's proposed default, and recorded),
 plan approval, human-review acceptance, and planning-budget feedback. A pause
 that needs a person is left for the verdict to judge, and so is an AutoResolver
 escalation that it could not continue safely (``PERSON_ONLY_SCOPES``): answering
-one with a proposed default would hide an honest stop.
+one with a proposed default would hide an honest stop. Only a scenario's explicit
+``[fake] answers`` answer such a request (for example the model a quota-stopped
+role continues on): they are the person's own decision, never a default, so the
+driver then resumes the pause that answer leaves, once.
 
 A scenario with follow-up turns (issue #51) continues the same run: once it
 reaches the state a turn names, the driver says that turn's message with
@@ -100,8 +103,11 @@ def live_setup(profile_name: str) -> tuple[list[str], dict]:
 
 class Driver:
     def __init__(self, project: Path, root: Path, flags: list[str], env: dict, *,
-                 autocode: list[str], max_steps: int, timeout_seconds: int):
-        self.project, self.root, self.flags, self.autocode = project, root, flags, autocode
+                 autocode: list[str], max_steps: int, timeout_seconds: int, explicit_answers=()):
+        self.project, self.root, self.flags, self.autocode = project, root, list(flags), autocode
+        # The person's own answers, by question id; served even where no default may be used.
+        self.explicit_answers = dict(explicit_answers)
+        self.resume_after_explicit = False
         self.env = {**os.environ, "AUTOCODE_HOME": str(root / "registry"), "PYTHONDONTWRITEBYTECODE": "1", **env}
         self.max_steps, self.deadline = max_steps, time.monotonic() + timeout_seconds
         self.steps: list[dict] = []
@@ -193,6 +199,15 @@ class Driver:
         while True:
             view = self.view()
             need = view["needs"]
+            if not view["done"] and self.answered_explicitly(need):
+                self.serve(need)
+                self.resume_after_explicit = need.get("resolver_scope") in PERSON_ONLY_SCOPES
+                continue
+            if not view["done"] and need["kind"] == "resume" and self.resume_after_explicit:
+                # The person's explicit answer to a stopped run was their decision to continue it.
+                self.resume_after_explicit = False
+                self.call("resume", "--resume-paused")
+                continue
             if view["done"] or leaves_for_person(need) or say_at == f"needs:{need['kind']}":
                 return view
             if need["kind"] == "continue":
@@ -203,6 +218,16 @@ class Driver:
                     raise DriveError(f"no progress at {view['status']!r} (next_stage={view['next_stage']!r})")
             else:
                 self.serve(need)
+
+    def answered_explicitly(self, need: dict) -> bool:
+        return (need["kind"] == "answer" and bool(self.explicit_answers) and bool(need.get("questions"))
+                and all(question["id"] in self.explicit_answers for question in need["questions"]))
+
+    def use_model(self, role: str, model: str) -> None:
+        """The person named ``model`` for ``role``: later relaunches must not pass the old one back."""
+        flag = "--" + role.replace("_", "-") + "-model"
+        if flag in self.flags[:-1]:
+            self.flags[self.flags.index(flag) + 1] = model
 
     def serve(self, need: dict) -> None:
         """Answer one gate the way a cooperative user would, recording every answer."""
@@ -216,10 +241,14 @@ class Driver:
             pairs = []
             answers = []
             for question in need["questions"]:
-                answer = _question_answer(question)
+                explicit = question["id"] in self.explicit_answers
+                answer = self.explicit_answers[question["id"]] if explicit else _question_answer(question)
                 answers.append({"id": question["id"], "question": question.get("question"),
-                                "why": question.get("why"), "answer": answer})
+                                "why": question.get("why"), "answer": answer,
+                                **({"explicit": True} if explicit else {})})
                 pairs.append(f"{question['id']}={answer}")
+                if explicit and (need.get("route") or {}).get("question_id") == question["id"]:
+                    self.use_model(need["route"]["role"], answer)
             args = [item for pair in pairs for item in ("--answer", pair)]
             if need.get("resolver_token"):
                 args += ["--resolver-token", need["resolver_token"]]

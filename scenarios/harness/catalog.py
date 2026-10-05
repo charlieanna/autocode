@@ -28,7 +28,7 @@ CATEGORIES = ("bugfix", "feature", "greenfield", "port", "parallel", "architectu
 EXPECTED = ("complete", "stop", "any")
 KEYS = {"title", "category", "requires", "fake", "run", "turn"}
 RUN_KEYS = {"max_steps", "timeout_minutes", "expected", "known_failure", "requires_stages"}
-FAKE_KEYS = {"check", "flags", "fault", "live_investigator", "probe", "milestones"}
+FAKE_KEYS = {"check", "flags", "fault", "live_investigator", "probe", "milestones", "answers"}
 # A follow-up turn is said to the same run once it reaches the state ``after``
 # names: it completed, it stopped, or it is waiting on a particular need
 # (``needs:answer``), in which case the message is said instead of the driver
@@ -73,6 +73,9 @@ class Scenario:
     # each milestone's id, dependencies, owned paths and verify command so the
     # scripted provider can rehearse parallel scheduling without model spend.
     fake_milestones: tuple[dict, ...] = ()
+    # [fake] answers: {question_id = answer} the person gives explicitly, for a question the driver
+    # never answers by default (an AutoResolver stop such as a quota question, ``route-sol``).
+    fake_answers: tuple[tuple[str, str], ...] = ()
 
     @property
     def seed(self) -> Path:
@@ -119,6 +122,9 @@ def load(scenario_id: str) -> Scenario:
     unknown = set(fake) - FAKE_KEYS
     if unknown:
         raise ValueError(f"{scenario_id}/scenario.toml: unknown [fake] keys {sorted(unknown)}")
+    answers = fake.get("answers", {})
+    if not isinstance(answers, dict) or not all(isinstance(value, str) and value.strip() for value in answers.values()):
+        raise ValueError(f"{scenario_id}: [fake] answers maps question ids to nonempty answers")
     turns = []
     for number, turn in enumerate(meta.get("turn", []), start=1):
         if set(turn) != {"after", "say"} or not str(turn["say"]).strip():
@@ -134,7 +140,7 @@ def load(scenario_id: str) -> Scenario:
         known_failure=run.get("known_failure", ""), fake_flags=tuple(fake.get("flags", ())),
         fake_fault=fake.get("fault", ""), fake_live_calls=bool(fake.get("live_investigator", False)),
         fake_probe=fake.get("probe", ""), turns=tuple(turns), requires_stages=tuple(run.get("requires_stages", ())),
-        fake_milestones=tuple(fake.get("milestones", ())))
+        fake_milestones=tuple(fake.get("milestones", ())), fake_answers=tuple(sorted(answers.items())))
 
 
 def load_all() -> list[Scenario]:

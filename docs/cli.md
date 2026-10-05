@@ -75,6 +75,7 @@ a new run instead; `autocode resume` never does.
 | `--chat` | Interactive chat mode (default in a terminal). |
 | `--no-chat` | One command per turn (default for non-interactive). |
 | `--answer 'Q1=…'` | Answer a requirements question (repeatable). Requires the current `--resolver-token` shown by Resolver. |
+| `--answer route-sol=MODEL` | At a quota stop (`PAUSED_BUDGET`), name the model the stopped role continues on; the only operational question `--answer` takes. Requires the current `--resolver-token`. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as `--abandon-stage` does and records a `route_assignment`; continue with `--resume-paused`. The resume-flag form is `--abandon-stage ATTEMPT`, then `--resume-paused --sol-model MODEL`. See [Models](models.md#when-a-roles-quota-runs-out). |
 | `--feedback '…'` | Send a correction; returns to discovery and requires fresh approval. With `--adaptive-planning`, feedback on a plan shown for approval goes to the Planner, which revises it. |
 | `--follow-up '…'` | Say the next thing to a finished run ("Fix them." after a review): the run recognizes the new job and continues in the same run directory. The message is saved as feedback that planning can cite for requested contract changes; the new plan still needs approval. |
 | `--delegate Q1` | Accept a question's proposed default. Requires the current `--resolver-token` shown by Resolver. |
