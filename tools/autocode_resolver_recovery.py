@@ -349,15 +349,25 @@ def load_packet(pointer, run):
         _stale(f"unavailable or malformed evidence: {error}")
 
 
-def _change(packet, change):
+def _attest(packet, change):
+    """``(identity, None)`` for a proposed change the packet attests, else ``(None, why)`` (#418).
+
+    recovery_change is optional model advice. The packet attests a proposal bounded by its
+    sources, or an observed input transition, with the original discriminating check, that
+    cites pinned originals. Its identity is still None when it proves no structural novelty
+    (an unsupported grammar or unchanged structure). Any other proposal is unproven, exactly
+    like recovery_change=null: it buys no novelty and is never a stale handoff; ``why`` names
+    the check it failed. Tampered retained evidence still raises in load_packet.
+    """
     if not change:
-        return None
+        return None, None
     if not isinstance(change, dict):
-        _stale("proposed change is not an object")
+        return None, "not an object"
     operations = {row["operation"] for row in packet["incidents"]}
     allowed = set(packet["sources"]) - set(packet["protected_tests"].get("files", {}))
     ident = None
-    if change.get("target") in packet.get("permitted_controls", []):
+    is_input = change.get("target") in packet.get("permitted_controls", [])
+    if is_input:
         incident_ids = {novelty.Incident(**row).id for row in packet["incidents"]}
         for prior in reversed(packet["prior_receipts"]):
             if incident_ids.intersection(prior.get("incident_ids", [])) and prior.get("packet"):
@@ -371,11 +381,12 @@ def _change(packet, change):
                                         operations=operations, wrappers=packet["wrappers"])
     if not ident and not novelty.bounded_change(change, sources=packet["sources"], allowed_paths=allowed,
                                                 operations=operations, wrappers=packet["wrappers"]):
-        _stale("proposed change is not a bounded attested source change with the original discriminating check")
+        bounds = "an attested input transition" if is_input else "a bounded attested source change"
+        return None, f"not {bounds} with the original discriminating check"
     refs = change.get("evidence_refs", [])
     available = {row["original_path"] for row in packet["originals"]}
     if not isinstance(refs, list) or not refs or not all(isinstance(ref, str) for ref in refs):
-        _stale("proposed change must cite pinned originals")
+        return None, "evidence_refs do not cite pinned originals"
     validation = packet.get("validation") or {}
     event_refs = {row.get("evidence_ref") for row in validation.get("checks", [])}
     streams = {row["events"] for row in packet["prior_attempts"] if row.get("stage") == "sol" and row.get("events")
@@ -383,20 +394,25 @@ def _change(packet, change):
     resolved_refs = {next(iter(streams)) if ref.startswith("event:") and ref in event_refs and len(streams) == 1
                      else ref for ref in refs}
     if not resolved_refs <= available:
-        _stale("proposed change must cite pinned originals")
-    if change.get("target") in packet.get("permitted_controls", []) and not resolved_refs.intersection(packet["input_pins"]):
-        _stale("changed input must cite its attested input evidence")
-    return ident
+        return None, "evidence_refs do not cite pinned originals"
+    if is_input and not resolved_refs.intersection(packet["input_pins"]):
+        return None, "changed input does not cite its attested input evidence"
+    return ident, None
 
 
 def validate_decision(state, value, record):
+    """Record a Resolver or Completion decision's proposed change and its identity.
+
+    An unproven proposal is kept with recovery_change_id None, like an unsupported grammar:
+    admit_dispatch then grants it no novelty, and route_known_change does not route it.
+    """
     request = state.get("resolution_request") or {}
     if not request.get("recovery_packet"):
         return
     packet = load_packet(request["recovery_packet"], _run_root(state, record))
     if value.get("recovery_change"):
         change = copy.deepcopy(value["recovery_change"])
-        ident = _change(packet, change)
+        ident, _ = _attest(packet, change)
         request["recovery_change"] = change
         request["recovery_change_id"] = ident
 
@@ -413,7 +429,7 @@ def diagnosis_change(request, change, run_dir):
     guidance, and neither voids the retry nor counts as a new experiment.
 
     The caller has already loaded this packet (finish_resolution_packet), so a stale packet
-    raises as it did there. _change's refusal of the proposal is recorded, not raised.
+    raises as it did there. An unproven proposal is recorded with the check it failed (#418).
     """
     if not change:
         return None, None
@@ -422,9 +438,11 @@ def diagnosis_change(request, change, run_dir):
                       "reason": "No incident packet attests a proposal in parallel or integrated scope"}
     packet = load_packet(request["recovery_packet"], run_dir)
     try:
-        _change(packet, change)
+        _, why = _attest(packet, change)
     except (util.Paused, ValueError, KeyError, TypeError, AttributeError) as error:
         return None, {"change": copy.deepcopy(change), "reason": str(error)}
+    if why:
+        return None, {"change": copy.deepcopy(change), "reason": f"Recovery packet: proposed change is unproven ({why})"}
     return copy.deepcopy(change), None
 
 
@@ -666,7 +684,8 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     change = decision.get("recovery_change")
     request = state.get("resolution_request") or {}
     if ((decision.get("next_task") or {}).get("kind") != "implement"
-            or not change or change.get("question", "").strip() or not request.get("recovery_packet")
+            or not isinstance(change, dict) or not change or change.get("question", "").strip()
+            or not request.get("recovery_packet")
             or any(state.get(key) for key in ("parent_run", "active_runner_check", "uncertain_artifacts",
                                             "orchestration_batch", "pending_report_repair", "user_request", "pending_questions"))
             or state.get("settings", {}).get("workflow") or not retry_policy.enabled(state)):
@@ -701,7 +720,9 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     validate_decision(state, decision, record)
     ident = request["recovery_change_id"]
     if ident is None:
-        return False  # Unknown grammar/cosmetic bounds are not autonomous progress.
+        # Unknown grammar, cosmetic or unproven bounds are not autonomous progress (#418): the
+        # queued Resolver route stays, and its admission decides without novelty.
+        return False
     prior = [row for row in receipts(state, returned=True) if row.get("action") == "repair"]
     if any(novelty.decide(novelty.Incident(**incident), prior, action="repair", change_id=ident,
                          expected_check=change["expected_check"]).action != "repair" for incident in packet["incidents"]):
@@ -941,8 +962,11 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
         if record["recovery_novelty"].get("dispatch_id") != dispatch_id:
             _stale("saved dispatch receipt changed")
         return
-    change = request.get("recovery_change") or packet["current_error"].get("recovery_change") or {}
-    change_id = _change(packet, change)
+    proposal = request.get("recovery_change") or packet["current_error"].get("recovery_change")
+    # An unproven proposal is treated like none: it buys no novelty, and is never a stale
+    # handoff (#418). It is still named in a hold, with the check it failed.
+    change_id, unproven = _attest(packet, proposal)
+    change = proposal if isinstance(proposal, dict) else {}
     action = "repair" if stage == "terra" else "diagnosis"
     considered = [row for row in receipts(state, returned=True) if action != "repair" or row.get("action") == "repair"]
     if (action == "repair" and packet["current_error"].get("operational_diagnosis")
@@ -964,8 +988,9 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
         if decision.action in ("hold", "request"):
             reason = (f"Incident {incident.id[:12]} ({incident.operation}): {decision.reason}. Exact packet: {pointer['path']}. "
                       "After inspection, --resume-paused --retry-failed-stage authorizes one attempt under existing limits")
-            if change and change_id is None:
-                reason += ". Proposed source novelty is unproven (unsupported grammar or unchanged structure), not accepted as a new experiment"
+            if proposal and change_id is None:
+                reason += (f". Proposed change is unproven ({unproven or 'unsupported grammar or unchanged structure'}), "
+                           "not accepted as a new experiment")
             request["novelty_hold"] = {"binding": bound, "scope": _scope(state), "stage": stage,
                                        "incident_id": incident.id, "reason": reason}
             efficiency.record_observation(state, event_id="recovery-hold:" + util.digest({"packet": pointer, "incident": incident.id}),
