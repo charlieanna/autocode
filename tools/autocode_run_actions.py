@@ -620,7 +620,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         if args.resume_paused and runner.recover_legacy_report_repair(state, run_dir, workspace):
             pass
         elif not args.resume_paused:
-            print(f"{state['status']}: {state.get('stop_reason','explicit resume required')}")
+            word = "autocode resume" if run_finder.resume_acknowledges(state["status"]) else "--resume-paused"
+            print(f"{state['status']}: {state.get('stop_reason', f'explicit resume required: {word}')}")
             return 2
         else:
             resumed_at = runner.now()

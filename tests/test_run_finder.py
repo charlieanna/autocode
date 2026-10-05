@@ -448,7 +448,7 @@ class WhichRunIsChosen(Fixture):
         self.assertEqual(f"Continue with: autocode --run-dir {mine} --unit autoplanner (or autocode --unit "
                          "autoplanner from its project while it is the only unfinished run there)", hint,
                          "an action under a unit continues that unit, not every unit")
-        for status in ("PAUSED_PLANNING_BUDGET", "PAUSED_INVALID_OUTPUT"):
+        for status in ("PAUSED_PLANNING_BUDGET", "PAUSED_INVALID_OUTPUT", "BLOCKED_HUMAN", "RESOLVER_PENDING"):
             with self.subTest(status=status):
                 self.assertEqual(f"Continue with: autocode --run-dir {mine} resume (or autocode resume from its "
                                  "project while it is the only unfinished run there)",
@@ -576,7 +576,18 @@ class CommandLine(Fixture):
                      ["resume", "--abandon-stage", "001/terra-01"]):
             with self.subTest(argv=argv):
                 self.assertFalse(self.parse(*argv)[0].resume_paused, "only the resume command acknowledges")
-        for status in ("WAITING_FOR_USER", "RUNNING", "PAUSED_DESIGN_CONFLICT"):
+        for status in ("RESOLVER_PENDING", "BLOCKED_HUMAN", "PLAN_REWORK_REQUIRED"):
+            with self.subTest(status=status):
+                # A plain relaunch only shows these too; --resume-paused continues them (#412).
+                other = self.run_in(tree, status=status)
+                for argv in (["resume"], ["resume", "--retry-failed-stage"], ["resume", "--max-seconds", "0"]):
+                    self.assertTrue(self.parse(*argv, "--run-dir", str(other))[0].resume_paused)
+                for argv in ([], ["resume", "--feedback", "smaller"],
+                             ["resume", "--resolver-response", "leave_paused", "--resolver-request", "R",
+                              "--resolver-token", "T"]):
+                    self.assertFalse(self.parse(*argv, "--run-dir", str(other))[0].resume_paused,
+                                     "never with a user action or a resolver response")
+        for status in ("WAITING_FOR_USER", "RUNNING", "PAUSED_DESIGN_CONFLICT", "BLOCKED", "WAITING_FOR_DEPENDENCY"):
             with self.subTest(status=status):
                 other = self.run_in(tree, status=status)
                 self.assertFalse(self.parse("resume", "--run-dir", str(other))[0].resume_paused, "nothing to acknowledge")

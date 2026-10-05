@@ -190,11 +190,14 @@ WAITS_FOR_AN_EDIT = ("PAUSED_DESIGN_CONFLICT",)
 def resume_acknowledges(status) -> bool:
     """Whether a bare ``autocode resume`` stands for --resume-paused at this saved status.
 
-    autocode_args applies it, and also lets a resume companion acknowledge a verified operational
-    pause that AutoResolver published as WAITING_FOR_USER. A plain ``autocode`` only shows a pause.
+    PAUSED_*, BLOCKED_*, *_REWORK_REQUIRED and RESOLVER_PENDING: the statuses a plain relaunch
+    only shows and --resume-paused continues. autocode_args applies it, and also lets a resume
+    companion acknowledge a verified operational pause that AutoResolver published as
+    WAITING_FOR_USER. A plain ``autocode`` only shows a pause.
     """
     status = str(status or "")
-    return status.startswith("PAUSED_") and status not in WAITS_FOR_AN_EDIT
+    return (status.startswith(("PAUSED_", "BLOCKED_")) or status.endswith("_REWORK_REQUIRED")
+            or status == "RESOLVER_PENDING") and status not in WAITS_FOR_AN_EDIT
 
 
 def continue_hint(run_dir, state: dict, unit: str | None = None) -> str:
@@ -217,7 +220,7 @@ def continue_hint(run_dir, state: dict, unit: str | None = None) -> str:
         return (f"`{OWNER_COMMAND[run.owner]}` drives it: rerun that command to advance it, or relaunch "
                 f"it yourself with: {_command(run, flags)}")
     if resume_acknowledges(run.status):
-        # A plain relaunch only shows this pause; the word resume acknowledges it (autocode_args).
+        # A plain relaunch only shows this stop; the word resume acknowledges it (autocode_args).
         flags = " ".join(part for part in (flags, "resume") if part)
         return (f"Continue with: {_command(run, flags)} (or autocode {flags} from its project while it "
                 "is the only unfinished run there)")

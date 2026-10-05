@@ -7,9 +7,9 @@ returned parser for the later errors that depend on the saved run.
 An invocation that names no run and starts none (no task, no new-run input) acts on the saved run
 autocode_run_finder chooses from the --workspace directory: ``autocode --status``, ``autocode``,
 ``autocode resume`` and the user actions work from the project or a task worktree. On a paused
-run ``autocode resume`` also stands for --resume-paused (_acknowledges_pause). ``autocode
-status`` is ``autocode --status``. --run-dir without --workspace selects the run's own checkout
-(a user's run; a parallel Builder's run keeps the usual workspace errors).
+or blocked run ``autocode resume`` also stands for --resume-paused (_acknowledges_pause).
+``autocode status`` is ``autocode --status``. --run-dir without --workspace selects the run's
+own checkout (a user's run; a parallel Builder's run keeps the usual workspace errors).
 """
 from __future__ import annotations
 
@@ -394,8 +394,8 @@ def is_resume_command(argv) -> bool:
     """Whether autocode reads argv as `autocode resume`: the command word, not task text or an option's value.
 
     For a caller that must recognize the word without acting on the rest (autocode_unattended): on a
-    paused run the word stands for --resume-paused (_acknowledges_pause). An argv argparse refuses
-    exits via parser.error, as autocode itself would.
+    paused or blocked run the word stands for --resume-paused (_acknowledges_pause). An argv
+    argparse refuses exits via parser.error, as autocode itself would.
     """
     argv = list(argv)
     if argv[:1] == ["resume"]:
@@ -404,7 +404,8 @@ def is_resume_command(argv) -> bool:
 
 
 def _acknowledges_pause(args):
-    """Whether `autocode resume` stands for --resume-paused: the run is paused and nothing else is asked.
+    """Whether `autocode resume` stands for --resume-paused: the run is paused or blocked
+    (run_finder.resume_acknowledges) and nothing else is asked.
 
     Typing the command is the explicit acknowledgement --resume-paused records, with the same
     effects: no new budget or --grant-recovery allowance, but the per-cycle report-repair and

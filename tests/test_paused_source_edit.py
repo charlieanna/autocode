@@ -144,7 +144,7 @@ class PausedSourceEditTests(unittest.TestCase):
         self.assertEqual(2, self.invoke("--no-chat", role=provider))
         self.assertEqual([], calls)
         self.assertEqual("PAUSED_STALE_VALIDATION", self.state["status"])
-        self.assertIn("--resume-paused to archive the repair", self.stderr)
+        self.assertIn("autocode resume to archive the repair", self.stderr)
         self.assertEqual(pending, self.state["pending_report_repair"])
 
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))

@@ -1,4 +1,4 @@
-"""`autocode resume` continues a paused run without --resume-paused; plain `autocode` only shows the pause.
+"""`autocode resume` continues a paused or blocked run without --resume-paused; plain `autocode` only shows it.
 
 Offline: the goal tests' Git fixture, the real CLI entry in-process and a fake provider that stops at
 the first stage admission. No model is called."""
@@ -65,12 +65,33 @@ class ResumeWordTests(unittest.TestCase):
         self.assertEqual(2, self.invoke("resume", "--no-chat", role=provider))
         self.assertEqual(["astra_review"], calls)
 
+    def held_then_resumed(self, status):
+        """A plain relaunch launches nothing at ``status``; `autocode resume` admits the next stage."""
+        self.paused(status)
+        calls, provider = self.provider()
+        self.assertEqual(2, self.main("--no-chat", role=provider))
+        self.assertEqual(([], status), (calls, self.state["status"]), "a bare relaunch only shows the stop")
+        self.assertEqual(2, self.main("resume", "--no-chat", role=provider))
+        self.assertEqual(["astra_review"], calls, "resume continues it as --resume-paused does")
+
+    # A plain relaunch only shows these and --resume-paused continues them, so the word does too (#412).
+    def test_resume_continues_a_resolver_wait(self):
+        self.held_then_resumed("RESOLVER_PENDING")
+
+    def test_resume_continues_a_blocked_run(self):
+        self.held_then_resumed("BLOCKED_HUMAN")
+
+    def test_resume_continues_a_rework_limit(self):
+        self.held_then_resumed("PLAN_REWORK_REQUIRED")
+
     def test_resume_only_shows_a_design_conflict(self):
         # Nothing guards a design conflict on relaunch; the user edits the design first (autocode_args).
         self.paused("PAUSED_DESIGN_CONFLICT")
         calls, provider = self.provider()
-        self.assertEqual(2, self.main("resume", "--no-chat", role=provider))
-        self.assertEqual(([], "PAUSED_DESIGN_CONFLICT"), (calls, self.state["status"]))
+        for argv in (["--no-chat"], ["resume", "--no-chat"]):
+            with self.subTest(argv=argv):
+                self.assertEqual(2, self.main(*argv, role=provider))
+                self.assertEqual(([], "PAUSED_DESIGN_CONFLICT"), (calls, self.state["status"]))
 
 
 if __name__ == "__main__":
