@@ -250,9 +250,10 @@ your saying so. `--abandon-stage` and a `--sol-model` flag are refused at this s
 bound to is saved), and so is the flag next to an `--abandon-stage` that sets the
 job's uncertain attempt aside: set it aside on its own, then answer. The answer
 itself changes nothing but the job's model; given with another setting it is refused
-and nothing is saved. Once you have named a model, the status line and recovery card
-ask only for the retry on it. The Architect (Designer, Design
-Reviewer), Analyst and Investigator routes have no flag at all: the answer is the only
+and nothing is saved, and so is the answer next to the retry (`--resume-paused
+--retry-failed-stage`), since the retry needs the new token. Once you have named a
+model, the status line and recovery card ask only for the retry on it. The Architect
+(Designer, Design Reviewer), Analyst and Investigator routes have no flag at all: the answer is the only
 way to move them. After a quota stop the shown token also retries the job unchanged,
 once the quota resets. The stuck-stage Investigator (`investigate_stuck`) is the
 exception: its route is rebuilt for every investigation, so its stop keeps only the

@@ -96,6 +96,36 @@ def _route_reason(failure):
             "--job-retry-token TOKEN, using the new token.")
 
 
+def _question(runtime, state, attempt):
+    """The stopped job's model question (quota_route.question) with the runtime's launch rules, when it has them.
+
+    ``runtime`` is sometimes autocode_run_records, without the cross-model rule or the provider:
+    the question then lists no candidates.
+    """
+    return quota_route.question(
+        state, attempt,
+        cross_check=getattr(getattr(runtime, 'dispatch', None), 'enforce_cross_model_verification', None),
+        configured_tool=getattr(getattr(runtime, 'opencode', None), 'CONFIGURED', False))
+
+
+def _reasked(runtime, state, failure):
+    """The job's model question asked again against the configuration its retry is now bound to.
+
+    Its candidates then never list the model the job now runs on (quota_route.validate refuses
+    that one). Without the cross-model rule only that model is dropped from the saved candidates.
+    """
+    route, model = failure['route'], failure['route_assignment']['to']
+    if getattr(getattr(runtime, 'dispatch', None), 'enforce_cross_model_verification', None) is not None:
+        return _question(runtime, state, {'role': route['route_role'], 'stage': failure['stage'],
+                                          'model': route.get('stopped_model'),
+                                          'pause_status': failure.get('pause_status')})
+    route = dict(route, current_model=model)
+    if 'candidates' in route:
+        route['candidates'] = [candidate for candidate in route['candidates'] if candidate != model]
+        route.pop('recommendation', None)
+    return route
+
+
 def recover(runtime, state, run_dir, workspace, error=None, *, abandoned=False):
     record = state.get('active_stage') or {}
     stage = owner(record)
@@ -144,15 +174,11 @@ def recover(runtime, state, run_dir, workspace, error=None, *, abandoned=False):
                  phase='PAUSED_OR_BLOCKED', next_stage=stage, stop_reason=reason, pending_questions=[])
     state.pop('user_request', None)
     # The model question is kept with the failure, never published: the job's answer carries its
-    # retry token (autocode_job_route). runtime is sometimes autocode_run_records, without the
-    # cross-model rule or the provider: the question then lists no candidates.
+    # retry token (autocode_job_route).
     attempt = ('pause_status' in failure
                and quota_route.stopped_attempt(state, failure_status=runtime.support.failure_status))
     if attempt and attempt['kind'] == 'job':
-        failure['route'] = quota_route.question(
-            state, attempt,
-            cross_check=getattr(getattr(runtime, 'dispatch', None), 'enforce_cross_model_verification', None),
-            configured_tool=getattr(getattr(runtime, 'opencode', None), 'CONFIGURED', False))
+        failure['route'] = _question(runtime, state, attempt)
         failure['reason'] = state['stop_reason'] = (
             reason + ('' if reason.endswith('.') else '.') + ' '
             + quota_route.advice(failure['route'], original_attempt, kind='job'))
@@ -197,8 +223,9 @@ def reroute(runtime, state, run_dir, workspace, assignment):
     already moved off the bound model (a --<role>-model flag saved at a job stop before #463) is
     rebound by the answer too, so that run keeps a way forward. The failure then binds the new
     configuration under a new token, so the shown token stops matching and authorize/admit keep
-    their exact checks. Writes nothing: the caller commits the state (``runtime`` is accepted for
-    symmetry with recover and authorize).
+    their exact checks. The job's model question is asked again against the new configuration
+    with ``runtime``'s launch rules, so its candidates never list the model the job now runs on.
+    Writes nothing: the caller commits the state.
     """
     failure = state.get('job_failure') or {}
     route = failure.get('route') or {}
@@ -224,7 +251,7 @@ def reroute(runtime, state, run_dir, workspace, assignment):
         raise ValueError('Provider configuration or limits changed; retry is stale')
     previous = failure['job_retry_token']
     failure.update(configuration=current, route_assignment=copy.deepcopy(assignment))
-    route['current_model'] = assignment['to']
+    failure['route'] = _reasked(runtime, state, failure)
     failure['job_retry_token'] = 'jr:' + util.digest({
         'run': str(run_dir), 'attempt': failure['attempt_id'], 'previous': previous,
         'source': failure['source_identity'], 'configuration': current,

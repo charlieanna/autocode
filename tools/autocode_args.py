@@ -327,6 +327,13 @@ def parse(unit, argv, default_models):
     if args.job_retry_token and not names_job_model and not (args.retry_failed_stage and args.resume_paused):
         parser.error("--job-retry-token requires --resume-paused --retry-failed-stage, "
                      "or --answer route-ROLE=MODEL alone to name a stopped job's model")
+    # The answer issues a new token, so it never retries in the same invocation; refusing that
+    # form here also keeps any other setting given with it from being saved (#463 review).
+    if (args.job_retry_token and args.resume_paused and args.retry_failed_stage
+            and any(item.partition("=")[0].startswith("route-") for item in [*args.answer, *args.delegate])):
+        parser.error("--answer route-ROLE=MODEL --job-retry-token TOKEN names a stopped job's model on its own "
+                     "and issues a new token; then retry with --resume-paused --retry-failed-stage "
+                     "--job-retry-token NEW_TOKEN")
     if args.retry_failed_stage:
         _requires_resume(parser, args, "--retry-failed-stage")
     if args.diagnose_failed_stage:

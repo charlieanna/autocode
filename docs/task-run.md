@@ -432,14 +432,18 @@ can name another model: `run.assign_model(role, model)` answers
 `--answer route-ROLE=MODEL --job-retry-token TOKEN` with the view's token. A model the
 launch would refuse, or the refused model itself, raises and changes nothing. An
 accepted model is saved as a `route_assignment` and the need comes back with a new
-`job_retry_token`; the old one is rejected. Then call
+`job_retry_token`; the old one is rejected. Its `route` is asked again against the new
+configuration: `current_model` is the named model, and `candidates` never lists it
+(answering it again is refused). Then call
 `run.retry_job(view["needs"]["job_retry_token"])`. `assign_model` updates a
 `--ROLE-model` in the client's options, so the retry never passes the old model back;
 the CLI refuses a `--ROLE-model` change for the stopped role at this stop (it would
 make the exact retry stale), unless it puts back the model the retry is bound to.
 The answer carries no other setting: given with a limit or another role's model it
-is refused and nothing is saved. Once a model is named, `progress.needs_you` and the
-recovery card's `what_happened` ask only for the retry on it. The Architect, Analyst
+is refused and nothing is saved, and the CLI refuses it next to
+`--resume-paused --retry-failed-stage` (the retry needs the new token). Once a model
+is named, `progress.needs_you` and the recovery card's `what_happened` ask only for
+the retry on it. The Architect, Analyst
 and Investigator routes have no flag; only this answer moves them (an
 `--investigator-model` in the options pins the stuck-stage Investigator and is left
 as it is).

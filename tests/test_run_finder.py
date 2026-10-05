@@ -690,6 +690,12 @@ class CommandLine(Fixture):
             with self.subTest(argv=argv):
                 self.assertIn("--job-retry-token requires --resume-paused --retry-failed-stage",
                               self.parse_error(*argv, "--job-retry-token", "T"))
+        # The answer issues a new token, so it never retries in the same command (nor saves a setting with it).
+        for argv in (["--answer", "route-sol=m"], ["--delegate", "route-sol"]):
+            with self.subTest(argv=argv):
+                self.assertIn("names a stopped job's model on its own and issues a new token",
+                              self.parse_error(*argv, "--resume-paused", "--retry-failed-stage",
+                                               "--max-stage-seconds", "60", "--job-retry-token", "T"))
         message = self.parse_error("--resolver-response", "leave_paused").split("error: ", 1)[1]
         self.assertIn("--resolver-response requires --resolver-request and --resolver-token", message)
         self.assertNotIn("--run-dir", message)

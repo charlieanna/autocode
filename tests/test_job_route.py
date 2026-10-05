@@ -13,10 +13,13 @@ import json
 import re
 import subprocess
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import autocode as runner
+import autocode_interventions as interventions
 import autocode_job_failure as job_failure
 import autocode_job_route as job_route
 import autocode_quota_route as quota_route
@@ -231,13 +234,20 @@ class JobModelRouteTests(JobHarness):
     def test_a_model_answer_keeps_the_exact_retry_guarantees(self):
         run = self.refused()
         token = self.stopped(run)['job_retry_token']
-        # The answer changes only the job's model: any other setting with it is refused before it is saved.
-        for flags in (('--max-stage-seconds', '60'), ('--terra-model', 'gpt-6-nova')):
+        # The answer changes only the job's model: any other setting with it is refused before it is saved,
+        # in every form a model answer takes (without its token too, and next to the retry it cannot make).
+        answer, only = ('--answer', 'route-sol=gpt-6-luna'), "A stopped job's model answer changes only that job's model"
+        for flags, message in (((*answer, '--job-retry-token', token, '--max-stage-seconds', '60'), only),
+                               ((*answer, '--job-retry-token', token, '--terra-model', 'gpt-6-nova'), only),
+                               ((*answer, '--max-stage-seconds', '60'), only),
+                               ((*answer, '--resume-paused', '--retry-failed-stage', '--max-stage-seconds', '60'), only),
+                               ((*answer, '--job-retry-token', token, '--resume-paused', '--retry-failed-stage',
+                                 '--max-stage-seconds', '60'), "names a stopped job's model on its own")):
             with self.subTest(flags=flags):
                 before = self.saved(run)
-                proc = self.cli(run, '--answer', 'route-sol=gpt-6-luna', '--job-retry-token', token, *flags)
+                proc = self.cli(run, *flags)
                 self.assertEqual(2, proc.returncode, proc.stdout + proc.stderr)
-                self.assertIn("A stopped job's model answer changes only that job's model", proc.stderr)
+                self.assertIn(message, proc.stderr)
                 self.assertEqual(before, self.saved(run), 'nothing is saved')
         # A source edit after the stop makes the answer stale, as it does the retry.
         (self.workspace/'calc.py').write_text(BROKEN)
@@ -247,13 +257,42 @@ class JobModelRouteTests(JobHarness):
         builder = json.loads(self.saved(run))['settings']['roles']['terra']['model']
         self.rejected(run, '--answer', f'route-sol={builder}', '--job-retry-token', token,
                       message='Cross-model verification violated')
-        # Restored exactly, the answer applies and the retry runs once on the named model.
+        # Restored exactly, the answer applies and prints the command that retries once on the named model.
         need = self.stopped(run)
         self.assertEqual(token, need['job_retry_token'])
-        run.assign_model('sol', 'gpt-6-luna')
-        view = run.retry_job(self.stopped(run)['job_retry_token'])
-        self.assertTrue(view['done'], view)
+        proc = self.cli(run, '--answer', 'route-sol=gpt-6-luna', '--job-retry-token', token)
+        self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
+        new = self.stopped(run)['job_retry_token']
+        self.assertIn('PAUSED_JOB_FAILURE: The Code Reviewer now runs on gpt-6-luna (was gpt-6-sol). Retry it with '
+                      f'--resume-paused --retry-failed-stage --job-retry-token {new}. Saved; no agent launched.',
+                      proc.stdout)
+        self.assertNotIn(token, proc.stdout, 'the shown token no longer retries')
+        self.assertEqual(['gpt-6-sol'], self.models(), 'no agent launched')
+        printed = re.search(r'Retry it with (--resume-paused --retry-failed-stage --job-retry-token \S+)\.', proc.stdout)
+        proc = self.cli(run, *printed.group(1).split(), '--no-chat')
+        self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
+        self.assertTrue(run.status()['done'])
         self.assertEqual(['gpt-6-sol', 'gpt-6-luna'], self.models())
+
+    def test_a_delegated_or_queued_model_answer_is_refused(self):
+        run = self.refused()
+        token = self.stopped(run)['job_retry_token']
+        self.rejected(run, '--answer', 'route-sol=gpt-6-luna', '--delegate', 'route-sol', '--job-retry-token', token,
+                      message='A model question has no default to delegate')
+        interventions.submit(self.workspace, run.run_dir, request_id='pause-1', kind='pause', text='')
+        self.rejected(run, '--answer', 'route-sol=gpt-6-luna', '--job-retry-token', token,
+                      message='Apply the queued intervention before answering')
+        self.assertEqual(['gpt-6-sol'], self.models())
+
+    def test_after_an_answer_the_route_lists_only_models_it_can_still_take(self):
+        run = self.refused()
+        listed = self.stopped(run)['route']['candidates']
+        self.assertTrue(listed, 'the run configures another model that passes the launch rules')
+        run.assign_model('sol', listed[0])
+        route = self.stopped(run)['route']
+        self.assertEqual(listed[0], route['current_model'])
+        # The answer refuses the model already set ('already uses'), so the need no longer offers it.
+        self.assertFalse({listed[0], 'gpt-6-sol'} & set(route['candidates']), route)
 
     def test_a_model_opencode_does_not_list_is_refused_and_changes_nothing(self):
         run = self.refused()
@@ -311,12 +350,34 @@ def bound_state(settings_sol='gpt-6-sol'):
 class RerouteTests(unittest.TestCase):
     """job_failure.reroute binds the exact retry to the named model and nothing else (pure; source check faked)."""
 
-    def reroute(self, state, to='gpt-6-luna', *, matches=True, **changes):
+    def reroute(self, state, to='gpt-6-luna', *, matches=True, runtime=None, **changes):
         assignment = {'role': 'sol', 'attempt_id': ATTEMPT, 'from': state['settings']['roles']['sol']['model'],
                       'to': to, **changes}
         state['settings']['roles']['sol']['model'] = to  # as quota_route.assign applies it
         with mock.patch.object(job_failure.source, 'matches_original', return_value=matches):
-            return job_failure.reroute(None, state, '/run', '/workspace', assignment)
+            return job_failure.reroute(runtime, state, '/run', '/workspace', assignment)
+
+    def test_the_route_never_lists_the_model_the_job_now_runs_on(self):
+        # With the runtime's launch rules the question is asked again against the new configuration.
+        runtime = argparse.Namespace(dispatch=argparse.Namespace(enforce_cross_model_verification=lambda state: None))
+        state = bound_state()
+        state['job_failure']['route'].update(candidates=['gpt-6-luna', 'gpt-5.6-terra'],
+                                             recommendation='Configured models that pass: gpt-6-luna, gpt-5.6-terra.')
+        self.reroute(state, runtime=runtime)
+        route = state['job_failure']['route']
+        self.assertEqual(('route-sol', 'sol', 'Code Reviewer', 'gpt-6-luna', 'gpt-6-sol', 'content_filter'),
+                         tuple(route[key] for key in ('id', 'route_role', 'job', 'current_model', 'stopped_model',
+                                                      'cause')))
+        self.assertEqual(['gpt-5.6-terra'], route['candidates'])
+        self.assertEqual('Configured models that pass the launch rules for the Code Reviewer: gpt-5.6-terra.',
+                         route['recommendation'])
+        # Without them (a pure caller), only the model now set is dropped from the saved candidates.
+        state = bound_state()
+        state['job_failure']['route'].update(candidates=['gpt-6-luna', 'gpt-6-nova'], recommendation='stale')
+        self.reroute(state)
+        route = state['job_failure']['route']
+        self.assertEqual(('gpt-6-luna', ['gpt-6-nova']), (route['current_model'], route['candidates']))
+        self.assertNotIn('recommendation', route)
 
     def test_the_named_model_is_bound_under_a_new_token(self):
         state = bound_state()
@@ -382,15 +443,46 @@ def unrouted_stop(stage='investigate_stuck', *, kind='content_filter', pause_sta
 class JobWithoutModelQuestionTests(unittest.TestCase):
     """A job stop about its model that keeps only the exact retry names its real cause (pure)."""
 
-    def answer(self, state):
+    def answer(self, state, host=None):
         args = argparse.Namespace(answer=['route-investigator=gpt-6-nova'], delegate=[], delegate_all=False,
                                   job_retry_token='jr:t', resume_paused=False)
         before = copy.deepcopy(state)
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr), contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(2, job_route.answer(None, args, state, '/run', '/workspace'))
+            self.assertEqual(2, job_route.answer(host, args, state, '/run', '/workspace'))
         self.assertEqual(before, state)
         return stderr.getvalue()
+
+    def legacy_exit(self, error):
+        """A job stop saved before #463 as kind 'exit' (no pause_status), its provider error archived."""
+        temp = tempfile.TemporaryDirectory(prefix='job-route-legacy-')
+        self.addCleanup(temp.cleanup)
+        archive = Path(temp.name)/'archived-reviewer-01-abc123'
+        archive.mkdir()
+        events = archive/'reviewer-01.jsonl'
+        events.write_text(json.dumps({'type': 'error', 'error': error}) + '\n')
+        state = unrouted_stop('review_change', kind='exit', pause_status=None)
+        state['job_failure'].update(archive=str(archive), reason='Code Reviewer: provider exited 1 without a terminal '
+                                                                 'report; ' + error['message'])
+        state['stages'] = [{'stage': 'review_change', 'iteration': 2, 'events': str(events), 'rejected': True}]
+        return state
+
+    def test_a_quota_stop_saved_before_jobs_took_a_model_says_quota(self):
+        state = self.legacy_exit({'message': 'subscription usage limit reached'})
+        message = self.answer(state, runner)  # the runner's provider-error classifier reads the archived events
+        self.assertIn('The stopped Code Reviewer stopped on quota, but this stop was saved before a stopped job '
+                      'could take another model', message)
+        self.assertIn('once the quota resets, retry it unchanged with --resume-paused --retry-failed-stage '
+                      '--job-retry-token TOKEN', message)
+        self.assertNotIn('did not stop on quota', message)
+        # Without a classifier the cause is unknown, and the refusal claims none.
+        message = self.answer(state)
+        self.assertIn('The stopped Code Reviewer takes no other model: only a job stopped on quota or a '
+                      'content-filter refusal does', message)
+        self.assertNotIn('did not stop on quota', message)
+        # An archived error that is not about the model still says so.
+        other = self.legacy_exit({'message': 'connection reset by peer'})
+        self.assertIn('did not stop on quota or a content-filter refusal', self.answer(other, runner))
 
     def test_a_refused_stuck_stage_investigator_keeps_only_its_exact_retry(self):
         state = unrouted_stop()
