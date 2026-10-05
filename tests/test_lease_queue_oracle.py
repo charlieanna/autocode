@@ -24,8 +24,15 @@ INVALID_TIME = f"{INVALID_TYPE} or now < 0 or lease_seconds <= 0"
 INVALID_TEST = "test_invalid_time_and_unknown_ack"
 
 
+PROCESS_TEST = "test_repeated_worker_death_deadline_recovery_and_fencing"
+
+
 class LeaseOracleTests(unittest.TestCase):
-    def check_hidden(self, extra="", overlay=None):
+    def check_hidden(self, extra="", overlay=None, every_file=False):
+        """Run the in-process contract file, or with every_file the whole hidden directory.
+
+        The process-recovery file starts a dozen interpreters, so only the controls aimed at it run it.
+        """
         with tempfile.TemporaryDirectory(prefix="lease-oracle-control-") as tmp:
             project = Path(tmp) / "project"
             shutil.copytree(SCENARIO / "seed", project, ignore=IGNORED)
@@ -34,7 +41,12 @@ class LeaseOracleTests(unittest.TestCase):
                 shutil.copytree(overlay, project, dirs_exist_ok=True, ignore=IGNORED)
             source = project / "leasequeue" / "__init__.py"
             source.write_text(source.read_text() + extra)
-            return hidden_tests(project, SCENARIO / "hidden")
+            hidden = SCENARIO / "hidden"
+            if not every_file:
+                hidden = Path(tmp) / "contract"
+                hidden.mkdir()
+                shutil.copy(SCENARIO / "hidden" / "test_contract.py", hidden)
+            return hidden_tests(project, hidden)
 
     def assert_rejected_by(self, proc, names):
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
@@ -42,8 +54,13 @@ class LeaseOracleTests(unittest.TestCase):
                          set(names), proc.stderr)
 
     def test_reference_valueerror_convention_passes(self):
-        proc = self.check_hidden()
+        proc = self.check_hidden(every_file=True)
         self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_tokens_reused_by_a_new_process_fail_only_the_recovery_test(self):
+        # A per-process counter hands a restarted worker the token a dead worker held.
+        proc = self.check_hidden(overlay=SCENARIO / "broken" / "process-local-tokens", every_file=True)
+        self.assert_rejected_by(proc, [PROCESS_TEST])
 
     def test_typeerror_for_bools_is_allowed(self):
         proc = self.check_hidden(claim_variant(
