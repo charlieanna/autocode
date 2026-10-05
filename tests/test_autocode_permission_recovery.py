@@ -60,6 +60,43 @@ class PermissionRecovery(unittest.TestCase):
             self.assertIsNone(limits.stop_reason(state, 2, 3))
             self.assertEqual("PAUSED_TIMEOUT_RECOVERY", limits.stop_reason(state, 3, 3)[0])
 
+    def held(self, **fields):
+        context = self.prepare("terra", recovery.operation(
+            "permission requested: external_directory (/tmp/probe/*)"), [], [])
+        context.update(stage="terra", events="builder-02.jsonl", source_revision="retained", **fields)
+        stages = [{"stage": "terra", "events": "builder-02.jsonl", "abandoned": True}]
+        return {"workspace": str(self.workspace), "recovery_context": context, "stages": stages}
+
+    def test_the_hold_ends_once_an_attempt_of_its_stage_is_accepted_but_not_after_a_diagnosis(self):
+        # #301: an authorized attempt that succeeds without changing the source must not leave the
+        # next stage (the Tester) held by the Builder's old denial.
+        state = self.held(repeat_count=2)
+        with patch.object(limits, "snapshot", return_value={"revision": "retained"}):
+            self.assertEqual("PAUSED_REPEATED_FAILURE", limits.stop_reason(state, 0, 3)[0])
+            for row, held in (({"stage": "investigate_stuck", "events": "investigator.jsonl"}, True),
+                              ({"stage": "terra", "events": "builder-03.jsonl", "abandoned": True}, True),
+                              ({"stage": "terra", "events": "builder-03.jsonl"}, False)):
+                with self.subTest(row=row):
+                    reason = limits.stop_reason({**state, "stages": state["stages"] + [row]}, 0, 3)
+                    self.assertEqual(held, reason is not None and reason[0] == "PAUSED_REPEATED_FAILURE")
+
+    def test_the_denial_ceiling_holds_every_launch_too(self):
+        with patch.object(limits, "snapshot", return_value={"revision": "retained"}):
+            self.assertIsNone(limits.stop_reason(self.held(repeat_count=1, denied_since_accepted=2), 0, 3))
+            reason = limits.stop_reason(self.held(repeat_count=1, denied_since_accepted=3), 0, 3)
+            self.assertEqual("PAUSED_REPEATED_FAILURE", reason[0])
+            self.assertIn("ceiling", reason[1])
+
+    def test_a_diagnosis_between_denials_does_not_restart_the_ceiling(self):
+        denied = recovery.operation("permission requested: external_directory (/srv/other/*)")
+        denials = [{"stage": "sol", "events": f"validator-0{n}.jsonl", "abandoned": True,
+                    "rejection_reason": recovery.DENIAL_MARKER + " before a terminal turn"} for n in range(1, 5)]
+        for between, expected in (({"stage": "investigate_stuck"}, 4), ({"stage": "astra_diagnose"}, 4),
+                                  ({"stage": "sol"}, 0)):
+            with self.subTest(between=between):
+                after = self.prepare("sol", denied, [], denials + [between])
+                self.assertEqual(expected, after["denied_since_accepted"])
+
     def test_two_runs_do_not_share_scratch_even_for_the_same_denial(self):
         denied = recovery.operation("permission requested: external_directory (/tmp/probe/*)")
         first = self.prepare("terra", denied, [], [], "first")

@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import re
 
+import autocode_recovery_accounting as accounting
 from scenarios.harness.adversarial import AdversarialCase
 from scenarios.harness.driver import default_autocode
 from scenarios.harness.processes import run_cli
@@ -38,9 +39,11 @@ class PermissionRecoveryCLI(AdversarialCase):
         self.assertFalse(view["done"], view)
         self.assertEqual("PAUSED_REPEATED_FAILURE", (view.get("recovery") or {}).get("cause"), view)
         flags = self.advertised(view)
-        # #288: only accepted actions, each exercised by the tests below. A denial never spends the
-        # timeout-recovery budget, so the grant is never the way past it.
-        self.assertEqual({"--resume-paused", "--retry-failed-stage", "--resolver-response"}, flags, view)
+        # #288: only accepted actions, each exercised by the tests below with every flag its command
+        # names. A denial never spends the timeout-recovery budget, so the grant is never the way past it.
+        self.assertEqual({"--resume-paused", "--retry-failed-stage", "--resolver-request", "--resolver-token",
+                          "--resolver-response", "--resolver-message"}, flags, view)
+        self.assertIn("retry_failed_stage", [row["kind"] for row in view["recovery"]["actions"]])
 
     def launches(self):
         return len(self.trace("builder_permission_handoff"))
@@ -142,12 +145,18 @@ class PermissionRecoveryCLI(AdversarialCase):
         self.assertEqual(1, [e["kind"] for e in state["user_events"]].count("failure_retry_authorized"))
 
     def test_a_rejected_retry_leaves_the_hold_and_the_same_retry_is_accepted_again(self):
-        """A command refused after its authorization was saved lifts nothing for any later command."""
-        self.held("builder_permission_until_retry")
+        """A command refused after its flag was validated saves nothing and lifts nothing for any later command."""
+        view = self.held("builder_permission_until_retry")
         rejected = self.operator("--resume-paused", "--retry-failed-stage", "--retry-builder", "M9")
         self.assertEqual(2, rejected.returncode)
         self.assertIn("Input rejected", rejected.stderr)
+        self.assertNotIn("Retry authorized", rejected.stdout)
         self.assertEqual(2, self.launches(), rejected.stdout + rejected.stderr)
+        after = self.status()
+        self.assertEqual(view["needs"]["resolver_request_id"], after["needs"]["resolver_request_id"],
+                         "the rejected command withdrew the published request")
+        self.assertNotIn("failure_retry_authorized",
+                         [e["kind"] for e in self.driver.state()["user_events"]])  # evidence only
         for command in (("--resume-paused", "--max-seconds", "900"), ("--resume-paused",)):
             with self.subTest(command=command):
                 self.assertEqual(2, self.operator(*command).returncode)
@@ -169,9 +178,11 @@ class PermissionRecoveryCLI(AdversarialCase):
             retried = self.operator("--resume-paused", "--retry-failed-stage")
             self.assertNotIn("Input rejected", retried.stderr, retried.stdout + retried.stderr)
             self.assertEqual(denials, len(self.trace("builder_permission_denied")), retried.stdout + retried.stderr)
-            # Three Builder denials reach the no-progress limit and spent()'s estimate of the recovery
-            # budget; neither stops the next authorized attempt, and neither replaces the hold.
+            # Denials spend neither the recovery budget nor the Builder's unchanged-batch limit, so the
+            # hold is never replaced by a budget stop and the authorized attempt keeps the whole timeout
+            # allowance.
             self.assertHeldWithRetry(self.status())
+            self.assertEqual(0, accounting.spent(self.driver.state()))
         for _ in range(2):
             self.assertEqual(2, self.operator("--resume-paused").returncode)
         self.assertEqual(4, len(self.trace("builder_permission_denied")), "a used authorization launched again")
@@ -180,3 +191,14 @@ class PermissionRecoveryCLI(AdversarialCase):
         self.assertEqual([1, 2, 3, 4], [row["repeat_count"] for row in state["automatic_permission_recoveries"]])
         self.assertEqual(recovered, state.get("automatic_recoveries_since_resume", 0))
         self.assertEqual(2, [e["kind"] for e in state["user_events"]].count("failure_retry_authorized"))
+
+    def test_an_authorized_attempt_that_changes_nothing_moves_the_run_to_the_tester(self):
+        """The denied attempts already wrote the solution; the accepted retry must not leave the Tester held."""
+        self.held("builder_permission_written_until_retry")
+        retried = self.operator("--resume-paused", "--retry-failed-stage")
+        self.assertNotIn("Input rejected", retried.stderr, retried.stdout + retried.stderr)
+        self.assertEqual(3, self.launches(), retried.stdout + retried.stderr)
+        self.assertTrue(self.trace("stage_enter", "sol"), "the Builder's old denial still held the Tester")
+        view = self.finish()
+        self.assertEqual("TASK_COMPLETE", view["status"], view)
+        self.assertEqual(3, self.launches())

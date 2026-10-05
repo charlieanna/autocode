@@ -28,8 +28,11 @@ the counter for unchanged implementation batches.
 
 Only Builder timeout/permission recoveries now increment that counter. The
 separate automatic-recovery allowance and its history still apply to every
-stage. For saved runs, an explicit plain resume can correct an issued
-pre-build no-progress hold only when the recorded history proves that no
+stage. (#301 later stopped counting Builder permission recoveries there: a run
+without a recorded recovery count estimates it from that counter, so each denial
+spent the timeout-recovery budget a denial must never consume. Denials keep
+their own repeat hold and ceiling.) For saved runs, an explicit plain resume
+can correct an issued pre-build no-progress hold only when the recorded history proves that no
 implementation was attempted and distinct planning recoveries account for the
 count. Workflow recognition is an allowed pre-build step. Unknown histories,
 implementation attempts, stale requests, absent approval and other recovery

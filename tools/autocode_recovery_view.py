@@ -193,7 +193,11 @@ def project(state, need=None):
         actions.append(_action('retry_builder', 'Retry the stopped Builder', 'Grant one attempt for the listed task after inspection, preserving failure history and model pins. This does not approve a different plan.', milestone_ids=members))
     elif need.get('retry_report_attempt'):
         actions.append(_action('retry_report', 'Retry this report', 'Repair the report for this exact attempt. This does not approve its contents or replace verification.', attempt_id=need['retry_report_attempt']))
-    elif cause == 'PAUSED_REPEATED_FAILURE' and not state.get('active_stage') and not state.get('active_runner_check'):
+    elif (cause == 'PAUSED_REPEATED_FAILURE' and not state.get('active_stage') and not state.get('active_runner_check')
+          and '--retry-failed-stage' in str(state.get('stop_reason') or '')):
+        # Only where the stop itself names the retry: the runner advises it exactly where the CLI
+        # accepts it (autocode_failure_retry.target, repeated_failure_resume_guard), which needs the
+        # current source revision this projection never reads (#288).
         actions.append(_action('retry_failed_stage', 'Retry the failed step once', 'Grant one fresh attempt for the recorded repeated failure, subject to the existing limits and verification gates.'))
     elif need.get('kind') in ('answer', 'review', 'approve_plan'):
         actions.append(_action('decision', 'Inspect the current request', 'Only a currently authorized question, plan or evidence card can accept a response in chat. This action does not answer or approve it.'))

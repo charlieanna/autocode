@@ -37,20 +37,10 @@ def spent(state: dict) -> int:
                      max(state.get("consecutive_timeout_recoveries", 0), state.get("no_progress_batches", 0)))
 
 
-def recorded(state: dict) -> int:
-    """spent() without its estimate from no_progress_batches. Writes nothing.
-
-    That counter also grows with each Builder denial retry and each unchanged Builder batch, neither of
-    which spends this budget, so only an operator-authorized retry past a denial hold is admitted
-    against this count (autocode_failure_retry); every automatic launch keeps spent().
-    """
-    return state.get("automatic_recoveries_since_resume", state.get("consecutive_timeout_recoveries", 0))
-
-
 def exhausted(state: dict, spent_count: int, maximum: int) -> bool:
-    """Whether the budget stops a launch: ``spent_count`` of ``maximum`` spent, or
-    settings.limits.no_progress_batches consecutive timeout recoveries. A zero threshold does not
-    disable the lifetime allowance."""
+    """Whether the budget stops a launch (autocode_recovery_limits.stop_reason): ``spent_count`` of
+    ``maximum`` spent, or settings.limits.no_progress_batches consecutive timeout recoveries. A zero
+    threshold does not disable the lifetime allowance. Writes nothing."""
     limit = state.get("settings", {}).get("limits", {}).get("no_progress_batches", 3)
     return spent_count >= maximum or bool(limit and consecutive_timeouts(state) >= limit)
 

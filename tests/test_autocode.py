@@ -842,7 +842,8 @@ class RetrofitTest(unittest.TestCase):
         self.assertEqual("terra", self.state["next_stage"])
         self.assertNotIn("active_stage", self.state)
         self.assertEqual(1, len(self.state["automatic_permission_recoveries"]))
-        self.assertEqual(1, runner.recovery_count(self.state))
+        # A denial retry spends no timeout recovery, not even through the unchanged-batch estimate.
+        self.assertEqual(0, runner.recovery_count(self.state))
         self.assertIn("workspace-contained", self.state["recovery_context"]["instruction"])
 
     def test_crash_after_completed_terra_reconciles_without_reexecution(self):
@@ -1017,6 +1018,7 @@ class RetrofitTest(unittest.TestCase):
         history = copy.deepcopy(state['failure_history'])
         stages = copy.deepcopy(state['stages'])
         authorization = runner.authorize_failure_retry(state, self.run, self.root)
+        runner.record_failure_retry(state, self.run, authorization)  # once the command is accepted
         # Since 009c8b8 authorization is audit plus a one-use grant: the failure
         # history and stage provenance are preserved, never erased.
         self.assertEqual(history, state['failure_history'])

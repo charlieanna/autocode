@@ -28,7 +28,10 @@ class FailureRetryTests(unittest.TestCase):
         record = self.seed()
         history = copy.deepcopy(self.state['failure_history'])
         stages = copy.deepcopy(self.state['stages'])
+        before = (self.run / 'state.json').read_bytes()
         authorization = runner.authorize_failure_retry(self.state, self.run, self.root)
+        self.assertEqual(before, (self.run / 'state.json').read_bytes(), 'validation alone saves nothing')
+        runner.record_failure_retry(self.state, self.run, authorization)  # the command was accepted
         self.assertEqual(history, self.state['failure_history'])
         self.assertEqual(stages, self.state['stages'])
         reloaded = support.read(self.run / 'state.json')
@@ -87,7 +90,8 @@ class FailureRetryTests(unittest.TestCase):
     # A held external_directory denial (#301). The CLI flow is in test_permission_recovery_cli.
     def denial(self, number, repeat, since, revision):
         attempt = f'001/builder-{number:02d}'
-        return {'attempt_id': attempt, 'incident_id': 'incident-1', 'events': str(self.run / f'{attempt}.jsonl'),
+        return {'attempt_id': attempt, 'incident_id': 'incident-1', 'stage': 'terra',
+                'events': str(self.run / f'{attempt}.jsonl'),
                 'denied_operation': {'capability': 'external_directory', 'path': '/tmp/diagnostic/*',
                                      'classification': 'external_temporary_directory'},
                 'diagnostic_directory': str(self.root / 'scratch'), 'repeat_count': repeat,
@@ -95,9 +99,11 @@ class FailureRetryTests(unittest.TestCase):
 
     def hold(self, *recoveries, **changes):
         revision = support.snapshot(self.root)['revision']
-        rows = [self.denial(*row, revision) for row in recoveries or ((1, 1, 1), (2, 2, 2))]
+        rows = [self.denial(*row, revision) for row in recoveries or ((1, 1, 0), (2, 2, 1))]
         self.state['settings']['limits'] = {'no_progress_batches': 3}
-        self.state.update(status='PAUSED_REPEATED_FAILURE', next_stage='terra', no_progress_batches=len(rows),
+        # The runner archives each denied attempt in the stage history.
+        self.state['stages'] += [{'stage': 'terra', 'events': row['events'], 'abandoned': True} for row in rows]
+        self.state.update(status='PAUSED_REPEATED_FAILURE', next_stage='terra',
                           automatic_permission_recoveries=rows, recovery_context=dict(rows[-1]), **changes)
         support.atomic_json(self.run / 'state.json', self.state)
         self.addCleanup(runner.failure_retry.disarm)
@@ -107,19 +113,26 @@ class FailureRetryTests(unittest.TestCase):
         current = revision or support.snapshot(self.root)['revision']
         return runner.failure_retry.target(state, cause=cause or state['status'], revision=lambda: current)
 
+    def authorize(self, state):
+        """The flag validated, then saved as an accepted command saves it."""
+        return runner.record_failure_retry(state, self.run, runner.authorize_failure_retry(state, self.run, self.root))
+
     def launch_attempt(self, number):
         return {'stage': 'terra', 'iteration': 1, 'output': str(self.run / f'builder-{number:02d}.json'),
                 'started_at': support.now()}
 
-    def test_a_saved_denial_authorization_lifts_the_hold_only_for_the_command_that_armed_it(self):
+    def test_a_denial_authorization_saves_nothing_until_accepted_and_lifts_only_where_armed(self):
         self.hold()
+        before, snapshot = (self.run / 'state.json').read_bytes(), copy.deepcopy(self.state)
         authorization = runner.authorize_failure_retry(self.state, self.run, self.root)
         self.assertEqual('permission_hold', authorization['kind'])
-        saved = support.read(self.run / 'state.json')
-        for state in (saved, self.state):
+        self.assertEqual((before, snapshot), ((self.run / 'state.json').read_bytes(), self.state),
+                         'a command rejected after validating the flag leaves no trace')
+        saved = runner.record_failure_retry(self.state, self.run, authorization)
+        for state in (support.read(self.run / 'state.json'), self.state):
             with self.assertRaisesRegex(support.Paused, 'Repeated external_directory denial'):
                 runner.timeout_recovery_guard(state)  # recorded, but no command armed it
-        runner.failure_retry.arm(authorization)
+        runner.failure_retry.arm(saved)
         runner.timeout_recovery_guard(self.state)
         runner.failure_retry.launched(self.state, self.launch_attempt(3))
         with self.assertRaisesRegex(support.Paused, 'Repeated external_directory denial'):
@@ -131,23 +144,25 @@ class FailureRetryTests(unittest.TestCase):
 
     def test_reissuing_before_the_attempt_launches_reuses_the_authorization(self):
         self.hold()
-        first = runner.authorize_failure_retry(self.state, self.run, self.root)
-        again = runner.authorize_failure_retry(support.read(self.run / 'state.json'), self.run, self.root)
+        first = self.authorize(self.state)
+        again = self.authorize(support.read(self.run / 'state.json'))
         self.assertEqual(first, again)
         saved = support.read(self.run / 'state.json')
         self.assertEqual(1, len(saved['failure_retry_authorizations']))
         self.assertEqual(1, [e['kind'] for e in saved['user_events']].count('failure_retry_authorized'))
 
-    def test_the_authorized_attempt_meets_the_recorded_budget_not_the_no_progress_estimate(self):
-        # Three Builder denials: spent() estimates 3 recoveries from no_progress_batches, none recorded.
-        self.hold((1, 1, 1), (2, 2, 2), (3, 3, 3))
-        self.assertEqual(3, runner.recovery_count(self.state))
-        authorization = runner.authorize_failure_retry(self.state, self.run, self.root)
-        runner.failure_retry.arm(authorization)
+    def test_the_retry_is_offered_only_where_the_launch_guard_and_build_loop_admit_it(self):
+        self.hold((1, 1, 0), (2, 2, 1), (3, 3, 2))
+        self.assertEqual(0, runner.recovery_count(self.state), 'denials spend no timeout recovery')
+        runner.failure_retry.arm(self.authorize(self.state))
         runner.timeout_recovery_guard(self.state)
-        # A spent recorded budget stops it, so the stop never advertises it.
+        # A spent budget or a reached unchanged-batch limit would stop the attempt, so neither advertises it.
+        for change in ({'automatic_recoveries_since_resume': runner.MAX_AUTOMATIC_RECOVERIES},
+                       {'no_progress_batches': 3}):
+            with self.subTest(change=change):
+                state = {**copy.deepcopy(self.state), **change}
+                self.assertIsNone(self.target(state))
         self.state['automatic_recoveries_since_resume'] = runner.MAX_AUTOMATIC_RECOVERIES
-        self.assertIsNone(self.target(self.state))
         with self.assertRaisesRegex(support.Paused, 'budget exhausted'):
             runner.timeout_recovery_guard(self.state)
 
@@ -160,10 +175,12 @@ class FailureRetryTests(unittest.TestCase):
         self.assertIsNotNone(self.target(ceiling), 'the denial ceiling holds too')
         cases = {
             'first denial retries automatically': lambda s: s.update(
-                automatic_permission_recoveries=[self.denial(1, 1, 1, revision)],
-                recovery_context=self.denial(1, 1, 1, revision)),
+                automatic_permission_recoveries=[self.denial(1, 1, 0, revision)],
+                recovery_context=self.denial(1, 1, 0, revision)),
             'a later recovery replaced the context': lambda s: s.update(recovery_context={
                 'attempt_id': '001/builder-03', 'events': 'other.jsonl', 'timeout_kind': 'idle'}),
+            'an attempt of the stage was accepted since': lambda s: s['stages'].append(
+                {'stage': 'terra', 'events': str(self.run / '001/builder-03.jsonl')}),
             'next stage moved': lambda s: s.update(next_stage='sol'),
             'attempt still active': lambda s: s.update(active_stage={'stage': 'terra'}),
             'report repair pending': lambda s: s.update(pending_report_repair={'attempts': 1}),

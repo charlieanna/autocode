@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shlex
+import shutil
 import sys
 from pathlib import Path
 
@@ -16,7 +17,7 @@ FAULTS = frozenset({
     "investigator_iteration", "investigator_run_root", "investigator_missing_citation",
     "investigator_uncited_input", "truncated_once", "truncated_repeated",
     "completion_denial", "builder_permission_corrected", "builder_permission_repeated",
-    "builder_permission_distinct", "builder_permission_until_retry",
+    "builder_permission_distinct", "builder_permission_until_retry", "builder_permission_written_until_retry",
 })
 MISSING_REF = "README.md.adversarial-missing"
 
@@ -105,7 +106,10 @@ def install(fake, configuration: dict, trace) -> None:
         mark("provider_stage", stage=stage, invocation=counts[stage], repair=repair)
         if attack.startswith("builder_permission_") and stage == "terra":
             partial = Path("greet.py")
-            if counts[stage] == 1:
+            # written_until_retry: each denied attempt first writes the whole solution, so the
+            # authorized attempt is accepted without changing the source.
+            written = attack == "builder_permission_written_until_retry"
+            if counts[stage] == 1 and not written:
                 partial.write_text("# retained partial implementation\n")
             mark("builder_permission_handoff", recovery=data.get("recovery_context"),
                  artifact_policy=data.get("builder_artifact_policy"),
@@ -113,7 +117,10 @@ def install(fake, configuration: dict, trace) -> None:
             # until_retry repeats the same denial once (the run holds), then corrects it on the
             # one fresh attempt an operator authorizes.
             if (counts[stage] == 1 or attack in ("builder_permission_repeated", "builder_permission_distinct")
-                    or (attack == "builder_permission_until_retry" and counts[stage] == 2)):
+                    or (attack.endswith("_until_retry") and counts[stage] == 2)):
+                if written:
+                    shutil.copytree(fake.CONFIG["reference"], Path.cwd(), dirs_exist_ok=True,
+                                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
                 mark("builder_permission_denied", invocation=counts[stage])
                 # A distinct denied path per invocation makes each denial a new
                 # incident, so only the permission ceiling can bound this loop.
@@ -128,7 +135,7 @@ def install(fake, configuration: dict, trace) -> None:
             policy = data.get('builder_artifact_policy') or {}
             if not directory.is_relative_to(Path(policy.get('evidence_directory', 'missing-artifact-directory'))):
                 raise RuntimeError('recovery scratch path contradicts the Builder artifact policy')
-            if partial.read_text() != "# retained partial implementation\n":
+            if not written and partial.read_text() != "# retained partial implementation\n":
                 raise RuntimeError("partial work was lost before the corrected diagnostic")
             receipt = directory / "diagnostic.txt"
             receipt.write_text("corrected diagnostic executed\n")

@@ -288,10 +288,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                     pass  # exact job authorization was validated before generic recovery
                 elif args.retry_failed_stage:
                     try:
+                        # Validated only: saved below once the rest of this command is accepted.
                         authorization = runner.authorize_failure_retry(state, run_dir, workspace)
-                        print(failure_retry.NOTICE if authorization.get('kind') == failure_retry.PERMISSION_HOLD
-                              else "Failure retry authorized for the recorded repeated failure; "
-                                   "one fresh attempt proceeds under existing limits.", flush=True)
                     except ValueError as error:
                         print(f"Input rejected: {error}", file=sys.stderr)
                         return 2
@@ -469,6 +467,12 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         print(rendered)
         print(f"Saved; no agent launched by this action. {run_finder.continue_hint(run_dir, state, args.unit)}.")
         return 0
+    if authorization:
+        # The rest of this command is accepted: save the retry (withdrawing the request it answers).
+        authorization = runner.record_failure_retry(state, run_dir, authorization)
+        print(failure_retry.NOTICE if authorization['kind'] == failure_retry.PERMISSION_HOLD
+              else "Failure retry authorized for the recorded repeated failure; "
+                   "one fresh attempt proceeds under existing limits.", flush=True)
     if state["status"] == "TASK_COMPLETE":
         runner.recheck_completion(state, workspace)
         if state["status"] != "TASK_COMPLETE":
@@ -531,6 +535,6 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     if conversation_ingress.record_build_start(state, getattr(args, 'expected_goal_token', None),
                                                token_for=goals.token, is_approved=goals.approved):
         runner.write_json(state_path, state)
-    # Every check of this command has passed: only now may its authorization launch an attempt.
+    # Every check of this command has passed: only now may its saved authorization launch an attempt.
     failure_retry.arm(authorization)
     return None

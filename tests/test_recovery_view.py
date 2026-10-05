@@ -176,13 +176,18 @@ class RecoveryViewTests(unittest.TestCase):
             'a': {'identity': {'stage': 'terra', 'artifact_hash': 'first'}, 'count': 3,
                   'attempts': ['1','2','3'], 'last_error': 'assertion failed', 'last_seen': '2026-10-01'},
             'b': {'identity': {'stage': 'sol', 'artifact_hash': 'second'}, 'count': 1,
-                  'attempts': ['4'], 'last_seen': '2026-10-02'}})
+                  'attempts': ['4'], 'last_seen': '2026-10-02'}},
+            stop_reason='Unchanged terra artifact failed 3 consecutive times; fix the cause before resuming, '
+                        'or authorize one inspected retry with --retry-failed-stage.')
         result = self.card(state)
         self.assertEqual(['b','a'], [row['id'] for row in result['failure_groups']])
         self.assertEqual('Builder', result['failure_groups'][1]['role'])
         self.assertEqual(3, result['failure_groups'][1]['count'])
         self.assertIsNone(result['failure_groups'][0]['last_reason'])
         self.assertIn('retry_failed_stage', [row['kind'] for row in result['actions']])
+        # #288: a repeated-failure stop that does not advise the retry (the CLI would refuse it) offers none.
+        state['stop_reason'] = 'Repeated external_directory denial for /tmp/x/*. Send corrective information.'
+        self.assertNotIn('retry_failed_stage', [row['kind'] for row in self.card(state)['actions']])
 
     def test_parallel_retry_targets_only_failed_members_and_never_a_running_batch(self):
         state = self.state('PAUSED_ORCHESTRATOR_WORKER', next_stage='orchestrator', orchestration_batch={

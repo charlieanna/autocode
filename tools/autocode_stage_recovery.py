@@ -590,20 +590,19 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
     # A denial retry never consumes the shared timeout-recovery budget: the
     # permission path has its own per-incident repeat guard and this separate
     # ceiling, so a timeout stop always means actual timeout/capacity causes.
+    # Nor is it an unchanged Builder batch (no_progress_batches): spent()'s
+    # estimate for a run without a recorded recovery count reads that counter,
+    # so counting denials there charged them to the timeout budget after all.
     state.setdefault("automatic_permission_recoveries", []).append(recovery)
     state.setdefault("user_events", []).append({"kind": "automatic_permission_recovery", "actor": "runner",
                                                    "at": recovery["at"], "attempt_id": recovery["attempt_id"],
                                                    "next_stage": next_stage, "changed_files": record["changed_files"]})
     state["recovery_context"] = recovery
-    if (record.get('original_stage') or record['stage']) == 'terra':
-        state["no_progress_batches"] = state.get("no_progress_batches", 0) + 1
     resolver_runtime.observe_operational_recovery(records, state, run_dir, workspace, recovery)
     state.update(status="RUNNING", phase="PLANNING" if planning.is_planning(state, next_stage) else "EXECUTING",
                  next_stage=next_stage)
     state.pop("stop_reason", None)
-    message = (permission_recovery.hold_message(recovery) if recovery['repeat_count'] >= 2 else
-               permission_recovery.ceiling_message(recovery)
-               if recovery['denied_since_accepted'] >= permission_recovery.MAX_PERMISSION_RECOVERIES else None)
+    message = permission_recovery.stop_message(recovery)
     if message:
         state.update(status='PAUSED_REPEATED_FAILURE', phase='PAUSED_OR_BLOCKED', stop_reason=message)
     records.write_json(run_dir / "state.json", state)
@@ -862,14 +861,14 @@ def prepare_abandoned_completion_revalidation(state, run_dir, workspace):
 
 
 def authorize_failure_retry(state, run_dir, workspace):
-    """Authorize one fresh attempt for an inspected, unchanged repeated failure or held denial.
+    """Validate one fresh attempt for an inspected, unchanged repeated failure or held denial.
 
-    The saved row (autocode_failure_retry.record) is the audit record and is
-    reused if this is re-issued before its attempt launches; loading the
-    checkpoint never grants an attempt. The returned authorization is consumed
-    in this invocation: by repeated_failure_resume_guard, and for a held
-    external_directory denial (#301) by the launch guard once the caller arms
-    it after all of the command's other validation has passed.
+    Writes nothing and returns the authorization for this invocation only. Once
+    the command has passed every other check, record_failure_retry saves it as
+    the audit record; loading the checkpoint never grants an attempt. A repeated
+    failure's authorization is checked by repeated_failure_resume_guard; a held
+    external_directory denial (#301) is lifted by the launch guard only for the
+    process that armed it (autocode_failure_retry).
     """
     published = state.get(resolver_human.PUBLIC)
     held = failure_retry.target(
@@ -883,13 +882,10 @@ def authorize_failure_retry(state, run_dir, workspace):
             record = None
         failure = record and (failures.repeated(state, record)
                               or (state.get('failure_history') or {}).get(record['failure_key'])) or {}
-        authorization = failure_retry.record(
+        return failure_retry.authorization(
             state, failure_retry.PERMISSION_HOLD, held, now=records.now(),
             failure_key=record['failure_key'] if record else None,
             identity=failure.get('identity'), count=failure.get('count'))
-        resolver_human.supersede_operational(state, 'Operator explicitly authorized one fresh attempt')
-        records.write_json(run_dir / 'state.json', state)
-        return authorization
     issued = resolver_human.current(state)
     issued_cause = (state.get('resolver', {}).get('human_escalations', {}).get(issued['request_id'], {})
                     .get('identity', {}).get('proposal', {}).get('origin', {}).get('pause_status')) if issued else None
@@ -913,8 +909,19 @@ def authorize_failure_retry(state, run_dir, workspace):
             or identity['stage'] != state.get('next_stage')):
         raise ValueError('Retry authorization requires the exact current source, stage and failure identity')
     stopped = {'attempt_id': records.attempt_id(record), 'events': record.get('events'), 'source_revision': revision}
-    authorization = failure_retry.record(state, failure_retry.REPEATED_FAILURE, stopped, now=records.now(),
-                                         failure_key=selected, identity=identity, count=repeated['count'])
-    resolver_human.supersede_operational(state, 'Operator explicitly authorized one scoped failure retry')
+    return failure_retry.authorization(state, failure_retry.REPEATED_FAILURE, stopped, now=records.now(),
+                                       failure_key=selected, identity=identity, count=repeated['count'])
+
+
+def record_failure_retry(state, run_dir, authorization):
+    """Save an authorization from authorize_failure_retry once its command passed every other check.
+
+    Records its row and event (autocode_failure_retry.record), withdraws the
+    operational request it answers and saves the state; returns the saved row.
+    """
+    saved = failure_retry.record(state, authorization)
+    resolver_human.supersede_operational(state, 'Operator explicitly authorized one fresh attempt'
+                                         if saved['kind'] == failure_retry.PERMISSION_HOLD else
+                                         'Operator explicitly authorized one scoped failure retry')
     records.write_json(run_dir / 'state.json', state)
-    return authorization
+    return saved
