@@ -26,8 +26,9 @@ elsewhere and are never candidates.
 choose() says which run each kind of invocation takes. A bare ``autocode`` never takes a
 finished run (relaunching one rechecks and redelivers it) or a run that ``autocode
 program`` or ``autocode tasks`` drives; those are listed with the command that names them.
-checkout_of() gives an explicit --run-dir its own checkout, and continue_hint() the line
-printed after a user action saved on a run.
+checkout_of() gives an explicit --run-dir its own checkout, resume_acknowledges() says at which
+saved statuses a bare ``autocode resume`` stands for --resume-paused, and continue_hint() the
+line printed after a user action saved on a run.
 
 A lower-layer module beside autocode_util: it imports nothing from AutoCode, so it can
 never join an import cycle. It is read-only: it creates no directory, takes no lock,
@@ -181,6 +182,21 @@ def choose(start, action: str, flags: str = "", unit: str | None = None) -> Cand
     raise RunNotFound(_ambiguous_message(search, unfinished, flags, unit, action))
 
 
+# Pauses `autocode resume` only shows: nothing guards them on relaunch, so acknowledging one would
+# rerun its stage before the user acted (the Design Reviewer would rewrite <design>.blockers.json).
+WAITS_FOR_AN_EDIT = ("PAUSED_DESIGN_CONFLICT",)
+
+
+def resume_acknowledges(status) -> bool:
+    """Whether a bare ``autocode resume`` stands for --resume-paused at this saved status.
+
+    autocode_args applies it, and also lets a resume companion acknowledge a verified operational
+    pause that AutoResolver published as WAITING_FOR_USER. A plain ``autocode`` only shows a pause.
+    """
+    status = str(status or "")
+    return status.startswith("PAUSED_") and status not in WAITS_FOR_AN_EDIT
+
+
 def continue_hint(run_dir, state: dict, unit: str | None = None) -> str:
     """The line after a user action saved on ``run_dir`` (its state is ``state``): how to go on.
 
@@ -200,6 +216,11 @@ def continue_hint(run_dir, state: dict, unit: str | None = None) -> str:
     if run.owner:
         return (f"`{OWNER_COMMAND[run.owner]}` drives it: rerun that command to advance it, or relaunch "
                 f"it yourself with: {_command(run, flags)}")
+    if resume_acknowledges(run.status):
+        # A plain relaunch only shows this pause; the word resume acknowledges it (autocode_args).
+        flags = " ".join(part for part in (flags, "resume") if part)
+        return (f"Continue with: {_command(run, flags)} (or autocode {flags} from its project while it "
+                "is the only unfinished run there)")
     plain = f"autocode {flags}" if flags else "plain autocode"
     return (f"Continue with: {_command(run, flags)} (or {plain} from its project while it is the only "
             "unfinished run there)")

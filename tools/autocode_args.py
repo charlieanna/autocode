@@ -41,9 +41,6 @@ READ_ACTIONS = ("--status", "--dry-run")
 # `autocode resume` and `autocode status`: commands, never a one-word task (`autocode -- status` is one).
 COMMAND_WORDS = ("resume", "status")
 COMMAND_MARK = "\0command-word"
-# Pauses `autocode resume` only shows: nothing guards them on relaunch, so acknowledging one would
-# rerun its stage before the user acted (the Design Reviewer would rewrite <design>.blockers.json).
-WAITS_FOR_AN_EDIT = ("PAUSED_DESIGN_CONFLICT",)
 
 
 def commands_help() -> str:
@@ -434,7 +431,7 @@ def _acknowledges_pause(args):
         if issued and issued['scope'] == 'operational_exhaustion':
             proposal = state['resolver']['human_escalations'][issued['request_id']]['identity']['proposal']
             status = str(proposal['origin'].get('pause_status', ''))
-    return status.startswith("PAUSED_") and status not in WAITS_FOR_AN_EDIT
+    return run_finder.resume_acknowledges(status)
 
 
 def _requires_resume(parser, args, flag):
