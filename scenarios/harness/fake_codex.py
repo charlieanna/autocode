@@ -385,6 +385,18 @@ def approach() -> list[str]:
     return [fix or f"Implement the requested change: {outcome()}"]
 
 
+def scenario_dir() -> Path:
+    """The catalog directory of the scenario being run: the solution the fake applies lies under it."""
+    return next(parent for parent in Path(CONFIG["reference"]).parents if (parent / "scenario.toml").is_file())
+
+
+def scripted_fault(name: str) -> dict:
+    """A scripted fault's module from scenarios/harness/. This script runs as a copy in the evidence
+    directory, so the module is found through the scenario directory instead of beside it."""
+    import runpy
+    return runpy.run_path(str(scenario_dir().parents[1] / "harness" / name))
+
+
 def contract(final: bool = False) -> dict:
     existing = (DATA.get("goal_contract") or {}).get("body") or {}
     if PROGRESSIVE and existing.get("intended_outcome") == RENEWED_OUTCOME:
@@ -429,6 +441,12 @@ def contract(final: bool = False) -> dict:
                                     ("kind", "milestone_id", "objective", "affected_paths",
                                      "requirements", "acceptance_criteria", "validation_plan")}
         return body
+    if CONFIG.get("fault") == "vacuous_refusal_tests":
+        # One "test: test_cN_..." criterion per reference test, as a Planner writes them; the runner's
+        # regression proof then checks each named test against the original code.
+        rows = scripted_fault("vacuous_refusal_provider.py")["criteria"](scenario_dir() / "reference")
+        body["acceptance_criteria"] = rows
+        body["milestones"][0]["acceptance_criteria"] = [row["id"] for row in rows]
     if (DATA.get("bug_diagnosis") or {}).get("root_cause"):
         body["task_kind"] = "bugfix"  # planned from a bug diagnosis
     if PROGRESSIVE and "PROGRESSIVE PLANNING" in PROMPT:
@@ -446,7 +464,8 @@ def contract(final: bool = False) -> dict:
     if final:
         body["initial_task"] = {"kind": "implement", "milestone_id": "M1", "objective": outcome(),
                                 "affected_paths": PATHS, "requirements": [requirements()[0]["text"]],
-                                 "acceptance_criteria": ["C1"], "validation_plan": [CHECK]}
+                                 "acceptance_criteria": [row["id"] for row in body["acceptance_criteria"]],
+                                 "validation_plan": [CHECK]}
         if os.environ.get("SCENARIO_FAKE_NEGATIVE_PLAN") == "1":
             body["initial_task"]["validation_plan"].append(
                 "Run `python3 greet.py Alice`, `python3 greet.py` and `python3 greet.py Alice Bob` "
@@ -694,10 +713,10 @@ def report_for(stage: str, data: dict) -> dict:
     planning = {"code_refs": [ref for ref in source_refs() if ref != "task"], "contract_changes": [], "conflict_resolutions": [], "requirement_trace": trace()}
     if CONFIG.get("fault", "").startswith("completion_rework_") and stage in (
             "terra", "sol", "astra_review", "astra_resolve"):
-        import runpy
-        scenario = next(parent for parent in Path(CONFIG["reference"]).parents
-                        if (parent / "scenario.toml").is_file())
-        provider = runpy.run_path(str(scenario.parents[1] / "harness" / "completion_rework_provider.py"))
+        provider = scripted_fault("completion_rework_provider.py")
+        return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
+    if CONFIG.get("fault") == "vacuous_refusal_tests" and stage in ("terra", "sol", "astra_review", "astra_resolve"):
+        provider = scripted_fault("vacuous_refusal_provider.py")
         return provider["report_for"](stage, data, common, CONFIG, run_check, requirements)
     if PROGRESSIVE:
         report = progressive_report(stage, data, common)

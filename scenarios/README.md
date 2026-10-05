@@ -152,6 +152,28 @@ counts, per scenario and mode, the `diagnosed` runs (`CORRECT`, `INCORRECT` or
 written from the handoff, so a fake `CORRECT` proves the route and the scoring,
 never how well a real model diagnoses.
 
+In `feature-stock-refusals` a Resolver call counts only when it is
+`astra_resolve`, not runner-owned, launched with a model, and saved its report;
+report repairs, `astra_diagnose` and Investigator calls never count. The trap is
+read from the runner's own record: a regression proof that failed because a
+planned `test_cN_*` test also passed on the original code. The first accepted
+call at that revision is scored (else the first saved one, which then fails
+`diagnosis_accepted`). Required: `diagnosis_accepted`,
+`diagnosis_names_each_vacuous_test` (by function name or its short `test_cN`
+form, in the diagnosis or the task),
+`diagnosis_explains_why_they_pass_on_original_code` (a cause, an exit status and
+the original code, by word lists), `resolver_chose_bounded_test_repair` (REWORK,
+an `implement` task naming `tests/test_stock.py`; BLOCKED fails),
+`repair_does_not_weaken_tests`, `resolver_stayed_read_only` and
+`repair_made_the_tests_discriminate` (the next build's proof is PASS with each
+of those tests under `fail_to_pass`). Reported only:
+`review_already_named_cause` (the same word lists over the Completion Owner's
+findings and task, so a correct diagnosis may be a confirmation),
+`resolver_added_beyond_review`, `resolver_calls_on_trap`, `model`, `cost_usd`,
+`trap_calls` (every counted call, scored the same way) and
+`other_resolver_calls` (calls at other revisions, kept for a human read). The
+word lists are lexical: a live attempt is read by a person before it is cited.
+
 The driver answers AutoCode's clarifying questions with AutoCode's own proposed
 default and records each answer in `result.json`. It approves the plan it is
 shown and accepts requested human reviews. It never writes AutoCode state and
@@ -376,6 +398,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `bugfix-trivial` | bugfix | An off-by-one, through the full bug-fix path: diagnosis, plan review and the user's approval, no requirements gathering, no questions. Its proportionality checks (no plan-review rounds, at most five model stages) come back with the short path for small fixes. |
 | `bugfix-not-reproducible` | bugfix | The reported bug does not exist in this code. Passes by saying so or asking; a "defensive" change to working code fails. |
 | `feature-refund-window` | feature | Built to reach AutoResolver (#59): the seed's `store_date()` helper ignores the store's UTC-8 offset, and the cap is on the running total of partial refunds. A plausible first attempt passes its own tests and fails hidden boundary tests; `diagnosis()` checks, by words, that AutoResolver's accepted diagnosis names a planted defect. Runs that never reach `astra_resolve` are `NOT_EXERCISED` (always, with the scripted model). |
+| `feature-stock-refusals` | feature | AutoResolver on a natural failure (#59). On the original code `stock.py move` is an unknown subcommand, so argparse exits 2 and never touches the store: refusal tests in the seed's style (exit 2, stderr, unchanged bytes) pass there too, and the runner's regression proof rejects them. No executed check fails, so the Completion Owner's REWORK goes to AutoResolver rather than straight back to the Builder (#294). `check()` judges the product (hidden refusal tests; each delivered move/remove test must fail on the original code); `diagnosis()` scores the Resolver call ([Diagnosis](#diagnosis)). The scripted run is `CORRECT`; `SCENARIO_FAKE_RESOLVER=misattribute` makes its Resolver blame `stock.py` and is `INCORRECT` while the run still passes. |
 | `feature-timesheet-by-project` | feature | Adding an option to an existing CLI without changing existing output. |
 | `implement-locked-design` | feature | An approved design is a constraint: specified modules and signatures (checked by AST), clock injected, no questions about settled decisions. A single-class "simplification" fails. |
 | `implement-design-conflict` | feature | The approved design contradicts a frozen API. The right ending is a stop with the conflict written down and no code changed (`expected = "stop"`). |
