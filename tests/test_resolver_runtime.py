@@ -1,6 +1,6 @@
 """Runner boundary integration, with no live models or autonomous code writes."""
 import copy
-from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
 import io
 import json
 import os
@@ -601,7 +601,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
         iteration, then route back to astra_diagnose for a fresh launch."""
         self.state.setdefault('stages', []).append({**self.state.pop('active_stage'),
             'stage': 'astra_diagnose', 'role': 'astra', 'iteration': self.state.get('iteration'),
-            'automatic_recovery': True, 'timed_out': True})
+            'automatic_recovery': True, 'timed_out': True, 'accounted': True, 'abandoned': True, 'rejected': True})
         self.state['next_stage'] = 'astra_diagnose'
 
     def test_charge_dispatch_is_a_no_op_without_an_admitted_diagnosis_request(self):
@@ -650,16 +650,22 @@ class OperationalDiagnosisTests(unittest.TestCase):
                 self.assertEqual([], launches)
                 self.assertNotIn('active_stage', self.state)
 
-    def test_unchanged_timeout_diagnosis_cannot_relaunch_without_novelty(self):
+    def test_charge_dispatch_charges_a_genuine_timeout_relaunch_again(self):
+        # A timed-out diagnosis returned no report, so its relaunch is not a repeated
+        # experiment (#422). It is a second genuine provider call and is charged again.
         self.repeated_terra_failure()
         self.admit()
         self.charge()
         self.assertEqual(1, self.state['resolver']['diagnostic_calls'])
         self.archive_timed_out_astra_diagnose_attempt()
+        self.charge()
+        self.assertEqual(2, self.state['resolver']['diagnostic_calls'])
+        # A third relaunch (the cap is 2) is refused before launch.
+        self.archive_timed_out_astra_diagnose_attempt()
         with self.assertRaises(support.Paused) as caught:
             self.charge()
-        self.assertEqual('PAUSED_NO_PROGRESS', caught.exception.status)
-        self.assertEqual(1, self.state['resolver']['diagnostic_calls'])
+        self.assertEqual('PAUSED_REPEATED_FAILURE', caught.exception.status)
+        self.assertEqual(2, self.state['resolver']['diagnostic_calls'])
 
     def test_charge_dispatch_pauses_at_the_cap_before_any_launch(self):
         self.repeated_terra_failure()
@@ -734,8 +740,11 @@ class OperationalDiagnosisTests(unittest.TestCase):
         self.assertEqual(2, self.state['resolver']['diagnostic_calls'])
 
     @contextmanager
-    def provider(self, *, value=None, timeout=False, uncertain=False):
-        """Exercise real run_role with fake process preflight, creation and wait."""
+    def provider(self, *, value=None, timeout=False, uncertain=False, failure=None):
+        """Exercise real run_role with fake process preflight, creation and wait.
+
+        ``failure`` ends every launch without a completed turn: 'capacity' reports model
+        capacity, 'denial' an external_directory denial of a different path each time."""
         value = value if value is not None else {
             'diagnosis': 'The summary field was omitted.',
             'recommendation': {'action': 'retry', 'rationale': 'Include a nonempty summary field.',
@@ -749,21 +758,31 @@ class OperationalDiagnosisTests(unittest.TestCase):
             self.assertEqual('codex', command[0])
             checkpoint = support.read(self.run / 'state.json')
             record = checkpoint['active_stage']
+            with open(record['prompt']) as prompt:  # What the provider was asked; removed after the stage.
+                record['prompt_text'] = prompt.read()
             launches.append(record)
-            if not record.get('report_only'):
+            if record['stage'] == 'astra_diagnose':
                 self.assertIn(record['diagnostic_reservation_id'], checkpoint['resolver']['diagnostic_reservations'])
                 self.assertEqual(len(checkpoint['resolver']['diagnostic_reservations']), checkpoint['resolver']['diagnostic_calls'])
-            support.atomic_json(command[command.index('-o') + 1], value)
             events = [{'type': 'thread.started', 'thread_id': record.get('expected_session') or 'diagnosis-session'}]
-            if not timeout and not uncertain:
-                events.append({'type': 'turn.completed'})
+            if failure == 'capacity':
+                events.append({'type': 'turn.failed', 'error': {'message': 'Selected model is at capacity'}})
+            elif failure == 'denial':
+                events.append({'type': 'error', 'message': 'permission requested: external_directory '
+                               f'(/outside/denied-{len(launches)}); auto-rejecting'})
+            else:
+                support.atomic_json(command[command.index('-o') + 1], value)
+                if not timeout and not uncertain:
+                    events.append({'type': 'turn.completed'})
             kwargs['stdout'].write(''.join(json.dumps(event) + '\n' for event in events))
             kwargs['stdout'].flush()
             return SimpleNamespace(pid=99999999)
 
+        waited = (-15, True) if timeout else (1, False) if failure else (0, False)
         with patch.object(runner.subprocess, 'Popen', side_effect=launch), \
              patch.object(runner.processes, 'preflight', return_value=None), \
-             patch.object(runner.processes, 'wait_for_stage', return_value=(-15, True) if timeout else (0, False)):
+             patch.object(runner.processes, 'wait_for_stage', return_value=waited), \
+             patch('time.sleep') if failure == 'capacity' else nullcontext():  # capacity recovery backs off
             yield launches
 
     def dispatch(self):
@@ -796,41 +815,146 @@ class OperationalDiagnosisTests(unittest.TestCase):
         self.assertEqual(1, saved['resolver']['diagnostic_calls'])
         self.assertEqual([2], list(saved['resolver']['attempts'].values()))
 
-    def test_valid_diagnosis_without_discriminating_change_is_not_another_builder_grant(self):
+    def diagnosis_retry_reaches_the_builder_once(self, value=None):
         self.repeated_terra_failure()
-        with self.provider() as launches:
+        with self.provider(value=value) as launches:
             self.assertEqual(2, self.cli('--diagnose-failed-stage', '--pause-after-stage'))
             self.state = support.read(self.run / 'state.json')
-            self.assertEqual(2, self.cli())
-        self.assertEqual(['astra_diagnose'], [row['stage'] for row in launches])
+            plan = copy.deepcopy(self.state['repair_plan'])
+            self.cli('--pause-after-stage')
+        # The fixture's report is not a Builder report; its repair has its own allowance.
+        self.assertEqual(['astra_diagnose', 'terra'], [row['stage'] for row in launches][:2])
+        self.assertEqual(1, [row['stage'] for row in launches].count('terra'))
+        receipt = launches[1]['recovery_novelty']
+        self.assertEqual(('repair', 'explicit_retry', 'diagnosis'),
+                         (receipt['action'], receipt['reason'], receipt['grant_kind']))
         saved = support.read(self.run / 'state.json')
-        self.assertIn('No causal progress', saved['stop_reason'])
+        self.assertEqual(1, saved['resolver']['diagnostic_calls'])
         self.assertTrue(saved['failure_history'])
+        return plan, launches[1]['prompt_text']
+
+    def test_valid_diagnosis_retry_reaches_the_builder_once(self):
+        # #422: a rejected report has no source change to propose, so the accepted diagnosis
+        # and its recommendation are the new information, and the Builder receives both.
+        # It buys one Builder attempt that returns a result.
+        plan, prompt = self.diagnosis_retry_reaches_the_builder_once()
+        self.assertEqual('The summary field was omitted.', plan['diagnosis'])
+        for text in ('The summary field was omitted.', 'Include a nonempty summary field.', 'Add the missing field.'):
+            self.assertIn(text, prompt)
+        self.assertNotIn('unattested_change', plan)
+
+    def test_unattestable_recovery_change_does_not_void_the_diagnosis_retry(self):
+        # The incident of an operational packet is the failed stage, not a check command, so a
+        # proposal citing one cannot be attested. Instead of pausing the paid retry as a stale
+        # handoff, or vanishing, it reaches the Builder as unattested advice with the reason.
+        value = {'diagnosis': 'The summary field was omitted.',
+                 'recommendation': {'action': 'retry', 'rationale': 'Include a nonempty summary field.',
+                                    'guidance': 'Add the missing field.', 'evidence_refs': []},
+                 'recovery_change': {'hypothesis': 'The Builder omits the summary field.', 'target': 'source.rb',
+                                     'before': 'x', 'after': 'y', 'expected_check': 'ruby test.rb',
+                                     'expected_result': 'passes', 'evidence_refs': ['event:item_1'],
+                                     'question': 'Why is the summary missing?'}}
+        plan, prompt = self.diagnosis_retry_reaches_the_builder_once(value)
+        self.assertEqual('operational-diagnosis', plan['kind'])
+        self.assertNotIn('recovery_change', plan)
+        self.assertEqual(value['recovery_change'], plan['unattested_change']['change'])
+        self.assertIn('not a bounded attested source change', plan['unattested_change']['reason'])
+        self.assertIn('The Builder omits the summary field.', prompt)
+
+    def test_diagnosis_retry_is_one_builder_attempt_that_returns_a_result(self):
+        self.repeated_terra_failure()
+        self.admit()
+        self.assertTrue(runner.resolver_runtime.finish_operational_diagnosis(
+            self.state, self.run, {'action': 'retry', 'rationale': 'Missing summary field; add it explicitly.'}))
+
+        def builder(name, state=None):
+            record = {'stage': 'terra', 'output': str(self.run / name), 'started_at': name}
+            runner.resolver_recovery.admit_dispatch(state or self.state, record, self.root, self.run)
+            return record
+        # The grant is the runner's own accepted outcome for this packet, not a plan that claims one.
+        retry, = [row for entry in self.state['failure_history'].values() for row in entry.get('diagnostic_retries', [])]
+
+        def outcome(state):
+            return next(row for row in state['stages'] if row.get('runner_owned')
+                        and (row.get('receipt') or {}).get('idempotency_key') == retry['receipt'])
+
+        def history(state):
+            return next(row for entry in state['failure_history'].values() for row in entry.get('diagnostic_retries', []))
+        forgeries = {
+            'plan edited after acceptance': lambda state: state['repair_plan']['recommendation'].update(
+                rationale='Edited after acceptance.'),
+            'outcome not a retry': lambda state: outcome(state)['decision'].update(action='escalate'),
+            'outcome not runner-owned': lambda state: outcome(state).pop('runner_owned'),
+            'another plan kind': lambda state: state['repair_plan'].update(kind='known-correction'),
+            'retry of another packet': lambda state: history(state).update(
+                recovery_packet={**retry['recovery_packet'], 'sha256': '0' * 64})}
+        for name, forge in forgeries.items():
+            with self.subTest(forgery=name):
+                forged = copy.deepcopy(self.state)
+                forge(forged)
+                with self.assertRaisesRegex(support.Paused, 'No causal progress'):
+                    builder('forged.json', forged)
+        first = builder('first.json')
+        self.assertEqual('diagnosis', first['recovery_novelty']['grant_kind'])
+        # A Builder attempt archived after a timeout returned nothing, so it does not spend the retry.
+        self.state['stages'].append({**first, 'timed_out': True, 'accounted': True, 'automatic_recovery': True,
+                                     'abandoned': True, 'rejected': True})
+        second = builder('second.json')
+        self.assertEqual('explicit_retry', second['recovery_novelty']['reason'])
+        self.state['stages'].append(second)
+        with self.assertRaisesRegex(support.Paused, 'No causal progress'):
+            builder('third.json')
 
     def test_shared_dispatch_real_timeout_recovery_reload_and_replacement_cap(self):
+        # Automatic timeout recovery's relaunch is admitted (#422) and still charged.
         self.repeated_terra_failure()
         self.admit()
         with self.provider(timeout=True) as launches:
-            self.assertIs(runner.autopilot.SKIP, self.dispatch())
-            self.state = support.read(self.run / 'state.json')
-            self.assertNotIn('active_stage', self.state)
-            self.assertEqual(1, self.state['resolver']['diagnostic_calls'])
-            self.assertEqual(1, len(self.state['automatic_timeout_recoveries']))
-            with self.assertRaisesRegex(support.Paused, 'No causal progress'):
+            for count in (1, 2):
+                self.assertIs(runner.autopilot.SKIP, self.dispatch())
+                self.state = support.read(self.run / 'state.json')
+                self.assertNotIn('active_stage', self.state)
+                self.assertEqual(count, self.state['resolver']['diagnostic_calls'])
+                self.assertEqual(count, len(self.state['automatic_timeout_recoveries']))
+            with self.assertRaisesRegex(support.Paused, 'budget exhausted'):
                 self.dispatch()
-        self.assertEqual(1, len(launches))
+        self.assertEqual(2, len(launches))
+        self.assertEqual(2, len({row['diagnostic_reservation_id'] for row in launches}))
 
-    def test_cli_real_timeout_recovery_stops_before_repeat_diagnosis(self):
+    def test_cli_real_timeout_recovery_stops_at_lifetime_cap(self):
         self.repeated_terra_failure()
         with self.provider(timeout=True) as launches:
             self.assertEqual(2, self.cli('--diagnose-failed-stage'))
         saved = support.read(self.run / 'state.json')
-        self.assertEqual(1, len(launches))
-        self.assertEqual(1, saved['resolver']['diagnostic_calls'])
-        self.assertEqual(1, len(saved['automatic_timeout_recoveries']))
+        self.assertEqual(2, len(launches))
+        self.assertEqual(2, saved['resolver']['diagnostic_calls'])
+        self.assertEqual(2, len(saved['automatic_timeout_recoveries']))
         # The exhausted pause is surfaced as an AutoResolver operational request.
-        assert_operational_wait(self, saved, 'PAUSED_NO_PROGRESS')
+        assert_operational_wait(self, saved, 'PAUSED_REPEATED_FAILURE')
         self.assertNotIn('active_stage', saved)
+
+    def test_cli_capacity_and_denial_relaunches_stop_at_their_own_budgets(self):
+        # #422: a capacity failure or a denied path ends without a completed turn, so automatic
+        # recovery's relaunch is not the same experiment and is admitted. The run's diagnostic
+        # cap, or the route's own ceiling of three recoveries when the cap is higher, stops it.
+        for failure, cap, launched, reason in (
+                ('capacity', None, 2, 'diagnostic budget exhausted for this run (2/2)'),
+                ('capacity', 8, 4, 'capacity retry limit reached (3)'),
+                ('denial', None, 2, 'diagnostic budget exhausted for this run (2/2)'),
+                ('denial', 8, 4, 'permission-recovery ceiling of 3 is reached')):
+            with self.subTest(failure=failure, cap=cap):
+                self.setUp()
+                self.repeated_terra_failure()
+                if cap:
+                    self.state['settings']['operational_diagnosis'] = {'max_calls_per_run': cap}
+                with self.provider(failure=failure) as launches:
+                    self.assertEqual(2, self.cli('--diagnose-failed-stage'))
+                saved = support.read(self.run / 'state.json')
+                self.assertEqual([('astra_diagnose', 'first_incident')] * launched,
+                                 [(row['stage'], row['recovery_novelty']['reason']) for row in launches])
+                self.assertEqual(launched, saved['resolver']['diagnostic_calls'])
+                self.assertEqual('WAITING_FOR_USER', saved['status'])
+                self.assertIn(reason, saved['stop_reason'])
 
     def test_cli_new_iteration_source_and_blocker_do_not_reset_lifetime_cap(self):
         blockers = []

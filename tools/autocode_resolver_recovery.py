@@ -143,14 +143,29 @@ def _narrows(failed, scope):
     return scope == failed or (same and bool(scope["criteria"]) and set(scope["criteria"]) <= set(failed["criteria"]))
 
 
-def receipts(state):
+def _returned_nothing(row):
+    """Automatic recovery archived this stopped attempt because it ended without a completed
+    turn (a timeout, capacity or startup failure, a denied path). Each of those routes checks
+    the attempt's log or output for that before it accounts the attempt and archives it as
+    abandoned and rejected, so it returned no report. A truncated review report came back cut
+    short, so it still counts."""
+    return (all(row.get(key) for key in ("accounted", "automatic_recovery", "abandoned", "rejected"))
+            and not row.get("truncated_output"))
+
+
+def receipts(state, *, returned=False):
+    """Dispatch receipts. With ``returned``, only those of attempts that could have returned a
+    result: relaunching one that returned nothing repeats no experiment (#422), and each of those
+    recovery routes keeps its own bound. Any dispatch still spends an operator's grant
+    (``_explicit_grant`` checks it against every receipt)."""
     rows = [*state.get("stages", [])]
     if state.get("active_stage"):
         rows.append(state["active_stage"])
     found = {}
     for row in rows:
         receipt = row.get("recovery_novelty")
-        if receipt and not row.get("dry_run") and not row.get("report_only"):
+        if (receipt and not row.get("dry_run") and not row.get("report_only")
+                and not (returned and _returned_nothing(row))):
             found[receipt["dispatch_id"]] = receipt
     return list(found.values())
 
@@ -386,6 +401,33 @@ def validate_decision(state, value, record):
         request["recovery_change_id"] = ident
 
 
+def diagnosis_change(request, change, run_dir):
+    """Sort the change a diagnosis proposed into ``(attested, unattested)`` (#422).
+
+    Only a change the incident packet attests becomes the repair plan's ``recovery_change``,
+    which admit_dispatch attests again before the Builder runs. A diagnosis's accepted retry
+    needs no change, and a proposal is usually unprovable: an operational packet's incident
+    names the failed stage, not a check command, and without a packet (parallel or integrated
+    scope) nothing attests it. Such a proposal goes to the Builder as ``unattested_change``
+    with the reason, a key admit_dispatch never reads: it is advice, like the recommendation's
+    guidance, and neither voids the retry nor counts as a new experiment.
+
+    The caller has already loaded this packet (finish_resolution_packet), so a stale packet
+    raises as it did there. _change's refusal of the proposal is recorded, not raised.
+    """
+    if not change:
+        return None, None
+    if not request.get("recovery_packet"):
+        return None, {"change": copy.deepcopy(change),
+                      "reason": "No incident packet attests a proposal in parallel or integrated scope"}
+    packet = load_packet(request["recovery_packet"], run_dir)
+    try:
+        _change(packet, change)
+    except (util.Paused, ValueError, KeyError, TypeError, AttributeError) as error:
+        return None, {"change": copy.deepcopy(change), "reason": str(error)}
+    return copy.deepcopy(change), None
+
+
 def prepare_diagnosis(state, request, record, run_dir):
     """Use the same exact packet for an explicitly requested operational diagnosis."""
     candidate = copy.deepcopy(state)
@@ -504,12 +546,50 @@ def _builder_grant(state, packet, request, record, prior):
     return ident
 
 
+def _diagnosis_grant(state, packet, request, record):
+    """The Builder retry an accepted operational diagnosis recommended (#422).
+
+    The failure it diagnosed is a repeated rejected Builder report (a diagnosis is admitted
+    only for a pending report repair), so there is usually no source change to propose: the
+    diagnosis and its recommendation, which the Builder receives in its repair plan, are the
+    new information.
+
+    The grant is spent by one Builder attempt that returns a result; novelty decides that
+    against returned receipts. An operator's grant (--retry-failed-stage, a Builder retry) is
+    bound to one invocation or failure and is spent by the dispatch it admits, even one that
+    times out. This one is bound to the accepted outcome and its packet, which a timeout does
+    not change, so an attempt automatic recovery archived without a report does not spend it;
+    that recovery route's own budget bounds the relaunch. A further returned attempt needs new
+    evidence or an explicit retry. The same unchanged failure cannot buy a second diagnosis:
+    novelty holds its incident at dispatch, before the diagnostic cap is charged (every
+    --resume-paused clears the Resolver's per-failure attempts, so they are not that guard).
+    """
+    pointer = request.get("recovery_packet")
+    recommendation = request.get("recommendation") or {}
+    if (record["stage"] != "terra" or request is not state.get("repair_plan")
+            or request.get("kind") != "operational-diagnosis" or recommendation.get("action") != "retry"
+            or not packet["current_error"].get("operational_diagnosis")):
+        return None
+    retry = next((row for entry in (state.get("failure_history") or {}).values()
+                  for row in reversed(entry.get("diagnostic_retries") or [])
+                  if row.get("recovery_packet") == pointer and row.get("recommendation") == recommendation), {})
+    # The runner's own accepted retry outcome, not only the plan that cites it.
+    accepted = retry.get("receipt") and any(
+        row.get("runner_owned") and (row.get("decision") or {}).get("action") == "retry"
+        and (row.get("receipt") or {}).get("idempotency_key") == retry["receipt"] for row in state.get("stages", []))
+    return util.digest({"diagnosis_retry": retry["receipt"], "packet": pointer}) if accepted else None
+
+
 def _explicit_grant(state, packet, request, record, prior, authorization):
     ident = _live_grant(state, packet, record, authorization)
     if ident is not None and not any(row.get("grant_id") == ident for row in prior):
         return ident, "invocation"
     ident = _builder_grant(state, packet, request, record, prior)
-    return ident, "builder" if ident is not None else None
+    if ident is not None:
+        return ident, "builder"
+    # One use is decided by novelty against attempts that returned a result.
+    ident = _diagnosis_grant(state, packet, request, record)
+    return ident, "diagnosis" if ident is not None else None
 
 
 def finish_resolution_packet(state, request, plan):
@@ -622,7 +702,7 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     ident = request["recovery_change_id"]
     if ident is None:
         return False  # Unknown grammar/cosmetic bounds are not autonomous progress.
-    prior = [row for row in receipts(state) if row.get("action") == "repair"]
+    prior = [row for row in receipts(state, returned=True) if row.get("action") == "repair"]
     if any(novelty.decide(novelty.Incident(**incident), prior, action="repair", change_id=ident,
                          expected_check=change["expected_check"]).action != "repair" for incident in packet["incidents"]):
         return False
@@ -864,7 +944,7 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
     change = request.get("recovery_change") or packet["current_error"].get("recovery_change") or {}
     change_id = _change(packet, change)
     action = "repair" if stage == "terra" else "diagnosis"
-    considered = [row for row in prior if action != "repair" or row.get("action") == "repair"]
+    considered = [row for row in receipts(state, returned=True) if action != "repair" or row.get("action") == "repair"]
     if (action == "repair" and packet["current_error"].get("operational_diagnosis")
             and any(entry.get("count", 0) for entry in packet["failure_history"].values())):
         considered.append({"incident_ids": [novelty.Incident(**row).id for row in packet["incidents"]],
