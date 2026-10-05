@@ -5,10 +5,11 @@ from pathlib import Path
 import unittest
 
 import tests.test_subprocess as subprocess_support
+from autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE
 
 
 class ReportFindingRepairCLI(unittest.TestCase):
-    def run_case(self, attack=""):
+    def run_case(self, attack="", expected=None):
         fixture = subprocess_support.SubprocessFlow()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
@@ -45,12 +46,22 @@ class ReportFindingRepairCLI(unittest.TestCase):
             result['finding_dispositions'][0]['disposition'] = 'retracted'
         elif attack == 'blocked-original':
             result['verdict'] = 'PASS'
+        elif attack == 'live-churn':
+            # #459 live run: the first repair "corrected" a citation inside a closure row. Told only that
+            # a repair cannot close findings, the next one dropped the closures; told which row, it keeps it.
+            rows = result['finding_dispositions']
+            if 'cannot close findings' not in data['error']:
+                rows[0]['evidence'] = '.autocode/evidence/receipt.json'
+            elif not any(row['id'] in data['error'] for row in rows):
+                result['finding_dispositions'] = []
         with Path(os.environ['REPORT_FINDING_PROBE']).open('a') as stream:
             stream.write(json.dumps({'kind': 'repair', 'error': data['error'],
+                'instructions': prompt.split('CURRENT HANDOFF DATA\\n', 1)[0],
                 'dispositions': result['finding_dispositions']}) + '\\n')
 ''' + session, 1)
         provider.write_text(text)
-        fixture.launch(["Build a greeting tool", "--chat"], 2 if attack else 0, answers="CLI\nyes\n")
+        fixture.launch(["Build a greeting tool", "--chat"], (2 if attack else 0) if expected is None else expected,
+                       answers="CLI\nyes\n")
         run, _ = fixture.saved()
         view = json.loads(fixture.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
         probes = [json.loads(line) for line in (fixture.root / "reports.jsonl").read_text().splitlines()]
@@ -67,7 +78,8 @@ class ReportFindingRepairCLI(unittest.TestCase):
         self.assertIn("missing-unrelated-artifact.json", repairs[0]["error"])
 
     def test_repair_cannot_invent_verification_or_change_disposition(self):
-        for attack in ("evidence", "retraction", "blocked-original"):
+        for attack, why in (("evidence", "changed its evidence"), ("retraction", "changed its disposition"),
+                            ("blocked-original", "original review was blocked")):
             with self.subTest(attack=attack):
                 view, probes = self.run_case(attack)
                 self.assertEqual("PAUSED_INVALID_OUTPUT", view["status"])
@@ -75,3 +87,30 @@ class ReportFindingRepairCLI(unittest.TestCase):
                 self.assertIn("report-only repair cannot close findings", view["stop_reason"])
                 self.assertTrue(any("report-only repair cannot close findings" in row.get("error", "")
                                     for row in probes if row["kind"] == "repair"))
+                # The refusal names the row and why it cannot be kept, for the next repair and for people.
+                fid = next(row for row in probes if row["kind"] == "original")["dispositions"][0]["id"]
+                self.assertIn(f"sol finding_dispositions row {fid} ", view["stop_reason"])
+                self.assertIn(why, view["stop_reason"])
+
+    def test_edited_closure_row_is_named_so_the_next_repair_keeps_it_instead_of_churning(self):
+        # #459 (live run 8soi9a5s): a Validator report was rejected for a citation. Its repair also
+        # rewrote the evidence inside a closure row, so it was refused with a message that named no row;
+        # the next repair dropped the closures, the finding stayed open, and the whole validation and
+        # repair cycle repeated until completion was refused. Naming the row lets the repair keep it.
+        view, probes = self.run_case("live-churn", expected=0)
+        self.assertEqual("TASK_COMPLETE", view["status"])
+        self.assertEqual(0, sum(row["status"] == "open" for row in view["evidence"]["findings"]))
+        originals = [row for row in probes if row["kind"] == "original"]
+        repairs = [row for row in probes if row["kind"] == "repair"]
+        self.assertEqual(1, len(originals), "the closure was lost and the Validator ran again")
+        self.assertEqual(2, len(repairs))
+        fid = originals[0]["dispositions"][0]["id"]
+        refusal = repairs[1]["error"]
+        self.assertIn("report-only repair cannot close findings", refusal)
+        self.assertIn(f"sol finding_dispositions row {fid} changed its evidence", refusal)
+        # The fresh review's exact row closed the finding; the repair neither created nor changed it.
+        self.assertEqual(originals[0]["dispositions"], repairs[1]["dispositions"])
+        # Every repair is told to copy closure rows byte-for-byte, evidence included.
+        for repair in repairs:
+            self.assertIn(DISPOSITION_REPAIR_RULE, repair["instructions"])
+            self.assertIn("evidence citations outside finding_dispositions", repair["instructions"])

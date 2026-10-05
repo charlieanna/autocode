@@ -28,3 +28,16 @@ disposition guard, so this fix is not claimed to cure their recorded stops.
 
 No trial emitted an output-token-limit `length` signal. Requirements-stage
 truncation remains unreproduced in this campaign and was not changed.
+
+## Follow-up: an edited closure row (#459, 2026-10-05)
+
+In live run `8soi9a5s` the repair prompt said "Correct format and evidence
+citations", so a Validator report repair also rewrote the evidence inside a
+closure row (`check:1` became a receipt path). The guard refused it with a
+message that named no row, the next repair dropped the closures, the finding
+stayed open, and the validation and repair cycle repeated. The repair prompt now
+says to copy each kept row byte-for-byte, evidence included, and to omit a row
+rather than edit it. The refusal names the reviewer, the finding ID and the
+fields that differ, or says why the original review cannot authorize the row.
+The guard itself is unchanged: only exact rows from a completed, nonblocked
+original review survive a repair.

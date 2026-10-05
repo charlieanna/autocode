@@ -6,7 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from autocode_report_findings import preserved_dispositions
+import autocode_findings as findings
+from autocode_report_findings import REPAIR_INSTRUCTION, UNAUTHORIZED, preserved_dispositions, refusal, retained
 from autocode_report_source import original_report_for_repair
 
 
@@ -129,6 +130,108 @@ class PreservedDispositionsTests(unittest.TestCase):
         record = {'stage': 'sol', 'exit_code': 0}
         self.assertEqual({}, preserved_dispositions(record, {'verdict': 'PASS'}, report(disposition())))
         self.assertEqual({}, preserved_dispositions(record, report(disposition()), {'verdict': 'PASS'}))
+
+
+class UnretainedDispositionTests(unittest.TestCase):
+    """#459: a refused repair names the row and what differs, but is still refused."""
+    SOL = {'stage': 'sol', 'exit_code': 0}
+
+    def test_retained_grants_exactly_the_preserved_rows(self):
+        original = report(disposition(), disposition('F-2', action='retracted'))
+        checkpoint = {'validation': report(disposition('F-sol')),
+                      'decision': report(disposition('F-astra'), source='astra')}
+        cases = [(self.SOL, original, copy.deepcopy(original)),
+                 (self.SOL, original, report(disposition(evidence='receipt.json'), disposition('F-2'))),
+                 (self.SOL, original, report(disposition(), disposition('F-new'))),
+                 (self.SOL, report(disposition(), outcome='BLOCKED'), report(disposition())),
+                 (self.SOL, None, original), ({**self.SOL, 'report_repaired': True}, original, original),
+                 (self.SOL, report(disposition(), disposition()), report(disposition())),
+                 ({'stage': 'astra_checkpoint', 'exit_code': 0}, checkpoint, copy.deepcopy(checkpoint)),
+                 ({'stage': 'terra', 'exit_code': 0}, original, original)]
+        for record, before, after in cases:
+            with self.subTest(record=record, before=before, after=after):
+                fields = retained(record, before, after)
+                self.assertEqual({'preserved_finding_dispositions', 'unretained_finding_dispositions'}, set(fields))
+                self.assertEqual(preserved_dispositions(record, before, after), fields['preserved_finding_dispositions'])
+                kept = {(source, row['id']) for source, rows in fields['preserved_finding_dispositions'].items()
+                        for row in rows}
+                explained = {(source, fid) for source, rows in fields['unretained_finding_dispositions'].items()
+                             for fid in rows}
+                self.assertFalse(kept & explained)
+
+    def test_each_unretained_row_says_what_differs(self):
+        original = report(disposition())
+        changed = "from the original review's row"
+        for repaired_row, why in (
+                (disposition(evidence='.autocode/evidence/receipt.json'), f'changed its evidence {changed}'),
+                (disposition(action='retracted'), f'changed its disposition {changed}'),
+                (disposition(action='retracted', evidence='event:new'), f'changed its disposition and evidence {changed}'),
+                ({**disposition(), 'extra': 'x'}, f'changed its extra {changed}'),
+                (disposition('F-new'), 'is not in the original review')):
+            with self.subTest(row=repaired_row):
+                fields = retained(self.SOL, original, report(repaired_row))
+                self.assertEqual({'sol': {repaired_row['id']: why}}, fields['unretained_finding_dispositions'])
+        # A kept row is not explained; only the new one is.
+        fields = retained(self.SOL, original, report(disposition(), disposition('F-new')))
+        self.assertEqual({'sol': [disposition()]}, fields['preserved_finding_dispositions'])
+        self.assertEqual({'sol': {'F-new': 'is not in the original review'}}, fields['unretained_finding_dispositions'])
+
+    def test_an_exact_row_without_authority_says_it_cannot_be_kept(self):
+        exact = report(disposition())
+        for record, before in ((self.SOL, report(disposition(), outcome='BLOCKED')), (self.SOL, None),
+                               ({**self.SOL, 'report_repaired': True}, exact), ({**self.SOL, 'exit_code': 1}, exact)):
+            with self.subTest(record=record, before=before):
+                self.assertEqual({'sol': {'F-1': UNAUTHORIZED}},
+                                 retained(record, before, exact)['unretained_finding_dispositions'])
+        self.assertEqual({}, retained({'stage': 'terra', 'exit_code': 0}, exact, exact)['unretained_finding_dispositions'])
+
+    def test_checkpoint_explains_each_reviewer_separately(self):
+        original = {'validation': report(disposition('F-sol')),
+                    'decision': report(disposition('F-astra'), source='astra')}
+        repaired = copy.deepcopy(original)
+        repaired['validation']['finding_dispositions'][0]['evidence'] = 'receipt.json'
+        fields = retained({'stage': 'astra_checkpoint', 'exit_code': 0}, original, repaired)
+        self.assertEqual({'astra': [disposition('F-astra')]}, fields['preserved_finding_dispositions'])
+        self.assertEqual({'sol': {'F-sol': "changed its evidence from the original review's row"}},
+                         fields['unretained_finding_dispositions'])
+
+    def test_refusal_names_the_row_and_falls_back_without_an_explanation(self):
+        record = {'unretained_finding_dispositions': {'sol': {'F-1': 'changed its evidence'}}}
+        message = refusal('sol', 'F-1', record)
+        self.assertTrue(message.startswith('A report-only repair cannot close findings: '
+                                           'sol finding_dispositions row F-1 changed its evidence. '), message)
+        self.assertIn('byte-for-byte copy, evidence included', message)
+        self.assertIn('astra finding_dispositions row F-1 is not an exact row of the original completed review',
+                      refusal('astra', 'F-1', record))
+        self.assertIn('row F-2 is not an exact row', refusal('sol', 'F-2', {}))
+
+    def test_the_ledger_still_refuses_a_changed_row_and_names_it(self):
+        state = {}
+        findings.record_validation(state, {'findings': [{'severity': 'high', 'finding': 'Empty names are accepted',
+                                                         'evidence': 'event:check', 'blocking': True}]},
+                                   {'output': 'sol-01.json'})
+        fid = findings.open_entries(state)[0]['id']
+        original = report(disposition(fid))
+        for change, why in (({'evidence': '.autocode/evidence/receipt.json'}, 'changed its evidence'),
+                            ({'disposition': 'retracted'}, 'changed its disposition'),
+                            ({'evidence': ' event:check '}, 'changed its evidence')):
+            with self.subTest(change=change):
+                repaired = report({**disposition(fid), **change})
+                record = {'output': 'repair.json', 'report_repaired': True, **retained(self.SOL, original, repaired)}
+                with self.assertRaises(ValueError) as caught:
+                    findings.record_validation(state, copy.deepcopy(repaired), record)
+                self.assertIn(f'report-only repair cannot close findings: sol finding_dispositions row {fid} {why}',
+                              str(caught.exception))
+                self.assertEqual([fid], [row['id'] for row in findings.open_entries(state)])
+        # The fresh review's exact row is the only one a repair can carry through.
+        record = {'output': 'repair.json', 'report_repaired': True, **retained(self.SOL, original, original)}
+        findings.record_validation(state, copy.deepcopy(original), record)
+        self.assertEqual([], findings.open_entries(state))
+
+    def test_the_repair_prompt_rule_forbids_editing_a_closure_row(self):
+        for phrase in ('byte-for-byte', 'evidence text', 'omit a row rather than edit it',
+                       'even where you correct a citation elsewhere'):
+            self.assertIn(phrase, REPAIR_INSTRUCTION)
 
 
 class OriginalReportExtractionTests(unittest.TestCase):
