@@ -238,6 +238,11 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
                 'Operator explicitly resumed with an available active-time limit')) or consumed_pause):
             state['_authorized_bound_change'] = {'pause_status': 'PAUSED_TIME_LIMIT', 'at': runner.now()}
     if state.get("settings") and settings != state["settings"]:
+        # A --<role>-model change under a quota-stopped, still uncertain attempt is refused (#184).
+        refusal = quota_route.resume_refusal(state, state["settings"], settings, failure_status=support.failure_status,
+                                             abandoning=args.abandon_stage)
+        if refusal:
+            parser.error(refusal)
         published = state.get(resolver_human.PUBLIC) or {}
         entry = state.get('resolver', {}).get('human_escalations', {}).get(published.get('request_id'), {})
         origin = entry.get('identity', {}).get('proposal', {}).get('origin', {})
@@ -287,7 +292,8 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
                       "Run settings updated at a saved stage boundary")})
         # A --<role>-model change while that role is stopped on quota is a recorded route assignment (#184).
         quota_route.record_resume_change(state, previous_settings, settings, failure_status=support.failure_status,
-                                         at=runner.now())
+                                         at=runner.now(), cross_check=runner.dispatch.enforce_cross_model_verification,
+                                         configured_tool=getattr(runner.opencode, 'CONFIGURED', False))
         state["settings"] = settings
         if enabling_joint and settings.get("engine") == "codex":
             if contract:

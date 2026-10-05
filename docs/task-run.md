@@ -285,9 +285,10 @@ or completion proof; the existing CLI approval checks remain authoritative.
 
 `routes` maps every configured role to the `model` and `engine` its next launch
 uses. `route_assignments` lists, oldest first, every model a person named for a
-role after its quota ran out: `role`, `job`, `from`, `to`, `engine`, `stage`,
-`attempt_id`, `events`, `pause_status`, `at`, `actor` and `via` (`answer` or
-`resume_flag`). It is empty for runs that never stopped on quota.
+role after its quota ran out: `kind` (always `route_assignment`), `role`, `job`,
+`from`, `to`, `engine`, `stage`, `attempt_id`, `events`, `pause_status`, `at`,
+`actor`, `via` (`answer` or `resume_flag`) and, when `via` is `answer`, the
+`request_id` it answered. It is empty for runs that never stopped on quota.
 
 `direct_rework_assignments` records a repair assigned directly from a Completion
 Owner's accepted REWORK report. Each entry binds the original and assigned tasks,

@@ -4,8 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import autocode_builder_policy as builder_policy
 import autocode_dispatch as dispatch
 import autocode_quota_route as quota_route
+import autocode_resolver_recovery as resolver_recovery
 import autocode_run_view as run_view
 import autocode_support as support
 
@@ -110,6 +112,30 @@ class QuotaRouteTests(unittest.TestCase):
                           "attempt_id": "001/validator-01", "engine": "codex", "request_id": "r1",
                           "events": attempt["events"]}, record)
         self.assertEqual([record], quota_route.assignments(state))
+
+    def test_a_named_model_is_kept_when_the_next_milestone_starts(self):
+        state = self.state(stage="terra", role="terra")
+        state.update(goal_contract={"hash": "h"}, current_task={"milestone_id": "M1"})
+        builder_policy.lane(state)
+        quota_route.assign(state, "terra", "gpt-6-luna", at="t", via="answer", attempt=self.stopped(state))
+        state["current_task"] = {"milestone_id": "M2"}
+        builder_policy.lane(state)
+        self.assertEqual("gpt-6-luna", state["settings"]["roles"]["terra"]["model"])
+        # A checker moved off the Builder's model keeps the named model the same way.
+        lane = state["builder_retries"][state["builder_retry_key"]]
+        lane["checker_routes"] = {"sol": {"model": "gpt-5.6-sol"}}
+        quota_route.assign(state, "sol", "gpt-6-nova", at="t", via="answer")
+        state["current_task"] = {"milestone_id": "M3"}
+        builder_policy.lane(state)
+        self.assertEqual("gpt-6-nova", state["settings"]["roles"]["sol"]["model"])
+
+    def test_a_named_model_keeps_a_recovery_packet_binding(self):
+        state = self.state()
+        bound = resolver_recovery._binding(state, "rev")
+        quota_route.assign(state, "sol", "gpt-6-luna", at="t", via="answer", attempt=self.stopped(state))
+        self.assertEqual(bound, resolver_recovery._binding(state, "rev"))
+        state["settings"]["roles"]["sol"]["model"] = "gpt-6-nova"  # not named at a quota stop
+        self.assertNotEqual(bound, resolver_recovery._binding(state, "rev"))
 
     def test_resume_change_is_recorded_only_for_the_quota_stopped_role(self):
         state = self.state()
