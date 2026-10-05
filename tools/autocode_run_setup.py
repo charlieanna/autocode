@@ -70,10 +70,19 @@ def resolve(runner, args, parser):
             args._task_preflight_input = task_preflight.load(args.task_preflight)
         except (OSError, ValueError) as error:
             parser.error(f"Invalid task preflight: {error}")
+    if args.revise_figma_manifest and (not args.run_dir or not args.expected_design_hash or not args.design_change_reason
+                                     or args.status or args.dry_run):
+        parser.error("--revise-figma-manifest requires a stopped --run-dir, --expected-design-hash and --design-change-reason")
     if getattr(args, "figma_manifest", None):
         if args.run_dir:
             parser.error("--figma-manifest is a new-run input; saved references are immutable")
         args._design_manifest_input = design_manifest.load(args.figma_manifest)
+    if args.figma_additional_file and not args.figma_file:
+        parser.error("--figma-additional-file requires --figma-file")
+    if args.run_dir and args.figma_additional_file:
+        parser.error("Native references are fixed for a saved run")
+    for reference in args.figma_additional_file:
+        figma.design_url(reference)
     if args.ui_run and args.figma_file:
         parser.error("Choose --ui-run or --figma-file")
     if args.run_dir and (args.ui_run or args.figma_review):

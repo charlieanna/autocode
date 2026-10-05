@@ -10,21 +10,21 @@ from __future__ import annotations
 try:
     from . import autocode_bug_job as bug_job, autocode_design_job as design_job, autocode_review_job as review_job
     from . import autocode_design_check_job as design_check_job, autocode_discuss_job as discuss_job
-    from . import autocode_stuck_job as stuck_job
+    from . import autocode_stuck_job as stuck_job, autocode_design_intake as design_intake
 except ImportError:
     import autocode_bug_job as bug_job
     import autocode_design_check_job as design_check_job
     import autocode_design_job as design_job
     import autocode_discuss_job as discuss_job
     import autocode_review_job as review_job
-    import autocode_stuck_job as stuck_job
+    import autocode_stuck_job as stuck_job, autocode_design_intake as design_intake
 
-JOBS = (review_job, bug_job, design_job, discuss_job, design_check_job, stuck_job)
+JOBS = (review_job, bug_job, design_job, discuss_job, design_check_job, stuck_job, design_intake)
 # Which unit prepares and applies each job's stage (autopilot.unit_for). Units
 # expose apply_job(stage, state, value, record, workspace).
 UNIT = {review_job.STAGE: "autoreview", bug_job.STAGE: "autoresolver", design_job.STAGE: "autoreview",
         discuss_job.STAGE: "autoresolver", design_check_job.STAGE: "autoreview",
-        stuck_job.STAGE: "autoresolver"}
+        stuck_job.STAGE: "autoresolver", design_intake.STAGE: "autoreview"}
 STAGES = tuple(UNIT)
 
 

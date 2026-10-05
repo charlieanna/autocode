@@ -63,7 +63,8 @@ def context_packet(state, stage, state_path):
     protected = protected_oracles.context(state["settings"], (state.get("current_task") or {}).get("affected_paths", []))
     if protected:
         base["protected_tests"] = protected
-    manifest_context = design_manifest.context(state["settings"])
+    manifest_context = design_manifest.context(
+        state["settings"], stage=stage, current_task=state.get("current_task"))
     if manifest_context:
         base["design_manifest"] = manifest_context
     capture_context = visual.context(state, current)

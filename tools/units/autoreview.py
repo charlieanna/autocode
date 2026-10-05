@@ -7,9 +7,10 @@ from copy import deepcopy
 
 try:
     from .. import autocode_design_job as design_job, autocode_goals as goals, autocode_review_job as review_job
-    from .. import autocode_design_check_job as design_check_job, autocode_verify as verify
+    from .. import autocode_design_check_job as design_check_job, autocode_verify as verify, autocode_design_intake as design_intake
 except ImportError:
     import autocode_verify as verify
+    import autocode_design_intake as design_intake
     import autocode_design_check_job as design_check_job
     import autocode_design_job as design_job
     import autocode_goals as goals
@@ -24,7 +25,7 @@ SEND_BACK_NOTE = ("You returned CONTINUE, but every required acceptance criterio
                   "independent evidence for this exact artifact and no finding is open. Return TASK_COMPLETE, or keep "
                   "CONTINUE only by naming the criterion that is not met and the evidence that shows it. Re-running "
                   "validation that already passed is not a reason to continue.")
-JOBS = {review_job.STAGE: review_job, design_job.STAGE: design_job, design_check_job.STAGE: design_check_job}
+JOBS = {review_job.STAGE: review_job, design_job.STAGE: design_job, design_check_job.STAGE: design_check_job, design_intake.STAGE: design_intake}
 # The Architect copies the Plan Reviewer's model but not its effort beyond this: at
 # "high", MiMo twice spent its whole reasoning budget on a dense design and returned
 # no report at all (2026-09-27, design-review-sound live runs).
@@ -45,6 +46,10 @@ def verification_commands(state):
 
 
 def prepare(state, stage, state_path, schema_dir):
+    if stage == design_intake.STAGE:
+        state["phase"] = "DISCOVERING"
+        role = next(name for name in ("requirements", "glm", "astra") if name in state["settings"]["roles"])
+        return job_request(state, design_intake, role, role)
     if stage == review_job.STAGE:
         # The Reviewer runs on the Validator's route with write access, so it can
         # make and test a scratch copy of its own; the runner rejects the report
@@ -100,6 +105,9 @@ def job_request(state, job, role, route):
 def apply_job(stage, state, value, record, workspace):
     """Autopilot hands a job stage's validated report here; the job decides how the run continues."""
     evidence_dir = Path(record.get("output") or workspace).parent
+    if stage == design_intake.STAGE:
+        design_intake.apply(state, value, record, workspace)
+        return
     if stage == review_job.STAGE:
         # The runner, not the Reviewer, shows each blocking finding: its test must fail on the change.
         review_job.apply(state, value, record, workspace, run_tests=lambda tests, patch: verify.scratch_run(

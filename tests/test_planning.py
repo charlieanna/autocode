@@ -1017,6 +1017,12 @@ class NativeJointFlow(unittest.TestCase):
 
     def test_saved_codex_work_reenters_requirements_before_independent_review(self):
         self.prepare()
+        from tests.figma_inventory_fixtures import install_inventory_hook, native_bundle
+        manifest_path = native_bundle(self.root / 'native-source', 'FakeNativePlanning', 'greet.py')
+        install_inventory_hook(self.root / 'fixture-bin' / 'codex', result='result', indent='')
+        self.env.update(FAKE_NATIVE_MANIFEST=str(manifest_path),
+                        FAKE_CAPTURE_REPO=str(Path(__file__).resolve().parents[1]),
+                        FAKE_DESIGN_PROMPTS=str(self.root / 'inventory-prompts.jsonl'))
         self.launch(['Build a greeting tool', '--engine', 'codex', '--no-chat', '--unlimited-iterations',
                      '--max-seconds', '0',
                      '--figma-file', 'https://www.figma.com/design/FakeNativePlanning'], 2)

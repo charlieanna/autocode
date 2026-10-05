@@ -35,6 +35,7 @@ class GuardsAgreeWithTheRules(unittest.TestCase):
     # Each job's own after-stage check, called the way its unit calls it. The stray check runs before
     # the report is validated, so a minimal report is enough to tell a stray write from a bad report.
     CHECKS = {
+        "collect_design": lambda changed: jobs.design_intake.apply({}, {}, {"changed_files": changed}, "/repo"),
         "review_change": lambda changed: jobs.review_job.apply({}, {}, {"changed_files": changed}, "/repo"),
         "investigate_bug": lambda changed: jobs.bug_job.check({"note_path": ""}, changed),
         "review_design": lambda changed: jobs.design_job.check({"mode": ""}, changed),

@@ -16,6 +16,9 @@ from tests.visual_capture_fixtures import make_capture
 import autocode_completion as completion
 import autocode_design_coverage as coverage
 import autocode_design_manifest as manifest
+import autocode_design_plan as design_plan
+import autocode_design_identity as design_identity
+import autocode_design_inventory as design_inventory
 import autocode_report_schema as reports
 import autocode_run_view as run_view
 import autocode_taskrun as taskrun
@@ -52,6 +55,122 @@ def bundle(root):
                       for cid, key, node, state in (("greet.empty", "FILEA", "1:2", "empty"),
                                                    ("greet.filled", "FILEB", "3:4", "filled"))]}
     path = root / "manifest.json"
+    path.write_text(json.dumps(body))
+    return path, body
+
+
+def inventory_bundle(root, *, include_missing_reference=False):
+    """Two connected-file snapshots with shared components and distinct variants."""
+    root.mkdir(parents=True, exist_ok=True)
+    png(root / "screen.png")
+    (root / "context.txt").write_text("Complete screen context and component references")
+    (root / "icon.svg").write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
+    (root / "inter.woff2").write_bytes(b"font fixture")
+    pages = {
+        "FILEA": ("0:1", "Main", """<CANVAS id="0:1" name="Main">
+          <FRAME id="1:2" name="Home" width="2" height="1">
+            <FRAME id="1:90" name="Nested layout" width="400" height="100"/>
+          </FRAME>
+          <FRAME id="1:6" name="Details" width="2" height="1"/>
+          <COMPONENT_SET id="1:3" name="Button">
+            <COMPONENT id="1:4" name="Primary"/>
+            <COMPONENT id="1:5" name="Secondary"/>
+          </COMPONENT_SET>
+          <RECTANGLE id="1:7" name="Logo"/>
+        </CANVAS>"""),
+        "FILEB": ("2:1", "Other", """<CANVAS id="2:1" name="Other">
+          <FRAME id="3:4" name="Settings" width="2" height="1"/>
+          <COMPONENT_SET id="3:5" name="Button">
+            <COMPONENT id="3:6" name="Tertiary"/>
+          </COMPONENT_SET>
+        </CANVAS>"""),
+    }
+    files = []
+    for key, (page_id, page_name, xml) in pages.items():
+        xml_path = root / f"{key}-page.xml"
+        xml_path.write_text(xml)
+        file_xml_path = root / f"{key}-file.xml"
+        file_xml_path.write_text("<DOCUMENT>" + xml + "</DOCUMENT>")
+        component_page = page_id
+        component_node = "1:3" if key == "FILEA" else "3:5"
+        variants = ([{"page_id": component_page, "node_id": "1:4", "properties": {"Type": "primary"}},
+                     {"page_id": component_page, "node_id": "1:5", "properties": {"Type": "secondary"}}]
+                    if key == "FILEA" else
+                    [{"page_id": component_page, "node_id": "3:6", "properties": {"Type": "tertiary"}}])
+        font = {"id": f"font-{key}", "family": "Inter", "style": "Regular", "status": "available",
+                "artifact": {"path": "inter.woff2", "sha256": util.file_hash(root / "inter.woff2")}}
+        asset = {"id": f"logo-{key}", "page_id": page_id, "node_id": "1:7" if key == "FILEA" else "3:4",
+                 "name": "Logo", "mime_type": "image/svg+xml", "status": "available",
+                 "artifact": {"path": "icon.svg", "sha256": util.file_hash(root / "icon.svg")}}
+        if include_missing_reference and key == "FILEB":
+            font = {"id": "font-missing", "family": "Unknown Sans", "style": "Medium", "status": "missing",
+                    "reason": "Figma font is unavailable in the pinned browser environment"}
+            asset = {"id": "image-missing", "page_id": page_id, "node_id": "3:4", "name": "Hero", "mime_type": "image/png",
+                     "status": "missing", "reason": "Figma export did not return the source image"}
+        files.append({
+            "key": key, "revision": f"revision-{key}",
+            "pages": [{"id": page_id, "name": page_name,
+                       "metadata_xml": {"path": xml_path.name, "sha256": util.file_hash(xml_path)}}],
+            "metadata_xml": {"path": file_xml_path.name, "sha256": util.file_hash(file_xml_path)},
+            "components": [{"key": "SHARED-BUTTON", "name": "Button", "source_page_id": component_page,
+                            "source_node_id": component_node, "variants": variants}],
+            "variables": [{"key": "VARIABLE-COLOR", "name": "foreground", "kind": "COLOR",
+                           "value": {"hex": "#112233"}, "collection": "Foundation", "mode": "Light", "source_id": "VariableID:1", "mode_id": "light"}],
+            "fonts": [font], "assets": [asset],
+            "transitions": ([{"id": "home-details", "source_node_id": "1:2", "target_node_id": "1:6",
+                               "trigger": "click", "action": {"type": "NODE", "destinationId": "1:6"}}] if key == "FILEA" else []),
+        })
+    cases = []
+    for key, page_id, node_id, state in (("FILEA", "0:1", "1:2", "default"),
+                                         ("FILEA", "0:1", "1:6", "default"),
+                                         ("FILEB", "2:1", "3:4", "default")):
+        cases.append({"id": f"{key}.{node_id.replace(':', '.')}.{state}", "file_key": key, "page_id": page_id,
+                      "node_id": node_id, "state": state, "route": f"/{node_id.replace(':', '/')}" ,
+                      "implementation_paths": ["src/filea.js" if key == "FILEA" else "src/fileb.js"], "viewport": {"width": 2, "height": 1,
+                      "device_scale_factor": 1}, "export_scale": 1,
+                      "artifacts": {kind: {"path": path, "sha256": util.file_hash(root / path)}
+                                    for kind, path in (("screenshot", "screen.png"),
+                                                       ("design_context", "context.txt"))}})
+    files_by_key = {file["key"]: file for file in files}
+    for case in cases:
+        file = files_by_key[case["file_key"]]
+        case["inventory_refs"] = {
+            "components": [row["key"] for row in file["components"]],
+            "variables": [row["key"] for row in file["variables"]],
+            "fonts": [row["id"] for row in file["fonts"]],
+            "assets": [row["id"] for row in file["assets"]],
+            "transitions": [row["id"] for row in file["transitions"]],
+        }
+    for file in files:
+        file["screen_states"] = [{"page_id": case["page_id"], "node_id": case["node_id"],
+                                  "state": case["state"], "viewport": copy.deepcopy(case["viewport"])}
+                                 for case in cases if case["file_key"] == file["key"]]
+    for file in files:
+        for page in file['pages']:
+            nodes, _ = manifest.inventory._metadata_nodes(page, root)[:2]
+            rows = []
+            for node in nodes.values():
+                rows.append(dict(node, fonts=[], assets=[], variables=[], transitions=[], visual={}))
+            rows[0]['fonts'] = [{key: file['fonts'][0][key] for key in ('family', 'style')}]
+            rows[0]['variables'] = ['VariableID:1']
+            for node in rows:
+                for component in file['components']:
+                    if node['id'] == component['source_node_id']:
+                        node['component_key'] = component['key']
+                    for variant in component['variants']:
+                        if node['id'] == variant['node_id']:
+                            node['component_key'] = component['key'] + '-' + node['id']
+                            node['variant_properties'] = variant['properties']
+                node['assets'] = [{key: row[key] for key in ('id', 'mime_type')} for row in file['assets'] if row['node_id'] == node['id']]
+                node['transitions'] = [{key: row[key] for key in ('id', 'target_node_id', 'trigger', 'action')} for row in file['transitions'] if row['source_node_id'] == node['id']]
+            source = root / (file['key'] + '-source.json')
+            source.write_text(json.dumps(dict(version=1,file_key=file['key'],page_id=page['id'],read_only=True,complete=True,
+                errors=[],nodes=rows,variables=file['variables'])))
+            page['source_json'] = {'path': source.name, 'sha256': util.file_hash(source)}
+    for case in cases:
+        case['native_size'] = {'width': 2, 'height': 1}
+    body = {"version": 2, "files": files, "cases": cases, "responsive_targets": []}
+    path = root / "manifest-v2.json"
     path.write_text(json.dumps(body))
     return path, body
 
@@ -119,6 +238,151 @@ class DesignManifestTests(unittest.TestCase):
             autocode_configure.configure(args, {"workspace": str(self.workspace)},
                 planning=planning, milestones=milestones, autopilot=autopilot)
 
+    def test_native_page_collector_is_read_only_and_preserves_full_source_facts(self):
+        node = shutil.which('node')
+        if not node:
+            self.skipTest('Node is required for the connector JavaScript protocol')
+        result = subprocess.run([node, str(ROOT / 'tools/test_figma_inventory_page.cjs')],
+                                text=True, capture_output=True, timeout=20)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_retained_manifest_index_is_bound_and_artifacts_cannot_overwrite_it(self):
+        record = manifest.retain(manifest.load(self.path), self.workspace)
+        Path(record['manifest_path']).write_text('{}')
+        with self.assertRaisesRegex(ValueError, 'index'):
+            manifest.verify(record)
+        body = copy.deepcopy(self.body)
+        shutil.copyfile(self.path.parent / 'context.txt', self.path.parent / 'inventory-manifest.json')
+        body['cases'][0]['artifacts']['design_context']['path'] = 'inventory-manifest.json'
+        self.path.write_text(json.dumps(body))
+        with self.assertRaisesRegex(ValueError, 'reserved'):
+            manifest.retain(manifest.load(self.path), self.workspace)
+
+    def test_library_only_file_preserves_resources_and_component_prototype_endpoints(self):
+        path, body = inventory_bundle(self.root / 'library-only')
+        file = body['files'][1]
+        for artifact in (file['metadata_xml'], file['pages'][0]['metadata_xml']):
+            target = path.parent / artifact['path']
+            target.write_text(target.read_text().replace('<FRAME id="3:4" name="Settings" width="2" height="1"/>', ''))
+            artifact['sha256'] = util.file_hash(target)
+        file['assets'][0]['node_id'] = '3:6'
+        file['transitions'] = [dict(id='variant-toggle',source_node_id='3:6',target_node_id='3:6',
+                                   trigger='click',action={'type':'NODE','destinationId':'3:6'})]
+        target = path.parent / file['pages'][0]['source_json']['path']
+        receipt = json.loads(target.read_text())
+        receipt['nodes'] = [row for row in receipt['nodes'] if row['id'] != '3:4']
+        variant = next(row for row in receipt['nodes'] if row['id'] == '3:6')
+        variant['assets'] = [{'id':'logo-FILEB','mime_type':'image/svg+xml'}]
+        variant['transitions'] = [{key:row[key] for key in ('id','target_node_id','trigger','action')} for row in file['transitions']]
+        target.write_text(json.dumps(receipt)); file['pages'][0]['source_json']['sha256'] = util.file_hash(target)
+        file['screen_states'] = []
+        body['cases'] = body['cases'][:2]
+        for case in body['cases']:
+            case['inventory_refs']['assets'].append('FILEB/logo-FILEB')
+            case['inventory_refs']['fonts'].append('FILEB/font-FILEB')
+            case['inventory_refs']['transitions'].append('FILEB/variant-toggle')
+        path.write_text(json.dumps(body))
+        record = manifest.load(path)
+        projection = design_inventory.builder_slice(body, path.parent, ['src/filea.js'])
+        self.assertEqual(2,len(projection['case_ids']))
+        self.assertIn('variant-toggle', {row['id'] for row in projection['catalog']['transitions']})
+        import autocode_design_intake as intake
+        intake.require_references(record,['https://www.figma.com/design/FILEA?node-id=1-2',
+                                          'https://www.figma.com/design/FILEB?node-id=3-5'])
+
+    def test_malformed_page_source_is_a_diagnostic_and_never_an_unhandled_exception(self):
+        path, body = inventory_bundle(self.root / 'malformed-source')
+        artifact = body['files'][0]['pages'][0]['source_json']
+        target = path.parent / artifact['path']
+        receipt = json.loads(target.read_text()); receipt.pop('nodes')
+        target.write_text(json.dumps(receipt)); artifact['sha256'] = util.file_hash(target)
+        path.write_text(json.dumps(body))
+        with self.assertRaisesRegex(ValueError, 'Malformed Figma'):
+            manifest.load(path)
+
+    def test_component_properties_and_screen_resource_ownership_cannot_be_fabricated(self):
+        path, body = inventory_bundle(self.root / 'source-bindings')
+        for change in ('key', 'variant', 'asset', 'transition'):
+            broken = copy.deepcopy(body)
+            if change == 'key':
+                broken['files'][0]['components'][0]['key'] = 'FAKE-KEY'
+                for case in broken['cases'][:2]:
+                    case['inventory_refs']['components'] = ['FAKE-KEY']
+            if change == 'variant':
+                broken['files'][0]['components'][0]['variants'][0]['properties'] = {'Type':'invented'}
+            if change == 'asset':
+                broken['cases'][-1]['inventory_refs']['assets'] = []
+                broken['cases'][0]['inventory_refs']['assets'].append('FILEB/logo-FILEB')
+            if change == 'transition':
+                broken['cases'][0]['inventory_refs']['transitions'] = []
+            path.write_text(json.dumps(broken))
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                manifest.load(path)
+
+    def test_reference_delta_binds_affected_source_properties_without_invalidating_other_frames(self):
+        path, body = inventory_bundle(self.root / 'source-drift')
+        old = manifest.load(path)
+        replacement = self.root / 'source-drift-new'
+        shutil.copytree(path.parent, replacement)
+        source = replacement / 'FILEA-source.json'
+        receipt = json.loads(source.read_text())
+        next(row for row in receipt['nodes'] if row['id'] == '1:2')['visual'] = {'fills':[{'color':'changed'}]}
+        source.write_text(json.dumps(receipt))
+        body['files'][0]['pages'][0]['source_json']['sha256'] = util.file_hash(source)
+        (replacement / path.name).write_text(json.dumps(body))
+        change = design_identity.delta(old, manifest.load(replacement / path.name))
+        self.assertEqual(['FILEA.1.2.default'], change['changed'])
+        self.assertEqual(['FILEA.1.6.default','FILEB.3.4.default'], change['unchanged'])
+
+    def test_relocated_identical_reference_bytes_do_not_invalidate_design_evidence(self):
+        path, body = inventory_bundle(self.root / 'identity-relocation')
+        original = manifest.load(path)
+        replacement = self.root / 'identity-relocation-new'
+        shutil.copytree(path.parent, replacement)
+        (replacement / 'renamed-context.txt').write_bytes((replacement / 'context.txt').read_bytes())
+        body['cases'][0]['artifacts']['design_context']['path'] = 'renamed-context.txt'
+        (replacement / path.name).write_text(json.dumps(body))
+        change = design_identity.delta(original, manifest.load(replacement / path.name))
+        self.assertEqual([], change['changed'])
+        self.assertEqual(sorted(case['id'] for case in body['cases']), change['unchanged'])
+
+    def test_shared_variable_aliases_resolve_by_library_key_not_file_local_id(self):
+        path, body = inventory_bundle(self.root / 'variable-aliases')
+        for file in body['files']:
+            color = file['variables'][0]
+            color['source_id'] = 'VariableID:' + file['key']
+            alias = {**copy.deepcopy(color), 'key': 'VARIABLE-ALIAS', 'name': 'alias',
+                     'source_id': 'AliasID:' + file['key'],
+                     'value': {'type': 'VARIABLE_ALIAS', 'id': color['source_id']}}
+            file['variables'].append(alias)
+            for case in body['cases']:
+                if case['file_key'] == file['key']:
+                    case['inventory_refs']['variables'].append(alias['key'])
+            page = file['pages'][0]
+            source_path = path.parent / page['source_json']['path']
+            receipt = json.loads(source_path.read_text())
+            receipt['variables'] = file['variables']
+            for node in receipt['nodes']:
+                if node['variables']:
+                    node['variables'] = [color['source_id']]
+            source_path.write_text(json.dumps(receipt))
+            page['source_json']['sha256'] = util.file_hash(source_path)
+        path.write_text(json.dumps(body))
+        manifest.load(path)
+        catalog = design_inventory.catalog(body, path.parent)
+        self.assertEqual(2, len(catalog['variables']))
+        reordered = copy.deepcopy(body); reordered['files'].reverse()
+        self.assertEqual(catalog, design_inventory.catalog(reordered, path.parent))
+        conflicting = copy.deepcopy(body)
+        conflicting['files'][1]['variables'][0]['value'] = {'hex': '#ffffff'}
+        source_path = path.parent / conflicting['files'][1]['pages'][0]['source_json']['path']
+        receipt = json.loads(source_path.read_text()); receipt['variables'] = conflicting['files'][1]['variables']
+        source_path.write_text(json.dumps(receipt))
+        conflicting['files'][1]['pages'][0]['source_json']['sha256'] = util.file_hash(source_path)
+        path.write_text(json.dumps(conflicting))
+        with self.assertRaisesRegex(ValueError, 'conflicting definitions'):
+            manifest.load(path)
+
     def test_two_files_and_declared_frames_cannot_be_silently_dropped(self):
         manifest.load(self.path)
         for change in ("file", "case", "undeclared", "duplicate_id", "duplicate_state"):
@@ -130,6 +394,185 @@ class DesignManifestTests(unittest.TestCase):
             if change == "duplicate_state": body["cases"].append({**body["cases"][0], "id": "another"})
             with self.subTest(change=change), self.assertRaises(ValueError):
                 manifest.validate(body)
+
+    def test_v2_inventory_discovers_all_page_frames_and_merges_shared_component_variants(self):
+        path, body = inventory_bundle(self.root / "inventory")
+        record = manifest.load(path)
+        catalog = design_inventory.catalog(body, path.parent)
+        self.assertEqual(catalog, design_inventory.catalog(copy.deepcopy(body), path.parent))
+        self.assertEqual(3, len(catalog["screen_frames"]))
+        self.assertEqual("SHARED-BUTTON", catalog["components"][0]["key"])
+        self.assertEqual(3, len(catalog["components"][0]["variants"]))
+        self.assertEqual(["FILEA", "FILEB"], [row["file_key"] for row in catalog["fonts"][0]["sources"]])
+        self.assertEqual(1, len(catalog["variables"]))
+        self.assertEqual([], manifest.blockers(record))
+        self.assertEqual(3, len(manifest.context({"design_manifest": record})["catalog"]["cases"]))
+
+    def test_builder_context_is_limited_to_affected_cases_and_their_inventory(self):
+        path, _ = inventory_bundle(self.root / "builder-slice")
+        record = manifest.retain(manifest.load(path), self.workspace)
+        settings = {"design_manifest": record}
+        builder = manifest.context(settings, stage="terra", current_task={"affected_paths": ["src/filea.js"]})
+        self.assertEqual(["FILEA.1.2.default", "FILEA.1.6.default"], builder["builder_scope"]["case_ids"])
+        self.assertNotIn("body", builder)
+        self.assertEqual({"FILEA", "FILEB"}, {row["key"] for row in builder["catalog"]["files"]})
+        # Shared design-system identities keep their distinct variants from other approved files.
+        self.assertEqual(3, len(builder["catalog"]["components"][0]["variants"]))
+        self.assertEqual([], builder["builder_scope"]["unmapped_affected_paths"])
+
+        unrelated = manifest.context(settings, stage="terra", current_task={"affected_paths": ["tests/"]})
+        self.assertEqual([], unrelated["builder_scope"]["case_ids"])
+        self.assertEqual(["tests"], unrelated["builder_scope"]["unmapped_affected_paths"])
+        self.assertEqual(3, len(manifest.context(settings, stage="astra_review")["catalog"]["cases"]))
+
+    def test_v2_every_inventory_row_requires_a_case_mapping(self):
+        _, body = inventory_bundle(self.root / "unmapped-inventory")
+        body["cases"][0]["inventory_refs"]["fonts"].clear()
+        body["cases"][1]["inventory_refs"]["fonts"].clear()
+        with self.assertRaisesRegex(ValueError, "no case mapping"):
+            manifest.validate(body, root=self.root / "unmapped-inventory")
+
+    def test_v2_undeclared_source_typography_assets_variables_and_transitions_are_refused(self):
+        path,body=inventory_bundle(self.root/'unreported-source')
+        for section in ('fonts','assets','variables','transitions'):
+            broken=copy.deepcopy(body)
+            broken['files'][0][section]=[]
+            for case in broken['cases']:
+                if case['file_key']=='FILEA':
+                    case['inventory_refs'][section]=[]
+            path.write_text(json.dumps(broken))
+            with self.subTest(section=section), self.assertRaisesRegex(ValueError,'omit|change source'):
+                manifest.load(path)
+
+    def test_v2_native_dimensions_cannot_be_replaced_by_thumbnail_dimensions(self):
+        path,body=inventory_bundle(self.root/'native-size')
+        body['cases'][0]['native_size']['width']=1440
+        path.write_text(json.dumps(body))
+        with self.assertRaisesRegex(ValueError,'Native Figma size'):
+            manifest.load(path)
+
+    def test_v2_invalid_native_dimensions_are_input_errors(self):
+        path, body = inventory_bundle(self.root / 'invalid-native-size')
+        for value in (None, True, '1440', float('inf'), float('nan'), [], 0, -1):
+            broken = copy.deepcopy(body)
+            broken['cases'][0]['native_size']['width'] = value
+            path.write_text(json.dumps(broken))
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'finite and positive'):
+                manifest.load(path)
+
+    def test_v2_plan_coverage_binds_every_case_to_existing_criteria_and_ownership(self):
+        path, body = inventory_bundle(self.root / "plan-inventory")
+        record = manifest.load(path)
+        plan = {"acceptance_criteria": [{"id": "AC1"}], "open_blocking_questions": [],
+                "milestones": [{"id": "M1", "acceptance_criteria": ["AC1"], "affected_paths": ["src/"]}],
+                "design_coverage": {"manifest_hash": record["manifest_hash"],
+                    "cases": [{"id": case["id"], "criterion_ids": ["AC1"], "milestone_ids": ["M1"]}
+                              for case in body["cases"]], "responsive_derivations": []}}
+        design_plan.validate(record, plan, ready=True)
+        for change in ("missing_case", "stale_reference", "unknown_criterion", "unowned_path"):
+            broken = copy.deepcopy(plan)
+            if change == "missing_case": broken["design_coverage"]["cases"].pop()
+            if change == "stale_reference": broken["design_coverage"]["manifest_hash"] = "other"
+            if change == "unknown_criterion": broken["design_coverage"]["cases"][0]["criterion_ids"] = ["unknown"]
+            if change == "unowned_path": broken["milestones"][0]["affected_paths"] = ["tests/"]
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                design_plan.validate(record, broken, ready=True)
+        self.assertIn("FILEB.3.4.default", "\n".join(design_plan.render(record, plan)))
+        body['cases'][0]['implementation_paths'].append('styles/home.css')
+        path.write_text(json.dumps(body))
+        record = manifest.load(path)
+        plan['design_coverage']['manifest_hash'] = record['manifest_hash']
+        with self.assertRaisesRegex(ValueError, 'owning its implementation paths'):
+            design_plan.validate(record, plan, ready=True)
+        plan['milestones'][0]['affected_paths'].append('styles/')
+        design_plan.validate(record, plan, ready=True)
+
+    def test_absent_responsive_reference_requires_documented_derivation(self):
+        path, body = inventory_bundle(self.root / "responsive")
+        body["responsive_targets"] = [{"id": "home.mobile", "source_case_id": body["cases"][0]["id"],
+            "reference_case_id": "", "viewport": {"width": 1, "height": 2, "device_scale_factor": 1},
+            "constraints": []}]
+        path.write_text(json.dumps(body))
+        record = manifest.load(path)
+        plan = {"acceptance_criteria": [{"id": "AC1"}], "open_blocking_questions": [],
+                "milestones": [{"id": "M1", "acceptance_criteria": ["AC1"], "affected_paths": ["src/"]}],
+                "design_coverage": {"manifest_hash": record["manifest_hash"],
+                    "cases": [{"id": case["id"], "criterion_ids": ["AC1"], "milestone_ids": ["M1"]}
+                              for case in body["cases"]], "responsive_derivations": []}}
+        with self.assertRaisesRegex(ValueError, "responsive target"):
+            design_plan.validate(record, plan, ready=True)
+        plan["design_coverage"]["responsive_derivations"] = [{"target_id": "home.mobile", "exact_match": False,
+            "basis": "derived_behavior", "behavior": "Stack the two panes while retaining chat navigation",
+            "criterion_ids": ["AC1"], "milestone_ids": ["M1"]}]
+        design_plan.validate(record, plan, ready=True)
+        plan["design_coverage"]["responsive_derivations"][0]["exact_match"] = True
+        with self.assertRaises(ValueError):
+            design_plan.validate(record, plan, ready=True)
+
+    def test_v2_incomplete_source_frame_and_transition_endpoint_block_preflight(self):
+        path, body = inventory_bundle(self.root / "incomplete")
+        body["cases"].pop()
+        path.write_text(json.dumps(body))
+        with self.assertRaisesRegex(ValueError, "missing cases.*FILEB"):
+            manifest.load(path)
+        _, body = inventory_bundle(self.root / "broken-transition")
+        body["files"][0]["transitions"][0]["target_node_id"] = "9:99"
+        path = self.root / "broken-transition" / "manifest-v2.json"
+        path.write_text(json.dumps(body))
+        with self.assertRaisesRegex(ValueError, "unknown Figma node|source prototype actions"):
+            manifest.load(path)
+
+    def test_v2_omitted_page_or_component_variant_is_rejected_against_source(self):
+        path, body = inventory_bundle(self.root / "omitted-page")
+        file_metadata = body["files"][0]["metadata_xml"]
+        metadata_path = path.parent / file_metadata["path"]
+        metadata_path.write_text(metadata_path.read_text().replace(
+            "</DOCUMENT>", '<CANVAS id="9:9" name="Omitted page"/></DOCUMENT>'))
+        file_metadata["sha256"] = util.file_hash(metadata_path)
+        path.write_text(json.dumps(body))
+        with self.assertRaisesRegex(ValueError, "file pages and metadata differ"):
+            manifest.load(path)
+
+        path, body = inventory_bundle(self.root / "omitted-variant")
+        body["files"][0]["components"][0]["variants"].pop()
+        path.write_text(json.dumps(body))
+        with self.assertRaisesRegex(ValueError, "incomplete variant coverage"):
+            manifest.load(path)
+
+        path, body = inventory_bundle(self.root / "omitted-component")
+        body["files"][0]["components"] = []
+        for case in body["cases"]:
+            if case["file_key"] == "FILEA":
+                case["inventory_refs"]["components"] = []
+        path.write_text(json.dumps(body))
+        with self.assertRaisesRegex(ValueError, "component inventory differs"):
+            manifest.load(path)
+
+    def test_v2_missing_approved_state_case_is_not_hidden_by_frame_coverage(self):
+        path, body = inventory_bundle(self.root / "omitted-state")
+        body["files"][0]["screen_states"].append({"page_id": "0:1", "node_id": "1:2", "state": "empty",
+            "viewport": {"width": 2, "height": 1, "device_scale_factor": 1}})
+        path.write_text(json.dumps(body))
+        with self.assertRaisesRegex(ValueError, "source states and cases differ"):
+            manifest.load(path)
+
+    def test_v2_missing_fonts_and_assets_are_visible_blockers_and_refuse_coverage(self):
+        path, body = inventory_bundle(self.root / "missing", include_missing_reference=True)
+        record = manifest.load(path)
+        blocked = {"settings": {"design_manifest": record}, "validation": {}}
+        self.assertEqual(2, len(manifest.blockers(record)))
+        self.assertFalse(coverage.ready(blocked))
+        self.assertIn("unavailable required fonts/assets", completion.rejection(blocked))
+
+    def test_v2_metadata_drift_is_hash_bound_and_isolated_retention_is_read_only(self):
+        path, body = inventory_bundle(self.root / "metadata")
+        record = manifest.retain(manifest.load(path), self.workspace)
+        page_path = Path(record["root"]) / body["files"][0]["pages"][0]["metadata_xml"]["path"]
+        original = page_path.read_text()
+        page_path.write_text(original + "\n")
+        with self.assertRaisesRegex(util.Paused, "changed design reference"):
+            manifest.context({"design_manifest": record})
+        self.assertEqual(original, (path.parent / body["files"][0]["pages"][0]["metadata_xml"]["path"]).read_text())
 
     def test_bundle_survives_external_export_deletion_and_detects_retained_drift(self):
         retained = manifest.retain(manifest.load(self.path), self.workspace)
@@ -298,6 +741,17 @@ class DesignManifestTests(unittest.TestCase):
         self.assertFalse(completion.completion_ready(probe, decision, current))
         self.assertTrue(completion.completion_ready(probe, decision, current, require_independent=False))
 
+    def test_status_retains_inventory_error_when_original_receipt_is_missing(self):
+        path, body = inventory_bundle(self.root / 'status-inventory')
+        selected = manifest.retain(manifest.load(path), self.workspace)
+        receipt = Path(selected['root']) / body['files'][0]['pages'][0]['source_json']['path']
+        receipt.unlink()
+        view = run_view.view({'status': 'PAUSED_DESIGN_REFERENCE', 'settings': {'design_manifest': selected}})
+        self.assertIn('inventory_error', view['design'])
+        self.assertEqual([case['id'] for case in body['cases']], view['design']['not_passing'])
+        self.assertIsNone(view['design']['current_visual_acceptance'])
+        self.assertFalse(coverage.ready({'settings': {'design_manifest': selected}}))
+
     def test_status_exposes_inventory_without_claiming_current_visual_acceptance(self):
         state, _, _ = self.passing_state()
         state["validation"]["design_results"][-1]["status"] = "NOT_VERIFIED"
@@ -321,49 +775,9 @@ class DesignManifestCliTests(unittest.TestCase):
                         "commit", "-q", "--allow-empty", "-m", "base"], check=True)
         bindir = self.root / "bin"
         bindir.mkdir()
-        provider = (ROOT / "tools/live_fixture_provider.py").read_text()
-        # Extend a copied fixture only; neither the production fake nor a live provider is changed.
-        hook = r"""
-    design = data.get('design_manifest')
-    if design:
-        sys.path.insert(0, os.environ['FAKE_CAPTURE_REPO'])
-        from tests.visual_capture_fixtures import make_capture
-    if design and stage == 'terra':
-        if os.environ.get('FAKE_DESIGN_STALE_CAPTURE'):
-            old = [make_capture(Path.cwd(), design['manifest_hash'], case) for case in design['body']['cases']]
-            Path('.autocode/old-captures.json').write_text(json.dumps(old))
-            with Path('greet.py').open('a') as source:
-                source.write('\n# Implementation B: current source differs from capture A.\n')
-        for case in design['body']['cases']:
-            make_capture(Path.cwd(), design['manifest_hash'], case)
-    if design and stage == 'sol' and not data.get('report_repair'):
-        selected = {row['case']['id']: row for row in data['implementation_captures']['current']}
-        assert set(selected) == {case['id'] for case in design['body']['cases']}, selected
-        assert data['implementation_captures']['visual_acceptance'] is None
-        report['design_manifest_hash'] = design['manifest_hash']
-        rows = []
-        for index, case in enumerate(design['body']['cases']):
-            capture = {key: selected[case['id']][key] for key in ('candidate_ref', 'capture_ref', 'capture_sha256')}
-            if os.environ.get('FAKE_DESIGN_STALE_CAPTURE'):
-                capture = json.loads(Path('.autocode/old-captures.json').read_text())[index]
-            comparison = output.parent / ('compare-' + case['id'] + '.txt')
-            comparison.write_text('Offline fixture metadata comparison; not real image acceptance')
-            rows.append(dict(id=case['id'], status='PASS', criterion_ids=['C1'],
-                             **capture, comparison_ref=str(comparison)))
-        if os.environ.get('FAKE_DESIGN_UNVERIFIED'):
-            rows[-1]['status'] = 'NOT_VERIFIED'
-        report['design_results'] = rows
-    if design:
-        with open(os.environ['FAKE_DESIGN_PROMPTS'], 'a') as log:
-            log.write(json.dumps(dict(stage=stage, ids=[c['id'] for c in design['body']['cases']])) + '\n')
-    if data.get('report_repair') and stage == 'sol':
-        report = data['rejected_report']['content']
-"""
-        provider = provider.replace('    output.write_text(json.dumps(report))', hook + '    output.write_text(json.dumps(report))')
-        # os is present in most fixtures; make it explicit in this copy.
-        provider = provider.replace('import json', 'import os\nimport json', 1)
-        (bindir / "codex").write_text(provider)
-        (bindir / "codex").chmod(0o755)
+        from tests.figma_inventory_fixtures import install_inventory_hook
+        (bindir / "codex").write_text((ROOT / "tools/live_fixture_provider.py").read_text())
+        install_inventory_hook(bindir / "codex")
         self.env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "AUTOCODE_HOME": str(self.root / "registry"),
                     "PYTHONDONTWRITEBYTECODE": "1", "FAKE_DESIGN_PROMPTS": str(self.root / "prompts.jsonl"),
                     "FAKE_CAPTURE_REPO": str(ROOT)}
@@ -371,6 +785,11 @@ class DesignManifestCliTests(unittest.TestCase):
     def start(self):
         return taskrun.TaskRun.start(self.workspace, BRIEF, options=OPTIONS,
             start_options=("--figma-manifest", str(self.path)), env=self.env, timeout=120)
+
+    def scope_inventory_to_fixture_task(self):
+        for case in self.body["cases"]:
+            case["implementation_paths"] = ["greet.py"]
+        self.path.write_text(json.dumps(self.body))
 
     def test_public_taskrun_retains_exports_and_completes_only_with_all_case_evidence(self):
         run = self.start()
@@ -398,6 +817,167 @@ class DesignManifestCliTests(unittest.TestCase):
         self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
         self.assertIn("Completion rejected", view["stop_reason"])
         self.assertIn("greet.filled", view["stop_reason"])
+
+    def test_public_taskrun_uses_hash_bound_v2_inventory_for_all_files_and_variants(self):
+        self.path, self.body = inventory_bundle(self.root / "exports-v2")
+        self.scope_inventory_to_fixture_task()
+        run = self.start()
+        view = run.status()
+        self.assertEqual("approve_plan", view["needs"]["kind"], view)
+        self.assertEqual(3, len(view["design"]["inventory"]["screen_frames"]))
+        self.assertEqual(3, len(view["design"]["inventory"]["components"][0]["variants"]))
+        self.assertEqual(3, len(view["design"]["plan_coverage"]["cases"]))
+        run.approve_plan(view["needs"]["token"])
+        view = run.advance_until_input()
+        self.assertTrue(view["done"], view)
+        self.assertEqual([], view["design"]["not_passing"])
+        prompts = [json.loads(line) for line in (self.root / "prompts.jsonl").read_text().splitlines()]
+        self.assertEqual({case["id"] for case in self.body["cases"]},
+                         set(prompts[-1]["ids"]))
+
+    def test_public_taskrun_never_completes_with_unavailable_source_assets(self):
+        self.path, self.body = inventory_bundle(self.root / "exports-blocked", include_missing_reference=True)
+        self.scope_inventory_to_fixture_task()
+        run = self.start()
+        view = run.status()
+        self.assertEqual(2, len(view["design"]["inventory_blockers"]))
+        run.approve_plan(view["needs"]["token"])
+        view = run.advance_until_input()
+        self.assertFalse(view["done"], view)
+        self.assertIn("unavailable required fonts/assets", view["stop_reason"])
+
+    def test_public_taskrun_refuses_plan_that_omits_an_approved_design_case(self):
+        self.path, self.body = inventory_bundle(self.root / "exports-uncovered-plan")
+        self.scope_inventory_to_fixture_task()
+        self.env["FAKE_DESIGN_OMIT_PLAN_CASE"] = "1"
+        view = self.start().status()
+        self.assertFalse(view["done"])
+        self.assertNotEqual("approve_plan", view["needs"]["kind"])
+        self.assertIn("every approved design case", view["stop_reason"])
+
+    def test_public_native_intake_collects_both_files_before_plan_approval_and_survives_restart(self):
+        self.path, self.body = inventory_bundle(self.root / 'native-exports')
+        self.scope_inventory_to_fixture_task()
+        self.env['FAKE_NATIVE_MANIFEST'] = str(self.path)
+        run = taskrun.TaskRun.start(self.workspace,BRIEF,options=OPTIONS,
+            start_options=('--figma-file','https://www.figma.com/design/FILEA?node-id=1-2',
+                           '--figma-additional-file','https://www.figma.com/design/FILEB?node-id=3-4'),
+            env=self.env,timeout=120)
+        view=run.status()
+        self.assertEqual('approve_plan',view['needs']['kind'],view)
+        self.assertEqual(3,len(view['design']['case_ids']))
+        run=taskrun.TaskRun(self.workspace,run.run_dir,options=OPTIONS,env=self.env,timeout=120)
+        self.assertEqual(view['design']['plan_coverage'],run.status()['design']['plan_coverage'])
+        prompts=[json.loads(line) for line in (self.root/'prompts.jsonl').read_text().splitlines()]
+        self.assertEqual('collect_design',prompts[0]['stage'])
+        run.approve_plan(view['needs']['token'])
+        self.assertTrue(run.advance_until_input()['done'])
+
+    def test_public_native_unreadable_page_blocks_before_planning(self):
+        self.env['FAKE_NATIVE_BLOCKED']='1'
+        run=taskrun.TaskRun.start(self.workspace,BRIEF,options=OPTIONS,
+            start_options=('--figma-file','https://www.figma.com/design/FILEA'),env=self.env,timeout=120)
+        view=run.status()
+        self.assertFalse(view['done'])
+        self.assertEqual('PAUSED_DESIGN_INPUT',view['status'],view)
+        self.assertIn('Unreadable approved FILEB',view['stop_reason'])
+        self.assertFalse((self.workspace/'greet.py').exists())
+
+    def test_native_reference_revision_updates_approved_urls_and_keeps_original_receipts(self):
+        self.path, self.body = inventory_bundle(self.root / 'native-original')
+        self.scope_inventory_to_fixture_task()
+        self.env['FAKE_NATIVE_MANIFEST'] = str(self.path)
+        references = ('https://www.figma.com/design/FILEA?node-id=1-2',
+                      'https://www.figma.com/design/FILEB?node-id=3-4',
+                      'https://www.figma.com/design/FILEA?node-id=1-6')
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=OPTIONS,
+            start_options=('--figma-file', references[0], '--figma-additional-file', references[1],
+                           '--figma-additional-file', references[2]),
+            env=self.env, timeout=120)
+        old = run.status()
+        saved = json.loads(run._invoke('status', '--status').stdout)['settings']
+        replacement = self.root / 'native-replacement'
+        shutil.copytree(self.path.parent, replacement)
+        body = copy.deepcopy(self.body); body['files'][1]['key'] = 'FILEC'
+        for case in body['cases']:
+            if case['file_key'] == 'FILEB':
+                case['file_key'] = 'FILEC'; case['id'] = case['id'].replace('FILEB', 'FILEC')
+        source = body['files'][1]['pages'][0]['source_json']
+        source_path = replacement / source['path']
+        receipt = json.loads(source_path.read_text()); receipt['file_key'] = 'FILEC'
+        source_path.write_text(json.dumps(receipt)); source['sha256'] = util.file_hash(source_path)
+        candidate = replacement / self.path.name; candidate.write_text(json.dumps(body))
+        proposed = run.revise_design(candidate, old['design']['manifest_hash'], 'Replace the approved second reference file')
+        current = json.loads(run._invoke('status', '--status').stdout)['settings']
+        self.assertEqual([references[0], references[2], 'https://www.figma.com/design/FILEC'], current['figma_references'])
+        self.assertEqual(saved['roles'], current['roles']); self.assertEqual(saved['limits'], current['limits'])
+        self.assertEqual(list(references), proposed['design']['reference_changes'][-1]['previous_references'])
+        self.assertEqual('PAUSED_DESIGN_INPUT_CHANGED', proposed['status'])
+        self.assertFalse(proposed['done'])
+        self.assertTrue(Path(saved['design_manifest']['manifest_path']).is_file())
+        reviewed = run.resume_paused()
+        self.assertEqual('approve_plan', reviewed['needs']['kind'], reviewed)
+        self.assertNotEqual(old['needs']['token'], reviewed['needs']['token'])
+
+    def test_public_native_worker_failure_retains_owner_and_requires_exact_retry(self):
+        self.env['FAKE_NATIVE_FAILURE'] = '1'
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=OPTIONS,
+            start_options=('--figma-file', 'https://www.figma.com/design/FILEA'), env=self.env, timeout=120)
+        view = run.status()
+        self.assertEqual('PAUSED_JOB_FAILURE', view['status'], view)
+        self.assertEqual('collect_design', view['next_stage'])
+        self.assertIn('Design inventory: provider exited 3', view['stop_reason'])
+        self.assertEqual('retry_job', view['needs']['kind'])
+        self.assertFalse(view['done'])
+        self.assertFalse((self.workspace / 'greet.py').exists())
+        self.path, self.body = inventory_bundle(self.root / 'native-retry')
+        self.body['files'] = self.body['files'][:1]
+        self.body['cases'] = self.body['cases'][:2]
+        self.scope_inventory_to_fixture_task()
+        saved = json.loads(run._invoke('status', '--status').stdout)['settings']
+        run.env.pop('FAKE_NATIVE_FAILURE')
+        run.env['FAKE_NATIVE_MANIFEST'] = str(self.path)
+        recovered = run.retry_job(view['needs']['job_retry_token'])
+        self.assertEqual('approve_plan', recovered['needs']['kind'], recovered)
+        current = json.loads(run._invoke('status', '--status').stdout)['settings']
+        self.assertEqual(saved['roles'], current['roles'])
+        self.assertEqual(saved['limits'], current['limits'])
+
+    def test_reference_revision_preserves_old_versions_and_requires_new_plan_review(self):
+        self.path,self.body=inventory_bundle(self.root/'old-version')
+        self.scope_inventory_to_fixture_task()
+        run=self.start()
+        old=run.status()
+        run.approve_plan(old['needs']['token'])
+        completed=run.advance_until_input()
+        self.assertTrue(completed['done'],completed)
+        replacement=self.root/'new-version'
+        shutil.copytree(self.path.parent,replacement)
+        body=copy.deepcopy(self.body)
+        (replacement/'changed-context.txt').write_text('Updated source screen constraint')
+        body['cases'][-1]['artifacts']['design_context']={'path':'changed-context.txt','sha256':util.file_hash(replacement/'changed-context.txt')}
+        path=replacement/'manifest-v2.json';path.write_text(json.dumps(body))
+        original=manifest.load(self.path); current=manifest.load(path)
+        self.assertEqual([body['cases'][-1]['id']],design_identity.delta(original,current)['changed'])
+        with self.assertRaisesRegex(taskrun.TaskRunError,'exact inspected design hash'):
+            run.revise_design(path,'wrong','Updated one source frame')
+        proposed=run.revise_design(path,old['design']['manifest_hash'],'Updated one source frame')
+        self.assertFalse(proposed['done'])
+        self.assertEqual('PAUSED_DESIGN_INPUT_CHANGED',proposed['status'])
+        self.assertEqual([body['cases'][-1]['id']],proposed['design']['not_passing'])
+        self.assertEqual(2,len(proposed['design']['reusable_case_results']))
+        history=proposed['design']['reference_changes'][-1]
+        self.assertEqual(old['design']['manifest_hash'],history['previous_hash'])
+        reattached=taskrun.TaskRun(self.workspace,run.run_dir,options=OPTIONS,env=self.env,timeout=120)
+        reviewed=reattached.resume_paused()
+        self.assertEqual('approve_plan',reviewed['needs']['kind'],reviewed)
+        self.assertNotEqual(old['needs']['token'],reviewed['needs']['token'])
+        self.assertIn(body['cases'][-1]['id'],reattached.show_goal())
+        self.assertEqual(history,reviewed['design']['reference_changes'][-1])
+        reattached.approve_plan(reviewed['needs']['token'])
+        finished=reattached.advance_until_input()
+        self.assertTrue(finished['done'],finished)
+        self.assertEqual(current['manifest_hash'],finished['design']['manifest_hash'])
 
     def test_invalid_manifest_is_refused_before_any_provider_call_or_run_allocation(self):
         self.body["cases"].pop()

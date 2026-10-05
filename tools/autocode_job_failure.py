@@ -11,14 +11,13 @@ import json
 import re
 from pathlib import Path
 try:
-    from . import autocode_jobs as jobs, autocode_job_source as source, autocode_util as util
+    from . import autocode_jobs as jobs, autocode_job_source as source, autocode_util as util, autocode_roles as roles
 except ImportError:
     import autocode_jobs as jobs
     import autocode_job_source as source
     import autocode_util as util
+    import autocode_roles as roles
 
-ROLE_NAMES = {'review_change': 'Reviewer', 'review_design': 'Architect', 'check_design': 'Architect',
-              'answer_question': 'Analyst', 'investigate_bug': 'Investigator', 'investigate_stuck': 'Investigator'}
 RETRY_ACTION = '--resume-paused --retry-failed-stage --job-retry-token TOKEN'
 
 
@@ -34,7 +33,7 @@ def configuration(state):
 
 
 def _reason(runtime, record, error):
-    role = ROLE_NAMES[owner(record)]
+    role = roles.screen_name(owner(record))
     if record.get('timed_out'):
         return 'timeout', role + ': ' + (record.get('timeout_reason') or str(error))
     path = Path(record.get('events', ''))
@@ -74,7 +73,7 @@ def recover(runtime, state, run_dir, workspace, error=None, *, abandoned=False):
     kind, reason = _reason(runtime, record, error)
     original_attempt = runtime.attempt_id(record)
     if abandoned:
-        reason = f'Operator abandoned {ROLE_NAMES[stage]} attempt {original_attempt}; inspect its retained work before an explicit fresh retry.'
+        reason = f'Operator abandoned {roles.screen_name(stage)} attempt {original_attempt}; inspect its retained work before an explicit fresh retry.'
     restoration = source.restore(workspace, record)
     if restoration['unrestored']:
         reason += '; unrestored source: ' + ', '.join(restoration['unrestored'])
