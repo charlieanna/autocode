@@ -5,24 +5,37 @@ glm-mimo profile, 2026-10-05): after about 17k reasoning tokens on
 xiaomi-token-plan-sgp/mimo-v2.6-pro the stream holds the model's text "The request was rejected
 because it was considered high risk", a ``content-filter`` step finish and a
 ``ContentFilterError`` event, and opencode exited 1. Before this the stop was an uncertain exit
-that never said the provider had refused the response. Pure functions; no provider runs.
+that never said the provider had refused the response. The sibling fixture is the same log
+without its error event: the ``content-filter`` finish alone is the refusal (#464), and the
+stop is the same whether opencode exited 1 or 0. No provider runs: pure functions, and the
+runner's own exit handling with the provider process faked.
 """
+import contextlib
+import io
 import json
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+import autocode as runner
 import autocode_dispatch as dispatch
+import autocode_goals as goals
 import autocode_provider_refusal as provider_refusal
 import autocode_quota_route as quota_route
 import autocode_run_view as run_view
 import autocode_support as support
+from goal_fixtures import approve_fixture
 
-FIXTURE = Path(__file__).resolve().parents[1] / "tools" / "fixtures" / "opencode-content-filter-run.jsonl"
+FIXTURES = Path(__file__).resolve().parents[1] / "tools" / "fixtures"
+FIXTURE = FIXTURES / "opencode-content-filter-run.jsonl"
+FINISH_ONLY = FIXTURES / "opencode-content-filter-finish-run.jsonl"
 MIMO = "xiaomi-token-plan-sgp/mimo-v2.6-pro"
 GLM = "zai-coding-plan/glm-5.3"
 BLOCKED = "The response was blocked by the provider's content filter"
+FINISHED = "OpenCode's last step finished with reason content-filter"
+REFUSED_ON_MIMO = f"Builder: the provider's content filter refused the response on {MIMO} "
 
 
 class ContentFilterClassificationTests(unittest.TestCase):
@@ -52,6 +65,28 @@ class ContentFilterClassificationTests(unittest.TestCase):
                                           "error": {"name": "UnknownError", "data": {"message": "exit status 1"}}}])
         self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(path))
         self.assertIsNone(provider_refusal.explain(support.events(path), job="Builder", model=MIMO))
+        # The same words closed by an ordinary "stop" finish are a completed turn, not a refusal.
+        finish = raw[cut + 1]
+        self.assertEqual("content-filter", finish["part"]["reason"])
+        path = self.log(raw[:cut + 1] + [{**finish, "part": {**finish["part"], "reason": "stop"}}])
+        self.assertTrue(any(row["type"] == "turn.completed" for row in support.events(path)))
+        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", support.failure_status(path))
+        self.assertIsNone(provider_refusal.refusal(support.events(path)))
+
+    def test_a_content_filter_finish_without_an_error_event_is_a_refusal(self):
+        self.assertEqual(FIXTURE.read_text().splitlines()[:-1], FINISH_ONLY.read_text().splitlines())
+        self.assertEqual("PAUSED_CONTENT_FILTER", support.failure_status(FINISH_ONLY))
+        rows = support.events(FINISH_ONLY)
+        self.assertEqual({"error": "content_filter", "message": FINISHED}, provider_refusal.refusal(rows))
+        self.assertEqual(REFUSED_ON_MIMO + f"(content_filter: {FINISHED}); the same model is likely to refuse it again",
+                         provider_refusal.explain(rows, job="Builder", model=MIMO))
+        # Both streams account the same reported usage, as a finished (not partial) failed turn.
+        for path in (FIXTURE, FINISH_ONLY):
+            with self.subTest(path=path.name):
+                metrics = support.event_metrics(path)
+                self.assertEqual({"input_tokens": 86125, "cached_input_tokens": 58880, "output_tokens": 17081,
+                                  "reasoning_output_tokens": 16901}, metrics["provider_tokens"])
+                self.assertEqual((False, 0), (metrics["provider_tokens_partial"], metrics["completed_turns"]))
 
     def test_typed_codes_and_provider_messages_classify_and_other_stops_keep_theirs(self):
         cases = (({"type": "turn.failed", "error": {"code": "content_filter", "message": "filtered"}}, "content_filter"),
@@ -78,16 +113,16 @@ class ContentFilterRouteTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
         self.events = self.root / "builder-01.jsonl"
-        shutil.copyfile(FIXTURE, self.events)
 
-    def state(self, **extra_roles):
+    def state(self, *, source=FIXTURE, exit_code=1, **extra_roles):
         # The glm-mimo scenario profile: MiMo builds and plans, GLM checks.
+        shutil.copyfile(source, self.events)
         roles = {"terra": {"engine": "opencode", "model": MIMO}, "astra": {"engine": "opencode", "model": MIMO},
                  "sol": {"engine": "opencode", "model": GLM}, "completion": {"engine": "opencode", "model": GLM},
                  **{role: {"engine": "opencode", "model": model} for role, model in extra_roles.items()}}
         return {"status": "WAITING_FOR_USER", "settings": {"engine": "opencode", "roles": roles},
                 "sessions": {"terra": "ses_builder"},
-                "active_stage": {"stage": "terra", "role": "terra", "iteration": 1, "exit_code": 1,
+                "active_stage": {"stage": "terra", "role": "terra", "iteration": 1, "exit_code": exit_code,
                                  "output": str(self.root / "builder-01.json"), "events": str(self.events),
                                  "launch_route": {"engine": "opencode", "model": MIMO}}}
 
@@ -113,6 +148,16 @@ class ContentFilterRouteTests(unittest.TestCase):
         self.assertIn("--answer route-terra=MODEL --resolver-token TOKEN", advice)
         self.assertIn("--abandon-stage 001/builder-01, then --resume-paused --terra-model MODEL", advice)
         self.assertTrue(advice.endswith(asked["recommendation"]))
+
+    def test_a_finish_only_refusal_at_a_clean_exit_asks_the_same_question(self):
+        for source, exit_code in ((FINISH_ONLY, 0), (FINISH_ONLY, 1), (FIXTURE, 0)):
+            with self.subTest(source=source.name, exit_code=exit_code):
+                attempt, asked = self.question(self.state(source=source, exit_code=exit_code))
+                self.assertEqual(("terra", MIMO, "PAUSED_CONTENT_FILTER", True),
+                                 tuple(attempt[key] for key in ("role", "model", "pause_status", "active")))
+                self.assertEqual(("route-terra", "content_filter", MIMO),
+                                 (asked["id"], asked["cause"], asked["stopped_model"]))
+                self.assertTrue(asked["question"].startswith("Builder's model was refused by its provider's content filter"))
 
     def test_candidates_are_other_providers_models_that_pass_the_cross_model_rule(self):
         state = self.state(requirements="anthropic/claude-sonnet-5-5", plan_reviewer="xiaomi-token-plan-sgp/mimo-v2.6")
@@ -147,6 +192,96 @@ class ContentFilterRouteTests(unittest.TestCase):
         self.assertIsNone(quota_route.resume_refusal(state, state["settings"], changed,
                                                      failure_status=support.failure_status,
                                                      abandoning="001/builder-01"))
+
+
+class ContentFilterAtCleanExitTests(unittest.TestCase):
+    """A provider that exits 0 after its content filter refused the response stops the same typed way (#464).
+
+    The runner's own exit handling, with the provider process faked to write a saved log and exit 0;
+    an exit-0 stop that is not a refusal stays uncertain, so truncation keeps its own recovery."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name).resolve()
+        self.runs = 0
+
+    def build(self, rows, *, sessions=True):
+        """The Builder's run_role, in a fresh run, over a provider that writes ``rows`` and exits 0: (stop, state)."""
+        self.runs += 1
+        self.run = self.root / ".autocode/runs" / f"fixture-{self.runs}"
+        self.run.mkdir(parents=True)
+        state = {"version": 2, "workspace": str(self.root), "task": "Fixture", "status": "RUNNING", "iteration": 1,
+                 "sessions": {}, "stages": [], "history": [],
+                 "settings": {"engine": "opencode", "roles": {"terra": {"model": MIMO}, "astra": {"model": MIMO},
+                                                              "sol": {"model": GLM}, "completion": {"model": GLM}}}}
+        approve_fixture(state, goals)
+
+        class Child:
+            pid = 987654321
+
+            def __init__(child, command, **kwargs):
+                kwargs["stdout"].write("".join(json.dumps(row) + "\n" for row in rows))
+
+        with patch.object(runner.opencode, "launch", return_value=(["fixture-provider"], {}, {})), \
+             patch.object(runner.opencode, "SUPPORTS_SESSIONS", sessions, create=True), \
+             patch.object(runner.readonly_events, "prepare_opencode_snapshots"), \
+             patch.object(runner.subprocess, "Popen", Child), \
+             patch.object(support, "snapshot", return_value={"head": "h", "files": {}, "revision": "r"}), \
+             patch.object(runner.processes, "preflight", return_value=None), \
+             patch.object(runner.processes, "wait_for_stage", return_value=(0, False)), \
+             contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(support.Paused) as caught:
+                runner.run_role(role="terra", prompt="Fixture", sandbox="workspace-write", workspace=self.root,
+                                run_dir=self.run, state=state, schema=runner.SCHEMA_DIR / "v2/terra-report.schema.json",
+                                model=MIMO, allow_write=True, dry_run=False)
+        return caught.exception, state
+
+    def reconcile(self, state):
+        """What resuming the saved stop says: reconcile_active, which never relaunches the provider."""
+        with patch.object(runner, "assert_stage_stopped"), patch.object(runner.subprocess, "Popen") as popen:
+            with self.assertRaises(support.Paused) as caught:
+                runner.reconcile_active(state, self.run, self.root)
+            popen.assert_not_called()
+        return caught.exception
+
+    def test_a_refusal_at_exit_0_names_the_job_and_model_with_or_without_an_error_event(self):
+        for source, detail in ((FIXTURE, f"ContentFilterError: {BLOCKED}"), (FINISH_ONLY, f"content_filter: {FINISHED}")):
+            with self.subTest(fixture=source.name):
+                stop, state = self.build([json.loads(line) for line in source.read_text().splitlines()])
+                refused = REFUSED_ON_MIMO + f"({detail}); the same model is likely to refuse it again"
+                self.assertEqual("PAUSED_CONTENT_FILTER", stop.status)
+                self.assertTrue(str(stop).startswith(refused + ". terra exited 0; reconcile "), str(stop))
+                self.assertIn("no automatic replay", str(stop))
+                self.assertEqual((0, MIMO), (state["active_stage"]["exit_code"],
+                                             state["active_stage"]["launch_route"]["model"]))
+                resumed = self.reconcile(state)
+                self.assertEqual("PAUSED_CONTENT_FILTER", resumed.status)
+                self.assertTrue(str(resumed).startswith(refused + ". "), str(resumed))
+                self.assertIn("--abandon-stage 001/builder-01", str(resumed))
+                attempt = quota_route.stopped_attempt(state, failure_status=support.failure_status)
+                self.assertEqual(("terra", MIMO, "PAUSED_CONTENT_FILTER"),
+                                 (attempt["role"], attempt["model"], attempt["pause_status"]))
+
+    def test_a_report_file_provider_that_exits_0_without_a_report_names_the_refusal(self):
+        refusal = {"type": "turn.failed", "error": {"code": "content_filter", "message": "filtered"}}
+        stop, state = self.build([{"type": "thread.started", "thread_id": "t"}, refusal], sessions=False)
+        self.assertEqual("PAUSED_CONTENT_FILTER", stop.status)
+        self.assertTrue(str(stop).startswith(REFUSED_ON_MIMO + "(content_filter: filtered)"), str(stop))
+        self.assertEqual("PAUSED_CONTENT_FILTER", self.reconcile(state).status)
+        stop, _ = self.build([{"type": "thread.started", "thread_id": "t"}], sessions=False)
+        self.assertEqual(("PAUSED_UNCERTAIN_STAGE", "Process exited without a report file"), (stop.status, str(stop)))
+
+    def test_other_clean_exits_without_a_completed_turn_stay_uncertain(self):
+        rows = [json.loads(line) for line in FINISH_ONLY.read_text().splitlines()]
+        finish = rows[-1]
+        for reason, said in (("length", "output token limit"), ("tool-calls", "tool-calls"),
+                             ("error", "Process exited without turn.completed")):
+            with self.subTest(reason=reason):
+                stop, _ = self.build(rows[:-1] + [{**finish, "part": {**finish["part"], "reason": reason}}])
+                self.assertEqual("PAUSED_UNCERTAIN_STAGE", stop.status)
+                self.assertIn(said, str(stop))
+                self.assertNotIn("content filter", str(stop))
 
 
 if __name__ == "__main__":

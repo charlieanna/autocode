@@ -163,7 +163,7 @@ class OutputLimitTests(unittest.TestCase):
                 self.assertEqual(0, metrics["completed_turns"])
 
     def test_replayed_finish_cannot_close_a_newer_unfinished_step(self):
-        for reason in ("stop", "length"):
+        for reason in ("stop", "length", "content-filter"):
             for start_id in ("prt_next_start", None):
                 with self.subTest(reason=reason, start_id=start_id):
                     previous = length_event()

@@ -561,10 +561,12 @@ def run_role(
             state["sessions"][route_role] = thread
             record["thread_id"] = thread
         if not any(e.get("type") == "turn.completed" for e in support.events(events)):
+            refused_at_clean_exit(state, record, role, events)
             raise support.Paused("PAUSED_UNCERTAIN_STAGE", output_cap.explain(
                 support.terminal_failure_reason(events), record.get('output_token_cap'))
                 or "Process exited without turn.completed")
     elif not output.is_file():
+        refused_at_clean_exit(state, record, role, events)
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without a report file")
     after = support.snapshot(workspace)
     write_json(base.with_suffix(".after.json"), after)
@@ -921,6 +923,12 @@ def refusal_reason(state, record):
     return provider_refusal.explain(support.events(record["events"]),
                                     job=autocode_status.role_name(record.get("original_stage") or record.get("stage"), state),
                                     model=(record.get("launch_route") or {}).get("model"))
+
+
+def refused_at_clean_exit(state, record, role, events):
+    """A content-filter refusal names the stop even when the provider exited 0 (#464); any other stop stays uncertain."""
+    if refused := refusal_reason(state, record):
+        raise support.Paused(provider_refusal.STATUS, f"{refused}. {role} exited 0; reconcile {events}, no automatic replay")
 
 
 def reconcile_active(state, run_dir, workspace):

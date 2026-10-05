@@ -438,7 +438,7 @@ def normalized_events(rows):
     phases = [row for row in parts.values() if row.get("type") in phase_types]
     terminal = (not any(not row.get("part", {}).get("id") for row in rows if row.get("type") in phase_types)
                 and phases[-1].get("type") == "step_finish"
-                and steps[-1].get("reason") in ("stop", "length", "tool-calls"))
+                and steps[-1].get("reason") in ("stop", "length", "tool-calls", "content-filter"))
     partial = not terminal or bool(errors and steps[-1].get("reason") == "stop")
 
     def total(field, subfield=None):
@@ -465,6 +465,10 @@ def normalized_events(rows):
     # for tools and no later step followed (the process exited, for example after
     # every call was auto-rejected). Like "length", it is a failed turn whose
     # reported usage is retained for accounting, including cached input.
+    # A final "content-filter" finish is the provider refusing the response, even
+    # when no error event follows it: a failed turn typed content_filter, after any
+    # provider error rows so their own name and words are reported first
+    # (autocode_provider_refusal). Only the final step counts, as for tool-calls.
     if steps[-1].get("reason") == "length":
         # A successful process exit can still be an incomplete model turn.
         normalized.append({"type": "turn.failed", "usage": usage, "error": {
@@ -475,6 +479,10 @@ def normalized_events(rows):
             "message": "OpenCode stopped after a step that requested tool calls, before the model "
                        "finished its turn (finish reason: tool-calls). The attempt is incomplete; "
                        "review saved work before recovery."}})
+    elif steps[-1].get("reason") == "content-filter":
+        normalized.append({"type": "turn.failed", "usage": usage, "error": {
+            "code": "content_filter",
+            "message": "OpenCode's last step finished with reason content-filter"}})
     elif not errors:
         normalized.append({"type": "turn.completed", "usage": usage})
     else:

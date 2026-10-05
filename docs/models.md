@@ -229,9 +229,10 @@ before, and authentication failures never ask for a model.
 ## When a provider's content filter refuses a response
 
 A provider whose content filter refuses a stage's response (OpenCode's
-`ContentFilterError`, or a `content_filter` error code) stops the stage with
-`PAUSED_CONTENT_FILTER`. The stop names the job, the refused model and the
-provider's words:
+`ContentFilterError`, a `content_filter` error code, or an OpenCode or Kilo stream
+whose last step finished with reason `content-filter`) stops the stage with
+`PAUSED_CONTENT_FILTER`, whether the provider exited with an error or exited 0. The
+stop names the job, the refused model and the provider's words:
 
 ```text
 Builder: the provider's content filter refused the response on xiaomi-token-plan-sgp/mimo-v2.6-pro (ContentFilterError: The response was blocked by the provider's content filter); the same model is likely to refuse it again.
@@ -249,7 +250,9 @@ would pass the launch rules above, or says that none does (in the GLM/MiMo profi
 only other model is the Tester's GLM, which the cross-model rule refuses for the
 Builder). The list is advice, never a default. Setting the attempt aside never raises
 the role's reasoning effort, and the `route_assignment` records `PAUSED_CONTENT_FILTER`
-as its `pause_status`. Only the provider's error event classifies the stop: the model's
-own text ("The request was rejected ...") never does.
+as its `pause_status`. Only the provider's error event or a final `content-filter`
+finish reason classifies the stop: the model's own text ("The request was rejected ...")
+never does. When no error event follows the finish, the provider's words in the stop are
+`content_filter: OpenCode's last step finished with reason content-filter`.
 
 See also: [Providers](providers.md) · [Workflow](workflow.md) · [CLI](cli.md)
