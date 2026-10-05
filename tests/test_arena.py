@@ -95,6 +95,14 @@ class ArenaTests(unittest.TestCase):
         self.assertIn("controls failed", result.stderr)
         self.assertEqual([], self.store.cases())
 
+    def test_cases_lists_prepared_workloads_without_running_them(self):
+        self.assertEqual([], json.loads(self.call("cases").stdout)['cases'])
+        self.assertEqual(0, self.ingest().returncode)
+        listing = json.loads(self.call("cases").stdout)['cases']
+        self.assertEqual([{'id': 'greeting', 'issue_ref': 'acme/demo#7',
+                          'split': 'development', 'base_commit': self.base}], listing)
+        self.assertEqual([], self.store.rows())
+
     def test_missing_checks_and_oracle_crash_are_errors(self):
         self.assertEqual(0, self.ingest().returncode)
         case = self.store.case("greeting")

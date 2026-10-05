@@ -1,0 +1,6 @@
+{
+  "title": "IndexedSet.update fails when given several iterables",
+  "html_url": "https://github.com/mahmoud/boltons/pull/474",
+  "provenance": "Evaluator-authored problem-only adaptation of the upstream PR description, retrieved 2026-10-05. Not an authenticated pre-fix issue snapshot. Solution text and comments omitted.",
+  "body": "IndexedSet.update documents support for one or more iterables. Starting with IndexedSet([1]), updating with [2, 1, 3], an empty list, and [3, 4, 2] should return None and leave the members [1, 2, 3, 4] in that order. Currently several list arguments raise TypeError, while tuple or iterator arguments can become members themselves. Support lists, tuples, and one-shot iterators; preserve insertion order and duplicate removal. Tuple-valued elements must remain intact. Keep zero-argument and single-iterable updates working. Add regression tests for these behaviors."
+}

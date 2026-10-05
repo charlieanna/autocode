@@ -11,6 +11,61 @@ Install the checkout with `pip install -e .`. Commands can also be invoked as
 by Git; `--arena PATH` before the subcommand selects another evaluator directory.
 Use one operator at a time: concurrent catalog writers are not supported.
 
+## Start with the included projects
+
+The checkout includes three real upstream bug cases in [`arena/catalog.json`](../arena/catalog.json).
+Each has a problem description and a self-contained oracle under `arena/cases/`.
+The catalog pins the full baseline and reference commit IDs; preparation fetches
+those commits, verifies that the baseline fails and the reference passes, and
+only then adds the case to the local Arena.
+
+| Case ID | Project and upstream report | Work to solve | Starter split |
+| --- | --- | --- | --- |
+| `boltons-indexedset-update` | [Boltons #474](https://github.com/mahmoud/boltons/pull/474) | Update an ordered set from several iterables while retaining order and tuple-valued members | development |
+| `humanize-intcomma-large` | [Humanize #392](https://github.com/python-humanize/humanize/pull/392) | Format positive and negative integers beyond floating-point range without losing digits | regression |
+| `more-itertools-custom-exceptions` | [More Itertools #1279](https://github.com/more-itertools/more-itertools/pull/1279) | Preserve custom exceptions that evaluate to false and avoid formatting items when a custom exception is given | holdout |
+
+From the checkout root, using its installed venv:
+
+```sh
+.venv/bin/python arena/prepare.py --list
+.venv/bin/python arena/prepare.py --arena .autocode/arena
+.venv/bin/python tools/autocode_arena.py --arena .autocode/arena cases
+```
+
+Preparation requires GitHub network access but makes no model calls. It creates
+the Arena, so do not run `init` first. Use a fresh destination; preparation refuses
+to overwrite existing evaluator data. Add `--case boltons-indexedset-update` to
+prepare just one project. A failed preparation is retained for inspection; choose
+a new destination when retrying. Source repositories are in `sources/`, fixed
+reference trees in `references/`, and admitted cases in `catalog.json` and `cases/`
+under that destination. Candidate attempts get their own frozen broken source
+tree without upstream history or remotes.
+
+Run the development case with a configured provider (replace `claude` if needed):
+
+```sh
+.venv/bin/python tools/autocode_arena.py --arena .autocode/arena \
+  run boltons-indexedset-update --cohort baseline-v1 \
+  --i-authorize-live-model-spend --approve-benchmark-plans \
+  --option=--provider=claude --option=--joint-planning
+.venv/bin/python tools/autocode_arena.py --arena .autocode/arena report
+```
+
+These cases are public historical exercises. Their descriptions are explicitly
+marked evaluator-authored, problem-only adaptations of upstream PR reports, not
+authenticated pre-fix issue snapshots. They omit solution text and comments.
+The checked-in source links and reference revisions remain evaluator material;
+this host-level setup cannot prevent a model from finding a public historical fix.
+The starter holdout is public and is **not a secret or contamination-free benchmark**.
+Use fresh private holdouts before drawing general improvement conclusions.
+
+The oracles import the candidate source directly and use only Python's standard
+library. Humanize's generated version metadata is supplied in memory for source
+archive imports; its formatting implementation still comes from the candidate.
+These targeted checks do not replace each project's full upstream test suite.
+The catalog/preparation tool is distributed with the checkout, not the wheel.
+
 ## Declare a case
 
 Choose an issue you have permission to evaluate, a local clone, and the **full

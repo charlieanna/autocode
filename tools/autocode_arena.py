@@ -245,6 +245,7 @@ def main(argv=None):
     parser.add_argument("--arena", type=Path, default=Path(".autocode/arena"))
     sub = parser.add_subparsers(dest="action", required=True)
     sub.add_parser("init")
+    sub.add_parser("cases", help="list the prepared projects and their pinned revisions")
     add = sub.add_parser("ingest")
     add.add_argument("id")
     add.add_argument("--repository", type=Path, required=True)
@@ -280,6 +281,10 @@ def main(argv=None):
         if args.action == "init":
             store.initialize()
             result = {"initialized": str(store.root)}
+        elif args.action == "cases":
+            result = {"cases": [{key: case[key] for key in
+                       ("id", "issue_ref", "split", "base_commit")}
+                      for case in (store.case(row["id"]) for row in store.cases())]}
         elif args.action == "ingest":
             result = ingest(args, store)
         elif args.action == "run":
