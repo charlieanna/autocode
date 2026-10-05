@@ -438,7 +438,8 @@ def _go_results(text):
     # A test that started but never ended (the binary panicked or timed out) is not attributed.
     complete = all(action is not None for action in outcome.values())
     return {"passed": sorted(passed), "failed": sorted(failed), "skipped": sorted(skipped),
-            "collection_errors": sorted(collection), "total": len(outcome) + len(collection), "complete": complete}
+            "collection_errors": sorted(collection), "uncollected": sorted(collection),
+            "total": len(outcome) + len(collection), "complete": complete}
 
 
 def _unittest_id(name, owner):
@@ -449,7 +450,10 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
     """Passed, failed and skipped test ids, or None when the run produced no parseable results.
 
     ``collection_errors`` are failures of a module to import or collect; they are
-    failures, but they never name a test that ran.
+    failures, but they never name a test that ran. ``uncollected`` is the subset
+    that never imported, collected or built at all: a failed hook or fixture that
+    Node and Vitest report as a collection error executed and is judged like any
+    other failing test, so it is not in ``uncollected``.
     """
     if str(xml_path).endswith(".node.jsonl"):
         return node_tests.results(xml_path)
@@ -523,7 +527,8 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
         collection = {test for test in failed if COLLECTION_ERROR.search(test)}
         complete = len(passed) + len(skipped) + len(failed) >= total
     results = {"passed": sorted(passed), "failed": sorted(failed), "skipped": sorted(skipped),
-               "collection_errors": sorted(collection), "total": total, "complete": complete}
+               "collection_errors": sorted(collection), "uncollected": sorted(collection),
+               "total": total, "complete": complete}
     if setup_errors:
         results["setup_errors"] = setup_errors
     return results
@@ -1176,7 +1181,17 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         if candidate["complete"]:
             passed = set(candidate["passed"])
         else:
+            # Incompleteness only makes the absence of a failure unproven (#421): a named
+            # failure is judged first, and the fail-to-pass proof is given up after it.
             unverified.append("Per-test results of the regression run were incomplete")
+            if failed:
+                known = known_failures() or set()
+                unexplained = sorted(failed - known)
+                if unexplained:
+                    fail.append("The regression tests fail on the candidate: " + ", ".join(unexplained[:20]))
+                else:
+                    notes.append("Tests in the changed files that already fail on base were not counted: "
+                                 + ", ".join(sorted(failed)[:20]))
             return
         if candidate["complete"] and not passed:
             fail.append("The regression command ran no passing tests")
@@ -1295,19 +1310,26 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
     candidate = on_candidate.get("results")
     base_receipt = (base_suite or {}).get("receipt") or {}
     base_results = base_receipt.get("results")
-    # A collection error is not an executed test. Keep comparison below so a
-    # separately observed regression still wins over incomplete preservation.
+    # A module that never imported, collected or built is not an executed test; a failed
+    # hook or cancellation is (Node and Vitest report both as collection errors, so only
+    # ``uncollected`` carries the rule, #503). Keep comparison below so a separately
+    # observed regression still wins over incomplete preservation. Results saved by
+    # parsers without ``uncollected`` fall back to collection_errors and fail closed.
     for label, results in (("base", base_results), ("candidate", candidate)):
-        collection = (results or {}).get("collection_errors") or []
+        collection = (results or {}).get("uncollected", (results or {}).get("collection_errors")) or []
         if collection:
             unverified.append(f"The {label} suite has collection errors; preservation is unproven: "
                               + ", ".join(collection[:5]))
+    # Incompleteness only makes the absence of a failure unproven (#421): a candidate
+    # failure that was observed passing on base stays FAIL below.
     if base_receipt.get("timed_out") or (base_results is not None and not base_results.get("complete")):
         unverified.append("The base suite was incomplete; preservation of its passing tests is unproven")
-        return
-    if candidate is not None and (not candidate.get("complete") or not candidate.get("total")):
+    if candidate is not None and not candidate.get("total"):
         unverified.append("The project suite reported zero tests or incomplete per-test results")
         return
+    if candidate is not None and not candidate.get("complete"):
+        unverified.append("The project suite's per-test results were incomplete; "
+                          "only its observed failures are judged")
     if on_candidate.get("results_expected") and candidate is None:
         if on_candidate["exit_code"] == 0:
             unverified.append("The project suite exited 0 without reporting any test result "
@@ -1342,7 +1364,12 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
     elif base_suite is not None and base_suite.get("health") == "broken":
         unverified.append("The base suite could not run; preservation of existing behavior is unproven")
     if candidate is not None and base_results is not None:
-        new = sorted(set(candidate["failed"]) - set(base_results["failed"]))
+        if base_results.get("complete") and not base_receipt.get("timed_out"):
+            new = sorted(set(candidate["failed"]) - set(base_results["failed"]))
+        else:
+            # The base run stopped early, so a test absent from its failures may simply
+            # never have run: only a failure that was observed passing on base is a FAIL.
+            new = sorted(set(candidate["failed"]) & set(base_results["passed"]))
         if new:
             fail.append("Tests that pass on base fail on the candidate: " + ", ".join(new[:20]))
         if candidate["complete"] and base_results["complete"]:
@@ -1350,7 +1377,7 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
             if lost:
                 fail.append("Tests that pass on base did not pass on the candidate (skipped, deselected, "
                             "renamed or missing): " + ", ".join(lost[:20]))
-        elif candidate["total"] < base_results["total"]:
+        elif candidate.get("complete") and candidate["total"] < base_results["total"]:
             fail.append(f"Fewer tests ran on the candidate ({candidate['total']}) than on base "
                         f"({base_results['total']})")
         if base_results["failed"] and not new:

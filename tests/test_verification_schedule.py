@@ -99,6 +99,17 @@ class ReceiptPolicyTests(unittest.TestCase):
                 self.assertEqual("execute", second["scheduling"]["action"])
                 self.assertNotEqual(first["output"], second["output"])
 
+    def test_only_entries_that_never_collected_break_attribution(self):
+        # A failed hook or fixture executed its test; a module that never collected did
+        # not. Results saved before the split have no ``uncollected`` list and fail closed.
+        hook_failure = {"passed": ["a"], "failed": ["b"], "skipped": [], "collection_errors": ["b"],
+                        "uncollected": [], "total": 2, "complete": True}
+        self.assertTrue(schedule.complete_results({"results": dict(hook_failure)}))
+        legacy = {key: value for key, value in hook_failure.items() if key != "uncollected"}
+        self.assertFalse(schedule.complete_results({"results": legacy}))
+        uncollected_module = {**hook_failure, "collection_errors": ["c"], "uncollected": ["c"]}
+        self.assertFalse(schedule.complete_results({"results": uncollected_module}))
+
     def test_interrupted_launch_pauses_instead_of_double_launch(self):
         def crash(out):
             self.execute(out)

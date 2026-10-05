@@ -54,7 +54,8 @@ class NodeTests(unittest.TestCase):
         self.assertEqual({'passed': ['a.test.cjs::group::test_nested', 'a.test.cjs::test_ok', 'b.test.cjs::test_ok'],
                           'failed': ['a.test.cjs::test_bad'],
                           'skipped': ['a.test.cjs::group::test_todo', 'a.test.cjs::test_skip'],
-                          'collection_errors': [], 'total': 6, 'complete': True}, receipt['results'])
+                          'collection_errors': [], 'uncollected': [], 'total': 6, 'complete': True},
+                         receipt['results'])
 
     def test_forged_stdout_empty_file_and_early_exit_do_not_prove_a_named_case(self):
         for source in ("console.log('PASS test_fake');",
@@ -66,14 +67,17 @@ class NodeTests(unittest.TestCase):
                 self.assertEqual([], (receipt['results'] or {}).get('passed', []), receipt)
 
     def test_collection_and_hook_errors_do_not_reproduce_a_bug(self):
-        for source in ("require('./missing.cjs');",
-                       "const {test,before}=require('node:test');before(()=>{throw Error('setup')});"
-                       "test('test_case',()=>{});"):
+        cases = [("require('./missing.cjs');", ['a.cjs::[collection]']),
+                 ("const {test,before}=require('node:test');before(()=>{throw Error('setup')});"
+                  "test('test_case',()=>{});", [])]
+        for source, uncollected in cases:
             with self.subTest(source=source):
                 receipt = self.run_node({'a.cjs': source})
                 self.assertEqual(1, receipt['exit_code'])
                 self.assertTrue(receipt['results']['collection_errors'], receipt)
                 self.assertEqual(receipt['results']['failed'], receipt['results']['collection_errors'])
+                # Only a file that never imported is uncollected; a failed hook executed (#503).
+                self.assertEqual(uncollected, receipt['results']['uncollected'], receipt)
 
     def test_duplicate_identities_are_ambiguous_even_when_node_exits_zero(self):
         receipt = self.run_node({'a.cjs': "const {test}=require('node:test');"
@@ -89,6 +93,7 @@ class NodeTests(unittest.TestCase):
         self.assertIsNotNone(result, receipt)
         self.assertNotIn('a.cjs::test_cancel', result['passed'])
         self.assertIn('a.cjs::test_cancel', result['collection_errors'])
+        self.assertEqual([], result['uncollected'])
 
     def test_incomplete_malformed_or_inconsistent_evidence_is_never_credited(self):
         receipt = self.run_node({'a.cjs': "require('node:test')('test_case',()=>{});"})

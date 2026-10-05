@@ -72,9 +72,13 @@ def complete_results(receipt):
            for group in groups):
         return False
     ids = [item for group in groups for item in group]
+    # Only entries that never imported, collected or built break attribution; a failed
+    # hook or fixture executed its test. Results from parsers that predate ``uncollected``
+    # (saved receipts) fall back to collection_errors, so they fail closed.
+    uncollected = result.get("uncollected", result.get("collection_errors"))
     return (type(result.get("total")) is int and result["total"] > 0
             and len(ids) == len(set(ids)) == result["total"]
-            and not result.get("collection_errors"))
+            and not uncollected)
 
 
 def intact(receipt, *, root=None):

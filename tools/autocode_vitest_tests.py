@@ -103,6 +103,7 @@ def results(path, tree):
         root = Path(tree).resolve()
         groups = {key: set() for key in ('passed', 'failed', 'skipped')}
         identities, file_names, collection = set(), set(), set()
+        uncollected = set()
         for file in files:
             if not isinstance(file, dict) or not isinstance(file.get('file'), str) or not file['file']:
                 return None
@@ -116,6 +117,7 @@ def results(path, tree):
             file_names.add(relative)
             if file['collection_error']:
                 collection.add(relative + '::[collection]')
+                uncollected.add(relative + '::[collection]')
             tests = file['tests']
             if not isinstance(tests, list):
                 return None
@@ -138,6 +140,7 @@ def results(path, tree):
             collection.add('[vitest runtime error]')
         return {'passed': sorted(groups['passed']), 'failed': sorted(groups['failed'] | collection),
                 'skipped': sorted(groups['skipped']), 'collection_errors': sorted(collection),
+                'uncollected': sorted(uncollected),
                 'total': len(identities | collection), 'complete': True}
     except (OSError, ValueError, KeyError, TypeError, RuntimeError):
         return None
