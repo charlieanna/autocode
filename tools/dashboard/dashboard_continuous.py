@@ -21,12 +21,14 @@ except ImportError:
 try:
     from .conversation_recovery import RecoveryMixin
     from .conversation_draft_refresh import DraftRefreshMixin
+    from .conversation_draft_coalescing import DraftCoalescingMixin
     from . import conversation_draft_cadence as draft_cadence
     from . import dashboard_conversations as legacy, planner_dispatch
     from .conversation_transport import ConversationProviderError, opencode_provider, _prompt
 except ImportError:
     from conversation_recovery import RecoveryMixin
     from conversation_draft_refresh import DraftRefreshMixin
+    from conversation_draft_coalescing import DraftCoalescingMixin
     import conversation_draft_cadence as draft_cadence
     import dashboard_conversations as legacy
     import planner_dispatch
@@ -197,7 +199,8 @@ def _project_scope_context(doc):
     return workspace, message
 
 
-class ContinuousConversationStore(ScopeConfirmationMixin, DraftRefreshMixin, RecoveryMixin, legacy.ConversationStore):
+class ContinuousConversationStore(ScopeConfirmationMixin, DraftRefreshMixin, DraftCoalescingMixin, RecoveryMixin,
+                                  legacy.ConversationStore):
     def __init__(self, root=None, provider=None, planner=None):
         if root is None:
             home = Path(os.environ.get('AUTOCODE_HOME', '~/.autocode')).expanduser()
@@ -215,6 +218,7 @@ class ContinuousConversationStore(ScopeConfirmationMixin, DraftRefreshMixin, Rec
         self._closed = False
         self._leases = {}
         self._planner_inflight = {}
+        self._planner_queued = {}  # (conversation, logical turn) -> Planner workers queued or running
         self._planner_started = {}
         (self.root / '.locks').mkdir(exist_ok=True, mode=0o700)
         self._guard_depth = 0
@@ -420,10 +424,17 @@ class ContinuousConversationStore(ScopeConfirmationMixin, DraftRefreshMixin, Rec
         # logical turn), and records BOTH dispatch intents — the Gatherer and
         # the actual independent Planner — before anything is dispatched, so
         # the Planner dispatch is durable in the same window as the turn.
+        # The Gatherer always replies; the Planner intent dispatches, waits for
+        # the draft in flight (coalesced) or waits for the answer cadence.
+        in_flight = self._planner_turns_in_flight(doc)
         revision = _record_requirements_update(doc, message)
         draft = _record_plan_draft_revision(doc, message, revision['revision'])
-        scheduled = draft_cadence.schedule(doc, revision['revision'])
-        draft['freshness']['reason'] = 'scheduled_refresh' if scheduled else 'batching_answers'
+        decision = draft_cadence.launch(doc, revision['revision'], in_flight)
+        scheduled = decision == draft_cadence.DISPATCH
+        reason = {draft_cadence.DISPATCH: ('scheduled_refresh', 'automatic_batch'),
+                  draft_cadence.HOLD: ('batching_answers', 'batching_answers'),
+                  draft_cadence.COALESCE: (draft_cadence.COALESCED, draft_cadence.COALESCED)}[decision]
+        draft['freshness']['reason'] = reason[0]
         doc['_dispatches'][message['logical_turn_id']] = conversation_protocol.new_dispatch(
             logical_turn_id=message['logical_turn_id'], client_request_id=request_id,
             route=routes['requirements_gatherer'])
@@ -431,7 +442,7 @@ class ContinuousConversationStore(ScopeConfirmationMixin, DraftRefreshMixin, Rec
             logical_turn_id=message['logical_turn_id'], requirements_revision=revision['revision'],
             client_request_id=request_id, route=routes['planner'])
         doc['_planner_dispatches'][message['logical_turn_id']].update(
-            cadence_hold=not scheduled, cadence_reason='automatic_batch' if scheduled else 'batching_answers')
+            cadence_hold=not scheduled, cadence_reason=reason[1])
         doc.update(status='thinking', error=None, _active_turn=uuid.uuid4().hex,
                    _active_logical_turn=message['logical_turn_id'])
 
@@ -471,7 +482,7 @@ class ContinuousConversationStore(ScopeConfirmationMixin, DraftRefreshMixin, Rec
             # Start the independent Planner first. The Gatherer can converse
             # concurrently, but cannot commit its reply before Planner launch.
             if not held:
-                self.pool.submit(self._planner_reply, doc['id'], doc['_active_turn'], logical_turn)
+                self._submit_planner(doc['id'], doc['_active_turn'], logical_turn)
             self.pool.submit(self._reply, doc['id'], doc['_active_turn'], logical_turn)
         except RuntimeError:
             self._planner_started.pop(key).set()
