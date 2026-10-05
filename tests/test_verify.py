@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -609,6 +610,61 @@ GO_SEED = {"go.mod": "module pager\n\ngo 1.21\n",
 GO_FIX = {"pager.go": "package pager\n\nfunc PageCount(total, size int) int {\n\treturn (total + size - 1) / size\n}\n",
           "pager_test.go": GO_SEED["pager_test.go"]
           + "\nfunc Test_t1_partial_page_counts(t *testing.T) {\n\tif PageCount(11, 5) != 3 {\n\t\tt.Fatal(\"11/5\")\n\t}\n}\n"}
+
+
+class SuitePreservationTests(unittest.TestCase):
+    def test_suite_health_does_not_erase_real_regression_evidence(self):
+        suite_test = ('import unittest\nfrom calc import keep\n'
+                      'class Existing(unittest.TestCase):\n'
+                      ' def test_existing(self): self.assertEqual(9, keep())\n')
+        broken_import = 'import no_such_autocode_479_driver\n' + suite_test
+        failing_test = suite_test.replace('assertEqual(9', 'assertEqual(8')
+        skipped_test = suite_test.replace(' def test_existing',
+                                         ' @unittest.skip("optional service")\n def test_existing')
+        cases = [
+            ('collection_only', broken_import, None, 9, 'UNVERIFIED'),
+            ('passing_plus_collection', suite_test, broken_import, 9, 'UNVERIFIED'),
+            ('all_preexisting_failures', failing_test, None, 9, 'UNVERIFIED'),
+            ('all_skipped', skipped_test, None, 9, 'UNVERIFIED'),
+            ('healthy', suite_test, None, 9, 'PASS'),
+            ('passing_plus_preexisting_failure', suite_test, failing_test, 9, 'PASS'),
+            ('named_regression_with_collection', suite_test, broken_import, 0, 'FAIL'),
+        ]
+        for name, primary, optional, kept, expected in cases:
+            with self.subTest(name=name):
+                files = {'calc.py': 'def add(a,b): return a-b\ndef keep(): return 9\n',
+                         'test_db.py': primary}
+                if optional:
+                    files['test_optional.py'] = optional
+                project = Project(files)
+                try:
+                    framework = verify.detect_framework(project.root, python=sys.executable)
+                    suite = shlex.quote(sys.executable) + ' -m unittest -v test_db'
+                    if optional:
+                        suite += ' test_optional'
+                    baseline = verify.baseline(project.root, project.base, project.evidence,
+                                               framework=framework, suite_command=suite, timeout=30)
+                    project.write({'calc.py': f'def add(a,b): return a+b\ndef keep(): return {kept}\n',
+                                   'test_calc.py': 'import unittest\nfrom calc import add\n'
+                                   'class Addition(unittest.TestCase):\n'
+                                   ' def test_add(self): self.assertEqual(5,add(2,3))\n'})
+                    result = verify.verify(project.root, project.base, project.evidence,
+                                           framework=framework, suite_command=suite, base_suite=baseline,
+                                           regression_command=shlex.quote(sys.executable) + ' -m unittest -v test_calc',
+                                           timeout=30)
+                    self.assertEqual(['test_calc.Addition.test_add'], result['fail_to_pass'])
+                    self.assertEqual(expected, result['verdict'], result['failures'] + result['unverified'])
+                    if expected == 'UNVERIFIED':
+                        self.assertTrue(result['unverified'])
+                        self.assertFalse(result['failures'])
+                    elif expected == 'FAIL':
+                        self.assertTrue(any('test_db.Existing.test_existing' in reason
+                                            for reason in result['failures']), result)
+                    for path, original in files.items():
+                        if path != 'calc.py':
+                            self.assertEqual(original, (project.root / path).read_text())
+                finally:
+                    project.close()
 
 
 class GoResultTests(unittest.TestCase):
