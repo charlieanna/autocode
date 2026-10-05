@@ -679,15 +679,15 @@ def accept_repaired_report(state, run_dir, workspace, value, repair_record):
         # Mutating only the copy lets the outer exception handler overwrite it
         # with the old active attempt, causing every resume to replay rejection.
         reject_completed_stage(owner, run_dir, repair_record, error)
-    # apply_result saves a stage. Keep one metrics entry per actual provider call,
-    # not a second charge for the original completed implementation.
+    # One charge per provider call; preserve any outer repair restored by apply_result.
     repair_record['applied_original_events'] = original['events']
     state['stages'][-1] = repair_record
     state['history'][-1] = repair_record
     state.setdefault('report_repair_history', []).append({
         'original_output': pending['original']['output'], 'repair': repair_record,
         'output_hash': output_hash, 'attempts': pending['attempts'], 'result': 'accepted', 'at': now()})
-    state.pop('pending_report_repair', None)
+    if state.get('pending_report_repair') == pending:
+        state.pop('pending_report_repair')
     if state['status'] == 'RUNNING':
         state['phase'] = 'PLANNING' if planning.is_planning(state, state['next_stage']) else 'EXECUTING'
         state.pop('stop_reason', None)

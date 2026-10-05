@@ -534,13 +534,20 @@ receive the bounded automatic recovery above; other uncertain responses need ins
 first.
 
 An execution report whose two read-only repairs are exhausted can be retried with
-`--resume-paused`. Autocode archives the rejected reports and starts a fresh role
+`--resume-paused`. If the same Validator report fails repeatedly, the failure
+guard may stop recovery earlier: the cheap serialization correction contributes
+to that guard but does not spend a full repair attempt. After correcting the
+cause and answering any published operational request, use the exact action
+shown by status: `--resume-paused --retry-report ATTEMPT_ID`. This requests fresh
+Validator evidence, preserving the real repair count, failure history and limits. Autocode archives the rejected reports and starts a fresh role
 session; it does not replay implementation or planning. When the source changes
 while a run is paused (an operator edit), a queued report repair can no longer
 run: `--resume-paused` archives it, evidence intact, and starts a fresh attempt
 of the same stage, in a new provider session, on the current source. It does
 not do this while a Resolver operational request is published or queued:
-that request is answered or withdrawn only through its own actions. A finished read-only response that was
+that request is answered or withdrawn only through its own actions. After it is
+answered, an explicit resume recognizes the changed source and archives its
+stale repair instead of repeating the guidance hold. A finished read-only response that was
 never applied stays paused instead, and its message names the `--abandon-stage`
 step. `--accept-completion` refuses a validation of another source, goal
 revision or task and says so; resume to re-validate first. A transport-change pause
