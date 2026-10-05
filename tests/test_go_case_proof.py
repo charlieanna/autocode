@@ -44,4 +44,5 @@ class GoProductionProofTests(unittest.TestCase):
                     '(t *testing.T) { if RetentionDays()!=30 { t.Fatal("wrong retention") } }\n'})
                 proof = regression.prove(state, project.root, run)
                 self.assertEqual(expected, proof['verdict'], proof)
+                self.assertIn('policy::TestRetentionIsNotNegative', proof['pass_to_pass'])
                 self.assertEqual({'AC3': ['policy::' + name] if expected == 'PASS' else []}, proof['case_tests'])

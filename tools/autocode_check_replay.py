@@ -25,7 +25,6 @@ from __future__ import annotations
 import datetime as dt
 import json
 from pathlib import Path
-import shlex
 import uuid
 
 try:
@@ -131,7 +130,9 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
         if key not in seen:
             if obligation:
                 eligible = command not in prescribed and bool(schedule.collection_kind(command))
-                runtime = (shlex.split(command)[0], eligible)
+                # Shell syntax affects interpreter binding even when argv[0]
+                # matches (for example a multiline -c script and a plain CLI).
+                runtime = (command, eligible)
                 def identity(*, refresh=False):
                     if refresh or runtime not in contexts:
                         contexts[runtime] = execution_identity(workspace, command=command, full=eligible)
