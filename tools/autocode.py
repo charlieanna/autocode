@@ -582,20 +582,54 @@ def run_role(
     return value, record
 
 
+HISTORY_FIELDS = ('commands_run', 'results', 'changed_files', 'remaining_risks',
+                  'untested_behavior', 'addressed_requirements', 'deferred_backlog')
+
+
+def restore_builder_history(original, value):
+    """Put the original Builder execution history back into a repaired report.
+
+    A repair fixes shape and citations; it must not rewrite a recorded execution. The
+    prompt says so, and a repair that ignores it used to be thrown away whole — losing
+    a correct fix over bookkeeping (2026-10-05 live cases). Copy the history fields
+    back from the original instead of trusting the repair to have left them alone.
+    Schema-valid history is restored; missing or ill-typed history stays repairable.
+    """
+    if original.get('stage') != 'terra' or not isinstance(value, dict):
+        return False
+    previous = repair_report_source(original)['content']
+    if not isinstance(previous, dict):
+        previous = {}
+    changed = False
+    for field in HISTORY_FIELDS:
+        old = previous.get(field)
+        if isinstance(old, list) and all(isinstance(item, str) for item in old):
+            if value.get(field) != old:
+                value[field] = list(old)
+                changed = True
+    old_request = previous.get('user_request')
+    if (isinstance(old_request, dict) and old_request.get('kind') not in (None, 'none')
+            and value.get('user_request') != old_request):
+        value['user_request'] = copy.deepcopy(old_request)
+        changed = True
+    return changed
+
+
 def assert_repair_preserves_builder_history(original, value):
     """Repair a report's shape/citations, never rewrite a recorded execution.
 
     Schema-valid history fields in the original report are immutable. Missing or
     ill-typed fields may still be repaired, but newly supplied command names must
     come from the original execution events, not a new repair-stage execution.
+    restore_builder_history() puts those fields back first, so this is the guard
+    that they did: it fails only when history is unrestorable and still rewritten.
     """
     if original.get('stage') != 'terra':
         return
     previous = repair_report_source(original)['content']
     if not isinstance(previous, dict):
         previous = {}
-    for field in ('commands_run', 'results', 'changed_files', 'remaining_risks',
-                  'untested_behavior', 'addressed_requirements', 'deferred_backlog'):
+    for field in HISTORY_FIELDS:
         old = previous.get(field)
         if isinstance(old, list) and all(isinstance(item, str) for item in old):
             if value.get(field) != old:
@@ -625,6 +659,9 @@ def accept_repaired_report(state, run_dir, workspace, value, repair_record):
         raise support.Paused('PAUSED_STALE_VALIDATION', 'Original report evidence or goal changed during repair')
     # Evidence checks use ORIGINAL tool events, not new commands from the repairer.
     try:
+        # History comes from the original report, not from the repair's draft of it.
+        if restore_builder_history(original, value):
+            write_json(Path(repair_record['output']), value)
         output_hash = support.file_hash(repair_record['output'])
         assert_repair_preserves_builder_history(original, value)
         # Only unchanged dispositions from the pinned fresh review may survive.

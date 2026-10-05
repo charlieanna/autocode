@@ -170,6 +170,38 @@ class RepairTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError):
                 runner.assert_repair_preserves_builder_history(original, {**value, field: replacement})
 
+    def test_builder_repair_history_is_restored_not_rejected(self):
+        # 2026-10-05 live cases: a repair fixed the one bad evidence ref and also rewrote
+        # history, so the correct fix was thrown away and the run stopped. History is now
+        # restored from the original rather than trusted to the repair.
+        report = self.run / 'original-builder.json'
+        original = {'stage': 'terra', 'output': str(report), 'events': str(self.run / 'events.jsonl')}
+        value = {'commands_run': ['failed-test'], 'results': ['exit=1'], 'changed_files': ['x.py'],
+                 'remaining_risks': ['not verified'], 'untested_behavior': [], 'addressed_requirements': ['R1'],
+                 'deferred_backlog': [],
+                 'user_request': {'kind': 'permission', 'decision_needed': 'Allow?'}}
+        report.write_text(json.dumps(value))
+        repaired = {**value, 'results': ['PASS'], 'remaining_risks': ['new worry'],
+                    'user_request': {'kind': 'none'},
+                    'summary': 'Added missing summary', 'evidence_refs': ['event:check']}
+        self.assertTrue(runner.restore_builder_history(original, repaired))
+        for field in ('commands_run', 'results', 'changed_files', 'remaining_risks',
+                      'untested_behavior', 'addressed_requirements', 'deferred_backlog', 'user_request'):
+            with self.subTest(field=field):
+                self.assertEqual(value[field], repaired[field])
+        self.assertEqual('Added missing summary', repaired['summary'])
+        self.assertEqual(['event:check'], repaired['evidence_refs'])
+        runner.assert_repair_preserves_builder_history(original, repaired)
+
+    def test_missing_or_ill_typed_history_stays_repairable(self):
+        report = self.run / 'original-builder.json'
+        original = {'stage': 'terra', 'output': str(report), 'events': str(self.run / 'events.jsonl')}
+        report.write_text(json.dumps({'results': 'not a list', 'commands_run': ['ok', 3]}))
+        repaired = {'results': ['exit=1'], 'commands_run': ['real-test'], 'remaining_risks': []}
+        self.assertFalse(runner.restore_builder_history(original, repaired))
+        self.assertEqual(['exit=1'], repaired['results'])
+        self.assertEqual(['real-test'], repaired['commands_run'])
+
     def test_builder_repair_missing_commands_must_use_original_events(self):
         report = self.run / 'original-builder.json'
         report.write_text('{')
@@ -1150,6 +1182,32 @@ class RepairTests(unittest.TestCase):
         self.assertEqual(2, len(self.state['stages']))
         self.assertEqual('terra_report_repair', self.state['stages'][-1]['stage'])
         self.assertNotIn('pending_report_repair', self.state)
+
+    def test_acceptance_restores_rewritten_history_and_keeps_the_repair_fix(self):
+        # A repair that rewrites history must not be thrown away: acceptance restores the
+        # history and keeps the repair's own edits (2026-10-05 live cases).
+        history = {'commands_run': ['failed-test'], 'results': ['exit=1'], 'changed_files': ['x.py'],
+                   'remaining_risks': ['not verified'], 'untested_behavior': [], 'addressed_requirements': ['R1'],
+                   'deferred_backlog': [], 'user_request': {'kind': 'permission', 'decision_needed': 'Allow?'}}
+        pending = self.queue(report=json.dumps(history))
+        pending['attempts'] = 1
+        original_value = json.loads(Path(pending['original']['output']).read_text())
+        output = self.run / 'repair-output.json'
+        repaired = {**original_value, 'results': ['PASS'], 'remaining_risks': [], 'summary': 'Fixed evidence ref'}
+        output.write_text(json.dumps(repaired))
+        repair = {'stage': 'terra_report_repair', 'events': 'repair-events', 'output': str(output)}
+        applied = {}
+        def apply(state, stage, value, record, workspace, run):
+            applied.update(value)
+            state['stages'].append(record)
+            state['history'].append(record)
+        with patch.object(runner, 'apply_result', side_effect=apply):
+            runner.accept_repaired_report(self.state, self.run, self.root, repaired, repair)
+        self.assertEqual(original_value['results'], applied['results'])
+        self.assertEqual(original_value['commands_run'], applied['commands_run'])
+        self.assertEqual(original_value['user_request'], applied['user_request'])
+        self.assertEqual('Fixed evidence ref', applied['summary'])
+        self.assertEqual(json.loads(output.read_text())['results'], original_value['results'])
 
     def test_rejected_repair_updates_owner_before_outer_pause_save(self):
         pending = self.queue()
