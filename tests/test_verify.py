@@ -21,6 +21,7 @@ TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 
 import autocode_regression as regression  # noqa: E402
+import autocode_verification_schedule as schedule  # noqa: E402
 import autocode_verify as verify  # noqa: E402
 import scenario_references as references  # noqa: E402
 import task_scenarios as scenarios  # noqa: E402
@@ -1053,6 +1054,70 @@ class VerifyCase(unittest.TestCase):
             self.assertEqual({"passed": ["m.C.test_a", "m.C.test_d"], "failed": ["m.C.test_b", "m.C::test_c"],
                               "skipped": ["m.C.test_e", "m.C.test_f"], "collection_errors": [], "uncollected": [],
                               "total": 6, "complete": True}, results)
+
+    def test_class_and_module_fixtures_outside_ran_count_keep_unittest_runs_complete(self):
+        """#416: "Ran 2 tests ... OK (skipped=1)" from a setUpClass skip was an incomplete, broken run."""
+        classes = ("\nclass Runs(unittest.TestCase):\n    def test_one(self): pass\n    def test_two(self): pass\n")
+        project = self.project({"test_x.py": "import unittest\n" + classes})
+        command = f"{sys.executable} -m unittest -v"
+        cases = {
+            "setUpClass skip": ("class Skipped(unittest.TestCase):\n    @classmethod\n    def setUpClass(cls):\n"
+                                "        raise unittest.SkipTest('needs a service')\n    def test_a(self): pass\n",
+                                0, [], "passing"),
+            "setUpClass skip, class cleanup error": (
+                "class Skipped(unittest.TestCase):\n    @classmethod\n    def setUpClass(cls):\n"
+                "        cls.addClassCleanup(int, 'x')\n        raise unittest.SkipTest('needs a service')\n"
+                "    def test_a(self): pass\n", 1, ["test_x.Skipped::setUpClass"], "failing_tests"),
+            "setUpClass error": ("class Broken(unittest.TestCase):\n    @classmethod\n    def setUpClass(cls):\n"
+                                 "        raise RuntimeError('down')\n    def test_a(self): pass\n",
+                                 1, ["test_x.Broken::setUpClass"], "failing_tests"),
+            "tearDownModule error": ("def tearDownModule():\n    raise RuntimeError('down')\n",
+                                     1, ["test_x::tearDownModule"], "failing_tests"),
+        }
+        for name, (extra, exit_code, failed, health) in cases.items():
+            with self.subTest(name):
+                project.write({"test_x.py": "import unittest\n" + extra + classes})
+                result = verify.scratch_run(project.root, project.evidence / name.replace(" ", "-"),
+                                            command=command)
+                self.assertEqual((exit_code, ""), (result["exit_code"], result["error"]), result)
+                self.assertEqual(["test_x.Runs.test_one", "test_x.Runs.test_two"], result["results"]["passed"])
+                self.assertEqual((failed, []), (result["results"]["failed"], result["results"]["skipped"]))
+                self.assertTrue(schedule.complete_results(result), result)
+                self.assertEqual(health, verify.suite_health(result))
+        # Fixtures never stand in for tests: zero tests, or a missing test line, stays incomplete.
+        project.write({"test_x.py": "import unittest\ndef setUpModule():\n    raise unittest.SkipTest('no')\n"
+                                    + classes})
+        result = verify.scratch_run(project.root, project.evidence / "module-skip", command=command)
+        self.assertIn("zero tests", result["error"])
+        self.assertEqual("broken", verify.suite_health(result))
+        log = project.evidence / "truncated.log"
+        log.write_text("setUpClass (m.S) ... skipped 'x'\ntest_a (m.C.test_a) ... ok\n"
+                       "tearDownClass (m.C) ... ERROR\n\nRan 2 tests in 0.1s\n\nFAILED (errors=1, skipped=1)\n")
+        framework = verify.Framework("unittest", command, python=sys.executable)
+        results = verify.per_test_results(framework, {"output": str(log)}, project.evidence / "none.xml")
+        self.assertEqual((["m.C.test_a"], ["m.C::tearDownClass"], [], 3, False),
+                         (results["passed"], results["failed"], results["skipped"], results["total"],
+                          results["complete"]))
+        self.assertFalse(schedule.complete_results({"results": results}))
+
+    def test_pytest_failure_then_teardown_error_is_one_complete_failed_test(self):
+        """pytest's JUnit XML reports a failing test whose teardown errors as two testcases of one id."""
+        with tempfile.TemporaryDirectory() as temp:
+            xml = Path(temp) / "out.junit.xml"
+            case = '<testcase classname="t" name="test_a"><{0} message="m">x</{0}></testcase>'
+            xml.write_text('<testsuites><testsuite tests="2">' + case.format("failure") + case.format("error")
+                           + '<testcase classname="t" name="test_b" /></testsuite></testsuites>')
+            framework = verify.Framework("pytest", "python -m pytest", python="python")
+            results = verify.per_test_results(framework, {}, xml)
+            self.assertEqual((["t::test_b"], ["t::test_a"], 2),
+                             (results["passed"], results["failed"], results["total"]))
+            receipt = {"exit_code": 1, "timed_out": False, "results_expected": True, "results": results}
+            self.assertTrue(schedule.complete_results(receipt))
+            self.assertEqual("failing_tests", verify.suite_health(receipt))
+            # One id reported with two outcomes is never a complete result.
+            xml.write_text('<testsuites><testsuite>' + case.format("failure")
+                           + '<testcase classname="t" name="test_a" /></testsuite></testsuites>')
+            self.assertFalse(schedule.complete_results({"results": verify.per_test_results(framework, {}, xml)}))
 
     def test_skipping_a_test_that_passed_on_base_is_a_regression(self):
         """Review r1: break greet(), skip the test that would catch it, add a real regression test."""
