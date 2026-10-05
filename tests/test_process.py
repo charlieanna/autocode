@@ -783,6 +783,27 @@ time.sleep(30)
             processes.wait_for_stage(child, 5, checkpoint)
         self.assertIsNotNone(child.poll())
 
+    def test_sighup_cleans_up_and_interrupts_naming_the_signal(self):
+        # A closed terminal or session hangup is a clean interrupt, like SIGTERM (#454).
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
+        def checkpoint(rows):
+            os.kill(os.getpid(), signal.SIGHUP)
+        with processes.interruption_handler(), self.assertRaises(KeyboardInterrupt) as caught:
+            processes.wait_for_stage(child, 5, checkpoint)
+        self.assertEqual('SIGHUP', caught.exception.signal)
+        self.assertIsNotNone(child.poll())
+        self.assertEqual(signal.SIG_DFL, signal.getsignal(signal.SIGHUP))
+
+    def test_sighup_ignored_on_entry_stays_ignored(self):
+        previous = signal.signal(signal.SIGHUP, signal.SIG_IGN)  # as under nohup
+        try:
+            with processes.interruption_handler():
+                self.assertEqual(signal.SIG_IGN, signal.getsignal(signal.SIGHUP))
+                os.kill(os.getpid(), signal.SIGHUP)
+            self.assertEqual(signal.SIG_IGN, signal.getsignal(signal.SIGHUP))
+        finally:
+            signal.signal(signal.SIGHUP, previous)
+
 
 if __name__ == '__main__':
     unittest.main()

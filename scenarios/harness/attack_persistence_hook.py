@@ -15,6 +15,12 @@ if spec:
     marker = Path(config["marker"])
     original = os.replace
 
+    def hold():
+        # Optionally wait at the boundary until the test writes one byte to its FIFO.
+        if config.get("hold"):
+            with open(config["hold"], "rb", buffering=0) as gate:
+                gate.read(1)
+
     def replace(source, destination, *args, **kwargs):
         mode = config["mode"]
         persistent = mode in ("disk_full", "io_error")
@@ -27,6 +33,7 @@ if spec:
         if mode == "io_error":
             raise OSError(errno.EIO, "injected test I/O failure", target)
         if mode == "crash_before_replace":
+            hold()
             os._exit(97)
         if mode == "crash_after_replace":
             original(source, destination, *args, **kwargs)

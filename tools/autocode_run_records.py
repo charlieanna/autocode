@@ -328,7 +328,8 @@ def archive_rejected_stage(state, run_dir, record, reason):
     archived.mkdir(parents=True, exist_ok=True)
     originals = []
     archived_paths = {}
-    for suffix in (".json", ".jsonl", ".reported.json", ".response.txt", ".prompt.md", ".before.json", ".after.json", ".diff", ".tools.json", ".opencode.json", ".source.json", ".witness.json"):
+    for suffix in (".json", ".jsonl", ".reported.json", ".response.txt", ".prompt.md", ".before.json", ".after.json", ".diff", ".tools.json", ".opencode.json", ".source.json", ".witness.json",
+                   ".supervision.json", ".supervision-spec.json"):
         artifact = base.with_name(base.name + suffix)
         if artifact.exists():
             # Keep originals until the caller durably saves the archive pointers.
@@ -343,6 +344,9 @@ def archive_rejected_stage(state, run_dir, record, reason):
         capture = record.get('job_source') or {}
         if capture.get(key) in archived_paths:
             capture[key] = archived_paths[capture[key]]
+    supervision = record.get('supervision') or {}  # the stage keeper's report (autocode_stage_keeper)
+    if supervision.get('report') in archived_paths:
+        supervision['report'] = archived_paths[supervision['report']]
     record['archived_paths'] = archived_paths
     record["rejected"] = True
     record["rejection_reason"] = str(reason)

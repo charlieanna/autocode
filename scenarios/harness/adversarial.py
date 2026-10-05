@@ -122,12 +122,15 @@ class AdversarialCase(unittest.TestCase):
                                   "stdout": result.stdout, "stderr": result.stderr}) + "\n")
         return result
 
-    def spawn(self, *extra, task=None):
+    def spawn(self, *extra, task=None, own_session=False):
+        """Start the CLI in the background; ``own_session`` makes it a session and group leader,
+        so a test can signal its whole group the way a terminal or session manager does."""
         number = len(self.owned)
         stream = (self.root / f"async-{number}.log").open("w")
         try:
-            child = subprocess.Popen(self.command(*extra, task=task), cwd=self.root,
-                                     env=self.env, stdout=stream, stderr=subprocess.STDOUT, text=True)
+            child = subprocess.Popen(self.command(*extra, task=task), cwd=self.root, env=self.env,
+                                     stdout=stream, stderr=subprocess.STDOUT, text=True,
+                                     start_new_session=own_session)
         finally:
             stream.close()
         self.owned.append(psutil.Process(child.pid))
@@ -161,6 +164,30 @@ class AdversarialCase(unittest.TestCase):
     def finish(self):
         return self.driver.until_stopped()
 
+    def await_gone(self, process, *, timeout=15, message="an owned process to stop"):
+        self.await_condition(lambda: not alive(process), timeout=timeout, message=message)
+
+    def stage_keeper(self):
+        """The active attempt's stage keeper, named by public ``--status`` and identity-checked."""
+        status = json.loads(self.invoke("--status").stdout)
+        row = ((status.get("active_stage") or {}).get("supervision") or {}).get("keeper")
+        self.assertTrue(row, "The active attempt must name its stage keeper")
+        keeper = psutil.Process(row["pid"])
+        self.assertEqual(row["birth_identity"], birth_identity(keeper), "Stage keeper identity changed")
+        return keeper
+
+    def kill_supervision(self, controller):
+        """Kill the stage keeper, then the controller, leaving the provider a live orphan.
+
+        Controller death alone stops the provider at once (#454). Losing the keeper too is
+        the remaining way to get a live orphan, so the second line of defence (the inherited
+        checkout lock, process receipts and report adoption) stays covered.
+        """
+        keeper = self.stage_keeper()
+        keeper.kill()  # psutil checks the retained birth identity
+        self.await_gone(keeper, message="the stage keeper to die")
+        controller.kill()
+
     def await_condition(self, predicate, *, timeout=15, message="test handshake"):
         # Waits for a causal process/file handshake, never a fixed-duration fault.
         deadline = time.monotonic() + timeout
@@ -171,3 +198,17 @@ class AdversarialCase(unittest.TestCase):
             import threading
             threading.Event().wait(0.02)
         self.fail(f"Timed out awaiting {message}; evidence: {self.root}")
+
+
+def alive(process) -> bool:
+    """Running and not a zombie. A reparented process stays a zombie until init reaps it,
+    which some hosts' init does late, and psutil's is_running() counts zombies as running."""
+    try:
+        return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return False
+
+
+def birth_identity(process) -> float:
+    """AutoCode's recorded process birth identity (macOS: kernel epoch; Linux: create_time)."""
+    return process._ident[1] if psutil.MACOS else process.create_time()

@@ -388,6 +388,43 @@ controller makes the checkpoint `stale`; an inaccessible process is unknown,
 not assumed dead. Inspect retained test output before restarting a stale check.
 The check activity never substitutes for a passing proof or independent review.
 
+## Process ownership
+
+A provider (the model client for one stage attempt) never outlives the process that
+supervises it. Who stops its process tree, and when:
+
+- **The controller**, the `autocode` process running the stage, owns the tree while it
+  lives. The provider is its direct child, in its own session; the stage cap, idle and
+  tool limits, process receipts and cleanup all run in the controller. SIGTERM, Ctrl-C
+  and SIGHUP (a closed terminal or a session hangup; still ignored under `nohup`) stop
+  the tree, pause the run as `PAUSED_INTERRUPTED`, and record the signal in
+  `active_stage.interrupted`.
+- **The stage keeper** owns it after that. Every provider attempt gets one
+  (`tools/autocode_stage_keeper.py`), tied to the controller by a pipe. A controller
+  that ends supervision normally releases it. If the controller dies without doing so
+  (SIGKILL, a process-group teardown, a crash) or gives up after failed cleanup, the
+  keeper stops the tree at once: freeze, TERM, then KILL after 2 s. It then writes
+  `<attempt>.supervision.json` next to the attempt's other files, with the `cause`
+  (`supervisor_lost` when the controller died, `lifeline_closed_by_live_owner` when it
+  gave up), the `outcome` (`stopped`, `already_exited` or `failed`), the signals sent and
+  the owner and provider identities.
+  It signals only the provider, its descendants and process group, and the processes
+  in the controller's receipt for that provider, re-checking each birth identity first.
+  Another run's processes and reused pids are never signalled. Wrapped commands (visual
+  runtime, tool containment) are what the keeper starts and watches.
+- **The caller** that runs the CLI owns the CLI. The scenario harness does not yet stop
+  a CLI it loses (#454); a CLI whose caller died alone keeps running until its next stop.
+
+`active_stage.pid` and `active_stage.supervision` (the keeper's identity and report
+path) are saved before the controller starts watching the provider. A provider stopped
+by its keeper never finished, so resuming pauses for reconciliation and nothing is
+replayed automatically. A report that an orphaned provider finished is adopted only when
+its keeper was lost as well. Status does not read the keeper's report yet (#454): after
+the controller dies, `view.status` keeps the saved `RUNNING`, and the CLI's top-level
+`stale` turns true once the keeper has stopped the provider. Parallel Builder worker
+processes and runner check commands are not kept this way yet; each worker's own
+provider attempts are.
+
 ## Dependencies between existing runs
 
 An already authorized delivery should not become a request for a person to assemble

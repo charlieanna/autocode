@@ -52,7 +52,7 @@ try:
     from . import autocode_progressive_state as progressive_state
     from . import autocode_findings as findings_ledger
     from . import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
-    from . import autocode_output_policy as output_policy, autocode_output_cap as output_cap
+    from . import autocode_output_policy as output_policy, autocode_output_cap as output_cap, autocode_stage_keeper as stage_keeper
     from .autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
@@ -86,7 +86,7 @@ except ImportError:
     import autocode_progressive_state as progressive_state
     import autocode_findings as findings_ledger
     import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
-    import autocode_output_policy as output_policy, autocode_output_cap as output_cap
+    import autocode_output_policy as output_policy, autocode_output_cap as output_cap, autocode_stage_keeper as stage_keeper
     from autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
@@ -455,7 +455,8 @@ def run_role(
     interrupted = False
     cleanup_error = None
     worker_path = run_dir / "active-processes.json"
-    with processes.interruption_handler(), prompt_file.open("r") as stdin, event_log.open_events(events) as stdout:
+    keeper = stage_keeper.Lifeline(base, run_dir, record, save=lambda: write_json(run_dir / "state.json", state))
+    with processes.interruption_handler(), prompt_file.open("r") as stdin, event_log.open_events(events) as stdout, keeper:
         try:
             with interventions.admission(run_dir):
                 provider_launch.verify_containment(worker_context)
@@ -482,9 +483,8 @@ def run_role(
                 write_json(run_dir / "state.json", state)
                 child_stdin = (subprocess.DEVNULL if engine == "opencode" and configured_tool
                                and getattr(opencode, "PROMPT_MODE", "stdin") == "file" else stdin)
-                child = subprocess.Popen(command, cwd=workspace, stdin=child_stdin, stdout=stdout, stderr=subprocess.STDOUT,
-                                         text=True, **checkout_lock.child_options(workspace, child_options))
-                record["pid"] = child.pid
+                child = keeper.launch(command, cwd=workspace, stdin=child_stdin, stdout=stdout, stderr=subprocess.STDOUT,
+                                      text=True, **checkout_lock.child_options(workspace, child_options))
         except support.Paused:
             job_source.discard_prepared(record)
             # Admission lost to a submission: no request or provider was started.
@@ -518,11 +518,11 @@ def run_role(
             write_json(worker_path, {"run_dir": str(run_dir), "pid": child.pid, "processes": owned})
             write_json(run_dir / "state.json", state)
         try:
-            exit_code, timed_out = processes.wait_for_stage(
+            exit_code, timed_out = keeper.supervise(processes.wait_for_stage,
                 child, stage_timeout, checkpoint, activity=activity, activity_checkpoint=activity_checkpoint,
                 startup_grace=min(5, tool_timeout or 5))
-        except KeyboardInterrupt:
-            interrupted = True
+        except KeyboardInterrupt as interruption:
+            interrupted = record["interrupted"] = {"signal": getattr(interruption, "signal", "SIGINT")}
             exit_code = child.poll()
         except processes.ProcessError as error:
             cleanup_error = str(error)
@@ -530,10 +530,8 @@ def run_role(
             record["processes"] = getattr(error, "processes", record.get("processes", []))
             write_json(worker_path, {"run_dir": str(run_dir), "pid": child.pid,
                                     "processes": record.get("processes", []), "cleanup_error": cleanup_error})
-        else:
-            worker_path.unlink(missing_ok=True)
-        if interrupted:
-            worker_path.unlink(missing_ok=True)  # wait_for_stage cleaned up before propagating the interrupt
+        if cleanup_error is None:
+            worker_path.unlink(missing_ok=True)  # wait_for_stage cleaned up, also before propagating an interrupt
     record.update(finished_at=now(), exit_code=exit_code, duration_seconds=time.monotonic() - started,
                   metrics=support.event_metrics(events), timed_out=timed_out)
     if timed_out:

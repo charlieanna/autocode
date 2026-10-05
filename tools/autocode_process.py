@@ -277,14 +277,25 @@ class ProcessTree:
 
 @contextmanager
 def interruption_handler():
-    previous = signal.getsignal(signal.SIGTERM)
+    """Turn SIGTERM, and SIGHUP (a closed terminal or session), into a clean interrupt.
+
+    The KeyboardInterrupt's ``signal`` attribute names the signal. A SIGHUP ignored on
+    entry (``nohup``) stays ignored. Ctrl-C's SIGINT is already a KeyboardInterrupt.
+    """
     def interrupt(signum, frame):
-        raise KeyboardInterrupt
-    signal.signal(signal.SIGTERM, interrupt)
+        name = signal.Signals(signum).name
+        error = KeyboardInterrupt(name)
+        error.signal = name
+        raise error
+    handled = [signal.SIGTERM]
+    if signal.getsignal(signal.SIGHUP) != signal.SIG_IGN:
+        handled.append(signal.SIGHUP)
+    previous = {sig: signal.signal(sig, interrupt) for sig in handled}
     try:
         yield
     finally:
-        signal.signal(signal.SIGTERM, previous)
+        for sig, handler in previous.items():
+            signal.signal(sig, signal.SIG_DFL if handler is None else handler)
 
 
 def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkpoint=None,
@@ -458,7 +469,7 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
     finally:
         # Interruption or a failed save must not let the process worker escape
         # this call. Callbacks stay serialized on the controller thread.
-        handlers = {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGINT, signal.SIGTERM)}
+        handlers = {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
         try:
             receipts.cancel.set()
             if receipts.started:
