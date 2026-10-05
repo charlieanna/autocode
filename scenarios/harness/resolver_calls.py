@@ -4,11 +4,13 @@ Reads only what the runner saved: state.json's stage rows, the report files they
 checkpoints in the project's Git repository. Imports nothing from AutoCode.
 
 A call counts when its row is ``astra_resolve``, not runner-owned, and was launched with a model
-(``launch_route.model``, ``runner_calls`` >= 1). Report repairs, ``astra_diagnose`` and Investigator calls
-are other stages and never count. A rejected report the runner then accepted after a report-only repair
-(an ``astra_resolve_report_repair`` row at the same source) is one accepted call, scored on the repaired
-report. A call is scorable when its report was saved and the runner applied it: a call still in
-``active_stage`` when the run stopped, or one whose repair was still running, was never accepted or rejected.
+(``launch_route.model``, ``runner_calls`` >= 1), unless the scripted side of a hybrid run answered it
+(``scripted``: the report paths it wrote, the run record's ``scripted_outputs``; harness/hybrid.py). Report
+repairs, ``astra_diagnose`` and Investigator calls are other stages and never count. A rejected report the
+runner then accepted after a report-only repair (an ``astra_resolve_report_repair`` row at the same source)
+is one accepted call, scored on the repaired report. A call is scorable when its report was saved and the
+runner applied it: a call still in ``active_stage`` when the run stopped, or one whose repair was still
+running, was never accepted or rejected.
 """
 from __future__ import annotations
 
@@ -33,7 +35,19 @@ def load_state(project: Path) -> tuple[dict, Path] | None:
     return json.loads(states[-1].read_text()), states[-1].parent
 
 
-def calls(state: dict, run_dir: Path) -> list[dict]:
+def scripted(run: dict | None) -> list[str]:
+    """The report paths a hybrid run's scripted side wrote (empty for any other run)."""
+    return list((run or {}).get("scripted_outputs") or [])
+
+
+def is_scripted(row: dict, outputs) -> bool:
+    """Did the scripted side answer this stage row? By the report path AutoCode gave the tool."""
+    paths = {Path(path).with_suffix("") for path in outputs or () if isinstance(path, str) and path}
+    return bool(paths) and any(isinstance(row.get(key), str) and row[key] and Path(row[key]).with_suffix("") in paths
+                               for key in ("output", "reported_output", "events"))
+
+
+def calls(state: dict, run_dir: Path, scripted: list[str] | tuple = ()) -> list[dict]:
     """Every counted Resolver call, in launch order. Each: ``row`` (the launched row), ``index`` and ``end``
     (the positions in ``stages`` of that row and of its last report repair; None for an unapplied call),
     ``revision`` (the source it saw), ``report`` (the report to score, or None), ``output`` (its path),
@@ -43,7 +57,7 @@ def calls(state: dict, run_dir: Path) -> list[dict]:
     active = state.get("active_stage") if isinstance(state.get("active_stage"), dict) else None
     found = []
     for index, row in enumerate(rows):
-        if not launched(row):
+        if not launched(row) or is_scripted(row, scripted):
             continue
         revision_ = revision(row, run_dir)
         later = next((n for n in range(index + 1, len(rows)) if launched(rows[n])), len(rows))
@@ -59,7 +73,7 @@ def calls(state: dict, run_dir: Path) -> list[dict]:
             "accepted": not row.get("rejected") or repaired is not None, "report_repaired": repaired is not None,
             "pending": "its report repair was still running when the run stopped" if in_flight else "",
             "model": (row.get("launch_route") or {}).get("model"), "cost_usd": _cost([row, *repairs])})
-    if active and launched(active) and active not in rows:
+    if active and launched(active) and active not in rows and not is_scripted(active, scripted):
         found.append({"row": active, "index": None, "end": None, "revision": revision(active, run_dir),
                       "output": active.get("output"),
                       "report": _dict(read(local(active.get("output"), run_dir))), "applied": False,

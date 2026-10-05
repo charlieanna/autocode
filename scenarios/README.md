@@ -82,6 +82,7 @@ PY=.venv/bin/python                               # AutoCode needs psutil from t
 $PY scenarios/run.py list                         # the catalog
 $PY scenarios/run.py check                        # prove every oracle (no AutoCode, no models)
 $PY scenarios/run.py run --fake                   # every scenario through AutoCode with a scripted model (no spend)
+$PY scenarios/run.py run feature-stock-refusals --fake --hybrid   # rehearse a hybrid route (no spend; "Hybrid runs")
 $PY scenarios/run.py run bugfix-iso-weeks --profile glm53-openai --i-authorize-live-model-spend
 $PY scenarios/run.py route --fake                 # which workflow AutoCode recognizes for each prompt in routing.toml
 $PY scenarios/run.py compare --fake               # AutoCode vs a plain agent on the same oracles (scripted; no spend)
@@ -121,6 +122,10 @@ through another provider (`kilocode`, or any tool set up as in
 `docs/providers.md`). The result records the provider, and its mode is
 `NAME-via-OTHER`, so `stats` keeps it apart from runs through the profile's own
 provider.
+
+`run --profile NAME --hybrid` scripts the stages a scenario's `[hybrid]` route
+names and runs every other stage live; its mode is `NAME-hybrid`
+([Hybrid runs](#hybrid-runs)).
 
 ## Verdicts
 
@@ -162,7 +167,8 @@ and the scoring, never how well a real model diagnoses.
 
 Which AutoResolver calls count is `harness/resolver_calls.py`'s, from the
 runner's saved records only. A call counts when it is `astra_resolve`, not
-runner-owned, and launched with a model; report repairs, `astra_diagnose` and
+runner-owned, and launched with a model, unless the scripted side of a
+[hybrid run](#hybrid-runs) answered it; report repairs, `astra_diagnose` and
 Investigator calls never count on their own. A report the runner rejected and
 then accepted after a report-only repair (`astra_resolve_report_repair` at the
 same source) is one accepted call, scored on the repaired report. A call the
@@ -230,6 +236,65 @@ does not resume paused runs: a pause is reported as `HONEST_BLOCKER`. The one
 exception is a scenario's explicit `[fake] answers`: a person's own answer to a
 question the driver never answers by default (a quota stop's `route-sol`, for
 example). The driver gives that answer, then resumes the pause it leaves once.
+
+## Hybrid runs
+
+Some failures a real model rarely makes on cue. In six live `claude-tiers` runs
+of `feature-stock-refusals` (2026-10-05) no Builder wrote the vacuous refusal
+tests, so AutoResolver never saw the trap (#59). A scenario can declare a route
+that scripts the stages producing its failure and leaves the stage under test
+live:
+
+```toml
+[hybrid]
+scripted = ["recognize_workflow", "requirements_gather", "astra_discovery", "astra_challenge", "glm_revise",
+            "astra_finalize"]        # every call of these stages
+first_attempt = ["terra"]            # only the stage's first call in the run
+```
+
+`run ID --profile NAME --hybrid --i-authorize-live-model-spend` answers those
+calls with the scripted provider and the scenario's `[fake] fault`, and every
+other call, later attempts of a `first_attempt` stage included, with the
+profile's own tool. A report-only repair goes to the side that served the stage
+it repairs. `run ID --fake --hybrid` rehearses the route with no spend: a
+scripted stand-in takes the live side, so it proves the routing and the labels,
+nothing about a model.
+
+How: the harness writes a config-registered tool named `hybrid`
+(`harness/hybrid_stage.py`) under the run's evidence directory and points
+AutoCode at it with `XDG_CONFIG_HOME`; your own provider configs are read, never
+written. Each call reads its stage from the handoff, appends a row to
+`hybrid/trace.jsonl`, and runs either the scripted provider or the live tool's
+own command, filled with the same values and run with the environment the
+harness started from. The live tool must be registered with a TOML file and
+`output = "report_file"`, as `examples/claude-provider` is; built-in OpenCode and
+Codex, and tools with sessions, are `SKIPPED`. Through such a tool the scripted
+provider cites capture receipts, never Codex event ids, as the tool contract
+requires.
+
+Hybrid results never mix with natural ones:
+
+- the mode is `NAME-hybrid` (`fake-hybrid`), so `stats` and
+  `examples/claude-provider/batch.py` count and show them apart;
+- `result.json["hybrid"]` holds the route, every call with the side that served
+  it, and the model stages each side served (`scripted_stage_names`,
+  `live_stage_names`);
+- a scripted call counts for nothing: `requires_stages` needs a live stage, and a
+  diagnosis counts only the Resolver calls the live side served
+  (`scripted_resolver_calls` reports the others).
+
+For `feature-stock-refusals` the route scripts planning, whose plan has one
+`test: test_cN_...` case per reference test, and the first Builder, which
+delivers `broken/vacuous-refusal-tests`: a correct `stock.py` with refusal tests
+that also pass on the original code. The regression proof then fails on planned
+move and remove cases by construction. Planning is scripted too because the
+runner matches each planned case to a test by its approved name or case id: a
+live plan names its cases its own way (`AC4`, `test_ac5_...`), and the scripted
+Builder's fixed tests would fail the proof as missing, not as vacuous. The
+Validator, the Completion Owner, AutoResolver and the repair Builder are live. A hybrid `CORRECT` is narrower than
+a natural one would be: a real Resolver diagnosing a failure no model made, on a
+plan no model wrote. Whether AutoResolver is called at all still depends on the
+live Completion Owner's REWORK; a run where it is not is `NOT_EXERCISED`.
 
 ## Fixed versus adaptive through completion
 
@@ -455,7 +520,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `bugfix-trivial` | bugfix | An off-by-one, through the full bug-fix path: diagnosis, plan review and the user's approval, no requirements gathering, no questions. Its proportionality checks (no plan-review rounds, at most five model stages) come back with the short path for small fixes. |
 | `bugfix-not-reproducible` | bugfix | The reported bug does not exist in this code. Passes by saying so or asking; a "defensive" change to working code fails. |
 | `feature-refund-window` | feature | Built to reach AutoResolver (#59): the seed's `store_date()` helper ignores the store's UTC-8 offset, and the cap is on the running total of partial refunds. A plausible first attempt passes its own tests and fails hidden boundary tests; `diagnosis()` checks, by words, that AutoResolver's diagnosis of source that still fails the hidden tests names a planted defect. Since #294 a clean Validator FAIL can go straight back to the Builder, so runs rarely reach `astra_resolve`; those that never do are `NOT_EXERCISED` (always, with the scripted model). |
-| `feature-stock-refusals` | feature | AutoResolver on a natural failure (#59). On the original code `stock.py move` is an unknown subcommand, so argparse exits 2 and never touches the store: refusal tests in the seed's style (exit 2, stderr, unchanged bytes) pass there too, and the runner's regression proof rejects them. No executed check fails, so the Completion Owner's REWORK goes to AutoResolver rather than straight back to the Builder (#294). `check()` judges the product (hidden refusal tests; each refusal rule needs a delivered test that fails on the original code, and an extra test that also passes there is reported, not failed); `diagnosis()` scores the Resolver call ([Diagnosis](#diagnosis)). The scripted run is `CORRECT`; `SCENARIO_FAKE_RESOLVER=misattribute` makes its Resolver blame `stock.py` and is `INCORRECT` while the run still passes; `--fake-solution broken/vacuous-refusal-tests` never repairs the tests, so the runner holds at `RESOLVER_PENDING` (`HONEST_BLOCKER`) and the diagnosis is `INCORRECT` on `repair_made_the_tests_discriminate`. |
+| `feature-stock-refusals` | feature | AutoResolver on a natural failure (#59). On the original code `stock.py move` is an unknown subcommand, so argparse exits 2 and never touches the store: refusal tests in the seed's style (exit 2, stderr, unchanged bytes) pass there too, and the runner's regression proof rejects them. No executed check fails, so the Completion Owner's REWORK goes to AutoResolver rather than straight back to the Builder (#294). `check()` judges the product (hidden refusal tests; each refusal rule needs a delivered test that fails on the original code, and an extra test that also passes there is reported, not failed); `diagnosis()` scores the Resolver call ([Diagnosis](#diagnosis)). The scripted run is `CORRECT`; `SCENARIO_FAKE_RESOLVER=misattribute` makes its Resolver blame `stock.py` and is `INCORRECT` while the run still passes; `--fake-solution broken/vacuous-refusal-tests` never repairs the tests, so the runner holds at `RESOLVER_PENDING` (`HONEST_BLOCKER`) and the diagnosis is `INCORRECT` on `repair_made_the_tests_discriminate`. Live Builders rarely write the vacuous tests (0 of 6 `claude-tiers` runs, 2026-10-05); `--hybrid` scripts planning and the first Builder so the trap is reached by construction, with AutoResolver live ([Hybrid runs](#hybrid-runs)). The first six hybrid runs (2026-10-05) found real defects in the helpers the seed and every solution shared: a QTY of `²` or of 5000 digits crashed (exit 1), `٣` was read as 3, and a JSON `true` in `stock.json` passed as 1. The seed (whose README contract already required those refusals) and every solution now refuse them, and the hidden tests check them for both commands; those six runs' diagnoses were rightly not bounded test repairs and are not comparable with later runs. |
 | `feature-timesheet-by-project` | feature | Adding an option to an existing CLI without changing existing output. |
 | `implement-locked-design` | feature | An approved design is a constraint: specified modules and signatures (checked by AST), clock injected, no questions about settled decisions. A single-class "simplification" fails. |
 | `implement-design-conflict` | feature | The approved design contradicts a frozen API. The right ending is a stop with the conflict written down and no code changed (`expected = "stop"`). |
@@ -557,6 +622,8 @@ catalog/<id>/
                     fault "quota_once" stops the Tester on the driver's default Tester model),
                     [run] max_steps, timeout_minutes, expected = "complete"|"stop"|"any", known_failure = "why",
                           requires_stages = ["astra_resolve"] (a model stage the run must reach to count)
+                    [hybrid] scripted = ["astra_discovery", ...], first_attempt = ["terra"] (optional: the stages
+                          run --hybrid scripts, every call or only the first; see "Hybrid runs")
                     [[turn]] after = "complete", say = "follow-up message" (optional, repeatable; said once
                           the run completes, since a follow-up continues only a finished run)
                     [fake] turn_paths = [["docs/"], ["app/"]] (a conversation: which solution paths each

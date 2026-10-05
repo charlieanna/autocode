@@ -5,6 +5,12 @@ profiles stay unchanged. Spends real model money: it needs --i-authorize-live-mo
 
     python3 examples/claude-provider/trial.py run bugfix-trivial --profile claude-tiers \
         --i-authorize-live-model-spend --out /path/to/results --timeout-minutes 45
+
+With --hybrid the stages a scenario's [hybrid] route names are scripted and every other stage runs on these
+models (mode claude-tiers-hybrid; scenarios/README.md, "Hybrid runs"):
+
+    python3 examples/claude-provider/trial.py run feature-stock-refusals --profile claude-tiers --hybrid \
+        --i-authorize-live-model-spend --out /path/to/results --timeout-minutes 60
 """
 import sys
 from pathlib import Path
