@@ -22,7 +22,18 @@ Four kinds:
 The block is data a model may have written, so it is validated strictly. No
 string may contain a backtick: a backticked span in a brief becomes a literal
 the goal contract must keep (autocode_brief_literals), and these sentences are
-obligations to trace, not literals. Pure: runs nothing and reads no file.
+obligations to trace, not literals.
+
+The architecture directory may also hold smoke.json, the end-to-end smoke
+check of the combined system (docs/task-lanes.md, "Declaring the smoke
+check"): HTTP requests to services, in order, with expected statuses and JSON,
+and values captured from one response for later requests. It is not a build
+input: it is outside the saved build's identity, so editing it never forces a
+rebuild. load_smoke reads and validates it, check_smoke checks it against the
+runtime blocks, and render_step fills in captured values. Nothing in it is
+ever run as a command.
+
+Pure: runs nothing, and reads no file except smoke.json in load_smoke.
 Imports nothing from AutoCode, so autocode_multicomponent can import it
 without joining an import cycle.
 """
@@ -30,9 +41,12 @@ from __future__ import annotations
 
 import difflib
 import json
+import math
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
+from urllib.parse import quote
 
 # The image a "start" command runs in. Fixed on purpose: anything else ships a Dockerfile.
 START_IMAGE = "python:3.12-slim"
@@ -146,6 +160,9 @@ def _text(key: str, value, *, limit: int = MAX_TEXT, empty: bool = False) -> str
                          f"NEL, U+2028, U+2029 and the like)")
     if "`" in value:
         raise ValueError(f"{key} must not contain a backtick (`)")
+    if any("\ud800" <= char <= "\udfff" for char in value):
+        raise ValueError(f"{key} must not contain a lone surrogate (U+D800 to U+DFFF), which is half of a "
+                         f"character's escape and not a character")
     return value
 
 
@@ -383,3 +400,287 @@ def require_runnable(component_ids: Iterable[str], runtimes: Mapping[str, Compon
                          f"{', '.join(missing)} (a component that is never started declares {{\"kind\": \"library\"}})")
     if not any(runtimes[cid].is_service for cid in ids):
         raise ValueError("running the combined system needs at least one component of kind service")
+
+
+# The smoke check: ARCHITECTURE/smoke.json, beside components.json. Read only to run
+# the combined system; never part of the saved build's identity.
+SMOKE_FILE = "smoke.json"
+SMOKE_KEYS = ("version", "steps")
+STEP_KEYS = ("name", "service", "method", "path", "body", "expect_status", "expect_json", "capture")
+MAX_STEPS = 30
+MAX_STEP_NAME = 80
+MAX_PATH = 300
+METHODS = ("GET", "POST", "PUT", "PATCH", "DELETE")
+BODYLESS_METHODS = frozenset({"GET", "DELETE"})
+# A value captured from one step's response, used as {{name}} in a later step's path or body.
+VAR_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
+PLACEHOLDER = re.compile(r"\{\{([a-z][a-z0-9_]{0,31})\}\}")
+# Why a smoke step cannot send a request to a component of each other kind.
+UNREACHABLE = {
+    "library": "a library, which is never started",
+    "worker": "a worker, which has no HTTP port",
+    "database": "a database, whose port is never published; check it through a service that uses it",
+}
+
+
+@dataclass(frozen=True)
+class SmokeStep:
+    """One HTTP request of the smoke check. has_body and has_expect_json tell an absent
+    key from an explicit JSON null; capture is (variable, top-level response key) pairs."""
+    name: str
+    service: str
+    method: str
+    path: str
+    expect_status: int
+    body: object = None
+    has_body: bool = False
+    expect_json: object = None
+    has_expect_json: bool = False
+    capture: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class SmokeCheck:
+    steps: tuple[SmokeStep, ...]
+    path: Path
+
+
+def load_smoke(architecture_dir) -> SmokeCheck:
+    """Read and validate ARCHITECTURE/smoke.json. Raises ValueError naming the step and
+    the key. Whether each step's service is one that can be reached is check_smoke's job."""
+    path = Path(architecture_dir) / SMOKE_FILE
+    if not path.is_file():
+        raise ValueError(f"missing {path}: running the combined system needs a smoke check, the HTTP requests "
+                         f"that show it works (docs/task-lanes.md, \"Declaring the smoke check\")")
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_unique_keys,
+                              parse_constant=_not_json, parse_float=_finite_float)
+    except (OSError, UnicodeDecodeError) as error:
+        raise ValueError(f"cannot read {path}: {error}") from None
+    except ValueError as error:
+        raise ValueError(f"{path} is not valid JSON: {error}") from None
+    return SmokeCheck(steps=_smoke_steps(document), path=path)
+
+
+def check_smoke(smoke: SmokeCheck, runtimes: Mapping[str, ComponentRuntime | None]) -> None:
+    """Every step must send its request to a service, the only kind with a published HTTP
+    port. ``runtimes`` maps component ids to their blocks. Raises ValueError."""
+    for index, step in enumerate(smoke.steps, 1):
+        where = _step_label(index, step.name)
+        if step.service not in runtimes:
+            raise ValueError(f"{where} service {step.service!r} is not a component that declares a runtime block")
+        target = runtimes[step.service]
+        if target is None:
+            raise ValueError(f"{where} service {step.service!r} declares no runtime block")
+        if not target.is_service:
+            raise ValueError(f"{where} service {step.service!r} is {UNREACHABLE[target.kind]}; a smoke step can "
+                             f"send requests only to a component of kind service")
+
+
+def render_step(step: SmokeStep, captured: Mapping[str, str | int]) -> tuple[str, object]:
+    """The step's path and body with each {{name}} filled in from ``captured``.
+
+    In the path a value is percent-encoded, '/' included, so it stays within one path
+    segment or query value. In the body, a string that is exactly {{name}} becomes the
+    captured value itself, so an integer stays an integer; inside a longer string the
+    value is inserted as text. The body is None when the step has none, and the step
+    itself is never changed. Raises ValueError for a value that was not captured."""
+    def value(name: str) -> str | int:
+        if name not in captured:
+            raise ValueError(f"{step.name}: {_placeholder(name)} was not captured")
+        found = captured[name]
+        if isinstance(found, bool) or not isinstance(found, (str, int)):
+            raise ValueError(f"{step.name}: the captured {name} must be a string or an integer (found {found!r})")
+        return found
+
+    path = PLACEHOLDER.sub(lambda match: quote(str(value(match.group(1))), safe=""), step.path)
+    return path, (_filled(step.body, value) if step.has_body else None)
+
+
+def _filled(node, value):
+    if isinstance(node, str):
+        whole = PLACEHOLDER.fullmatch(node)
+        if whole:
+            return value(whole.group(1))
+        return PLACEHOLDER.sub(lambda match: str(value(match.group(1))), node)
+    if isinstance(node, list):
+        return [_filled(item, value) for item in node]
+    if isinstance(node, dict):
+        return {key: _filled(item, value) for key, item in node.items()}
+    return node
+
+
+def _smoke_steps(document) -> tuple[SmokeStep, ...]:
+    if not isinstance(document, dict):
+        raise ValueError(f"{SMOKE_FILE} must be a JSON object such as {{\"version\": 1, \"steps\": [...]}} "
+                         f"(found {_shown(document)})")
+    _known_keys(document, SMOKE_KEYS, SMOKE_FILE)
+    version = document.get("version")
+    if isinstance(version, bool) or not isinstance(version, int) or version != 1:
+        raise ValueError(f"{SMOKE_FILE} version must be 1 (found {_shown(version)})")
+    steps = document.get("steps")
+    if not isinstance(steps, list) or not 1 <= len(steps) <= MAX_STEPS:
+        found = f"{len(steps)} steps" if isinstance(steps, list) else _shown(steps)
+        raise ValueError(f"{SMOKE_FILE} steps must be a list of 1 to {MAX_STEPS} steps (found {found})")
+    captured: dict[str, int] = {}  # variable -> the step that captures it
+    named: dict[str, int] = {}
+    parsed = []
+    for index, raw in enumerate(steps, 1):
+        step = _smoke_step(index, raw, captured)
+        if step.name in named:
+            raise ValueError(f"{SMOKE_FILE} steps {named[step.name]} and {index} are both named {step.name!r}; "
+                             f"step names must be unique")
+        named[step.name] = index
+        parsed.append(step)
+    return tuple(parsed)
+
+
+def _smoke_step(index: int, raw, captured: dict[str, int]) -> SmokeStep:
+    where = _step_label(index, None)
+    if not isinstance(raw, dict):
+        raise ValueError(f"{where} must be a JSON object (found {_shown(raw)})")
+    name = raw.get("name", f"step {index}")
+    if not isinstance(name, str) or not 1 <= len(name) <= MAX_STEP_NAME or not name.isprintable():
+        raise ValueError(f"{where} name must be a string of 1 to {MAX_STEP_NAME} printable characters on one line "
+                         f"(found {_shown(name)})")
+    _no_placeholders(name, f"{where} name")
+    where = _step_label(index, name)
+    _known_keys(raw, STEP_KEYS, where)
+    for key in ("service", "method", "path", "expect_status"):
+        if key not in raw:
+            raise ValueError(f"{where} needs {key}")
+    service = raw["service"]
+    if not isinstance(service, str) or not service:
+        raise ValueError(f"{where} service must be the id of a component of kind service (found {_shown(service)})")
+    method = raw["method"]
+    if not isinstance(method, str) or method not in METHODS:
+        raise ValueError(f"{where} method must be one of {', '.join(METHODS)} (found {_shown(method)})")
+    path = _request_path(raw["path"], where, captured)
+    status = raw["expect_status"]
+    if isinstance(status, bool) or not isinstance(status, int) or not 100 <= status <= 599:
+        raise ValueError(f"{where} expect_status must be an integer HTTP status from 100 to 599 "
+                         f"(found {_shown(status)})")
+    if "body" in raw:
+        if method in BODYLESS_METHODS:
+            raise ValueError(f"{where} is a {method} request, which sends no body; remove body or use POST, PUT "
+                             f"or PATCH")
+        _check_placeholders(raw["body"], f"{where} body", captured)
+    if "expect_json" in raw:
+        _no_placeholders(raw["expect_json"], f"{where} expect_json")
+    capture = _capture(raw.get("capture", {}), where, captured)
+    captured.update((variable, index) for variable, _ in capture)
+    return SmokeStep(name=name, service=service, method=method, path=path, expect_status=status,
+                     body=raw.get("body"), has_body="body" in raw, expect_json=raw.get("expect_json"),
+                     has_expect_json="expect_json" in raw, capture=capture)
+
+
+def _request_path(path, where: str, captured: Mapping[str, int]) -> str:
+    if not isinstance(path, str) or not path.startswith("/"):
+        raise ValueError(f"{where} path must start with '/' (found {_shown(path)})")
+    if len(path) > MAX_PATH:
+        raise ValueError(f"{where} path must be at most {MAX_PATH} characters")
+    if not path.isascii() or any(char.isspace() or not char.isprintable() for char in path):
+        raise ValueError(f"{where} path must be printable ASCII with no spaces; percent-encode anything else "
+                         f"(found {_shown(path)})")
+    if "://" in path or "@" in path:
+        raise ValueError(f"{where} path must be a path on the step's service, with no '://' or '@' "
+                         f"(found {_shown(path)})")
+    _check_placeholders(path, f"{where} path", captured)
+    return path
+
+
+def _check_placeholders(value, where: str, captured: Mapping[str, int]) -> None:
+    """Each {{name}} in a string of ``value`` must be captured by an earlier step. An
+    object key is sent as written, so it may hold no '{{' at all."""
+    if isinstance(value, str):
+        if "{{" in PLACEHOLDER.sub("", value):
+            raise ValueError(f"{where}: '{{{{' may only open a captured variable such as {_placeholder('note_id')} "
+                             f"(lower case, at most 32 characters; found {_shown(value)})")
+        for name in PLACEHOLDER.findall(value):
+            if name not in captured:
+                raise ValueError(f"{where} uses {_placeholder(name)}, but no earlier step captures {name}")
+    elif isinstance(value, list):
+        for item in value:
+            _check_placeholders(item, where, captured)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _no_placeholders(key, f"{where} key")
+            _check_placeholders(item, where, captured)
+
+
+def _no_placeholders(value, where: str) -> None:
+    """No string in ``value``, object keys included, may contain '{{': render_step fills
+    in captured values only in the path and in string values of the body."""
+    if isinstance(value, str):
+        if "{{" in value:
+            raise ValueError(f"{where} must not contain '{{{{' (found {_shown(value)}): captured values are filled "
+                             f"in only in the path and in string values of the body")
+    elif isinstance(value, list):
+        for item in value:
+            _no_placeholders(item, where)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _no_placeholders(key, where)
+            _no_placeholders(item, where)
+
+
+def _capture(capture, where: str, captured: Mapping[str, int]) -> tuple[tuple[str, str], ...]:
+    if not isinstance(capture, dict):
+        raise ValueError(f"{where} capture must be a JSON object of variable names to top-level response keys, "
+                         f"such as {{\"note_id\": \"id\"}} (found {_shown(capture)})")
+    for variable, key in capture.items():
+        if not VAR_NAME.fullmatch(variable):
+            raise ValueError(f"{where} capture variable {variable!r} must be lower case: a-z, digits and '_', "
+                             f"starting with a letter, at most 32 characters")
+        if not isinstance(key, str) or not key:
+            raise ValueError(f"{where} capture {variable} must name a top-level key of the JSON response "
+                             f"(found {_shown(key)})")
+        if variable in captured:
+            raise ValueError(f"{where} captures {variable}, which step {captured[variable]} already captures; "
+                             f"give it another name")
+    return tuple(capture.items())
+
+
+def _known_keys(document: dict, allowed: tuple[str, ...], where: str) -> None:
+    for key in sorted(document):
+        if key not in allowed:
+            close = difflib.get_close_matches(key, allowed, n=1, cutoff=0.6)
+            raise ValueError(f"{where}: unknown key {key!r}" + (f" (did you mean {close[0]!r}?)" if close else ""))
+
+
+def _step_label(index: int, name: str | None) -> str:
+    """How a message names a step: by number, and by its name when it has its own."""
+    if name is None or name == f"step {index}":
+        return f"{SMOKE_FILE} step {index}"
+    return f"{SMOKE_FILE} step {index} ({name})"
+
+
+def _placeholder(name: str) -> str:
+    return "{{" + name + "}}"
+
+
+def _shown(value) -> str:
+    shown = repr(value)
+    return shown if len(shown) <= 80 else shown[:77] + "..."
+
+
+def _unique_keys(pairs: list[tuple[str, object]]) -> dict:
+    seen = set()
+    for key, _ in pairs:
+        if key in seen:
+            raise ValueError(f"the key {key!r} appears twice in one object")
+        seen.add(key)
+    return dict(pairs)
+
+
+def _not_json(constant: str):
+    raise ValueError(f"{constant} is not a JSON value")
+
+
+def _finite_float(text: str) -> float:
+    """A JSON number with a fraction or exponent; one too large for a float, such as
+    1e999, would become infinity, which no request can send as JSON."""
+    number = float(text)
+    if not math.isfinite(number):
+        raise ValueError(f"the number {text} is too large to send as JSON")
+    return number

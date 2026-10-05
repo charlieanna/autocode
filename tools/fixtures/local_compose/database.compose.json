@@ -1,0 +1,92 @@
+{
+  "services": {
+    "api": {
+      "build": {
+        "context": "/TREE/components/api",
+        "dockerfile_inline": "FROM python:3.12-slim\nWORKDIR /app\nCOPY . /app\n"
+      },
+      "command": [
+        "/bin/sh",
+        "-c",
+        "python3 server.py"
+      ],
+      "depends_on": {
+        "db": {
+          "condition": "service_healthy"
+        }
+      },
+      "environment": {
+        "DB_HOST": "db",
+        "DB_PORT": "5432",
+        "PORT": "8000"
+      },
+      "init": true,
+      "mem_limit": "2g",
+      "pids_limit": 1024,
+      "ports": [
+        "127.0.0.1::8000"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ]
+    },
+    "db": {
+      "build": {
+        "context": "/TREE/components/db",
+        "dockerfile": "Dockerfile"
+      },
+      "environment": {
+        "PORT": "5432",
+        "POSTGRES_PASSWORD": "local-only",
+        "POSTGRES_USER": "app"
+      },
+      "healthcheck": {
+        "interval": "1s",
+        "retries": 120,
+        "test": [
+          "CMD",
+          "pg_isready",
+          "-U",
+          "app"
+        ],
+        "timeout": "5s"
+      },
+      "init": true,
+      "mem_limit": "2g",
+      "pids_limit": 1024,
+      "security_opt": [
+        "no-new-privileges:true"
+      ]
+    },
+    "indexer": {
+      "build": {
+        "context": "/TREE/components/indexer",
+        "dockerfile_inline": "FROM python:3.12-slim\nWORKDIR /app\nCOPY . /app\n"
+      },
+      "command": [
+        "/bin/sh",
+        "-c",
+        "python3 indexer.py"
+      ],
+      "depends_on": {
+        "api": {
+          "condition": "service_started"
+        },
+        "db": {
+          "condition": "service_healthy"
+        }
+      },
+      "environment": {
+        "API_URL": "http://api:8000",
+        "DB_HOST": "db",
+        "DB_PORT": "5432"
+      },
+      "init": true,
+      "mem_limit": "2g",
+      "pids_limit": 1024,
+      "security_opt": [
+        "no-new-privileges:true"
+      ]
+    }
+  }
+}

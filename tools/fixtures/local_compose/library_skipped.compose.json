@@ -1,0 +1,22 @@
+{
+  "services": {
+    "store": {
+      "build": {
+        "context": "/TREE/components/store",
+        "dockerfile": "Dockerfile"
+      },
+      "environment": {
+        "PORT": "8001"
+      },
+      "init": true,
+      "mem_limit": "2g",
+      "pids_limit": 1024,
+      "ports": [
+        "127.0.0.1::8001"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ]
+    }
+  }
+}

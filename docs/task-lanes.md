@@ -189,8 +189,9 @@ There are four kinds:
 | `env` | service, worker, database | At most 32 extra environment variables. Names are upper case (`A`-`Z`, digits and `_`, not starting with a digit, at most 64 characters); values are strings of one line, at most 1000 characters. `PORT` and the names generated for a runtime dependency are reserved. |
 
 The block is refused if it has an unknown key, or if any string in it contains a
-backtick, a NUL or a line break (CR, LF, VT, FF, NEL, U+2028, U+2029 and the
-other characters Python splits lines on). A row key that looks like a misspelled `runtime` (`runtme`, `run_time`,
+backtick, a NUL, a line break (CR, LF, VT, FF, NEL, U+2028, U+2029 and the
+other characters Python splits lines on) or a lone surrogate (a `\ud800`-style
+escape that is not half of a pair). A row key that looks like a misspelled `runtime` (`runtme`, `run_time`,
 `runtimes`) is refused too; other unknown row keys are still ignored. The id of
 a component that runs (service, worker or database) must be a lowercase DNS
 label that starts with a letter (`a`-`z`, digits and `-`, at most 63 characters,
@@ -242,6 +243,58 @@ A block lives inside `components.json`, so adding or editing one changes the
 saved build's identity, and a later run refuses to resume ("the architecture
 changed"); remove `.autocode-components/` to rebuild. Records without runtime
 blocks build exactly as before.
+
+### Declaring the smoke check
+
+The architecture directory may also hold `smoke.json`, beside `components.json`
+and `contracts/`: the HTTP requests that show the combined system works. It is
+read only by `--run-local`, which will start the combined system on your
+machine and is not available yet; until then AutoCode ignores the file. It is
+not part of the saved build's identity, so editing it never forces a rebuild.
+
+```json
+{
+  "version": 1,
+  "steps": [
+    {"name": "create a note through the gateway", "service": "gateway", "method": "POST",
+     "path": "/notes", "body": {"text": "hello"}, "expect_status": 201,
+     "expect_json": {"text": "hello"}, "capture": {"note_id": "id"}},
+    {"name": "read it back through the gateway", "service": "gateway", "method": "GET",
+     "path": "/notes/{{note_id}}", "expect_status": 200, "expect_json": {"text": "hello"}},
+    {"name": "the store holds it", "service": "store", "method": "GET",
+     "path": "/notes/{{note_id}}", "expect_status": 200, "expect_json": {"text": "hello"}}
+  ]
+}
+```
+
+The file has exactly two keys: `version`, which is `1`, and `steps`, a list of 1
+to 30 steps. Each step is one request:
+
+| Key | Rules |
+| --- | --- |
+| `name` | Optional: 1 to 80 printable characters on one line, unique across steps. Defaults to `step N`. |
+| `service` | Required: the id of a component of kind `service`. A worker has no port and a database's port is never published, so check a database through a service that uses it. |
+| `method` | Required: `GET`, `POST`, `PUT`, `PATCH` or `DELETE`. |
+| `path` | Required: starts with `/`, at most 300 characters of printable ASCII with no spaces, and no `://` or `@`. It may carry a query string. |
+| `body` | Optional: any JSON value, sent as `application/json`. Not allowed on `GET` or `DELETE`. |
+| `expect_status` | Required: the exact HTTP status expected, an integer from 100 to 599. |
+| `expect_json` | Optional: the JSON the response must match. An object matches when each of its keys is in the response and matches there, so the response may carry more keys; lists and other values must be equal, and `true` is not `1`. |
+| `capture` | Optional: `{"variable": "key"}` pairs. Each takes the value of a top-level key of the JSON response, which must be a string or an integer, for later steps. Variable names are lower case (`a`-`z`, digits and `_`, starting with a letter, at most 32 characters) and each is captured by one step only. |
+
+A later step uses a captured value as `{{variable}}` in its `path` or in a string
+value of its `body`; a step cannot use a value before an earlier step captures it, and
+`{{` may not appear anywhere else: not in `name`, in `expect_json`, or in an object
+key of `body`, where nothing is filled in. In the path the value is percent-encoded, `/`
+included, so it stays one path segment or query value. In the body a string that
+is exactly `{{variable}}` becomes the captured value itself, so an integer stays
+an integer; inside a longer string the value is inserted as text.
+
+Unknown keys, duplicate keys and anything outside these rules are refused,
+naming the step and the key; `NaN`, `Infinity` and a number too large to send
+(such as `1e999`) are refused as invalid JSON. Steps run in order, each request going to its
+service's port on `127.0.0.1`, without a proxy and without following redirects,
+and the check stops at the first step that fails. Nothing in `smoke.json` is run
+as a command.
 
 ## Multiple tasks in one project
 
