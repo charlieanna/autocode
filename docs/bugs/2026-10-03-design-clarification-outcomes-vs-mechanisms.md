@@ -1,8 +1,10 @@
 # Design clarification asks the user to pick mechanisms
 
-Status 2026-10-05: the clarification finding is open, with no issue filed. The
-recovery problems the same trial hit are fixed on master, except one narrow
-resume sequence (last section). Found in one live design-only trial on 2026-10-03.
+Status 2026-10-05: the clarification finding is open as
+[#450](https://github.com/charlieanna/autocode/issues/450). Most recovery problems
+the same trial hit are fixed; what remains is tracked in
+[#448](https://github.com/charlieanna/autocode/issues/448) (last section). Found
+in one live design-only trial on 2026-10-03.
 
 ## Clarification asked for mechanisms, not only outcomes
 
@@ -58,15 +60,19 @@ which is correct.
 - The CLI suggested `--grant-recovery` for a pause that rejects it. Since #301 the
   pause names one working command per pause class
   (`autocode_run_actions.next_command`).
+- On that timeout-recovery path, changing the bounded limits also invalidated
+  the published request, leaving `RESOLVER_PENDING`. Tracked in #448.
 - Raising `--no-progress-limit` did not retire the published no-progress request.
   Fixed: `autocode --resume-paused --no-progress-limit N` resumes in one command
   (#334), also after a `provide_information` answer (#378), and a limit raised in
   an earlier invocation is honored by a later `--resume-paused` while the request
   is still published.
-- Still open: after a `provide_information` answer, raising the limit in a
-  separate invocation and then running a bare `--resume-paused` republishes the
-  same no-progress request, and its advice (answer, then `--resume-paused`)
-  loops. Reproduced on master `095474cf` with
-  `test_cli_human_response_before_change_does_not_republish_corrected_cause`
-  from the unmerged commit `77933a8` (#412). Workaround: put the flag on the
-  resume command.
+- After a `provide_information` answer and a raise saved in a separate
+  invocation, a bare `--resume-paused` republishes the request. That is by
+  design (`17ea12b3`, `active-time-pause-acknowledgment.md`): a saved bound is
+  acknowledged by reasserting it on resume. Reasserting it then crashed with
+  "Role result belongs to another implementation task"; fixed on branch
+  `salvage/recovery-tests-412` (`75c866a3`, PR pending).
+- Still open (#448): the pause's advice (`recovery_limits.INFORM_ADVICE`) says
+  to answer and then `--resume-paused`, while `run_actions.next_command` names
+  `--no-progress-limit`. Following the advice leads into the sequence above.
