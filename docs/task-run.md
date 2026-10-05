@@ -74,7 +74,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Status | `autocode --status` | 0; prints JSON, the view is under `"view"` |
 | Display brief | `autocode --show-goal` | 0; prints the current brief for human review |
 | Continue | `autocode --no-chat [options]` | 0 complete, 2 stopped for input |
-| Resume a pause | `autocode --resume-paused --no-chat [options]` | 0 complete, 2 stopped for input |
+| Resume a pause | `autocode --resume-paused --no-chat [options]` (or `autocode resume --no-chat [options]`) | 0 complete, 2 stopped for input |
 | Grant N recoveries after resolving the cause | `autocode --resume-paused --grant-recovery N --no-chat [options]` | 0 complete, 2 stopped for input |
 | Accept a changed OpenCode transport | `autocode --resume-paused --accept-transport-change --no-chat [options]` | 0 complete, 2 stopped for input |
 | Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN` (`--answer` repeatable) | 0 saved, 2 rejected |

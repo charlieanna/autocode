@@ -7,7 +7,10 @@ returned parser for the later errors that depend on the saved run.
 An invocation that names no run and starts none (no task, no new-run input) acts on the saved run
 autocode_run_finder chooses from the --workspace directory: ``autocode --status``, ``autocode``,
 ``autocode resume`` and the user actions work from the project or a task worktree. ``autocode
-status`` is ``autocode --status``. --run-dir without --workspace selects the run's own checkout
+status`` is ``autocode --status``. ``autocode resume`` (unlike a bare ``autocode``) also acknowledges
+a saved pause: on a paused run (run_finder.awaits_resume), or with a companion such as
+--grant-recovery or --retry-failed-stage, it implies --resume-paused unless a user action or a
+resolver response is given. --run-dir without --workspace selects the run's own checkout
 (a user's run; a parallel Builder's run keeps the usual workspace errors).
 """
 from __future__ import annotations
@@ -34,6 +37,9 @@ READ_ACTIONS = ("--status", "--dry-run")
 # `autocode resume` and `autocode status`: commands, never a one-word task (`autocode -- status` is one).
 COMMAND_WORDS = ("resume", "status")
 COMMAND_MARK = "\0command-word"
+# Flags that only act on an acknowledged pause: `autocode resume` with one implies --resume-paused.
+RESUME_COMPANIONS = ("retry_builder", "accept_transport_change", "retry_report", "retry_failed_stage",
+                     "diagnose_failed_stage", "grant_recovery", "job_retry_token", "expected_recovery_token")
 
 
 def build_parser(unit, default_models) -> argparse.ArgumentParser:
@@ -164,7 +170,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--no-progress-limit", type=int, help="Pause after this many unchanged batches (new-run default: 3)")
     parser.add_argument("--max-findings-per-task", type=int,
                         help="Reject a REWORK task that bundles more than this many open findings (default: unlimited; 0 disables)")
-    parser.add_argument("--resume-paused", action="store_true", help="Acknowledge a saved pause; uncertain stages still require reconciliation")
+    parser.add_argument("--resume-paused", action="store_true", help="Acknowledge a saved pause; uncertain stages still require reconciliation. "
+                        "`autocode resume` implies it on a paused run or with a resume companion flag")
     parser.add_argument('--resolver-request', help='Exact AutoResolver request ID for an operational response')
     parser.add_argument('--resolver-token', help='Exact current AutoResolver token for a human response')
     parser.add_argument('--resolver-response', choices=('provide_information', 'leave_paused'),
@@ -246,12 +253,8 @@ def parse(unit, argv, default_models):
     args = parser.parse_args(argv)
     # The word may also follow options (`autocode --no-chat resume`); argparse then reads it as
     # the task. After `--` it stays task text.
-    words = argv[:argv.index("--")] if "--" in argv else argv
-    if args.task in COMMAND_WORDS and args.task in words:
-        # The same word may also be an option's value (--feedback resume): mark each occurrence in
-        # turn until argparse reads the mark as the task. A word in place of a word parses alike.
-        at = next(index for index, word in enumerate(words) if word == args.task
-                  and parser.parse_args([*argv[:index], COMMAND_MARK, *argv[index + 1:]]).task == COMMAND_MARK)
+    at = _command_word_at(parser, argv, args.task) if args.task in COMMAND_WORDS else None
+    if at is not None:
         resume_only = resume_only or args.task == "resume"
         argv = argv[:at] + (["--status"] if args.task == "status" else []) + argv[at + 1:]
         args = parser.parse_args(argv)
@@ -283,7 +286,18 @@ def parse(unit, argv, default_models):
     args._explicit_budget_flags = explicit & budget_flags
     if unit and args.unit != unit:
         parser.error(f"This entry point runs only {unit}")
-    notice = _find_run(parser, args, explicit, resume_only, shlex.join(rest))
+    notice = _find_run(parser, args, explicit, resume_only,
+                       shlex.join(["resume", *rest] if resume_only else rest))
+    if resume_only and _implies_resume_paused(args):
+        # `autocode resume` is the explicit word: it acknowledges a saved pause as --resume-paused does.
+        args.resume_paused = True
+        # Read before the run lock: autocode_run_setup.load_locked refuses when the locked status
+        # differs, so the word never acknowledges a pause the user did not see.
+        args._implied_resume_status = run_finder.saved_status(args.run_dir)
+        if notice:
+            notice += (" Acknowledging its pause (autocode resume implies --resume-paused)."
+                       if run_finder.awaits_resume(args.run_dir) else
+                       " Its resume flags imply --resume-paused after autocode resume.")
     if args.inspect_evidence and (not args.run_dir or not args.status):
         parser.error("--inspect-evidence requires --run-dir and --status")
     if args.expected_recovery_token is not None and (not args.run_dir or not (args.resume_paused or args.abandon_stage)):
@@ -354,6 +368,49 @@ def parse(unit, argv, default_models):
         # stderr: --status and --dry-run print exactly one JSON object on stdout.
         print(notice, file=sys.stderr, flush=True)
     return args, parser
+
+
+def _command_word_at(parser, argv, word):
+    """Where argparse reads ``word`` as the task among the options of argv, else None.
+
+    After `--` it stays task text. The same word may also be an option's value (--feedback resume):
+    mark each occurrence in turn until argparse reads the mark as the task. A word in place of a
+    word parses alike. An argv argparse refuses exits via parser.error.
+    """
+    words = argv[:argv.index("--")] if "--" in argv else argv
+    if word not in words or parser.parse_args(argv).task != word:
+        return None
+    return next(index for index, item in enumerate(words) if item == word
+                and parser.parse_args([*argv[:index], COMMAND_MARK, *argv[index + 1:]]).task == COMMAND_MARK)
+
+
+def is_resume_command(argv) -> bool:
+    """Whether autocode reads argv as `autocode resume` (the command word, not task text or an option's value).
+
+    For callers that must recognize the word without parsing the rest (autocode_unattended). An argv
+    argparse refuses exits via parser.error, as autocode itself would.
+    """
+    argv = list(argv)
+    if argv[:1] == ["resume"]:
+        return True
+    return _command_word_at(build_parser(None, DEFAULT_ROLE_MODELS), argv, "resume") is not None
+
+
+def _implies_resume_paused(args) -> bool:
+    """Whether `autocode resume` acknowledges the run's pause, as --resume-paused would.
+
+    Only with a saved run and no user action or resolver response (neither combines with
+    --resume-paused), and when the run waits at a pause (run_finder.awaits_resume) or a
+    resume companion such as --grant-recovery was typed: the runtime still checks that one
+    against the saved state, its tokens and its request, exactly as with --resume-paused.
+    """
+    if args.resume_paused or not args.run_dir or args.resolver_response:
+        return False
+    if any(user_actions(args).values()):
+        return False
+    # Unset: None, False, or --retry-builder's empty list; --grant-recovery 0 is set (and refused later).
+    return (any(getattr(args, name) not in (None, False, []) for name in RESUME_COMPANIONS)
+            or run_finder.awaits_resume(args.run_dir))
 
 
 def _requires_resume(parser, args, flag):

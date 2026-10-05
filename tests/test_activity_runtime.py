@@ -237,7 +237,7 @@ class ActivityRuntimeTests(unittest.TestCase):
                 state=self.state, schema=runner.SCHEMA_DIR / 'v2/terra-report.schema.json',
                 model=model, allow_write=True, dry_run=False)
         reason = (f'No new provider activity within the inactivity limit ({limit} seconds, {origin}; '
-                  'change it with --resume-paused --max-idle-seconds N)')
+                  'change it with autocode resume --max-idle-seconds N)')
         self.assertEqual('PAUSED_PROVIDER_TIMEOUT', caught.exception.status)
         self.assertIn(reason, str(caught.exception))
         stalled = [line for line in output.getvalue().splitlines() if line.startswith('Builder: stalled;')]

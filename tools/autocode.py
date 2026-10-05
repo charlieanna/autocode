@@ -293,7 +293,7 @@ def reject_completed_stage(state, run_dir, record, error):
     repeated = bool(failure and failures.stalled(failure))
     message = (f"Completed {record['stage']} output was rejected ({error}); attempt archived. "
                + ("Consecutive attempts at this source failed with the same error; inspect the saved output probe and fix the cause before retrying."
-                  if repeated else "Resume explicitly with --resume-paused to retry with a fresh request."))
+                  if repeated else "Resume explicitly with autocode resume to retry with a fresh request."))
     status = "PAUSED_REPEATED_FAILURE" if repeated else "PAUSED_INVALID_OUTPUT"
     state.update(status=status, phase="PAUSED_OR_BLOCKED", stop_reason=message, paused_at=now())
     write_json(run_dir / "state.json", state)
@@ -855,7 +855,7 @@ def reconcile_active(state, run_dir, workspace):
         raise support.Paused('PAUSED_RATE_LIMIT', state['stop_reason'])
     if record.get('rejected'):
         raise support.Paused('PAUSED_INVALID_OUTPUT',
-            'This completed attempt was already rejected. Explicitly retry planning with --resume-paused; do not recover the rejected output.')
+            'This completed attempt was already rejected. Explicitly retry planning with autocode resume; do not recover the rejected output.')
     assert_stage_stopped(record)
     supports_sessions = stage_supports_sessions(state, record)
     if not stage_completed(state, record) or (supports_sessions and record.get("exit_code") not in (None, 0)):
@@ -888,7 +888,7 @@ def reconcile_active(state, run_dir, workspace):
             f"Read-only stage revision changed across interruption: {record['stage']} ran on source "
             f"{before['revision'][:12]}, the workspace is now at {after['revision'][:12]}; its result is not applied. "
             f"After inspecting the change, use --abandon-stage {attempt_id(record)} to set the result aside "
-            "(evidence and edits retained), then --resume-paused for a fresh attempt on the current source.")
+            "(evidence and edits retained), then autocode resume for a fresh attempt on the current source.")
     base = Path(record["output"]).with_suffix("")
     write_json(base.with_suffix(".after.json"), after)
     record.update(after_ref=str(base.with_suffix(".after.json")), source_revision=after["revision"],
@@ -1019,7 +1019,7 @@ def recheck_completion(state, workspace):
     state["human_reviews"] = {}
     state.pop("displayed_review", None)
     state.update(status="PAUSED_STALE_VALIDATION", phase="PAUSED_OR_BLOCKED", next_stage=workflow.review_stage(state),
-        stop_reason="Completion is no longer current. Use --resume-paused for fresh independent validation.")
+        stop_reason="Completion is no longer current. Use autocode resume for fresh independent validation.")
 
 
 def intervention_metadata(workspace, run_dir, state):

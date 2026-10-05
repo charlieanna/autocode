@@ -26,8 +26,9 @@ elsewhere and are never candidates.
 choose() says which run each kind of invocation takes. A bare ``autocode`` never takes a
 finished run (relaunching one rechecks and redelivers it) or a run that ``autocode
 program`` or ``autocode tasks`` drives; those are listed with the command that names them.
-checkout_of() gives an explicit --run-dir its own checkout, and continue_hint() the line
-printed after a user action saved on a run.
+checkout_of() gives an explicit --run-dir its own checkout, awaits_resume() says whether
+``autocode resume`` acknowledges the run's pause, and continue_hint() the line printed after
+a user action saved on a run.
 
 A lower-layer module beside autocode_util: it imports nothing from AutoCode, so it can
 never join an import cycle. It is read-only: it creates no directory, takes no lock,
@@ -121,6 +122,44 @@ def checkout_of(run_dir) -> Path | None:
     return workspace if state.get("workspace") == str(workspace) else None
 
 
+# Statuses that `autocode resume` continues without acknowledging anything: running, finished,
+# waiting on another task, or asking a person (unless AutoResolver published that request).
+_NO_PAUSE = ("RUNNING", COMPLETE, "WAITING_FOR_DEPENDENCY")
+_QUESTIONS = ("WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL")
+
+
+def awaits_resume(run_dir) -> bool:
+    """Whether the saved run ``run_dir`` stops at a pause that --resume-paused acknowledges.
+
+    True for PAUSED_*, BLOCKED_* and the other statuses the status view answers with a resume,
+    and for a person request AutoResolver published (its recovery advice says --resume-paused).
+    False for a running, finished, stopped or dependency-waiting run, for ordinary questions,
+    and when state.json is missing, a symlink or unreadable. Read-only.
+    """
+    path = Path(run_dir).resolve() / "state.json"
+    state = None if path.is_symlink() else _read_json(path)
+    return isinstance(state, dict) and _awaits_resume(state)
+
+
+def saved_status(run_dir) -> str | None:
+    """The saved run's status, or None when state.json is missing, a symlink or unreadable. Read-only."""
+    path = Path(run_dir).resolve() / "state.json"
+    state = None if path.is_symlink() else _read_json(path)
+    return str(state.get("status") or "") if isinstance(state, dict) else None
+
+
+def _awaits_resume(state: dict) -> bool:
+    receipts = state.get("applied_interventions")
+    if isinstance(receipts, list) and any(isinstance(r, dict) and r.get("kind") == "stop" for r in receipts):
+        return False
+    status = str(state.get("status") or "")
+    if not status or status in _NO_PAUSE:
+        return False
+    if status in _QUESTIONS:
+        return isinstance(state.get("resolver_human_request"), dict)
+    return True
+
+
 def choose(start, action: str, flags: str = "", unit: str | None = None) -> Candidate:
     """The run an invocation of kind ``action`` (see ACTIONS) started in ``start`` means.
 
@@ -194,6 +233,11 @@ def continue_hint(run_dir, state: dict, unit: str | None = None) -> str:
     if run.owner:
         return (f"`{OWNER_COMMAND[run.owner]}` drives it: rerun that command to advance it, or relaunch "
                 f"it yourself with: {_command(run, flags)}")
+    if _awaits_resume(state):
+        # Plain autocode refuses a pause; the word resume acknowledges it (autocode_args).
+        flags = " ".join(part for part in (flags, "resume") if part)
+        return (f"Continue with: {_command(run, flags)} (or autocode {flags} from its project while it "
+                "is the only unfinished run there)")
     plain = f"autocode {flags}" if flags else "plain autocode"
     return (f"Continue with: {_command(run, flags)} (or {plain} from its project while it is the only "
             "unfinished run there)")

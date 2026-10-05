@@ -27,7 +27,7 @@ When a run stops for input, continue it from the project or its task worktree:
 
 ```sh
 autocode --status    # what the run needs
-autocode resume      # continue it; plain `autocode` does the same
+autocode resume      # continue it, acknowledging a pause; plain `autocode` continues only an unpaused run
 ```
 
 AutoCode acts on the only unfinished run there. With several, it lists them and

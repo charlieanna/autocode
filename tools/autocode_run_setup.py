@@ -165,6 +165,11 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         state = runner.read_json(state_path)
         if state["workspace"] != str(workspace):
             parser.error("workspace differs from the locked checkpoint")
+        seen = getattr(args, "_implied_resume_status", None)
+        if seen is not None and str(state.get("status") or "") != seen:
+            # `autocode resume` implied --resume-paused for the status it read (autocode_args).
+            parser.error(f"the run changed from {seen} to {state.get('status')} after autocode resume read it; "
+                         "check autocode status, then run autocode resume again")
         try:
             recovery_view.require_token(state, getattr(args, 'expected_recovery_token', None))
         except ValueError as error:

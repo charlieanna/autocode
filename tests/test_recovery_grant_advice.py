@@ -177,7 +177,7 @@ class QuotaStopAdviceNamesAbandon(unittest.TestCase):
         text = limits.advice(allow_grant=False, pause_status='PAUSED_BUDGET', attempt='001/terra-01')
         self.assertIn('--resolver-response', text)
         self.assertIn('--abandon-stage 001/terra-01', text)
-        self.assertIn('--resume-paused', text)
+        self.assertIn('autocode resume', text)
         self.assertNotIn('--grant-recovery', text)
         text = limits.advice(allow_grant=False, pause_status='PAUSED_BUDGET')
         self.assertNotIn('--abandon-stage', text)

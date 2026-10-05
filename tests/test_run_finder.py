@@ -436,6 +436,9 @@ class WhichRunIsChosen(Fixture):
         self.assertEqual(f"Continue with: autocode --run-dir {mine} --unit autoplanner (or autocode --unit "
                          "autoplanner from its project while it is the only unfinished run there)", hint,
                          "an action under a unit continues that unit, not every unit")
+        hint = finder.continue_hint(mine, {**state, "status": "PAUSED_INVALID_OUTPUT"})
+        self.assertEqual(f"Continue with: autocode --run-dir {mine} resume (or autocode resume from its project "
+                         "while it is the only unfinished run there)", hint, "plain autocode refuses a pause")
         hint = finder.continue_hint(mine, {**state, "status": "TASK_COMPLETE"})
         self.assertIn(f"It has finished (TASK_COMPLETE); show it with: autocode --run-dir {mine} --status", hint)
         self.assertIn(f'autocode --run-dir {mine} --follow-up "TEXT"', hint)
@@ -623,6 +626,48 @@ class CommandLine(Fixture):
         message = self.parse_error("--resolver-response", "leave_paused").split("error: ", 1)[1]
         self.assertIn("--resolver-response requires --resolver-request and --resolver-token", message)
         self.assertNotIn("--run-dir", message)
+
+    def test_resume_acknowledges_a_pause_that_a_bare_command_leaves_alone(self):
+        tree, run = self.worktree_run(status="PAUSED_INVALID_OUTPUT")
+        args, notice = self.parse("resume", "--no-chat")
+        self.assertEqual((run, True), (args.run_dir, args.resume_paused))
+        self.assertIn("Acknowledging its pause", notice)
+        for argv, cwd in ((["--no-chat", "resume"], self.project), (["resume", "--run-dir", str(run)], self.root),
+                          (["--run-dir", str(run), "--unit", "autoplanner", "resume"], self.root)):
+            with self.subTest(argv=argv):
+                self.assertTrue(self.parse(*argv, cwd=cwd)[0].resume_paused)
+        for argv in ([], ["--no-chat"], ["resume", "--status"], ["resume", "--dry-run"],
+                     ["resume", "--feedback", "Narrow it"], ["resume", "--abandon-stage", "001/builder-01"]):
+            with self.subTest(argv=argv):
+                self.assertFalse(self.parse(*argv)[0].resume_paused, "only the word resume, and no user action")
+        args, _ = self.parse("resume", "--resolver-request", "R", "--resolver-token", "T",
+                             "--resolver-response", "leave_paused")
+        self.assertFalse(args.resume_paused, "a resolver response never combines with --resume-paused")
+
+    def test_resume_on_a_run_that_is_not_paused_acknowledges_nothing(self):
+        published = {"resolver_human_request": {"request_id": "r1"}}
+        for status, extra, expected in (("RUNNING", {}, False), ("WAITING_FOR_USER", {}, False),
+                                        ("AWAITING_GOAL_APPROVAL", {}, False), ("WAITING_FOR_DEPENDENCY", {}, False),
+                                        ("WAITING_FOR_USER", published, True), ("BLOCKED_SETUP", {}, True),
+                                        ("RESOLVER_PENDING", {}, True), ("PAUSED_TIMEOUT_RECOVERY", {}, True)):
+            with self.subTest(status=status, extra=extra):
+                run = self.run_in(self.root, status=status, **extra)
+                self.assertEqual(expected, finder.awaits_resume(run))
+                self.assertEqual(expected, self.parse("resume", "--run-dir", str(run), cwd=self.root)[0].resume_paused)
+        stopped = self.run_in(self.root, status="PAUSED_INTERVENTION", applied_interventions=[{"kind": "stop"}])
+        self.assertFalse(finder.awaits_resume(stopped), "a stop is terminal, never a pause to acknowledge")
+        self.assertFalse(finder.awaits_resume(self.root / "missing"))
+
+    def test_resume_companions_need_no_resume_paused_after_the_word(self):
+        self.worktree_run(status="RUNNING")
+        for argv in (["--retry-builder", "M2"], ["--accept-transport-change"], ["--retry-report", "X"],
+                     ["--retry-failed-stage"], ["--diagnose-failed-stage"], ["--grant-recovery", "2"],
+                     ["--retry-failed-stage", "--job-retry-token", "T"], ["--expected-recovery-token", "T"]):
+            with self.subTest(argv=argv):
+                args, notice = self.parse("resume", *argv)
+                self.assertTrue(args.resume_paused, "the runtime checks it against the run")
+                self.assertNotIn("Acknowledging its pause", notice, "a running run has no pause to acknowledge")
+                self.assertIn("imply --resume-paused", notice)
 
     def test_inside_a_run_whose_state_cannot_be_used_nothing_else_is_chosen(self):
         self.run_in(self.project)

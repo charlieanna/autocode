@@ -248,7 +248,7 @@ def next_steps(record: dict, view: dict) -> list[str]:
     if kind == "resume":
         return [f"The run paused: {need.get('reason')}",
                 f"  Inspect:  autocode --status {where}",
-                f"  Once the cause is resolved: autocode --resume-paused {where}"]
+                f"  Once the cause is resolved: autocode resume {where}"]
     return [f"The run can proceed: autocode-issue continue {ref}"]
 
 

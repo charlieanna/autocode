@@ -19,9 +19,21 @@ class RefusalTests(unittest.TestCase):
     def test_operator_flags_and_abbreviations_are_refused(self):
         for argv in (["--approve-goal", "r1:abc"], ["--approve-g=r1:abc"], ["--resume-paused"],
                      ["--answer", "Q1=yes"], ["--delegate-all"], ["--accept-completion"],
-                     ["--retry-failed-stage"], ["--feedback", "x"], ["--chat"]):
+                     ["--retry-failed-stage"], ["--feedback", "x"], ["--chat"], ["resume"]):
             with self.subTest(argv=argv):
                 self.assertIsNotNone(unattended.refused(["--run-dir", "r", *argv]))
+
+    def test_resume_word_is_refused_but_not_as_task_text(self):
+        self.assertIn("autocode resume", unattended.refused(["resume"]))
+        self.assertIn("autocode resume", unattended.refused(["--no-chat", "resume", "--grant-recovery", "2"]))
+        self.assertIsNone(unattended.refused(["--", "resume"]))
+        self.assertIsNone(unattended.refused(["resume the parser work"]))
+        self.assertIn("autocode resume", unattended.refused(["--no-chat", "resume"]))
+
+    def test_resume_as_an_option_value_is_not_the_command_word(self):
+        self.assertIsNone(unattended.refused(["--workspace", "resume"]))
+        self.assertIsNone(unattended.refused(["--run-dir", "resume", "--no-chat"]))
+        self.assertIsNotNone(unattended.refused(["--workspace", "resume", "resume"]))
 
     def test_operator_subcommands_are_refused(self):
         self.assertIn("intervention", unattended.refused(["intervention", "submit"]))
