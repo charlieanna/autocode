@@ -545,6 +545,22 @@ class CommandLine(Fixture):
         self.assertIn("--in-place only applies to a new one", self.parse_error("resume", "--in-place"))
         self.assertEqual(run, self.parse("resume", "--run-dir", str(run))[0].run_dir)
 
+    def test_resume_acknowledges_a_pause_by_itself(self):
+        tree, run = self.worktree_run(status="PAUSED_RATE_LIMIT")
+        for argv in (["resume"], ["--no-chat", "resume"], ["resume", "--run-dir", str(run)],
+                     ["resume", "--retry-failed-stage"], ["resume", "--grant-recovery", "2"]):
+            with self.subTest(argv=argv):
+                args, _ = self.parse(*argv)
+                self.assertEqual((run, True), (args.run_dir, args.resume_paused))
+        for argv in ([], ["--no-chat"], ["--status"], ["resume", "--status"], ["resume", "--feedback", "smaller"],
+                     ["resume", "--abandon-stage", "001/terra-01"]):
+            with self.subTest(argv=argv):
+                self.assertFalse(self.parse(*argv)[0].resume_paused, "only the resume command acknowledges")
+        for status in ("WAITING_FOR_USER", "RUNNING", "PAUSED_DESIGN_CONFLICT"):
+            with self.subTest(status=status):
+                other = self.run_in(tree, status=status)
+                self.assertFalse(self.parse("resume", "--run-dir", str(other))[0].resume_paused, "nothing to acknowledge")
+
     def test_resume_refuses_when_every_run_has_finished(self):
         self.run_in(self.project, status="TASK_COMPLETE")
         for argv in (["resume"], ["resume", "--no-chat"], []):

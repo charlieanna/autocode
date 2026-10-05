@@ -6,13 +6,15 @@ returned parser for the later errors that depend on the saved run.
 
 An invocation that names no run and starts none (no task, no new-run input) acts on the saved run
 autocode_run_finder chooses from the --workspace directory: ``autocode --status``, ``autocode``,
-``autocode resume`` and the user actions work from the project or a task worktree. ``autocode
+``autocode resume`` and the user actions work from the project or a task worktree. On a paused
+run ``autocode resume`` also stands for --resume-paused (_acknowledges_pause). ``autocode
 status`` is ``autocode --status``. --run-dir without --workspace selects the run's own checkout
 (a user's run; a parallel Builder's run keeps the usual workspace errors).
 """
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import shlex
 import sys
@@ -34,6 +36,9 @@ READ_ACTIONS = ("--status", "--dry-run")
 # `autocode resume` and `autocode status`: commands, never a one-word task (`autocode -- status` is one).
 COMMAND_WORDS = ("resume", "status")
 COMMAND_MARK = "\0command-word"
+# Pauses `autocode resume` only shows: nothing guards them on relaunch, so acknowledging one would
+# rerun its stage before the user acted (the Design Reviewer would rewrite <design>.blockers.json).
+WAITS_FOR_AN_EDIT = ("PAUSED_DESIGN_CONFLICT",)
 
 
 def build_parser(unit, default_models) -> argparse.ArgumentParser:
@@ -284,6 +289,8 @@ def parse(unit, argv, default_models):
     if unit and args.unit != unit:
         parser.error(f"This entry point runs only {unit}")
     notice = _find_run(parser, args, explicit, resume_only, shlex.join(rest))
+    if resume_only and _acknowledges_pause(args):
+        args.resume_paused = True
     if args.inspect_evidence and (not args.run_dir or not args.status):
         parser.error("--inspect-evidence requires --run-dir and --status")
     if args.expected_recovery_token is not None and (not args.run_dir or not (args.resume_paused or args.abandon_stage)):
@@ -354,6 +361,25 @@ def parse(unit, argv, default_models):
         # stderr: --status and --dry-run print exactly one JSON object on stdout.
         print(notice, file=sys.stderr, flush=True)
     return args, parser
+
+
+def _acknowledges_pause(args):
+    """Whether `autocode resume` stands for --resume-paused: the run is paused and nothing else is asked.
+
+    Typing the command is the explicit acknowledgement --resume-paused records, with the same
+    effects: no new budget or --grant-recovery allowance, but the per-cycle report-repair and
+    resolver attempt counts restart and an invalid-output pause gets its one fresh attempt. A plain
+    `autocode` still only shows the pause, and a finished or running run is left to the usual
+    relaunch. A design conflict waits for the user to edit the design: resume shows it.
+    """
+    if args.resume_paused or not args.run_dir or args.resolver_response or any(user_actions(args).values()):
+        return False
+    try:
+        state = json.loads((Path(args.run_dir) / "state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    status = str(state.get("status", "")) if isinstance(state, dict) else ""
+    return status.startswith("PAUSED_") and status not in WAITS_FOR_AN_EDIT
 
 
 def _requires_resume(parser, args, flag):
