@@ -16,8 +16,9 @@ category = "feature"
 # greenfield-todo-cli reached astra_resolve the same way, on usage-error tests that passed without
 # todo.py.
 #
-# oracle.py's check() judges the product only. Its diagnosis() scores the first Resolver call on the
-# failed proof against the proof's own record, apart from the run verdict (scenarios/README.md).
+# oracle.py's check() judges the product only. Its diagnosis() scores the first accepted Resolver call
+# at the failed proof's revision against the proof's own record, apart from the run verdict
+# (scenarios/README.md, "Diagnosis").
 
 [fake]
 check = "python3 -m unittest discover -s tests -t ."

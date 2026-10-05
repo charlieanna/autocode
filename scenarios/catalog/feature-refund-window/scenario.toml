@@ -11,8 +11,9 @@ category = "feature"
 # and skip AutoResolver; otherwise, as with the claude provider's
 # workspace-shared capture receipts, the correction goes through AutoResolver.
 # Runs that complete without reaching astra_resolve are NOT_EXERCISED: they say
-# nothing about AutoResolver's judgment. oracle.py's diagnosis() scores its
-# accepted diagnoses apart from the run verdict.
+# nothing about AutoResolver's judgment. oracle.py's diagnosis() scores, apart
+# from the run verdict, a Resolver call on source that still fails the hidden
+# tests.
 
 [fake]
 check = "python3 -m unittest discover -s tests -t ."

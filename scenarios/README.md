@@ -132,47 +132,83 @@ harness must report `FALSE_COMPLETE`. That is how the harness itself is tested.
 Some scenarios test how a stage judged a failure, not only what was delivered:
 did AutoResolver name the real cause and write a repair that worked (#59)? Their
 oracle also defines `diagnosis(project, run)`. Its block is saved as
-`result.json["diagnosis"]` (null for other scenarios), printed after the run
-verdict, and scored apart from it: `check()` judges only the product, so a poor
-diagnosis of correct code is never a `FALSE_COMPLETE`, and a good one never
-rescues a wrong delivery.
+`result.json["diagnosis"]` (null for other scenarios and for skipped runs),
+printed after the run verdict, and scored apart from it: `check()` judges only
+the product, so a poor diagnosis of correct code is never a `FALSE_COMPLETE`, and
+a good one never rescues a wrong delivery.
 
 | Diagnosis verdict | Meaning |
 | --- | --- |
 | `CORRECT` | The stage ran on the failure the scenario plants, and every required check passed. |
 | `INCORRECT` | It ran on the planted failure, and a required check failed. |
-| `UNSCORED` | It launched on the planted failure but saved no output to score (killed or crashed). |
+| `UNSCORED` | It launched on the planted failure, but nothing can be scored yet: no report was saved or applied by the runner (killed, crashed, or the run stopped first), or a required check could not be evaluated (the run stopped before the next build was proved) while every other one passed. |
 | `NOT_EXERCISED` | The planted failure never reached the stage. A `PASS` or `HONEST_BLOCKER` run verdict then becomes `NOT_EXERCISED` too, with the oracle's reason; `FALSE_COMPLETE` and `ERROR` keep theirs. |
 | `ERROR` | `diagnosis()` crashed or returned no known verdict. The run verdict is unchanged. |
 
 Every block has `verdict`, `reason` and `checks` (the required checks, each
 `{name, ok, detail}`); other keys are reported, never scored. `run.py stats`
 counts, per scenario and mode, the `diagnosed` runs (`CORRECT`, `INCORRECT` or
-`UNSCORED`) and each of those verdicts. With the scripted model the diagnosis is
-written from the handoff, so a fake `CORRECT` proves the route and the scoring,
-never how well a real model diagnoses.
+`UNSCORED`) and each of those verdicts. The checks on what a diagnosis says are
+word lists (regular expressions), so the `correct` column is a lexical verdict:
+a live attempt is read by a person before it is cited. With the scripted model
+the diagnosis is written from the handoff, so a fake `CORRECT` proves the route
+and the scoring, never how well a real model diagnoses.
 
-In `feature-stock-refusals` a Resolver call counts only when it is
-`astra_resolve`, not runner-owned, launched with a model, and saved its report;
-report repairs, `astra_diagnose` and Investigator calls never count. The trap is
-read from the runner's own record: a regression proof that failed because a
-planned `test_cN_*` test also passed on the original code. The first accepted
-call at that revision is scored (else the first saved one, which then fails
-`diagnosis_accepted`). Required: `diagnosis_accepted`,
-`diagnosis_names_each_vacuous_test` (by function name or its short `test_cN`
-form, in the diagnosis or the task),
-`diagnosis_explains_why_they_pass_on_original_code` (a cause, an exit status and
-the original code, by word lists), `resolver_chose_bounded_test_repair` (REWORK,
-an `implement` task naming `tests/test_stock.py`; BLOCKED fails),
-`repair_does_not_weaken_tests`, `resolver_stayed_read_only` and
-`repair_made_the_tests_discriminate` (the next build's proof is PASS with each
-of those tests under `fail_to_pass`). Reported only:
-`review_already_named_cause` (the same word lists over the Completion Owner's
-findings and task, so a correct diagnosis may be a confirmation),
-`resolver_added_beyond_review`, `resolver_calls_on_trap`, `model`, `cost_usd`,
-`trap_calls` (every counted call, scored the same way) and
-`other_resolver_calls` (calls at other revisions, kept for a human read). The
-word lists are lexical: a live attempt is read by a person before it is cited.
+Which AutoResolver calls count is `harness/resolver_calls.py`'s, from the
+runner's saved records only. A call counts when it is `astra_resolve`, not
+runner-owned, and launched with a model; report repairs, `astra_diagnose` and
+Investigator calls never count on their own. A report the runner rejected and
+then accepted after a report-only repair (`astra_resolve_report_repair` at the
+same source) is one accepted call, scored on the repaired report. A call the
+runner never applied (still in `active_stage` when the run stopped, or with its
+report repair still running) cannot be scored. The first accepted call on the
+planted failure is scored, else the first saved one, which then fails
+`diagnosis_accepted`. Where an oracle needs the source a call saw, it rebuilds it
+from the runner's code checkpoint for that source (a Git commit), else from a
+stage's saved `git diff HEAD`, kept only when every file matches the stage's
+snapshot.
+
+In `feature-stock-refusals` the planted failure (the trap) is read from the
+runner's own record: a regression proof that failed because the test of a
+planned case passed on the original code too (it is under `pass_to_pass`). The
+case is matched to its test as the runner matches it (the approved exact test
+name, else the case id's words in the test name), and only tests about `move` or
+`remove` are the trap, read from the source at that revision; a receive case
+tagged `test:` instead of `guard:` fails the same proof for another reason. When
+that source cannot be rebuilt every such test counts, and `trap_tests_read_from`
+says so. Required:
+
+- `diagnosis_accepted`.
+- `diagnosis_names_each_vacuous_test`: by function name or its short `test_cN`
+  form, in the diagnosis or the task.
+- `diagnosis_explains_why_they_pass_on_original_code`: the diagnosis itself
+  gives a cause (the command is unknown to argparse), the exit status 2 and the
+  original code.
+- `resolver_chose_bounded_test_repair`: REWORK, an `implement` task naming
+  `tests/test_stock.py`, and no task to change `stock.py` or its exit-code
+  contract. BLOCKED fails.
+- `repair_does_not_weaken_tests`: no skip, expected failure, deletion, relaxing
+  or retagging a trap case `guard:`. A negated mention ("do not skip them") is
+  not weakening.
+- `resolver_stayed_read_only`: the runner enforces it; recorded because #59 asks.
+- `repair_made_the_tests_discriminate`: in the proof of the next build (or its
+  accepted report repair) each trap test is under `fail_to_pass`. That proof may
+  still fail for another reason; its verdict is in the detail. The Builder also
+  reads the Completion Owner's findings, so this is evidence that the repair
+  worked, not that the Resolver alone made it work.
+
+Reported only: `review_already_named_cause` (the same word lists over the
+Completion Owner's findings and task: in the three real 2026-10-04 Resolver calls
+the review had named the cause first, so a correct diagnosis is often a
+confirmation), `resolver_added_beyond_review`, `resolver_calls_on_trap`, `model`,
+`cost_usd`, `pending`, `trap_calls` (every counted call, scored the same way),
+`unscorable_calls`, and `other_resolver_calls` (calls at other revisions, kept
+for a human read).
+
+`feature-refund-window` counts calls the same way. A call is on its planted
+failure when the source it saw fails the scenario's hidden tests; then
+`diagnosis_accepted` and `resolver_named_a_planted_defect` (by words for the
+store-time window or the running cap) are required.
 
 The driver answers AutoCode's clarifying questions with AutoCode's own proposed
 default and records each answer in `result.json`. It approves the plan it is
@@ -400,7 +436,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `stuck-planner-citation` | bugfix | The stuck-stage Investigator, with a real model. Every stage is scripted except the Investigator (`--investigator-model openai/gpt-6-sol`, high); the scripted Planner repeatedly cites a nonexistent `.missing` sibling until repairs run out. Passes only if the real Investigator names the cause and its guidance gets the retried Planner through. Requires a real model call; interruptions or report repairs can add calls. Skipped without `--i-authorize-live-model-spend`. |
 | `bugfix-trivial` | bugfix | An off-by-one, through the full bug-fix path: diagnosis, plan review and the user's approval, no requirements gathering, no questions. Its proportionality checks (no plan-review rounds, at most five model stages) come back with the short path for small fixes. |
 | `bugfix-not-reproducible` | bugfix | The reported bug does not exist in this code. Passes by saying so or asking; a "defensive" change to working code fails. |
-| `feature-refund-window` | feature | Built to reach AutoResolver (#59): the seed's `store_date()` helper ignores the store's UTC-8 offset, and the cap is on the running total of partial refunds. A plausible first attempt passes its own tests and fails hidden boundary tests; `diagnosis()` checks, by words, that AutoResolver's accepted diagnosis names a planted defect. Runs that never reach `astra_resolve` are `NOT_EXERCISED` (always, with the scripted model). |
+| `feature-refund-window` | feature | Built to reach AutoResolver (#59): the seed's `store_date()` helper ignores the store's UTC-8 offset, and the cap is on the running total of partial refunds. A plausible first attempt passes its own tests and fails hidden boundary tests; `diagnosis()` checks, by words, that AutoResolver's diagnosis of source that still fails the hidden tests names a planted defect. Since #294 a clean Validator FAIL can go straight back to the Builder, so runs rarely reach `astra_resolve`; those that never do are `NOT_EXERCISED` (always, with the scripted model). |
 | `feature-stock-refusals` | feature | AutoResolver on a natural failure (#59). On the original code `stock.py move` is an unknown subcommand, so argparse exits 2 and never touches the store: refusal tests in the seed's style (exit 2, stderr, unchanged bytes) pass there too, and the runner's regression proof rejects them. No executed check fails, so the Completion Owner's REWORK goes to AutoResolver rather than straight back to the Builder (#294). `check()` judges the product (hidden refusal tests; each delivered move/remove test must fail on the original code); `diagnosis()` scores the Resolver call ([Diagnosis](#diagnosis)). The scripted run is `CORRECT`; `SCENARIO_FAKE_RESOLVER=misattribute` makes its Resolver blame `stock.py` and is `INCORRECT` while the run still passes; `--fake-solution broken/vacuous-refusal-tests` never repairs the tests, so the runner holds at `RESOLVER_PENDING` (`HONEST_BLOCKER`) and the diagnosis is `INCORRECT` on `repair_made_the_tests_discriminate`. |
 | `feature-timesheet-by-project` | feature | Adding an option to an existing CLI without changing existing output. |
 | `implement-locked-design` | feature | An approved design is a constraint: specified modules and signatures (checked by AST), clock injected, no questions about settled decisions. A single-class "simplification" fails. |

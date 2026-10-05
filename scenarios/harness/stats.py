@@ -8,7 +8,8 @@ are always kept apart: fake passes prove the rules work, not that real models do
 
 For scenarios whose oracle scores a diagnosis (issue #59) it also counts, apart from
 the run verdicts, the runs whose diagnosis was exercised (``diagnosed``: the stage ran
-on the planted failure) and how many of those were CORRECT, INCORRECT and UNSCORED.
+on the planted failure) and how many of those were CORRECT, INCORRECT and UNSCORED. Those
+verdicts come from word lists, so a live CORRECT is read by a person before it is cited.
 """
 from __future__ import annotations
 

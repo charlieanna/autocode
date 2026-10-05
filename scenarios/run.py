@@ -147,6 +147,7 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     if args.fake and not solution.is_dir():
         skip.append(f"no {args.fake_solution}/ solution for the fake to apply")
     if skip:
+        result["diagnosis"] = None  # nothing ran, so nothing was diagnosed (scenarios/README.md, "Diagnosis")
         return finish(out, result, verdict.SKIPPED, "; ".join(skip))
 
     project = materialize(scenario.seed, out / "project")
