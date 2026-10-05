@@ -51,3 +51,5 @@ are unchanged, and a bound that does not admit the count never launches the Buil
   resolver per-incident attempts to survive an explicit resume, and
   `--no-progress-limit 0` not to admit. Master chose otherwise (reassert on resume,
   the audited `reset_for_resume` epoch, 0 removes a bound); the tests follow master.
+  On 2026-10-05 the user confirmed that `0` means no cap and admits a
+  `PAUSED_NO_PROGRESS` request, live or reasserted (#448's criterion follows).
