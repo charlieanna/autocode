@@ -8,27 +8,57 @@ import { fileURLToPath } from 'node:url';
 const hash = (data) => createHash('sha256').update(data).digest('hex');
 const header = 'x-autocode-image-request';
 
+function toolCall(call, responses = false) {
+  const id = responses ? call?.call_id : call?.id;
+  const name = responses ? call?.name : call?.function?.name;
+  const args = responses ? call?.arguments : call?.function?.arguments;
+  if (typeof id !== 'string' || !id || typeof name !== 'string' || !name || typeof args !== 'string') throw new Error('invalid_tool_call');
+  const parsed = JSON.parse(args);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid_tool_arguments');
+  return id;
+}
+
 function completedResponse(row) {
   if (!row || typeof row.id !== 'string' || !row.id || row.error != null || row.incomplete_details != null
-      || (row.status !== undefined && row.status !== 'completed')) return null;
-  if (row.object === 'response' && row.status === 'completed' && Array.isArray(row.output)) return row.id;
-  if (row.object === 'chat.completion' && Array.isArray(row.choices) && row.choices.length === 1
-      && row.choices[0].index === 0 && row.choices[0].finish_reason === 'stop'
-      && row.choices[0].message?.role === 'assistant' && typeof row.choices[0].message.content === 'string') return row.id;
-  return null;
+      || (row.status !== undefined && row.status !== 'completed')) throw new Error('invalid_completion');
+  let calls = [], text = '';
+  if (row.object === 'response' && row.status === 'completed' && Array.isArray(row.output)) {
+    for (const output of row.output) {
+      if (output.type === 'function_call') {
+        if (output.status !== undefined && output.status !== 'completed') throw new Error('incomplete_tool_call');
+        calls.push(toolCall(output, true));
+      } else if (output.type === 'message') {
+        if (output.role !== 'assistant' || (output.status !== undefined && output.status !== 'completed') || !Array.isArray(output.content)) throw new Error('invalid_output_message');
+        for (const content of output.content) {
+          if (content.type !== 'output_text' || typeof content.text !== 'string') throw new Error('unsupported_output');
+          text += content.text;
+        }
+      } else if (output.type !== 'reasoning') throw new Error('unsupported_output');
+    }
+  } else if (row.object === 'chat.completion' && Array.isArray(row.choices) && row.choices.length === 1
+      && row.choices[0].index === 0 && row.choices[0].message?.role === 'assistant') {
+    const choice = row.choices[0];
+    text = choice.message.content ?? '';
+    if (typeof text !== 'string') throw new Error('invalid_output_text');
+    if (choice.finish_reason === 'tool_calls' && Array.isArray(choice.message.tool_calls) && choice.message.tool_calls.length) {
+      calls = choice.message.tool_calls.map(call => {
+        if (call.type !== 'function') throw new Error('unsupported_tool_call');
+        return toolCall(call);
+      });
+    } else if (choice.finish_reason !== 'stop' || choice.message.tool_calls?.length) throw new Error('invalid_finish');
+  } else throw new Error('invalid_completion');
+  if (new Set(calls).size !== calls.length || (!calls.length && !text)) throw new Error('missing_terminal_output');
+  return { response_id: row.id, finish_reason: calls.length ? 'tool_calls' : 'stop',
+           tool_call_ids: calls, output_text_sha256: hash(text) };
 }
 
 function completion(text) {
   const trimmed = text.trim();
-  if (trimmed.startsWith('{')) {
-    const row = JSON.parse(trimmed);
-    const id = completedResponse(row);
-    if (!id) throw new Error('invalid_completion');
-    return { response_id: id, wire_format: 'json', finish_reason: 'stop' };
-  }
+  if (trimmed.startsWith('{')) return { ...completedResponse(JSON.parse(trimmed)), wire_format: 'json' };
   const normalized = text.replace(/\r\n/g, '\n');
   if (!normalized.endsWith('\n\n')) throw new Error('truncated_sse');
-  let id = null, kind = null, finished = false, done = false;
+  let id = null, kind = null, finished = false, done = false, terminal = null, outputText = '';
+  const tools = new Map();
   for (const frame of normalized.split('\n\n')) {
     if (!frame.trim()) continue;
     const data = [];
@@ -60,21 +90,51 @@ function completion(text) {
       if (!Array.isArray(row.choices) || row.choices.length > 1) throw new Error('invalid_choices');
       for (const choice of row.choices) {
         if (finished || choice.index !== 0) throw new Error('invalid_finish');
+        const delta = choice.delta;
+        if (!delta || typeof delta !== 'object' || (delta.role !== undefined && delta.role !== 'assistant')) throw new Error('invalid_delta');
+        if (delta.content != null) {
+          if (typeof delta.content !== 'string') throw new Error('invalid_output_text');
+          outputText += delta.content;
+        }
+        if (delta.tool_calls !== undefined) {
+          if (!Array.isArray(delta.tool_calls)) throw new Error('invalid_tool_calls');
+          for (const call of delta.tool_calls) {
+            if (!Number.isSafeInteger(call.index) || call.index < 0 || call.index > 255) throw new Error('invalid_tool_index');
+            const entry = tools.get(call.index) ?? {function:{name:'',arguments:''}};
+            if (call.id !== undefined) {
+              if (typeof call.id !== 'string' || !call.id || (entry.id !== undefined && entry.id !== call.id)) throw new Error('tool_id_mismatch');
+              entry.id = call.id;
+            }
+            if (call.type !== undefined && call.type !== 'function') throw new Error('unsupported_tool_call');
+            for (const key of ['name','arguments']) if (call.function?.[key] !== undefined) {
+              if (typeof call.function[key] !== 'string') throw new Error('invalid_tool_delta');
+              entry.function[key] += call.function[key];
+            }
+            tools.set(call.index, entry);
+          }
+        }
         if (choice.finish_reason != null) {
-          if (choice.finish_reason !== 'stop') throw new Error('invalid_finish');
+          if (!['stop','tool_calls'].includes(choice.finish_reason)) throw new Error('invalid_finish');
+          const indices = [...tools.keys()].sort((a,b) => a-b);
+          if (indices.some((value,index) => value !== index)) throw new Error('missing_tool_index');
+          const calls = indices.map(index => toolCall(tools.get(index)));
+          if (new Set(calls).size !== calls.length || (choice.finish_reason === 'tool_calls') !== (calls.length > 0)
+              || (!calls.length && !outputText)) throw new Error('missing_terminal_output');
+          terminal = {response_id:id,finish_reason:choice.finish_reason,tool_call_ids:calls,output_text_sha256:hash(outputText)};
           finished = true;
         }
       }
     } else {
       if (finished) throw new Error('data_after_finish');
       if (row.type === 'response.completed') {
-        if (completedResponse(row.response) !== id || id === null) throw new Error('invalid_completion');
+        terminal = completedResponse(row.response);
+        if (terminal.response_id !== id || id === null) throw new Error('invalid_completion');
         finished = true;
       }
     }
   }
   if (!finished || !id || (kind === 'chat' && !done)) throw new Error('missing_terminal_response');
-  return { response_id: id, wire_format: 'sse', finish_reason: 'stop' };
+  return { ...terminal, wire_format: 'sse' };
 }
 
 function images(body) {
@@ -121,7 +181,7 @@ export default async function ImageDelivery() {
   try { fd = openSync(options.path, 'ax', 0o600); } catch { invalid(); }
   let sequence = 0;
   const write = (row) => appendFileSync(fd, JSON.stringify({ sequence: sequence++, at_ms: Date.now(), ...row }) + '\n');
-  try { write({ type: 'audit_start', version: 2, attempt_id: options.attempt_id,
+  try { write({ type: 'audit_start', version: 3, attempt_id: options.attempt_id,
           binding_sha256: options.binding_sha256, max_requests: maxRequests, reviewer,
           plugin_sha256: hash(readFileSync(fileURLToPath(import.meta.url))) }); } catch { invalid(); }
   const contexts = new Map();
@@ -170,7 +230,7 @@ export default async function ImageDelivery() {
       if (body === null) throw new Error('Unsupported request body');
       const parsed = JSON.parse(body);
       write({ type: 'request', request_id: requestID, admission_index: admissionIndex, ...context, body_sha256: hash(body),
-              wire_model: typeof parsed.model === 'string' ? parsed.model : null, ...images(parsed) });
+              serialized_model: typeof parsed.model === 'string' ? parsed.model : null, ...images(parsed) });
     } catch {
       write({ type: 'request_unverified', request_id: requestID, admission_index: admissionIndex });
     }
@@ -227,7 +287,7 @@ export default async function ImageDelivery() {
       const requestID = randomUUID();
       const context = { session_id: input.sessionID, user_message_id: input.message.id,
                         agent: input.agent, provider: 'opencode',
-                        model: `${input.model.providerID}/${input.model.id}`,
+                        model: `${input.model.providerID}/${input.model.id}`, wire_model: input.model.id,
                         image_capable: input.model.capabilities?.input?.image === true };
       if (['provider', 'model', 'agent'].some(key => context[key] !== reviewer[key])) deny('unexpected_review_context');
       if (![context.session_id, context.user_message_id].every(value => typeof value === 'string' && value.length > 0)) deny('missing_review_identity');
