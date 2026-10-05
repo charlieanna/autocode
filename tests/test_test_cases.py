@@ -427,7 +427,9 @@ class PromptTests(unittest.TestCase):
         state_path = Path(state["workspace"]) / "state.json"
         prompt = common.execution_request(state, "terra", state_path, schemas).prompt
         self.assertNotIn("TESTS NAMED IN THE PLAN", prompt)
+        self.assertIn("TESTS NAMED IN THE DIAGNOSIS", prompt.split("\nCURRENT HANDOFF DATA\n")[0])
         self.assertIn("BUG FIX TESTS", prompt.split("\nCURRENT HANDOFF DATA\n")[0])
+        state.pop("investigation")
         with patch.object(test_cases, "contract_cases", return_value=[{"id": "C2", "text": "x"}]):
             prompt = common.execution_request(state, "terra", state_path, schemas).prompt
         self.assertIn("TESTS NAMED IN THE PLAN", prompt.split("\nCURRENT HANDOFF DATA\n")[0])
@@ -448,6 +450,72 @@ BUG_FIX = {"pager.py": "def page_count(total, size):\n    return (total + size -
 T1 = {"id": "T1", "given": "total=11, size=5", "when": "page_count(11, 5)", "then": "returns 3"}
 T4 = {"id": "T4", "given": "total=10 and total=0, size=5", "when": "page_count runs", "then": "returns 2 and 0",
       "kind": "preserve"}
+
+
+class DiagnosisCaseBuilderTests(unittest.TestCase):
+    """The live Boltons fix used AC names, leaving the runner's T1–T6 cases unproven."""
+
+    CASES = [
+        {"id": "T1", "given": "IndexedSet([1]) and three lists", "when": "update receives the lists",
+         "then": "members are [1, 2, 3, 4] and the return value is None"},
+        {"id": "T2", "given": "IndexedSet([1]) and two tuples", "when": "update receives the tuples",
+         "then": "members are [1, 2, 3, 4] and the return value is None", "kind": "restore"},
+        {"id": "T3", "given": "IndexedSet([1]) and two one-shot iterators", "when": "update receives the iterators",
+         "then": "members are [1, 2, 3, 4] and both iterators are exhausted", "kind": "restore"},
+        {"id": "T4", "given": "iterables yielding tuple-valued members", "when": "update receives the iterables",
+         "then": "each tuple remains one member", "kind": "restore"},
+        {"id": "T5", "given": "IndexedSet([1])", "when": "update receives no arguments",
+         "then": "members remain [1] and the return value is None", "kind": "preserve"},
+        {"id": "T6", "given": "IndexedSet([1]) and [2, 1, 3]", "when": "update receives one iterable",
+         "then": "members are [1, 2, 3] and the return value is None", "kind": "preserve"},
+    ]
+
+    def test_the_actual_builder_prompt_lists_every_diagnosis_case_and_its_proof(self):
+        from tests.test_bug_job import approved_small_fix
+        from units import common
+        state = approved_small_fix(test_cases=self.CASES)
+        schemas = Path(test_cases.__file__).with_name("autocode-schemas")
+        prompt = common.execution_request(state, "terra", Path(state["workspace"]) / "state.json", schemas).prompt
+        note = prompt.split("\nCURRENT HANDOFF DATA\n")[0]
+        self.assertIn("TESTS NAMED IN THE DIAGNOSIS", note)
+        self.assertIn("one separate test for each Investigator case", note)
+        self.assertIn("NAMED TEST PROOF", note)
+        self.assertIn("BUG FIX TESTS", note)
+        for case in self.CASES:
+            with self.subTest(case=case["id"]):
+                row = next(line for line in note.splitlines() if line.startswith("- " + case["id"] + ":"))
+                self.assertIn(test_cases.case_text(case), row)
+                self.assertIn("test_" + case["id"].lower() + "_<what it checks>", row)
+                self.assertIn("must pass on the original code and with the fix" if case.get("kind") == "preserve"
+                              else "must fail on the original code because of the bug and pass with the fix", row)
+
+    def test_diagnosis_names_take_precedence_over_the_plans_named_criteria(self):
+        state = {"investigation": {"outcome": "reproduced", "test_cases": [T1, T4]},
+                 "goal_contract": {"body": {"task_kind": "bugfix", "acceptance_criteria": [
+                     {"id": "AC1", "criterion": "partial pages", "verification_method": "test: test_ac1_pages"}]}}}
+        note = test_cases.builder_note(state)
+        self.assertIn("test_t1_<what it checks>", note)
+        self.assertIn("test_t4_<what it checks>", note)
+        self.assertNotIn("TESTS NAMED IN THE PLAN", note)
+        self.assertEqual([T1, T4], regression.cases(state))
+
+    def test_a_real_proof_still_rejects_plan_names_for_diagnosis_cases(self):
+        project = Project(BUG_SEED)
+        self.addCleanup(project.close)
+        project.write({**BUG_FIX, "test_pager.py": BUG_FIX["test_pager.py"]
+                       .replace("test_t1_partial", "test_ac1_partial").replace("test_t4_exact", "test_ac4_exact")})
+        state = {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
+                 "goal_contract": {"body": {"task_kind": "bugfix", "acceptance_criteria": [
+                     {"id": "AC1", "criterion": "partial pages", "verification_method": "test: test_ac1_partial_page_counts"}],
+                     "milestones": [{"id": "M1"}]}},
+                 "investigation": {"outcome": "reproduced", "test_cases": [T1, T4]}}
+        proof = regression.prove(state, project.root, project.evidence)
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertEqual({"T1": [], "T4": []}, proof["case_tests"])
+        self.assertIn("test_pager.PagerTests.test_ac1_partial_page_counts", proof["fail_to_pass"])
+        self.assertIn("test_pager.PagerTests.test_ac4_exact_multiple_and_zero", proof["pass_to_pass"])
+        self.assertTrue(any("test_t1_" in reason for reason in proof["failures"]), proof["failures"])
+        self.assertTrue(any("test_t4_" in reason for reason in proof["failures"]), proof["failures"])
 
 
 class PreserveCaseProofTests(unittest.TestCase):

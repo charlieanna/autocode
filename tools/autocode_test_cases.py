@@ -242,6 +242,18 @@ existing test to make its name match a planned case id. The regression proof rej
 """ + NAMED_PROOF_NOTE
 
 
+# A live Arena bug fix (Boltons #474, 2026-10-05) used the plan's AC ids for its
+# tests, while the proof still required the Investigator's T ids. Give the
+# Builder the same cases the runner proves, including each case's before-state.
+DIAGNOSIS_BUILDER_NOTE = """
+TESTS NAMED IN THE DIAGNOSIS: write one separate test for each Investigator case below, asserting its
+exact given, when and then. Use each diagnosis case's own id in the test name, even when the plan uses
+different acceptance criterion ids or describes verification in prose. The runner proves these diagnosis
+cases before the Validator runs; tests named only after the plan's criteria cannot satisfy them.
+Keep existing test names and assertions intact. Add new case tests; do not rename or remove existing tests.
+"""
+
+
 # Issue #299: a seam the fix adds cannot compile on the unfixed code, and a log line the fix adds proves nothing.
 BUGFIX_TEST_NOTE = """
 BUG FIX TESTS: each regression test must build and run on the unfixed code. A test of behavior the fix
@@ -262,6 +274,15 @@ def bugfix(state: dict) -> bool:
 
 def builder_note(state: dict) -> str:
     fix_note = BUGFIX_TEST_NOTE if bugfix(state) else ""
+    diagnosis = diagnosis_cases(state)
+    if diagnosis:
+        rows = []
+        for case in diagnosis:
+            before = ("preserve: must pass on the original code and with the fix"
+                      if case.get("kind") == "preserve" else
+                      "restore: must fail on the original code because of the bug and pass with the fix")
+            rows.append(f"- {case_text(case)}; test name: {case_test_name(case['id'])}; {before}.")
+        return DIAGNOSIS_BUILDER_NOTE + "\n".join(rows) + "\n" + NAMED_PROOF_NOTE + fix_note
     if contract_cases(state):
         return BUILDER_NOTE + fix_note
-    return (NAMED_PROOF_NOTE if (state.get("investigation") or {}).get("test_cases") else "") + fix_note
+    return fix_note
