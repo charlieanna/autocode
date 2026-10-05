@@ -37,6 +37,18 @@ def architecture(*components, contracts_dir):
         consumes_contracts=tuple(c["consumes_contracts"])) for c in components}, contracts_dir=contracts_dir)
 
 
+class WorkdirPathTests(unittest.TestCase):
+    def test_workdir_is_canonical_whether_the_workspace_is_spelled_var_or_private_var(self):
+        import autocode_local_run as local_run
+        with tempfile.TemporaryDirectory() as temp:
+            raw = Path(temp) / "project"
+            raw.mkdir()
+            # /var vs /private/var on macOS: same directory, different spelling.
+            alias = Path(os.path.realpath(raw))
+            self.assertEqual(local_run.workdir(raw).resolve(), local_run.workdir(alias).resolve())
+            self.assertEqual(alias, local_run.workdir(raw).parent.parent.resolve())
+
+
 class BatchingTests(unittest.TestCase):
     def test_independent_components_share_one_batch(self):
         arch = architecture(component("alpha"), component("beta"), contracts_dir=Path("."))
@@ -413,7 +425,8 @@ class CliTests(BuildAndIntegrateTests):
         self.assertTrue(local["torn_down"])
         compose = Path(local["compose_file"])
         # macOS temporary paths may use /var, while the CLI emits canonical /private/var paths.
-        self.assertEqual((self.repo / ".autocode-components" / ".local-run" / local["project"]).resolve(), compose.parent)
+        self.assertEqual((self.repo / ".autocode-components" / ".local-run" / local["project"]).resolve(),
+                         compose.parent.resolve())
         self.assertIn(str((self.repo / "integration" / "components" / "alpha").resolve()), compose.read_text())
         prefix = ["compose", "-p", local["project"], "-f", str(compose)]
         calls = [json.loads(line) for line in log.read_text().splitlines()]
@@ -475,7 +488,8 @@ class CliTests(BuildAndIntegrateTests):
             self.assertEqual("done", second["components"][cid]["status"])
             self.assertTrue(second["components"][cid]["resumed"])
             # The same run was continued, not a new one started beside it.
-            self.assertEqual(first["components"][cid]["run_dir"], second["components"][cid]["run_dir"])
+            self.assertEqual(Path(first["components"][cid]["run_dir"]).resolve(),
+                             Path(second["components"][cid]["run_dir"]).resolve())
         self.assertEqual(branches, self.component_branches())
         self.assertEqual(["alpha", "beta"], second["integration"]["integrated"])
 
@@ -492,7 +506,8 @@ class CliTests(BuildAndIntegrateTests):
                             "--options", " ".join(FIXTURE_OPTIONS))
         self.assertEqual(0, proc.returncode, proc.stderr[-1500:])
         second = json.loads(proc.stdout)
-        self.assertEqual(first["components"]["alpha"]["run_dir"], second["components"]["alpha"]["run_dir"])
+        self.assertEqual(Path(first["components"]["alpha"]["run_dir"]).resolve(),
+                         Path(second["components"]["alpha"]["run_dir"]).resolve())
         self.assertEqual("done", second["components"]["alpha"]["status"])
 
     def test_a_changed_architecture_is_not_resumed(self):

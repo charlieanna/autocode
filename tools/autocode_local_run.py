@@ -442,8 +442,12 @@ def _same(expected, actual) -> bool:
 
 
 def workdir(workspace: Path) -> Path:
-    """The git-ignored directory under ``workspace`` that holds each local run's compose file."""
-    return keep_out_of_git(workspace, ".autocode-components").joinpath(*LOCAL_RUN_DIR)
+    """The git-ignored directory under ``workspace`` that holds each local run's compose file.
+
+    Resolved so the emitted compose path is canonical (macOS ``/var`` vs
+    ``/private/var``) regardless of how the caller spelled the workspace.
+    """
+    return keep_out_of_git(Path(workspace).resolve(), ".autocode-components").joinpath(*LOCAL_RUN_DIR)
 
 
 def _tail(text: str, limit: int = 800) -> str:
