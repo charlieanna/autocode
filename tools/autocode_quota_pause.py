@@ -271,7 +271,11 @@ def handle_budget_pause(runner, state, run_dir, workspace, error):
         return True
     worker = getattr(error, "quota_worker", None) or None
     if worker:
-        if state.get("active_stage") or not _archive_worker_attempt(runner, worker):
+        # A finished parent stage record (the orchestrator's own admission) is
+        # normal at this boundary; only a genuinely unfinished parent stage
+        # means the quota stop is not the pause to reconcile here.
+        active = state.get("active_stage") or {}
+        if (active and not active.get("finished_at")) or not _archive_worker_attempt(runner, worker):
             return False
         role, stage = "terra", "orchestrator"
     else:

@@ -32,7 +32,13 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
         self.env['AUTOCODE_FIXTURE_QUOTA_STAGE'] = 'astra_review'
         self.launch(['Build greeting', '--chat'], 2, answers='CLI\nyes\n')
         run, paused = self.saved()
-        self.launch(['--run-dir', str(run), '--abandon-stage', runner.attempt_id(paused['active_stage'])], 0)
+        # #184: a quota stop now publishes a replacement-model question and archives
+        # the attempt, so there is no unreconciled active stage to abandon. Answering
+        # the question returns the run to its PAUSED_BUDGET boundary.
+        token = (paused.get('resolver_human_request') or {}).get('request_token')
+        question = next((q['id'] for q in paused.get('pending_questions', [])), None)
+        self.launch(['--run-dir', str(run), '--resolver-token', token,
+                     '--answer', f'{question}=gpt-6-sol'], 0)
         return run, self.saved()[1]
 
     def publish(self, stopped, status, stop_reason):

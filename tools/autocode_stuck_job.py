@@ -542,7 +542,12 @@ def drive(state, dispatch, *, apply=None, before=None, after=None, persist=None,
             if not fresh():
                 raise
             if not intercept(state, status, reason):
-                raise paused(status, annotate(state, status, reason)) from error
+                annotated = paused(status, annotate(state, status, reason))
+                if getattr(error, "quota_worker", None):
+                    # A worker quota stop must reach the runner's budget handler
+                    # with its worker payload; annotation must not drop it.
+                    annotated.quota_worker = error.quota_worker
+                raise annotated from error
             if persist:
                 persist(state)
             continue

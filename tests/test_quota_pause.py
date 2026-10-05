@@ -72,9 +72,20 @@ raise SystemExit(subprocess.run([sys.executable, DELEGATE, *sys.argv[1:]],
 
 
 class QuotaPauseFlow(test_subprocess.SubprocessFlow):
-    """The builtin OpenCode engine with per-role models and a recording wrapper."""
+    """The builtin OpenCode engine with per-role models and a recording wrapper.
+
+    Only the harness is inherited. SubprocessFlow's scenario tests keep running
+    in tests.test_subprocess, on the engine they were written for; re-running
+    them under this quota fixture would drive a different configuration (the
+    builtin engine, the recording wrapper) and so would not prove unchanged
+    behavior. AC6 carries its own no-quota-failure control instead."""
 
     new_run_engine_args = ()
+
+    for _inherited in (name for name, value in vars(test_subprocess.SubprocessFlow).items()
+                       if name.startswith("test_") and callable(value)):
+        locals()[_inherited] = None
+    del _inherited
 
     def setUp(self):
         scratch = Path(os.environ.get("AUTOCODE_QUOTA_TEST_TMPDIR",
@@ -396,7 +407,8 @@ class BuiltinQuotaTests(QuotaPauseFlow):
     def test_ac16_refusal_uses_recorded_producer_model(self):
         # Wave 1: terra (glm-5.3) fails quota; the assignment moves terra to gpt-6-sol.
         run, state = self.pause_at("terra", models=("--terra-model", "zai-coding-plan/glm-5.3",
-                                                    "--sol-model", "openai/gpt-6-astra"))
+                                                    "--sol-model", "openai/gpt-6-astra",
+                                                    "--completion-model", "openai/gpt-6-astra"))
         self.assertEqual("zai-coding-plan/glm-5.3",
                          self.terra_records(state)[-1]["launch_route"]["model"])
         self.assertEqual(0, self.answer_via_advertised(state, "openai/gpt-6-sol").returncode)
@@ -459,10 +471,9 @@ class NativeCodexQuotaTests(QuotaPauseFlow):
     """Native Codex joint planning: bare model names, plan-reviewer quota."""
 
     joint_args = ("--engine", "codex", "--joint-planning",
-                  "--astra-model", "gpt-5.6-sol", "--terra-model", "gpt-5.6-terra",
+                  "--astra-model", "gpt-5.6-terra", "--terra-model", "gpt-5.6-terra",
                   "--sol-model", "gpt-5.6-sol", "--completion-model", "gpt-5.6-sol",
-                  "--glm-model", "gpt-5.6-terra", "--plan-reviewer-model", "gpt-5.6-sol",
-                  "--planning-review-call-limit", "4")
+                  "--glm-model", "gpt-5.6-terra", "--plan-reviewer-model", "gpt-5.6-sol")
 
     def pause_at_plan_reviewer(self):
         self.env["AUTOCODE_FIXTURE_QUOTA_STAGE"] = "astra_challenge"
@@ -511,7 +522,13 @@ class NativeCodexQuotaTests(QuotaPauseFlow):
 
 
 class ParallelQuotaTests(QuotaPauseFlow):
-    """AC12: a parallel Builder worker's quota pause becomes the parent's question."""
+    """AC12: a parallel Builder worker's quota pause becomes the parent's question.
+
+    The quota injection (QUOTA_FAIL_ONCE / the worker barrier) lives in the
+    codex-side wrapper, so this class drives the codex engine with bare model
+    names, the way tests.test_dispatch drives fake_parallel_builder."""
+
+    new_run_engine_args = ("--engine", "codex")
 
     def setUp(self):
         super().setUp()
@@ -523,9 +540,9 @@ class ParallelQuotaTests(QuotaPauseFlow):
 
     def test_ac12_parallel_builder_quota_asks_and_answer_retries_worker(self):
         self.launch(["Produce two outputs and combine", "--chat", "--max-parallel-builders", "2",
-                     "--terra-model", "zai-coding-plan/glm-5.3",
-                     "--sol-model", "openai/gpt-6-astra",
-                     "--completion-model", "openai/gpt-6-astra"], 2, answers="yes\n")
+                     "--terra-model", "gpt-5.6-terra",
+                     "--sol-model", "gpt-5.6-sol",
+                     "--completion-model", "gpt-5.6-sol"], 2, answers="yes\n")
         run, state = self.saved()
         self.assertEqual("WAITING_FOR_USER", state["status"])
         self.assertEqual("PAUSED_OR_BLOCKED", state["phase"])
@@ -544,7 +561,7 @@ class ParallelQuotaTests(QuotaPauseFlow):
         self.assertTrue(attempts[0].get("abandoned") and attempts[0].get("rejected"))
         self.assertIsNone(child.get("active_stage"))
         # The answered assignment retries exactly that worker on the named model.
-        result = self.answer_via_advertised(state, "openai/gpt-6-sol")
+        result = self.answer_via_advertised(state, "gpt-6-sol")
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 0)
         _, done = self.saved()
@@ -554,11 +571,12 @@ class ParallelQuotaTests(QuotaPauseFlow):
         child_done = json.loads((Path(failed_row["run_dir"]) / "state.json").read_text())
         child_attempts = [row for row in child_done.get("stages", []) if row.get("stage") == "terra"]
         self.assertEqual(2, len(child_attempts))
-        self.assertEqual(["zai-coding-plan/glm-5.3", "openai/gpt-6-sol"],
+        self.assertEqual(["gpt-5.6-terra", "gpt-6-sol"],
                          [row["launch_route"]["model"] for row in child_attempts])
         self.assertTrue(child_attempts[1].get("accounted"))
         self.assertEqual({"M1", "M2", "M3"},
-                         {row["id"] for row in done["milestone_progress"].values() if row.get("accepted")})
+                         {row["id"] for row in done["milestone_progress"].values()
+                          if row.get("accepted") and not str(row["id"]).startswith("batch:")})
 
 
 if __name__ == "__main__":
