@@ -171,6 +171,11 @@ def operational_boundary(runner, state, run_dir, workspace, *, persist=True):
             or state.get('status') not in ('RUNNING', 'PAUSED_PLANNING_BUDGET')
             or _operational_blocked(state, run_dir)):
         return False
+    # Give back unreported ordinary calls before reserving recovery credit, as admission
+    # would (#453). Reserving first left a grant its own refund made stale. Sealed grants
+    # keep their records: validation below still fails closed if anything they bind changed.
+    if not planning.get('recovery_review_grants'):
+        runner.planning.refund_unreported(state, planning)
     limit = runner.planning.review_call_limit(state)
     if limit == 0 or planning.get('astra_calls', 0) < limit:
         return False
@@ -201,8 +206,10 @@ def operational_boundary(runner, state, run_dir, workspace, *, persist=True):
         reviews = [row for row in state['stages'][start + 1:]
                    if row.get('stage') in REVIEW_STAGES and not row.get('runner_owned')
                    and not row.get('report_only')]
-        # Only ordinary attempts can fund recovery. Failed grants never mint grants.
-        ordinary = [row for row in reviews if not row.get('planning_recovery_grant')][:limit]
+        # Only ordinary attempts can fund recovery. Failed grants never mint grants, and a
+        # refunded attempt already gave its call back, so it cannot fund a grant as well.
+        ordinary = [row for row in reviews if not row.get('planning_recovery_grant')
+                    and not row.get('planning_review_refunded')][:limit]
         eligible = [(row, pins) for row in ordinary
                     if (pins := _timeout_evidence(state, row, binding['source_revision']))]
     except (KeyError, TypeError, ValueError, OSError, StopIteration, AttributeError):
