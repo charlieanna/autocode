@@ -152,6 +152,27 @@ class BatchTests(unittest.TestCase):
             self.assertIn("finished 2 (1 FALSE_COMPLETE, 1 PASS), running 1", summary)
             self.assertIn("bugfix-trivial                 PASS 1/1 60s $0.00 | running", summary)
 
+    def test_hybrid_runs_are_counted_and_shown_apart_from_natural_ones(self):
+        with tempfile.TemporaryDirectory() as temp:
+            out = Path(temp)
+            for name in ("20261005T0759Z-feature-stock-refusals-claude-tiers-a1",
+                         "20261005T0800Z-feature-stock-refusals-claude-tiers-hybrid-b2",
+                         "20261005T0801Z-feature-stock-refusals-fake-hybrid-c3",
+                         "20261005T0802Z-feature-stock-refusals-fake-d4"):
+                (out / name).mkdir()
+                (out / name / "result.json").write_text(json.dumps({"verdict": "PASS", "checks": [],
+                                                                    "wall_seconds": 1}))
+            ids = ["feature-stock-refusals"]
+            self.assertEqual(["feature-stock-refusals"], batch.missing(ids, out, 2))
+            self.assertEqual(["feature-stock-refusals"] * 2, batch.missing(ids, out, 3, "claude-tiers-hybrid"))
+            self.assertEqual([], batch.missing(ids, out, 1, "fake-hybrid"))
+            self.assertEqual(["feature-stock-refusals"], batch.missing(ids, out, 2, "fake"))
+            hybrid = batch.mode(type("Args", (), {"fake": False, "hybrid": True})())
+            self.assertEqual("claude-tiers-hybrid", hybrid)
+            summary = batch.status(out)
+            self.assertIn("feature-stock-refusals [claude-tiers-hybrid] PASS", summary)
+            self.assertIn("feature-stock-refusals         PASS", summary)
+
     def test_the_qualification_list_names_real_scenarios(self):
         ids = batch.scenarios(EXAMPLE / "qualification.txt")
         self.assertEqual(17, len(ids))

@@ -7,9 +7,9 @@ returned parser for the later errors that depend on the saved run.
 An invocation that names no run and starts none (no task, no new-run input) acts on the saved run
 autocode_run_finder chooses from the --workspace directory: ``autocode --status``, ``autocode``,
 ``autocode resume`` and the user actions work from the project or a task worktree. On a paused
-run ``autocode resume`` also stands for --resume-paused (_acknowledges_pause). ``autocode
-status`` is ``autocode --status``. --run-dir without --workspace selects the run's own checkout
-(a user's run; a parallel Builder's run keeps the usual workspace errors).
+or blocked run ``autocode resume`` also stands for --resume-paused (_acknowledges_pause).
+``autocode status`` is ``autocode --status``. --run-dir without --workspace selects the run's
+own checkout (a user's run; a parallel Builder's run keeps the usual workspace errors).
 """
 from __future__ import annotations
 
@@ -41,9 +41,6 @@ READ_ACTIONS = ("--status", "--dry-run")
 # `autocode resume` and `autocode status`: commands, never a one-word task (`autocode -- status` is one).
 COMMAND_WORDS = ("resume", "status")
 COMMAND_MARK = "\0command-word"
-# Pauses `autocode resume` only shows: nothing guards them on relaunch, so acknowledging one would
-# rerun its stage before the user acted (the Design Reviewer would rewrite <design>.blockers.json).
-WAITS_FOR_AN_EDIT = ("PAUSED_DESIGN_CONFLICT",)
 
 
 def commands_help() -> str:
@@ -270,12 +267,8 @@ def parse(unit, argv, default_models):
     args = parser.parse_args(argv)
     # The word may also follow options (`autocode --no-chat resume`); argparse then reads it as
     # the task. After `--` it stays task text.
-    words = argv[:argv.index("--")] if "--" in argv else argv
-    if args.task in COMMAND_WORDS and args.task in words:
-        # The same word may also be an option's value (--feedback resume): mark each occurrence in
-        # turn until argparse reads the mark as the task. A word in place of a word parses alike.
-        at = next(index for index, word in enumerate(words) if word == args.task
-                  and parser.parse_args([*argv[:index], COMMAND_MARK, *argv[index + 1:]]).task == COMMAND_MARK)
+    at = _command_word_at(parser, argv, args.task) if args.task in COMMAND_WORDS else None
+    if at is not None:
         resume_only = resume_only or args.task == "resume"
         argv = argv[:at] + (["--status"] if args.task == "status" else []) + argv[at + 1:]
         args = parser.parse_args(argv)
@@ -383,8 +376,36 @@ def parse(unit, argv, default_models):
     return args, parser
 
 
+def _command_word_at(parser, argv, word):
+    """Where argparse reads ``word`` as the task among the options of argv, else None.
+
+    After `--` it stays task text. The same word may also be an option's value (--feedback resume):
+    mark each occurrence in turn until argparse reads the mark as the task. A word in place of a
+    word parses alike. An argv argparse refuses exits via parser.error.
+    """
+    words = argv[:argv.index("--")] if "--" in argv else argv
+    if word not in words or parser.parse_args(argv).task != word:
+        return None
+    return next(index for index, item in enumerate(words) if item == word
+                and parser.parse_args([*argv[:index], COMMAND_MARK, *argv[index + 1:]]).task == COMMAND_MARK)
+
+
+def is_resume_command(argv) -> bool:
+    """Whether autocode reads argv as `autocode resume`: the command word, not task text or an option's value.
+
+    For a caller that must recognize the word without acting on the rest (autocode_unattended): on a
+    paused or blocked run the word stands for --resume-paused (_acknowledges_pause). An argv
+    argparse refuses exits via parser.error, as autocode itself would.
+    """
+    argv = list(argv)
+    if argv[:1] == ["resume"]:
+        return True
+    return _command_word_at(build_parser(None, DEFAULT_ROLE_MODELS), argv, "resume") is not None
+
+
 def _acknowledges_pause(args):
-    """Whether `autocode resume` stands for --resume-paused: the run is paused and nothing else is asked.
+    """Whether `autocode resume` stands for --resume-paused: the run is paused or blocked
+    (run_finder.resume_acknowledges) and nothing else is asked.
 
     Typing the command is the explicit acknowledgement --resume-paused records, with the same
     effects: no new budget or --grant-recovery allowance, but the per-cycle report-repair and
@@ -411,7 +432,7 @@ def _acknowledges_pause(args):
         if issued and issued['scope'] == 'operational_exhaustion':
             proposal = state['resolver']['human_escalations'][issued['request_id']]['identity']['proposal']
             status = str(proposal['origin'].get('pause_status', ''))
-    return status.startswith("PAUSED_") and status not in WAITS_FOR_AN_EDIT
+    return run_finder.resume_acknowledges(status)
 
 
 def _requires_resume(parser, args, flag):

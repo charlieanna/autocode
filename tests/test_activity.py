@@ -445,10 +445,10 @@ class ActivityTests(unittest.TestCase):
         self.now = 300
         reason = self.monitor.expired()['reason']
         self.assertEqual('No new provider activity within the inactivity limit (300 seconds, runner default; '
-                         'change it with --resume-paused --max-idle-seconds N)', reason)
+                         'change it with autocode resume --max-idle-seconds N)', reason)
         self.assertEqual(('stalled', reason), (self.monitor.snapshot()['activity'], self.monitor.snapshot()['detail']))
         self.assertIn('(90 seconds, set explicitly; change it', idle_timeout_reason(90, 'user_explicit'))
-        self.assertIn('(300 seconds; change it with --resume-paused --max-idle-seconds N)', idle_timeout_reason(300))
+        self.assertIn('(300 seconds; change it with autocode resume --max-idle-seconds N)', idle_timeout_reason(300))
         # AutoResolver never extends this limit, so a delegated one must not suggest it will.
         self.assertIn('(300 seconds, delegated to AutoResolver, which does not change it; change it',
                       idle_timeout_reason(300, 'resolver_delegated'))

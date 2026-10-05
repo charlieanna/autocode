@@ -28,10 +28,10 @@ import sys
 from pathlib import Path
 
 try:
-    from . import autocode_github as github
+    from . import autocode_github as github, autocode_run_finder as run_finder
     from .autocode_taskrun import TaskRun, TaskRunError
 except ImportError:
-    import autocode_github as github
+    import autocode_github as github, autocode_run_finder as run_finder
     from autocode_taskrun import TaskRun, TaskRunError
 
 MAX_BODY = 20_000        # characters of the issue description put in the brief
@@ -246,9 +246,11 @@ def next_steps(record: dict, view: dict) -> list[str]:
                 f"  Or allow more:   autocode --planning-review-call-limit N {where}",
                 f"  Then:            autocode-issue continue {ref}"]
     if kind == "resume":
+        # A design conflict waits for an edit: only --resume-paused continues it (autocode_run_finder).
+        word = "resume" if run_finder.resume_acknowledges(view.get("status")) else "--resume-paused"
         return [f"The run paused: {need.get('reason')}",
                 f"  Inspect:  autocode --status {where}",
-                f"  Once the cause is resolved: autocode --resume-paused {where}"]
+                f"  Once the cause is resolved: autocode {word} {where}"]
     return [f"The run can proceed: autocode-issue continue {ref}"]
 
 

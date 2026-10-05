@@ -590,7 +590,7 @@ Done when:
     Checked by: test: test_c1_greets_ada
 What passing proves:
   - An independent check of the final source must pass every criterion above, and the runner itself re-runs that check's commands in a clean copy: each must exit 0.
-  - The runner also runs the test each of these criteria names: C1 (test:) must pass with the change and not without it. No test that passed before may fail now.
+  - The runner also runs the test each of these criteria names: C1 (test:) must pass with the change and must not have passed without it. No test that passed before may fail now.
   - Not proven: behavior no criterion describes, or inputs no check exercises.
 
 Limits in effect: 12 h of active time for the run, 1 h per stage, no iteration ceiling, one Builder at a time.
@@ -600,9 +600,12 @@ To change it instead: autocode --run-dir RUN --feedback 'WHAT TO CHANGE' (the re
 State: AWAITING_GOAL_APPROVAL / AWAITING_GOAL_APPROVAL
 ```
 
-In a bug fix the second proof line says the runner checks that a new or changed test fails on
-the original code and passes with the fix; when no criterion is marked `test:` or `guard:` (or
-in a design job) it says that nothing shows a check would fail without the change. Approval saves
+The proof lines name the cases the runner's regression proof will require a test for
+(`autocode_test_cases.proof_cases`, the same list `autocode_regression` checks): in a bug fix, the
+diagnosis's test cases when the bug was reproduced, else the plan's `test:` and `guard:` criteria,
+each with what its test must show; a guard whose test cannot load on the original code is called
+out, because the proof accepts it with only a note. When no criterion is marked `test:` or `guard:`
+(or in a design job) it says that nothing shows a check would fail without the change. Approval saves
 `READY_TO_EXECUTE`; the next ordinary invocation begins execution. User-input commands
 never launch an agent. This command-per-turn interface also works from scripts and
 other frontends; no continuously attached terminal is required.
