@@ -310,7 +310,10 @@ def prepare_diagnosis(state, stage, state_path, schema_dir):
               'or needs a human decision -- never guess. You cannot approve work, change requirements, weaken '
               'tests, modify source, dispatch a task, or claim completion yourself; this recommendation is '
               'advisory only, and the runner independently validates and bounds it before any retry proceeds.\n'
-              + novelty.INSTRUCTION + instruction + '\nDiagnosis constraint overrides completion choices: return diagnosis, recommendation and any bounded recovery_change.\n'
+              + novelty.INSTRUCTION + instruction + '\nDiagnosis constraint overrides completion choices: return diagnosis, recommendation and any bounded recovery_change. '
+              'The Builder receives your diagnosis and recommendation; put the concrete steps it should follow in '
+              'recommendation.guidance. This incident is the failed stage, not a check command, so a recovery_change '
+              'the incident packet cannot attest reaches the Builder only as unattested advice.\n'
               + 'CURRENT HANDOFF DATA\n' + json.dumps(data, indent=2))
     metrics = {**request.metrics, 'estimated_prompt_tokens': (len(prompt) + 3) // 4}
     return ModelRequest('astra', 'resolver', prompt, metrics, DIAGNOSIS_SCHEMA, False)

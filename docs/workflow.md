@@ -143,9 +143,10 @@ intact pinned evidence; unresolved user decisions and hard budgets still stop it
 Repetition may stop a repair path before its configured repair allowance is exhausted.
 
 Each fresh diagnostic provider attempt receives a durable reservation at final launch
-admission. Timeout replacements, new blockers and new iterations consume new
-reservations. A diagnosis whose report was rejected is not relaunched for the same
-failure: it holds as `PAUSED_NO_PROGRESS` without another reservation. Reloading the same
+admission. Relaunches after a timeout, capacity or startup failure or a denied path, new
+blockers and new iterations consume new reservations. A diagnosis whose report was
+rejected is not relaunched for the same failure: it holds as `PAUSED_NO_PROGRESS` without
+another reservation. Reloading the same
 attempt does not consume another, and an ambiguous launch is not refunded. The default
 run-level diagnostic allowance is two; explicit resume does not reset it. Report-only format repair has its separate existing
 allowance and remains subject to the parent's time/token limits. The diagnostic limit
@@ -160,8 +161,10 @@ until one Builder attempt returns a result. An attempt that automatic recovery a
 without a report does not use it up; that recovery's own budget bounds the relaunches.
 (`--retry-failed-stage` differs: the attempt it admits spends it even if it times out.)
 Another attempt at the same unchanged failure needs new evidence or an explicit
-`--retry-failed-stage`. A proposed `recovery_change` the incident packet cannot attest is
-left out of the repair plan rather than blocking the retry.
+`--retry-failed-stage`. The Builder's repair plan carries the diagnosis and the
+recommendation. A proposed `recovery_change` the incident packet cannot attest goes in it
+as `unattested_change`, with the reason: advice for the Builder that neither blocks the
+retry nor counts as a new experiment.
 
 ## When a stage stops making progress
 

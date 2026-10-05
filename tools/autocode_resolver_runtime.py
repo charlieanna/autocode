@@ -925,10 +925,15 @@ def admit_operational_diagnosis(runner, state, run_dir, workspace):
     runner.write_json(Path(run_dir) / 'state.json', state)
 
 
-def finish_operational_diagnosis(state, run_dir, recommendation, *, recovery_change=None):
+def finish_operational_diagnosis(state, run_dir, recommendation, *, recovery_change=None, diagnosis=None):
     """Validate a model's diagnosis recommendation against the same bounded
     policy and per-incident budget used to admit the diagnosis (the second
     of that budget's two evaluations), before authorizing any retry.
+
+    An accepted retry's repair plan, which the Builder receives, carries the
+    diagnosis text, the recommendation and any proposed change: as
+    ``recovery_change`` only when the incident packet attests it, otherwise
+    as ``unattested_change`` with the reason (recovery.diagnosis_change).
 
     Called on the candidate state inside the commit-then-persist boundary
     (like ``queue_resolution``/``finish_resolution``): it mutates ``state``
@@ -970,11 +975,16 @@ def finish_operational_diagnosis(state, run_dir, recommendation, *, recovery_cha
                     'recovery_packet': copy.deepcopy(request.get('recovery_packet'))})
         plan = {'kind': 'operational-diagnosis', 'tasks': [copy.deepcopy(state.get('current_task') or {})],
                 'recommendation': copy.deepcopy(recommendation)}
+        if diagnosis:
+            plan['diagnosis'] = diagnosis
         recovery.finish_resolution_packet(state, request, plan)
-        # An unattestable proposal is left out: it must not void the accepted retry (#422).
-        recovery_change = recovery.diagnosis_change(request, recovery_change, run_dir)
-        if recovery_change:
-            plan['recovery_change'] = recovery_change
+        # The Builder sees the proposal either way. Only an attested one is a recovery_change;
+        # an unattested one is advice with its reason and must not void the retry (#422).
+        attested, unattested = recovery.diagnosis_change(request, recovery_change, run_dir)
+        if attested:
+            plan['recovery_change'] = attested
+        if unattested:
+            plan['unattested_change'] = unattested
         state['repair_plan'] = plan
         state.setdefault('resolution_history', []).append(copy.deepcopy(plan))
         state.update(status='RUNNING', phase='EXECUTING', next_stage=original_stage)

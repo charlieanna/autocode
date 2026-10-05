@@ -758,6 +758,8 @@ class OperationalDiagnosisTests(unittest.TestCase):
             self.assertEqual('codex', command[0])
             checkpoint = support.read(self.run / 'state.json')
             record = checkpoint['active_stage']
+            with open(record['prompt']) as prompt:  # What the provider was asked; removed after the stage.
+                record['prompt_text'] = prompt.read()
             launches.append(record)
             if record['stage'] == 'astra_diagnose':
                 self.assertIn(record['diagnostic_reservation_id'], checkpoint['resolver']['diagnostic_reservations'])
@@ -829,17 +831,22 @@ class OperationalDiagnosisTests(unittest.TestCase):
         saved = support.read(self.run / 'state.json')
         self.assertEqual(1, saved['resolver']['diagnostic_calls'])
         self.assertTrue(saved['failure_history'])
-        return plan
+        return plan, launches[1]['prompt_text']
 
     def test_valid_diagnosis_retry_reaches_the_builder_once(self):
         # #422: a rejected report has no source change to propose, so the accepted diagnosis
-        # is the new information. It buys one Builder attempt that returns a result.
-        self.diagnosis_retry_reaches_the_builder_once()
+        # and its recommendation are the new information, and the Builder receives both.
+        # It buys one Builder attempt that returns a result.
+        plan, prompt = self.diagnosis_retry_reaches_the_builder_once()
+        self.assertEqual('The summary field was omitted.', plan['diagnosis'])
+        for text in ('The summary field was omitted.', 'Include a nonempty summary field.', 'Add the missing field.'):
+            self.assertIn(text, prompt)
+        self.assertNotIn('unattested_change', plan)
 
     def test_unattestable_recovery_change_does_not_void_the_diagnosis_retry(self):
         # The incident of an operational packet is the failed stage, not a check command, so a
-        # proposal citing one cannot be attested. It is left out instead of pausing the paid
-        # retry as a stale handoff.
+        # proposal citing one cannot be attested. Instead of pausing the paid retry as a stale
+        # handoff, or vanishing, it reaches the Builder as unattested advice with the reason.
         value = {'diagnosis': 'The summary field was omitted.',
                  'recommendation': {'action': 'retry', 'rationale': 'Include a nonempty summary field.',
                                     'guidance': 'Add the missing field.', 'evidence_refs': []},
@@ -847,9 +854,12 @@ class OperationalDiagnosisTests(unittest.TestCase):
                                      'before': 'x', 'after': 'y', 'expected_check': 'ruby test.rb',
                                      'expected_result': 'passes', 'evidence_refs': ['event:item_1'],
                                      'question': 'Why is the summary missing?'}}
-        plan = self.diagnosis_retry_reaches_the_builder_once(value)
+        plan, prompt = self.diagnosis_retry_reaches_the_builder_once(value)
         self.assertEqual('operational-diagnosis', plan['kind'])
         self.assertNotIn('recovery_change', plan)
+        self.assertEqual(value['recovery_change'], plan['unattested_change']['change'])
+        self.assertIn('not a bounded attested source change', plan['unattested_change']['reason'])
+        self.assertIn('The Builder omits the summary field.', prompt)
 
     def test_diagnosis_retry_is_one_builder_attempt_that_returns_a_result(self):
         self.repeated_terra_failure()

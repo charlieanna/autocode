@@ -695,19 +695,30 @@ class RecoveryPacketTests(unittest.TestCase):
             for key, value in active.items():
                 self.assertEqual(value, state[key])
 
-    def test_diagnosis_keeps_only_a_change_its_packet_attests(self):
-        # #422: a diagnosis's accepted retry does not depend on its proposed change, so one the
-        # packet cannot attest is left out of the repair plan instead of voiding the retry.
+    def test_diagnosis_attests_only_a_change_its_packet_attests(self):
+        # #422: a diagnosis's accepted retry does not depend on its proposed change. One the
+        # packet cannot attest is passed on as unattested advice with the reason, under a key
+        # admit_dispatch does not read, instead of voiding the retry or vanishing.
         change = {"hypothesis": "Wrong answer return branch", "target": "app.py", "before": "return 2",
                   "after": "return 3", "expected_check": "python -m unittest test_app", "expected_result": "exit 0",
                   "evidence_refs": [str(self.events)], "question": ""}
-        self.assertEqual(change, recovery.diagnosis_change(self.request, change, self.run))
+        self.assertEqual((change, None), recovery.diagnosis_change(self.request, change, self.run))
         for mutation in ({"expected_check": "ruby test.rb"}, {"target": "source.rb"},
-                         {"evidence_refs": ["invented"]}, {"before": "return 9"}):
+                         {"evidence_refs": ["invented"]}, {"before": "return 9"}, "not an object"):
             with self.subTest(mutation=mutation):
-                self.assertIsNone(recovery.diagnosis_change(self.request, {**change, **mutation}, self.run))
-        self.assertIsNone(recovery.diagnosis_change(self.request, None, self.run))
-        self.assertIsNone(recovery.diagnosis_change(self.request, "not an object", self.run))
+                proposed = {**change, **mutation} if isinstance(mutation, dict) else mutation
+                attested, unattested = recovery.diagnosis_change(self.request, proposed, self.run)
+                self.assertIsNone(attested)
+                self.assertEqual(proposed, unattested["change"])
+                self.assertIn("Recovery packet: proposed change", unattested["reason"])
+        self.assertEqual((None, None), recovery.diagnosis_change(self.request, None, self.run))
+        # Without a packet (parallel or integrated scope) nothing attests a proposal.
+        attested, unattested = recovery.diagnosis_change({}, change, self.run)
+        self.assertEqual((None, change), (attested, unattested["change"]))
+        # A stale packet is not a refused proposal: it raises, as finish_resolution_packet does.
+        stale = {**self.request, "recovery_packet": {**self.request["recovery_packet"], "sha256": "0" * 64}}
+        with self.assertRaisesRegex(util.Paused, "draft hash changed"):
+            recovery.diagnosis_change(stale, change, self.run)
 
     def test_specific_changed_repair_is_admitted_but_not_marked_accepted(self):
         self.request["recovery_change"] = {"hypothesis": "Wrong answer return branch", "target": "app.py",

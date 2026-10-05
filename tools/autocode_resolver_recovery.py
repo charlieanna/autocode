@@ -402,22 +402,30 @@ def validate_decision(state, value, record):
 
 
 def diagnosis_change(request, change, run_dir):
-    """The change a diagnosis proposed, kept only when its packet attests it (#422).
+    """Sort the change a diagnosis proposed into ``(attested, unattested)`` (#422).
 
-    validate_decision refuses a Resolver decision whose change the packet cannot attest, and
-    admit_dispatch would refuse the Builder for it. A diagnosis's accepted retry needs no change:
-    an operational packet's incident names the failed stage, not a check command, so a proposal
-    is usually unprovable. Such a proposal is left out of the repair plan rather than voiding the
-    retry; the diagnosis's archived output keeps it. It never raises, because its caller,
-    finish_operational_diagnosis, must not.
+    Only a change the incident packet attests becomes the repair plan's ``recovery_change``,
+    which admit_dispatch attests again before the Builder runs. A diagnosis's accepted retry
+    needs no change, and a proposal is usually unprovable: an operational packet's incident
+    names the failed stage, not a check command, and without a packet (parallel or integrated
+    scope) nothing attests it. Such a proposal goes to the Builder as ``unattested_change``
+    with the reason, a key admit_dispatch never reads: it is advice, like the recommendation's
+    guidance, and neither voids the retry nor counts as a new experiment.
+
+    The caller has already loaded this packet (finish_resolution_packet), so a stale packet
+    raises as it did there. _change's refusal of the proposal is recorded, not raised.
     """
-    if not change or not request.get("recovery_packet"):
-        return copy.deepcopy(change) or None
+    if not change:
+        return None, None
+    if not request.get("recovery_packet"):
+        return None, {"change": copy.deepcopy(change),
+                      "reason": "No incident packet attests a proposal in parallel or integrated scope"}
+    packet = load_packet(request["recovery_packet"], run_dir)
     try:
-        _change(load_packet(request["recovery_packet"], run_dir), change)
-    except (util.Paused, ValueError, KeyError, TypeError, OSError):
-        return None
-    return copy.deepcopy(change)
+        _change(packet, change)
+    except (util.Paused, ValueError, KeyError, TypeError, AttributeError) as error:
+        return None, {"change": copy.deepcopy(change), "reason": str(error)}
+    return copy.deepcopy(change), None
 
 
 def prepare_diagnosis(state, request, record, run_dir):
@@ -543,7 +551,8 @@ def _diagnosis_grant(state, packet, request, record):
 
     The failure it diagnosed is a repeated rejected Builder report (a diagnosis is admitted
     only for a pending report repair), so there is usually no source change to propose: the
-    diagnosis, which the Builder receives in its repair plan, is the new information.
+    diagnosis and its recommendation, which the Builder receives in its repair plan, are the
+    new information.
 
     The grant is spent by one Builder attempt that returns a result; novelty decides that
     against returned receipts. An operator's grant (--retry-failed-stage, a Builder retry) is
