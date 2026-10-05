@@ -268,6 +268,11 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             specific_recovery = runner.prepare_abandoned_completion_revalidation(state, run_dir, workspace)
             if not specific_recovery:
                 state['status'] = published_status
+    # A source-only stale repair is already a recognized recovery. Do not let
+    # an answered operational request hide it or publish the same request again.
+    if (args.resume_paused and not decision_action and not explicit_recovery_requested(args)
+            and runner.stale_report_repair(state, workspace)):
+        specific_recovery = True
     acknowledged_planning_extension = (args.resume_paused and state.get('status') == 'PAUSED_PLANNING_BUDGET'
         and bool(state.get('user_events')) and state['user_events'][-1].get('kind') == 'planning_budget_change'
         and state['user_events'][-1].get('limit') == planning.review_call_limit(state)
@@ -299,7 +304,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         state.update(status='RUNNING', phase='EXECUTING')
         state.pop('stop_reason', None)
         runner.write_json(state_path, state)
-    if (not decision_action and not explicit_recovery_requested(args)
+    if (not decision_action and not specific_recovery and not explicit_recovery_requested(args)
             and state.get('status') != 'RUNNING'
             and not acknowledged_planning_extension and not acknowledged_bound_change
             and str(state.get('status', '')).startswith('PAUSED_')

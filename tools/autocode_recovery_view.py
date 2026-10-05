@@ -192,9 +192,12 @@ def project(state, need=None):
         actions.append(_action('retry_job', 'Retry the inspected step', 'Allow one fresh attempt at this recorded failure. Existing scope, model settings and verification gates still apply.', job_retry_token=need['job_retry_token']))
     elif (members := _builder_members(state, cause)):
         actions.append(_action('retry_builder', 'Retry the stopped Builder', 'Grant one attempt for the listed task after inspection, preserving failure history and model pins. This does not approve a different plan.', milestone_ids=members))
+    elif need.get('action') == '--resume-paused' and state.get('pending_report_repair'):
+        actions.append(_action('resume', 'Validate the edited source', 'Archive the stale report repair and collect fresh evidence. Existing limits and approvals still apply.'))
     elif need.get('retry_report_attempt'):
-        actions.append(_action('retry_report', 'Retry this report', 'Repair the report for this exact attempt. This does not approve its contents or replace verification.', attempt_id=need['retry_report_attempt']))
-    elif cause == 'PAUSED_REPEATED_FAILURE' and not state.get('active_stage') and not state.get('active_runner_check'):
+        actions.append(_action('retry_report', 'Re-run validation', 'Collect fresh validation evidence after this exact rejected attempt. Existing limits and approvals still apply.', attempt_id=need['retry_report_attempt']))
+    elif (cause == 'PAUSED_REPEATED_FAILURE'
+          and not any(state.get(key) for key in ('active_stage', 'active_runner_check', 'uncertain_artifacts', 'pending_report_repair'))):
         actions.append(_action('retry_failed_stage', 'Retry the failed step once', 'Grant one fresh attempt for the recorded repeated failure, subject to the existing limits and verification gates.'))
     elif need.get('kind') in ('answer', 'review', 'approve_plan'):
         actions.append(_action('decision', 'Inspect the current request', 'Only a currently authorized question, plan or evidence card can accept a response in chat. This action does not answer or approve it.'))

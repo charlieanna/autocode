@@ -157,9 +157,14 @@ class RecoveryViewTests(unittest.TestCase):
         self.assertEqual(['inspect', 'new_conversation'], [row['kind'] for row in self.card(stopped)['actions']])
         report = self.state('PAUSED_REPEATED_FAILURE', active_stage=active,
             pending_report_repair={'error': 'Check is not supported by an exact executed Validator event',
-                                   'attempts': 2, 'latest_rejected': {'iteration': 4, 'output': '/run/validator-01.json'}})
+                                   'original': {'stage': 'sol'}, 'attempts': 2, 'latest_rejected': {'iteration': 4, 'output': '/run/validator-01.json'}})
         view = run_view.view(report)
         self.assertEqual('004/builder-02', view['needs']['abandon_stage'])
+        self.assertNotIn('retry_report_attempt', view['needs'])
+        self.assertEqual(['inspect', 'abandon', 'feedback'], [row['kind'] for row in view['recovery']['actions']])
+        report.pop('active_stage')
+        report['settings']['report_repair'] = {'max_attempts': 2}
+        view = run_view.view(report)
         self.assertEqual('004/validator-01', view['needs']['retry_report_attempt'])
         self.assertEqual(['inspect', 'retry_report', 'feedback'], [row['kind'] for row in view['recovery']['actions']])
 
