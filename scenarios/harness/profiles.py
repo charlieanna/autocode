@@ -61,7 +61,7 @@ PROFILES = {
         "effort": {"requirements": "medium", "planner": "high", "reviewer": "high", "builder": "medium",
                    "validator": "high", "completion": "medium", "resolver": "high"},
     },
-    # GLM and MiMo only, through OpenCode: the live run a pull request needs (AGENTS.md).
+    # GLM and MiMo only, through OpenCode: one way to make the live run before a pull request (AGENTS.md).
     # Same routes as the trial harness's 2026-09-26 glm53-mimo profile.
     # Each checker is the other family from its producer (GLM plans, MiMo reviews the plan;
     # MiMo builds, GLM validates and completes), as AutoCode's cross-model check requires.

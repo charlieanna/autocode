@@ -167,14 +167,14 @@ only after a live run: AutoCode driven by real models, on the machine where the
 change was made, after `--changed` and the fake scenario runs pass. GitHub CI
 never runs live models; the pull request carries the evidence.
 
-- **Models.** GLM and MiMo through OpenCode, unless the change is about another
-  provider or route. Run a scenario with the `glm53-mimo` profile
-  (`scenarios/run.py run <scenario> --profile glm53-mimo --i-authorize-live-model-spend
-  --max-seconds 2400 --max-stage-seconds 900 --max-iterations 6`; MiMo needs
-  the longer stage limit) or `autocode` itself with the same model flags.
-  Until #413 is fixed, strict tool containment accepts only OpenCode 1.18.33;
-  any other version stops the run at `PAUSED_TOOL_CONTAINMENT` before the
-  build, which is not a result.
+- **Any provider.** The rule asks for real models, not a particular tool:
+  OpenCode, Kilo Code, or any command-line tool set up as a provider
+  (`docs/providers.md`). Use the provider and models you normally work with;
+  when the change is in one provider's code, the live run goes through that
+  provider. Run a scenario
+  (`scenarios/run.py run <scenario> --profile NAME --i-authorize-live-model-spend`;
+  `scenarios/harness/profiles.py` has the profiles, such as `glm53-mimo` for
+  GLM and MiMo through OpenCode) or `autocode` itself with `--provider NAME`.
 - **Reach the change.** Pick the scenario or task that runs the changed code;
   a pass that never touches it proves nothing. A path a live run cannot reach
   on demand (a crash, a quota running out) gets a fault-injected or
@@ -183,12 +183,15 @@ never runs live models; the pull request carries the evidence.
   also stop on model variance, quota and provider errors. When the run does
   not pass, run the same scenario on `origin/master`. If master fails the same
   way, open the pull request with both results; if only the change fails, fix
-  it first.
+  it first. A run that stops on the provider's own setup before it reaches the
+  change (such as `PAUSED_TOOL_CONTAINMENT` on an OpenCode version AutoCode has
+  not conformance-tested, #413) is not a result: fix the setup or use another
+  provider.
 - **Exempt**, with the reason in the pull request: changes to tests, CI or
   docs only; a fix for a red master, which should not wait; bug fixes to the
   frozen dashboard and macOS app.
 - **Evidence in the pull request body**, because reviewers cannot open your
-  `.scenario-runs/`: the command, the model for each role, the verdict, the
+  `.scenario-runs/`: the command, the provider, the model for each role, the verdict, the
   duration, the run directory's name, and how you know the changed code ran (a
   stage, an event or a log line). Never paste credentials or whole logs.
 
