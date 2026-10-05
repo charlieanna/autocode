@@ -18,9 +18,16 @@ SCHEMA = manifest.obj({'status': {'type':'string','enum':['READY','BLOCKED']},
 
 PROMPT = """Collect the approved Figma files into one complete immutable reference bundle before planning.
 Load figma-use for programmatic inspection and figma-design-to-code before get_design_context.
-Keep every reference file read-only. Discover its entire document/page tree using connected tools;
-fan page reads out once per page using the supplied read-only collector (replace only file/page literals).
-Save the unmodified JSON page receipts as source_json and full document/page metadata XML as metadata_xml.
+Keep every reference file read-only. Discover its entire document/page tree using connected tools.
+Use the supplied read-only collector, setting the approved file/page literals and outputPart=0 first.
+Discover the actual root page roster with a read-only figma.root.children inspection; a connector page listing may expose only the current page.
+The reconstructed receipt's document_pages must match that actual root roster.
+Collect every roster page. For each page, retain ALL outputPart indices with identical receipt SHA256,
+identity and part count, then reconstruct through autocode_design_sources.reassemble(parts).
+Save that complete reconstructed original receipt as source_json, never a transport envelope or truncated JSON.
+Retain the complete connected page metadata XML. When the connector refuses a DOCUMENT target, generate
+its DOCUMENT roster XML faithfully from the retained document_pages; identify it as generated, not a REST export.
+Missing/drifting parts or unreadable source properties are BLOCKED. Do not skip source facts to fit tool limits.
 Include every discovered top-level/Section screen frame and every supplied state. Do not deduplicate away
 unique variants, states or prototype actions. Map every case to the requested product route/state,
 implementation paths, native dimensions, export_scale and all applicable inventory_refs. Shared component

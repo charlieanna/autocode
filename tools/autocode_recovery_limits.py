@@ -10,25 +10,25 @@ except ImportError:
 
 GRANT_ADVICE = (
     "After fixing the cause, authorize more recoveries explicitly with "
-    "--resume-paused --grant-recovery N.")
+    "autocode resume --grant-recovery N (with --run-dir RUN outside the run's project).")
 INFORM_ADVICE = (
     "After fixing the cause, send the AutoResolver request corrective information "
     "with --resolver-request ID --resolver-token TOKEN --resolver-response "
-    "provide_information --resolver-message TEXT, then --resume-paused.")
+    "provide_information --resolver-message TEXT, then autocode resume.")
 ABANDON_THEN_RESUME = (
-    "Set the uncertain attempt aside with --abandon-stage {attempt}, then --resume-paused. "
-    "A plain resume will hold; do not replay the failed attempt automatically.")
+    "Set the uncertain attempt aside with --abandon-stage {attempt}, then autocode resume. "
+    "Resuming without setting it aside will hold; do not replay the failed attempt automatically.")
 BOUND_ADVICE = {
     'PAUSED_TIME_LIMIT': (
-        "To acknowledge this active-time pause, use --resume-paused --max-seconds N "
+        "To acknowledge this active-time pause, use autocode resume --max-seconds N "
         "with a total above elapsed active time, or 0 for no time cap. "
         "You may reassert an already saved total; unrelated settings do not acknowledge this pause."),
     'PAUSED_ITERATION_LIMIT': (
         "After fixing the cause, raise the bound and continue in the same command with "
-        "--resume-paused --max-iterations N (a different N supersedes this request)."),
+        "autocode resume --max-iterations N (a different N supersedes this request)."),
     'PAUSED_MILESTONE_TIME_LIMIT': (
         "After fixing the cause, raise the bound and continue in the same command with "
-        "--resume-paused --max-milestone-seconds N (a different N supersedes this request)."),
+        "autocode resume --max-milestone-seconds N (a different N supersedes this request)."),
 }
 
 
@@ -45,7 +45,7 @@ def advice(*, allow_grant, pause_status=None, attempt=None):
         return text if not attempt else f"{text} {abandon_advice(attempt)}"
     if attempt:
         # #340: after provide_information a plain resume holds; the working step is abandon.
-        return (INFORM_ADVICE + " " + abandon_advice(attempt))
+        return INFORM_ADVICE.removesuffix(", then autocode resume.") + ". " + abandon_advice(attempt)
     return INFORM_ADVICE
 
 

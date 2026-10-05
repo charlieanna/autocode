@@ -60,6 +60,30 @@ does not enable `--auto` or override user-level permission rules with blanket al
 A denied required operation is reported back as a blocker.
 See OpenCode's [permission documentation](https://opencode.ai/docs/permissions/).
 
+### Output cap
+
+OpenCode stops a model's response at the smaller of the model's listed output limit
+and `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX`, and reasoning counts against the same cap.
+Unset, the variable means 32000 tokens, which a planning report (full contract,
+requirement trace and responses) can exceed: the stage stops with finish reason
+`length` and truncated JSON. AutoCode therefore launches OpenCode with
+`OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX=64000` unless you set a positive whole number
+yourself, which wins:
+
+```sh
+OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX=100000 autocode "..."
+```
+
+It does not default to the model's whole listed limit (131072 for GLM 5.3): OpenCode
+starts compacting a session when its context reaches the window minus this cap, and some
+APIs refuse a request whose input plus maximum output exceeds the window. Each stage
+record keeps the cap its process got under `output_token_cap` (`tokens`, and `set_by`:
+`operator`, `autocode`, or `opencode` when the variable did not reach it). A length stop's
+pause names that cap and how many tokens the last response used. To continue after one,
+set a larger cap, set the attempt aside with `--abandon-stage`, and `--resume-paused`.
+The rules are in `tools/autocode_output_cap.py`; configured command providers are not
+affected.
+
 ### Environment variables agents see
 
 Every provider process, and every test command the runner executes itself, gets
@@ -67,8 +91,10 @@ the runner's environment minus variables that look like credentials: a name word
 such as `TOKEN`, `SECRET`, `PASSWORD`, `KEY` or `AUTH` (`GITHUB_TOKEN`,
 `AWS_SECRET_ACCESS_KEY`, `SSH_AUTH_SOCK`, `OPENAI_API_KEY`), or a URL value with
 an embedded password. Proxy variables and AutoCode's own `AUTOCODE_*` settings are
-kept. Each stage record lists the withheld names (never values) under
-`withheld_env`. The rules are in `tools/autocode_agent_env.py`.
+kept, and so are token counts: a `TOKEN` word followed by `MAX`, `LIMIT`, `COUNT` or
+`BUDGET`, or after `MAX`, holding a whole number
+(`OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX=100000`). Each stage record lists the withheld
+names (never values) under `withheld_env`. The rules are in `tools/autocode_agent_env.py`.
 
 Providers sign in from their own stored logins (OpenCode, Codex and Kilo auth
 files), so the default routes need none of these. If

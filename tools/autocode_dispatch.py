@@ -346,6 +346,8 @@ def run_workers(state, run_dir, batch):
                 time.sleep(.2)
             for row, child, tree in active:
                 row["exit_code"] = child.returncode
+                result_path = Path(row["run_dir"]) / "result.json"
+                row["status"] = s.read(result_path).get("status", "PAUSED_ORCHESTRATOR_WORKER") if result_path.is_file() else "INTERRUPTED"
                 if tree.sample():
                     tree.stop(child)
     except KeyboardInterrupt as error:
@@ -434,6 +436,10 @@ def collect(state, workspace, run_dir, batch):
         if result.get("status") == builder_policy.SERIAL:
             deferred.append((row, deferred_worker(batch, row)))
             continue
+        if result.get("status") == "PAUSED_BUDGET" and result.get("quota_worker"):
+            error = s.Paused("PAUSED_BUDGET", f"PAUSED_BUDGET: Builder {row['milestone_id']} stopped on quota; {directory}")
+            error.quota_worker = result["quota_worker"]
+            raise error
         if result.get("status") != "BUILT":
             raise s.Paused("PAUSED_ORCHESTRATOR_WORKER", f"Builder {row['milestone_id']}: {result.get('reason', 'paused')}; {directory}")
         child = s.read(directory / "state.json")

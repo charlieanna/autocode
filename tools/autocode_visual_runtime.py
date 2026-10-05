@@ -53,6 +53,29 @@ def _pins(root, pins):
         _require(util.file_hash(_owned(root, path)) == expected, 'Sealed visual evidence changed: ' + path)
 
 
+def verify_reference(state):
+    """Keep retained inputs intact even when capture/delivery is NOT_READY.
+
+    This launch gate checks only the saved reference's structure, identity,
+    owned files and original bytes. Mapping, future captures and visual review
+    readiness remain separate; this check cannot grant visual acceptance.
+    """
+    try:
+        record = state.get('settings', {}).get('design_manifest')
+        _require(record, 'Approved visual contract requires its retained design manifest')
+        _require(isinstance(record, dict), 'Invalid retained design manifest record')
+        root = Path(state['workspace']).resolve()
+        _require(Path(record['root']).resolve().is_relative_to(root),
+                 'Retained design references must be owned by the workspace')
+        design.verify(record)
+        for artifact in design.all_artifacts(record['body']):
+            _owned(root, Path(record['root']) / artifact['path'])
+        if record.get('manifest_path'):
+            _owned(root, record['manifest_path'])
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError) as error:
+        raise util.Paused('PAUSED_VISUAL_EVIDENCE', str(error)) from error
+
+
 def _runtime_hash():
     root = Path(__file__).resolve().parent
     # Include controller/provider bytes without importing those higher layers.
@@ -243,7 +266,7 @@ def prepare(state, stage, workspace, run_dir, base, command, env, prompt, *,
         child['OPENCODE_CONFIG_CONTENT'] = json.dumps(config)
         _require('--agent' in command, 'Visual delivery requires the actual named reviewer agent')
         child['AUTOCODE_IMAGE_AUDIT'] = json.dumps({'path': str(audit), 'attempt_id': attempt,
-            'binding_sha256': util.digest(bound), 'max_requests': 1,
+            'binding_sha256': util.digest(bound),
             'reviewer': {**current['reviewer'], 'agent': command[command.index('--agent') + 1]}})
         argv = [*command, *(value for row in images for value in ('--file', row['path']))]
         qualified = launch_authority(command=deepcopy(argv), env=dict(child), plugin_path=plugin,
@@ -254,6 +277,10 @@ def prepare(state, stage, workspace, run_dir, base, command, env, prompt, *,
         _require(isinstance(child, dict) and all(isinstance(key, str) and isinstance(value, str)
                                                for key, value in child.items()), 'Invalid visual child environment')
         config = json.loads(child['OPENCODE_CONFIG_CONTENT'])
+        audit_options = json.loads(child['AUTOCODE_IMAGE_AUDIT'])
+        _require(type(audit_options.get('max_requests')) is int
+                 and 0 < audit_options['max_requests'] <= delivery.SESSION_MAX_REQUESTS,
+                 'Visual authority must supply an approved bounded session request cap')
         _pins(run, qualified['evidence_hashes'])
         limits = qualified['image_limits']
         _require(all(type(limits[key]) is int and limits[key] > 0 for key in ('width', 'height', 'pixels', 'bytes')),
@@ -267,7 +294,7 @@ def prepare(state, stage, workspace, run_dir, base, command, env, prompt, *,
                    'plugin_path': str(plugin), 'plugin_sha256': pins[str(plugin)], 'audit_path': str(audit),
                     'attempt_id': attempt, 'pins': pins, 'command': argv,
                     'config_sha256': util.digest(config), 'environment_sha256': util.digest(child),
-                    'audit_options': json.loads(child['AUTOCODE_IMAGE_AUDIT']),
+                    'audit_options': audit_options,
                     'child_identity': qualified.get('child_identity')}
         path, sha = _write(directory / 'launch.json', (json.dumps(context, sort_keys=True) + '\n').encode())
         context.update(launch_manifest=path, launch_sha256=sha)
@@ -380,16 +407,23 @@ def accept_review(runtime, state, record, *, run_dir, current_snapshot, accepted
     accepted_validation is its freshly checked validation object, never a model
     report or a persisted state hint. runtime is reserved for the controller's
     calling convention; no private controller calls or supplied delivery override.
-    All failed visual gates pause, not ValueError/report-format repair.
+    NOT_READY leaves the functional report intact without minting acceptance.
+    Functional FAIL/BLOCKED remains available to the ordinary rework path; it
+    cannot acquire visual authority. Attempted READY acceptance still pauses on
+    any failed visual gate, rather than entering report-format repair.
     """
     if record.get('stage') != 'sol':
+        return None
+    context = record.get('visual_runtime')
+    if isinstance(context, dict) and context.get('status') == 'NOT_READY':
+        return None
+    if isinstance(accepted_validation, dict) and accepted_validation.get('verdict') in ('FAIL', 'BLOCKED'):
         return None
     if not state.get('settings', {}).get('design_manifest'):
         if requested(state):
             raise util.Paused('PAUSED_VISUAL_EVIDENCE', 'Approved visual contract requires its retained design manifest')
         return None
     try:
-        context = record.get('visual_runtime')
         run = Path(run_dir).resolve()
         _prepared(context, state, run, current_snapshot)
         current = context['current']

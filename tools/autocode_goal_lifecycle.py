@@ -402,7 +402,6 @@ def render(state, run_dir=None):
     if asks_approval:
         # The last screen: the decision in brief, then the limits and the commands (#381).
         lines += [""] + approval_view.summary(body, contract["revision"], test_cases.proof_cases(state, all_due=True),
-                                              from_diagnosis=bool(test_cases.diagnosis_cases(state)),
                                               design_only=test_cases.design_only(state))
         lines += [""] + approval_view.actions(token(contract), state.get("settings") or {},
                                               state.get("iteration", 0), run_dir)

@@ -5,12 +5,14 @@ import uuid
 
 try:
     from . import autocode as runner, autocode_stage_context as stage_context
+    from . import autocode_worker_quota as worker_quota, autocode_quota_route as quota_route
     from . import autocode_test_examples as test_examples, autocode_test_cases as test_cases
     from . import autocode_assignment as assignment
 except ImportError:
     import autocode_assignment as assignment
     import autocode_test_cases as test_cases
     import autocode as runner, autocode_stage_context as stage_context
+    import autocode_worker_quota as worker_quota, autocode_quota_route as quota_route
     import autocode_test_examples as test_examples
 
 
@@ -35,6 +37,11 @@ def execute(state, directory, workspace, mode):
                 or current["head"] != batch.get("base_commit") or current["files"] != expected):
             raise runner.support.Paused("PAUSED_ORCHESTRATOR_DRIFT", "Unlaunched Builder baseline changed; no automatic replay")
         mode = "start"
+    if mode == "retry":
+        parent = runner.read_json(Path(state["parent_run"]) / "state.json")
+        if any(r.get("stage") == "orchestrator" and not r.get("finished_at")
+               for r in parent.get("stages", [])):
+            raise runner.support.Paused("PAUSED_ORCHESTRATOR_WORKER", "Parent orchestrator stage is unfinished")
     if state.get("active_stage"):
         try:
             runner.reconcile_active(state, directory, workspace)
@@ -124,7 +131,12 @@ def main(directory, mode="start"):
                 reason = str(error) or state.get("pending_report_repair", {}).get("error") or type(error).__name__
                 state.update(status=getattr(error, "status", "PAUSED_ORCHESTRATOR_WORKER"), stop_reason=reason)
                 runner.write_json(directory / "state.json", state)
-                runner.write_json(directory / "result.json", {"status": state["status"], "reason": reason})
+                result = {"status": state["status"], "reason": reason}
+                if state["status"] == quota_route.QUOTA_STATUS:
+                    worker = worker_quota.payload(state, directory, workspace)
+                    if worker:
+                        result["quota_worker"] = worker
+                runner.write_json(directory / "result.json", result)
                 return 2
     except runner.support.Paused as error:
         # Never overwrite a live owner's state when its lock is held.

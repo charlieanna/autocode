@@ -151,7 +151,7 @@ def normalize_human_boundary(state, run_dir):
                     state.update(status='PAUSED_APPROVAL_DEFERRED', phase='PAUSED_OR_BLOCKED', stop_reason=(
                         f"Plan approval was deferred again: {reason}. Planning already restarted "
                         f"{restarts[identity]} times for this reason since your last input, so it stopped "
-                        "instead of starting another cycle. Inspect the run; --resume-paused runs one more "
+                        "instead of starting another cycle. Inspect the run; autocode resume runs one more "
                         "planning cycle, and --feedback restarts from requirements."))
                     return
                 restarts[identity] = restarts.get(identity, 0) + 1

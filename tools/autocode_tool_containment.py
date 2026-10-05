@@ -20,6 +20,8 @@ import uuid
 SUPPORTED_VERSION = "1.18.33"
 SYSTEM_READ_ROOTS = ("/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/lib",
                      "/usr/share", "/System/Library", "/Library/Apple/System/Library")
+# prepare() names each launch's control directory uuid4().hex; nothing else matches.
+CONTROL_NAME = re.compile('tool-containment-[0-9a-f]{32}')
 
 
 def _path(value):
@@ -314,7 +316,7 @@ def verify(boundary):
         profile, shell, scratch = (_path(boundary[name]) for name in ('profile', 'shell', 'scratch'))
         control = profile.parent
         if (control.parent != workspace / '.autocode'
-                or not re.fullmatch('tool-containment-[0-9a-f]{32}', control.name)
+                or not CONTROL_NAME.fullmatch(control.name)
                 or profile.name != 'policy.sb' or shell != control / 'shell'
                 or scratch != control / 'scratch' or not scratch.is_dir()):
             raise ValueError('Unexpected containment authority layout')
@@ -334,3 +336,23 @@ def verify(boundary):
             import autocode_verification_copy as copies
         copies.execution(boundary['verification_copy'], boundary['verification_copy_sha256'], workspace)
     return boundary
+
+
+def recorded_scratch(records, workspace):
+    """The scratch directories these launch records say prepare() made for them, in its exact layout.
+
+    A contained stage is told to capture evidence there (provider_launch.containment_prompt), so such
+    evidence belongs to the run whose stage records are passed; another run's scratch is not in them.
+    Lexical only: callers still refuse symlinks on the evidence path itself.
+    """
+    private = Path(workspace) / '.autocode'
+    found = []
+    for record in records:
+        boundary = record.get('tool_containment') if isinstance(record, dict) else None
+        scratch = boundary.get('scratch') if isinstance(boundary, dict) else None
+        if not isinstance(scratch, str):
+            continue
+        path = Path(scratch)
+        if path.name == 'scratch' and path.parent.parent == private and CONTROL_NAME.fullmatch(path.parent.name):
+            found.append(path)
+    return tuple(dict.fromkeys(found))

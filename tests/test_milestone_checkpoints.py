@@ -75,6 +75,15 @@ class MilestoneCheckpointTests(unittest.TestCase):
         record = {'role': 'sol', 'stage': 'sol', 'events': str(events), 'output': str(events), 'source_revision': s.snapshot(self.root)['revision']}
         runner.apply_result(self.state, 'sol', value, record, self.root, self.run)
 
+    def test_a_failed_validation_is_rechecked_before_another_completion_review(self):
+        self.start()
+        self.validate(statuses={'C1': 'PASS', 'C2': 'PASS', 'C3': 'NOT_VERIFIED'}, verdict='FAIL')
+        self.state['validation']['findings'] = [{
+            'finding': 'regression_proof is FAIL', 'severity': 'medium', 'blocking': True, 'evidence': 'old proof'}]
+        self.assign('M2')
+        self.assertEqual('sol', self.state['next_stage'])
+        self.assertIn('independent passing evidence', self.state.get('milestone_blocker', ''))
+
     def test_dependent_milestone_waits_for_accepted_prerequisites(self):
         draft = body()
         draft['acceptance_criteria'] += [
@@ -576,6 +585,98 @@ class MilestoneCheckpointTests(unittest.TestCase):
         self.assign(status='REWORK', next_objective='Smaller independent reproduction')
         self.assertEqual('PAUSED_MILESTONE_BUDGET', self.state['status'])
         self.assertEqual(0, m.progress(self.state)['replans'])
+
+
+class PendingReplanThroughTheCLI(unittest.TestCase):
+    """Issue #459: a stalled milestone's Completion Owner is told the gate it must pass.
+
+    Live feature-stock-refusals run 8soi9a5s (2026-10-05): M1 stalled (needs_replan, replans 0 of 1),
+    and the Plan Reviewer, following the general rule to answer CONTINUE with a validate task when
+    work only needs revalidation, did so three times; the gate refused each one until the run paused
+    PAUSED_MILESTONE_REPLAN. The fake provider below answers each dispatched stage from a script."""
+    setUp = test_goals.GoalTests.setUp
+    invoke = test_goals.GoalTests.invoke
+    start = MilestoneCheckpointTests.start
+    assign = MilestoneCheckpointTests.assign
+    decision = MilestoneCheckpointTests.decision
+    validate = MilestoneCheckpointTests.validate
+
+    GENERAL_RULE = 'with CONTINUE when existing work only needs Validator revalidation'
+
+    def stall(self):
+        self.start()
+        for _ in range(3):
+            self.validate({'C1': 'FAIL', 'C2': 'FAIL'})
+        self.assertEqual(('RUNNING', 'astra_review'), (self.state['status'], self.state['next_stage']))
+
+    def revalidation(self, status):
+        # The live proposal: no source edits, a changed capture, evidence cited.
+        decision = self.decision(status=status)
+        decision.update(next_objective='Revalidate M1 without source edits, capturing the flow without rm')
+        decision['next_task'].update(kind='validate', requirements=['No source edits; capture the flow without rm'],
+                                     validation_plan=['Capture valid and empty input with one python3 -c command'])
+        return decision
+
+    def provider(self, script):
+        """Record every dispatched prompt; answer from script[stage], and stop before any other stage."""
+        prompts = []
+
+        def answer(**request):
+            state, stage = request['state'], request['state']['next_stage']
+            prompts.append((stage, request['prompt']))
+            if not script.get(stage):
+                raise s.Paused('PAUSED_TEST', f'fixture stops before {stage}')
+            value = script[stage].pop(0)
+            output = self.run / f'{stage}-{len(prompts)}.json'
+            output.write_text(json.dumps(value))
+            return value, {'role': request['role'], 'stage': stage, 'output': str(output), 'exit_code': 0,
+                           'source_revision': s.snapshot(self.root)['revision'], 'changed_files': [],
+                           'task_id': state['current_task']['id'], 'iteration': state['iteration'],
+                           'duration_seconds': 1}
+        return prompts, answer
+
+    def checkpoint(self):
+        self.assertEqual(0, self.invoke('--status'))
+        return json.loads(self.stdout)['milestone_checkpoint']['current']
+
+    def assert_states_the_gate(self, prompt):
+        instruction = prompt.split('CURRENT HANDOFF DATA\n', 1)[0]
+        self.assertIn('MILESTONE REPLAN REQUIRED', instruction)
+        self.assertIn('only with status REWORK, nonempty evidence and a changed approach', instruction)
+        self.assertIn('return REWORK with\nnext_task.kind=validate', instruction)
+        self.assertIn('replan 1 of 1', instruction)
+        self.assertNotIn(self.GENERAL_RULE, instruction.replace('\n', ' '))
+
+    def test_review_prompt_states_the_replan_gate_and_continue_validate_still_pauses(self):
+        self.stall()
+        prompts, answer = self.provider({'astra_review': [self.revalidation('CONTINUE') for _ in range(3)]})
+        self.assertEqual(2, self.invoke('--no-chat', role=answer))
+        # As live: three refused reviews, then the Investigator before the pause (stopped here by the fixture).
+        self.assertEqual(['astra_review'] * 3 + ['investigate_stuck'], [stage for stage, _ in prompts])
+        for _, prompt in prompts[:3]:
+            self.assert_states_the_gate(prompt)
+        # The gate is unchanged: a CONTINUE is never accepted while the replan is required.
+        self.assertEqual('PAUSED_MILESTONE_REPLAN', self.state['status'])
+        current = self.checkpoint()
+        self.assertEqual((True, 0, 3), (current['needs_replan'], current['replans'], current['rejected_advances']))
+
+    def test_evidence_backed_rework_with_a_changed_approach_is_accepted(self):
+        self.stall()
+        rework = self.revalidation('REWORK')
+        diagnosis = {**rework, 'diagnosis': 'The flow is unverified because its capture was blocked; '
+                     'revalidate it with an rm-free capture.'}
+        prompts, answer = self.provider({'astra_review': [rework], 'astra_resolve': [diagnosis]})
+        self.assertEqual(2, self.invoke('--no-chat', role=answer))
+        # The Resolver plans the repair from the same review prompt, so it is told the gate too.
+        self.assertEqual(['astra_review', 'astra_resolve', 'sol'], [stage for stage, _ in prompts])
+        for _, prompt in prompts[:2]:
+            self.assert_states_the_gate(prompt)
+        self.assertNotIn('MILESTONE REPLAN REQUIRED', prompts[2][1])
+        self.assertEqual(('PAUSED_TEST', 'sol'), (self.state['status'], self.state['next_stage']))
+        self.assertEqual(('validate', rework['next_objective']),
+                         (self.state['current_task']['kind'], self.state['current_task']['objective']))
+        current = self.checkpoint()
+        self.assertEqual((False, 1), (current['needs_replan'], current['replans']))
 
 
 if __name__ == '__main__':

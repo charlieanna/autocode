@@ -402,7 +402,7 @@ timestamp. A saved observation does not prove a recorded worker is still alive.
 `longest_idle_seconds` is the longest quiet period that ended with new activity or
 a tool start (the open one is `idle_seconds`), so earlier silences can be compared
 with the limit before changing it. An inactivity stop names its limit, whether that
-is the runner default or was set explicitly, and how to change it (`--resume-paused
+is the runner default or was set explicitly, and how to change it (`autocode resume
 --max-idle-seconds N`). Once the automatic recovery allowance is spent, the new
 limit is saved but no provider launches until `--grant-recovery N` is also given.
 Routes of a model family that reasons in long silent blocks run under a higher default:
@@ -514,6 +514,13 @@ Inspect the saved cause and adjust limits as needed; explicit `--resume-paused`
 acknowledges `PAUSED_TIMEOUT_RECOVERY` and resets recovery counters while retaining
 history. Setting `--no-progress-limit 0` disables the unchanged-batch limit, but
 never disables the three-recovery safety ceiling.
+A run held at `PAUSED_NO_PROGRESS` keeps its count. `--resume-paused
+--no-progress-limit N` acknowledges that pause when N is above the count, or `0`;
+an N at or below the count holds without launching the Builder. Information alone
+(`--resolver-response provide_information`) never acknowledges it. Reasserting an
+already saved N on resume also acknowledges it, for example after a response
+consumed the request. The flag never acknowledges another cause's pause, such as
+the active-time limit.
 A terminal response, live worker or requested pause remains paused for inspection.
 Other uncertain provider requests still require explicit reconciliation.
 `--resume-paused` acknowledges operational pauses only. Saved limits persist unless you

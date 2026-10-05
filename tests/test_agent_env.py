@@ -42,6 +42,27 @@ class ScrubTests(unittest.TestCase):
     def test_token_counts_are_not_credentials(self):
         self.assertEqual([], agent_env.withheld({"MAX_THINKING_TOKENS": "8000", "CONTEXT_TOKENS": "1"}))
 
+    def test_a_token_cap_reaches_agents_without_a_pass_through(self):
+        # OpenCode's output cap ends in TOKEN_MAX; withholding it truncated planning reports at 32000.
+        counts = {"OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX": "64000", "MODEL_TOKEN_LIMIT": "8192",
+                  "PROMPT_TOKEN_COUNT": "0", "REVIEW_TOKEN_BUDGET": "120000", "LLM_MAX_TOKEN": "4096",
+                  "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "32000"}
+        self.assertEqual([], agent_env.withheld(counts))
+        self.assertEqual(counts, agent_env.scrubbed(counts))
+
+    def test_credential_detection_stays_strict_around_token_counts(self):
+        env = {"GH_TOKEN": "t", "GITHUB_TOKEN": "t", "SLACK_BOT_TOKEN": "xoxb-1", "OPENAI_API_KEY": "k",
+               # A count word but not a number: a credential that happens to be named this way.
+               "SERVICE_TOKEN_MAX": "ghp_abc123", "TOKEN_LIMIT": "64k", "OUTPUT_TOKEN_MAX": " 64000",
+               # A number, but no count word beside TOKEN, or a credential word elsewhere in the name.
+               "PIN_TOKEN": "1234", "TOKEN_MAX_SECRET": "64000", "AUTH_TOKEN_MAX": "64000",
+               "API_KEY_TOKEN_LIMIT": "64000", "SESSION_TOKEN_MAXIMUM": "64000",
+               "OUTPUT_TOKEN_MAX_PASSWORD": "64000",
+               # Too long to be a token count.
+               "ACCOUNT_TOKEN_COUNT": "12345678901",
+               "CACHE_TOKEN_LIMIT_URL": "https://bot:hunter2@cache.test/"}
+        self.assertEqual(sorted(env), agent_env.withheld(env))
+
     def test_named_variables_pass_through(self):
         env = {"ZHIPU_API_KEY": "k", "GITHUB_TOKEN": "t", agent_env.PASS_VARIABLE: " ZHIPU_API_KEY , "}
         self.assertEqual({"ZHIPU_API_KEY", agent_env.PASS_VARIABLE}, set(agent_env.scrubbed(env)))

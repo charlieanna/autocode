@@ -25,6 +25,7 @@ try:
     from . import autocode_builder_policy as builder_policy
     from . import autocode_failures as failures
     from . import autocode_quota_route as quota_route
+    from . import autocode_tool_containment as containment
 except ImportError:
     import autocode_recovery_novelty as novelty
     import autocode_util as util
@@ -37,6 +38,7 @@ except ImportError:
     import autocode_builder_policy as builder_policy
     import autocode_failures as failures
     import autocode_quota_route as quota_route
+    import autocode_tool_containment as containment
 
 
 def _stale(reason):
@@ -84,12 +86,14 @@ def _run_root(state, record):
     return output.parent
 
 
-def _artifact_owned(path, workspace, run):
+def _artifact_owned(path, workspace, run, state):
     path = _owned(path, workspace)
     private = workspace / ".autocode"
     shared = private / "evidence"
     scratch = private / "recovery-evidence" / util.digest(str(run))
-    if path.is_relative_to(private) and not any(path.is_relative_to(root) for root in (run, shared, scratch)):
+    # A contained stage captures in the tool-containment scratch its own launch recorded (#419).
+    contained = containment.recorded_scratch(state.get("stages", []), workspace)
+    if path.is_relative_to(private) and not any(path.is_relative_to(root) for root in (run, shared, scratch, *contained)):
         _stale("evidence belongs to another run")
     return path
 
@@ -131,6 +135,12 @@ def _scope(state):
     return {"task_id": contract.get("task_id"), "contract_hash": contract.get("hash"),
             "milestones": sorted(task.get("milestone_ids") or [task.get("milestone_id") or ""]),
             "criteria": sorted(task.get("acceptance_criteria") or [])}
+
+
+def _narrows(failed, scope):
+    """A repair may keep fewer of the failed task's criteria; it never adds one or moves."""
+    same = all(scope[key] == failed[key] for key in ("task_id", "contract_hash", "milestones"))
+    return scope == failed or (same and bool(scope["criteria"]) and set(scope["criteria"]) <= set(failed["criteria"]))
 
 
 def receipts(state):
@@ -254,7 +264,7 @@ def prepare_resolution(state, decision, record):
     paths = list((state.get("current_task") or {}).get("affected_paths") or decision.get("affected_paths") or [])
     sources, originals = {}, []
     for path, digest in request.get("evidence_hashes", {}).items():
-        _artifact_owned(path, workspace, run)
+        _artifact_owned(path, workspace, run, state)
         originals.append(_archive(path, run, digest))
     for relative in current["files"]:
         if not any(relative == path.rstrip("/") or relative.startswith(path.rstrip("/") + "/") for path in paths):
@@ -274,7 +284,7 @@ def prepare_resolution(state, decision, record):
         for key in ("diff_ref", "events", "output", "before_ref", "after_ref"):
             path = row.get(key)
             if path and path not in seen and Path(path).is_file():
-                _artifact_owned(path, workspace, run)
+                _artifact_owned(path, workspace, run, state)
                 originals.append(_archive(path, run))
                 seen.add(path)
     packet = {"version": 1, "run_dir": str(run), "binding": _binding(state, current["revision"]),
@@ -536,7 +546,7 @@ def _verify_reports(state, decision, record, accepted, run_dir):
         _stale("accepted failure has no original evidence pins")
     workspace, run = Path(state["workspace"]).resolve(), Path(run_dir).resolve()
     for path, digest in pins.items():
-        if _hash(_artifact_owned(path, workspace, run)) != digest:
+        if _hash(_artifact_owned(path, workspace, run, state)) != digest:
             _stale("original failed-check evidence changed during recovery admission")
     for check in validation.get("checks", []):
         if type(check.get("exit_code")) is not int or check["exit_code"] == 0:
@@ -546,11 +556,11 @@ def _verify_reports(state, decision, record, accepted, run_dir):
             if accepted["events"] not in pins:
                 _stale("failed event lacks its original event-stream pin")
         else:
-            receipt = _artifact_owned(ref, workspace, run)
+            receipt = _artifact_owned(ref, workspace, run, state)
             output = _read(receipt).get("full_output")
             if not isinstance(output, str) or not output:
                 _stale("original failed receipt lost its output path")
-            raw = _artifact_owned(output, workspace, run)
+            raw = _artifact_owned(output, workspace, run, state)
             if str(receipt) not in pins or str(raw) not in pins:
                 _stale("failed receipt and original log must both be pinned")
 
@@ -820,18 +830,22 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
         if current_inputs != packet["inputs"] or current_pins != packet["input_pins"]:
             _stale("external input changed after incident capture")
     bound = _binding(state, util.snapshot(workspace)["revision"])
-    # A repair has a newly assigned task, but the approved stable scope must match.
+    # A repair has a newly assigned task, but the approved stable scope must match;
+    # a pinned repair task may only narrow the failed task's criteria (#423).
     expected = {**packet["binding"], "task_id": bound["task_id"]} if stage == "terra" else packet["binding"]
+    scope = _scope(state)
+    within = packet["scope"] == scope
     if stage == "terra" and request.get("recovery_admission"):
         pin = request["recovery_admission"]
         path = _owned(pin["path"], run_dir)
         if not path.is_file() or util.file_hash(path) != pin["sha256"]:
             _stale("repair admission receipt is missing or changed")
         admission = util.read(path)
-        if admission.get("packet") != pointer or admission.get("scope") != _scope(state):
+        if admission.get("packet") != pointer or admission.get("scope") != scope:
             _stale("repair admission changed packet or scope")
         expected = admission["binding"]
-    if bound != expected or packet["scope"] != _scope(state):
+        within = _narrows(packet["scope"], scope)
+    if bound != expected or not within:
         _stale("current source, task, settings, contract or scope changed before admission")
     active = state.get("active_stage")
     if active and active is not record and active.get("output") != record.get("output"):

@@ -246,6 +246,107 @@ class DesignManifestTests(unittest.TestCase):
                                 text=True, capture_output=True, timeout=20)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
+    def test_plugin_getter_receipt_reconciles_original_resources_and_compressed_transport(self):
+        import autocode_design_sources as sources
+        from tests.figma_inventory_fixtures import plugin_source_bundle
+        if not shutil.which('node'):
+            self.skipTest('Node is required for the offline connector fixture')
+        path, body, receipt, parts = plugin_source_bundle(self.root / 'typed-plugin')
+        self.assertEqual(receipt, sources.reassemble(list(reversed(parts))))
+        self.assertEqual('figma-plugin-api-properties-v1', receipt['source_format'])
+        self.assertEqual(body, manifest.load(path)['body'])
+        text = next(row for row in receipt['nodes'] if row['type'] == 'TEXT')
+        self.assertEqual('Hi 😁 friend', text['visual']['characters'])
+        self.assertEqual(5, text['visual']['text_segments'][1]['start'])
+        self.assertEqual({'wght': 600, 'slnt': 0}, text['fonts'][1]['variationSettings'])
+        self.assertEqual(['v1', 'v2'], text['variables'])
+        self.assertLess(parts[0]['encoded_length'], parts[0]['receipt_length'])
+
+    def test_plugin_transport_refuses_partial_corrupt_noncanonical_and_mixed_receipts(self):
+        import base64
+        import hashlib
+        import autocode_design_sources as sources
+        from tests.figma_inventory_fixtures import plugin_source_bundle
+        if not shutil.which('node'):
+            self.skipTest('Node is required for the offline connector fixture')
+        _, _, _, original = plugin_source_bundle(self.root / 'typed-transport')
+        for change in ('missing', 'duplicate', 'truncated', 'mixed_hash', 'mixed_page', 'digest',
+                       'code', 'base64', 'size', 'oversized', 'format'):
+            parts = copy.deepcopy(original)
+            if change == 'missing': parts.pop()
+            elif change == 'duplicate': parts[-1] = copy.deepcopy(parts[0])
+            elif change == 'truncated': parts[-1]['json_part'] = parts[-1]['json_part'][:-1]
+            elif change == 'mixed_hash': parts[-1]['receipt_sha256'] = '0' * 64
+            elif change == 'mixed_page': parts[-1]['page_id'] = '9:9'
+            elif change == 'digest':
+                for part in parts: part['receipt_sha256'] = '0' * 64
+            elif change == 'code': parts[0]['json_part'] = '/' + parts[0]['json_part'][1:]
+            elif change == 'base64': parts[0]['json_part'] = '!' + parts[0]['json_part'][1:]
+            elif change == 'size':
+                for part in parts: part['receipt_length'] -= 1
+            elif change == 'oversized':
+                for part in parts: part['receipt_length'] = sources.TRANSPORT_LIMIT + 1
+            elif change == 'format':
+                for part in parts: part['encoding'] = 'invented-compression'
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                sources.reassemble(parts)
+        # This legally decodes to the same ASCII bytes but literal-only LZW is
+        # noncanonical. A matching SHA cannot legitimize a lossy/alternate codec.
+        text = b'{"file_key":"FILEA","page_id":"0:1","source_format":"figma-plugin-api-properties-v1","complete":true,"errors":[]}'
+        binary = b'\x01\x00' + b''.join(code.to_bytes(2, 'big') for code in text)
+        encoded = base64.b64encode(binary).decode()
+        part = dict(transport_version=1, encoding='lzw16-base64-json-ascii-v1', source_format=sources.PLUGIN_SOURCE,
+                    file_key='FILEA', page_id='0:1', receipt_sha256=hashlib.sha256(text).hexdigest(),
+                    receipt_length=len(text), encoded_length=len(encoded), part_index=0, part_count=1,
+                    complete=True, error_count=0, json_part=encoded)
+        with self.assertRaisesRegex(ValueError, 'noncanonical'):
+            sources.reassemble([part])
+        with self.assertRaisesRegex(ValueError, 'size bound'):
+            sources._lzw_decode(sources._lzw_encode(b'A' * 10000), 20)
+
+    def test_plugin_source_cannot_omit_original_getters_ranges_aliases_modes_or_variant_identity(self):
+        from tests.figma_inventory_fixtures import plugin_source_bundle
+        if not shutil.which('node'):
+            self.skipTest('Node is required for the offline connector fixture')
+        path, body, original, _ = plugin_source_bundle(self.root / 'typed-source-refusals')
+        for change in ('getter', 'unreadable', 'transform', 'bounds', 'stroke_map', 'vector_map', 'identity', 'parent', 'child_order', 'segment_field',
+                       'segment_gap', 'segment_text', 'font', 'rich_asset', 'alias', 'mode', 'mode_roster',
+                       'variant', 'instance', 'document_roster', 'document_name', 'format', 'provenance_downgrade'):
+            receipt = copy.deepcopy(original)
+            nodes = {row['id']: row for row in receipt['nodes']}
+            frame, text = nodes['1:2'], nodes['I4:5;10:12']
+            if change == 'getter': frame['visual'].pop('paddingLeft')
+            elif change == 'unreadable': frame['visual']['effects'] = {'__figma_unreadable__': True}
+            elif change == 'transform': frame['visual']['absoluteTransform'] = {}
+            elif change == 'bounds': frame['visual']['absoluteBoundingBox'] = {}
+            elif change == 'stroke_map': frame['visual']['complexStrokeProperties'] = {}
+            elif change == 'vector_map': nodes['1:8']['visual']['vectorNetwork'] = {}
+            elif change == 'identity': frame['visual']['id'] = '1:99'
+            elif change == 'parent': text['visual']['parent_id'] = '0:1'
+            elif change == 'child_order': frame['visual']['child_ids'].reverse()
+            elif change == 'segment_field': text['visual']['text_segments'][1].pop('letterSpacing')
+            elif change == 'segment_gap': text['visual']['text_segments'][1]['start'] = 6
+            elif change == 'segment_text': text['visual']['text_segments'][0]['characters'] = 'Hi'
+            elif change == 'font': text['fonts'].pop()
+            elif change == 'rich_asset': text['assets'] = []
+            elif change == 'alias': nodes['1:7']['variables'] = []
+            elif change == 'mode': frame['visual']['resolvedVariableModes'] = {'c1': 'invented'}
+            elif change == 'mode_roster': receipt['variable_sources'][0]['valuesByMode'].pop('dark')
+            elif change == 'variant':
+                nodes['1:4']['visual']['variantProperties'] = {'Type': 'invented'}
+                nodes['1:4']['variant_properties'] = {'Type': 'invented'}
+            elif change == 'instance': nodes['1:9']['component_ref']['key'] = 'invented'
+            elif change == 'document_roster': receipt['document_pages'].append(dict(id='9:1', name='Omitted page', type='PAGE'))
+            elif change == 'document_name': receipt['document_pages'][0]['name'] = 'Invented name'
+            elif change == 'format': receipt['source_format'] = 'invented-source'
+            elif change == 'provenance_downgrade': receipt.pop('source_format')
+            target = path.parent / 'source.json'
+            target.write_text(json.dumps(receipt))
+            body['files'][0]['pages'][0]['source_json']['sha256'] = util.file_hash(target)
+            path.write_text(json.dumps(body))
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                manifest.load(path)
+
     def test_retained_manifest_index_is_bound_and_artifacts_cannot_overwrite_it(self):
         record = manifest.retain(manifest.load(self.path), self.workspace)
         Path(record['manifest_path']).write_text('{}')

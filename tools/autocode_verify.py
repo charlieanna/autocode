@@ -984,7 +984,7 @@ def suite_health(receipt) -> str:
 
 def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regression_command=None,
            reported=None, base_suite=None, timeout=DEFAULT_TIMEOUT, dependencies_from=None,
-           allow_no_test=False, new_behavior=False, base_patch=None) -> dict:
+           allow_no_test=False, new_behavior=False, preserve_only=False, base_patch=None) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
@@ -995,6 +995,9 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     when it passes on the candidate and did not pass on base, which includes failing to
     import there because the code it tests does not exist yet. A bug fix's test must run
     and fail on base (an import error is not a reproduction).
+
+    ``preserve_only`` is coverage of behavior the product already implements: the diff may
+    be test files alone, and each new test must pass on the base and on the candidate.
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -1012,7 +1015,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     notes += commands["notes"]
     if not changes:
         fail.append("No change: the candidate is identical to the base revision")
-    elif not sources:
+    elif not sources and not preserve_only:
         fail.append("Only test files changed; a fix must change product code")
     deleted = [p for p in tests if changes[p] == "deleted"]
     if deleted:
@@ -1035,7 +1038,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
         if changes and (commands["regression"] or commands["suite"]):
             trees["candidate"] = make_tree(workspace, base, run_dir / "scratch" / "candidate", workspace, changes,
                                            dependencies_from=dependencies_from)
-        if trees and sources and runnable_tests:
+        if trees and runnable_tests and (sources or preserve_only):
             trees["base_with_tests"] = make_tree(workspace, base, run_dir / "scratch" / "base-with-tests",
                                                  workspace, test_changes, dependencies_from=dependencies_from,
                                                  patch=base_patch)
@@ -1050,7 +1053,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                     "regression-on-base", timeout=timeout)
                 checks["regression_on_base"] = on_base
             _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons,
-                              new_behavior=new_behavior, known_failures=lambda: _pre_existing(
+                              new_behavior=new_behavior, preserve_only=preserve_only, known_failures=lambda: _pre_existing(
                                   framework, commands, changes, runnable_tests, workspace, base, run_dir, checks,
                                   timeout=timeout, dependencies_from=dependencies_from, base_patch=base_patch),
                               seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt))
@@ -1064,20 +1067,20 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                     "suite-on-base-with-tests", timeout=timeout)
                 checks["regression_on_base"] = on_base
                 review_reasons.append("the regression proof rests on the whole suite's exit code")
-                if on_base["exit_code"] == 0:
+                if on_base["exit_code"] == 0 and not preserve_only:
                     fail.append("The new tests pass on the unfixed base code, so they do not reproduce the bug")
         elif tests and sources:
             unverified.append("No command to run the regression tests; pass --regression-command")
 
         # No regressions: the suite on the candidate, compared with base.
-        if "candidate" in trees and sources and commands["suite"]:
+        if "candidate" in trees and (sources or preserve_only) and commands["suite"]:
             reuse = checks.get("regression_on_candidate") if commands["suite"] == commands["regression"] else None
             on_candidate = reuse or run_suite(framework, commands["suite"], trees["candidate"], run_dir,
                                               "suite-on-candidate", timeout=timeout)
             checks["suite_on_candidate"] = on_candidate
             comparable = base_suite if base_suite and base_suite.get("command") == commands["suite"] else None
             _judge_suite(on_candidate, comparable, fail, unverified, notes)
-        elif sources:
+        elif sources or preserve_only:
             unverified.append("No project test command was found; existing behavior was not checked "
                               "(pass --test-command)")
     finally:
@@ -1106,7 +1109,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
 
 
 def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons, *, known_failures,
-                      new_behavior=False, seam_names=None):
+                      new_behavior=False, preserve_only=False, seam_names=None):
     """Judge the targeted runs of the changed test files.
 
     With per-test results, the proof is a named test that ran and failed on base
@@ -1178,10 +1181,10 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         # errors may be real product bugs, so preserve the reviewer warning for them.
         seam = (seam_names(on_base) if seam_names and (base["collection_errors"] or flipped) and not new_behavior
                 else [])
-        if not flipped and new_behavior:
+        if not flipped and new_behavior and not preserve_only:
             fail.append("No new or changed test passes with the change and did not pass without it, "
                         "so the tests do not show the new behavior")
-        elif not flipped:
+        elif not flipped and not preserve_only:
             if setup_errors:
                 fail.append(test_setup.proof_note(setup_errors))
             elif seam:
@@ -1204,7 +1207,7 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         fail.append("The regression tests fail on the candidate")
     if on_base is None:
         return
-    if on_base["exit_code"] == 0:
+    if on_base["exit_code"] == 0 and not preserve_only:
         fail.append("The regression tests also pass on the unfixed base code, so they do not reproduce the bug")
     elif on_base["timed_out"]:
         unverified.append("The regression tests timed out on base; no complete fail-to-pass proof exists")

@@ -103,7 +103,9 @@ runner can never prove it. Make the "test:" criteria the behavior the new code a
 result, a command's output, a refused input).
 Behavior that already works and must keep working (the change must not break it) is a guard: write it as the
 same kind of example, with verification_method "guard: test_<criterion id in lowercase>_<what it checks>". The
-runner checks that its test passes both before and after the change. A guard needs a real behavior to check;
+runner checks that its test passes both before and after the change. Coverage of behavior the product already
+implements — a named scenario, an existing rule, tests added with no product change — is a guard for every
+such criterion. A test: criterion cannot be proven by a test-only diff. A guard needs a real behavior to check;
 something trivially true (a package that imports, a file that exists) gets an ordinary verification_method.
 For independent parallel milestones, use distinct milestone-specific criterion IDs as well as disjoint
 affected_paths: the scheduler serializes milestones that share criterion IDs. Scope each criterion to its

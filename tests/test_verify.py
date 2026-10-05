@@ -44,6 +44,10 @@ class Project:
         self.root.mkdir()
         references.write(files, self.root)
         git(self.root, "init", "-q")
+        # On CI's Git 2.55 a commit starts automatic maintenance in the background; its lock files
+        # race the temporary directory's cleanup ("Directory not empty: '.git'").
+        git(self.root, "config", "maintenance.auto", "false")
+        git(self.root, "config", "gc.auto", "0")
         git(self.root, "add", "-A")
         git(self.root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "seed")
         self.base = git(self.root, "rev-parse", "HEAD")
@@ -215,6 +219,18 @@ class VerifyCase(unittest.TestCase):
         self.assertEqual(verify.FAIL, result["verdict"])
         self.assertTrue(any("Only test files changed" in reason for reason in result["failures"]))
         self.assertTrue(any("fail on the candidate" in reason for reason in result["failures"]), result)
+
+    def test_preserve_only_coverage_may_add_a_test_that_passes_on_the_base(self):
+        project = self.project()
+        extra = project_file(project, "test_greet.py").replace(
+            "    def test_ada(self):\n        self.assertEqual(greet(\"Ada\"), \"Hello, Ada\")\n",
+            "    def test_ada(self):\n        self.assertEqual(greet(\"Ada\"), \"Hello, Ada\")\n\n"
+            "    def test_ada_still_greets(self):\n        self.assertEqual(greet(\"Ada\"), \"Hello, Ada\")\n")
+        project.write({"test_greet.py": extra})
+        result = project.verify(new_behavior=True, preserve_only=True)
+        self.assertEqual(verify.PASS, result["verdict"], result["failures"] + result["unverified"])
+        self.assertTrue(any(name.endswith("test_ada_still_greets") for name in result["pass_to_pass"]),
+                        result["pass_to_pass"])
 
     def test_removing_an_existing_test_is_rejected(self):
         project = self.project()

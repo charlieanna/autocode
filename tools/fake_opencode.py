@@ -85,9 +85,12 @@ with tempfile.TemporaryDirectory() as temp:
         final = final[:1]
     if (os.environ.get("AUTOCODE_FIXTURE_TRUNCATE_STAGE")
             and os.environ["AUTOCODE_FIXTURE_TRUNCATE_STAGE"] == data.get("stage")):
+        # Like OpenCode 1.x: use the output cap this process actually received.
+        cap = os.environ.get("OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX", "")
+        cap = int(cap) if cap.isdigit() and int(cap) > 0 else 32000
         emit("text", {"id": "prt_text", "type": "text", "text": final[:-1], "time": {"end": 1}})
         emit("step_finish", {"id": "prt_finish", "type": "step-finish", "reason": "length", "cost": 0,
-                             "tokens": {"input": 100, "output": 50, "reasoning": 0,
+                             "tokens": {"input": 100, "output": cap - cap // 2, "reasoning": cap // 2,
                                         "cache": {"read": 0, "write": 0}}})
         raise SystemExit(0)
     emit("text", {"id": "prt_text", "type": "text", "text": final, "time": {"end": 1}})
