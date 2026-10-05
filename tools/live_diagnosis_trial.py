@@ -35,7 +35,7 @@ drives it through the real ``autocode`` CLI with a real model profile, and:
    receives the real rejected report and error, and a real model returns a
    diagnosis and a bounded retry-or-escalate recommendation.
 4. On "retry": resumes normally, so the real Builder gets a real second
-   attempt carrying the model's guidance, and the real Reviewer/Validator
+   attempt (its guidance stays in the policy receipt), and the real Reviewer/Validator
    independently check it. The trial records the actually-observed verdict;
    it does not accept the runner's own completion claim (see ``judge``).
    On "escalate": records that outcome. A correct escalate on a genuinely
