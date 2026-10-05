@@ -258,18 +258,19 @@ class PausedSourceEditTests(unittest.TestCase):
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
         self.assertEqual([("sol", False)], [(call["stage"], call["report_only"]) for call in calls])
 
-    def assert_recovered_result_set_aside(self, record, why):
+    def assert_recovered_result_set_aside(self, record):
+        """The stale result is archived unapplied and the stage re-queued in the same resume (#302, #427)."""
         self.state.update(status="PAUSED_INTERRUPTED", phase="PAUSED_OR_BLOCKED", next_stage="sol", active_stage=record)
         calls, provider = self.provider([])
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
-        self.assertEqual([], calls)
-        self.assertNotIn(self.state["status"], ("PAUSED_STALE_GOAL", "PAUSED_STALE_TASK"))
-        self.assertIn(f"Completed sol output was rejected ({why}); attempt archived", self.state["stop_reason"])
-        self.assertEqual(why, self.state["stages"][-1]["rejection_reason"])
+        self.assertEqual([("sol", False)], [(call["stage"], call["report_only"]) for call in calls])
+        self.assertEqual("PAUSED_TEST_LAUNCH", self.state["status"])
+        archived = self.state["stages"][-1]
+        self.assertTrue(archived["rejected"])
+        self.assertEqual("Recovered result is bound to another contract, task or source revision; "
+                         "stale values discarded", archived["rejection_reason"])
         self.assertNotIn("validation", self.state)
         self.assertNotIn("active_stage", self.state)
-        self.assertTrue(self.state["stages"][-1]["rejected"])
-        return calls, provider
 
     def test_resume_never_applies_a_recovered_result_of_another_task(self):
         self.approve()
@@ -278,11 +279,7 @@ class PausedSourceEditTests(unittest.TestCase):
         follow_up = copy.deepcopy(self.decision())
         follow_up["next_objective"] = "Validate again"
         lifecycle.assign_task(self.state, follow_up, s.snapshot(self.root))
-        calls, provider = self.assert_recovered_result_set_aside(
-            record, "Role result belongs to another implementation task")
-
-        self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
-        self.assertEqual([("sol", False)], [(call["stage"], call["report_only"]) for call in calls])
+        self.assert_recovered_result_set_aside(record)
 
     def test_resume_never_applies_a_recovered_result_of_another_goal_revision(self):
         self.approve()
@@ -294,7 +291,7 @@ class PausedSourceEditTests(unittest.TestCase):
         lifecycle.human.evaluate(self.state)
         lifecycle.present(self.state)
         lifecycle.approve(self.state, runner.goals.token(self.state["goal_contract"]))
-        self.assert_recovered_result_set_aside(record, "Role result belongs to another goal revision")
+        self.assert_recovered_result_set_aside(record)
 
 
 class StaleValidationTests(unittest.TestCase):
