@@ -1,8 +1,12 @@
 """A role's quota ran out: ask the person for a model, apply the one they name, record it (#184).
 
-There is no fallback list, configuration table or automatic switch. A quota stop
-(PAUSED_BUDGET) publishes one question, ``route-<role>``, which only a person can
-answer: it has no proposed default and is never delegable. The answer is a model
+A provider's content-filter refusal (PAUSED_CONTENT_FILTER, autocode_provider_refusal)
+is the same kind of stop: it is about the model, and the same model is likely to refuse again.
+There is no fallback list, configuration table or automatic switch. Either stop
+(PAUSED_BUDGET or PAUSED_CONTENT_FILTER) publishes one question, ``route-<role>``,
+which only a person can answer: it has no proposed default and is never delegable.
+A refusal's question names the run's other configured models that would pass the
+launch rules, as advice, never as a default. The answer is a model
 for the same engine; it must pass the same format and cross-model rules a launch
 applies. Applying it is a recorded ``route_assignment`` in ``user_events``.
 
@@ -17,13 +21,17 @@ import re
 from pathlib import Path
 
 try:
-    from . import autocode_roles as roles
+    from . import autocode_roles as roles, autocode_provider_refusal as provider_refusal
 except ImportError:
     import autocode_roles as roles
+    import autocode_provider_refusal as provider_refusal
 
 PREFIX = "route-"
-CATEGORY = "quota"
+CATEGORY = "quota"  # a non-inferable question category (autocode_goals); both causes use it
 QUOTA_STATUS = "PAUSED_BUDGET"
+REFUSAL_STATUS = provider_refusal.STATUS
+STATUSES = (QUOTA_STATUS, REFUSAL_STATUS)
+_STOPPED = {QUOTA_STATUS: "stopped on quota", REFUSAL_STATUS: "its provider's content filter refused"}
 KIND = "route_assignment"
 # Roles a person can route by flag on resume (autocode_args: --<role>-model).
 ROLES = ("astra", "terra", "sol", "completion", "glm", "requirements", "resolver", "plan_reviewer")
@@ -89,7 +97,7 @@ def _routable(state: dict, record: dict) -> str | None:
 
 
 def stopped_attempt(state: dict, *, failure_status) -> dict | None:
-    """The attempt a quota stop left for one routable role, or None.
+    """The attempt a quota or content-filter stop left for one routable role, or None.
 
     Either the uncertain ``active_stage`` (``active`` True), or the attempt a person
     already set aside with --abandon-stage while nothing has run since.
@@ -105,32 +113,83 @@ def stopped_attempt(state: dict, *, failure_status) -> dict | None:
     events = record.get("events")
     role = _routable(state, record)
     try:
-        quota = bool(events) and Path(events).is_file() and failure_status(events) == QUOTA_STATUS
+        status = failure_status(events) if events and Path(events).is_file() else None
     except (OSError, ValueError, TypeError):
-        quota = False
-    if not role or not quota:
+        status = None
+    if not role or status not in STATUSES:
         return None
     return {"role": role, "stage": record.get("original_stage") or record.get("stage"),
             "attempt_id": _attempt_id(record), "events": events, "active": is_active,
-            "model": _launched_model(record)}
+            "model": _launched_model(record), "pause_status": status}
 
 
-def question(state: dict, attempt: dict) -> dict:
-    """The quota question for ``attempt``: named by the job on screen, answered only by a person."""
+def question(state: dict, attempt: dict, *, cross_check=None, configured_tool: bool = False) -> dict:
+    """The model question for ``attempt``: named by the job on screen, answered only by a person.
+
+    With ``cross_check`` a content-filter question also lists the configured models that would pass.
+    """
     role = attempt["role"]
     job = roles.screen_name(attempt.get("stage") or role, state)
     settings = state.get("settings") or {}
     current = ((settings.get("roles") or {}).get(role) or {}).get("model")
     stopped_on = attempt.get("model") or current
-    return {"id": PREFIX + role,
-            "question": f"{job}'s quota is exhausted; name the model to continue on",
-            "why": (f"The {job} stopped on {stopped_on}: its provider reported the quota, usage limit or "
-                    "credits used up. AutoCode never switches models on its own. Name a model for the "
-                    f"same engine ({engine(settings, role)}) that does not share its producer's or "
-                    "checker's model family."),
-            "options": [], "proposed_default": "", "kind": "decision", "category": CATEGORY,
-            "delegable": False, "route_role": role, "job": job, "current_model": current,
-            "engine": engine(settings, role)}
+    asked = {"id": PREFIX + role,
+             "question": f"{job}'s quota is exhausted; name the model to continue on",
+             "why": (f"The {job} stopped on {stopped_on}: its provider reported the quota, usage limit or "
+                     "credits used up. AutoCode never switches models on its own. Name a model for the "
+                     f"same engine ({engine(settings, role)}) that does not share its producer's or "
+                     "checker's model family."),
+             "options": [], "proposed_default": "", "kind": "decision", "category": CATEGORY,
+             "delegable": False, "route_role": role, "job": job, "current_model": current,
+             "engine": engine(settings, role), "cause": "quota", "stopped_model": stopped_on}
+    if attempt.get("pause_status") != REFUSAL_STATUS:
+        return asked
+    asked.update(cause="content_filter",
+                 question=f"{job}'s model was refused by its provider's content filter; name another model to continue on",
+                 why=(f"The {job} stopped on {stopped_on}: its provider's content filter refused the response, "
+                      "and the same model is likely to refuse it again, so AutoCode does not replay it and never "
+                      f"switches models on its own. Name a model for the same engine ({engine(settings, role)}), "
+                      "preferably from another provider, that does not share its producer's or checker's "
+                      "model family."))
+    if cross_check is not None:
+        passing, refused = candidates(state, role, stopped_on, cross_check=cross_check,
+                                      configured_tool=configured_tool, job=job)
+        asked["candidates"] = passing
+        asked["recommendation"] = (
+            f"Configured models that pass the launch rules for the {job}: {', '.join(passing)}." if passing else
+            f"No other configured model passes the launch rules for the {job} (refused: {', '.join(refused)}); "
+            "name one from another provider." if refused else
+            f"No model from another provider is configured; name one for the {job}.")
+        asked["why"] += " " + asked["recommendation"]
+    return asked
+
+
+def _provider(model) -> str | None:
+    return model.split("/", 1)[0] if isinstance(model, str) and "/" in model else None
+
+
+def candidates(state: dict, role: str, refused_model, *, cross_check, configured_tool: bool = False,
+               job: str | None = None) -> tuple[list[str], list[str]]:
+    """(models that pass, models refused): the run's other configured models for ``role`` after a refusal.
+
+    The refusing provider's models are left out: the content filter is the provider's.
+    """
+    settings = state.get("settings") or {}
+    role_engine = engine(settings, role)
+    configured = dict.fromkeys(config["model"] for name, config in sorted((settings.get("roles") or {}).items())
+                               if isinstance(config, dict) and isinstance(config.get("model"), str)
+                               and engine(settings, name) == role_engine)
+    passing, refused = [], []
+    for model in configured:
+        if model == refused_model or (_provider(model) and _provider(model) == _provider(refused_model)):
+            continue
+        try:
+            validate(state, role, model, configured_tool=configured_tool, cross_check=cross_check, job=job)
+        except ValueError:
+            refused.append(model)
+        else:
+            passing.append(model)
+    return passing, refused
 
 
 def advice(asked: dict, attempt_id: str | None) -> str:
@@ -140,7 +199,7 @@ def advice(asked: dict, attempt_id: str | None) -> str:
             "then --resume-paused")
     if attempt_id:
         text += f"; or --abandon-stage {attempt_id}, then --resume-paused {flag(role)} MODEL"
-    return text + "."
+    return text + "." + (" " + asked["recommendation"] if asked.get("recommendation") else "")
 
 
 def option(asked: dict) -> str:
@@ -148,22 +207,23 @@ def option(asked: dict) -> str:
 
 
 def asked_route(questions, question_id: str) -> dict | None:
-    """The published quota question ``question_id``, or None when the request asks no such thing."""
+    """The published model question ``question_id``, or None when the request asks no such thing."""
     return next((q for q in questions or () if isinstance(q, dict) and q.get("id") == question_id
                  and q.get("category") == CATEGORY and q.get("route_role") in ROLES
                  and question_id == PREFIX + q["route_role"]), None)
 
 
 def parse_answer(answers, questions, origin: dict) -> tuple[dict, str]:
-    """(question, model) from ``--answer route-<role>=MODEL`` at a quota stop; ValueError otherwise."""
-    if (origin or {}).get("pause_status") != QUOTA_STATUS:
-        raise ValueError("Only a quota stop is answered with a model; use --resolver-response for this request")
+    """(question, model) from ``--answer route-<role>=MODEL`` at a quota or refusal stop; ValueError otherwise."""
+    if (origin or {}).get("pause_status") not in STATUSES:
+        raise ValueError("Only a quota or content-filter stop is answered with a model; "
+                         "use --resolver-response for this request")
     if len(answers) != 1:
-        raise ValueError("Answer the quota question on its own: --answer route-ROLE=MODEL")
+        raise ValueError("Answer the model question on its own: --answer route-ROLE=MODEL")
     question_id, separator, model = answers[0].partition("=")
     asked = asked_route(questions, question_id)
     if not separator or asked is None:
-        raise ValueError(f"{question_id} is not the quota question of the current request")
+        raise ValueError(f"{question_id} is not the model question of the current request")
     model = model.strip()
     if not model:
         raise ValueError("Name the model to continue on: --answer route-ROLE=MODEL")
@@ -228,7 +288,8 @@ def assign(state: dict, role: str, model: str, *, at: str, via: str, attempt: di
               "job": roles.screen_name((attempt or {}).get("stage") or role, state),
               "from": route.get("model"), "to": model, "engine": engine(settings, role),
               "stage": (attempt or {}).get("stage"), "attempt_id": (attempt or {}).get("attempt_id"),
-              "pause_status": QUOTA_STATUS, "events": (attempt or {}).get("events")}
+              "pause_status": (attempt or {}).get("pause_status") or QUOTA_STATUS,
+              "events": (attempt or {}).get("events")}
     if request_id:
         record["request_id"] = request_id
     _carry(state, role, route.get("model"), model)
@@ -239,7 +300,7 @@ def assign(state: dict, role: str, model: str, *, at: str, via: str, attempt: di
 
 
 def _changed_role(state: dict, previous: dict, selected: dict, failure_status):
-    """(attempt, model before, model after) when the flags change the quota-stopped role's model."""
+    """(attempt, model before, model after) when the flags change the stopped role's model."""
     attempt = stopped_attempt({**state, "settings": previous}, failure_status=failure_status)
     if not attempt:
         return None
@@ -253,7 +314,7 @@ def resume_refusal(state: dict, previous: dict, selected: dict, *, failure_statu
                    abandoning: str | None) -> str | None:
     """Why a --<role>-model change cannot be saved now, or None.
 
-    While the quota-stopped attempt is still uncertain the model is named with --answer, or
+    While the stopped attempt is still uncertain the model is named with --answer, or
     the attempt is set aside first (--abandon-stage, in the same or an earlier invocation).
     Saving the flag alone would change the route under an unresolved attempt and leave the
     question asking for the model just named.
@@ -263,13 +324,14 @@ def resume_refusal(state: dict, previous: dict, selected: dict, *, failure_statu
         return None
     attempt, role = changed[0], changed[0]["role"]
     asked = {"id": PREFIX + role, "route_role": role}
-    return (f"The {roles.screen_name(attempt.get('stage') or role, state)} attempt that stopped on quota is still "
+    stopped = _STOPPED.get(attempt.get("pause_status"), _STOPPED[QUOTA_STATUS])
+    return (f"The {roles.screen_name(attempt.get('stage') or role, state)} attempt that {stopped} is still "
             f"uncertain; {flag(role)} is not saved. " + advice(asked, attempt["attempt_id"]))
 
 
 def record_resume_change(state: dict, previous: dict, selected: dict, *, failure_status, at: str,
                          cross_check=None, configured_tool: bool = False) -> list[dict]:
-    """Record a --<role>-model change saved while that role is stopped on quota (resume path).
+    """Record a --<role>-model change saved while that role is stopped on quota or a refusal (resume path).
 
     A model a launch refuses (wrong format, a cross-model clash) is not recorded: it never runs.
     """
@@ -292,7 +354,7 @@ def record_resume_change(state: dict, previous: dict, selected: dict, *, failure
     record = {"kind": KIND, "actor": "user_cli", "at": at, "via": "resume_flag", "role": role,
               "job": roles.screen_name(attempt.get("stage") or role, state), "from": before, "to": after,
               "engine": engine(selected, role), "stage": attempt.get("stage"),
-              "attempt_id": attempt.get("attempt_id"), "pause_status": QUOTA_STATUS,
+              "attempt_id": attempt.get("attempt_id"), "pause_status": attempt.get("pause_status", QUOTA_STATUS),
               "events": attempt.get("events")}
     state.setdefault("user_events", []).append(record)
     return [copy.deepcopy(record)]

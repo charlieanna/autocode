@@ -158,14 +158,14 @@ class QuotaRouteTests(unittest.TestCase):
         origin = {"pause_status": "PAUSED_BUDGET"}
         self.assertEqual((asked, "gpt-6-luna"), quota_route.parse_answer(["route-sol=gpt-6-luna"], [asked], origin))
         for answers, where, message in (
-                (["route-sol=gpt-6-luna"], {"pause_status": "PAUSED_TIME_LIMIT"}, "Only a quota stop"),
-                (["route-terra=gpt-6-luna"], origin, "not the quota question"),
+                (["route-sol=gpt-6-luna"], {"pause_status": "PAUSED_TIME_LIMIT"}, "Only a quota or content-filter stop"),
+                (["route-terra=gpt-6-luna"], origin, "not the model question"),
                 (["route-sol="], origin, "Name the model"),
                 (["route-sol=a", "Q1=b"], origin, "on its own")):
             with self.subTest(answers=answers), self.assertRaisesRegex(ValueError, message):
                 quota_route.parse_answer(answers, [asked], where)
         disguised = {**asked, "category": "requested_outcome"}
-        with self.assertRaisesRegex(ValueError, "not the quota question"):
+        with self.assertRaisesRegex(ValueError, "not the model question"):
             quota_route.parse_answer(["route-sol=gpt-6-luna"], [disguised], origin)
 
     def test_status_view_adds_routes_assignments_and_the_route_need(self):
@@ -176,7 +176,8 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertEqual({"model": "gpt-5.6-sol", "engine": "codex"}, view["routes"]["sol"])
         self.assertEqual([], view["route_assignments"])
         self.assertEqual({"question_id": "route-sol", "role": "sol", "job": "Tester",
-                          "current_model": "gpt-5.6-sol", "engine": "codex"}, view["needs"]["route"])
+                          "current_model": "gpt-5.6-sol", "engine": "codex", "cause": "quota",
+                          "stopped_model": "gpt-5.6-sol"}, view["needs"]["route"])
         self.assertEqual("", view["needs"]["questions"][0]["proposed_default"])
         quota_route.assign(state, "sol", "gpt-6-luna", at="t", via="answer")
         self.assertEqual("gpt-6-luna", run_view.view(state)["route_assignments"][0]["to"])

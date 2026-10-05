@@ -675,7 +675,7 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
             return 2
         return None
     if published and published['scope'] != 'operational_exhaustion':
-        return None  # not a quota question; the ordinary answer path decides
+        return None  # not a model question; the ordinary answer path decides
     try:
         if not published:
             raise ValueError(follow_up.ANSWER_FINISHED if state.get('status') == 'TASK_COMPLETE'
@@ -694,7 +694,7 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
     try:
         proposal = candidate['resolver']['human_escalations'][published['request_id']]['identity']['proposal']
         if args.delegate or args.delegate_all:
-            raise ValueError('A quota question has no default to delegate; name the model yourself')
+            raise ValueError('A model question has no default to delegate; name the model yourself')
         asked, model = quota_route.parse_answer(args.answer, published['questions'], proposal['origin'])
         role = asked['route_role']
         quota_route.validate(candidate, role, model, configured_tool=getattr(runner.opencode, 'CONFIGURED', False),

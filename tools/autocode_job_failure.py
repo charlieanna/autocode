@@ -54,6 +54,9 @@ def _reason(runtime, record, error):
         return 'rate_limit', role + ': provider rate limit'
     if status == 'PAUSED_PROVIDER_CAPACITY':
         return 'capacity', role + ': provider capacity failure'
+    if status == 'PAUSED_CONTENT_FILTER':
+        model = (record.get('launch_route') or {}).get('model') or 'its configured model'
+        return 'content_filter', f"{role}: the provider's content filter refused the response on {model}"
     return 'exit', f"{role}: provider exited {record.get('exit_code')} without a terminal report; {error or ''}"
 
 

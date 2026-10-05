@@ -55,7 +55,8 @@ class QuotaRouteCliTests(unittest.TestCase):
         self.assertEqual(['route-sol'], [question['id'] for question in published['questions']])
         need = self.view()['needs']
         self.assertEqual({'question_id': 'route-sol', 'role': 'sol', 'job': 'Tester',
-                          'current_model': 'gpt-5.6-sol', 'engine': 'codex'}, need['route'])
+                          'current_model': 'gpt-5.6-sol', 'engine': 'codex', 'cause': 'quota',
+                          'stopped_model': 'gpt-5.6-sol'}, need['route'])
         self.assertTrue(need['questions'][0]['question'].startswith("Tester's quota is exhausted"))
         surfaces = [paused['stop_reason'], published['request']['decision_needed'], *published['request']['options']]
         flags = {flag for text in surfaces for flag in ADVERTISED_FLAGS.findall(text)}
@@ -66,11 +67,11 @@ class QuotaRouteCliTests(unittest.TestCase):
         before = state_file.read_bytes()
 
         # Rejected answers leave the run paused and the request open.
-        no_default = 'A quota question has no default to delegate'
+        no_default = 'A model question has no default to delegate'
         for args, message in ((['--answer', 'route-sol=gpt-5.6-terra'], 'Cross-model verification violated'),
                               (['--answer', 'route-sol=openai/gpt-6-luna'], 'Tester uses a bare Codex model name'),
                               (['--answer', 'route-sol=gpt-5.6-sol'], 'The Tester already uses gpt-5.6-sol'),
-                              (['--answer', 'route-terra=' + OTHER_MODEL], 'not the quota question'),
+                              (['--answer', 'route-terra=' + OTHER_MODEL], 'not the model question'),
                               (['--answer', 'route-sol=' + OTHER_MODEL, '--resolver-token', 'stale'],
                                'requires the exact current AutoResolver request and token'),
                               (['--delegate', 'route-sol'], no_default),
@@ -201,10 +202,32 @@ class QuotaRouteCliTests(unittest.TestCase):
         questions = [q['id'] for q in view['needs']['questions']]
         self.assertNotIn('route-sol', questions)
         result = self.launch([*self.args, '--answer', 'route-sol=' + OTHER_MODEL], 2)
-        self.assertIn('Only a quota stop is answered with a model', result.stderr)
+        self.assertIn('Only a quota or content-filter stop is answered with a model', result.stderr)
         result = self.launch([*self.args, '--answer', questions[0] + '=retry please'], 2)
         self.assertIn('Use --resolver-response for this operational request', result.stderr)
         self.assertEqual('gpt-5.6-sol', self.saved()[1]['settings']['roles']['sol']['model'])
+
+    def test_a_content_filter_refusal_names_the_model_and_continues_on_another(self):
+        # The same Tester stop, refused by the provider's content filter on gpt-5.6-sol only.
+        self.env['AUTOCODE_FIXTURE_QUOTA_MESSAGE'] = "The response was blocked by the provider's content filter"
+        paused = self.quota_stop()
+        self.assertIn("Tester: the provider's content filter refused the response on gpt-5.6-sol", paused['stop_reason'])
+        self.assertIn('--answer route-sol=MODEL', paused['stop_reason'])
+        need = self.view()['needs']
+        self.assertEqual(('route-sol', 'content_filter', 'gpt-5.6-sol'),
+                         tuple(need['route'][key] for key in ('question_id', 'cause', 'stopped_model')))
+        self.assertTrue(need['questions'][0]['question'].startswith(
+            "Tester's model was refused by its provider's content filter"))
+        self.launch([*self.args, '--answer', 'route-sol=' + OTHER_MODEL], 0)
+        [assignment] = self.view()['route_assignments']
+        self.assertEqual(('gpt-5.6-sol', OTHER_MODEL, 'PAUSED_CONTENT_FILTER'),
+                         tuple(assignment[key] for key in ('from', 'to', 'pause_status')))
+        self.launch([*self.args, '--resume-paused', '--no-chat'], 0)
+        _, done = self.saved()
+        self.assertEqual('TASK_COMPLETE', done['status'])
+        testers = [row for row in self.model_stages(done) if row['stage'] == 'sol']
+        self.assertEqual(['gpt-5.6-sol', OTHER_MODEL], [self.model_of(row) for row in testers],
+                         'the refused model is never replayed')
 
     def answer_in_process(self, model, opencode=None):
         """answer_quota_question on the saved state, as the CLI calls it; (exit code, stderr, saved bytes)."""

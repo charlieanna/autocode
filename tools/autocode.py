@@ -37,7 +37,7 @@ except ImportError:
     import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
 
 try:
-    from . import autocode_job_source as job_source, autocode_job_failure as job_failure
+    from . import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_refusal as provider_refusal
     from . import autocode_workspaces as task_workspaces, autocode_figma as figma
     from . import autopilot
     from . import autocode_workflow as workflow
@@ -70,7 +70,7 @@ try:
     from .autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT
     from . import autocode_idle_policy as idle_policy
 except ImportError:
-    import autocode_job_source as job_source, autocode_job_failure as job_failure
+    import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_refusal as provider_refusal
     import autocode_workspaces as task_workspaces
     import autocode_figma as figma
     import autopilot
@@ -545,7 +545,9 @@ def run_role(
         raise support.Paused("PAUSED_PROVIDER_TIMEOUT",
                              f"{role}: {record['timeout_reason']}; partial work and logs retained at {events}")
     if exit_code != 0:
-        raise support.Paused(support.failure_status(events), f"{role} exited {exit_code}; reconcile {events}, no automatic replay")
+        refused = refusal_reason(state, record)
+        raise support.Paused(support.failure_status(events), (f"{refused}. " if refused else "")
+                             + f"{role} exited {exit_code}; reconcile {events}, no automatic replay")
     if supports_sessions:
         thread = format_correction.event_thread_id(events)
         if not thread or (session and thread != session):
@@ -906,6 +908,15 @@ def repeated_failure_resume_guard(state, workspace, *, authorization=None):
             "one inspected retry with --retry-failed-stage.")
 
 
+def refusal_reason(state, record):
+    """Whose response the provider's content filter refused, and on which model; None for any other stop."""
+    if not record.get("events"):
+        return None
+    return provider_refusal.explain(support.events(record["events"]),
+                                    job=autocode_status.role_name(record.get("original_stage") or record.get("stage"), state),
+                                    model=(record.get("launch_route") or {}).get("model"))
+
+
 def reconcile_active(state, run_dir, workspace):
     record = state.get("active_stage")
     if not record:
@@ -925,9 +936,9 @@ def reconcile_active(state, run_dir, workspace):
     assert_stage_stopped(record)
     supports_sessions = stage_supports_sessions(state, record)
     if not stage_completed(state, record) or (supports_sessions and record.get("exit_code") not in (None, 0)):
-        reason = support.terminal_failure_reason(record["events"])
+        reason = refusal_reason(state, record) or support.terminal_failure_reason(record["events"])
         raise support.Paused(support.failure_status(record["events"]),
-            (f"{reason} " if reason else "") +
+            (f"{reason.rstrip('.')}. " if reason else "") +
             f"Uncertain stage must be inspected, never automatically replayed. After review, "
             f"use --abandon-stage {attempt_id(record)} to retain partial work and set aside this response.")
     if supports_sessions:

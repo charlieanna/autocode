@@ -363,7 +363,7 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
                              'PAUSED_MILESTONE_STALLED', 'PAUSED_MILESTONE_BUDGET',
                              'PAUSED_MILESTONE_TIME_LIMIT',
                              'PAUSED_PROVIDER_UNCERTAIN', 'PAUSED_UNCERTAIN_STAGE', 'PAUSED_WORKSPACE_BUSY',
-                             'PAUSED_NO_PROGRESS')
+                             'PAUSED_NO_PROGRESS', quota_route.REFUSAL_STATUS)
             or state.get('pending_questions')
             or (Path(run_dir) / 'pause-requested').exists()):
         return False
@@ -386,7 +386,8 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
     category = ('no_progress' if error.status == 'PAUSED_NO_PROGRESS' else
                 'internal_default' if origin in ('runner_default', 'resolver_delegated') else
                 'explicit_user_cap' if origin == 'user_explicit' else 'protected_saved_limit') if kind else (
-                'provider_or_spending_guard' if error.status in ('PAUSED_BUDGET', 'PAUSED_RATE_LIMIT') else 'operational_recovery')
+                'provider_or_spending_guard' if error.status in ('PAUSED_BUDGET', 'PAUSED_RATE_LIMIT') else
+                'provider_content_filter' if error.status == quota_route.REFUSAL_STATUS else 'operational_recovery')
     budget = {'category': category, 'kind': kind, 'origin': origin, 'limit': limit}
     receipt = _operational_receipt(state, run_dir, 'hold',
         'AutoResolver cannot safely resolve this blocker under the current authority. ' + str(error), {
@@ -417,10 +418,12 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
                                                  attempt=attempt)
         if attempt:
             options.append(f'Abandon the uncertain attempt with --abandon-stage {attempt}')
-    # A quota stop of one routable role asks the person to name a model (#184); never a default.
+    # A quota or content-filter stop of one routable role asks the person to name a model (#184); never a default.
     stopped = (quota_route.stopped_attempt(state, failure_status=support.failure_status)
-               if error.status == quota_route.QUOTA_STATUS and request is None else None)
-    route = quota_route.question(state, stopped) if stopped and stopped['active'] else None
+               if error.status in quota_route.STATUSES and request is None else None)
+    route = quota_route.question(
+        state, stopped, cross_check=getattr(getattr(runner, 'dispatch', None), 'enforce_cross_model_verification', None),
+        configured_tool=getattr(getattr(runner, 'opencode', None), 'CONFIGURED', False)) if stopped and stopped['active'] else None
     if route:
         decision += ' ' + quota_route.advice(route, stopped['attempt_id'])
         options.insert(0, quota_route.option(route))

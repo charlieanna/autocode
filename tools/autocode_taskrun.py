@@ -222,7 +222,7 @@ class TaskRun:
         return self._act("answer", "--answer", f"{question_id}={text}", "--resolver-token", resolver_token)
 
     def assign_model(self, role: str, model: str, *, resolver_token: str | None = None) -> dict:
-        """Name the model a quota-stopped role continues on (the view's ``needs.route``), then resume_paused().
+        """Name the model a role stopped on quota or a refusal continues on (``needs.route``), then resume_paused().
 
         The same answer as ``answer(f"route-{role}", model)``: AutoCode refuses a model the launch
         would refuse (engine, format, availability, cross-model) and leaves the run paused. A
