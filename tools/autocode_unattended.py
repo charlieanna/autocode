@@ -3,8 +3,9 @@
 The caller can start a run, continue one that is not paused (a bare relaunch,
 never ``autocode resume``, which acknowledges a pause), or read its status. It
 can never make a decision that belongs to the operator: answering or delegating
-questions, approving a plan, accepting completion, resuming a pause,
-retrying or diagnosing a failed stage, or submitting feedback. AutoCode's
+questions, approving a plan, accepting completion, closing a finding, answering
+AutoResolver, resuming a pause, retrying or diagnosing a failed stage, or
+submitting feedback. AutoCode's
 own deterministic controller still decides every transition; this wrapper
 only refuses those flags, runs AutoCode once with no terminal input, and
 prints the saved status when it stops.
@@ -39,6 +40,7 @@ OPERATOR_FLAGS = (
     "--accept-completion", "--review-token", "--resume-paused", "--retry-failed-stage",
     "--diagnose-failed-stage", "--retry-builder", "--retry-report", "--abandon-stage",
     "--accept-transport-change", "--planning-review-call-limit", "--migrate-only",
+    "--close-finding", "--close-reason", "--resolver-response",
     "--chat",
 )
 # Subcommands that submit interventions or run other flows.

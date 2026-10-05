@@ -197,9 +197,9 @@ deferred until the UI runner supports checkpoint recovery; use `autocode ui` sep
 for another agent without letting that agent make the operator's decisions. It takes
 AutoCode's own arguments but refuses every decision or recovery flag (`--answer`,
 `--delegate*`, `--approve-*`, `--resume-paused`, `--retry-*`, `--feedback`, `--follow-up`,
-`--accept-completion`, …, including abbreviations), the command word `resume` (on a paused or
-blocked run it stands for `--resume-paused`; a bare relaunch still continues a run that is not
-paused)
+`--accept-completion`, `--close-finding`, `--close-reason`, `--resolver-response`, …, including
+abbreviations), the command word `resume` (on a paused or blocked run it stands for
+`--resume-paused`; a bare relaunch still continues a run that is not paused)
 and the `intervention`, `tasks`, `ui`, `program`, `registry`, `capture` and `compare-baseline`
 subcommands. It forces `--no-chat` with no stdin, and when AutoCode stops it prints
 `--status` and tells the caller to report and stop. Exit codes are AutoCode's.

@@ -23,6 +23,18 @@ class RefusalTests(unittest.TestCase):
             with self.subTest(argv=argv):
                 self.assertIsNotNone(unattended.refused(["--run-dir", "r", *argv]))
 
+    def test_closing_a_finding_and_answering_autoresolver_are_refused(self):
+        for argv in (["--close-finding", "F1", "--close-reason", "duplicate"], ["--close-reason", "duplicate"],
+                     ["--close-f", "F1"], ["--close-finding=F1"],
+                     ["--resolver-response", "leave_paused", "--resolver-request", "R", "--resolver-token", "T"],
+                     ["--resolver-res=provide_information"]):
+            with self.subTest(argv=argv):
+                self.assertIn("is an operator decision", unattended.refused(["--run-dir", "r", *argv]))
+        for argv in (["--resolver-model", "m"], ["--resolver-reasoning-effort", "high"],
+                     ["--resolver-rea", "high"], ["Close the findings view", "--", "--close-finding"]):
+            with self.subTest(argv=argv):
+                self.assertIsNone(unattended.refused(argv), "a model setting or task text is not a decision")
+
     def test_the_resume_command_word_is_refused_wherever_autocode_reads_it(self):
         # On a paused run `autocode resume` stands for --resume-paused, and its companions need no flag.
         for argv in (["resume"], ["--no-chat", "resume"], ["resume", "--grant-recovery", "2"],
