@@ -137,6 +137,12 @@ def _scope(state):
             "criteria": sorted(task.get("acceptance_criteria") or [])}
 
 
+def _narrows(failed, scope):
+    """A repair may keep fewer of the failed task's criteria; it never adds one or moves."""
+    same = all(scope[key] == failed[key] for key in ("task_id", "contract_hash", "milestones"))
+    return scope == failed or (same and bool(scope["criteria"]) and set(scope["criteria"]) <= set(failed["criteria"]))
+
+
 def receipts(state):
     rows = [*state.get("stages", [])]
     if state.get("active_stage"):
@@ -824,18 +830,22 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
         if current_inputs != packet["inputs"] or current_pins != packet["input_pins"]:
             _stale("external input changed after incident capture")
     bound = _binding(state, util.snapshot(workspace)["revision"])
-    # A repair has a newly assigned task, but the approved stable scope must match.
+    # A repair has a newly assigned task, but the approved stable scope must match;
+    # a pinned repair task may only narrow the failed task's criteria (#423).
     expected = {**packet["binding"], "task_id": bound["task_id"]} if stage == "terra" else packet["binding"]
+    scope = _scope(state)
+    within = packet["scope"] == scope
     if stage == "terra" and request.get("recovery_admission"):
         pin = request["recovery_admission"]
         path = _owned(pin["path"], run_dir)
         if not path.is_file() or util.file_hash(path) != pin["sha256"]:
             _stale("repair admission receipt is missing or changed")
         admission = util.read(path)
-        if admission.get("packet") != pointer or admission.get("scope") != _scope(state):
+        if admission.get("packet") != pointer or admission.get("scope") != scope:
             _stale("repair admission changed packet or scope")
         expected = admission["binding"]
-    if bound != expected or packet["scope"] != _scope(state):
+        within = _narrows(packet["scope"], scope)
+    if bound != expected or not within:
         _stale("current source, task, settings, contract or scope changed before admission")
     active = state.get("active_stage")
     if active and active is not record and active.get("output") != record.get("output"):

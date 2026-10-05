@@ -446,6 +446,11 @@ def contract(final: bool = False) -> dict:
                                     ("kind", "milestone_id", "objective", "affected_paths",
                                      "requirements", "acceptance_criteria", "validation_plan")}
         return body
+    if CONFIG.get("fault") == "recovery_novelty_narrow":
+        # #423: the failing task owns two criteria, so the Resolver's repair can keep only one.
+        body["acceptance_criteria"].append({"id": "C2", "criterion": "Blank and whitespace-only names print usage",
+                                            "verification_method": CHECK, "human_review": False})
+        body["milestones"][0]["acceptance_criteria"] = ["C1", "C2"]
     if CONFIG.get("fault") == "vacuous_refusal_tests":
         # One "test: test_cN_..." criterion per reference test, as a Planner writes them; the runner's
         # regression proof then checks each named test against the original code.

@@ -17,10 +17,10 @@ import uuid
 
 try:
     from . import env_prep
-    from .. import autocode_tool_containment as tool_containment
+    from .. import autocode_output_cap as output_cap, autocode_tool_containment as tool_containment
 except ImportError:  # Script-style execution from tools/ remains supported.
     from providers import env_prep
-    import autocode_tool_containment as tool_containment
+    import autocode_output_cap as output_cap, autocode_tool_containment as tool_containment
 
 
 try:
@@ -292,6 +292,8 @@ def launch(role, workspace, run_dir, session, model, effort, allow_write, *, pla
                  "agent": {agent: {"description": f"Autocode {role} role", "mode": "primary",
                                     "permission": permissions}}}
     child = env_prep.child_environment(env)
+    # OpenCode's own default (32000, reasoning included) truncates large planning reports.
+    output_cap.apply(child)
     inherited = json.loads(child.get("OPENCODE_CONFIG_CONTENT", "{}"))
     if not isinstance(inherited, dict):
         raise ValueError("OPENCODE_CONFIG_CONTENT must be a JSON object")
@@ -466,9 +468,7 @@ def normalized_events(rows):
     if steps[-1].get("reason") == "length":
         # A successful process exit can still be an incomplete model turn.
         normalized.append({"type": "turn.failed", "usage": usage, "error": {
-            "code": "output_token_limit",
-            "message": "OpenCode exhausted its output token limit (finish reason: length). "
-                       "The attempt is incomplete; review saved work before recovery."}})
+            "code": "output_token_limit", "message": output_cap.length_stop(steps[-1].get("tokens"))}})
     elif steps[-1].get("reason") == "tool-calls":
         normalized.append({"type": "turn.failed", "usage": usage, "error": {
             "code": "incomplete_turn",
