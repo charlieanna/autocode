@@ -112,7 +112,13 @@ kind of job again from the new message and continues in the same run
 directory. After a review, a follow-up that asks to act on the findings is
 planned from them: the review's blocking findings are the requirements, so no
 requirements questions are asked, and the plan still goes to the user for
-approval. A usage error
+approval. The rewritten task names what the previous turn wrote (its report or
+note, then the files its stages changed; at most eight paths). After a design
+turn, a follow-up that asks to build the design names that document, so the
+build starts by checking it against the repository (`check_design`) instead of
+gathering requirements; its plan still needs approval. Only a finished run takes
+a follow-up, and a finished run takes no answer, feedback or edited plan: either
+mistake exits 2 and changes nothing (see [CLI](cli.md#waiting-or-finished)). A usage error
 also exits 2, with a message starting `usage:` on stderr; the client checks for
 it so a mistyped flag is not mistaken for a pause. A rejection also exits 2,
 starting `Input rejected:`, and startup can exit 2 before any run exists;

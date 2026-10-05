@@ -13,10 +13,12 @@ role continues on): they are the person's own decision, never a default, so the
 driver then resumes the pause that answer leaves, once.
 
 A scenario with follow-up turns (issue #51) continues the same run: once it
-reaches the state a turn names, the driver says that turn's message with
-``--follow-up`` and drives on. ``turn_marks`` records where each turn began, so
-the run record can be split per turn afterwards, including what each turn changed in
-the workspace (``workspace_files``: read from disk, never from AutoCode's state).
+completes, the driver says the next turn's message with ``--follow-up`` and
+drives on. Turns follow completion only, because ``--follow-up`` continues only a
+finished run (docs/cli.md); a run that stops first never hears the next turn
+(``TurnNotReached``). ``turn_marks`` records where each turn began, so the run
+record can be split per turn afterwards, including what each turn changed in the
+workspace (``workspace_files``: read from disk, never from AutoCode's state).
 """
 from __future__ import annotations
 
@@ -58,6 +60,15 @@ def leaves_for_person(need: dict) -> bool:
 
 class DriveError(RuntimeError):
     """The harness could not take the run any further."""
+
+
+class TurnNotReached(DriveError):
+    """The run stopped before a follow-up turn could be said: the product stopped, not the harness.
+    ``turn`` is the number of the turn that was never said (2 for the first follow-up)."""
+
+    def __init__(self, message: str, turn: int):
+        super().__init__(message)
+        self.turn = turn
 
 
 def _question_answer(question: dict) -> str:
@@ -186,23 +197,23 @@ class Driver:
             raise DriveError("the first CLI call did not create a run: "
                              + (last["stderr_tail"] or last["stdout_tail"]).strip()[-500:])
         self.run_dir = candidates[-1].parent
-        view = self.until_stopped(turns[0].after if turns else None)
+        view = self.until_stopped()
         for number, turn in enumerate(turns, start=1):
             reached = turn_state(view)
             if turn.after not in reached:
-                raise DriveError(f"turn {number + 1} is said after {turn.after!r}, but the run ended "
-                                 f"{' / '.join(reached)} (status {view['status']!r})")
+                raise TurnNotReached(f"stopped before turn {number + 1}: it is said after {turn.after!r}, but the "
+                                     f"run ended {' / '.join(reached)} (status {view['status']!r})", number + 1)
             self.turn_marks.append({"said_at": datetime.now(timezone.utc).isoformat(), "say": turn.say,
                                     "steps": len(self.steps), "answers": len(self.answers), "view": view,
                                     "files": workspace_files(self.project)})
             self.call("follow-up", "--follow-up", turn.say, action=True)
-            view = self.until_stopped(turns[number].after if number < len(turns) else None)
+            view = self.until_stopped()
         return view
 
     def until_stopped(self, say_at: str | None = None) -> dict:
         """Drive until the run is done or needs something the driver does not serve.
-        ``say_at`` (``needs:<kind>``) stops at that need instead of serving it, so a
-        follow-up turn can answer it in its own words."""
+        ``say_at`` (``needs:<kind>``) stops at that need instead of serving it, so the
+        caller can serve it its own way (plan_compare compares plans at ``needs:approve_plan``)."""
         while True:
             view = self.view()
             need = view["needs"]

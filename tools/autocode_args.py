@@ -23,10 +23,12 @@ import textwrap
 try:
     from . import autocode_workflows as workflows, autopilot, autocode_run_finder as run_finder
     from . import autocode_subcommands as subcommands
+    from . import autocode_resolver_human as resolver_human
     from .autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
 except ImportError:
     import autocode_workflows as workflows, autopilot, autocode_run_finder as run_finder
     import autocode_subcommands as subcommands
+    import autocode_resolver_human as resolver_human
     from autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
 
 # Inputs that only start a new run: with one of them and no task, nothing is looked up.
@@ -305,7 +307,8 @@ def parse(unit, argv, default_models):
     args._explicit_budget_flags = explicit & budget_flags
     if unit and args.unit != unit:
         parser.error(f"This entry point runs only {unit}")
-    notice = _find_run(parser, args, explicit, resume_only, shlex.join(rest))
+    notice = _find_run(parser, args, explicit, resume_only,
+                       shlex.join(["resume", *rest] if resume_only else rest))
     if resume_only and _acknowledges_pause(args):
         args.resume_paused = True
     if args.inspect_evidence and (not args.run_dir or not args.status):
@@ -387,7 +390,9 @@ def _acknowledges_pause(args):
     effects: no new budget or --grant-recovery allowance, but the per-cycle report-repair and
     resolver attempt counts restart and an invalid-output pause gets its one fresh attempt. A plain
     `autocode` still only shows the pause, and a finished or running run is left to the usual
-    relaunch. A design conflict waits for the user to edit the design: resume shows it.
+    relaunch. Recovery companions also acknowledge a verified operational pause published as
+    WAITING_FOR_USER; bare resume leaves that request alone. A design conflict waits for the
+    user to edit the design: resume shows it.
     """
     if args.resume_paused or not args.run_dir or args.resolver_response or any(user_actions(args).values()):
         return False
@@ -396,6 +401,16 @@ def _acknowledges_pause(args):
     except (OSError, ValueError):
         return False
     status = str(state.get("status", "")) if isinstance(state, dict) else ""
+    if status == "WAITING_FOR_USER" and any((
+            args.retry_builder, args.retry_failed_stage, args.retry_report, args.diagnose_failed_stage,
+            args.grant_recovery is not None, args.accept_transport_change,
+            args.expected_recovery_token is not None, args._explicit_budget_flags)):
+        # Publication changes the status, not the underlying pause. Verify its receipt rather
+        # than treating a request's scope label as authority; locked recovery still checks it.
+        issued = resolver_human.current(state)
+        if issued and issued['scope'] == 'operational_exhaustion':
+            proposal = state['resolver']['human_escalations'][issued['request_id']]['identity']['proposal']
+            status = str(proposal['origin'].get('pause_status', ''))
     return status.startswith("PAUSED_") and status not in WAITS_FOR_AN_EDIT
 
 

@@ -316,17 +316,22 @@ tables in `scenario.toml`, in order:
 
 ```toml
 [[turn]]
-after = "complete"      # or "stop", or "needs:<kind>" to say it instead of serving that need
+after = "complete"      # the only value: a follow-up continues only a finished run
 say = "Fix them."
 ```
 
-When the run reaches the state `after` names, the driver says the message with
+When the run completes, the driver says the message with
 `autocode --follow-up TEXT` (an action on the existing run, like `--feedback`)
-and keeps driving. AutoCode takes a follow-up only on a finished run
-(`after = "complete"`): it records a new turn, recognizes the kind of job again
-from the message, and, after a review, plans the fix from the review's findings
-(docs/task-run.md). A stopped or waiting run refuses it; answer it or send
-`--feedback` instead. The
+and keeps driving. AutoCode takes a follow-up only on a finished run: it records
+a new turn, recognizes the kind of job again from the message, and, after a
+review, plans the fix from the review's findings (docs/task-run.md). A stopped
+or waiting run refuses it (docs/cli.md, "Waiting or finished"), so `catalog.load`
+refuses any `after` but `"complete"`: a turn after `"stop"` or `"needs:<kind>"`
+could never be said. A job whose report asks questions (a design review, a
+discussion) completes, and the next turn is the reply. A run that stops before a
+turn is said ends the drive with `TurnNotReached`: the verdict is judged as for
+any stopped run, but never better than HONEST_BLOCKER, and the summary says
+`stopped before turn N`. The
 oracle's `run` gets `turns`: one record per turn, with the same keys as `run`
 itself (the view that turn ended with, its stages, answers and CLI calls), so
 `run_checks` can judge each turn on its own. Stages are assigned to a turn by
@@ -349,7 +354,7 @@ The scripted model tells the turns apart by the message the handoff's task
 starts with, so no turn's message may begin another's, repeat another or begin
 the brief (`catalog.load` refuses it). `discuss-then-design-then-build` is the
 example: a discussion's note, then a design that follows it, then "Build it."
-implementing that design.
+implementing that design (AutoCode checks it first as an approved design).
 
 ## Comparing with a plain agent
 
@@ -454,7 +459,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `discuss-cache-choice` | discuss | In-process vs. shared cache, decided by facts planted in the repository (four shared-nothing workers against a 60/hour upstream limit). Cites sources, weighs both options, writes no code, asks at most three questions. |
 | `investigate-two-caches` | investigate | Explain two caches: scope, TTL and users must match the code; consequence of removing one named; nothing changed. |
 | `review-then-fix` | conversation | Review `pr-184.patch`, then "Fix them." in the same run: the PR lands with both regressions fixed and a test that catches each (the oracle swaps back one unfixed file at a time), the advisory finding is left alone, and the fix turn asks no requirements questions. |
-| `discuss-then-design-then-build` | conversation | Issue #185, three jobs in one run: `discuss-cache-choice`, then "Shared it is; design it.", then "Build it.". Each turn changes only its own report or code; the design follows the decision (shared directory, atomic writes) outside its rejected options; the build checks that design first (`check_design`), implements the modules and signatures it names, and passes hidden tests in which separate worker processes share one cache directory. |
+| `discuss-then-design-then-build` | conversation | Issue #185, three jobs in one run: `discuss-cache-choice`, then "Shared it is; design it.", then "Build it.". Each turn changes only its own report or code; the design follows the decision (shared directory, atomic writes) outside its rejected options; the build checks that design first (`check_design`), implements the modules and signatures it names, and passes hidden tests in which separate worker processes share one cache directory. The design and build turns each have their plan approved. |
 
 Planned next: Figma design → implementation, and multi-service systems started
 with `docker compose` and checked end to end.
@@ -539,7 +544,8 @@ catalog/<id>/
                     fault "quota_once" stops the Tester on the driver's default Tester model),
                     [run] max_steps, timeout_minutes, expected = "complete"|"stop"|"any", known_failure = "why",
                           requires_stages = ["astra_resolve"] (a model stage the run must reach to count)
-                    [[turn]] after = "complete"|"stop"|"needs:<kind>", say = "follow-up message" (optional, repeatable)
+                    [[turn]] after = "complete", say = "follow-up message" (optional, repeatable; said once
+                          the run completes, since a follow-up continues only a finished run)
                     [fake] turn_paths = [["docs/"], ["app/"]] (a conversation: which solution paths each
                           turn delivers, the brief first; one list per turn)
   brief.md          the request, exactly as a user would type it (plain text, no headings)
