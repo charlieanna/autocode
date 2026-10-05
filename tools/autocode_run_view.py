@@ -330,13 +330,18 @@ def needs(state: dict) -> dict | None:
             answer["resolver_request_id"] = published.get("request_id")
             answer["resolver_token"] = published.get("request_token")
             answer["resolver_scope"] = published.get("scope")
-        # A quota stop asks for a model (#184): answer --answer route-ROLE=MODEL. It has no default
-        # and is a person's decision, never a delegable requirements answer.
+        # A quota stop or a content-filter refusal asks for a model (#184): answer --answer
+        # route-ROLE=MODEL. It has no default and is a person's decision, never a delegable
+        # requirements answer. ``cause`` is "quota" or "content_filter"; ``stopped_model`` is the
+        # model that stopped; ``candidates`` (refusal only) the configured models that would pass.
         route = next((q for q in questions if q.get("category") == quota_route.CATEGORY
                       and quota_route.asked_route(questions, q.get("id"))), None)
         if route:
             answer["route"] = {"question_id": route["id"], "role": route["route_role"], "job": route.get("job"),
-                               "current_model": route.get("current_model"), "engine": route.get("engine")}
+                               "current_model": route.get("current_model"), "engine": route.get("engine"),
+                               "cause": route.get("cause", "quota"), "stopped_model": route.get("stopped_model")}
+            if "candidates" in route:
+                answer["route"]["candidates"] = list(route["candidates"])
         return answer
     if status == "AWAITING_GOAL_APPROVAL":
         # The approval token is saved when the CLI displays the plan; until then, relaunch to display it.

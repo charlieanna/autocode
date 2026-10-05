@@ -212,7 +212,7 @@ would refuse it:
 - it breaks the cross-model rule: a checker never shares its producer's model, or
   its GLM or MiMo family (Builder/Tester, Builder/Completion Reviewer,
   Planner/Plan Reviewer);
-- it is the model that just ran out.
+- it is the model that just ran out (or was refused, below).
 
 Every change, through the answer or the resume flag, is appended to the run's
 `user_events` as a `route_assignment` (role, job, from, to, engine, stage, attempt,
@@ -225,5 +225,31 @@ stays on the role until you change it again, including past the next milestone.
 There is no fallback list, configuration table or automatic switch: a quota stop is
 always your decision. Capacity errors retry the same model, rate limits pause as
 before, and authentication failures never ask for a model.
+
+## When a provider's content filter refuses a response
+
+A provider whose content filter refuses a stage's response (OpenCode's
+`ContentFilterError`, or a `content_filter` error code) stops the stage with
+`PAUSED_CONTENT_FILTER`. The stop names the job, the refused model and the
+provider's words:
+
+```text
+Builder: the provider's content filter refused the response on xiaomi-token-plan-sgp/mimo-v2.6-pro (ContentFilterError: The response was blocked by the provider's content filter); the same model is likely to refuse it again.
+```
+
+The same model is likely to refuse the same request again, so the attempt is kept and never
+replayed, and AutoCode asks the question a quota stop asks, answered the same way:
+
+```text
+[route-terra] Builder's model was refused by its provider's content filter; name another model to continue on
+```
+
+The question also lists the run's other configured models, from other providers, that
+would pass the launch rules above, or says that none does (in the GLM/MiMo profile the
+only other model is the Tester's GLM, which the cross-model rule refuses for the
+Builder). The list is advice, never a default. Setting the attempt aside never raises
+the role's reasoning effort, and the `route_assignment` records `PAUSED_CONTENT_FILTER`
+as its `pause_status`. Only the provider's error event classifies the stop: the model's
+own text ("The request was rejected ...") never does.
 
 See also: [Providers](providers.md) · [Workflow](workflow.md) · [CLI](cli.md)

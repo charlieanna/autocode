@@ -23,7 +23,7 @@ try:
     from .autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
                                 model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
     from . import autocode_receipts as receipts, autocode_usage as token_usage
-    from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary
+    from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal
     from .autocode_event_matching import same_command
 except ImportError:
     from autocode_baseline import BASELINE_POLICY
@@ -34,7 +34,7 @@ except ImportError:
     from autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
                                model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
     import autocode_receipts as receipts, autocode_usage as token_usage
-    import autocode_event_matching as event_matching, autocode_event_metrics as event_summary
+    import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal
     from autocode_event_matching import same_command
 
 
@@ -76,6 +76,9 @@ def failure_status(path):
     # Inspect actual provider errors, not arbitrary tool logs mentioning errors.
     failures = [e for e in events(path) if e.get("type") in ("turn.failed", "error")]
     text = json.dumps(failures).lower()
+    # A content-filter refusal is about this model, not the work: the same model is likely to refuse again.
+    if provider_refusal.refusal(failures):
+        return provider_refusal.STATUS
     # A model-capacity response is transient, but distinct from account rate
     # limits and quota failures. The runner may retry it under a small budget.
     if any(x in text for x in ("selected model is at capacity", "model is at capacity",

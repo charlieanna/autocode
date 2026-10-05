@@ -74,6 +74,7 @@ def _explanation(status, role):
         'PAUSED_PLANNING_BUDGET': 'Planning used its configured review allowance.',
         'PAUSED_RATE_LIMIT': 'The provider temporarily refused more requests.',
         'PAUSED_PROVIDER_CAPACITY': 'The provider could not accept the request with its current capacity.',
+        'PAUSED_CONTENT_FILTER': "The provider's content filter refused the response. The same model is likely to refuse it again; another model is needed.",
     }
     if status in exact:
         return exact[status]

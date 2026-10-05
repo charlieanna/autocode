@@ -25,6 +25,7 @@ try:
     from . import autocode_run_records as records
     from . import autocode_validation_recovery as validation_recovery
     from . import autocode_permission_recovery as permission_recovery
+    from . import autocode_quota_route as quota_route
 except ImportError:
     import autocode_job_failure as job_failure
     import autocode_escalation as escalation
@@ -40,6 +41,7 @@ except ImportError:
     import autocode_run_records as records
     import autocode_validation_recovery as validation_recovery
     import autocode_permission_recovery as permission_recovery
+    import autocode_quota_route as quota_route
 
 
 def recover_legacy_report_repair(state, run_dir, workspace):
@@ -83,9 +85,10 @@ def recover_legacy_report_repair(state, run_dir, workspace):
     return True
 
 
-def _stopped_on_quota(record):
+def _stopped_on_route(record):
+    """The provider stopped this attempt on its model (quota or a content-filter refusal), not on the work."""
     try:
-        return bool(record.get("events")) and support.failure_status(record["events"]) == "PAUSED_BUDGET"
+        return bool(record.get("events")) and support.failure_status(record["events"]) in quota_route.STATUSES
     except (OSError, ValueError, TypeError):
         return False
 
@@ -111,9 +114,10 @@ def abandon_stage(state, run_dir, workspace, selected):
     if record.get("report_only") and state.get("pending_report_repair"):
         state.setdefault("report_repair_archive", []).append({
             "reason": "Report repair attempt abandoned", "repair": state.pop("pending_report_repair")})
-    # A quota stop says nothing about how the model coped with the work: the person names
-    # the next model (autocode_quota_route, #184) and nothing changes the route on its own.
-    if not _stopped_on_quota(record):
+    # A quota stop or a content-filter refusal says nothing about how the model coped with the
+    # work: the person names the next model (autocode_quota_route, #184), and nothing changes the
+    # route on its own (a higher effort on the refusing model would be refused again).
+    if not _stopped_on_route(record):
         escalation.advance(state, record.get("route_role", record["role"]),
                            trigger="abandoned_attempt", detail="Operator abandoned an uncertain response")
     state["sessions"].pop(record.get("route_role", record["role"]), None)
