@@ -44,8 +44,9 @@ class Project:
         self.root.mkdir()
         references.write(files, self.root)
         git(self.root, "init", "-q")
-        # On CI's Git 2.55 a commit starts automatic maintenance in the background; its lock files
-        # race the temporary directory's cleanup ("Directory not empty: '.git'").
+        # A commit starts `git maintenance run --auto --detach`. On CI's Git 2.55 it repacks once two
+        # loose objects share the objects/17 shard, writing packs under .git while cleanup removes it
+        # ("Directory not empty"). docs/bugs/git-background-repack-cleanup-race.md
         git(self.root, "config", "maintenance.auto", "false")
         git(self.root, "config", "gc.auto", "0")
         git(self.root, "add", "-A")
@@ -66,6 +67,21 @@ class Project:
 
     def close(self):
         self.temp.cleanup()
+
+
+class ProjectFixtureTests(unittest.TestCase):
+    def test_a_commit_starts_no_background_maintenance(self):
+        project = Project()
+        self.addCleanup(project.close)
+        trace = Path(project.temp.name) / "trace2.json"
+        (project.root / "extra.txt").write_text("extra\n")
+        git(project.root, "add", "extra.txt")
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "extra"],
+                       cwd=project.root, check=True, capture_output=True,
+                       env={**os.environ, "GIT_TRACE2_EVENT": str(trace)})
+        children = [event["argv"] for event in map(json.loads, trace.read_text().splitlines())
+                    if event.get("event") == "child_start"]
+        self.assertEqual([], [argv for argv in children if {"maintenance", "gc"} & set(argv)], children)
 
 
 class VerifyCase(unittest.TestCase):
