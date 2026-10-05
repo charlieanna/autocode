@@ -193,6 +193,32 @@ class ContentFilterRouteTests(unittest.TestCase):
                                                      failure_status=support.failure_status,
                                                      abandoning="001/builder-01"))
 
+    def test_the_flag_refusal_offers_the_answer_only_where_the_request_takes_it(self):
+        # The saved events classify as a refusal whether or not the published request asks for a model:
+        # a stop published as uncertain (a session-ID mismatch, or a run paused before #464 typed a
+        # finish-only refusal) asks no route question, and --answer route-terra is refused there.
+        state = self.state(source=FINISH_ONLY, exit_code=0)
+        model = "anthropic/claude-sonnet-5-5"
+        changed = {**state["settings"], "roles": {**state["settings"]["roles"],
+                                                  "terra": {"engine": "opencode", "model": model}}}
+        _, asked = self.question(state)
+        uncertain, refused = {"pause_status": "PAUSED_UNCERTAIN_STAGE"}, {"pause_status": "PAUSED_CONTENT_FILTER"}
+        for questions, origin, answerable in (([], uncertain, False), ([asked], uncertain, False),
+                                              ([], refused, False), ([asked], refused, True)):
+            with self.subTest(questions=[q["id"] for q in questions], origin=origin["pause_status"]):
+                refusal = quota_route.resume_refusal(state, state["settings"], changed,
+                                                     failure_status=support.failure_status, abandoning=None,
+                                                     questions=questions, origin=origin)
+                self.assertIn("is still uncertain; --terra-model is not saved", refusal)
+                self.assertIn("--abandon-stage 001/builder-01, then --resume-paused --terra-model MODEL", refusal)
+                # Every command the refusal names is one the CLI accepts at this request (#288/#301).
+                self.assertEqual(answerable, "--answer route-terra=MODEL" in refusal, refusal)
+                if answerable:
+                    self.assertEqual((asked, model), quota_route.parse_answer([f"route-terra={model}"], questions, origin))
+                else:
+                    with self.assertRaises(ValueError):
+                        quota_route.parse_answer([f"route-terra={model}"], questions, origin)
+
 
 class ContentFilterAtCleanExitTests(unittest.TestCase):
     """A provider that exits 0 after its content filter refused the response stops the same typed way (#464).
@@ -206,13 +232,16 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
         self.root = Path(temp.name).resolve()
         self.runs = 0
 
-    def build(self, rows, *, sessions=True):
-        """The Builder's run_role, in a fresh run, over a provider that writes ``rows`` and exits 0: (stop, state)."""
+    def build(self, rows, *, sessions=True, saved_session=None):
+        """The Builder's run_role, in a fresh run, over a provider that writes ``rows`` and exits 0: (stop, state).
+
+        With ``saved_session`` the provider is a configured tool that prints OpenCode events (as Kilo
+        does) and resumes the Builder's saved session; the built-in OpenCode Builder starts a new one."""
         self.runs += 1
         self.run = self.root / ".autocode/runs" / f"fixture-{self.runs}"
         self.run.mkdir(parents=True)
         state = {"version": 2, "workspace": str(self.root), "task": "Fixture", "status": "RUNNING", "iteration": 1,
-                 "sessions": {}, "stages": [], "history": [],
+                 "sessions": {"terra": saved_session} if saved_session else {}, "stages": [], "history": [],
                  "settings": {"engine": "opencode", "roles": {"terra": {"model": MIMO}, "astra": {"model": MIMO},
                                                               "sol": {"model": GLM}, "completion": {"model": GLM}}}}
         approve_fixture(state, goals)
@@ -225,6 +254,8 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
 
         with patch.object(runner.opencode, "launch", return_value=(["fixture-provider"], {}, {})), \
              patch.object(runner.opencode, "SUPPORTS_SESSIONS", sessions, create=True), \
+             patch.object(runner.opencode, "CONFIGURED", bool(saved_session), create=True), \
+             patch.object(runner.opencode, "NAME", "kilo", create=True), \
              patch.object(runner.readonly_events, "prepare_opencode_snapshots"), \
              patch.object(runner.subprocess, "Popen", Child), \
              patch.object(support, "snapshot", return_value={"head": "h", "files": {}, "revision": "r"}), \
@@ -271,6 +302,17 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
         self.assertEqual("PAUSED_CONTENT_FILTER", self.reconcile(state).status)
         stop, _ = self.build([{"type": "thread.started", "thread_id": "t"}], sessions=False)
         self.assertEqual(("PAUSED_UNCERTAIN_STAGE", "Process exited without a report file"), (stop.status, str(stop)))
+
+    def test_session_provenance_is_checked_before_the_refusal(self):
+        # A refusal from a session the run did not expect, or naming none, is not typed or answered with a model.
+        missing = "Provider returned a missing or unexpected session ID"
+        rows = [json.loads(line) for line in FINISH_ONLY.read_text().splitlines()]
+        stop, state = self.build(rows, saved_session="ses_saved_builder")
+        self.assertEqual(("PAUSED_UNCERTAIN_STAGE", missing), (stop.status, str(stop)))
+        self.assertEqual("ses_saved_builder", state["active_stage"]["expected_session"])
+        self.assertNotEqual("ses_saved_builder", rows[0]["sessionID"])
+        stop, _ = self.build([{"type": "turn.failed", "error": {"code": "content_filter", "message": "filtered"}}])
+        self.assertEqual(("PAUSED_UNCERTAIN_STAGE", missing), (stop.status, str(stop)))
 
     def test_other_clean_exits_without_a_completed_turn_stay_uncertain(self):
         rows = [json.loads(line) for line in FINISH_ONLY.read_text().splitlines()]

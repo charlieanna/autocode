@@ -192,14 +192,19 @@ def candidates(state: dict, role: str, refused_model, *, cross_check, configured
     return passing, refused
 
 
-def advice(asked: dict, attempt_id: str | None) -> str:
-    """The two commands the CLI accepts at this stop. Never names one it refuses (#288/#301)."""
+def advice(asked: dict, attempt_id: str | None, *, answerable: bool = True) -> str:
+    """The commands the CLI accepts at this stop. Never names one it refuses (#288/#301).
+
+    ``answerable`` is False when the current request does not ask this model question
+    (``answers_route``): --answer is refused there, so only setting the attempt aside is named.
+    """
     role = asked["route_role"]
-    text = (f"To continue on another model, answer --answer {asked['id']}=MODEL --resolver-token TOKEN, "
-            "then --resume-paused")
+    steps = [f"answer --answer {asked['id']}=MODEL --resolver-token TOKEN, then --resume-paused"] if answerable else []
     if attempt_id:
-        text += f"; or --abandon-stage {attempt_id}, then --resume-paused {flag(role)} MODEL"
-    return text + "." + (" " + asked["recommendation"] if asked.get("recommendation") else "")
+        steps.append(("" if answerable else "set the attempt aside with ")
+                     + f"--abandon-stage {attempt_id}, then --resume-paused {flag(role)} MODEL")
+    return ("To continue on another model, " + "; or ".join(steps) + "."
+            + (" " + asked["recommendation"] if asked.get("recommendation") else ""))
 
 
 def option(asked: dict) -> str:
@@ -211,6 +216,11 @@ def asked_route(questions, question_id: str) -> dict | None:
     return next((q for q in questions or () if isinstance(q, dict) and q.get("id") == question_id
                  and q.get("category") == CATEGORY and q.get("route_role") in ROLES
                  and question_id == PREFIX + q["route_role"]), None)
+
+
+def answers_route(questions, origin: dict | None, role: str) -> bool:
+    """Whether the current request takes ``--answer route-<role>=MODEL``: parse_answer's own rule."""
+    return (origin or {}).get("pause_status") in STATUSES and asked_route(questions, PREFIX + role) is not None
 
 
 def parse_answer(answers, questions, origin: dict) -> tuple[dict, str]:
@@ -311,22 +321,30 @@ def _changed_role(state: dict, previous: dict, selected: dict, failure_status):
 
 
 def resume_refusal(state: dict, previous: dict, selected: dict, *, failure_status,
-                   abandoning: str | None) -> str | None:
+                   abandoning: str | None, questions=None, origin: dict | None = None) -> str | None:
     """Why a --<role>-model change cannot be saved now, or None.
 
     While the stopped attempt is still uncertain the model is named with --answer, or
     the attempt is set aside first (--abandon-stage, in the same or an earlier invocation).
     Saving the flag alone would change the route under an unresolved attempt and leave the
     question asking for the model just named.
+
+    ``questions`` and ``origin`` are the current published request's. The saved events can
+    classify as a quota or refusal stop while that request was published as another stop (a
+    session-ID mismatch, or a run paused before a finish-only refusal was typed, #464); it asks
+    no model question and refuses --answer, so only --abandon-stage is offered then.
     """
     changed = _changed_role(state, previous, selected, failure_status)
     if not changed or not changed[0]["active"] or (abandoning and abandoning == changed[0]["attempt_id"]):
         return None
     attempt, role = changed[0], changed[0]["role"]
+    answerable = answers_route(questions, origin, role)
+    if not answerable and not attempt["attempt_id"]:
+        return None  # no command this request accepts names the model first
     asked = {"id": PREFIX + role, "route_role": role}
     stopped = _STOPPED.get(attempt.get("pause_status"), _STOPPED[QUOTA_STATUS])
     return (f"The {roles.screen_name(attempt.get('stage') or role, state)} attempt that {stopped} is still "
-            f"uncertain; {flag(role)} is not saved. " + advice(asked, attempt["attempt_id"]))
+            f"uncertain; {flag(role)} is not saved. " + advice(asked, attempt["attempt_id"], answerable=answerable))
 
 
 def record_resume_change(state: dict, previous: dict, selected: dict, *, failure_status, at: str,

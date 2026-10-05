@@ -256,14 +256,16 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         if (live_pause and resolver_human.supersede_operational(state, reason)) or consumed_pause:
             state['_authorized_bound_change'] = {'pause_status': pause, 'at': runner.now()}
     if state.get("settings") and settings != state["settings"]:
-        # A --<role>-model change under a quota-stopped, still uncertain attempt is refused (#184).
-        refusal = quota_route.resume_refusal(state, state["settings"], settings, failure_status=support.failure_status,
-                                             abandoning=args.abandon_stage)
-        if refusal:
-            parser.error(refusal)
         published = state.get(resolver_human.PUBLIC) or {}
         entry = state.get('resolver', {}).get('human_escalations', {}).get(published.get('request_id'), {})
         origin = entry.get('identity', {}).get('proposal', {}).get('origin', {})
+        # A --<role>-model change under a quota-stopped, still uncertain attempt is refused (#184),
+        # naming --answer only when the pending request asks that model question.
+        refusal = quota_route.resume_refusal(state, state["settings"], settings, failure_status=support.failure_status,
+                                             abandoning=args.abandon_stage, origin=origin,
+                                             questions=published.get('questions') if entry.get('status') == 'pending' else None)
+        if refusal:
+            parser.error(refusal)
         paused_for = origin.get('pause_status')
         retiring_token_pause = retired_token_budget.retired_pause(origin)
         if retiring_token_pause and resolver_human.supersede_operational(state, 'Cumulative token budgets were removed'):

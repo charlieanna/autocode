@@ -255,4 +255,11 @@ finish reason classifies the stop: the model's own text ("The request was reject
 never does. When no error event follows the finish, the provider's words in the stop are
 `content_filter: OpenCode's last step finished with reason content-filter`.
 
+A refusal in a response from a session the run did not expect, or one that names no session,
+stays `PAUSED_UNCERTAIN_STAGE` ("Provider returned a missing or unexpected session ID") and asks
+no model question. `--answer route-ROLE=MODEL` is accepted only where the request asks it, so
+while such a stop is open (or one a run paused on before a finish-only refusal was typed),
+the role's model flag alone (`--terra-model`) is refused and names only the other route:
+`--abandon-stage ATTEMPT`, then `--resume-paused --terra-model MODEL`.
+
 See also: [Providers](providers.md) · [Workflow](workflow.md) · [CLI](cli.md)
