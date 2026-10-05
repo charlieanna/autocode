@@ -641,10 +641,28 @@ escalation decision, assignment checks, fresh independent validation and the
 Completion gate. Unsupported changes remain unknown rather than being treated as
 proven progress.
 
+An attempt that automatic recovery archived because it ended without a completed
+turn (a provider timeout, capacity or startup failure, or a denied path) returned
+no report, so relaunching it repeats no experiment; that recovery route's own
+budget bounds the relaunch. An uncertain attempt an operator abandoned, a
+truncated report or a rejected report still counts. An accepted operational
+diagnosis that recommends a retry admits the Builder without a proposed source
+change until one Builder attempt returns a result; an attempt that automatic
+recovery archives does not use it up (#422). The Builder receives the diagnosis
+and its recommendation. A change the diagnosis proposed that the incident packet
+cannot attest reaches the Builder only as advice, with the reason, and is never
+treated as a new experiment.
+
 The explicit `--resume-paused --retry-failed-stage` control can authorize one
 scoped retry of a recorded hold under the existing limits. It retains previous
-attempts and evidence; ordinary resume is not that authorization. Permission,
-product and scope decisions still require their existing bound human controls.
+attempts and evidence; ordinary resume is not that authorization. Unlike a
+diagnosis's retry, it is spent by the attempt it admits even if that attempt
+times out, and so is a `--retry-builder` grant. The grant does not carry over to
+the automatic recovery that follows. A relaunch of the same stage is admitted or
+held by novelty as it would be without the grant; a Builder timeout outside
+final-audit-only routing goes to the Completion Reviewer instead.
+Permission, product and scope decisions still require their existing bound human
+controls.
 
 ### Budget ownership and human escalation
 

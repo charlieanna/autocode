@@ -1,11 +1,14 @@
 """The task-run interface: the status view and the CLI client. See docs/task-run.md."""
 import os
+import json
+import signal
 import shutil
 import subprocess
 import sys
 import tempfile
 import textwrap
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -14,6 +17,8 @@ import autocode_run_view as run_view
 import autocode_taskrun as taskrun
 import autocode_run_actions as run_actions
 import autocode_util as util
+import autocode_captured_process as captured_process
+import autocode_process as processes
 
 HERE = Path(__file__).resolve().parents[1] / "tools"  # its fixtures stay beside the runtime
 # The offline fixture provider plans and builds exactly this greeting task.
@@ -467,7 +472,7 @@ class TaskRunClientTests(unittest.TestCase):
         rejected = subprocess.CompletedProcess([], 2,
                                                stdout='Input rejected: pending report repair must be reconciled\n',
                                                stderr='')
-        with patch.object(taskrun.subprocess, 'run', return_value=rejected), \
+        with patch.object(taskrun, 'run_captured', return_value=rejected), \
                 self.assertRaisesRegex(taskrun.TaskRunError, 'pending report repair'):
             run._invoke('retry failed stage', '--resume-paused', '--retry-failed-stage', advancing=True)
 
@@ -679,6 +684,111 @@ class TaskRunProcessTests(unittest.TestCase):
             run.status()
         self.assertEqual(1, raised.exception.process.returncode)
         self.assertIsNone(run.last_advance)
+
+    def test_timeout_stops_detached_workers_and_retains_saved_run_identity(self):
+        self.assert_owned_cleanup('timeout')
+
+    def test_sigterm_stops_detached_workers_and_restores_caller_handler(self):
+        self.assert_owned_cleanup('sigterm')
+
+    def assert_owned_cleanup(self, trigger):
+        ready = self.root / 'ready'
+        os.mkfifo(ready)
+        ready_fd = os.open(ready, os.O_RDWR)
+        self.addCleanup(os.close, ready_fd)
+        stub = self.root / 'timeout_cli.py'
+        stub.write_text(textwrap.dedent('''
+            import json, os, pathlib, subprocess, sys
+            args = sys.argv[1:]
+            workspace = pathlib.Path(args[args.index('--workspace') + 1])
+            run = workspace / '.autocode/runs/saved-before-timeout'
+            run.mkdir(parents=True)
+            (run / 'state.json').write_text('{}')
+            worker = subprocess.Popen([sys.executable, '-c',
+                'import os; reader,writer=os.pipe(); os.read(reader,1)'], start_new_session=True)
+            (workspace / 'worker.json').write_text(json.dumps({'pid': worker.pid}))
+            with open(os.environ['READY_FIFO'], 'w') as signal:
+                signal.write('R')
+            reader, writer = os.pipe()
+            os.read(reader, 1)
+        '''))
+        sentinel = subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.read()'],
+                                    stdin=subprocess.PIPE)
+        supervisor_wait = captured_process.supervisor.wait
+        real_clock = captured_process.supervisor.time.monotonic
+        previous_handler = signal.getsignal(signal.SIGTERM)
+        receipt = None
+
+        def stop_after_fixture_is_ready(child, timeout):
+            nonlocal receipt
+            self.assertEqual(b'R', os.read(ready_fd, 1))
+            if trigger == 'sigterm':
+                worker_pid = json.loads((self.workspace / 'worker.json').read_text())['pid']
+                sample = processes.ProcessTree.sample
+                interrupted = False
+
+                def interrupt_owned_sample(tree, *args, **kwargs):
+                    nonlocal interrupted, receipt
+                    result = sample(tree, *args, **kwargs)
+                    if worker_pid in tree.known and not interrupted:
+                        interrupted = True
+                        receipt = {'owned': list(tree.known.values())}
+                        os.kill(os.getpid(), signal.SIGTERM)
+                    return result
+
+                # Signal only after the supervisor has recorded the detached
+                # worker and entered the wait's cleanup-protected loop.
+                with patch.object(processes.ProcessTree, 'sample', interrupt_owned_sample):
+                    return supervisor_wait(child, timeout)
+            first = True
+
+            def deadline_clock():
+                nonlocal first
+                now = real_clock()
+                if first:
+                    first = False
+                    return now
+                return now + timeout + 1
+
+            # Advance the deadline without waiting for it in real time. Process
+            # cleanup still uses the real monotonic clock after this offset.
+            with patch.object(captured_process.supervisor.time, 'monotonic', deadline_clock):
+                code, expired, receipt = supervisor_wait(child, timeout)
+            return code, expired, receipt
+
+        try:
+            expected_error = (self.assertRaisesRegex(taskrun.TaskRunError, 'start did not finish within 60 s')
+                              if trigger == 'timeout' else self.assertRaises(KeyboardInterrupt))
+            with patch.object(captured_process.supervisor, 'wait', stop_after_fixture_is_ready), \
+                    expected_error as raised:
+                taskrun.TaskRun.start(self.workspace, 'A task', command=(sys.executable, str(stub)),
+                                     env={'READY_FIFO': str(ready)}, timeout=60)
+            saved_run = self.workspace / '.autocode/runs/saved-before-timeout'
+            self.assertEqual([saved_run], taskrun.TaskRun.runs_in(self.workspace))
+            if trigger == 'timeout':
+                self.assertIsNone(raised.exception.process)
+                self.assertEqual(saved_run, raised.exception.run_dir)
+            worker_pid = json.loads((self.workspace / 'worker.json').read_text())['pid']
+            self.assertIn(worker_pid, {row['pid'] for row in receipt['owned']})
+            self.assertEqual([], processes.live_processes(receipt['owned']))
+            self.assertIsNone(sentinel.poll())
+            self.assertIs(previous_handler, signal.getsignal(signal.SIGTERM))
+        finally:
+            sentinel.stdin.close()
+            sentinel.wait(timeout=5)
+
+    def test_captured_cli_can_be_driven_from_a_worker_thread(self):
+        with ThreadPoolExecutor(max_workers=1) as worker:
+            result = worker.submit(captured_process.run, [sys.executable, '-c', "print('thread caller')"],
+                                   timeout=60).result(timeout=10)
+        self.assertEqual((0, 'thread caller\n', ''), (result.returncode, result.stdout, result.stderr))
+
+    def test_supervision_failure_is_a_task_run_error(self):
+        with patch.object(taskrun, 'run_captured', side_effect=processes.ProcessError('ownership unavailable')), \
+                self.assertRaisesRegex(taskrun.TaskRunError, 'could not supervise.*ownership unavailable') as raised:
+            taskrun.TaskRun.start(self.workspace, 'A task', command=self.command)
+        self.assertIsNone(raised.exception.process)
+        self.assertIsNone(raised.exception.run_dir)
 
 
 if __name__ == "__main__":

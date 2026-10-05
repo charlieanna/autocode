@@ -42,15 +42,27 @@ reference trees in `references/`, and admitted cases in `catalog.json` and `case
 under that destination. Candidate attempts get their own frozen broken source
 tree without upstream history or remotes.
 
-Run the development case with a configured provider (replace `claude` if needed):
+Run the development case with an authenticated native Codex CLI. The checkout's
+venv needs `pytest` for this project's test command; install it before starting
+an attempt. Keep the runner source and its dependencies fixed until the attempt
+finishes, because changes invalidate the recorded execution identity.
 
 ```sh
+export PATH="$PWD/.venv/bin:$PATH"
 .venv/bin/python tools/autocode_arena.py --arena .autocode/arena \
   run boltons-indexedset-update --cohort baseline-v1 \
   --i-authorize-live-model-spend --approve-benchmark-plans \
-  --option=--provider=claude --option=--joint-planning
+  --timeout 3600 --option=--engine=codex \
+  "--option=--test-command=$PWD/.venv/bin/python -m pytest tests/test_setutils.py -q"
 .venv/bin/python tools/autocode_arena.py --arena .autocode/arena report
 ```
+
+This makes real model calls and approves the displayed benchmark plan through
+Arena's exact plan token. The one-hour deadline applies to each AutoCode CLI
+invocation, including a review and repair cycle. To use another configured
+provider, replace `--option=--engine=codex` with `--option=--provider=NAME` and
+add the model options that provider needs. The test command above is specific
+to Boltons; choose the corresponding project's test command for other cases.
 
 These cases are public historical exercises. Their descriptions are explicitly
 marked evaluator-authored, problem-only adaptations of upstream PR reports, not

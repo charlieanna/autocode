@@ -23,12 +23,12 @@ class GoAliasTests(unittest.TestCase):
 @unittest.skipUnless(shutil.which('go'), 'requires real Go compiler')
 class GoProductionProofTests(unittest.TestCase):
     def test_framework_survives_projection_and_unrelated_name_cannot_prove_case(self):
+        # The original code has its own passing test, so the suite comparison can prove that existing
+        # behavior was kept; a base with no passing test leaves that UNVERIFIED (#479).
         project = Project({'go.mod': 'module policy\n\ngo 1.16\n',
                            'policy.go': 'package policy\nfunc RetentionDays() int { return 0 }\n',
-                           'preserved_test.go': 'package policy\nimport "testing"\n'
-                               'func TestRetentionDaysIsNonNegative(t *testing.T) {\n'
-                               '    if RetentionDays() < 0 { t.Fatal("negative retention") }\n'
-                               '}\n'})
+                           'existing_test.go': 'package policy\nimport "testing"\nfunc TestRetentionIsNotNegative'
+                                               '(t *testing.T) { if RetentionDays() < 0 { t.Fatal("negative") } }\n'})
         self.addCleanup(project.close)
         project.write({'policy.go': 'package policy\nfunc RetentionDays() int { return 30 }\n'})
         state = {'base_commit': project.base, 'settings': {}, 'iteration': 1, 'stages': [], 'history': [],
@@ -44,5 +44,5 @@ class GoProductionProofTests(unittest.TestCase):
                     '(t *testing.T) { if RetentionDays()!=30 { t.Fatal("wrong retention") } }\n'})
                 proof = regression.prove(state, project.root, run)
                 self.assertEqual(expected, proof['verdict'], proof)
-                self.assertIn('policy::TestRetentionDaysIsNonNegative', proof['pass_to_pass'])
+                self.assertIn('policy::TestRetentionIsNotNegative', proof['pass_to_pass'])
                 self.assertEqual({'AC3': ['policy::' + name] if expected == 'PASS' else []}, proof['case_tests'])
