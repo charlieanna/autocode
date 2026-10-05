@@ -13,12 +13,17 @@ Configuration comes from the JSON file named by SCENARIO_FAKE_CONFIG:
 In a conversation (``turns``) the solution is the end state of every turn. The fake
 reads which turn it serves from the handoff's task, which starts with the newest
 message (autocode_follow_up), and with ``turn_paths`` delivers only that turn's files.
+
+A hybrid run (harness/hybrid.py) runs it through a config-registered tool instead of
+as ``codex``; AutoCode's prompt then asks for capture receipts, and the fake runs its
+check through the handoff's capture_command and cites the receipt (receipt_mode).
 """
 from __future__ import annotations
 
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -486,12 +491,63 @@ def model_argument() -> str | None:
     return sys.argv[sys.argv.index("--model") + 1] if "--model" in sys.argv[:-1] else None
 
 
+# A config-registered tool (output = "report_file", as in a hybrid run: harness/hybrid.py) cites command evidence
+# through capture_command receipts, never Codex event ids. AutoCode's prompt says so, and then run_check() runs the
+# check through the handoff's capture_command; cite_receipts() puts that receipt where the report says event:check.
+RECEIPT_CONTRACT = "Do not cite event: IDs"
+RECEIPTS: list[tuple[str, str, int]] = []  # this call's (receipt path, command text, exit code)
+
+
+def receipt_mode() -> bool:
+    return RECEIPT_CONTRACT in PROMPT and bool(DATA.get("capture_command"))
+
+
+def check_argv() -> list[str]:
+    return shlex.split(CHECK) if not re.search(r"[|&;<>()$`*?~]", CHECK) else ["sh", "-c", CHECK]
+
+
 def run_check() -> int:
+    if receipt_mode():
+        receipt = (Path.cwd() / ".autocode" / "evidence" / f"scripted-check-{uuid.uuid4().hex[:12]}.json").resolve()
+        proc = subprocess.run([*shlex.split(DATA["capture_command"]), "--output", str(receipt), "--", *check_argv()],
+                              capture_output=True, text=True, timeout=600)
+        RECEIPTS.append((str(receipt), shlex.join(check_argv()), proc.returncode))
+        return proc.returncode
     proc = subprocess.run(CHECK, shell=True, capture_output=True, text=True, timeout=600)
     emit({"type": "item.completed", "item": {
         "id": "check", "type": "command_execution", "command": CHECK,
         "exit_code": proc.returncode, "aggregated_output": (proc.stdout + proc.stderr)[-2000:]}})
     return proc.returncode
+
+
+def cite_receipts(value):
+    """In receipt mode, the report's Codex evidence (event:check, check:1, a check's event:) cites a receipt
+    instead: this call's own, else the newest one in the workspace's evidence directory (the check a reviewer
+    read). A check of the scenario's command takes the receipt's command text and exit code."""
+    if not receipt_mode():
+        return value
+    if RECEIPTS:
+        receipt, text, code = RECEIPTS[-1]
+    else:
+        found = sorted((Path.cwd() / ".autocode" / "evidence").glob("*.json"), key=lambda path: path.stat().st_mtime)
+        if not found:
+            return value
+        receipt, text, code = str(found[-1].resolve()), shlex.join(check_argv()), None
+    if isinstance(value, dict):
+        fixed = {key: cite_receipts(item) for key, item in value.items()}
+        if fixed.get("command") == CHECK and str(fixed.get("evidence_ref", "")).startswith(("event:", receipt)):
+            fixed.update(command=text, evidence_ref=receipt,
+                         exit_code=code if fixed.get("exit_code") is None else fixed["exit_code"])
+        elif str(fixed.get("evidence_ref", "")).startswith("event:"):
+            fixed["evidence_ref"] = receipt
+        return fixed
+    if isinstance(value, list):
+        return [cite_receipts(item) for item in value]
+    if value in ("event:check", "check:1"):
+        return receipt
+    if value == CHECK:
+        return text
+    return value
 
 
 def recognize(brief: str, follow_up: dict | None = None) -> dict:
@@ -1009,7 +1065,12 @@ def main() -> int:
         # It fails the first time; once a person names another model the Tester runs normally.
         emit({"type": "error", "error": {"message": "subscription usage limit reached; add credits"}})
         return 3
-    report = report_for(stage, data)
+    report = cite_receipts(report_for(stage, data))
+    if os.environ.get("SCENARIO_FAKE_SIDE"):
+        # A hybrid run's witness (harness/hybrid.py): which side of the route this scripted call stood for.
+        with Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-calls.jsonl").open("a") as handle:
+            handle.write(json.dumps({"stage": stage, "repair": bool(data.get("report_repair")),
+                                     "side": os.environ["SCENARIO_FAKE_SIDE"]}) + "\n")
     if "--output-schema" in sys.argv:
         complete(report, json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text()))
     Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(report))

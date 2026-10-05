@@ -14,7 +14,7 @@ Three pieces, none of which changes AutoCode:
 | `claude.toml` | Registers a provider named `claude`. The command runs one stage through the wrapper. `[roles]` gives the default model per role. |
 | `claude_stage.py` | The wrapper. Reads the stage prompt on stdin and runs `claude -p` once with `--json-schema` set to the stage's report schema. The report it returns is written to the path AutoCode gives. It also translates Claude's event stream into the Codex-style events AutoCode's idle watchdog and token accounting read, and puts each call's cost in the event log (`cost_usd`). |
 | `trial.py` | Registers a `claude-tiers` profile in memory and calls the scenario harness (`scenarios/run.py`), so the harness starts AutoCode on a scenario and judges the delivery with its oracle. |
-| `batch.py`, `qualification.txt` | Runs a list of scenarios several times in parallel, restarts only the runs still missing after an interruption, and summarizes verdicts and cost. |
+| `batch.py`, `qualification.txt` | Runs a list of scenarios several times in parallel, restarts only the runs still missing after an interruption, and summarizes verdicts and cost. With `--hybrid` (also on `trial.py`) a scenario's `[hybrid]` route is scripted and every other stage runs on Claude ([Hybrid runs](../../scenarios/README.md#hybrid-runs)). |
 
 Roles: Sonnet does requirements, planning and validation. Opus is the plan reviewer, the Completion
 Owner, the Investigator and the AutoResolver. Haiku is the Builder. AutoCode requires a verifier to

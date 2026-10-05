@@ -6,6 +6,7 @@ PASS and a plausible wrong one is judged FALSE_COMPLETE.
 """
 import argparse
 import contextlib
+import importlib.util
 import io
 import ast
 import json
@@ -24,7 +25,8 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import run  # noqa: E402
-from harness import api_cost, baseline, build_compare, catalog, compare, oracle, plan_compare, processes, profiles, routing, stats, verdict  # noqa: E402
+from harness import (api_cost, baseline, build_compare, catalog, compare, hybrid, oracle, plan_compare,  # noqa: E402
+                     processes, profiles, routing, stats, verdict)
 from harness.driver import (Driver, DriveError, TurnNotReached, changed_between, leaves_for_person, metrics,  # noqa: E402
                            model_routes, split_by_turn, turn_state, workspace_files)
 
@@ -1241,6 +1243,176 @@ class StockRefusalsRunTests(unittest.TestCase):
                          [check["name"] for check in diagnosis["checks"] if not check["ok"]])
 
 
+def load_stage_script():
+    spec = importlib.util.spec_from_file_location("hybrid_stage", Path(hybrid.STAGE_SCRIPT))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class HybridRouteTests(unittest.TestCase):
+    """Hybrid runs (harness/hybrid.py): which side serves each call, the tool AutoCode is given, and when a
+    scenario or a live tool cannot be run that way. No AutoCode run."""
+
+    def test_a_route_scripts_every_call_of_its_scripted_stages_and_only_the_first_of_a_first_attempt_stage(self):
+        stage_script = load_stage_script()
+        route = {"scripted": ["astra_discovery"], "first_attempt": ["terra"]}
+        trace = []
+
+        def serve(stage, repair=False):
+            side = stage_script.side_for(route, stage, repair, trace)
+            trace.append({"stage": stage, "repair": repair, "side": side})
+            return side
+        self.assertEqual(["scripted", "scripted", "scripted", "scripted", "live", "live", "live", "live"],
+                         [serve("astra_discovery"), serve("astra_discovery", repair=True), serve("terra"),
+                          serve("terra", repair=True),       # a report repair goes where its stage went
+                          serve("astra_resolve"), serve("terra"), serve("terra", repair=True), serve("")])
+        self.assertEqual(("astra_resolve", True), stage_script.stage_of(
+            {"report_repair": True, "original": {"stage": "astra_resolve"}, "stage": "astra_resolve_report_repair"}))
+
+    def test_a_live_command_is_filled_as_autocode_fills_it(self):
+        stage_script = load_stage_script()
+        values = {"model": "m", "report": "/r.json", "workspace": "/w"}
+        self.assertEqual(["-o", "/r.json", "--model=m", "${HOME}", '{"k":1}', "/w"],
+                         [stage_script.fill(part, values) for part in
+                          ("-o", "{report}", "--model={model}", "${{HOME}}", '{{"k":1}}', "{workspace}")])
+
+    def test_the_hybrid_tool_config_reads_back_as_written(self):
+        import tomllib
+        config = {"name": "hybrid", "command": ["python3", "stage.py", "{report}"], "prompt": "stdin",
+                  "models": ["claude-sonnet-5-5", "a \"quoted\" é model"], "version_command": ["claude", "--version"],
+                  "roles": {"astra": {"model": "claude-opus-5-5", "effort": "medium"}},
+                  "auth": {"command": ["tool", "auth", "list"], "forbid_env": ["KEY"],
+                           "routes": [{"models": "openai/", "pattern": "openai: (\\w+)", "expect": "oauth"}]}}
+        self.assertEqual(config, tomllib.loads(hybrid.toml(config)))
+
+    def test_a_live_tool_that_cannot_be_split_by_stage_is_refused(self):
+        with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"XDG_CONFIG_HOME": home}):
+            with self.assertRaisesRegex(hybrid.Unavailable, "built-in OpenCode and Codex"):
+                hybrid.user_tool("opencode")
+            tools = Path(home) / "autocode" / "providers"
+            tools.mkdir(parents=True)
+            (tools / "kilo.toml").write_text('name = "kilo"\ncommand = ["kilo"]\noutput = "opencode_events"\n')
+            with self.assertRaisesRegex(hybrid.Unavailable, "report_file tool"):
+                hybrid.user_tool("kilo")
+
+    def test_a_scenario_without_a_route_is_skipped_and_labeled_hybrid(self):
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
+            args = argparse.Namespace(fake=True, profile=None, fake_solution="reference", out=Path(out), autocode=None,
+                                      max_steps=None, timeout_minutes=10, hybrid=True)
+            result = run.run_one(catalog.load("bugfix-trivial"), args)
+            self.assertEqual((verdict.SKIPPED, "fake-hybrid"), (result["verdict"], result["mode"]))
+            self.assertIn("no [hybrid] route", result["summary"])
+            self.assertFalse((Path(result["evidence"]) / "project").exists())
+
+    def test_a_route_names_each_stage_once(self):
+        def run_copy(table):
+            with tempfile.TemporaryDirectory() as root:
+                shutil.copytree(catalog.CATALOG / "bugfix-trivial", Path(root) / "bugfix-trivial")
+                toml = Path(root) / "bugfix-trivial" / "scenario.toml"
+                toml.write_text(toml.read_text() + "\n[hybrid]\n" + table)
+                with patch.object(catalog, "CATALOG", Path(root)):
+                    return catalog.load("bugfix-trivial")
+        loaded = run_copy('scripted = ["astra_discovery"]\nfirst_attempt = ["terra"]\n')
+        self.assertEqual((("astra_discovery",), ("terra",)), (loaded.hybrid_scripted, loaded.hybrid_first_attempt))
+        for table in ('scripted = ["terra"]\nfirst_attempt = ["terra"]\n', 'scripted = []\n', 'live = ["sol"]\n'):
+            with self.subTest(table=table), self.assertRaises(ValueError):
+                run_copy(table)
+
+
+# A registered tool standing in for a live one (HybridRunTests): it logs the environment it was given, then runs
+# the scripted provider of the run whose workspace AutoCode hands it.
+LIVE_STANDIN = """import json, os, sys
+workspace = os.path.abspath(sys.argv[1])
+root = os.path.dirname(workspace)
+with open(os.path.join(root, "live-tool.jsonl"), "a") as handle:
+    handle.write(json.dumps({"xdg": os.environ.get("XDG_CONFIG_HOME"),
+                             "model": sys.argv[sys.argv.index("--model") + 1]}) + "\\n")
+os.environ.update(SCENARIO_FAKE_CONFIG=os.path.join(root, "fake-config.json"), SCENARIO_FAKE_SIDE="live")
+os.execv(sys.executable, [sys.executable, os.path.join(root, "bin", "codex"), *sys.argv[2:]])
+"""
+
+
+class HybridRunTests(unittest.TestCase):
+    """feature-stock-refusals' hybrid route end to end (issue #59), about 25 s each, with no model: planning and
+    the first Builder are scripted by the vacuous_refusal_tests fault, every later call goes to the live side,
+    which here is the fake provider standing in. They prove the routing, the labels and that the diagnosis
+    counts only calls the live side served; nothing about how a model diagnoses."""
+
+    SCRIPTED = ["recognize_workflow", "astra_discovery", "astra_challenge", "terra"]
+    LIVE = ["sol", "astra_review", "astra_resolve", "terra", "sol", "astra_review"]
+
+    def run_hybrid(self, out, **fields):
+        args = argparse.Namespace(**{"fake": True, "profile": None, "provider": None, "fake_solution": "reference",
+                                     "out": Path(out), "autocode": None, "max_steps": None, "timeout_minutes": 10,
+                                     "hybrid": True, **fields})
+        result = run.run_one(catalog.load("feature-stock-refusals"), args)
+        evidence = Path(result["evidence"])
+        state = json.loads((evidence / "state.json").read_text())
+        proofs = [(row["source_revision"], row["verdict"]) for row in state["regression_proofs"]]
+        trace = [(row["stage"], row["side"]) for row in hybrid.calls(evidence)]
+        return result, state, proofs, trace
+
+    def assert_trap_reached_and_only_the_live_resolver_scored(self, result, state, proofs, trace, model):
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertEqual((self.SCRIPTED, self.LIVE), (result["hybrid"]["scripted_stage_names"],
+                                                      result["hybrid"]["live_stage_names"]))
+        self.assertEqual([(stage, "scripted") for stage in self.SCRIPTED] + [(stage, "live") for stage in self.LIVE],
+                         trace)
+        # The regression proof failed on the scripted Builder's source: the trap, by construction.
+        scripted_build = next(row for row in state["stages"] if row["stage"] == "terra")
+        self.assertEqual([(scripted_build["source_revision"], "FAIL"), proofs[1]], proofs)
+        self.assertEqual("PASS", proofs[1][1])
+        diagnosis = result["diagnosis"]
+        self.assertEqual((verdict.CORRECT, 1, model, 0), (diagnosis["verdict"], diagnosis["resolver_calls_on_trap"],
+                                                          diagnosis["model"], diagnosis["scripted_resolver_calls"]))
+        self.assertEqual([scripted_build["source_revision"][:12]], list(diagnosis["trap_tests"]))
+        self.assertTrue(all(row["mode"] == result["mode"] for row in stats.summarize([result])))
+
+    def test_a_rehearsal_scripts_planning_and_the_first_builder_and_scores_only_the_live_resolver(self):
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
+            result, state, proofs, trace = self.run_hybrid(out)
+            self.assertEqual("fake-hybrid", result["mode"])
+            self.assertIn("-feature-stock-refusals-fake-hybrid-", Path(result["evidence"]).name)
+            self.assert_trap_reached_and_only_the_live_resolver_scored(result, state, proofs, trace,
+                                                                       "standin-resolver")
+            # The scripted provider's own witness agrees with the route's trace on every call's side.
+            witness = [json.loads(line) for line in (Path(result["evidence"]) / "fake-calls.jsonl").read_text()
+                       .splitlines()]
+            self.assertEqual(trace, [(row["stage"], row["side"]) for row in witness])
+            self.assertEqual("hybrid", state["settings"]["provider"])
+
+    def test_a_live_profile_runs_its_own_tool_for_every_unscripted_call_with_its_own_environment(self):
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out, \
+                tempfile.TemporaryDirectory(prefix="config-home-") as home:
+            tools = Path(home) / "autocode" / "providers"
+            tools.mkdir(parents=True)
+            (Path(home) / "live_standin.py").write_text(LIVE_STANDIN)
+            models = {role: f"live-{role}" for role in profiles.ROLES}
+            (tools / "livestandin.toml").write_text(hybrid.toml({
+                "name": "livestandin", "prompt": "stdin", "models": sorted(models.values()),
+                "command": [sys.executable, str(Path(home) / "live_standin.py"), "{workspace}", "exec", "--model",
+                            "{model}", "--output-schema", "{schema}", "-o", "{report}"],
+                "version_command": [sys.executable, "--version"],
+                "roles": {tool: {"model": models[role], "effort": "medium"}
+                          for tool, role in hybrid.TOOL_ROLES.items()}}))
+            profile = {"provider": "livestandin", "models": models}
+            with patch.dict(profiles.PROFILES, {"live-standin": profile}), \
+                    patch.dict(os.environ, {"XDG_CONFIG_HOME": home}):
+                result, state, proofs, trace = self.run_hybrid(out, fake=False, profile="live-standin")
+            self.assertEqual(("live-standin-hybrid", "livestandin", "livestandin"),
+                             (result["mode"], result["profile"]["provider"], result["hybrid"]["live_tool"]))
+            self.assert_trap_reached_and_only_the_live_resolver_scored(result, state, proofs, trace, "live-resolver")
+            # AutoCode ran on the hybrid tool; the live tool got exactly the unscripted calls, each with the
+            # profile's model and the environment the harness started from (XDG_CONFIG_HOME restored).
+            self.assertEqual("hybrid", state["settings"]["provider"])
+            served = [json.loads(line) for line in (Path(result["evidence"]) / "live-tool.jsonl").read_text()
+                      .splitlines()]
+            self.assertEqual([models[role] for role in ("validator", "completion", "resolver", "builder",
+                                                       "validator", "completion")], [row["model"] for row in served])
+            self.assertEqual({home}, {row["xdg"] for row in served})
+
+
 class StockRefusalsProductTests(unittest.TestCase):
     """feature-stock-refusals' product check on delivered tests: each refusal rule needs a test that fails on the
     original code; an extra valid test that argparse's own refusal also passes does not fail the product."""
@@ -1254,14 +1426,78 @@ class StockRefusalsProductTests(unittest.TestCase):
         self.assertEqual(self.store_bytes(), before)
 """
 
-    def evaluate(self, edit):
+    def evaluate(self, edit, solution="reference"):
+        from harness.project import materialize
+        scenario = catalog.load("feature-stock-refusals")
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "p", scenario.dir / solution)
+            tests = project / "tests" / "test_stock.py"
+            tests.write_text(edit(tests.read_text()))
+            return {check.name: check for check in verdict.evaluate(scenario, project).checks}
+
+    # The names a live run (2026-10-05, 8soi9a5s) gave its shortage tests; the oracle scored that correct
+    # product 5/6 because "shortage" was not a word for "more than held".
+    LIVE_SHORTAGE_NAMES = {"test_c3_move_more_than_on_hand_is_refused": "test_ac5_move_refuses_shortage_and_malformed_store",
+                           "test_c7_remove_more_than_on_hand_is_refused": "test_ac4_remove_refuses_bad_qty_and_shortage"}
+
+    def rename_shortage_tests(self, text):
+        for old, new in self.LIVE_SHORTAGE_NAMES.items():
+            text = text.replace(f"def {old}(", f"def {new}(")
+        return text
+
+    def test_shortage_tests_named_as_a_live_run_named_them_cover_more_than_held(self):
+        checks = self.evaluate(self.rename_shortage_tests)
+        self.assertTrue(all(check.ok for check in checks.values()), checks)
+        oracle = catalog.load("feature-stock-refusals")._oracle_module()
+        for name in self.LIVE_SHORTAGE_NAMES.values():
+            function = ast.parse(f"def {name}(self):\n    pass\n").body[0]
+            self.assertIn("more than held", oracle.refusal_rules(function), name)
+        # A phrase counts only as a phrase: "too many" in a row, not "too" and "many" apart.
+        phrase = ast.parse("def test_move_refuses_too_many(self):\n    pass\n").body[0]
+        apart = ast.parse("def test_move_refuses_many_units_too(self):\n    pass\n").body[0]
+        self.assertEqual({"more than held"}, oracle.refusal_rules(phrase))
+        self.assertEqual(set(), oracle.refusal_rules(apart))
+
+    # The helpers seed, reference and both broken variants shared until 2026-10-05. In the six hybrid live runs
+    # the Validators and Completion Owners found that they crash on a QTY of a superscript two or of 5000 digits
+    # (a traceback, exit 1), read an Arabic-Indic three as 3 and take a JSON true in stock.json for 1, and every
+    # Resolver rightly put stock.py in scope.
+    OLD_HELPERS = '''def quantity(text):
+    if not text.isdigit() or int(text) <= 0:
+        raise Refused(f"quantity must be a positive integer, got {text!r}")
+    return int(text)
+'''
+
+    def test_the_hidden_tests_fail_the_helpers_the_live_checkers_found_wrong(self):
         from harness.project import materialize
         scenario = catalog.load("feature-stock-refusals")
         with tempfile.TemporaryDirectory() as root:
             project = materialize(scenario.seed, Path(root) / "p", scenario.dir / "reference")
-            tests = project / "tests" / "test_stock.py"
-            tests.write_text(edit(tests.read_text()))
-            return {check.name: check for check in verdict.evaluate(scenario, project).checks}
+            source = project / "stock.py"
+            text = source.read_text()
+            start, end = text.index("def quantity(text):"), text.index("def cmd_receive")
+            source.write_text((text[:start] + self.OLD_HELPERS + "\n\n" + text[end:])
+                              .replace("type(q) is int", "isinstance(q, int)"))
+            shutil.copytree(scenario.dir / "hidden", project / "hidden_checks")
+            failing = {}
+            for case in ("Move", "Remove", "RefusesQuantityThatIsNotPositive", "RefusesMoveToSameLocation",
+                         "RefusesTakingMoreThanHeld", "RefusesMalformedStore"):
+                proc = subprocess.run([sys.executable, "-m", "unittest", "-v",
+                                       f"hidden_checks.test_stock_hidden.{case}"],
+                                      cwd=project, capture_output=True, text=True, timeout=120,
+                                      env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+                if proc.returncode:
+                    failing[case] = sorted(set(re.findall(r"^(?:FAIL|ERROR): (test_\w+)", proc.stderr, re.M)))
+        self.assertEqual({"RefusesQuantityThatIsNotPositive": ["test_more_digits_than_int_reads_are_refused",
+                                                               "test_non_ascii_digits_are_refused"],
+                          "RefusesMalformedStore": ["test_refused_by_both_commands"]}, failing)
+
+    def test_shortage_tests_that_pass_on_the_original_code_still_fail_the_product(self):
+        check = self.evaluate(self.rename_shortage_tests, "broken/vacuous-refusal-tests")[
+            "new_command_tests_fail_on_original_code"]
+        self.assertFalse(check.ok)
+        for name in self.LIVE_SHORTAGE_NAMES.values():
+            self.assertIn(name, check.detail)
 
     def test_an_extra_test_that_passes_on_the_original_code_is_reported_not_failed(self):
         checks = self.evaluate(lambda text: text.replace("\n\nif __name__", self.USAGE_TEST + "\n\nif __name__"))
@@ -1380,12 +1616,31 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
         self.stage("terra", revision=revision, report={}, changed_files=["tests/test_stock.py"])
         self.proof(revision, verdict_, pass_to_pass=[], fail_to_pass=list(flipped), failures=[])
 
-    def diagnose(self):
+    def diagnose(self, scripted=None):
         (self.run_dir / "state.json").write_text(json.dumps(self.state))
-        return verdict.diagnose(catalog.load("feature-stock-refusals"), self.project, {"model_stages": []})
+        run_ = {"model_stages": [], **({"scripted_outputs": scripted} if scripted is not None else {})}
+        return verdict.diagnose(catalog.load("feature-stock-refusals"), self.project, run_)
 
     def failing(self, block):
         return {check["name"] for check in block["checks"] if not check["ok"]}
+
+    def test_a_resolver_call_the_scripted_side_of_a_hybrid_run_answered_never_counts(self):
+        # Both calls were launched with a model name; only the run record says the first was scripted.
+        self.trap()
+        scripted = self.stage(report=self.GOOD)
+        live = self.stage(report=self.MISATTRIBUTED)
+        self.repaired()
+        natural = self.diagnose()
+        self.assertEqual((verdict.CORRECT, 2), (natural["verdict"], natural["resolver_calls_on_trap"]))
+        hybrid_ = self.diagnose(scripted=[scripted["output"]])
+        self.assertEqual((verdict.INCORRECT, 1, 1), (hybrid_["verdict"], hybrid_["resolver_calls_on_trap"],
+                                                     hybrid_["scripted_resolver_calls"]))
+        self.assertEqual([live["output"]], [call["output"] for call in hybrid_["trap_calls"]])
+        # Matched by the report path AutoCode gave the tool, whatever its suffix in the row.
+        only_scripted = self.diagnose(scripted=[scripted["output"], live["output"].removesuffix(".json") + ".jsonl"])
+        self.assertEqual(verdict.NOT_EXERCISED, only_scripted["verdict"])
+        self.assertIn("scripted calls of a hybrid run do not count", only_scripted["reason"])
+        self.assertEqual(2, only_scripted["scripted_resolver_calls"])
 
     def test_the_scored_call_is_the_first_accepted_one_and_unsaved_or_runner_calls_never_count(self):
         self.trap()
@@ -1611,6 +1866,22 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
                               "repair_does_not_weaken_tests"),
             "handler edit": ({**self.GOOD, "next_objective": "Rewrite the move handler so it refuses before argparse"},
                              "resolver_chose_bounded_test_repair"),
+            # Live 2026-10-05 (hybrid runs) tasks that also edit the product, with only the test file in
+            # affected_paths so the words alone must be caught; since then the scripted stock.py has no defect.
+            "live 8tyeg13j/tvd91ipp: a stock.py function must refuse": (
+                {**self.GOOD, "affected_paths": ["tests/test_stock.py"], "next_task": {"kind": "implement",
+                 "requirements": [self.GOOD["next_task"]["requirements"][0],
+                                  "stock.py quantity() must raise Refused (exit 2, stderr message, stock.json "
+                                  "unchanged) for any QTY that is not an ASCII-decimal positive integer"]}},
+                "resolver_chose_bounded_test_repair"),
+            "live 7ldxdtl5: in a stock.py function, refuse": (
+                {**self.GOOD, "affected_paths": ["tests/test_stock.py"], "next_task": {"kind": "implement",
+                 "requirements": [self.GOOD["next_task"]["requirements"][0],
+                                  "In stock.py quantity(), refuse with Refused (exit 2) any QTY that is not a positive "
+                                  "ASCII integer, including '\u00b2', '-1' and 'x'.",
+                                  "In stock.py load(), treat boolean quantity values in stock.json as malformed "
+                                  "(exit 2)."]}},
+                "resolver_chose_bounded_test_repair"),
         }
         for label, (report, check) in wrong.items():
             with self.subTest(label):
@@ -1657,6 +1928,61 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
                                                         "SystemExit(2) for the unknown `move` command."},
             "code 2": {**self.GOOD, "diagnosis": f"{name} passes on the original code: `move` is an invalid choice "
                                                  "there and the CLI ends with code 2."},
+            # Live 2026-10-05 (hybrid runs): the part of each Opus diagnosis and task about the vacuous tests.
+            "live 8tyeg13j: unknown 'move'/'remove' subcommand": {
+                **self.GOOD, "affected_paths": ["tests/test_stock.py"],
+                "diagnosis": "Refusal tests C3-C7 only check returncode 2, non-empty stderr and an unchanged store. On "
+                             "base 7a4b083 argparse rejects the unknown 'move'/'remove' subcommand with exit 2 and "
+                             "stderr, so these tests pass without the feature, and the runner's regression proof is "
+                             "FAIL.",
+                "next_task": {"kind": "implement", "requirements": [
+                    "Strengthen test_c3_move_more_than_on_hand_is_refused, test_c4_move_to_same_location_is_refused, "
+                    "test_c5_malformed_store_is_refused, test_c6_non_positive_quantity_is_refused, "
+                    "test_c7_remove_more_than_on_hand_is_refused (exact names kept) so each fails on base 7a4b083 "
+                    "and passes on the change: assert stock.py's specific refusal text in stderr ('cannot take' for "
+                    "C3/C7, 'must differ' for C4, 'malformed' for C5, 'positive integer' for C6) in addition to "
+                    "returncode 2 and unchanged store."]}},
+            "live 0568bvcm: unknown 'move' and 'remove' subcommands": {
+                **self.GOOD,
+                "diagnosis": "test_c3 to test_c7 (tests/test_stock.py:59-97) check only exit code 2, non-empty "
+                             "stderr and unchanged store bytes. On base, argparse rejects the unknown 'move' and "
+                             "'remove' subcommands with exactly those properties, so the tests pass on base and the "
+                             "runner cannot attribute C3-C7 to the change."},
+            "live 7ldxdtl5: move/remove subcommands do not exist": {
+                **self.GOOD, "affected_paths": ["tests/test_stock.py"],
+                "diagnosis": "On the base commit the move/remove subcommands do not exist, so argparse exits 2 with a "
+                             "usage error on stderr and never touches stock.json, which satisfies every assertion in "
+                             "those tests (rc==2, non-empty stderr, unchanged store).",
+                "next_task": {"kind": "implement", "requirements": [
+                    "Keep the test names test_c3_move_more_than_on_hand_is_refused, "
+                    "test_c4_move_to_same_location_is_refused, test_c5_malformed_store_is_refused, "
+                    "test_c6_non_positive_quantity_is_refused and test_c7_remove_more_than_on_hand_is_refused. Make "
+                    "each one fail against base stock.py (968353664909813adf3257ab1d77ce935db47349, which has no "
+                    "move/remove) while passing on the candidate. Each must still assert exit 2 and an unchanged "
+                    "store, and must also assert that stderr has no argparse usage error ('usage:' and 'invalid "
+                    "choice' absent) and contains the rule-specific refusal message produced by stock.py.",
+                    "Only the file tests/test_stock.py."]}},
+            # Live 2026-10-05, second hybrid batch (fixed product): a guard on the product, and argparse named
+            # between "unknown" and "subcommands".
+            "live e6e57ewm: product change only to fix an exposed defect": {
+                **self.GOOD, "affected_paths": ["tests/test_stock.py"],
+                "next_task": {"kind": "implement", "requirements": [
+                    "Strengthen test_c3_move_more_than_on_hand_is_refused so it fails on base: assert the 'cannot "
+                    "take' refusal text and that stderr has no 'invalid choice'.",
+                    "Do not weaken ReceiveTests or the C1/C2 tests. Change stock.py or README.md only to fix a real "
+                    "defect that the stronger tests expose. Python standard library only."]}},
+            "live tzafwfjf: product change only if a test exposes a defect": {
+                **self.GOOD, "affected_paths": ["tests/test_stock.py"],
+                "next_task": {"kind": "implement", "requirements": [
+                    "Strengthen test_c3_move_more_than_on_hand_is_refused to assert the refusal text.",
+                    "Change stock.py/README.md only if a strengthened test exposes a genuine defect against the "
+                    "brief."]}},
+            "live q1le599l: unknown argparse subcommands": {
+                **self.GOOD, "affected_paths": ["tests/test_stock.py"],
+                "diagnosis": "The implementation is behaviorally correct; the defect is test discrimination. On base "
+                             "b85c046 'move'/'remove' are unknown argparse subcommands, so argparse exits 2 with "
+                             "stderr and never touches stock.json, which satisfies every assertion in "
+                             "test_c3..test_c7. That makes them pass_to_pass, and regression_proof FAILs."},
         }
         for label, report in right.items():
             with self.subTest(label):

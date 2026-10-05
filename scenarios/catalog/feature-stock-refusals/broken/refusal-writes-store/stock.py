@@ -21,8 +21,9 @@ def load():
         data = json.loads(STORE.read_text())
     except ValueError as error:
         raise Refused(f"stock.json is malformed: {error}") from None
+    # type(q) is int: a JSON true is a bool, which isinstance(q, int) would let through as 1.
     if not isinstance(data, dict) or not all(
-            isinstance(items, dict) and all(isinstance(q, int) and q > 0 for q in items.values())
+            isinstance(items, dict) and all(type(q) is int and q > 0 for q in items.values())
             for items in data.values()):
         raise Refused("stock.json is malformed: expected {location: {sku: positive int}}")
     return data
@@ -35,9 +36,16 @@ def save(data):
 
 
 def quantity(text):
-    if not text.isdigit() or int(text) <= 0:
+    # ASCII digits only: str.isdigit() alone also passes a superscript 2 (int() raises) and an Arabic-Indic 3.
+    if not (text.isascii() and text.isdigit()):
         raise Refused(f"quantity must be a positive integer, got {text!r}")
-    return int(text)
+    try:
+        value = int(text)
+    except ValueError:  # more digits than int() reads (sys.get_int_max_str_digits(), 4300 by default)
+        raise Refused(f"quantity is too large: {len(text)} digits") from None
+    if value <= 0:
+        raise Refused(f"quantity must be a positive integer, got {text!r}")
+    return value
 
 
 def cmd_receive(args):
