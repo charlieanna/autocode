@@ -149,6 +149,112 @@ dependencies and ownership, dependents branch from the merged results of their
 prerequisites, and completed workstreams are merged onto one integration branch
 with conflicts paused for you.
 
+### Declaring how a component runs
+
+A row of `components.json` may carry an optional `runtime` block saying how that
+component runs once the system is combined. It is checked before any component
+starts, and it adds instructions to that component's brief. AutoCode does not
+start components itself yet: for now the block tells each Builder how its
+component will be run.
+
+```json
+{
+  "id": "gateway",
+  "description": "Forwards note requests to the store",
+  "requirements": ["R2"],
+  "depends_on": [],
+  "publishes_contracts": [],
+  "consumes_contracts": ["note"],
+  "runtime": {
+    "kind": "service",
+    "port": 8002,
+    "start": "python3 server.py",
+    "health": "/health",
+    "runtime_depends_on": ["store"],
+    "env": {"GREETING": "hello"}
+  }
+}
+```
+
+There are four kinds:
+
+- `service`: a long-lived HTTP server. It needs `port` and an HTTP `health` path.
+- `worker`: a long-running process with no port, for example a queue consumer.
+  It has no `port`; `health` is optional.
+- `database`: built from its own `dockerfile` (a start command on the Python
+  image cannot run a database). It needs `port`: the port is never published,
+  but the database's Builder and the Builders of the components that connect
+  to it are all told it, since none of them sees the others' code. `health` is
+  a command and is required.
+- `library`: never started on its own. Its block is exactly `{"kind": "library"}`,
+  and nothing may name it in `runtime_depends_on`.
+
+| Key | Kinds | Rules |
+| --- | --- | --- |
+| `kind` | all | Required: `service`, `worker`, `database` or `library`. |
+| `port` | service, database (required for both) | The port inside the container: an integer from 1 to 65535. |
+| `start` | service, worker | A shell command of one line, at most 1000 characters. It runs with `/bin/sh -c` in `/app`, in an image built from `python:3.12-slim` with `components/<id>/` copied to `/app`. `$PORT` in it is expanded inside the container. |
+| `dockerfile` | service, worker, database (required) | A relative path inside `components/<id>/`, which is its build context: `/`-separated segments of letters, digits, `.`, `_` and `-`, with no empty, `.` or `..` segment, at most 128 characters. The Builder writes the file. A service or worker takes exactly one of `start` and `dockerfile`. |
+| `health` | service (required) | An HTTP path that answers with a 2xx status once the service is ready: it starts with `/`, contains only letters, digits, `.`, `_`, `~`, `/` and `-`, has no `..`, and is at most 128 characters. |
+| `health` | worker (optional), database (required) | A command run inside the container that exits 0 once it is ready: a JSON array of 1 to 32 nonempty one-line strings, such as `["pg_isready", "-U", "app"]`. |
+| `runtime_depends_on` | service, worker, database | The components it connects to while running, each listed once. Each must be a service or a database, never itself, and the graph must have no cycle. It is separate from the build-time `depends_on`. |
+| `env` | service, worker, database | At most 32 extra environment variables. Names are upper case (`A`-`Z`, digits and `_`, not starting with a digit, at most 64 characters); values are strings of one line, at most 1000 characters. `PORT` and the names generated for a runtime dependency are reserved. |
+
+The block is refused if it has an unknown key, or if any string in it contains a
+backtick, a NUL or a line break (CR, LF, VT, FF, NEL, U+2028, U+2029 and the
+other characters Python splits lines on). A row key that looks like a misspelled `runtime` (`runtme`, `run_time`,
+`runtimes`) is refused too; other unknown row keys are still ignored. The id of
+a component that runs (service, worker or database) must be a lowercase DNS
+label that starts with a letter (`a`-`z`, digits and `-`, at most 63 characters,
+not ending in `-`), because it becomes its container's host name and part of
+environment variable names. It must not be `localhost`, `ip6-localhost`,
+`ip6-loopback`, `ip6-localnet`, `ip6-mcastprefix`, `ip6-allnodes` or
+`ip6-allrouters`: inside every container those names mean the container itself,
+so a component connecting to one would reach itself. Library ids follow the
+ordinary component-id rule.
+Each refusal names the component and the key, and the command stops with a usage
+error before any component starts.
+
+Each running component's container gets, in this order: `PORT` (when it has a
+port); for each runtime dependency, its address; then its own `env`. A service
+dependency `store` gives `STORE_URL=http://store:8001`. A database dependency
+`db` gives `DB_HOST=db` and `DB_PORT=5432`. A `-` in
+an id becomes `_`, so `link-api` gives `LINK_API_URL`. `env` values are used
+literally: they are committed with the architecture, which a model may have
+written, and nothing is taken from your own environment. Do not put real secrets
+in them.
+
+The Builder's brief gains these sentences right after the line naming the
+directory it owns, before any contract lines:
+
+- A service: it runs as a long-lived HTTP service in its own container, must
+  listen on `0.0.0.0` (not only on `127.0.0.1` or `localhost`) at the port in
+  `PORT`, and must answer `GET <health>` with a 2xx status once it is ready.
+- A worker: it runs as a long-running process with no HTTP port and nothing
+  connecting to it, and must keep running until it is stopped rather than exit
+  when it is idle; with `health`, that command must exit 0 once it is ready.
+- A database: other components reach it only over the combined system's
+  internal network, never through a published port; it must accept connections
+  on its `port` on `0.0.0.0`; its `health` command must exit 0 once it accepts
+  connections.
+- With `start`: its container is built from `python:3.12-slim` with
+  `components/<id>/` copied into `/app`, and runs that command in `/app`. The
+  command and any `health` command are quoted exactly as written, non-ASCII
+  characters included.
+- With `dockerfile`: provide that file; it can copy only files from inside
+  `components/<id>/`, and its image must start the component.
+- For each runtime dependency: reach it only through the variables above, never
+  through a hard-coded host or port.
+- With `env`: the extra variables its container gets.
+- A library: it is not started on its own.
+
+These sentences are obligations, so each component's Requirements stage traces
+them like the rest of its brief. Declare runtime blocks before the first build.
+A block lives inside `components.json`, so adding or editing one changes the
+saved build's identity, and a later run refuses to resume ("the architecture
+changed"); remove `.autocode-components/` to rebuild. Records without runtime
+blocks build exactly as before.
+
 ## Multiple tasks in one project
 
 New implementation tasks automatically get separate Git worktrees and branches,
