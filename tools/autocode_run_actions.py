@@ -504,6 +504,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         candidate = copy.deepcopy(state)
         try:
             published = resolver_human.current(candidate)
+            if not published and candidate.get('status') == 'TASK_COMPLETE':
+                follow_up.refuse_on_finished(args)  # only --follow-up reopens a finished run
             if args.answer or args.delegate:
                 if not published or not args.resolver_token:
                     raise ValueError('Answers require the current --resolver-token shown by AutoResolver')
@@ -676,7 +678,8 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
         return None  # not a quota question; the ordinary answer path decides
     try:
         if not published:
-            raise ValueError(resolver_human.stale_request_message(state))
+            raise ValueError(follow_up.ANSWER_FINISHED if state.get('status') == 'TASK_COMPLETE'
+                             else resolver_human.stale_request_message(state))
         resolver_human.require_response(candidate, published['request_id'], args.resolver_token)
     except ValueError as error:
         # A saved-state change after display strands the shown token; the person still

@@ -94,6 +94,14 @@ class ApplyTests(unittest.TestCase):
         self.assertIn("ANSWER", rendered)
         self.assertIn("Question for you: How many hosts", rendered)
 
+    def test_the_reply_hint_appears_only_when_the_answer_asks_something(self):
+        # The run is finished and waits for nothing, so its questions are answered in the next turn.
+        hint = "Reply with --follow-up TEXT to answer them in this run."
+        asked, _ = self.apply(report())
+        self.assertIn(hint, discuss_job.render(asked))
+        settled, _ = self.apply(report(questions=[]))
+        self.assertNotIn("--follow-up", discuss_job.render(settled))
+
     def test_an_answer_without_a_note_changes_nothing(self):
         state, workspace = self.apply(report(note_path="", note_content=""))
         self.assertFalse((workspace / "docs").exists())

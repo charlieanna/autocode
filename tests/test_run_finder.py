@@ -341,6 +341,17 @@ class WhichRunIsChosen(Fixture):
         self.run_in(self.project, status="WAITING_FOR_USER")
         self.assertEqual(latest, finder.choose(self.project, "follow_up").run_dir)
 
+    def test_follow_up_never_reopens_an_older_run_behind_a_newer_unfinished_one(self):
+        # The user finished one run, then started another that now waits for plan approval: a
+        # follow-up is meant for the conversation they are in, which takes approval or feedback.
+        done = self.run_in(self.project, status="TASK_COMPLETE", completed_at="2026-10-04T01:30:00+00:00")
+        waiting = self.run_in(self.project, status="AWAITING_GOAL_APPROVAL")
+        message = self.refused(self.project, "follow_up")
+        self.assertIn("started after the latest one finished has not finished", message)
+        self.assertIn(f"AWAITING_GOAL_APPROVAL: {TASK}", message)
+        self.assertIn(f"autocode --run-dir {waiting} --status", message)
+        self.assertIn(f'autocode --run-dir {done} --follow-up "TEXT"', message)
+
     def test_follow_up_prefers_a_run_no_program_drives_even_when_one_completed_later(self):
         mine = self.run_in(self.project, status="TASK_COMPLETE", completed_at="2026-10-04T02:00:00+00:00")
         tree, program_run = self.worktree_run(status="TASK_COMPLETE", completed_at="2026-10-04T09:00:00+00:00")

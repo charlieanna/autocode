@@ -6,9 +6,7 @@ category = "conversation"
 # follow the decision and write no code. Turn 3 says only "Build it.": the build
 # must implement that design (AutoCode checks it as an approved design) and pass
 # hidden tests that run separate worker processes against one cache directory.
-
-[run]
-known_failure = "#185: turn 3 cannot plan until a follow-up stops inheriting the design job's requirements and contract, and 'Build it.' cannot name the design"
+# Each turn follows a completed one: --follow-up continues only a finished run.
 
 [fake]
 check = "python3 -m unittest discover -s tests -t ."

@@ -29,11 +29,12 @@ EXPECTED = ("complete", "stop", "any")
 KEYS = {"title", "category", "requires", "fake", "run", "turn"}
 RUN_KEYS = {"max_steps", "timeout_minutes", "expected", "known_failure", "requires_stages"}
 FAKE_KEYS = {"check", "flags", "fault", "live_investigator", "probe", "milestones", "turn_paths", "answers"}
-# A follow-up turn is said to the same run once it reaches the state ``after``
-# names: it completed, it stopped, or it is waiting on a particular need
-# (``needs:answer``), in which case the message is said instead of the driver
-# serving that need itself.
-TURN_AFTER = ("complete", "stop")
+# A follow-up turn is said to the same run once it completed: ``--follow-up``
+# continues only a finished run (docs/cli.md, "Waiting or finished"). A waiting,
+# paused or blocked run refuses it, so a turn after "stop" or a "needs:<kind>"
+# could never be said; a job whose report asks questions completes, and the
+# next turn is the reply.
+TURN_AFTER = ("complete",)
 
 
 @dataclass(frozen=True)
@@ -132,8 +133,9 @@ def load(scenario_id: str) -> Scenario:
     for number, turn in enumerate(meta.get("turn", []), start=1):
         if set(turn) != {"after", "say"} or not str(turn["say"]).strip():
             raise ValueError(f"{scenario_id}: [[turn]] {number} needs exactly `after` and a nonempty `say`")
-        if turn["after"] not in TURN_AFTER and not str(turn["after"]).startswith("needs:"):
-            raise ValueError(f"{scenario_id}: [[turn]] {number} after must be one of {TURN_AFTER} or needs:<kind>")
+        if turn["after"] not in TURN_AFTER:
+            raise ValueError(f"{scenario_id}: [[turn]] {number} after must be \"complete\": a follow-up "
+                             "continues only a finished run (docs/cli.md)")
         turns.append(Turn(turn["after"], turn["say"].strip()))
     turn_paths = fake.get("turn_paths", [])
     if turn_paths and (len(turn_paths) != len(turns) + 1

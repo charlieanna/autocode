@@ -124,7 +124,8 @@ def checkout_of(run_dir) -> Path | None:
 def choose(start, action: str, flags: str = "", unit: str | None = None) -> Candidate:
     """The run an invocation of kind ``action`` (see ACTIONS) started in ``start`` means.
 
-    follow_up: the most recently completed run, preferring one no program or task flow drives.
+    follow_up: the most recently completed run, preferring one no program or task flow drives;
+    refused when an unfinished run no program or task flow drives was started after it finished.
     read: the only unfinished run, or with none the latest finished one.
     advance, act: the only unfinished run no program or task flow drives; with none, an act
     takes the only driven one, while advance refuses it and names the command that drives it.
@@ -154,6 +155,11 @@ def choose(start, action: str, flags: str = "", unit: str | None = None) -> Cand
         complete = [run for run in found if run.complete]
         if complete:
             latest = max(complete, key=lambda run: (run.owner is None, run.completed, str(run.run_dir)))
+            # A run started after that one finished is the conversation the user is in now. It is
+            # not finished, so a follow-up would silently reopen the older run instead.
+            newer = [run for run in unfinished if not run.owner and run.created > latest.completed]
+            if newer:
+                raise RunNotFound(_follow_up_message(search, newer, latest))
             return dataclasses.replace(latest, reason="the latest completed run")
         raise RunNotFound(_follow_up_message(search, unfinished))
     if action == "read":
@@ -554,7 +560,13 @@ def _owned_message(search: _Search, run: Candidate) -> str:
                       _entry(run, "--status"), hint])
 
 
-def _follow_up_message(search: _Search, unfinished: list[Candidate]) -> str:
+def _follow_up_message(search: _Search, unfinished: list[Candidate], latest: Candidate | None = None) -> str:
+    if latest:
+        return "\n".join([
+            f"--follow-up continues a finished run, but a run in {search.where} started after the latest "
+            "one finished has not finished. It takes --answer, --approve-goal, --feedback or a resume instead:",
+            *_entries(unfinished, "--status"),
+            f'To continue the finished run anyway: {_command(latest, "--follow-up")} "TEXT"'])
     lines = [f"--follow-up continues a finished run, and no run in {search.where} has completed."]
     if unfinished:
         lines += ["An unfinished run takes --answer, --feedback or a plain resume instead:",
