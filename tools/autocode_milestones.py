@@ -479,7 +479,15 @@ def handle_gate(state, error, current, *, ask_user, origin=None):
     row["rejected_advances"] = row.get("rejected_advances", 0) + 1
     if settings(state)["stalled_reviews"] and row["rejected_advances"] >= settings(state)["stalled_reviews"]:
         state.update(status="PAUSED_MILESTONE_REPLAN", phase="PAUSED_OR_BLOCKED", stop_reason=str(error))
-    state["next_stage"] = "astra_review" if fresh_validation(state, current) else "sol"
+    # A fresh FAIL whose milestone criteria already passed is the runner's proof, not a
+    # review decision. The Validator re-checks. A failed criterion stays with the reviewer.
+    fresh = fresh_validation(state, current)
+    validation = state.get("validation") or {}
+    required = set(scope(state)["acceptance_criteria"])
+    results = {row["id"]: row for row in validation.get("criterion_results") or []}
+    criteria_passed = bool(required) and all(results.get(cid, {}).get("status") == "PASS" for cid in required)
+    proof_disagrees = validation.get("verdict") != "PASS" and criteria_passed
+    state["next_stage"] = "astra_review" if fresh and not proof_disagrees else "sol"
 
 
 def activate(state):
