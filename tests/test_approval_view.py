@@ -120,14 +120,18 @@ class SummaryTests(unittest.TestCase):
             "  - The runner also runs the test each of these criteria names: C1, C3 (test:) must fail on the original "
             "code and pass with the fix; C2 (guard:) must pass with the change and on the original code.",
             guard_note], proves(bugfix, test_cases.plan_cases(bugfix)))
-        # A reproduced bug: its diagnosis's cases, not the plan's criteria.
+        # A reproduced bug: its diagnosis's cases, not the plan's criteria — told from the cases
+        # themselves, with a preserve case stating what its test must show, like a plan's guard:.
         diagnosis = [{"id": "T1", "given": "a", "when": "b", "then": "c"},
-                     {"id": "T2", "given": "a", "when": "b", "then": "d", "kind": "restore"}]
+                     {"id": "T2", "given": "a", "when": "b", "then": "d", "kind": "restore"},
+                     {"id": "T3", "given": "a", "when": "b", "then": "e", "kind": "preserve"}]
         self.assertEqual([
             "  - Bug fix: the runner also checks that a new or changed test fails on the original code and passes "
             "with the fix, and that no test that passed before now fails.",
             "  - The runner also runs a test named after each test case in the bug's diagnosis: T1, T2 must fail on "
-            "the original code and pass with the fix."], proves(bugfix, diagnosis, from_diagnosis=True))
+            "the original code and pass with the fix; T3 must pass with the change and on the original code.",
+            "  - If the test for T3 cannot load on the original code (its file imports code the change adds), "
+            "it still counts, with a note that it is not shown to have passed there."], proves(bugfix, diagnosis))
         self.assertEqual(["  - Bug fix: the runner also checks that a new or changed test fails on the original code "
                           "and passes with the fix, and that no test that passed before now fails."],
                          proves(bugfix, []))

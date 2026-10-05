@@ -86,15 +86,14 @@ def duration(seconds) -> str:
     return f"{seconds} s"
 
 
-def summary(body: dict, revision, cases: list[dict], *, from_diagnosis: bool = False,
-            design_only: bool = False) -> list[str]:
+def summary(body: dict, revision, cases: list[dict], *, design_only: bool = False) -> list[str]:
     """The decision in brief, shown between the full brief and the limits.
 
     Every plan field is quoted verbatim from the contract body; a field an older body lacks is
     left out. ``cases`` are the cases the regression proof will require a test for at completion
-    (autocode_test_cases.proof_cases), ``from_diagnosis`` when they are a reproduced bug's rather
-    than the plan's; ``design_only`` is a design job (autocode_test_cases.design_only), whose
-    criteria no named test proves."""
+    (autocode_test_cases.proof_cases) — a reproduced bug's diagnosis or the plan's marked criteria,
+    never a mix, so ``proof`` tells which from the cases themselves; ``design_only`` is a design
+    job (autocode_test_cases.design_only), whose criteria no named test proves."""
     body = body if isinstance(body, dict) else {}
     lines = [f"Before you approve r{revision} (a summary of the plan above):"]
     outcome = body.get("intended_outcome")
@@ -123,13 +122,11 @@ def summary(body: dict, revision, cases: list[dict], *, from_diagnosis: bool = F
                 lines.append(f"    Checked by: {row['verification_method']}")
             if row.get("human_review") is True:
                 lines.append("    Also needs your review of the result before the run can complete.")
-        lines += ["What passing proves:"] + ["  - " + line for line in proof(body, criteria, cases, from_diagnosis,
-                                                                              design_only)]
+        lines += ["What passing proves:"] + ["  - " + line for line in proof(body, criteria, cases, design_only)]
     return lines
 
 
-def proof(body: dict, criteria: list[dict], cases: list[dict], from_diagnosis: bool = False,
-          design_only: bool = False) -> list[str]:
+def proof(body: dict, criteria: list[dict], cases: list[dict], design_only: bool = False) -> list[str]:
     """What the completion gate enforces for these criteria, and what it cannot show.
 
     True of the runner, not of a model's report: completion needs an independent validation of the
@@ -142,6 +139,9 @@ def proof(body: dict, criteria: list[dict], cases: list[dict], from_diagnosis: b
              + (" (it may leave those marked for your review to you)" if human else "")
              + ", and the runner itself re-runs that check's commands in a clean copy: each must exit 0."]
     bugfix = body.get("task_kind") == "bugfix"
+    # proof_cases never mixes its two sources: a diagnosis case is (id, given, when, then), a plan
+    # case carries its criterion as "text" (autocode_test_cases.diagnosis_cases, plan_cases).
+    from_diagnosis = bool(cases) and "text" not in cases[0]
     restore = [str(case["id"]) for case in cases if case.get("kind") != "preserve"]
     preserve = [str(case["id"]) for case in cases if case.get("kind") == "preserve"]
     named = "; ".join(f"{', '.join(ids)}{'' if from_diagnosis else f' ({mark})'} {wanted}"
