@@ -582,7 +582,16 @@ class _Services:
 
     def __init__(self, project: Path):
         self.project = project
-        self.ports = {name: _free_port() for name in PROGRAM_SERVICES}
+        self.ports = {}
+        for name in PROGRAM_SERVICES:
+            # A released ephemeral port can be selected again for another service.
+            for _ in range(32):
+                port = _free_port()
+                if port not in self.ports.values():
+                    self.ports[name] = port
+                    break
+            else:
+                raise RuntimeError("Cannot allocate distinct local service ports")
         self.proc: subprocess.Popen | None = None
         self.stopped = False
 

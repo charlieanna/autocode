@@ -16,6 +16,7 @@ try:
     from . import autocode_goals as goals, autocode_failures as failures
     from . import autocode_resolver_human as human
     from . import autocode_progressive_state as progressive
+    from . import autocode_resolver_recovery as recovery
     from . import autocode_recovery_grants as recovery_grants, autocode_recovery_limits as recovery_limits
 except ImportError:
     import autocode_resolver as policy
@@ -24,6 +25,7 @@ except ImportError:
     import autocode_failures as failures
     import autocode_resolver_human as human
     import autocode_progressive_state as progressive
+    import autocode_resolver_recovery as recovery
     import autocode_recovery_grants as recovery_grants
     import autocode_recovery_limits as recovery_limits
 
@@ -346,6 +348,8 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
     (autocode_validation_rounds). The runner composes it from its own records, which may quote
     saved rejection reasons; no model proposes or edits it.
     """
+    if error.status == 'PAUSED_BUILDER_RETRY_LIMIT' and recovery.known_builder_pause(state):
+        return False
     if progressive.retained_review_budget_pause(state, error.status):
         return False
     if (error.status not in ('PAUSED_RESOLVER_OPERATIONAL', 'PAUSED_TIMEOUT_RECOVERY',
@@ -817,6 +821,7 @@ def charge_diagnostic_dispatch(runner, state, run_dir, workspace, record):
     if reservation and reservation in saved.get('diagnostic_reservations', []):
         return
     diagnostic_calls = check_diagnostic_capacity(runner, state, run_dir)
+    recovery.admit_dispatch(state, record, workspace, run_dir)
     if 'diagnostic_reservations' not in saved:
         saved['diagnostic_legacy_calls'] = diagnostic_calls
         saved['diagnostic_reservations'] = []
@@ -881,6 +886,7 @@ def admit_operational_diagnosis(runner, state, run_dir, workspace):
         'contract_hash': state['goal_contract']['hash'], 'source_revision': record.get('source_revision'),
         'original_stage': record['stage'], 'failure_key': selected['failure_key'], 'blocker_id': blocker_id,
         'description': description, 'repeated_count': repeated['count'], 'evidence': evidence, 'evidence_hashes': pins}
+    recovery.prepare_diagnosis(state, state['diagnosis_request'], record, run_dir)
     # The stopped report-repair pointer is superseded by the diagnosis; leaving
     # it would make the next dispatch's before_code_stage hook try to execute it
     # against next_stage='astra_diagnose' and pause with PAUSED_STALE_REPORT_ROUTE.
@@ -892,7 +898,7 @@ def admit_operational_diagnosis(runner, state, run_dir, workspace):
     runner.write_json(Path(run_dir) / 'state.json', state)
 
 
-def finish_operational_diagnosis(state, run_dir, recommendation):
+def finish_operational_diagnosis(state, run_dir, recommendation, *, recovery_change=None):
     """Validate a model's diagnosis recommendation against the same bounded
     policy and per-incident budget used to admit the diagnosis (the second
     of that budget's two evaluations), before authorizing any retry.
@@ -930,10 +936,18 @@ def finish_operational_diagnosis(state, run_dir, recommendation):
         original_stage = request['original_stage']
         state.pop('diagnosis_request', None)
         if failure_key:
-            state.get('failure_history', {}).pop(failure_key, None)
-            for row in state.get('stages', []):
-                if row.get('failure_key') == failure_key:
-                    row.pop('failure_key', None)
+            entry = state.get('failure_history', {}).get(failure_key)
+            if entry is not None:
+                entry.setdefault('diagnostic_retries', []).append({
+                    'receipt': receipt.idempotency_key, 'recommendation': copy.deepcopy(recommendation),
+                    'recovery_packet': copy.deepcopy(request.get('recovery_packet'))})
+        plan = {'kind': 'operational-diagnosis', 'tasks': [copy.deepcopy(state.get('current_task') or {})],
+                'recommendation': copy.deepcopy(recommendation)}
+        recovery.finish_resolution_packet(state, request, plan)
+        if recovery_change:
+            plan['recovery_change'] = copy.deepcopy(recovery_change)
+        state['repair_plan'] = plan
+        state.setdefault('resolution_history', []).append(copy.deepcopy(plan))
         state.update(status='RUNNING', phase='EXECUTING', next_stage=original_stage)
         state.pop('stop_reason', None)
         return True

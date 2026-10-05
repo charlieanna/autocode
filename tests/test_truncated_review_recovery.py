@@ -135,6 +135,8 @@ class TruncatedReviewCliTests(unittest.TestCase):
         provider = self.root / 'fixture-bin' / 'opencode'
         shutil.copy2(source, provider)
         provider.chmod(0o755)
+        from .opencode_fixture_cli import entrypoint
+        self.entry = entrypoint(self.entry)
         self.env['AUTOCODE_FIXTURE_MODE'] = 'no-human'
 
     launch = subprocess_test_support.SubprocessFlow.launch

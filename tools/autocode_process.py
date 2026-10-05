@@ -180,24 +180,6 @@ class ProcessTree:
                 candidates = {child.pid: _birth_identity(child) for child in descendants}
             except psutil.NoSuchProcess:
                 continue
-            except PermissionError:
-                # macOS can deny sysctl's process-list allocation under table
-                # pressure. Recover ancestry with scoped ppid reads; do not
-                # abandon the descendants of an already verified provider.
-                candidates = {}
-                for candidate in process_ids():
-                    try:
-                        child = psutil.Process(candidate)
-                        if child.ppid() == pid:
-                            candidates[candidate] = _birth_identity(child)
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
-                        continue
-                found = process_table(candidates)
-                found = {child_pid: row for child_pid, row in found.items()
-                          if row["birth_identity"] == candidates[child_pid]}
-                table.update(found)
-                owned.update(found)
-                covered.update(found)
             except (psutil.Error, OSError) as error:
                 raise ProcessError(f"Cannot inspect descendants of owned process {pid}: {type(error).__name__}") from error
             found = process_table(candidates)

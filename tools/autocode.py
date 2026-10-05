@@ -23,7 +23,7 @@ import copy
 import uuid
 try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
-    from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_task_preflight as task_preflight
+    from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy
@@ -34,7 +34,7 @@ except ImportError:
     import autocode_providers, autocode_opencode as opencode, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_task_preflight as task_preflight
     import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
     import autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_rework_policy as rework_policy
-    import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue
+    import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
 
 try:
     from . import autocode_job_source as job_source, autocode_job_failure as job_failure
@@ -201,6 +201,8 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
             raise ValueError('Cannot derive check metadata without the validation workspace')
         support.verify_checks(checks, workspace, evidence_record['events'], **check_evidence_options(evidence_record))
     schema = support.review_validation_schema(read_json(Path(record["schema"])), state, record, value)
+    if "recovery_change" in schema.get("properties", {}):
+        value.setdefault("recovery_change", None)  # Absence grants no new recovery authority.
     # finding_dispositions may be present in reports validated against schemas
     # saved before the field was introduced. Strip it before validation rather
     # than rejecting a correct report.
@@ -305,10 +307,12 @@ def reject_completed_stage(state, run_dir, record, error):
 def run_role(
     *, role: str, prompt: str, sandbox: str, workspace: Path, run_dir: Path,
     state: dict[str, Any], schema: Path, model: str | None, allow_write: bool,
-    dry_run: bool, report_only: bool = False, resume_session: str | None = None,
+    dry_run: bool, report_only: bool = False, resume_session: str | None = None, retry_authorization=None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if state.get('next_stage') == 'astra_diagnose' and state.get('active_stage'):
         raise support.Paused('PAUSED_UNCERTAIN_STAGE', 'Reconcile the active diagnosis before another provider request')
+    if state.get('next_stage') == 'sol' and visual_runtime.requested(state) and not state.get('settings', {}).get('design_manifest'):
+        raise support.Paused('PAUSED_VISUAL_EVIDENCE', 'Approved visual contract requires its retained design manifest')
     timeout_recovery_guard(state)
     if role in ("terra", "sol", "completion", "astra", "plan_reviewer", "glm"):
         dispatch.enforce_cross_model_verification(state)
@@ -365,15 +369,32 @@ def run_role(
         engine=engine, adapter=opencode, role=role, route_role=route_role, workspace=workspace,
         run_dir=run_dir, session=session, model=model, effort=effort, allow_write=allow_write,
         planning=joint_stage or report_only, report=output, schema=schema, prompt_file=prompt_file,
-        sandbox=sandbox, transport_args=transport_args, chatgpt=planning.enabled(state), provider=route.get('provider'))
+        sandbox=sandbox, transport_args=transport_args, chatgpt=planning.enabled(state), provider=route.get('provider'), enforce_tool_boundary=not dry_run)
+    session = worker_context.get('provider_session', session)
     child_options = {"start_new_session": True, "env": child_environment}
     if engine == "opencode":
         prompt = opencode.prompt_for_schema(prompt, read_json(schema), events)
+        prompt = provider_launch.containment_prompt(prompt, worker_context)
         if not configured_tool:
             write_json(base.with_suffix(".opencode.json"), overrides)
     child_options["env"].update(output_policy.environment(state["settings"], workspace, events))
     if not dry_run:
         task_preflight.guard(state, workspace, run_dir, worker=worker_context, persist=write_json)
+    visual_context = None
+    if original_stage == 'sol' and visual_runtime.requested(state) and not report_only:
+        if engine != 'opencode' or configured_tool:
+            raise support.Paused('PAUSED_VISUAL_EVIDENCE', 'Verified visual delivery requires the supported native OpenCode route')
+        saved_transport = state['settings'].get('transport_identities', {}).get('opencode', state['settings'].get('transport_identity'))
+        if saved_transport is None or opencode.transport_drift(opencode.local_settings(workspace), saved_transport):
+            raise support.Paused('PAUSED_VISUAL_EVIDENCE', 'Visual transport changed since its approved profile')
+        visual_context, command, child_environment, prompt = visual_runtime.prepare(
+            state, original_stage, workspace, run_dir, base, command, child_environment, prompt,
+            launch_authority=visual_profile.authority(state, worker_context, workspace, run_dir), current_snapshot=support.snapshot(workspace))
+        worker_context['visual_runtime'] = visual_context
+        child_options['env'] = child_environment
+        worker_context.update(command=command, environment=child_environment)
+        if visual_context and visual_context.get('status') == 'READY' and engine == 'opencode' and not configured_tool:
+            write_json(base.with_suffix('.opencode.json'), json.loads(child_environment['OPENCODE_CONFIG_CONTENT']))
     if report_only and len(prompt.encode('utf-8')) > REPAIR_HANDOFF_BYTES:
         raise support.Paused('PAUSED_REPORT_REPAIR_INPUT',
                              f'Provider-decorated repair prompt exceeds {REPAIR_HANDOFF_BYTES} bytes; no request was launched')
@@ -386,6 +407,8 @@ def run_role(
               "stage_timeout_seconds": stage_timeout, "idle_timeout_seconds": idle_timeout,
               "tool_timeout_seconds": tool_timeout, "expected_session": session,
               "supports_sessions": supports_sessions, "withheld_env": agent_env.withheld(os.environ)}
+    if visual_context:
+        record['visual_runtime'] = visual_context
     if route_role != role:
         record["route_role"] = route_role
     record["engine"] = engine
@@ -398,7 +421,8 @@ def run_role(
         record["planning"] = True
     if engine == "opencode" and not configured_tool:
         record.update(permission_config=str(base.with_suffix(".opencode.json")),
-                      isolation="OpenCode tool permissions and workspace snapshot checks; no OS sandbox")
+                      isolation="Kernel-constrained native shell; other tools disabled" if worker_context.get('tool_containment') else "OpenCode tool permissions and workspace snapshot checks; no OS sandbox")
+        record['tool_containment'] = worker_context.get('tool_containment')
     elif engine == "opencode":
         record.update(provider=opencode.NAME,
                       isolation="Config-tool sandbox flag and workspace snapshot checks")
@@ -430,6 +454,11 @@ def run_role(
     with processes.interruption_handler(), prompt_file.open("r") as stdin, event_log.open_events(events) as stdout:
         try:
             with interventions.admission(run_dir):
+                provider_launch.verify_containment(worker_context)
+                if visual_context:
+                    visual_runtime.verify_prelaunch(visual_context, state, run_dir=run_dir,
+                                                   current_snapshot=before, command=command, env=child_environment)
+                resolver_recovery.admit_dispatch(state, record, workspace, run_dir, retry_authorization=retry_authorization)
                 if joint_stage and not report_only:
                     planning.charge(state, original_stage, record=record, workspace=workspace)
                     if fallback_route:
@@ -988,7 +1017,7 @@ def accept_completion(state: dict[str, Any], workspace: Path) -> None:
              "task_id": (state.get("current_task") or {}).get("id", ""),
              "acceptance_criteria": [{**c, "status": "verified", "evidence": "Current Validator criterion evidence"}
                                      for c in state["acceptance_criteria"]]}
-    if not completion_gate.completion_ready(state, probe, current):
+    if not visual_runtime.completion_allowed(state, current_snapshot=current) or not completion_gate.completion_ready(state, probe, current):
         stale = completion_gate.stale_validation(state, current)
         if stale:
             raise ValueError(f"Validation is stale: {stale}. Resume with --resume-paused to re-validate the current "

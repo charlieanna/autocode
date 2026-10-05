@@ -165,7 +165,13 @@ DESIGN COVERAGE INVENTORY
 The retained design_manifest is the complete declared file/frame/state inventory.
 Use exact exported PNGs, design context, routes, implementation paths and native CSS
 viewport; export_scale describes reference pixels, not the browser CSS width.
-Keep every case in the approved plan and map it to acceptance criteria. Do not edit
+Keep every case in the approved plan and map it to acceptance criteria. Do not
+infer criterion mappings from later model reports. The approved
+contract constraints must include exactly one machine-readable mapping:
+VISUAL_CASE_CRITERIA={"case-id":["criterion-id"]}
+Use every declared case ID exactly once with nonempty unique approved criterion
+IDs; this mapping is part of the approved contract hash. Missing mappings leave
+visual acceptance unverified. Do not edit
 references or replace them with screenshots of the implementation. Missing access
 or proof remains NOT_VERIFIED, never an invented PASS or human acceptance.
 Intermediate tasks may leave future cases NOT_VERIFIED; overall completion needs

@@ -347,6 +347,9 @@ def render(state, run_dir=None):
                         lines.append("    Owned paths: " + (", ".join(row["affected_paths"]) or "unspecified; serial dispatch"))
                 else:
                     lines.append(f"  - {row['text']} (basis: {row['basis']}; answer: {row['answer_id'] or 'none'})")
+    lines += ["", "Verification obligations (declarations, not execution proof):"]
+    lines += approval_view.field_lines(
+        verification_plan.obligations(state, progressive_context=progressive_state.context(state)))
     lines += examples.review_notes(state)
     declared = contract.get("declared_changes") or []
     if declared:

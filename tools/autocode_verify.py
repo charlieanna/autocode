@@ -36,11 +36,13 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path, PurePosixPath
+from urllib.parse import unquote, urlparse
 
 try:
     from . import autocode_util as util, autocode_agent_env as agent_env
     from . import autocode_test_environment as test_env
     from . import autocode_investigation_workspace as investigation_workspace
+    from . import autocode_verification_schedule as schedule
     from . import autocode_node_tests as node_tests, autocode_proof_seam as proof_seam
     from . import autocode_vitest_tests as vitest_tests
     from . import autocode_scratch_overlay as scratch_overlay
@@ -49,6 +51,7 @@ except ImportError:
     import autocode_util as util, autocode_agent_env as agent_env
     import autocode_test_environment as test_env
     import autocode_investigation_workspace as investigation_workspace
+    import autocode_verification_schedule as schedule
     import autocode_node_tests as node_tests
     import autocode_vitest_tests as vitest_tests
     import autocode_scratch_overlay as scratch_overlay
@@ -725,6 +728,124 @@ def run_suite(framework, command, tree, evidence_dir, label, *, timeout):
     return receipt
 
 
+def command_framework(command):
+    """Recognize a plain runner invocation, never infer coverage from similar text."""
+    kind = schedule.collection_kind(command)
+    if kind:
+        return Framework(kind, command, python=shlex.split(command)[0])
+    if _go_test(command):
+        return Framework("go", command)
+    return None
+
+
+def execution_identity(workspace, *, command=None, dependencies_from=None, full=True):
+    """Conservative observable source/runtime/environment identity for receipts.
+
+    Full dependency bytes are included, not only manifests or changed paths.
+    Unknown runtimes cannot reuse clean replay evidence. This does not attest a
+    remote service, wall clock or provider sandbox; those remain fresh checks.
+    """
+    workspace = Path(workspace)
+    source_snapshot = util.snapshot(workspace)
+    source_symlinks = [name for name, value in source_snapshot.get("files", {}).items()
+                       if value.startswith("symlink:") and name not in DEPENDENCY_DIRS]
+    source_metadata = {}
+    for name in source_snapshot.get("files", {}):
+        path = workspace / name
+        if path.is_file() and not path.is_symlink():
+            stat = path.stat()
+            source_metadata[name] = [stat.st_mode, stat.st_mtime_ns, stat.st_uid, stat.st_gid]
+    environment = test_environment(workspace)
+    relative_pythonpath = [p for p in environment.get("PYTHONPATH", "").split(os.pathsep)
+                           if p and not Path(p).is_absolute()
+                           and not (workspace / p).resolve().is_relative_to(workspace.resolve())]
+    try:
+        words = shlex.split(command or "")
+    except ValueError:
+        words = []
+    python_command = bool(words and re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(words[0]).name)
+                          and not re.search(r"[;&|<>`$\n]", command))
+    python = words[0] if python_command else python_for(dependencies_from or workspace)
+    executable = shutil.which(python, path=environment.get("PATH", ""))
+    venv_config = Path(executable).parent.parent / "pyvenv.cfg" if executable else None
+    try:
+        isolated_runtime = venv_config is not None and venv_config.is_file() and not re.search(
+            r"^\s*include-system-site-packages\s*=\s*true\s*$", venv_config.read_text(), re.I | re.M)
+    except (OSError, UnicodeError):
+        isolated_runtime = False
+    # An unrestricted global interpreter has mutable, unrelated packages and
+    # potentially enormous inventories. Fresh checks remain valid; they are
+    # deliberately not cross-invocation cache candidates. No partial hash is
+    # advertised as a complete dependency identity.
+    full = bool(full and python_command and isolated_runtime and not source_symlinks and not relative_pythonpath)
+    # Identity collection must not import a candidate's sitecustomize from the
+    # workspace. Explicit PYTHONPATH roots are hashed below, not executed here.
+    paths = []
+    if full:
+        probe = subprocess.run([executable, "-I", "-B", "-c", "import json,sys; print(json.dumps(sys.path))"],
+                               cwd=workspace, env=environment, capture_output=True, text=True, timeout=30)
+        if probe.returncode:
+            raise ValueError("Verification runtime identity could not be collected")
+        paths = json.loads(probe.stdout) + environment.get("PYTHONPATH", "").split(os.pathsep)
+    paths = [(Path(p) if Path(p).is_absolute() else workspace / p).resolve() for p in paths if p]
+    roots = {p for p in paths if not p.is_relative_to(workspace.resolve())}
+    editable_sources, unbound_editables = {}, []
+    for site in set(paths):
+        for metadata in site.glob("*.dist-info/direct_url.json"):
+            try:
+                direct = json.loads(metadata.read_text())
+                if not direct.get("dir_info", {}).get("editable"):
+                    continue
+                url = urlparse(direct["url"])
+                target = Path(unquote(url.path)).resolve()
+                # Our own editable controller is bound in addition to installed
+                # dependency bytes. Other editable checkouts are not isolated
+                # fixtures and must execute fresh, never use an incomplete key.
+                if (url.scheme != "file" or url.netloc not in ("", "localhost") or
+                        target not in (workspace.resolve(), Path(__file__).resolve().parent.parent)):
+                    unbound_editables.append(str(metadata))
+                    continue
+                if target != workspace.resolve():
+                    if (target / ".git").exists():
+                        editable_sources[str(target)] = util.snapshot(target)["revision"]
+                    else:
+                        editable_sources[str(target)] = schedule.tree_identity(target, excluded={
+                            ".git", ".autocode", ".autocode-ui", ".scenario-runs", ".venv", "venv",
+                            "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".DS_Store"})
+            except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.CalledProcessError):
+                unbound_editables.append(str(metadata))
+    full = full and not unbound_editables
+    dependency_roots = test_env.dependency_roots(dependencies_from or workspace) if full else []
+    for name in DEPENDENCY_DIRS if full else ():
+        candidates = dependency_roots if name in (".venv", "venv") else dependency_roots[:1]
+        source = next((root / name for root in candidates if (root / name).exists()), None)
+        if source:
+            roots.add(source.resolve())
+    if dependency_roots and (dependency_roots[0] / "vendor").exists():
+        roots.add((dependency_roots[0] / "vendor").resolve())
+    roots = {root for root in roots if not any(parent in roots for parent in root.parents)}
+    runtime_root = Path(__file__).parent
+    runtime = {str(p.relative_to(runtime_root)): util.file_hash(p)
+               for pattern in ("*.py", "*.json") for p in runtime_root.rglob(pattern)
+               if not _ignored(str(p.relative_to(runtime_root))) and "node_modules" not in p.parts}
+    generated = {p: schedule.tree_identity(workspace / p) for p in
+                 _git(workspace, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory").split("\0")
+                 if p and not p.endswith("/") and PurePosixPath(p).suffix in CODE_SUFFIXES
+                 and not _ignored(p) and not any(part in DEPENDENCY_DIRS for part in PurePosixPath(p).parts)}
+    return {"source_revision": source_snapshot["revision"], "source_metadata": util.digest(source_metadata),
+            "unbound_source_symlinks": source_symlinks,
+            "reuse_supported": python_command and full, "cache_binding_complete": full,
+            "cache_policy": "isolated_python_full_contents" if full else "fresh_execution_only",
+            "environment_hash": util.digest(environment), "runtime_sources": util.digest(runtime),
+            "interpreter": schedule.tree_identity(executable) if executable else None,
+            "shell": schedule.tree_identity("/bin/sh"),
+            "dependencies": [schedule.tree_identity(p) for p in sorted(roots)] if full else None,
+            "editable_sources": editable_sources, "unbound_editables": unbound_editables,
+            "unbound_relative_pythonpath": relative_pythonpath,
+            "generated_sources": generated,
+            "platform": [sys.platform, os.uname().release, os.uname().machine]}
+
+
 def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeout=DEFAULT_TIMEOUT,
                 files=None, links=None) -> dict:
     """Run tests or one command in a scratch copy of the workspace as it is now, never in the workspace.
@@ -764,8 +885,25 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
             # A command naming the workspace's absolute path runs against the copy, never the workspace.
             for root in dict.fromkeys((str(workspace.resolve()), str(workspace))):
                 command = command.replace(root, str(tree))
-            receipt = run_command(command, tree, run_dir / "scratch-command.log", timeout=timeout)
-            receipt["results"] = None
+            framework = command_framework(command)
+            if framework:
+                receipt = run_suite(framework, command, tree, run_dir, "scratch-command", timeout=timeout)
+                if (receipt["exit_code"] == 0 and not receipt["timed_out"]
+                        and not schedule.complete_results(receipt)):
+                    return {**receipt, "error": "Test command reported zero tests or incomplete per-test results"}
+            else:
+                receipt = run_command(command, tree, run_dir / "scratch-command.log", timeout=timeout)
+                receipt["results"] = None
+                try:
+                    words = shlex.split(command)
+                except ValueError:
+                    words = []
+                if (words[1:3] == ["-m", "unittest"] and receipt["exit_code"] == 0
+                        and not re.search(r"[;&|<>`$\n]", command)):
+                    text = Path(receipt["output"]).read_text(errors="replace")
+                    ran = re.findall(r"^Ran (\d+) tests? in ", text, re.M)
+                    if not ran or int(ran[-1]) == 0 or not re.search(r"^OK(?:\s|$)", text, re.M):
+                        return {**receipt, "error": "Test command reported zero tests or incomplete output"}
         return {**receipt, "error": ""}
     finally:
         remove_tree(workspace, tree)
@@ -793,6 +931,8 @@ def suite_health(receipt) -> str:
         return "broken"  # the command itself could not run
     if receipt.get("results_expected") and results is None:
         return "broken"  # the runner ended before reporting any test
+    if results is not None and not schedule.complete_results(receipt):
+        return "broken"
     if results is not None and (results["total"] == 0 or (results["complete"] and not results["passed"])):
         return "broken"
     if receipt["exit_code"] == 0:
@@ -952,10 +1092,8 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         if candidate["complete"]:
             passed = set(candidate["passed"])
         else:
-            # Output the parser could not fully attribute: exit 0 plus "not failed, not skipped".
-            review_reasons.append("per-test results of the regression run were incomplete")
-            passed = (set(base["failed"]) if base else set()) - failed - set(candidate["skipped"]) \
-                if on_candidate["exit_code"] == 0 else set()
+            unverified.append("Per-test results of the regression run were incomplete")
+            return
         if candidate["complete"] and not passed:
             fail.append("The regression command ran no passing tests")
         if failed:
@@ -969,14 +1107,16 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         if on_base is None:
             return
         if on_base["timed_out"]:
-            notes.append("The regression tests timed out on the base code; counted as a failure on base")
-            review_reasons.append("the regression proof is a timeout on base, not a named test")
+            unverified.append("The regression tests timed out on base; no complete fail-to-pass proof exists")
             return
         if base is None:
             # A module that reads a seam while loading can stop the whole run before it reports any test.
             seam = seam_names(on_base) if seam_names and not new_behavior else []
             unverified.append("The regression run on the base code reported no test results"
                               + (". " + proof_seam.reason([], seam) if seam else ""))
+            return
+        if not base.get("complete"):
+            unverified.append("Per-test results on the base code were incomplete")
             return
         setup_errors = base.get("setup_errors", {}) if not new_behavior else {}
         ran_and_failed = set(base["failed"]) - set(base["collection_errors"]) - set(setup_errors)
@@ -1025,7 +1165,7 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
     if on_base["exit_code"] == 0:
         fail.append("The regression tests also pass on the unfixed base code, so they do not reproduce the bug")
     elif on_base["timed_out"]:
-        notes.append("The regression tests timed out on the base code; counted as a failure on base")
+        unverified.append("The regression tests timed out on base; no complete fail-to-pass proof exists")
 
 
 def _seam_names(workspace, base, changes, receipt):
@@ -1071,6 +1211,12 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes):
     candidate = on_candidate.get("results")
     base_receipt = (base_suite or {}).get("receipt") or {}
     base_results = base_receipt.get("results")
+    if base_receipt.get("timed_out") or (base_results is not None and not base_results.get("complete")):
+        unverified.append("The base suite was incomplete; preservation of its passing tests is unproven")
+        return
+    if candidate is not None and (not candidate.get("complete") or not candidate.get("total")):
+        unverified.append("The project suite reported zero tests or incomplete per-test results")
+        return
     if on_candidate.get("results_expected") and candidate is None:
         if on_candidate["exit_code"] == 0:
             unverified.append("The project suite exited 0 without reporting any test result "

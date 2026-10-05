@@ -685,7 +685,24 @@ function assertM2Scenario(name, viewport) {
     browser('press', 'Escape');
     assert.equal(shellMetrics().open, false, 'Escape dismisses the drawer');
     browser('click', '#nav-toggle');
-    browser('click', '#drawer-scrim');
+    // The full-width mobile sheet covers the scrim's center. Hit-test inset
+    // edge points before sending a real pointer click to the exposed backdrop.
+    const scrimHit = data('()=>{' +
+      'const scrim=document.querySelector("#drawer-scrim"),bounds=scrim?.getBoundingClientRect().toJSON()||null,candidates=[];' +
+      'if(bounds){const left=Math.max(0,bounds.left),right=Math.min(innerWidth,bounds.right),top=Math.max(0,bounds.top),bottom=Math.min(innerHeight,bounds.bottom);' +
+      'if(right>left&&bottom>top){const dx=Math.min(8,(right-left)/2),dy=Math.min(8,(bottom-top)/2);' +
+      'for(const py of [top+dy,(top+bottom)/2,bottom-dy])for(const px of [(left+right)/2,left+dx,right-dx]){' +
+      'const x=Math.round(px),y=Math.round(py);' +
+      'const hit=document.elementFromPoint(x,y);candidates.push({x,y,hit:hit?.id||hit?.tagName||null,matches:hit===scrim});}}}' +
+      'return {bounds,viewport:{width:innerWidth,height:innerHeight},open:document.querySelector(".app-shell").classList.contains("nav-open"),candidates,point:candidates.find(candidate=>candidate.matches)||null};' +
+    '}');
+    const scrimHitPath = path.join(shellEvidenceRoot, 'drawer-scrim-hit-test-759.json');
+    fs.writeFileSync(scrimHitPath, JSON.stringify(scrimHit, null, 2) + '\n');
+    assert.equal(scrimHit.open, true, 'drawer is open before scrim dismissal');
+    assert.ok(scrimHit.point, 'scrim has an exposed pointer target; see ' + scrimHitPath);
+    browser('mouse', 'move', String(scrimHit.point.x), String(scrimHit.point.y));
+    browser('mouse', 'down', 'left');
+    browser('mouse', 'up', 'left');
     assert.equal(shellMetrics().open, false, 'scrim dismissal closes the drawer');
 
     openScenario(info, 'waiting', viewports[2]);

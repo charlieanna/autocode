@@ -300,13 +300,29 @@ class PolicyBlackbox(unittest.TestCase):
             'Preserve exactly three retries')
         self.seed(spec); self.env['BUILD_AUDIT_FAULT']='validation_fails'
         for attempt in range(3):
-            self.build(); self.candidate()
+            if attempt == 2:
+                previous = self.events()
+                self.build(2)
+                self.assertIn('No causal progress', self.state()['stop_reason'])
+                self.assertEqual(previous, self.events())
+                self.build(extra=['--resume-paused', '--retry-failed-stage'])
+            else:
+                self.build()
+            self.candidate()
             self.invoke('autoreview',['--run-dir',str(self.run),'--no-chat'])
             self.assertEqual('FAIL',self.state()['validation']['verdict'])
-            self.invoke('autoresolver',['--run-dir',str(self.run),'--no-chat'],2 if attempt==2 else 0)
+            args = ['--run-dir', str(self.run), '--no-chat']
+            if attempt == 1:
+                previous = self.events(stage='astra_resolve')
+                self.invoke('autoresolver', args, 2)
+                self.assertIn('No causal progress', self.state()['stop_reason'])
+                self.assertEqual(previous, self.events(stage='astra_resolve'))
+                args += ['--resume-paused', '--retry-failed-stage']
+            self.invoke('autoresolver', args, 2 if attempt==2 else 0)
         self.assertEqual(['gpt-6-luna','gpt-6-luna',policy.DEFAULTS['strong_model']],[r['model'] for r in self.events()])
         self.assertEqual('PAUSED_BUILDER_RETRY_LIMIT',self.state()['status'])
         self.assertEqual(['retry','escalate','pause'],[r['action'] for r in self.state()['builder_retry_decisions']])
+        self.assertEqual(2, len(self.events(stage='astra_resolve')))
 
     def test_serial_noop_uses_same_bounded_policy(self):
         self.seed(bb.plan([([], 'Version prints 1', ['version.py'])],

@@ -5,8 +5,9 @@ read this instead of the ~140 keys of state.json, which stay private to the
 runner. `autocode --run-dir RUN --status` prints it under "view".
 
 This is a contract (see docs/task-run.md). Add fields; never rename or remove
-one, and bump SCHEMA if a meaning changes. It is a pure function of the saved
-state and imports nothing from the runner.
+one, and bump SCHEMA if a meaning changes. It is a read-only projection of saved
+state and explicitly named usage logs, never sibling/private state discovery.
+It imports nothing from the runner.
 """
 from __future__ import annotations
 
@@ -15,14 +16,14 @@ from copy import deepcopy
 
 try:
     from . import autocode_output_policy as output_policy, autocode_request_usage as request_usage
-    from . import autocode_usage, autocode_design_coverage as design_coverage
+    from . import autocode_usage, autocode_efficiency, autocode_design_coverage as design_coverage
     from . import autocode_contract_identity as contract_identity
     from . import autocode_progressive_plan as progressive_rules
     from . import autocode_verification_view as verification_view
     from . import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
 except ImportError:
     import autocode_output_policy as output_policy, autocode_request_usage as request_usage
-    import autocode_usage, autocode_design_coverage as design_coverage
+    import autocode_usage, autocode_efficiency, autocode_design_coverage as design_coverage
     import autocode_contract_identity as contract_identity
     import autocode_progressive_plan as progressive_rules
     import autocode_verification_view as verification_view
@@ -35,7 +36,8 @@ CONTINUE = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER", "AWAITING_GOAL_APPROVA
 QUESTION_FIELDS = ("id", "question", "why", "options", "proposed_default")
 
 
-def view(state: dict) -> dict:
+def view(state: dict, *, completion_current=None, visual_acceptance=None) -> dict:
+    """Caller supplies fresh completion and authenticated visual projections, never model/state claims."""
     status = state.get("status", "")
     task = state.get("current_task") or {}
     result = {
@@ -72,6 +74,9 @@ def view(state: dict) -> dict:
         # Runner-owned assignment provenance, never a model diagnosis or completion proof.
         "direct_rework_assignments": deepcopy(state.get("direct_rework_assignments", [])),
     }
+    result["efficiency"] = autocode_efficiency.summary(
+        state, accounting=result["usage"]["accounting"], completion_current=completion_current,
+        visual_acceptance=visual_acceptance)
     contract = state.get("goal_contract") or {}
     if isinstance(contract, dict) and isinstance(contract.get("body"), dict):
         try:
@@ -242,8 +247,11 @@ def evidence(state: dict) -> dict:
                        for case in investigation.get("test_cases") or [] if isinstance(case, dict)]
                       if investigation.get("outcome") == "reproduced" else [],
         "check_replay": {"protected_tests": deepcopy(replay.get("protected_tests")), "verdict": replay.get("verdict"), "source_revision": replay.get("source_revision"),
-                         "checks": [{key: row.get(key) for key in ("command", "exit_code", "timed_out", "output")}
-                                    for row in replay.get("checks") or [] if isinstance(row, dict)]}
+                         "scheduling": deepcopy(replay.get("scheduling")),
+                         "checks": [{key: deepcopy(row.get(key)) for key in
+                                     ("command", "exit_code", "timed_out", "output", "output_sha256", "duration_seconds",
+                                      "error", "tail", "purpose", "scheduling", "results")}
+                                     for row in replay.get("checks") or [] if isinstance(row, dict)]}
                         if isinstance(replay, dict) else None,
     }
 

@@ -2,12 +2,14 @@
 build+integrate through the real CLI with a scripted, per-component fake model."""
 import json
 import os
+import runpy
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_multicomponent as mc
 
@@ -98,6 +100,81 @@ class BriefTests(unittest.TestCase):
 def git(cwd, *args):
     subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.test", *args],
                    cwd=cwd, check=True, capture_output=True, text=True)
+
+
+class FakeSchemaCompatibilityTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix="component-schema-")
+        self.addCleanup(temp.cleanup)
+        manifest = Path(temp.name) / "manifest.json"
+        manifest.write_text("{}")
+        with patch.dict(os.environ, {"FAKE_MANIFEST": str(manifest)}):
+            self.complete = runpy.run_path(str(FAKE_PROVIDER))["complete"]
+        self.schema = {"type": "object", "required": ["recovery_change"], "properties": {
+            "contract_hash": {"type": "string"},
+            "recovery_change": {"type": ["object", "null"],
+                                "required": ["before", "after", "evidence_refs"], "properties": {
+                                    "before": {"type": "string"}, "after": {"type": "string"},
+                                    "evidence_refs": {"type": "array", "items": {"type": "string"}}}}}}
+
+    def test_absent_nullable_field_defaults_to_null_and_preserves_explicit_null(self):
+        for value in ({}, {"recovery_change": None}):
+            with self.subTest(value=value):
+                self.assertEqual({"recovery_change": None}, self.complete(value, self.schema))
+
+    def test_explicit_nullable_object_keeps_its_values_and_completes_its_fields(self):
+        proposal = {"before": "original", "after": "changed"}
+        value = self.complete({"recovery_change": proposal}, self.schema)
+        self.assertIs(proposal, value["recovery_change"])
+        self.assertEqual({"before": "original", "after": "changed", "evidence_refs": []}, proposal)
+
+    def test_invalid_supplied_value_and_report_identity_are_not_rewritten(self):
+        value = {"recovery_change": "invalid object", "contract_hash": "not-the-approved-contract"}
+        expected = dict(value)
+        self.assertEqual(expected, self.complete(value, self.schema))
+
+    def test_report_repair_preserves_original_failures_and_runs_no_new_checks(self):
+        with tempfile.TemporaryDirectory(prefix="component-report-repair-") as tmp:
+            root = Path(tmp)
+            marker = root / "must-not-be-created"
+            command = f"touch {marker}"
+            manifest = root / "manifest.json"
+            manifest.write_text(json.dumps({"alpha": {"description": "the alpha component", "file": "output.txt",
+                                                       "content": "new work", "check": command}}))
+            events = root / "original.jsonl"
+            event = {"type": "item.completed", "item": {"id": "original-check", "type": "command_execution",
+                     "command": command, "exit_code": 1, "aggregated_output": "original failure"}}
+            events.write_text(json.dumps(event) + "\n")
+            original_events = events.read_bytes()
+            report = {"contract_revision": 3, "contract_hash": "original-contract", "task_id": "original-task",
+                      "summary": "Implement the alpha component of this fixture", "verdict": "FAIL",
+                      "checks_run": [command], "checks": [{"command": command, "exit_code": 1,
+                                                           "evidence_ref": "event:original-check"}],
+                      "findings": [{"id": "F1", "summary": "Original failure remains open"}],
+                      "unverified_criteria": ["C1"], "implementation_captures": []}
+            schema = root / "schema.json"
+            schema.write_text(json.dumps({"type": "object", "properties": {}, "required": []}))
+            output = root / "report.json"
+            for repeated in (False, True):
+                with self.subTest(repeated=repeated):
+                    data = {"report_repair": True, "original": {"stage": "sol", "events": str(events)},
+                            "report_identity": {key: report[key] for key in
+                                                ("contract_revision", "contract_hash", "task_id")},
+                            "rejected_report": {"content": dict(report)},
+                            "original_executed_checks": report["checks"]}
+                    if repeated:
+                        data["original_report"] = {"content": report}
+                        data["rejected_report"]["content"].update(verdict="PASS", findings=[], contract_hash="wrong")
+                    proc = subprocess.run([sys.executable, "-B", str(FAKE_PROVIDER), "exec",
+                                           "--output-schema", str(schema), "-o", str(output)],
+                                          input="CURRENT HANDOFF DATA\n" + json.dumps(data), cwd=root,
+                                          env={**os.environ, "FAKE_MANIFEST": str(manifest)},
+                                          capture_output=True, text=True, timeout=10)
+                    self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
+                    self.assertEqual(report, json.loads(output.read_text()))
+                    self.assertFalse(marker.exists(), "format repair must not execute the reported command")
+                    self.assertEqual(original_events, events.read_bytes())
+                    self.assertNotIn("command_execution", proc.stdout, "evidence must cite the original events")
 
 
 class BuildAndIntegrateTests(unittest.TestCase):
@@ -199,7 +276,7 @@ class BuildAndIntegrateTests(unittest.TestCase):
 
 
 class CliTests(BuildAndIntegrateTests):
-    """The installed entry point (`autocode components`), not just the Python API."""
+    """The real CLI entry point (`autocode components`), not just the Python API."""
 
     def setUp(self):
         super().setUp()
@@ -213,7 +290,7 @@ class CliTests(BuildAndIntegrateTests):
         git(self.repo, "commit", "-q", "-m", "architecture")
 
     def run_cli(self, *args):
-        return subprocess.run([sys.executable, "-m", "tools.autocode", "components", *args], cwd=REPO_ROOT,
+        return subprocess.run([sys.executable, str(HERE / "autocode.py"), "components", *args], cwd=REPO_ROOT,
                               env={**os.environ, **self.env}, capture_output=True, text=True, timeout=120)
 
     def test_cli_builds_and_integrates_both_components(self):

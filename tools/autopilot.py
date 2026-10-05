@@ -12,9 +12,9 @@ try:
     from . import autocode_workflow as workflow, autocode_milestones as milestones, autocode_escalation as escalation
     from . import autocode_findings as findings_ledger, autocode_builder_policy as builder_policy
     from . import autocode_resolver_human as human, autocode_failures as failures, autocode_assignment as assignment, autocode_status
-    from . import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery, autocode_rework_policy as rework_policy
+    from . import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery, autocode_rework_policy as rework_policy, autocode_resolver_recovery as resolver_recovery
     from . import autocode_planning_clarification as clarification
-    from . import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage
+    from . import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage, autocode_efficiency as efficiency, autocode_visual_runtime as visual_runtime
     from .units import autoplanner as planning_unit, common as units_common
     from . import autocode_regression as regression, autocode_verify as verify, autocode_check_replay as check_replay, autocode_check_refs as check_refs
     from . import autocode_validation_rounds as validation_rounds
@@ -31,9 +31,9 @@ except ImportError:
     import autocode_builder_policy as builder_policy
     import autocode_resolver_human as human
     import autocode_failures as failures, autocode_assignment as assignment, autocode_status
-    import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery, autocode_rework_policy as rework_policy
+    import autocode_retained_work as retained_work, autocode_provider_recovery as provider_recovery, autocode_rework_policy as rework_policy, autocode_resolver_recovery as resolver_recovery
     import autocode_planning_clarification as clarification
-    import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage
+    import autocode_progressive_state as progressive_state, autocode_design_coverage as design_coverage, autocode_efficiency as efficiency, autocode_visual_runtime as visual_runtime
     from units import autoplanner as planning_unit, common as units_common
 
 SKIP = object()
@@ -550,8 +550,16 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     if (value["verdict"] == "PASS" or human_pending or progressive_pass) and (not value["checks"] or any(c["exit_code"] for c in value["checks"])):
         raise ValueError("Technically passing validation lacks successful executed checks: list each check you ran, with its exit code")
     validation["check_replay"] = (check_replay.replay(value["checks"], workspace, run_dir, record, verify.scratch_run,
-                                                   approved_state=state, progressive_context=progressive_state.context(state))
+                                                   approved_state=state, progressive_context=progressive_state.context(state),
+                                                   execution_identity=verify.execution_identity)
                                   if value["verdict"] == "PASS" or human_pending or progressive_pass else None)
+    efficiency.observe_replay(state, validation["check_replay"], attempt_id=record.get("events") or record["output"])
+    validation["evidence_hashes"].update(check_replay.evidence_pins(validation["check_replay"]))
+    if stage == 'sol' and (record.get('visual_runtime') or visual_runtime.requested(state)):
+        visual_receipt = visual_runtime.accept_review(record['visual_runtime'], state, record, run_dir=run_dir,
+                                                       current_snapshot=support.snapshot(workspace), accepted_validation=validation)
+        if visual_receipt:
+            validation['evidence_hashes'].update(visual_receipt['evidence_hashes'])
     if progressive_state.enabled(state):
         progressive_state.check_result_binding(state, record, support.snapshot(workspace))
         progressive_state.assert_product_claims(state, support.snapshot(workspace), validation)
@@ -633,6 +641,7 @@ def queue_resolution(state, decision, record, *, source_stage='astra_review', so
     state.pop(human.PUBLIC, None)
     state.pop('user_request', None)
     state.update(status='RUNNING', phase='RESOLVING', next_stage='astra_resolve', pending_questions=[])
+    resolver_recovery.prepare_resolution(state, decision, record)
 
 
 def finish_resolution(state, value, record):
@@ -648,6 +657,7 @@ def finish_resolution(state, value, record):
             'output': record['output'],
             'tasks': [{**copy.deepcopy(state['current_task']), 'depends_on': []}]}
     state['repair_plan'] = plan
+    resolver_recovery.finish_resolution_packet(state, request, plan)
     state.setdefault('resolution_history', []).append(copy.deepcopy(plan))
 
 
@@ -658,7 +668,8 @@ def apply_diagnosis_result(runtime, state, value, record, workspace, run_dir):
     across admission and this completion.
     """
     unit_module('astra_diagnose').validate_diagnosis(state, value, record, workspace)
-    runtime.resolver_runtime.finish_operational_diagnosis(state, run_dir, value['recommendation'])
+    runtime.resolver_runtime.finish_operational_diagnosis(state, run_dir, value['recommendation'],
+                                                        recovery_change=value.get('recovery_change'))
 
 
 def apply_result(runtime, state, stage, value, record, workspace, run_dir):
@@ -754,7 +765,8 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
             and not workflow.enabled(state)):
         # Keep the review authoritative whether its correction is assigned or diagnosed.
         findings_ledger.record_decision(state, value, record)
-        rework_policy.route(runtime, state, value, record, queue_resolution, builder_policy, run_dir=run_dir)
+        if not rework_policy.route(runtime, state, value, record, queue_resolution, builder_policy, run_dir=run_dir):
+            resolver_recovery.route_known_change(runtime, state, value, record, run_dir=run_dir, retry_policy=builder_policy)
         save_record(state, record)
         return
     if stage.startswith("astra"):
@@ -797,6 +809,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
             save_record(state, record)
             return
         if value["status"] in ("COMPLETE", "TASK_COMPLETE"):
+            visual_runtime.require_completion(state, current_snapshot=current)
             progressive_state.prepare_completion(state, current, record,
                                                   product_findings=findings_ledger.blocking_entries(state))
             if modern and findings_ledger.blocking_entries(state):
@@ -828,7 +841,7 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
             if modern and value["status"] == "CONTINUE":
                 completion_probe = {**value, "status": "TASK_COMPLETE"}
                 probe_snapshot = support.snapshot(workspace)
-                if completion_gate.completion_ready(state, completion_probe, probe_snapshot):
+                if visual_runtime.completion_allowed(state, current_snapshot=probe_snapshot) and completion_gate.completion_ready(state, completion_probe, probe_snapshot):
                     state.update(next_stage="astra_review", **unit_module("astra_review").completion_review(state, probe_snapshot))
                     state["iteration"] += 1
                     goals.record_decision(state, value)
