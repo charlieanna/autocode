@@ -78,7 +78,18 @@ def check(settings, configuration, workspace, scratch, inputs, *, phase='plannin
         target = urlparse(settings["figma_file"])
         parts = target.path.strip("/").split("/")
         key = parts[1] if len(parts) > 1 and parts[0] in ("design", "file", "proto") else None
-        nodes = {file["key"]: file["nodes"] for file in source["body"]["files"]}
+        if source["body"]["version"] == 1:
+            nodes = {file["key"]: file["nodes"] for file in source["body"]["files"]}
+        else:
+            frames = design.inventory.catalog(source["body"], source["root"])["screen_frames"]
+            nodes = {file["key"]: [] for file in source["body"]["files"]}
+            for frame in frames:
+                nodes[frame["file_key"]].append(frame["node_id"])
+            for file in source['body']['files']:
+                nodes[file['key']].extend(page['id'] for page in file['pages'])
+                for component in file['components']:
+                    nodes[file['key']].append(component['source_node_id'])
+                    nodes[file['key']].extend(row['node_id'] for row in component['variants'])
         node = parse_qs(target.query).get("node-id", [None])[0]
         if key not in nodes or (node and node.replace("-", ":") not in nodes[key]):
             raise ValueError("Approved Figma URL has no matching exported file/frame")
@@ -86,6 +97,8 @@ def check(settings, configuration, workspace, scratch, inputs, *, phase='plannin
     if set(by_id) != {case["id"] for case in source["body"]["cases"]}:
         raise ValueError("Design readiness must cover every approved frame/state case exactly once")
     result, required_paths = [], {path}
+    required_paths.update(str(Path(path).parent / artifact["path"])
+                          for artifact in design.all_artifacts(source["body"]))
     for case in source["body"]["cases"]:
         row = by_id[case["id"]]
         required_paths.update(str(Path(path).parent / a["path"]) for a in case["artifacts"].values())

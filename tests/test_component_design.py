@@ -140,8 +140,12 @@ class ComponentDesignCliTests(unittest.TestCase):
 
     def setUp(self):
         fixture.BuildAndIntegrateTests.setUp(self)
-        from tests.visual_capture_fixtures import install_native_hook
-        install_native_hook(self.root / 'bin' / 'codex', result='report', asset="spec['file']", indent='    ')
+        from tests.figma_inventory_fixtures import install_inventory_hook, native_bundle
+        manifest_path = native_bundle(self.root / 'native-source', 'Alpha123', 'components/alpha/message.txt')
+        install_inventory_hook(self.root / 'bin' / 'codex', asset="spec['file']")
+        self.env.update(FAKE_NATIVE_MANIFEST=str(manifest_path),
+                        FAKE_CAPTURE_REPO=str(Path(__file__).resolve().parents[1]),
+                        FAKE_DESIGN_PROMPTS=str(self.root / 'inventory-prompts.jsonl'))
         self.env["CODEX_HOME"] = str(self.root / "codex-config")
         self.ui_run = accepted_ui_run(self.root / "accepted-alpha")
         self.observations = self.root / "observations"

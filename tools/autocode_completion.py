@@ -26,6 +26,11 @@ def rejection(state) -> str:
     milestone's validation left out the accepted milestone's criteria, and the Completion Owner
     could not tell what was missing or how to ask for it."""
     if not design_coverage.ready(state):
+        record = (state.get("settings") or {}).get("design_manifest") or {}
+        inventory_blockers = design_coverage.manifest.blockers(record) if record else []
+        if inventory_blockers:
+            return (f"{REFUSED}. Figma inventory still has unavailable required fonts/assets: "
+                    + "; ".join(inventory_blockers))
         missing = ", ".join(design_coverage.gaps(state)) or "changed or unbound design evidence"
         return f"{REFUSED}. Design coverage needs fresh independent evidence for: {missing}."
     results = {row["id"]: row.get("status") for row in (state.get("validation") or {}).get("criterion_results", [])}

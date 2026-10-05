@@ -30,7 +30,7 @@ except ImportError:
     from autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
 
 # Inputs that only start a new run: with one of them and no task, nothing is looked up.
-NEW_RUN_INPUTS = ("ui_run", "figma_file", "figma_manifest", "figma_review", "in_place",
+NEW_RUN_INPUTS = ("ui_run", "figma_file", "figma_additional_file", "figma_manifest", "figma_review", "in_place",
                   "builder_strong_model", "conversation_handoff")
 # The user actions that only read the run: they return before the run lock and save nothing, so
 # with no unfinished run they may show a finished one. --show-goal is not one: it takes the lock,
@@ -79,9 +79,13 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         help="Explicitly retry a stopped Builder after inspecting its retained work; requires --resume-paused")
     parser.add_argument("--figma-manifest", type=Path,
                         help="New run: immutable multi-file/frame/state inventory with exported Figma references; any saved engine")
+    parser.add_argument("--revise-figma-manifest", type=Path, help="Stopped run: propose complete updated references, preserving history and requiring plan review")
+    parser.add_argument("--expected-design-hash", help="Exact inspected reference hash for --revise-figma-manifest")
+    parser.add_argument("--design-change-reason", help="Concrete reason for --revise-figma-manifest")
     parser.add_argument("--task-preflight", type=Path,
                         help="Operator prerequisite manifest for planning/build/validation; repair only at its reconciled pause with --resume-paused")
     parser.add_argument("--figma-file", help="Figma Design URL to implement using the connected Codex plugin")
+    parser.add_argument("--figma-additional-file", action="append", default=[], help="Additional approved Figma file for complete native intake; repeat for multiple files")
     parser.add_argument("--ui-run", type=Path, help="Accepted autocode-ui run to implement")
     parser.add_argument("--figma-review", choices=["automatic", "human"], help="Visual review policy for new Figma runs (default: automatic)")
     parser.add_argument("--engine", choices=["codex", "opencode"],

@@ -57,6 +57,8 @@ def instructions(settings, *, stage=None, current_task=None):
     target = settings.get('figma_file')
     if not target:
         return ''
+    if settings.get('figma_references'):
+        target = '\n'.join(settings['figma_references'])
     policy = ('Use independent screenshot and node comparisons plus functional/accessibility checks as the visual '
               'acceptance gate. Do not add a human visual approval requirement unless the user explicitly requests it; '
               'use human_review=false for criteria verified this way. Do not invent a human approval event.'

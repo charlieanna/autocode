@@ -19,6 +19,7 @@ except ImportError:
 # (astra_review and astra_checkpoint are both the Completion Owner).
 FILE_SLUGS = {
     'recognize_workflow': 'recognize-workflow',
+    'collect_design': 'design-inventory',
     'requirements_gather': 'requirements-gather',
     'astra_discovery': 'discovery',
     'glm_revise': 'requirements-revise',

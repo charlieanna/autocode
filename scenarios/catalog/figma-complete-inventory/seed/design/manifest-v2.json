@@ -1,0 +1,305 @@
+{
+  "version": 2,
+  "files": [
+    {
+      "key": "FILEA",
+      "revision": "revision-FILEA",
+      "pages": [
+        {
+          "id": "0:1",
+          "name": "Main",
+          "metadata_xml": {
+            "path": "FILEA-page.xml",
+            "sha256": "d9a9a469a85058790fd6e02c809936cc4b4704dba1beb25db1b6b6dff23a5c10"
+          },
+          "source_json": {
+            "path": "FILEA-source.json",
+            "sha256": "daeff43f782fb87332f4e07e8c925d9b9db19eff984adf478145534d446d0964"
+          }
+        }
+      ],
+      "metadata_xml": {
+        "path": "FILEA-file.xml",
+        "sha256": "a1e6dd93e5ecbfc1925839644a09cba24952ebf6cd98ccb208025a020c2575fd"
+      },
+      "components": [
+        {
+          "key": "SHARED-BUTTON",
+          "name": "Button",
+          "source_page_id": "0:1",
+          "source_node_id": "1:3",
+          "variants": [
+            {
+              "page_id": "0:1",
+              "node_id": "1:4",
+              "properties": {
+                "Type": "primary"
+              }
+            },
+            {
+              "page_id": "0:1",
+              "node_id": "1:5",
+              "properties": {
+                "Type": "secondary"
+              }
+            }
+          ]
+        }
+      ],
+      "variables": [
+        {
+          "key": "VARIABLE-COLOR",
+          "name": "foreground",
+          "kind": "COLOR",
+          "value": {
+            "hex": "#112233"
+          },
+          "collection": "Foundation",
+          "mode": "Light",
+          "source_id": "VariableID:1",
+          "mode_id": "light"
+        }
+      ],
+      "fonts": [
+        {
+          "id": "font-FILEA",
+          "family": "Inter",
+          "style": "Regular",
+          "status": "available",
+          "artifact": {
+            "path": "inter.woff2",
+            "sha256": "d963d9d62922646a12c117e01b9c258ced855a4e6da7a584956769781bf3030d"
+          }
+        }
+      ],
+      "assets": [
+        {
+          "id": "logo-FILEA",
+          "page_id": "0:1",
+          "node_id": "1:7",
+          "name": "Logo",
+          "mime_type": "image/svg+xml",
+          "status": "available",
+          "artifact": {
+            "path": "icon.svg",
+            "sha256": "900fbe934249ad120004bd24adf66aad8817d89586273c0cc50e187bddebb601"
+          }
+        }
+      ],
+      "transitions": [
+        {
+          "id": "home-details",
+          "source_node_id": "1:2",
+          "target_node_id": "1:6",
+          "trigger": "click",
+          "action": {
+            "type": "NODE",
+            "destinationId": "1:6"
+          }
+        }
+      ],
+      "screen_states": [
+        {
+          "page_id": "0:1",
+          "node_id": "1:2",
+          "state": "default",
+          "viewport": {
+            "width": 2,
+            "height": 1,
+            "device_scale_factor": 1
+          }
+        },
+        {
+          "page_id": "0:1",
+          "node_id": "1:6",
+          "state": "default",
+          "viewport": {
+            "width": 2,
+            "height": 1,
+            "device_scale_factor": 1
+          }
+        }
+      ]
+    },
+    {
+      "key": "FILEB",
+      "revision": "revision-FILEB",
+      "pages": [
+        {
+          "id": "2:1",
+          "name": "Other",
+          "metadata_xml": {
+            "path": "FILEB-page.xml",
+            "sha256": "daa686533dcc7726f5d013e741e411ab661e22437f6b7831615cac5016bb3a5a"
+          },
+          "source_json": {
+            "path": "FILEB-source.json",
+            "sha256": "caffe61629b0696e4dd4055e7f0852b90aef68e6c13e2e4c3802aafa5c543d4e"
+          }
+        }
+      ],
+      "metadata_xml": {
+        "path": "FILEB-file.xml",
+        "sha256": "80c75a6efb1f8a17cc607782abfe612d113cfd2a8beabdcf3e214ce1a9407731"
+      },
+      "components": [
+        {
+          "key": "SHARED-BUTTON",
+          "name": "Button",
+          "source_page_id": "2:1",
+          "source_node_id": "3:5",
+          "variants": [
+            {
+              "page_id": "2:1",
+              "node_id": "3:6",
+              "properties": {
+                "Type": "tertiary"
+              }
+            }
+          ]
+        }
+      ],
+      "variables": [
+        {
+          "key": "VARIABLE-COLOR",
+          "name": "foreground",
+          "kind": "COLOR",
+          "value": {
+            "hex": "#112233"
+          },
+          "collection": "Foundation",
+          "mode": "Light",
+          "source_id": "VariableID:1",
+          "mode_id": "light"
+        }
+      ],
+      "fonts": [
+        {
+          "id": "font-FILEB",
+          "family": "Inter",
+          "style": "Regular",
+          "status": "available",
+          "artifact": {
+            "path": "inter.woff2",
+            "sha256": "d963d9d62922646a12c117e01b9c258ced855a4e6da7a584956769781bf3030d"
+          }
+        }
+      ],
+      "assets": [
+        {
+          "id": "logo-FILEB",
+          "page_id": "2:1",
+          "node_id": "3:4",
+          "name": "Logo",
+          "mime_type": "image/svg+xml",
+          "status": "available",
+          "artifact": {
+            "path": "icon.svg",
+            "sha256": "900fbe934249ad120004bd24adf66aad8817d89586273c0cc50e187bddebb601"
+          }
+        }
+      ],
+      "transitions": [],
+      "screen_states": []
+    }
+  ],
+  "cases": [
+    {
+      "id": "FILEA.1.2.default",
+      "file_key": "FILEA",
+      "page_id": "0:1",
+      "node_id": "1:2",
+      "state": "default",
+      "route": "/1/2",
+      "implementation_paths": [
+        "app.py"
+      ],
+      "viewport": {
+        "width": 2,
+        "height": 1,
+        "device_scale_factor": 1
+      },
+      "export_scale": 1,
+      "artifacts": {
+        "screenshot": {
+          "path": "screen.png",
+          "sha256": "fed5f9356847ac2e30d920a89da5ee859323dfa5779f1a5d69dcf436f9a123cf"
+        },
+        "design_context": {
+          "path": "context.txt",
+          "sha256": "4c7027c21505e1a9ea8b8fb0558d2f69675d960371f09bb737c7d1b5da6375f4"
+        }
+      },
+      "inventory_refs": {
+        "components": [
+          "SHARED-BUTTON"
+        ],
+        "variables": [
+          "VARIABLE-COLOR"
+        ],
+        "fonts": [
+          "font-FILEA"
+        ],
+        "assets": [
+          "logo-FILEA"
+        ],
+        "transitions": [
+          "home-details"
+        ]
+      },
+      "native_size": {
+        "width": 2,
+        "height": 1
+      }
+    },
+    {
+      "id": "FILEA.1.6.default",
+      "file_key": "FILEA",
+      "page_id": "0:1",
+      "node_id": "1:6",
+      "state": "default",
+      "route": "/1/6",
+      "implementation_paths": [
+        "app.py"
+      ],
+      "viewport": {
+        "width": 2,
+        "height": 1,
+        "device_scale_factor": 1
+      },
+      "export_scale": 1,
+      "artifacts": {
+        "screenshot": {
+          "path": "screen.png",
+          "sha256": "fed5f9356847ac2e30d920a89da5ee859323dfa5779f1a5d69dcf436f9a123cf"
+        },
+        "design_context": {
+          "path": "context.txt",
+          "sha256": "4c7027c21505e1a9ea8b8fb0558d2f69675d960371f09bb737c7d1b5da6375f4"
+        }
+      },
+      "inventory_refs": {
+        "components": [
+          "SHARED-BUTTON"
+        ],
+        "variables": [
+          "VARIABLE-COLOR"
+        ],
+        "fonts": [
+          "font-FILEA"
+        ],
+        "assets": [
+          "logo-FILEA"
+        ],
+        "transitions": [
+          "home-details"
+        ]
+      },
+      "native_size": {
+        "width": 2,
+        "height": 1
+      }
+    }
+  ],
+  "responsive_targets": []
+}

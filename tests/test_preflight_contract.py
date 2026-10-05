@@ -14,7 +14,7 @@ import autocode_preflight_worker as worker
 import autocode_task_preflight as preflight
 import autocode_util as util
 from tests.test_task_preflight import PreflightFixture, ROOT, entry
-from tests.test_design_manifest import bundle
+from tests.test_design_manifest import bundle, inventory_bundle
 
 
 def browser_contract():
@@ -189,6 +189,34 @@ class DesignReadinessTests(PreflightFixture):
             design.check(settings, config, self.workspace, self.workspace, inputs, phase='build')
         config['cases'].pop()
         with self.assertRaisesRegex(ValueError, 'every approved'):
+            design.check(settings, config, self.workspace, self.workspace, inputs)
+
+    def test_v2_full_frame_metadata_catalog_and_native_node_are_bound_before_planning(self):
+        path, body = inventory_bundle(self.workspace / "public")
+        (self.workspace / "context-part.txt").write_text((path.parent / "context.txt").read_text())
+        config = {"manifest": str(path.relative_to(self.workspace)), "cases": [
+            {"id": case["id"], "encoding": "text", "context_parts": ["context-part.txt"],
+             "assets": ["public/icon.svg"], "fonts": [{"family": "Inter", "path": "public/inter.woff2"}],
+             "canvas": browser_contract()["canvas"]} for case in body["cases"]]}
+        source_files = [path, self.workspace / "context-part.txt"]
+        source_files.extend(path.parent / rel for rel in ("context.txt", "screen.png", "icon.svg", "inter.woff2",
+                                                            "FILEA-page.xml", "FILEB-page.xml",
+                                                            "FILEA-file.xml", "FILEB-file.xml",
+                                                            "FILEA-source.json", "FILEB-source.json"))
+        inputs = [entry(source, str(source.relative_to(self.workspace))) for source in source_files]
+        browser = {**browser_contract(), "fonts": ["Inter"]}
+        settings = {"figma_file": "https://www.figma.com/design/FILEA?node-id=1-2",
+                    "design_manifest": design.design.load(path),
+                    "task_preflight": {"body": {"checks": [row(browser)]}}}
+        result = design.check(settings, config, self.workspace, self.workspace, inputs)
+        self.assertEqual({case["id"] for case in body["cases"]}, {item["id"] for item in result})
+        with self.assertRaisesRegex(ValueError, "not hash-bound"):
+            design.check(settings, config, self.workspace, self.workspace,
+                         [item for item in inputs if item["path"] != "public/FILEB-page.xml"])
+        settings["figma_file"] = "https://www.figma.com/design/FILEB?node-id=3-5"
+        self.assertEqual(3, len(design.check(settings, config, self.workspace, self.workspace, inputs)))
+        settings["figma_file"] = "https://www.figma.com/design/FILEA?node-id=1-90"
+        with self.assertRaisesRegex(ValueError, "no matching exported file/frame"):
             design.check(settings, config, self.workspace, self.workspace, inputs)
 
     def test_context_export_is_lossless_unicode_and_bound_to_original(self):

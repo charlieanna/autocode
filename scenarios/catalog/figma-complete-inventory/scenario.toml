@@ -1,0 +1,5 @@
+title = "Complete a two-file Figma inventory despite already-green functional tests"
+category = "figma"
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."

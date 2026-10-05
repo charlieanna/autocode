@@ -7,9 +7,9 @@ from __future__ import annotations
 import copy
 from pathlib import Path
 try:
-    from . import autocode_design_manifest as manifest, autocode_util as util, autocode_visual_evidence as visual
+    from . import autocode_design_manifest as manifest, autocode_util as util, autocode_visual_evidence as visual, autocode_design_plan as design_plan
 except ImportError:
-    import autocode_design_manifest as manifest, autocode_util as util, autocode_visual_evidence as visual
+    import autocode_design_manifest as manifest, autocode_util as util, autocode_visual_evidence as visual, autocode_design_plan as design_plan
 
 
 RESULT = manifest.obj({
@@ -58,6 +58,8 @@ def report_refs(state, report, *, stage=None):
             and not report.get("design_manifest_hash") and not report.get("design_results")):
         return []
     manifest.verify(record)
+    plan_body = (state.get("goal_contract") or {}).get("body") or {}
+    design_plan.validate(record, plan_body, ready=True)
     if report.get("design_manifest_hash") != record["manifest_hash"]:
         raise ValueError("Validation refers to a different design manifest")
     rows = report.get("design_results", [])
@@ -77,6 +79,8 @@ def report_refs(state, report, *, stage=None):
         mapped = row["criterion_ids"]
         if len(mapped) != len(set(mapped)) or not set(mapped) <= criteria:
             raise ValueError(f"Design case has unknown/duplicate criterion IDs: {row['id']}")
+        if record["body"]["version"] == 2 and set(mapped) != set(design_plan.case_criteria(plan_body)[row["id"]]):
+            raise ValueError(f"Design report must retain the approved case-to-criterion mapping: {row['id']}")
         if row["status"] != "PASS":
             continue
         if not mapped or any(outcomes.get(cid) != "PASS" for cid in mapped):
@@ -118,13 +122,42 @@ def gaps(state):
     passed = {row.get("id") for row in rows if row.get("status") == "PASS"}
     if report.get("design_manifest_hash") != record["manifest_hash"]:
         passed = set()
+    passed.update(row["id"] for row in reusable_results(state) if row["status"] == "PASS")
     return [case["id"] for case in record["body"]["cases"] if case["id"] not in passed]
+
+
+def reusable_results(state):
+    if not state.get('design_input_changes'):
+        return []
+    record = (state.get('settings') or {}).get('design_manifest') or {}
+    cases = {row['id']:row for row in record.get('body',{}).get('cases',[])}
+    rows = {}
+    current = None
+    for change in state['design_input_changes']:
+        previous = change['previous_validation']
+        pins = previous.get('evidence_hashes') or {}
+        for row in previous.get('design_results',[]):
+            if row['id'] not in cases or row['status'] != 'PASS':
+                continue
+            try:
+                current = current or util.snapshot(state['workspace'])
+                _, refs = visual.verify(state,row['capture_ref'],row['capture_sha256'],case=cases[row['id']],current=current)
+                refs += [str(Path(state['workspace']) / row['comparison_ref']) if not Path(row['comparison_ref']).is_absolute() else row['comparison_ref']]
+                if not all(pins.get(path) == util.file_hash(path) for path in refs):
+                    continue
+                rows[row['id']] = copy.deepcopy(row)
+            except (ValueError,OSError,KeyError,TypeError):
+                continue
+    return list(rows.values())
 
 
 def ready(state):
     if not visual.reference_hash(state.get('settings', {})):
         return True
     try:
+        record = (state.get("settings") or {}).get("design_manifest")
+        if record and manifest.blockers(record):
+            return False
         refs = report_refs(state, state.get("validation") or {})
         pins = (state.get("validation") or {}).get("evidence_hashes") or {}
         return not gaps(state) and all(pins.get(path) == util.file_hash(path) for path in refs)
@@ -135,8 +168,24 @@ def ready(state):
 def projection(state):
     record = state.get("settings", {}).get("design_manifest")
     if not record:
-        return None
-    return {"manifest_hash": record["manifest_hash"], "files": copy.deepcopy(record["body"]["files"]),
-            "case_ids": [case["id"] for case in record["body"]["cases"]],
-            "not_passing": gaps(state), "reported_source_revision": (state.get("validation") or {}).get("source_revision"),
-            "current_visual_acceptance": None}
+        intake = state.get("design_intake")
+        return {"intake": copy.deepcopy(intake), "current_visual_acceptance": None} if intake else None
+    result = {"manifest_hash": record["manifest_hash"], "files": copy.deepcopy(record["body"]["files"]),
+              "case_ids": [case["id"] for case in record["body"]["cases"]],
+              "not_passing": gaps(state), "reported_source_revision": (state.get("validation") or {}).get("source_revision"),
+              "current_visual_acceptance": None,
+              "reference_changes": [{key:copy.deepcopy(row.get(key)) for key in ("at","reason","previous_hash","current_hash","coverage_change","previous_references","current_references")}
+                                    for row in state.get("design_input_changes",[])],
+              "reusable_case_results": reusable_results(state)}
+    if record["body"].get("version") == 2:
+        try:
+            manifest.verify(record)
+            result["inventory"] = manifest.inventory.catalog(record["body"], record["root"])
+            result["inventory_blockers"] = manifest.blockers(record)
+        except (ValueError, OSError, KeyError, TypeError) as error:
+            result["inventory_error"] = str(error)
+            result["inventory_blockers"] = [str(error)]
+            result["not_passing"] = list(result["case_ids"])
+            result["reusable_case_results"] = []
+        result["plan_coverage"] = copy.deepcopy(((state.get("goal_contract") or {}).get("body") or {}).get("design_coverage"))
+    return result

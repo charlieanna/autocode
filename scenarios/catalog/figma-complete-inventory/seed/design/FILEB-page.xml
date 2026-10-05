@@ -1,0 +1,6 @@
+<CANVAS id="2:1" name="Other">
+          <FRAME id="3:4" name="Settings" width="2" height="1"/>
+          <COMPONENT_SET id="3:5" name="Button">
+            <COMPONENT id="3:6" name="Tertiary"/>
+          </COMPONENT_SET>
+        </CANVAS>

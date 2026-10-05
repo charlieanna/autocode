@@ -1,0 +1,11 @@
+<CANVAS id="0:1" name="Main">
+          <FRAME id="1:2" name="Home" width="2" height="1">
+            <FRAME id="1:90" name="Nested layout" width="400" height="100"/>
+          </FRAME>
+          <FRAME id="1:6" name="Details" width="2" height="1"/>
+          <COMPONENT_SET id="1:3" name="Button">
+            <COMPONENT id="1:4" name="Primary"/>
+            <COMPONENT id="1:5" name="Secondary"/>
+          </COMPONENT_SET>
+          <RECTANGLE id="1:7" name="Logo"/>
+        </CANVAS>

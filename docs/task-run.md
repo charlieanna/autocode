@@ -130,6 +130,20 @@ they never saw.
 after a person inspects the new route and the saved run reports
 `PAUSED_TRANSPORT_CHANGED`.
 
+## Reviewed Figma input changes
+
+Start with native references (`--figma-file` and repeatable `--figma-additional-file`)
+or a complete exported bundle (`--figma-manifest`) in `start_options`. Both inputs
+produce the same durable coverage and plan ownership, exposed in `view.design`.
+See [figma.md](figma.md) for collection, responsive derivation and source receipts.
+
+At a stopped, reconciled boundary, `run.revise_design(manifest_path,
+view["design"]["manifest_hash"], reason)` proposes a new complete bundle. It keeps
+the old references, approvals and independently recorded evidence, pauses for a
+new plan review, and launches no model. A changed hash, active worker or pending
+control rejects the correction. Resume through `TaskRun.resume_paused()` to
+review the updated coverage; existing plan and completion gates still apply.
+
 ## Exact stopped-run recovery
 
 The additive `view.recovery` projection describes a saved pause: what happened,

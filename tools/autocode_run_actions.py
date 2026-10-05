@@ -15,7 +15,7 @@ import copy
 import sys
 
 try:
-    from . import autocode_job_failure as job_failure
+    from . import autocode_job_failure as job_failure, autocode_design_revision as design_revision, autocode_design_intake as design_intake
     from . import autopilot
     from . import autocode_dependency as dependency
     from . import autocode_conversation_ingress as conversation_ingress
@@ -39,7 +39,7 @@ try:
     from . import autocode_workflows as workflows
     from . import autocode_worktrees as worktrees
 except ImportError:
-    import autocode_job_failure as job_failure
+    import autocode_job_failure as job_failure, autocode_design_revision as design_revision, autocode_design_intake as design_intake
     import autopilot
     import autocode_dependency as dependency
     import autocode_conversation_ingress as conversation_ingress
@@ -88,6 +88,19 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             runner.write_json(state_path, state)
         print(f"{state['status']}: {state['stop_reason']}")
         return 2
+    if args.revise_figma_manifest:
+        try:
+            metadata = runner.intervention_metadata(workspace, run_dir, state)
+            if metadata["pending_count"] or metadata["inbox_error"]:
+                raise ValueError("Apply queued interventions before revising design references")
+            design_revision.apply(state, design_revision.manifest.load(args.revise_figma_manifest),
+                                  args.expected_design_hash, args.design_change_reason, workspace)
+        except (ValueError, OSError) as error:
+            print(f'Input rejected: {error}', file=sys.stderr)
+            return 2
+        runner.write_json(state_path, state)
+        print(state['stop_reason'])
+        return 0
     try:
         conversation_ingress.require_expected_goal(state, getattr(args, 'expected_goal_token', None),
                                                    token_for=goals.token, is_approved=goals.approved)
@@ -351,6 +364,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             workflows.pin(state, args.workflow)
         except ValueError as error:
             parser.error(str(error))
+        runner.write_json(state_path, state)
+    if not args.run_dir:
+        design_intake.queue(state)
         runner.write_json(state_path, state)
     if args.milestone_checkpoints:
         milestones.activate(state)

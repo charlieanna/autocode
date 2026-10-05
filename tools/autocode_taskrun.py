@@ -115,6 +115,12 @@ class TaskRun:
         except (ValueError, KeyError) as error:
             raise TaskRunError(f"--status did not return a status view: {error}", proc) from None
 
+    def revise_design(self, manifest: Path, expected_hash: str, reason: str) -> dict:
+        """Propose a stopped run's design input correction; never approve or dispatch."""
+        self._act("revise design", "--revise-figma-manifest", str(manifest),
+                  "--expected-design-hash", expected_hash, "--design-change-reason", reason)
+        return self.status()
+
     def show_goal(self) -> str:
         """Return the displayed brief a person must read before approving its token."""
         return self._invoke("show goal", "--show-goal").stdout

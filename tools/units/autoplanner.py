@@ -14,6 +14,7 @@ try:
     from .. import autocode_bug_job as bug_job, autocode_workflows as workflows, autocode_test_cases as test_cases
     from .. import autocode_follow_up as follow_up, autocode_adaptive_planning as adaptive, autocode_draft_examples as examples
     from .. import autocode_progressive_state as progressive, autocode_brief_literals as brief_literals
+    from .. import autocode_design_plan as design_plan
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
     import autocode_test_cases as test_cases
@@ -28,6 +29,7 @@ except ImportError:
     import autocode_draft_examples as examples
     import autocode_progressive_state as progressive
     import autocode_brief_literals as brief_literals
+    import autocode_design_plan as design_plan
 
 STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
 # A build that implements an approved design (autocode_design_check_job) skips requirements
@@ -1197,14 +1199,16 @@ def prepare(state, stage, state_path, schema_dir):
         raise
     role = role_for(state, stage)
     return ModelRequest(role, route_for(state, stage, role), prompt, metrics,
-                        schema_for(state, stage) if joint else goals.DISCOVERY_SCHEMA, False)
+                        schema_for(state, stage) if joint else design_plan.report_schema(
+                            goals.DISCOVERY_SCHEMA, (state.get("settings") or {}).get("design_manifest")), False)
 
 
 def schema_for(state, stage):
     """The report schema for a planning stage in this run (adaptive runs extend two of them)."""
     if stage == RECOGNIZE:
         return adaptive.recognizer_schema(state, SCHEMAS[stage])
-    return adaptive.report_schema(state, stage, SCHEMAS[stage], goals.PLANNING_BODY_SCHEMA)
+    return design_plan.report_schema(adaptive.report_schema(state, stage, SCHEMAS[stage], goals.PLANNING_BODY_SCHEMA),
+                                     (state.get("settings") or {}).get("design_manifest"))
 
 
 def after_challenge(state, value, record):

@@ -8,9 +8,9 @@ import copy
 from pathlib import Path
 from urllib.parse import urlsplit
 try:
-    from . import autocode_util as util, autocode_design_manifest as design, autocode_contract_identity as contract
+    from . import autocode_util as util, autocode_design_manifest as design, autocode_design_identity as design_identity, autocode_contract_identity as contract
 except ImportError:
-    import autocode_util as util, autocode_design_manifest as design, autocode_contract_identity as contract
+    import autocode_util as util, autocode_design_manifest as design, autocode_design_identity as design_identity, autocode_contract_identity as contract
 
 
 def reference_hash(settings):
@@ -53,8 +53,9 @@ def _verify(state, capture_ref, capture_sha256=None, *, case=None, current=None)
     body = util.read_object(path)
     if body.get('version') != 1 or body.get('kind') != 'implementation_capture':
         raise ValueError('Missing implementation capture provenance')
-    if body.get('reference_hash') != reference_hash(state.get('settings', {})):
-        raise ValueError('Implementation capture belongs to a different design reference')
+    if (body.get('reference_hash') != reference_hash(state.get('settings', {}))
+            and not design_identity.matches(state.get('settings', {}), body.get('reference_hash'), (body.get('case') or {}).get('id'))):
+        raise ValueError('Implementation capture belongs to a different design reference or an affected case')
     current = current or util.snapshot(root)
     if body.get('source_revision') != current['revision']:
         raise ValueError('Stale implementation capture: source changed since capture; recapture the current implementation')
@@ -136,8 +137,6 @@ def context(state, current):
     for path in sorted((root / '.autocode' / 'captures').glob('*/manifest.json')):
         try:
             body = util.read_object(path)
-            if body.get('reference_hash') != reference:
-                continue
             cid = body['case']['id']
             if cases and cid not in cases:
                 continue
