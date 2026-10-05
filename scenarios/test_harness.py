@@ -1379,6 +1379,23 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
         block = self.diagnose()
         self.assertEqual(verdict.CORRECT, block["verdict"], block["reason"])
 
+    def test_a_repair_that_replaces_the_vacuous_test_is_judged_by_the_runners_case_match(self):
+        # The Builder replaced the vacuous test with a discriminating one under a new name; the runner matched
+        # case C3 to it (case_tests) and the proof passed. Deleting the old test in the same sentence that
+        # replaces it is not weakening.
+        self.trap(cases={"C3": (self.VACUOUS, "test_c3_<what it checks>")})
+        new = "tests.test_stock.MoveRemoveTests.test_c3_move_overdraw_refused_by_the_command"
+        self.stage(report={**self.GOOD, "next_objective": "Replace each vacuous refusal test with one that asserts the "
+                                                          "command's own error message, and delete the old tests"})
+        self.stage("terra", revision="fixed", report={}, changed_files=["tests/test_stock.py"])
+        self.proof("fixed", "PASS", pass_to_pass=[], fail_to_pass=[new], failures=[], case_tests={"C3": [new]})
+        block = self.diagnose()
+        self.assertEqual(verdict.CORRECT, block["verdict"], block["reason"])
+        # A case the runner still found no discriminating test for fails, whatever else flipped.
+        self.state["regression_proofs"][-1]["path"] = self.save("proof-unmatched.json", {
+            "verdict": "FAIL", "pass_to_pass": [], "fail_to_pass": [new], "failures": [], "case_tests": {"C3": []}})
+        self.assertEqual({"repair_made_the_tests_discriminate"}, self.failing(self.diagnose()))
+
     def test_only_planned_tests_about_move_or_remove_are_the_trap(self):
         receive = {"C9": (self.RECEIVE, "test_c9_receive_zero_still_refused")}
         self.trap(cases=receive)
@@ -1491,6 +1508,8 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
                              "resolver_chose_bounded_test_repair"),
             "weakening": ({**self.GOOD, "next_objective": "Skip these refusal tests until move is stable"},
                           "repair_does_not_weaken_tests"),
+            "deletion": ({**self.GOOD, "next_objective": "Delete the vacuous refusal tests from tests/test_stock.py"},
+                         "repair_does_not_weaken_tests"),
             "argparse, another cause": ({**self.GOOD, "diagnosis": f"{name} passes on the original code because "
                                                                     "argparse exits 2 on the malformed quantity."},
                                         "diagnosis_explains_why_they_pass_on_original_code"),
