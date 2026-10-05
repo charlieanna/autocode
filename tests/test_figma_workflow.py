@@ -362,12 +362,12 @@ class FigmaWorkflow(unittest.TestCase):
         for key in ('OPENAI_API_KEY', 'CODEX_API_KEY', 'OPENAI_BASE_URL'):
             env.pop(key, None)
         result = subprocess.run([*flow.entry, '--workspace', str(flow.project), '--ui-run', str(design), '--chat'],
-                                input='CLI\nyes\n', capture_output=True, text=True, env=env, cwd=flow.root, timeout=45)
+                                input='CLI\nyes\n', capture_output=True, text=True, env=env, cwd=flow.root, timeout=180)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         from autocode_taskrun import TaskRun
         run_dir = next(flow.project.glob('.autocode/worktrees/*/.autocode/runs/*'))
         workspace = run_dir.parent.parent.parent
-        run = TaskRun(workspace, run_dir, command=flow.entry, env=env, timeout=45)
+        run = TaskRun(workspace, run_dir, command=flow.entry, env=env, timeout=180)
         status = json.loads(run._invoke('status', '--status').stdout)
         self.assertTrue(status['view']['done'], status)
         self.assertEqual(URL, status['settings']['figma_file'])

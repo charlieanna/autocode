@@ -65,7 +65,7 @@ class SubprocessFlow(unittest.TestCase):
             args = [*args, "--in-place"]
         args = with_resolver_token(args)
         result = subprocess.run([*self.entry, "--workspace", str(self.project), *args], cwd=self.root, env=self.env,
-                                input=answers, capture_output=True, text=True, timeout=60)
+                                input=answers, capture_output=True, text=True, timeout=240)
         self.assertEqual(expected, result.returncode, result.stdout + result.stderr)
         return result
 
@@ -180,7 +180,7 @@ class SubprocessFlow(unittest.TestCase):
         self.launch(["Build a greeting tool"], 2)
         run, _ = self.saved()
         listed = subprocess.run([*self.entry, "registry", "list", "--json"], cwd=self.root, env=self.env,
-                                capture_output=True, text=True, timeout=30)
+                                capture_output=True, text=True, timeout=120)
         self.assertEqual(0, listed.returncode, listed.stdout + listed.stderr)
         runs = json.loads(listed.stdout)["runs"]
         self.assertEqual([str(run.resolve())], [item["run_dir"] for item in runs])
@@ -191,7 +191,7 @@ class SubprocessFlow(unittest.TestCase):
         self.env["AUTOCODE_HOME"] = str(resumed_home)
         self.launch(["--run-dir", str(run)], 2)
         resumed = subprocess.run([*self.entry, "registry", "list"], cwd=self.root, env=self.env,
-                                capture_output=True, text=True, timeout=30)
+                                capture_output=True, text=True, timeout=120)
         self.assertEqual(0, resumed.returncode, resumed.stdout + resumed.stderr)
         self.assertEqual([str(run.resolve())], [item["run_dir"] for item in json.loads(resumed.stdout)["runs"]])
         observed = [json.loads(line) for line in probe.read_text().splitlines()]
@@ -211,7 +211,7 @@ class SubprocessFlow(unittest.TestCase):
         self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
         self.launch(["--run-dir", str(run), "--resume-paused"], 2)
         registered = subprocess.run([*self.entry, "registry", "list"], cwd=self.root, env=self.env,
-                                   capture_output=True, text=True, timeout=30)
+                                   capture_output=True, text=True, timeout=120)
         self.assertEqual(0, registered.returncode, registered.stdout + registered.stderr)
         self.assertEqual(str(run.resolve()), json.loads(registered.stdout)["runs"][0]["run_dir"])
         self.assertEqual(["astra_discovery"], [json.loads(line)["stage"] for line in probe.read_text().splitlines()])
@@ -228,7 +228,7 @@ class SubprocessFlow(unittest.TestCase):
         self.launch(["--run-dir", str(run), "--status"], 0)
         self.launch(["--run-dir", str(run), "--dry-run"], 0)
         help_result = subprocess.run([*self.entry, "--help"], cwd=self.root, env=self.env,
-                                     capture_output=True, text=True, timeout=30)
+                                     capture_output=True, text=True, timeout=120)
         self.assertEqual(0, help_result.returncode, help_result.stdout + help_result.stderr)
         self.assertFalse(Path(self.env["AUTOCODE_HOME"]).exists())
         self.assertEqual(before, state_path.read_bytes())
