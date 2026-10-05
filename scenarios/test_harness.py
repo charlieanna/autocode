@@ -1516,6 +1516,47 @@ class ExtraTests(StockCase):
 """
 
 
+def maintenance_children(project, *args, environment=None):
+    """The maintenance or gc processes started while ``git args`` runs in ``project`` (or, with no args,
+    while the ``environment`` context runs), read from GIT_TRACE2_EVENT."""
+    from harness.project import git
+    with tempfile.TemporaryDirectory() as temp:
+        trace = Path(temp) / "trace2.json"
+        with patch.dict(os.environ, {"GIT_TRACE2_EVENT": str(trace)}):
+            if args:
+                git(project, *args)
+            else:
+                environment()
+        children = [event["argv"] for event in map(json.loads, trace.read_text().splitlines())
+                    if event.get("event") == "child_start"]
+    return [argv for argv in children if {"maintenance", "gc"} & set(argv)]
+
+
+class FixtureMaintenanceTests(unittest.TestCase):
+    """A fixture copied or deleted while Git's detached maintenance repacks it fails on CI's Git 2.55
+    (docs/bugs/git-background-repack-cleanup-race.md; master run 37349094592)."""
+
+    def test_the_seed_commit_starts_no_background_maintenance(self):
+        from harness.project import materialize
+        scenario = catalog.load("feature-stock-refusals")
+        with tempfile.TemporaryDirectory() as root:
+            project = Path(root) / "project"
+            self.assertEqual([], maintenance_children(
+                project, environment=lambda: materialize(scenario.seed, project, scenario.reference)))
+            self.assertEqual("", subprocess.run(["git", "-C", str(project), "config", "--local", "maintenance.auto"],
+                                                capture_output=True, text=True).stdout)
+
+    def test_a_commit_in_a_diagnosis_fixture_starts_no_background_maintenance(self):
+        from harness.project import git
+        for fixture in (StockRefusalsDiagnosisTests, RefundWindowDiagnosisTests):
+            with self.subTest(fixture.__name__):
+                fixture.setUpClass()
+                self.addCleanup(fixture.tearDownClass)
+                (fixture.fixture / "extra.txt").write_text("extra\n")
+                git(fixture.fixture, "add", "extra.txt")
+                self.assertEqual([], maintenance_children(fixture.fixture, "commit", "-q", "-m", "extra"))
+
+
 class StockRefusalsDiagnosisTests(unittest.TestCase):
     """feature-stock-refusals' diagnosis() on synthetic run records (issue #59): which Resolver calls count,
     which tests are the trap, and which diagnoses the word lists must not pass or fail. The trap source is a
@@ -1535,11 +1576,11 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from harness.project import git, materialize
+        from harness.project import git, materialize, without_maintenance
         cls.fixture_root = tempfile.mkdtemp(prefix="stock-diagnosis-")
         scenario = catalog.load("feature-stock-refusals")
-        project = materialize(scenario.seed, Path(cls.fixture_root) / "project",
-                              scenario.dir / "broken" / "vacuous-refusal-tests")
+        project = without_maintenance(materialize(scenario.seed, Path(cls.fixture_root) / "project",
+                                                  scenario.dir / "broken" / "vacuous-refusal-tests"))
         (project / "tests" / "test_extra.py").write_text(EXTRA_STOCK_TESTS)
         git(project, "add", "-A")
         git(project, "commit", "-q", "-m", "trap source")
@@ -1983,11 +2024,11 @@ class RefundWindowDiagnosisTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from harness.project import git, materialize
+        from harness.project import git, materialize, without_maintenance
         cls.fixture_root = tempfile.mkdtemp(prefix="refund-diagnosis-")
         scenario = catalog.load("feature-refund-window")
-        project = materialize(scenario.seed, Path(cls.fixture_root) / "project",
-                              scenario.dir / "broken" / "trusts-store-date")
+        project = without_maintenance(materialize(scenario.seed, Path(cls.fixture_root) / "project",
+                                                  scenario.dir / "broken" / "trusts-store-date"))
         cls.commits = {"seed": git(project, "rev-parse", "HEAD").strip()}  # no shop/refunds.py yet
         refunds = project / "shop" / "refunds.py"
         for revision, overlay in (("planted", None), ("refusal-bug", scenario.reference), ("fixed", scenario.reference)):
