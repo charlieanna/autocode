@@ -30,6 +30,7 @@ import autocode_goals as goals  # noqa: E402
 import autocode_goal_lifecycle as lifecycle
 import autocode_program as program  # noqa: E402
 import autocode_run_view as run_view  # noqa: E402
+import autocode_taskrun as taskrun  # noqa: E402
 import goal_fixtures  # noqa: E402
 import task_scenarios  # noqa: E402
 from . import test_subprocess  # noqa: E402
@@ -285,9 +286,17 @@ class ExecutionTests(unittest.TestCase):
         (run / "state.json").write_text(json.dumps({"status": outcome, "workstream": wid, "workspace": str(workspace)}))
         return subprocess.CompletedProcess(command, 0 if outcome == "TASK_COMPLETE" else 2, "", "")
 
+    @contextlib.contextmanager
+    def scripted_invocations(self, side_effect=None):
+        """Script advancing and status calls together; callbacks keep Git real."""
+        callback = self.fake_run if side_effect is None else side_effect
+        with patch.object(program.subprocess, "run", side_effect=callback), \
+                patch.object(taskrun, "run_captured", side_effect=callback):
+            yield
+
     def run_program(self, path, *extra):
         output = io.StringIO()
-        with patch.object(program.subprocess, "run", side_effect=self.fake_run), contextlib.redirect_stdout(output):
+        with self.scripted_invocations(), contextlib.redirect_stdout(output):
             code = program.cli(["run", str(path), "--workspace", str(self.project), "--max-parallel", "2", *extra])
         return code, json.loads(output.getvalue())
 
@@ -460,7 +469,7 @@ class ExecutionTests(unittest.TestCase):
             return result
 
         output = io.StringIO()
-        with patch.object(program.subprocess, "run", side_effect=commits_metadata), contextlib.redirect_stdout(output):
+        with self.scripted_invocations(commits_metadata), contextlib.redirect_stdout(output):
             code = program.cli(["run", str(path), "--workspace", str(self.project)])
         result = json.loads(output.getvalue())
         self.assertEqual((2, "PAUSED_METADATA"), (code, result["status"]))
@@ -537,8 +546,8 @@ class ExecutionTests(unittest.TestCase):
 
     def test_failed_child_blocks_the_program(self):
         path = self.write_manifest(manifest())
-        with patch.object(program.subprocess, "run", side_effect=lambda command, **kw: REAL_RUN(command, **kw)
-                          if command[0] == "git" else subprocess.CompletedProcess(command, 1, "", "boom")):
+        with self.scripted_invocations(lambda command, **kw: REAL_RUN(command, **kw)
+                                       if command[0] == "git" else subprocess.CompletedProcess(command, 1, "", "boom")):
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 code = program.cli(["run", str(path), "--workspace", str(self.project)])
@@ -565,7 +574,7 @@ class ExecutionTests(unittest.TestCase):
             return result
 
         output = io.StringIO()
-        with patch.object(program.subprocess, "run", side_effect=fail_after_checkpoint), contextlib.redirect_stdout(output):
+        with self.scripted_invocations(fail_after_checkpoint), contextlib.redirect_stdout(output):
             code = program.cli(["run", str(path), "--workspace", str(self.project)])
         self.assertEqual("BLOCKED", json.loads(output.getvalue())["status"])
         self.child_outcome["contracts"] = "TASK_COMPLETE"
@@ -614,7 +623,7 @@ class ExecutionTests(unittest.TestCase):
             return self.fake_run(command, **kw)
 
         output = io.StringIO()
-        with patch.object(program.subprocess, "run", side_effect=interrupted), contextlib.redirect_stdout(output):
+        with self.scripted_invocations(interrupted), contextlib.redirect_stdout(output):
             program.cli(["run", str(path), "--workspace", str(self.project)])
         result = json.loads(output.getvalue())
         # Restore the durable checkpoint as if the controller died while its child ran.
@@ -631,7 +640,7 @@ class ExecutionTests(unittest.TestCase):
         _, result = self.run_program(path)
         shutil.rmtree(result["workstreams"][0]["workspace"])  # e.g. removed with `git worktree remove`
         output = io.StringIO()
-        with patch.object(program.subprocess, "run", side_effect=self.fake_run), contextlib.redirect_stdout(output):
+        with self.scripted_invocations(), contextlib.redirect_stdout(output):
             self.assertEqual(0, program.cli(["status", str(path), "--workspace", str(self.project)]))
         self.assertEqual("BLOCKED", json.loads(output.getvalue())["status"])
         code, result = self.run_program(path)
@@ -693,7 +702,7 @@ class ExecutionTests(unittest.TestCase):
 
         output = io.StringIO()
         with patch.object(program, "ThreadPoolExecutor", Pool), \
-                patch.object(program.subprocess, "run", side_effect=run), contextlib.redirect_stdout(output):
+                self.scripted_invocations(run), contextlib.redirect_stdout(output):
             code = program.cli(["run", str(path), "--workspace", str(self.project), "--max-parallel", "2"])
         result = json.loads(output.getvalue())
         rows = {row["id"]: row for row in result["workstreams"]}
