@@ -29,9 +29,12 @@ You → Autopilot: recognize the kind of job (build, bugfix, review, design, dis
             a request for a NEW design → the build pipeline below
    discuss → Analyst only: an answer with evidence tied to repository files (and the note the
             request asks for, written by the runner), repository untouched, run complete
+   (a design review's or a discussion's questions do not hold the run: it completes, and you
+    answer them with --follow-up, the next turn of the same run)
    build → the build pipeline below;
-           implementing an APPROVED design document as written → Architect checks it against the
-             repository first, repository untouched:
+           implementing an APPROVED design document as written, or "Build it." after a design turn
+             (the design that turn wrote) → Architect checks it against the repository first,
+             repository untouched:
              conflicts (a frozen API, a documented invariant) → written to <design>.blockers.json,
                run stops (PAUSED_DESIGN_CONFLICT), nothing built, you decide;
              no conflicts → the design's binding decisions become a constraint and the pipeline starts

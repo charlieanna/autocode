@@ -189,4 +189,7 @@ def render(state: dict) -> str:
              "Report: " + str(Path(state.get("workspace", "")) / found.get("report_path", REPORT_PATH))]
     if found.get("output"):
         lines.append("Architect report: " + str(found["output"]))
+    if found.get("questions"):
+        # The run is finished and waits for nothing: the reply is the next turn (autocode_follow_up).
+        lines.append("Reply with --follow-up TEXT to answer them in this run.")
     return "\n".join(lines)

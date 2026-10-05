@@ -62,6 +62,14 @@ def exercised(outcome: str, summary: str, requires_stages, model_stages) -> tupl
     return outcome, summary
 
 
+def turn_not_reached(outcome: str, summary: str, turn: int) -> tuple[str, str]:
+    """The run stopped before follow-up turn ``turn`` could be said (driver.TurnNotReached). A
+    follow-up continues only a finished run, so that is the product stopping, not the harness:
+    the verdict stands, but it is never better than HONEST_BLOCKER, since a conversation the
+    scenario did not finish cannot pass."""
+    return (HONEST_BLOCKER if outcome == PASS else outcome), f"stopped before turn {turn}: {summary}"
+
+
 def judge(status: str, oracle: OracleResult, expected: str = "complete") -> tuple[str, str]:
     """``expected`` is the scenario's correct ending: complete, stop, or any."""
     if oracle.error:

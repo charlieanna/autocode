@@ -31,8 +31,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from harness import baseline, build_compare, catalog, compare, plan_compare, profiles, routing, stats, verdict  # noqa: E402
-from harness.driver import (REPO, DriveError, Driver, default_autocode, fake_setup, live_setup, metrics,  # noqa: E402
-                            changed_between, split_by_turn, workspace_files)
+from harness.driver import (REPO, DriveError, Driver, TurnNotReached, default_autocode, fake_setup,  # noqa: E402
+                            live_setup, metrics, changed_between, split_by_turn, workspace_files)
 from harness.project import materialize  # noqa: E402
 
 
@@ -154,10 +154,12 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
                     max_steps=args.max_steps or scenario.max_steps,
                     timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes),
                     explicit_answers=scenario.fake_answers if args.fake else ())
-    drive_error = ""
+    drive_error, not_reached = "", None
     started = time.monotonic()
     try:
         driver.drive(scenario.brief, scenario.turns)
+    except TurnNotReached as error:
+        not_reached = error  # AutoCode stopped before a turn could be said: judged, never PASS
     except DriveError as error:
         drive_error = str(error)
     wall_seconds = round(time.monotonic() - started, 1)
@@ -167,11 +169,13 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     record = run_record(driver, state)
     oracle = verdict.evaluate(scenario, project, record)
     outcome, summary = verdict.judge(state.get("status", ""), oracle, scenario.expected)
+    if not_reached:
+        outcome, summary = verdict.turn_not_reached(outcome, summary, not_reached.turn)
     outcome, summary = verdict.exercised(outcome, summary, scenario.requires_stages, record["model_stages"])
     if drive_error:
         outcome, summary = verdict.ERROR, f"harness stopped: {drive_error}; oracle {oracle.summary}"
     result.update(runner_status=state.get("status"), run_dir=str(driver.run_dir or ""),
-                  harness_error=drive_error, oracle_passed=oracle.passed,
+                  harness_error=drive_error, turn_not_reached=str(not_reached or ""), oracle_passed=oracle.passed,
                   cli_calls=len(driver.steps), answers=driver.answers, metrics=metrics(state),
                   resolutions=record["resolutions"],
                   wall_seconds=wall_seconds, cli_seconds=round(sum(step["seconds"] for step in driver.steps), 1),

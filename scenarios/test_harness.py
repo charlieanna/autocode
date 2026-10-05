@@ -25,8 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import run  # noqa: E402
 from harness import api_cost, baseline, build_compare, catalog, compare, oracle, plan_compare, processes, profiles, routing, stats, verdict  # noqa: E402
-from harness.driver import (Driver, DriveError, changed_between, leaves_for_person, metrics, model_routes,  # noqa: E402
-                           split_by_turn, turn_state, workspace_files)
+from harness.driver import (Driver, DriveError, TurnNotReached, changed_between, leaves_for_person, metrics,  # noqa: E402
+                           model_routes, split_by_turn, turn_state, workspace_files)
 
 
 class PhaseCatalogTests(unittest.TestCase):
@@ -744,13 +744,35 @@ class TurnTests(unittest.TestCase):
             original = catalog.CATALOG
             catalog.CATALOG = Path(root)
             self.addCleanup(setattr, catalog, "CATALOG", original)
-            for turn, message in (('after = "later"\nsay = "x"', "after must be"), ('after = "complete"', "exactly")):
+            # --follow-up continues only a finished run, so a turn after a stop or a need could never be said.
+            only_finished = 'after must be "complete": a follow-up continues only a finished run'
+            for turn, message in (('after = "later"\nsay = "x"', "after must be"), ('after = "complete"', "exactly"),
+                                  ('after = "stop"\nsay = "x"', only_finished),
+                                  ('after = "needs:answer"\nsay = "x"', only_finished)):
                 scenario = Path(root) / "bad"
                 scenario.mkdir(exist_ok=True)
                 (scenario / "brief.md").write_text("Do it.")
                 (scenario / "scenario.toml").write_text(f'title = "t"\ncategory = "conversation"\n[[turn]]\n{turn}\n')
                 with self.assertRaisesRegex(ValueError, message):
                     catalog.load("bad")
+
+    def test_a_run_that_stops_before_a_turn_is_judged_but_never_passes(self):
+        with tempfile.TemporaryDirectory() as root:
+            project = Path(root)
+            (project / ".autocode" / "runs" / "r1").mkdir(parents=True)
+            (project / ".autocode" / "runs" / "r1" / "state.json").write_text("{}")
+            driver = Driver(project, project, [], {}, autocode=[], max_steps=5, timeout_seconds=60)
+            stopped = {"done": False, "needs": {"kind": "resume", "reason": "paused"}, "status": "PAUSED_X"}
+            with patch.object(driver, "call") as call, patch.object(driver, "view", return_value=stopped), \
+                    self.assertRaisesRegex(TurnNotReached, "stopped before turn 2") as raised:
+                driver.drive("Do it.", (catalog.Turn("complete", "Go on."),))
+        self.assertEqual(2, raised.exception.turn)
+        self.assertEqual(["start"], [c.args[0] for c in call.call_args_list], "the turn was never said")
+        # An expected stop the oracle agrees with would PASS; a conversation that never finished cannot.
+        self.assertEqual((verdict.HONEST_BLOCKER, "stopped before turn 2: AutoCode stopped"),
+                         verdict.turn_not_reached(verdict.PASS, "AutoCode stopped", 2))
+        for kept in (verdict.HONEST_BLOCKER, verdict.FALSE_COMPLETE, verdict.ERROR):
+            self.assertEqual(kept, verdict.turn_not_reached(kept, "s", 3)[0])
 
     def test_turn_state_names_what_a_turn_may_follow(self):
         self.assertEqual(["complete"], turn_state({"done": True, "needs": {"kind": "none"}}))
@@ -1016,6 +1038,41 @@ class FakeRunTests(unittest.TestCase):
     def test_an_invented_blocker_in_a_review_is_judged_false_complete(self):
         result = self.run_fake("broken/invented-blocker", "review-clean-pr")
         self.assertEqual(verdict.FALSE_COMPLETE, result["verdict"], result["summary"])
+
+    def run_copy(self, scenario, edit, solution="reference"):
+        """A fake run of a temporary copy of a catalog scenario, its scenario.toml rewritten by ``edit``."""
+        with tempfile.TemporaryDirectory(prefix="scenario-copy-") as root:
+            shutil.copytree(catalog.CATALOG / scenario, Path(root) / scenario)
+            toml = Path(root) / scenario / "scenario.toml"
+            toml.write_text(edit(toml.read_text()))
+            with patch.object(catalog, "CATALOG", Path(root)):
+                return self.run_fake(solution, scenario)
+
+    def test_discuss_then_design_then_build_builds_the_design_its_second_turn_wrote(self):
+        result = self.run_fake("reference", "discuss-then-design-then-build")
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertEqual(["discuss", "design", "build"], [turn["workflow"] for turn in result["turns"]])
+        # "Build it." named the design turn 2 wrote: it was checked as approved, and no Requirements ran.
+        self.assertEqual(["recognize_workflow", "check_design"], result["turns"][2]["model_stage_names"][:2])
+        self.assertNotIn("requirements_gather", result["turns"][2]["model_stage_names"])
+
+    def test_a_design_turn_that_also_writes_code_is_judged_false_complete(self):
+        # Nothing in the product limits a new design's Builder to documents; the per-turn check does.
+        widened = lambda text: text.replace('["docs/design/"], ["app/"', '["docs/design/", "app/"], ["app/"')
+        result = self.run_copy("discuss-then-design-then-build", widened)
+        self.assertEqual(verdict.FALSE_COMPLETE, result["verdict"], result["summary"])
+        failing = [check["name"] for check in result["checks"] if not check["ok"]]
+        self.assertEqual(["design_turn_changed_only_its_report"], failing)
+
+    def test_a_turn_after_a_stop_is_never_said_and_the_run_is_an_honest_blocker(self):
+        # implement-design-conflict stops, as expected; a follow-up after its completion is never reached.
+        result = self.run_copy("implement-design-conflict",
+                               lambda text: text + '\n[[turn]]\nafter = "complete"\nsay = "Build it anyway."\n')
+        self.assertEqual((verdict.HONEST_BLOCKER, "PAUSED_DESIGN_CONFLICT"),
+                         (result["verdict"], result["runner_status"]), result["summary"])
+        self.assertTrue(result["summary"].startswith("stopped before turn 2: AutoCode stopped at PAUSED_DESIGN_CONFLICT"))
+        self.assertEqual("", result["harness_error"])  # the product stopped, not the harness
+        self.assertIn("stopped before turn 2", result["turn_not_reached"])
 
 
 class PlanCompareTests(unittest.TestCase):

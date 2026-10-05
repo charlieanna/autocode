@@ -19,7 +19,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `autoresolver` | Read-only diagnosis of reviewer-requested rework. |
 | `autocode ui` / `autocode-ui` | Figma design (and optional `--build` handoff to implementation). |
 | `autocode tasks` / `autocode-tasks` | Run a multi-lane task flow file. |
-| `autocode components` / `autocode-components` | Build the components of an architecture record in parallel and combine them (see [Task lanes](task-lanes.md#building-components-of-an-architecture-in-parallel)). |
+| `autocode components` / `autocode-components` | Build the components of an architecture record in parallel and combine them (see [Task lanes](task-lanes.md#building-components-of-an-architecture-in-parallel)); with `--integrate TARGET --run-local`, also start the combined system with Docker Compose and run its smoke check (see [Running the combined system locally](task-lanes.md#running-the-combined-system-locally)). |
 | `autocode program plan\|derive\|run\|status` / `autocode-program` | Plan a large requirement, derive a workstream manifest from the approved plan, run workstreams in parallel worktrees merged onto an integration branch (see [Programs](program.md)). |
 | `autocode-dashboard` | Local browser dashboard. |
 | `autocode --unit autoplanner\|autocode\|autoreview\|autoresolver` | Select one unit; omitting `--unit` runs all. |
@@ -57,7 +57,7 @@ as if you had passed `--run-dir RUN`.
 | `autocode`, `autocode resume`, `--resume-paused` and its `--retry-*` companions, `--unit` | The only unfinished run. A finished run (`TASK_COMPLETE`, or stopped) is never relaunched this way, and a run that `autocode program` or `autocode tasks` drives is left to that command. |
 | `--status`, `--dry-run`, `autocode status` | The only unfinished run; with none, the latest finished one. |
 | `--show-goal`, `--answer`, `--approve-goal`, `--feedback` and the other user actions | The only unfinished run, preferring one no program or task flow drives. These save the run, so they never pick a finished one. |
-| `--follow-up` | The most recently completed run, preferring one no program or task flow drives. |
+| `--follow-up` | The most recently completed run, preferring one no program or task flow drives. Refused when a run started after it finished has not finished: name the run with `--run-dir`. |
 
 With several unfinished runs the command changes nothing, exits 2 and lists them with the
 `--run-dir` command for each. With no run it says where it looked; with only finished
@@ -74,10 +74,10 @@ a new run instead; `autocode resume` never does.
 | --- | --- |
 | `--chat` | Interactive chat mode (default in a terminal). |
 | `--no-chat` | One command per turn (default for non-interactive). |
-| `--answer 'Q1=…'` | Answer a requirements question (repeatable). Requires the current `--resolver-token` shown by Resolver. |
+| `--answer 'Q1=…'` | Answer a question the run is waiting on (repeatable; the status view's `needs.kind` is `answer`). Requires the current `--resolver-token` shown by Resolver. A finished run waits on none: the questions in its report take `--follow-up` (see [Waiting or finished](#waiting-or-finished)). |
 | `--answer route-sol=MODEL` | At a quota stop (`PAUSED_BUDGET`), name the model the stopped role continues on; the only operational question `--answer` takes. Requires the current `--resolver-token`. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as `--abandon-stage` does and records a `route_assignment`; continue with `--resume-paused`. The resume-flag form is `--abandon-stage ATTEMPT`, then `--resume-paused --sol-model MODEL`. See [Models](models.md#when-a-roles-quota-runs-out). |
 | `--feedback '…'` | Send a correction; returns to discovery and requires fresh approval. With `--adaptive-planning`, feedback on a plan shown for approval goes to the Planner, which revises it. |
-| `--follow-up '…'` | Say the next thing to a finished run ("Fix them." after a review): the run recognizes the new job and continues in the same run directory. The message is saved as feedback that planning can cite for requested contract changes; the new plan still needs approval. |
+| `--follow-up '…'` | Say the next thing to a finished run ("Fix them." after a review): the run recognizes the new job and continues in the same run directory. Finished runs only (`TASK_COMPLETE`); any other run exits 2 unchanged. After a design turn, "Build it." builds that design as approved: it is checked against the code first (`check_design`). The message is saved as feedback that planning can cite for requested contract changes; the new plan still needs approval. |
 | `--delegate Q1` | Accept a question's proposed default. Requires the current `--resolver-token` shown by Resolver. |
 | `--delegate-all --review-token 'r3:<hash>'` | Delegate every pending question marked `delegable` with a proposed default, on the exact displayed revision. Refuses the whole call if any question lacks a default, is not delegable, has a protected or missing category (cost, quota, permission, external side effect, requested outcome), or asks about a rejected assumption. Never approves; invalidates any existing approval. |
 | `--reject-assumption A1 --review-token 'r3:<hash>'` | Reject a structured assumption from the displayed requirements handoff (repeatable). A stale token, or a handoff refreshed since display, is refused. Never approves; invalidates any existing approval. |
@@ -89,7 +89,43 @@ a new run instead; `autocode resume` never does.
 | `--resolver-response provide_information --resolver-request ID --resolver-token '…'` | Answer an Resolver operational request with corrective information. `--resolver-response` requires both `--resolver-request` and `--resolver-token`; the response itself authorizes no retry, approval or budget change. |
 | `--close-finding ID --close-reason '…'` | Close an open reviewer finding as your own decision (repeatable), for example a duplicate of a problem you already settled. Records who closed it and why, and launches no agent. Closing every finding a validation-only stop asked about answers that stop, so the next `--resume-paused` continues. |
 
+#### Waiting or finished
+
+`--follow-up` continues only a finished run (`TASK_COMPLETE`). A waiting, paused or blocked run
+refuses it (exit 2, state unchanged): answer it (`--answer`/`--delegate` with `--resolver-token`),
+approve or correct it (`--approve-goal`/`--feedback`), or resume it. Jobs that report without
+waiting for a reply (design review, discussion, code review) complete with their questions or
+findings in their report; you reply to them with `--follow-up`. After a design turn, "Build it."
+builds that design as approved (checked against the code first, no requirements gathering or
+questions, plan approval still required). A follow-up builds as approved only the design its
+previous turn wrote, or the design a design review approved; any other document is planned from
+requirements as usual.
+
+| The run is | Status view | Say the next thing with | Through `TaskRun` |
+| --- | --- | --- | --- |
+| finished | `done` is true, `needs` is null | `--follow-up TEXT` | `follow_up(text)` |
+| waiting for you | `needs.kind` is `answer`, `approve_plan`, `review` or `planning_budget` | `--answer`/`--delegate` with `--resolver-token`, `--approve-goal`, `--approve-review`, `--feedback` | `answer`, `approve_plan`, `approve_review`, `feedback` |
+| stopped | `needs.kind` is `resume` | `--resume-paused`, once the cause in `stop_reason` is resolved | `resume_paused()` |
+| stopped in a workflow job (Reviewer, Architect, Analyst, Investigator) | `needs.kind` is `retry_job`, or `recover_source` for an attempt with no saved source identity | `--resume-paused --retry-failed-stage --job-retry-token TOKEN` after inspecting `needs.archive`; for `recover_source`, a new run ([Task-run interface](task-run.md#failed-workflow-jobs)) | `retry_job(token)` |
+| waiting on another run | `needs.kind` is `dependency` | `--receive-dependency MANIFEST` once that run delivers | `receive_dependency(manifest)` |
+
+The wrong one is refused with exit 2 and the run left as it was. `--follow-up` on an unfinished
+run lists the alternatives (answer, approve or correct, resume). On a finished run, `--answer`,
+`--delegate` or `--delegate-all` says: "This run is finished and waits for no answer; reply to
+the questions in its report with --follow-up TEXT", and `--feedback`, `--edit-goal` or
+`--reject-assumption` says it would reopen the run without a new turn. Without `--run-dir`,
+`--follow-up` is also refused when a run started after the latest finished one has not finished:
+the message lists that run, and the command that continues the finished one anyway. Through
+`TaskRun` these raise `TaskRunError`.
+
 ### Execution and recovery
+
+`autocode resume` can replace `--resume-paused` alongside a recovery companion such
+as `--grant-recovery N`, `--retry-failed-stage`, or an explicit budget change. This
+also works when AutoResolver has published the operational pause as
+`WAITING_FOR_USER`, provided its saved request is still valid. Bare `resume`
+does not acknowledge that published request; ordinary questions and approvals
+still require their own actions. Recovery eligibility and token checks are unchanged.
 
 | Flag | Meaning |
 | --- | --- |
