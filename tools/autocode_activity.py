@@ -19,7 +19,7 @@ import time
 
 
 IDLE_REASON = "No new provider activity within the inactivity limit"
-CHANGE_IDLE_LIMIT = "change it with --resume-paused --max-idle-seconds N"
+CHANGE_IDLE_LIMIT = "change it with autocode resume --max-idle-seconds N"
 # A workflow job's exact retry is bound to the limits it ran under (autocode_job_failure), so
 # changing the limit on resume would only make that retry stale.
 JOB_IDLE_LIMIT = "an exact job retry runs under the same limit; a different limit needs a new run"

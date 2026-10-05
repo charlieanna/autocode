@@ -23,15 +23,19 @@ from harness.oracle import (Check, hidden_tests, non_stdlib_imports, python_test
 NEW_COMMANDS = {"move", "remove"}
 TEST_FILE = "tests/test_stock.py"
 # The brief's refusal rules, each with the words a delivered refusal test's name uses for it. A refusal test is
-# one whose name says it refuses (REFUSAL_WORDS) or whose body compares a returncode with 2.
+# one whose name says it refuses (REFUSAL_WORDS) or whose body compares a returncode with 2. An entry with a
+# space is a phrase: those words, in that order, in the name ("too many").
 RULES = {
     "quantity not a positive integer": {"quantity", "quantities", "qty", "zero", "negative", "positive",
                                         "nonpositive", "integer", "int", "numeric", "number", "fraction",
                                         "fractional", "decimal", "float"},
     "FROM equal to TO": {"same", "equal", "equals", "identical", "itself"},
+    # A live run (2026-10-05) named these tests test_ac5_move_refuses_shortage_and_malformed_store and
+    # test_ac4_remove_refuses_bad_qty_and_shortage: "shortage" and its kin say this rule too.
     "more than held": {"more", "overdraw", "overdraws", "overdrawn", "overdraft", "insufficient", "exceed",
                        "exceeds", "exceeding", "excess", "held", "hand", "holding", "none", "nothing", "empty",
-                       "unknown", "missing", "absent", "short", "enough", "available"},
+                       "unknown", "missing", "absent", "short", "enough", "available", "shortage", "shortages",
+                       "shortfall", "lack", "lacks", "lacking", "over", "beyond", "too many"},
     "malformed stock.json": {"malformed", "corrupt", "corrupted", "garbage", "bad", "broken", "unparsable",
                              "unparseable", "unreadable", "json"},
 }
@@ -46,8 +50,10 @@ REFUSAL_WORDS = {"refuse", "refuses", "refused", "refusal", "refusals", "reject"
 # bare "argparse" is no cause: it also refuses a bad quantity or a missing argument ("argparse rejects the
 # non-integer quantity given to move" is another cause), so the command's absence must be said.
 CAUSE = (r"invalid choice",
-         r"\b(?:unknown|unrecognized|unsupported|undefined|invalid)\W{1,3}(?:(?:move|remove)\W{1,3})?"
-         r"(?:sub)?(?:commands?|verbs?|parsers?)\b",
+         # "unknown move subcommand", "unknown 'move'/'remove' subcommand", "unknown `move` and `remove` commands"
+         # (live 2026-10-05: "'move'/'remove' are unknown argparse subcommands")
+         r"\b(?:unknown|unrecognized|unsupported|undefined|invalid)\W{1,3}(?:argparse\W{1,3})?"
+         r"(?:(?:move|remove)\W{1,3}(?:(?:and|or)\W{1,3})?){0,2}(?:sub)?(?:commands?|verbs?|parsers?)\b",
          r"\bnot an? (?:valid |known |recognized )?(?:sub)?command\b", r"\bno such (?:sub)?command\b",
          r"\b(?:sub)?commands? (?:does|do|did) ?n[o']t (?:yet )?exist",
          r"\b(?:move|remove)\W{0,2} (?:(?:sub)?commands? )?(?:does|do|did) ?n[o']t (?:yet )?exist",
@@ -85,14 +91,20 @@ GUARD = r"\bguard:|\bas (?:an? )?guard\b|\bguard (?:case|criterion|criteria|tag|
 _PRODUCT = r"(?<![\w/.-])stock\.py\b(?!:)"
 PRODUCT_EDIT = (
     rf"\b(?:change|modify|edit|update|rewrite|alter|patch|fix|repair|refactor)\w*\s+(?:the\s+)?(?:\w+\s+(?:in|of)\s+)?{_PRODUCT}",
-    rf"\bin\s+{_PRODUCT}\W{{0,2}}\s*(?:make|change|add|raise|return|use|validate|have)\b",
+    # "in stock.py make ...", and with a function named (live 2026-10-05): "In stock.py quantity(), refuse ..."
+    rf"\bin\s+{_PRODUCT}(?:\s+\w+\(\))?\W{{0,2}}\s*(?:make|change|add|raise|return|use|validate|have|refuse|reject|"
+    r"treat)\b",
     # (an exit status is judged by the last pattern: "stock.py should exit 2 as it already does" changes nothing)
-    rf"{_PRODUCT}\s+(?:must|should|needs? to|has to|ought to)\s+(?:be\s+)?(?:changed|modified|fixed|updated|raise|print|refuse|validate)\b",
+    rf"{_PRODUCT}\s+(?:\w+\(\)\s+)?(?:must|should|needs? to|has to|ought to)\s+(?:be\s+)?(?:changed|modified|fixed|"
+    r"updated|raise|print|refuse|reject|validate|treat)\b",
     r"\b(?:change|modify|edit|update|rewrite|alter|patch|fix|repair|refactor|reimplement)\w*\s+(?:the\s+)?\W?(?:move|remove)\W?"
     r"(?:\s*(?:/|and|or)\s*\W?(?:move|remove)\W?)?\s+(?:sub)?(?:command|handler|implementation|parser|code|function|logic)s?\b"
     r"(?!\W{0,2}tests?\b)",
     _EXIT.replace("|status)", ")") + r"(?:[13-9]|\d{2,})\b")
 PRODUCT_PATHS = ("stock.py", "", ".", "*", "**")  # the product file, or the whole project
+# A guard on the product is no request to change it (live 2026-10-05: "Change stock.py or README.md only to fix a
+# real defect that the stronger tests expose", "... only if a strengthened test exposes a genuine defect").
+_CONDITIONAL = re.compile(r"\bonly\s+(?:if|when|where|to\s+fix|in\s+case)\b|\bunless\b", re.I)
 _CLAUSES = re.compile(r"(?<=[.;!?])\s+|\n|,\s*(?=(?:so|but|then|instead|therefore|hence)\b)", re.I)
 _NEGATION = re.compile(r"\b(?:not|never|no|nor|without|avoid|instead of|rather than)\b|n't\b", re.I)
 # The runner's failure for a planned case with no test that failed on the original code (autocode_regression).
@@ -157,14 +169,15 @@ def new_command_tests(project, seed):
 def refusal_rules(function):
     """The RULES a refusal test is about, by its name's words; a body that writes a store that is not JSON is
     about the malformed store, and one that moves to the location it moves from about FROM equal to TO."""
-    words = set(_words(function.name))
+    sequence = _words(function.name)
+    words = set(sequence)
     body = [node for node in ast.walk(function) if isinstance(node, ast.Compare | ast.Call)]
     refusal = bool(words & REFUSAL_WORDS) or any(
         any(isinstance(n, ast.Attribute) and n.attr == "returncode" for n in ast.walk(node))
         and any(isinstance(n, ast.Constant) and n.value == 2 for n in ast.walk(node)) for node in body)
     if not refusal:
         return set()
-    rules = {rule for rule, vocabulary in RULES.items() if words & vocabulary}
+    rules = {rule for rule, vocabulary in RULES.items() if any(_says(sequence, entry) for entry in vocabulary)}
     for call in (node for node in body if isinstance(node, ast.Call)):
         strings = [arg.value for arg in call.args if isinstance(arg, ast.Constant) and isinstance(arg.value, str)]
         name = call.func.attr if isinstance(call.func, ast.Attribute) else getattr(call.func, "id", "")
@@ -173,6 +186,12 @@ def refusal_rules(function):
         if "move" in strings and len(strings) >= 2 and strings[-1] == strings[-2]:
             rules.add("FROM equal to TO")
     return rules
+
+
+def _says(words, entry):
+    """Does a name's word list say a RULES entry: the word, or a phrase's words in a row."""
+    want = entry.split()
+    return any(words[i:i + len(want)] == want for i in range(len(words) - len(want) + 1))
 
 
 def _is_json(text):
@@ -190,28 +209,32 @@ def diagnosis(project, run):
     saved = resolver_calls.load_state(project)
     if saved is None:
         return {"verdict": "NOT_EXERCISED", "reason": "the run saved no state", "checks": []}
-    return score(saved[0], saved[1], project=project)
+    return score(saved[0], saved[1], project=project, scripted=resolver_calls.scripted(run))
 
 
-def score(state, run_dir, *, project=None, cause=CAUSE, test_file=TEST_FILE, commands=NEW_COMMANDS):
+def score(state, run_dir, *, project=None, cause=CAUSE, test_file=TEST_FILE, commands=NEW_COMMANDS, scripted=()):
     """Score AutoResolver on one saved run. ``cause`` (regular expressions), ``test_file`` and ``commands``
     are this scenario's; passing another scenario's lets the same rules read its runs. With ``commands``
     None every planned test the failed proof lists under pass_to_pass is a trap test.
 
     Which calls count, and which is scored, is harness.resolver_calls's: the first accepted call at a trap
     revision (a report accepted after a report-only repair is scored on the repaired report), else the first
-    one saved. A call the runner never applied, or one with no saved report, cannot be scored.
+    one saved. A call the runner never applied, or one with no saved report, cannot be scored. In a hybrid
+    run a call the scripted side answered (``scripted``: the report paths it wrote) never counts.
     """
     run_dir = Path(run_dir)
     traps = trap_proofs(state, run_dir, project, commands)
     proofs = sorted((row for row in state.get("regression_proofs") or [] if isinstance(row, dict)),
                     key=lambda row: row.get("proved_at") or "")
     rows = [row for row in state.get("stages") or [] if isinstance(row, dict)]
-    found = resolver_calls.calls(state, run_dir)
+    found = resolver_calls.calls(state, run_dir, scripted)
     block = {"trap_tests": {revision[:12]: trap["tests"] for revision, trap in traps.items()},
              "trap_tests_read_from": {revision[:12]: trap["read_from"] for revision, trap in traps.items()},
              # Calls at other revisions (an unrelated REWORK): kept for a human read, never scored here.
              "other_resolver_calls": [_brief(call) for call in found if call["revision"] not in traps]}
+    if scripted:
+        block["scripted_resolver_calls"] = sum(1 for row in rows if resolver_calls.launched(row)
+                                               and resolver_calls.is_scripted(row, scripted))
     if not traps:
         return {"verdict": "NOT_EXERCISED", "checks": [], **block,
                 "reason": "no regression proof failed on a planned move/remove test that also passes on the "
@@ -220,7 +243,9 @@ def score(state, run_dir, *, project=None, cause=CAUSE, test_file=TEST_FILE, com
     if not at_trap:
         return {"verdict": "NOT_EXERCISED", "checks": [], **block,
                 "reason": "a regression proof failed on move/remove tests that pass on the original code, but "
-                          "AutoResolver never ran at that revision"}
+                          "AutoResolver never ran at that revision"
+                          + (" (scripted calls of a hybrid run do not count)" if block.get("scripted_resolver_calls")
+                             else "")}
     scorable = [call for call in at_trap if call["report"] is not None and call["applied"] and not call["pending"]]
     block["unscorable_calls"] = [{"output": call["output"], "why": call["pending"] or "no report was saved"}
                                  for call in at_trap if call not in scorable]
@@ -258,7 +283,8 @@ def score_call(state, rows, call, trap, proofs, run_dir, *, cause, test_file):
                     if _names_any(hit, trap["cases"]) or not _names_any(hit, trap["other_cases"])])
     # The report's affected_paths scope the next Builder task (autocode_goal_lifecycle assigns them).
     paths = [path for path in report.get("affected_paths") or [] if isinstance(path, str)]
-    product = _unnegated(task_text, PRODUCT_EDIT) + [f"affected_paths: {path}" for path in paths
+    product = [hit for hit in _unnegated(task_text, PRODUCT_EDIT, clauses=True) if not _CONDITIONAL.search(hit)]
+    product += [f"affected_paths: {path}" for path in paths
                                                       if path.strip().removeprefix("./") in PRODUCT_PATHS]
     names_file = test_file in task_text or test_file in paths
     bounded = report.get("status") == "REWORK" and task.get("kind") == "implement" and names_file

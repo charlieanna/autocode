@@ -69,6 +69,20 @@ class RefusesQuantityThatIsNotPositive(StockCase):
             with self.subTest(args=args):
                 self.assert_refused(*args, data=HOLDING)
 
+    def test_non_ascii_digits_are_refused(self):
+        # str.isdigit() accepts both: int() raises on a superscript two (a traceback, exit 1) and reads an
+        # Arabic-Indic three as 3, which 5 held would let through. README.md: a positive integer in ASCII digits.
+        for qty in ("\u00b2", "\u0663"):
+            for args in (("move", "bolt", qty, "A1", "B2"), ("remove", "bolt", qty, "A1")):
+                with self.subTest(args=args):
+                    self.assert_refused(*args, data={"A1": {"bolt": 5}})
+
+    def test_more_digits_than_int_reads_are_refused(self):
+        # int() raises past sys.get_int_max_str_digits() (4300 by default): a refusal, never a traceback.
+        for args in (("move", "bolt", "9" * 5000, "A1", "B2"), ("remove", "bolt", "9" * 5000, "A1")):
+            with self.subTest(args=args[:2]):
+                self.assert_refused(*args, data=HOLDING)
+
 
 class RefusesMoveToSameLocation(StockCase):
     def test_refused(self):
@@ -86,7 +100,8 @@ class RefusesTakingMoreThanHeld(StockCase):
 
 class RefusesMalformedStore(StockCase):
     def test_refused_by_both_commands(self):
-        for data in ("{not json", "[1, 2]", '{"A1": {"bolt": 0}}'):
+        # A JSON true is no quantity, though bool is an int subclass in Python.
+        for data in ("{not json", "[1, 2]", '{"A1": {"bolt": 0}}', '{"A1": {"bolt": true}}'):
             for args in (("move", "bolt", "1", "A1", "B2"), ("remove", "bolt", "1", "A1")):
                 with self.subTest(data=data, args=args):
                     self.assert_refused(*args, data=data)

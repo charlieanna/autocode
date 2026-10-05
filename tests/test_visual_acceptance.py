@@ -659,7 +659,7 @@ class VisualAcceptanceTests(unittest.TestCase):
         script = r'''
             import { readFileSync } from 'node:fs';
             import { pathToFileURL } from 'node:url';
-            const [plugin, scenario, files] = process.argv.slice(1);
+            const [plugin, scenario, files, reportJSON] = process.argv.slice(1);
             const expected = JSON.parse(files);
             let called = 0;
             const original = async (url, init) => {
@@ -668,25 +668,25 @@ class VisualAcceptanceTests(unittest.TestCase):
               if (scenario === 'fetch_failure') throw Error('SECRET_FAILURE');
               const body = JSON.parse(init.body);
               if (JSON.stringify(body.messages[0].content.map(x => x.image_url.url)) !== JSON.stringify(expected)) throw Error('Payload changed');
-              const row = {id:'provider-response', object:'chat.completion.chunk', choices:[{index:0, delta:{content:'SECRET_REPLY'}, finish_reason:scenario === 'length' ? 'length' : 'stop'}]};
+              const row = {id:'provider-response', object:'chat.completion.chunk', choices:[{index:0, delta:{content:reportJSON}, finish_reason:scenario === 'length' ? 'length' : 'stop'}]};
               let text = 'data: ' + JSON.stringify(row) + '\n\ndata: [DONE]\n\n';
               const headers = {'content-type':'text/event-stream','x-request-id':'http-id'};
               if (scenario.startsWith('json')) {
-                const body = {id:'provider-response', object:'response', status:'completed', output:[{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:'SECRET_REPLY'}]}],error:null,incomplete_details:null};
+                const body = {id:'provider-response', object:'response', status:'completed', output:[{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:reportJSON}]}],error:null,incomplete_details:null};
                 if (scenario === 'json_incomplete') body.status = 'incomplete';
                 if (scenario === 'json_no_id') delete body.id;
                 if (scenario === 'json_no_object') delete body.object;
                 if (scenario === 'json_error') body.error = {message:'SECRET_ERROR'};
                 if (scenario === 'json_chat' || scenario === 'json_length') {
                   body.object = 'chat.completion';
-                  body.choices = [{index:0,finish_reason:scenario === 'json_length'?'length':'stop',message:{role:'assistant',content:'SECRET_REPLY'}}];
+                  body.choices = [{index:0,finish_reason:scenario === 'json_length'?'length':'stop',message:{role:'assistant',content:reportJSON}}];
                 }
                 text = JSON.stringify(body);
                 if (scenario === 'json_truncated') text = text.slice(0,-1);
                 headers['content-type'] = 'application/json';
               }
               if (scenario === 'sse_responses') {
-                text = 'event: response.completed\ndata: ' + JSON.stringify({type:'response.completed',response:{id:'provider-response',object:'response',status:'completed',output:[{type:'message',content:[{type:'output_text',text:'SECRET_REPLY'}]}]}}) + '\n\n';
+                text = 'event: response.completed\ndata: ' + JSON.stringify({type:'response.completed',response:{id:'provider-response',object:'response',status:'completed',output:[{type:'message',role:'assistant',content:[{type:'output_text',text:reportJSON}]}]}}) + '\n\n';
               }
               if (scenario.endsWith('missing_type')) delete headers['content-type'];
               if (scenario.endsWith('wrong_type')) headers['content-type'] = 'text/plain';
@@ -710,7 +710,7 @@ class VisualAcceptanceTests(unittest.TestCase):
               try {
                 const response = await fetch('http://127.0.0.1/fake',{method:'POST',headers:output.headers,body:JSON.stringify({model:'gpt-6-sol',messages:[{role:'user',content:expected.map(url=>({type:'image_url',image_url:{url}}))}]})});
                 const text = await response.text();
-                if (scenario !== 'body_missing' && !text.includes('SECRET_REPLY')) throw Error('Response changed');
+                if (scenario !== 'body_missing' && !text.includes('verdict')) throw Error('Response changed');
               } catch (error) { if (scenario !== 'fetch_failure') throw error; }
             }
             for (const [type,id] of [['step-start','start'],['step-finish','finish']]) {
@@ -738,7 +738,7 @@ class VisualAcceptanceTests(unittest.TestCase):
                     'path': str(path), 'attempt_id': 'attempt-1', 'binding_sha256': util.digest(bound),
                     'max_requests': 1, 'reviewer': {**bound['reviewer'], 'agent': 'validator'}})}
                 result = subprocess.run(['node', '--input-type=module', '-e', script, str(plugin), scenario,
-                                         json.dumps(payloads)], env=env, capture_output=True, text=True, timeout=20)
+                                         json.dumps(payloads), json.dumps(self.report)], env=env, capture_output=True, text=True, timeout=20)
                 self.assertEqual(0, result.returncode, result.stderr)
                 raw = path.read_bytes()
                 self.assertNotIn(b'SECRET', raw)
@@ -857,6 +857,199 @@ class VisualAcceptanceTests(unittest.TestCase):
                     delivery.verify(self.record, events=Path(self.record['events']).read_bytes(), report=b'{}', images=[],
                                     binding=bound, audit_path=path, attempt_id='attempt-1', plugin_sha256=util.file_hash(plugin))
                 self.assertNotIn('visual_acceptance_receipts', self.state)
+
+
+    @unittest.skipUnless(shutil.which('node'), 'Existing Node runtime needed')
+    def test_production_plugin_preserves_multirequest_tool_cycle_and_final_attribution(self):
+        plugin = Path(__file__).resolve().parents[1] / 'tools' / 'autocode_image_delivery.mjs'
+        script = r'''
+            import { pathToFileURL } from 'node:url';
+            const [plugin, scenario, format, payloadsJSON, reportJSON, endpoint] = process.argv.slice(1);
+            const nativeFetch=globalThis.fetch;
+            const payloads = JSON.parse(payloadsJSON);
+            let called = 0, turnNumber = 0, attemptInTurn = 0;
+            const networkRetries = ['network_retry','network_retry_requalified','cap_exhausted_requalified'];
+            const httpRetries = ['http_retry','changed_retry','http_retry_requalified','changed_requalified_retry','early_requalified_retry','foreign_requalified_retry'];
+            const requalifiedRetries = ['network_retry_requalified','http_retry_requalified','changed_requalified_retry','foreign_requalified_retry','cap_exhausted_requalified'];
+            const retryScenarios = [...networkRetries,...httpRetries];
+            const events = [];
+            const tool = {id:'call-check',type:'function',function:{name:'bash',arguments:'{"command":"fixture-check"}'}};
+            const response = (id, toolTurn) => {
+              const finalReport=scenario==='final_text_substitution'&&!toolTurn?JSON.stringify({...JSON.parse(reportJSON),verdict:'FAIL'}):reportJSON;
+              let body;
+              if (format.includes('chat')) {
+                const message = toolTurn ? {role:'assistant',content:null,tool_calls:[tool]} : {role:'assistant',content:finalReport};
+                if (format === 'json_chat') body = JSON.stringify({id,object:'chat.completion',choices:[{index:0,message,finish_reason:toolTurn?'tool_calls':'stop'}]});
+                else {
+                  const delta = toolTurn ? {role:'assistant',tool_calls:[{index:0,...tool,function:{name:'bash',arguments:'{"command":'}}]} : {role:'assistant',content:finalReport};
+                  const continuation=toolTurn?'data: '+JSON.stringify({id,object:'chat.completion.chunk',choices:[{index:0,delta:{tool_calls:[{index:0,function:{arguments:'"fixture-check"}'}}]},finish_reason:null}]})+'\n\n':'';
+                  body = 'data: '+JSON.stringify({id,object:'chat.completion.chunk',choices:[{index:0,delta,finish_reason:null}]})+'\n\n'+continuation
+                    +'data: '+JSON.stringify({id,object:'chat.completion.chunk',choices:[{index:0,delta:{},finish_reason:toolTurn?'tool_calls':'stop'}]})+'\n\ndata: [DONE]\n\n';
+                }
+              } else {
+                const output = toolTurn ? [{type:'function_call',id:'fc-check',call_id:'call-check',name:'bash',arguments:tool.function.arguments,status:'completed'}]
+                  : [{type:'message',role:'assistant',status:'completed',content:[{type:'output_text',text:finalReport}]}];
+                const row = {id,object:'response',status:'completed',output,error:null,incomplete_details:null};
+                body = format === 'json_responses' ? JSON.stringify(row) : 'event: response.completed\ndata: '+JSON.stringify({type:'response.completed',response:row})+'\n\n';
+              }
+              return body;
+            };
+            globalThis.fetch = async (url, init) => {
+              called++; attemptInTurn++;
+              if (url !== endpoint || new Headers(init.headers).get('authorization') !== 'SECRET_SENTINEL') throw Error('transport changed');
+              if(networkRetries.includes(scenario)&&turnNumber===1&&attemptInTurn===1) throw Error('SECRET_NETWORK_FAILURE');
+              if(httpRetries.includes(scenario)&&turnNumber===1&&attemptInTurn===1) return new Response('unavailable',{status:503});
+              if(scenario==='real_http') return nativeFetch(url,init);
+              const toolTurn = turnNumber < 3 || scenario === 'final_tool_call';
+              let text = response('response-'+turnNumber,toolTurn);
+              if (scenario === 'malformed_intermediate' && turnNumber === 1) text = '{"invalid"';
+              return new Response(text,{status:200,headers:{'content-type':format.startsWith('json')?'application/json':'text/event-stream'}});
+            };
+            const {default:load} = await import(pathToFileURL(plugin));
+            const hooks = await load();
+            const emit = async (type,id,messageID,reason) => {
+              const part = {type,id,sessionID:'ses_reviewer',messageID,...(reason?{reason}:{})};
+              await hooks.event({event:{type:'message.part.updated',properties:{part}}});
+              events.push({type:type.replace('-','_'),sessionID:'ses_reviewer',part});
+            };
+            for (let turn=1;turn<=3;turn++) {
+              turnNumber=turn; attemptInTurn=0;
+              const messageID=turn===3?'msg_reviewer':'msg_tool_'+turn;
+              const info={role:'assistant',sessionID:'ses_reviewer',id:messageID,parentID:'user-1',providerID:'openai',modelID:'gpt-6-sol',agent:'validator'};
+              await hooks.event({event:{type:'message.updated',properties:{info}}});
+              const out={headers:{authorization:'SECRET_SENTINEL'}};
+              await hooks['chat.headers']({sessionID:scenario==='foreign_session'&&turn===3?'foreign':'ses_reviewer',agent:'validator',message:{id:'user-1'},model:{providerID:'openai',id:scenario==='foreign_model'&&turn===3?'other':'gpt-6-sol',capabilities:{input:{image:true}}}},out);
+              let images=payloads;
+              if (scenario==='missing_final_images'&&turn===3) images=payloads.slice(1);
+              const body={model:scenario==='wrong_wire_model'&&turn===3?'other':'gpt-6-sol',messages:[{role:'user',content:images.map(url=>({type:'image_url',image_url:{url}}))}]};
+              if (turn>1) body.messages.push({role:'assistant',content:null,tool_calls:[tool]},{role:'tool',tool_call_id:'call-check',content:'fixture check passed'});
+              const send=async()=>{const reply=await fetch(endpoint,{method:'POST',headers:out.headers,body:JSON.stringify(body)});await reply.text();};
+              const renewedInput = {sessionID:'ses_reviewer',agent:'validator',message:{id:'user-1'},model:{providerID:'openai',id:'gpt-6-sol',capabilities:{input:{image:true}}}};
+              const premature = {headers:{authorization:'SECRET_SENTINEL'}};
+              if(scenario==='early_requalified_retry'&&turn===1) await hooks['chat.headers'](renewedInput,premature);
+              if(retryScenarios.includes(scenario)&&turn===1) {
+                try { await send(); } catch(error) { if(!networkRetries.includes(scenario)) throw error; }
+                for(let n=0;n<30;n++) await Promise.resolve();
+                if(requalifiedRetries.includes(scenario)) await hooks['chat.headers']({...renewedInput,...(scenario==='foreign_requalified_retry'?{sessionID:'foreign'}:{})},out);
+                if(scenario==='early_requalified_retry') out.headers=premature.headers;
+                if(['changed_retry','changed_requalified_retry'].includes(scenario)) body.messages.push({role:'user',content:'changed input'});
+              }
+              await send();
+              for(let n=0;n<30;n++) await Promise.resolve();
+              if (scenario==='duplicate_fetch'&&turn===3) {
+                const duplicate=await fetch(endpoint,{method:'POST',headers:out.headers,body:JSON.stringify(body)});
+                await duplicate.text();
+                for(let n=0;n<30;n++) await Promise.resolve();
+              }
+              const reason=turn===3||scenario==='wrong_native_finish'&&turn===1?'stop':'tool-calls';
+              await emit('step-start',turn===3?'start':'start-'+turn,messageID);
+              if(turn===3) events.push({type:'text',sessionID:'ses_reviewer',part:{id:'text',sessionID:'ses_reviewer',messageID,text:reportJSON}});
+              await emit('step-finish',turn===3?'finish':'finish-'+turn,messageID,reason);
+              await hooks.event({event:{type:'message.updated',properties:{info:{...info,finish:reason}}}});
+            }
+            for(let n=0;n<30;n++) await Promise.resolve();
+            if(called!== (scenario==='duplicate_fetch'||retryScenarios.includes(scenario)?4:3)) throw Error('unexpected fetch count');
+            for(const event of events) process.stdout.write(JSON.stringify(event)+'\n');
+        '''
+        observed = []
+        report_text = json.dumps(self.report)
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_POST(self):
+                raw = self.rfile.read(int(self.headers['Content-Length']))
+                observed.append(raw)
+                turn = len(observed)
+                tool_turn = turn < 3
+                wire_format = self.path.rsplit('/', 1)[-1]
+                call = {'id': 'call-check', 'type': 'function',
+                        'function': {'name': 'bash', 'arguments': '{"command":"fixture-check"}'}}
+                identity = 'response-' + str(turn)
+                if 'chat' in wire_format:
+                    reason = 'tool_calls' if tool_turn else 'stop'
+                    message = ({'role': 'assistant', 'content': None, 'tool_calls': [call]} if tool_turn
+                               else {'role': 'assistant', 'content': report_text})
+                    if wire_format == 'json_chat':
+                        text = json.dumps({'id': identity, 'object': 'chat.completion',
+                            'choices': [{'index': 0, 'message': message, 'finish_reason': reason}]})
+                    else:
+                        delta = ({'role': 'assistant', 'tool_calls': [{'index': 0, **call}]} if tool_turn
+                                 else {'role': 'assistant', 'content': report_text})
+                        text = ''.join('data: ' + json.dumps({'id': identity, 'object': 'chat.completion.chunk',
+                            'choices': [{'index': 0, 'delta': content, 'finish_reason': finish}]}) + '\n\n'
+                            for content, finish in ((delta, None), ({}, reason))) + 'data: [DONE]\n\n'
+                else:
+                    output = ([{'type': 'function_call', 'id': 'fc-check', 'call_id': 'call-check',
+                        'name': 'bash', 'arguments': call['function']['arguments'], 'status': 'completed'}] if tool_turn
+                        else [{'type': 'message', 'role': 'assistant', 'status': 'completed',
+                            'content': [{'type': 'output_text', 'text': report_text}]}])
+                    response = {'id': identity, 'object': 'response', 'status': 'completed', 'output': output,
+                                'error': None, 'incomplete_details': None}
+                    text = (json.dumps(response) if wire_format == 'json_responses' else
+                        'event: response.completed\ndata: ' + json.dumps({'type': 'response.completed', 'response': response}) + '\n\n')
+                payload = text.encode()
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json' if wire_format.startswith('json') else 'text/event-stream')
+                self.send_header('Content-Length', str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+        server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        self.addCleanup(worker.join)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        bound = visual.binding(self.current, self.state['settings']['design_manifest'])
+        paths = []
+        for case, result in zip(bound['cases'], self.results):
+            paths.extend([self.root / case['artifacts']['screenshot']['path'], Path(result['candidate_ref'])])
+        payloads = ['data:image/png;base64,' + base64.b64encode(path.read_bytes()).decode() for path in paths]
+        for wire_format in ('json_chat', 'sse_chat', 'json_responses', 'sse_responses'):
+            for scenario in ('happy', 'missing_final_images', 'foreign_session', 'foreign_model', 'wrong_wire_model',
+                             'duplicate_fetch', 'malformed_intermediate', 'final_tool_call', 'cap_exhausted',
+                             'network_retry', 'http_retry', 'changed_retry', 'network_retry_requalified', 'http_retry_requalified',
+                             'changed_requalified_retry', 'early_requalified_retry', 'foreign_requalified_retry',
+                             'cap_exhausted_requalified', 'wrong_native_finish', 'final_text_substitution', 'real_http'):
+                with self.subTest(wire_format=wire_format, scenario=scenario):
+                    self.state.pop('visual_acceptance_receipts', None)
+                    observed.clear()
+                    endpoint = (f'http://127.0.0.1:{server.server_port}/fixture/' + wire_format if scenario == 'real_http'
+                                else 'http://127.0.0.1/fixture')
+                    path = self.run / (wire_format + '-' + scenario + '.jsonl')
+                    env = {'PATH': os.environ.get('PATH', ''), 'AUTOCODE_IMAGE_AUDIT': json.dumps({
+                        'path': str(path), 'attempt_id': 'attempt-1', 'binding_sha256': util.digest(bound),
+                        'max_requests': 2 if scenario == 'cap_exhausted' else 3 if scenario == 'cap_exhausted_requalified' else 8,
+                        'reviewer': {**bound['reviewer'], 'agent': 'validator'}})}
+                    result = subprocess.run(['node', '--input-type=module', '-e', script, str(plugin), scenario,
+                        wire_format, json.dumps(payloads), json.dumps(self.report), endpoint], env=env, capture_output=True,
+                        text=True, timeout=15)
+                    self.assertEqual(77 if scenario in ('foreign_session', 'foreign_model', 'cap_exhausted', 'foreign_requalified_retry', 'cap_exhausted_requalified') else 0,
+                                     result.returncode, result.stderr)
+                    raw = path.read_bytes()
+                    self.assertNotIn(b'SECRET', raw)
+                    self.assertNotIn(b'base64,', raw)
+                    rows = [json.loads(line) for line in raw.splitlines()]
+                    if result.returncode == 0:
+                        Path(self.record['events']).write_text(result.stdout)
+                    def verifier(*args, **kwargs):
+                        return delivery.verify(*args, **kwargs, audit_path=path, attempt_id='attempt-1',
+                                               plugin_sha256=util.file_hash(plugin))
+                    if scenario in ('happy', 'network_retry', 'http_retry', 'network_retry_requalified', 'http_retry_requalified', 'real_http'):
+                        receipt = self.accept(verify_delivery=verifier)
+                        self.assertEqual('response-3', receipt['delivery']['response_id'])
+                        self.assertEqual(3 if scenario in ('happy', 'real_http') else 4, receipt['delivery']['admitted_requests'])
+                        self.assertEqual(['tool_calls', 'tool_calls', 'stop'],
+                            [row['finish_reason'] for row in rows if row['type'] == 'request_complete'])
+                        if scenario == 'real_http':
+                            self.assertEqual([hashlib.sha256(raw).hexdigest() for raw in observed],
+                                [row['body_sha256'] for row in rows if row['type'] == 'request'])
+                            self.assertEqual(3, len(observed))
+                        self.state.pop('visual_acceptance_receipts')
+                    else:
+                        with self.assertRaises(ValueError):
+                            self.accept(verify_delivery=verifier)
+                        self.assertNotIn('visual_acceptance_receipts', self.state)
 
     @unittest.skipUnless(shutil.which('node'), 'Existing Node runtime needed')
     def test_invalid_admission_configuration_exits_before_any_fetch(self):

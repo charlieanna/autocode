@@ -44,6 +44,10 @@ class Project:
         self.root.mkdir()
         references.write(files, self.root)
         git(self.root, "init", "-q")
+        # On CI's Git 2.55 a commit starts automatic maintenance in the background; its lock files
+        # race the temporary directory's cleanup ("Directory not empty: '.git'").
+        git(self.root, "config", "maintenance.auto", "false")
+        git(self.root, "config", "gc.auto", "0")
         git(self.root, "add", "-A")
         git(self.root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "seed")
         self.base = git(self.root, "rev-parse", "HEAD")

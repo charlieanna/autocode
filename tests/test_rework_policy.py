@@ -10,6 +10,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
+import uuid
 
 import autocode_builder_policy as retry
 import autocode as runtime
@@ -137,10 +138,9 @@ class ReworkPolicyTests(unittest.TestCase):
         case.queue.assert_called_once()
         case.runtime.goals.record_decision.assert_not_called()
 
-    def capture_case(self, *, shared, contained=False):
+    def capture_case(self, *, shared, directory=None):
         case = self.case(seal=False)
-        directory = ((self.workspace / '.autocode' / 'tool-containment-397f7959' / 'scratch') if contained
-                     else self.workspace / '.autocode' / 'evidence' if shared else case.run / 'evidence')
+        directory = directory or (self.workspace / '.autocode' / 'evidence' if shared else case.run / 'evidence')
         path = directory / (str(self.count) + '.json')
         command = [sys.executable, str(Path(runtime.__file__)), 'capture', '--output', str(path), '--no-compress',
                    '--', sys.executable, '-c', "import sys; print('invalid input reproduced'); sys.exit(1)"]
@@ -335,17 +335,6 @@ class ReworkPolicyTests(unittest.TestCase):
                 case.queue.assert_not_called()
                 case.runtime.lifecycle.assign_task.assert_not_called()
 
-    def test_check_receipts_under_tool_containment_scratch_are_owned_evidence(self):
-        # The capture command writes Validator check receipts into the
-        # tool-containment scratch root (.autocode/tool-containment-*/scratch/),
-        # outside any single run; the check-evidence path owns them like shared
-        # evidence instead of refusing them as another run's property.
-        case, _, _ = self.capture_case(shared=True, contained=True)
-        try:
-            self.route(case)
-        except util.Paused as error:
-            self.fail(f'containment check receipt refused: {error}')
-
     def test_shared_layout_does_not_relax_stage_or_foreign_run_evidence_ownership(self):
         case, path, _ = self.capture_case(shared=True)
         case.record['events'] = str(path)
@@ -358,6 +347,58 @@ class ReworkPolicyTests(unittest.TestCase):
         case.state['validation']['evidence_hashes'][str(foreign)] = util.file_hash(foreign)
         with self.assertRaisesRegex(util.Paused, 'another run'):
             self.route(case)
+
+    def scratch(self):
+        """Where tool containment tells a contained stage to capture (#419)."""
+        return self.workspace / '.autocode' / ('tool-containment-' + uuid.uuid4().hex) / 'scratch'
+
+    def contained_case(self, scratch):
+        case, path, raw = self.capture_case(shared=False, directory=scratch)
+        case.accepted['tool_containment'] = {'version': 1, 'workspace': str(self.workspace), 'scratch': str(scratch)}
+        return case, path, raw
+
+    def test_contained_validator_capture_in_its_own_scratch_reaches_the_resolver(self):
+        case, path, raw = self.contained_case(self.scratch())
+        seals = copy.deepcopy((case.record['rework_evidence'], case.accepted['rework_evidence']))
+        self.assert_fallback(case)
+        self.assertEqual('astra_resolve', case.state['next_stage'])
+        case.runtime.lifecycle.assign_task.assert_not_called()
+        self.assertIn(str(path), case.state['resolution_request']['evidence_hashes'])
+        self.assertIn(str(raw), case.state['resolution_request']['evidence_hashes'])
+        self.assertEqual(seals, (case.record['rework_evidence'], case.accepted['rework_evidence']))
+
+    def test_containment_scratch_is_owned_only_through_this_runs_own_launch_record(self):
+        case, _, _ = self.contained_case(self.scratch())
+        self.assert_fallback(case)
+
+        unrecorded, _, _ = self.capture_case(shared=False, directory=self.scratch())
+        foreign_scratch = self.scratch()
+        foreign, _, _ = self.capture_case(shared=False, directory=foreign_scratch)
+        self.case().accepted['tool_containment'] = {'scratch': str(foreign_scratch)}
+        sibling_scratch = self.scratch()
+        sibling, _, _ = self.capture_case(shared=False, directory=sibling_scratch.with_name('scratch-copy'))
+        sibling.accepted['tool_containment'] = {'scratch': str(sibling_scratch)}
+        for label, case in (('unrecorded', unrecorded), ('recorded by another run', foreign),
+                            ('beside the recorded scratch', sibling)):
+            with self.subTest(label=label):
+                with self.assertRaisesRegex(util.Paused, 'another run'):
+                    self.route(case)
+                case.queue.assert_not_called()
+
+        for label in ('evidence file', 'scratch directory'):
+            with self.subTest(label=label):
+                case, _, raw = self.contained_case(self.scratch())
+                elsewhere = case.run / 'elsewhere'
+                if label == 'evidence file':
+                    elsewhere.write_bytes(raw.read_bytes())
+                    raw.unlink()
+                    raw.symlink_to(elsewhere)
+                else:
+                    raw.parent.rename(elsewhere)
+                    raw.parent.symlink_to(elsewhere)
+                with self.assertRaisesRegex(util.Paused, 'symlink'):
+                    self.route(case)
+                case.queue.assert_not_called()
 
     def test_shared_receipt_requires_the_original_executed_capture_event(self):
         case, _, _ = self.capture_case(shared=True)

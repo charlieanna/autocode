@@ -556,7 +556,7 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     efficiency.observe_replay(state, validation["check_replay"], attempt_id=record.get("events") or record["output"])
     validation["evidence_hashes"].update(check_replay.evidence_pins(validation["check_replay"]))
     if stage == 'sol' and (record.get('visual_runtime') or visual_runtime.requested(state)):
-        visual_receipt = visual_runtime.accept_review(record['visual_runtime'], state, record, run_dir=run_dir,
+        visual_receipt = visual_runtime.accept_review(record.get('visual_runtime'), state, record, run_dir=run_dir,
                                                        current_snapshot=support.snapshot(workspace), accepted_validation=validation)
         if visual_receipt:
             validation['evidence_hashes'].update(visual_receipt['evidence_hashes'])

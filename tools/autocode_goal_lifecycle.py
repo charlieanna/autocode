@@ -25,7 +25,7 @@ try:
     from . import autocode_util as s, autocode_workflows as workflows, autocode_milestones as checkpoints
     from . import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
     from . import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view, autocode_design_plan as design_plan
-    from . import autocode_progressive_state as progressive_state
+    from . import autocode_progressive_state as progressive_state, autocode_test_cases as test_cases
     from .autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -35,7 +35,7 @@ except ImportError:
     import autocode_util as s, autocode_workflows as workflows, autocode_milestones as checkpoints
     import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
     import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view, autocode_design_plan as design_plan
-    import autocode_progressive_state as progressive_state
+    import autocode_progressive_state as progressive_state, autocode_test_cases as test_cases
     from autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -301,8 +301,10 @@ def render(state, run_dir=None):
         lines += ["", "Job type: bug fix. Before completion the runner itself checks that a new or changed",
                   "test fails on the original code and passes with the fix, and that no test that",
                   "passed before now fails."]
+    elif "task_kind" in body and test_cases.design_only(state):
+        lines += ["", f"Job type: design (not a bug fix): {approval_view.DESIGN}."]
     elif "task_kind" in body:
-        lines += ["", "Job type: build (not a bug fix). Criteria verified by \"test: ...\" are proven by the runner at their milestone and at completion: each named test must pass with the change and not without it."]
+        lines += ["", "Job type: build (not a bug fix). Criteria verified by \"test: ...\" are proven by the runner at their milestone and at completion: each named test " + approval_view.RESTORE["build"] + "."]
     display_order = ("intended_user", "intended_outcome", "end_to_end_flow", "deliverables", "scope_exclusions",
                      "constraints", "permission_boundaries", "accepted_assumptions", "delegated_decisions",
                      "required_behaviors", "important_failure_cases", "acceptance_criteria", "technical_approach",
@@ -398,6 +400,9 @@ def render(state, run_dir=None):
         lines += ["", f"Review token (current validated artifact): {review}",
                   "Validation: " + json.dumps(state["validation"], indent=2)]
     if asks_approval:
+        # The last screen: the decision in brief, then the limits and the commands (#381).
+        lines += [""] + approval_view.summary(body, contract["revision"], test_cases.proof_cases(state, all_due=True),
+                                              design_only=test_cases.design_only(state))
         lines += [""] + approval_view.actions(token(contract), state.get("settings") or {},
                                               state.get("iteration", 0), run_dir)
     lines += ["", f"State: {state.get('phase')} / {state['status']}"]

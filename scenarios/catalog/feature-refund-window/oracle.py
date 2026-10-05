@@ -48,7 +48,7 @@ def diagnosis(project, run):
     if run is None:
         return {"verdict": "NOT_EXERCISED", "reason": "no run (check mode)", "checks": []}
     saved = resolver_calls.load_state(project)
-    calls = resolver_calls.calls(*saved) if saved else []
+    calls = resolver_calls.calls(*saved, resolver_calls.scripted(run)) if saved else []
     if not calls:
         return {"verdict": "NOT_EXERCISED", "reason": "AutoResolver never ran", "checks": []}
     state, run_dir = saved

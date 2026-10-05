@@ -22,5 +22,7 @@
   "tests.test_catalogue_t12": "347 s in CI (Ubuntu, 4 modules at a time), 2026-10-04; drives the dashboard suites in a real browser",
   "tests.test_rework_cli": "194 s in CI (Ubuntu, 4 modules at a time), 2026-10-04",
   "tests.test_protected_oracles_cli": "88 s in CI (Ubuntu, 4 modules at a time), 2026-10-04",
-  "tests.test_verification_config": "74 s in CI (Ubuntu, 4 modules at a time), 2026-10-04"
+  "tests.test_verification_config": "74 s in CI (Ubuntu, 4 modules at a time), 2026-10-04",
+  "tests.test_lease_queue_oracle": "11.3 s in CI (Ubuntu, 4 modules at a time), 2026-10-05; #462's process-recovery controls spawn fresh interpreters",
+  "tests.test_no_progress_recovery": "216 s locally (macOS, one module at a time) for five tests, 550 s for eight on a loaded machine; each drives the real CLI through plan, hold and resume, 2026-10-05"
 }

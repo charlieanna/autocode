@@ -145,6 +145,19 @@ class PrBodyTests(unittest.TestCase):
         self.assertNotIn("Regression proof", body)
 
 
+class NextStepsTests(unittest.TestCase):
+    RECORD = {**PrBodyTests.RECORD, "worktree": "/p"}
+
+    def test_a_stop_names_the_command_that_continues_it(self):
+        for status, command in (("PAUSED_TIMEOUT_RECOVERY", "autocode resume"), ("BLOCKED_HUMAN", "autocode resume"),
+                                ("RESOLVER_PENDING", "autocode resume"),
+                                ("PAUSED_DESIGN_CONFLICT", "autocode --resume-paused")):
+            with self.subTest(status=status):
+                view = {"status": status, "done": False, "needs": {"kind": "resume", "reason": "Stopped"}}
+                self.assertEqual(f"  Once the cause is resolved: {command} --workspace /p --run-dir "
+                                 "/p/.autocode/runs/run-1", issue_cli.next_steps(self.RECORD, view)[-1])
+
+
 class _FakeGitHub(BaseHTTPRequestHandler):
     pulls = []
 

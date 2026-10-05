@@ -6,8 +6,10 @@ from pathlib import Path
 
 try:
     from . import autocode_util as util, autocode_check_refs as check_refs
+    from . import autocode_tool_containment as containment
 except ImportError:
     import autocode_util as util, autocode_check_refs as check_refs
+    import autocode_tool_containment as containment
 
 
 def _require(condition, reason):
@@ -23,20 +25,22 @@ def _run_root(output):
                  and parent.parent.parent.name == '.autocode'), None)
 
 
-def _owned(path, workspace, run_dir, *, artifact=False, check_evidence=False):
+def _captures(state, workspace):
+    """Where check captures outside the run directory may live: the workspace-shared area, and
+    the tool-containment scratch this run's own launches recorded, where a contained stage is
+    told to capture (#419). Another run's scratch is not in this run's stage records."""
+    return (workspace / '.autocode' / 'evidence',
+            *containment.recorded_scratch(state.get('stages', []), workspace))
+
+
+def _owned(path, workspace, run_dir, *, artifact=False, captures=()):
     _require(isinstance(path, str) and bool(path), 'Repair evidence has no file path')
     target = Path(path)
     target = target if target.is_absolute() else workspace / target
     _require('..' not in target.parts and target.is_relative_to(workspace),
              'Repair evidence is outside this workspace')
     _require(not artifact or target.is_relative_to(run_dir), 'Stage evidence belongs to another run')
-    # Validator check receipts live in the tool-containment scratch root the
-    # capture command writes into (.autocode/tool-containment-*/scratch/...),
-    # outside any single run directory; they are runner-owned like shared
-    # evidence, and only the check-evidence path may cite them.
-    containment = any(part.startswith('tool-containment-') for part in target.parts)
-    shared = check_evidence and (target.is_relative_to(workspace / '.autocode' / 'evidence')
-                                 or containment)
+    shared = any(target.is_relative_to(root) for root in captures)
     _require(not target.is_relative_to(workspace / '.autocode') or target.is_relative_to(run_dir) or shared,
              'Repair evidence belongs to another run')
     _require(not any(parent.is_symlink() for parent in (target, *target.parents)
@@ -233,9 +237,10 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
         ('task_id', task.get('id')), ('contract_hash', state['goal_contract']['hash']),
         ('contract_revision', state['goal_contract']['revision']), ('source_revision', record.get('source_revision'))))
     pins = validation.get('evidence_hashes') or {}
+    captures = _captures(state, workspace)
     if report is not None and current_validation:
         for path, digest in pins.items():
-            _require(_hash(_owned(path, workspace, root, check_evidence=True)) == digest,
+            _require(_hash(_owned(path, workspace, root, captures=captures)) == digest,
                      'Validator evidence changed before repair')
     queue(state, decision, record)
     _require(not any(row.get('source_output') == record.get('output') for row in state.get('direct_rework_assignments', [])),
@@ -268,9 +273,9 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
             if accepted['events'] not in pins:
                 return False
         else:
-            receipt_path = _owned(ref, workspace, root, check_evidence=True)
+            receipt_path = _owned(ref, workspace, root, captures=captures)
             receipt = _report(receipt_path)
-            raw = _owned(receipt.get('full_output'), workspace, root, check_evidence=True)
+            raw = _owned(receipt.get('full_output'), workspace, root, captures=captures)
             if str(receipt_path) not in pins or str(raw) not in pins:
                 return False
             shared_receipt |= not receipt_path.is_relative_to(root) or not raw.is_relative_to(root)
@@ -280,7 +285,7 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
     except ValueError as error:
         raise util.Paused('PAUSED_STALE_HANDOFF', 'Failed check lacks an executed Validator receipt') from error
     if shared_receipt:
-        return False  # Supported workspace-shared captures still need ordinary Resolver admission.
+        return False  # Captures outside the run directory still need ordinary Resolver admission.
     current = runtime.support.snapshot(workspace)
     _require(current['revision'] == record['source_revision'], 'Source changed while admitting the repair')
     probe = copy.deepcopy(state)

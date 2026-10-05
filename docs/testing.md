@@ -179,7 +179,12 @@ test, and in the three real 2026-10-04 Resolver calls the Completion Owner's rev
 the cause first (`review_already_named_cause`). A `CORRECT` therefore shows that AutoResolver
 confirms the cause, writes a bounded repair that works and stays read-only; it does not show
 unaided discovery of a product-logic defect. The scripted runs prove only the route and the
-scoring, and no live result exists yet. `tools/live_diagnosis_trial.py` exercises
+scoring. In six natural live `claude-tiers` runs (2026-10-05) no Builder wrote the vacuous
+tests, so none reached the trap. A hybrid run (`run --profile NAME --hybrid`, see
+[the scenario harness](../scenarios/README.md#hybrid-runs)) scripts planning and the first
+Builder, which delivers the vacuous tests, and keeps the Validator, Completion Owner, Resolver
+and repair Builder live; its results have their own mode (`NAME-hybrid`) and its diagnosis
+counts only the live Resolver's calls. `tools/live_diagnosis_trial.py` exercises
 `astra_diagnose` only: a different stage, for repeated Builder report rejections, that writes
 no repair task. Its results never count toward #59.
 

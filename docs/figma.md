@@ -314,10 +314,12 @@ file row with this source inventory shape:
 }
 ```
 
-The file `metadata_xml` is the complete read-only document tree and must enumerate
-all of the file's pages. Each page's `metadata_xml` is its complete read-only page
-tree. Both are stored as hash-bound relative artifacts. A page omitted from the
-manifest while present in the document tree fails intake. Every discovered screen
+The file `metadata_xml` is the complete read-only document page roster and must
+enumerate all of the file's pages. When the connector refuses a document-root target, generate
+this roster faithfully from the pinned collector's actual `document_pages`, and
+identify it as generated XML. A connector's page listing may expose only the current
+page. Each page's `metadata_xml` is its complete read-only page tree. Both are stored
+as hash-bound relative artifacts. A page omitted from the manifest while present in the document page roster fails intake. Every discovered screen
 frame must have an explicit `screen_states` row, and each row must match exactly one
 case with the same state and viewport. That makes an omitted approved state/viewport
 case a hard intake error. The state table is an explicit inventory: native inspection
@@ -339,12 +341,22 @@ hash-bound local bytes. Unavailable references are represented with
 prevent overall completion. They cannot be replaced with guessed values.
 
 Each page also retains a `source_json` receipt from the read-only
-`tools/figma_inventory_page.js` collector. It includes original REST node properties,
+`tools/figma_inventory_page.js` collector. New receipts identify their source as
+`figma-plugin-api-properties-v1`: explicit read-only Plugin API getter snapshots,
+with a pinned property profile and API version. They are not REST exports. Genuine
+legacy REST receipts remain supported. New snapshots omit derived text glyph
+contours while retaining authored text, exact styled ranges and text-path/vector
+geometry. Both formats retain original visual properties,
 rich-text font families/styles, component and variant identities, instance references,
 all local variable modes plus remote bindings/aliases, image/vector resources and
 full prototype trigger/actions. Receipt node IDs must exactly match the complete XML.
-Empty declarations cannot hide resources reported by the source. A screen must map
-its actual resources and the resources in every variant of its linked components.
+Large getter receipts use bounded, losslessly compressed parts to avoid connector
+text truncation. Set the collector's `outputPart` to every reported index; reconstruct
+all parts with `autocode_design_sources.reassemble(parts)` before saving `source_json`.
+Part identities and the SHA256 of the original JSON must agree. Missing, duplicate,
+truncated, corrupted or drifting parts are blockers; a transport envelope is not a
+page source receipt. Empty declarations cannot hide resources reported by the
+source. A screen must map its actual resources and the resources in every variant of its linked components.
 Library-only files may have an empty state table; qualify their font/asset/transition
 references as `FILEKEY/id` in consuming cases. Component and variable references use
 stable library keys across files. Missing remote definitions stop intake.
@@ -427,9 +439,13 @@ the capture inputs and artifacts alongside the independent check evidence and
 rechecks them at completion. FAIL/NOT_VERIFIED rows may leave the evidence
 fields empty when acquisition is unavailable.
 
-Intermediate milestones can explicitly leave future cases NOT_VERIFIED. Whole-task
-completion requires every case PASS in the same current independent validation;
-omissions, duplicates, stale manifests, changed evidence or wrong dimensions refuse
+Intermediate milestones can explicitly leave future cases NOT_VERIFIED. A visual
+launch marked NOT_READY leaves ordinary functional validation and rework available;
+it emits no image-delivery or visual-acceptance receipt. A functional FAIL or BLOCKED
+report likewise keeps its findings available for rework without gaining visual
+authority. A malformed or missing retained design manifest still refuses launch.
+Whole-task completion requires every case PASS in the same current independent
+validation; omissions, duplicates, stale manifests, changed evidence or wrong dimensions refuse
 completion. Existing contract, regression, replay and human acceptance gates remain
 mandatory. `--status` adds `view.design`: inventory/hash, reported source revision
 and cases without a reported PASS. It deliberately leaves
