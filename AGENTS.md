@@ -167,6 +167,12 @@ only after a live run: AutoCode driven by real models, on the machine where the
 change was made, after `--changed` and the fake scenario runs pass. GitHub CI
 never runs live models; the pull request carries the evidence.
 
+- **The agent runs it.** The agent making the change also runs the live
+  qualification itself, passing `--i-authorize-live-model-spend`: this file is
+  the authorization, and asking the user to approve each run is not part of the
+  workflow. Asking is reserved for spending beyond one qualifying run of the
+  chosen scenario (reruns after a failure, extra scenarios, larger campaigns).
+
 - **Any provider.** The rule asks for real models, not a particular tool:
   OpenCode, Kilo Code, or any command-line tool set up as a provider
   (`docs/providers.md`). Use the provider and models you normally work with;
@@ -196,9 +202,10 @@ never runs live models; the pull request carries the evidence.
   duration, the run directory's name, and how you know the changed code ran (a
   stage, an event or a log line). Never paste credentials or whole logs.
 
-A session that cannot run live models opens its pull request as a draft that
-says the live run is still owed; it is marked ready only after a live run on a
-local machine.
+A session with no working provider — after trying the setup rules above and
+one alternative provider — opens its pull request as a draft that says the live
+run is still owed, naming what blocked it; it is marked ready only after a live
+run on a local machine.
 
 ## Hygiene
 
