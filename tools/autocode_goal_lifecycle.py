@@ -26,6 +26,7 @@ try:
     from . import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
     from . import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view, autocode_design_plan as design_plan
     from . import autocode_progressive_state as progressive_state, autocode_test_cases as test_cases
+    from . import autocode_finding_rescope as finding_rescope
     from .autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -36,6 +37,7 @@ except ImportError:
     import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
     import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view, autocode_design_plan as design_plan
     import autocode_progressive_state as progressive_state, autocode_test_cases as test_cases
+    import autocode_finding_rescope as finding_rescope
     from autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -463,10 +465,14 @@ def _approve(state, selected):
         raise ValueError("Joint planning requires the Plan Reviewer's final plan before approval")
     current = s.snapshot(Path(state["workspace"])) if joint else None
     prepared_progressive = progressive_state.prepare_seal(state, selected)
+    recorded_under = finding_rescope.previous_approved(state)
     event = {"kind": "goal_approval", "actor": "user_cli", "at": s.now(), "token": selected}
     state.setdefault("user_events", []).append(event)
     contract.update(approval_status="approved", approval_event=event)
     progressive_state.seal(state, selected, prepared=prepared_progressive)
+    # Open findings follow the criteria this revision moved to other milestones (#447).
+    finding_rescope.on_approval(state, recorded_under, contract_token=selected, at=event["at"],
+                                new_id=lambda: findings.allocate_id(state))
     state.update(phase="READY_TO_EXECUTE", status="RUNNING", next_stage="astra_plan")
     carried = []
     if checkpoints.enabled(state):

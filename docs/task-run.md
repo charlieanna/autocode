@@ -245,6 +245,12 @@ is the current validation's checks as the runner itself re-ran them in a clean
 copy: `verdict`, `source_revision` and one row per command (`command`,
 `exit_code`, `timed_out`, `output`); `null` before a PASS validation and for
 validations that predate it (see [Execution](execution.md#the-runner-re-runs-the-validators-checks)).
+`finding_scope_moves` appears once an approved revision moved a criterion that
+open findings cite to another milestone: one row per finding it re-attributed
+(`finding`, `from` with the old `milestone_id` and `criteria`, `to` with every
+resulting finding's `id`, `milestone_id` and `criteria`, `contract_token`,
+`at`). A finding split across milestones appears in `findings` once per part
+(see [Execution](execution.md#open-findings)).
 
 `usage` is the run's tokens and cost so far: `stages` (finished), `active_stage` (the stage
 running now, or null), `tokens`, `cost_usd` (`reported`, `estimated`, `complete`), `unknown_stages`

@@ -464,6 +464,18 @@ are not tracked. Role handoffs include `open_findings` for both reviewers, and t
 dashboard's task view shows the list with each finding's source, fix task and
 repeat count. `unresolved_findings` still holds the Tester's latest findings unchanged.
 
+When you approve a revision that moves an acceptance criterion to another
+milestone, open findings recorded against that criterion move with it, in the
+same approval. Each finding is attributed to the milestone that now owns each
+criterion it cites; one whose criteria now belong to several milestones is split
+into one finding per milestone (the copies carry `split_from`), so each part
+blocks its own milestone and closes only by that milestone's review. Nothing is
+closed or downgraded by the move. A finding citing a criterion the approved
+contract no longer assigns to any milestone is left as it was and keeps blocking
+until a person settles it. Each move is recorded once in the finding's
+`scope_history` and listed in the status view's `evidence.finding_scope_moves`
+(`tools/autocode_finding_rescope.py`).
+
 The Plan Reviewer can keep a correction batch small by naming the ledger IDs a REWORK task
 addresses in `next_task.findings`; an empty or missing list takes every open finding.
 `--max-findings-per-task N` (saved as `limits.max_findings_per_task`) rejects a
