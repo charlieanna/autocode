@@ -7,8 +7,8 @@ conversation: the review's findings carry forward, and a build that acts on them
 from them, the way a bug fix is planned from its diagnosis (autocode_bug_job), so
 requirements gathering is skipped. Plan review and the user's approval still apply.
 
-This module is pure over the run state and the review report file. It imports nothing from
-the runner.
+This module reads the run state, the saved reports and snapshots, and the workspace (a turn's
+changes are its start snapshot against the workspace now). It imports nothing from the runner.
 
 State keys written here:
     brief_feedback, user_events: the same user-input receipt in both existing ledgers.
@@ -28,7 +28,7 @@ State keys written here:
         stage_index is len(state["stages"]) when the turn was said: the turn's stage records start
         there, and turn_changes reads it when the NEXT follow-up is said. event_id is the turn's
         brief_feedback receipt. previous.wrote is what the finished job left in the workspace: its
-        report or note, then the files its stages changed as the runner measured them; the
+        report or note, then every file that differs from the turn's start snapshot; the
         rewritten task names it.
     task: rewritten to the follow-up, followed by the earlier request (and what it wrote) as
         context, so every later stage reads what the user now wants. The original request stays
@@ -37,14 +37,17 @@ State keys written here:
 from __future__ import annotations
 
 import json
+import subprocess
 import uuid
 from pathlib import Path
 
 try:
     from . import autocode_workflows as workflows, autocode_contract_identity as identity
+    from . import autocode_util as util
 except ImportError:
     import autocode_workflows as workflows
     import autocode_contract_identity as identity
+    import autocode_util as util
 
 FINDING_FIELDS = ("id", "severity", "file", "lines", "summary", "evidence")
 CONCERN_FIELDS = ("id", "area", "summary")
@@ -73,12 +76,14 @@ def accept(state: dict, text: str, workspace, now: str) -> None:
     # requirements gathering changed the saved one, so it is kept from the first turn.
     first = (state.get("turns") or [{}])[0].get("previous", {}).get("first_stage")
     first_stage = first or (state.get("workflow") or {}).get("then") or workflows.planner_stage(state)
+    changes = turn_changes(state, workspace)
     previous = {"task": state.get("task", ""), "workflow": workflows.kind(state), "status": state["status"],
-                "completed_at": state.get("completed_at"), "first_stage": first_stage, "wrote": wrote(state)}
+                "completed_at": state.get("completed_at"), "first_stage": first_stage,
+                "wrote": wrote(state, changes)}
     review = carried_review(state, workspace)
     if review:
         previous["review"] = review
-    design = carried_design(state, workspace)
+    design = carried_design(state, workspace, changes)
     if design:
         previous["design"] = design
     # A new request can revise the previous contract. Reuse the recorded-feedback
@@ -100,28 +105,34 @@ def accept(state: dict, text: str, workspace, now: str) -> None:
         state.pop(key, None)
 
 
-def turn_changes(state: dict) -> list[str]:
-    """The files the stages of the turn now finishing changed, as the runner measured them.
+def turn_changes(state: dict, workspace) -> list[str]:
+    """The files the turn now finishing changed: its start snapshot against the workspace now.
 
-    The turn's stage records start at its ``stage_index`` (0 for the first request); records
-    whose output the runner rejected are left out. A turn recorded before stage_index existed
-    has no known start, so nothing is attributed to it."""
+    The start is the before-snapshot of the turn's first stage record (from its ``stage_index``;
+    0 for the first request). Comparing the ends, not adding up each stage's changed_files,
+    counts an attempt the runner set aside by what it left: an abandoned or rejected attempt's
+    edits stay in the workspace, while stray writes the runner put back are gone. A turn saved
+    before stage_index existed, or one whose snapshot cannot be read, attributes nothing."""
     turns = state.get("turns") or []
     start = turns[-1].get("stage_index") if turns else 0
     if not isinstance(start, int):
         return []
-    changed = {str(path) for record in (state.get("stages") or [])[start:]
-               if isinstance(record, dict) and not record.get("rejected")
-               for path in record.get("changed_files") or []}
-    return sorted(path for path in changed if not path.startswith(".autocode/"))
+    first = next((record["before_ref"] for record in (state.get("stages") or [])[start:]
+                  if isinstance(record, dict) and record.get("before_ref")), None)
+    try:
+        before = json.loads(Path(first).read_text()) if first else None
+        changed = util.changed_paths(before, util.snapshot(workspace)) if isinstance(before, dict) else []
+    except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError):
+        return []
+    return [path for path in changed if not path.startswith(".autocode/")]
 
 
-def wrote(state: dict) -> list[str]:
+def wrote(state: dict, changes: list[str]) -> list[str]:
     """What the finished job left in the workspace: its report or note (the runner writes those
-    after the stage, so no stage measured them), then the files its stages changed."""
+    after the stage), then the other files its turn changed (``turn_changes``)."""
     key, field = REPORTS.get(workflows.kind(state), (None, None))
     report = str((state.get(key) or {}).get(field) or "") if key else ""
-    return list(dict.fromkeys([*([report] if report else []), *turn_changes(state)]))
+    return list(dict.fromkeys([*([report] if report else []), *changes]))
 
 
 def _named(paths: list[str]) -> str:
@@ -131,19 +142,21 @@ def _named(paths: list[str]) -> str:
     return "; it wrote " + ", ".join(paths[:NAMED]) + (f" and {more} more" if more > 0 else "")
 
 
-def carried_design(state: dict, workspace) -> dict | None:
+def carried_design(state: dict, workspace, changes: list[str] | None = None) -> dict | None:
     """What a finished design job produced, or None when the run was no design job.
 
     A new design (propose mode) is the Markdown documents its turn wrote, README.md files left
-    out (a design folder's index is no design); a design review is its saved report's verdict,
-    concerns and questions. An unreadable report raises ValueError."""
+    out (a design folder's index is no design), and only regular files inside the workspace (a
+    symbolic link could point anywhere); a design review is its saved report's verdict, concerns
+    and questions. An unreadable report raises ValueError."""
     found = state.get("design_review") or {}
     if workflows.kind(state) != "design" or found.get("mode") not in ("propose", "review"):
         return None
     if found["mode"] == "propose":
         return {"mode": "propose", "documents": [
-            path for path in turn_changes(state)
-            if path.endswith(".md") and Path(path).name != "README.md" and (Path(workspace) / path).is_file()]}
+            path for path in (turn_changes(state, workspace) if changes is None else changes)
+            if path.lower().endswith(".md") and Path(path).name.lower() != "readme.md"
+            and workflows.workspace_file(workspace, path)]}
     if not found.get("report_path"):
         return None
     try:

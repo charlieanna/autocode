@@ -10,10 +10,12 @@ import os
 import subprocess
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
 import autocode_follow_up as follow_up
 import autocode_contract_revision as revision
+import autocode_util as util
 import autocode_workflows as workflows
 from autocode_taskrun import AUTOCODE, TaskRun, TaskRunError
 from units import autoplanner
@@ -53,12 +55,30 @@ def stage(name: str, *changed: str, **extra) -> dict:
     return {"stage": name, "changed_files": list(changed), **extra}
 
 
+def began(workspace: Path, name: str = "recognize_workflow") -> dict:
+    """A stage record whose before-snapshot is the workspace now, as the runner saves one."""
+    ref = workspace / ".autocode" / f"{uuid.uuid4().hex}.before.json"
+    ref.parent.mkdir(exist_ok=True)
+    ref.write_text(json.dumps(util.snapshot(workspace)))
+    return {"stage": name, "changed_files": [], "before_ref": str(ref)}
+
+
+def write(workspace: Path, *paths: str) -> None:
+    for path in paths:
+        (workspace / path).parent.mkdir(parents=True, exist_ok=True)
+        (workspace / path).write_text(f"{path}\n")
+
+
 class FollowUpTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         self.workspace = Path(temp.name)
         self.state = finished_review(self.workspace)
+        # A turn's changes are measured against Git-backed snapshots, as the runner takes them.
+        subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
+        subprocess.run(["git", "-C", str(self.workspace), "-c", "user.name=t", "-c", "user.email=t@example.test",
+                        "commit", "-q", "--allow-empty", "-m", "seed"], check=True)
 
     def test_a_follow_up_to_a_review_reopens_the_run_to_recognize_the_new_message(self):
         follow_up.accept(self.state, "  Fix them.  ", self.workspace, "t1")
@@ -192,55 +212,67 @@ class FollowUpTests(unittest.TestCase):
         self.assertEqual((2, self.state["brief_feedback"][-1]["id"]), (turn["stage_index"], turn["event_id"]))
         self.assertTrue(turn["event_id"].startswith("feedback-"))
 
-    def test_a_turn_s_changes_are_its_own_stages_measured_files_without_rejected_attempts(self):
-        earlier = [stage("terra", "app/old.py"), stage("sol")]
-        design = [stage("recognize_workflow"), stage("review_design"),
-                  stage("terra", "docs/design/cache.md", "app/stray.py", rejected=True),
-                  stage("terra", "docs/design/cache.md", "docs/design/README.md", ".autocode/x.json"),
-                  stage("sol", "docs/design/cache.md"), {"stage": "orchestrator", "runner_owned": True}]
-        turn = {"at": "t0", "say": "Design it.", "stage_index": len(earlier), "previous": {}}
-        state = finished_design(self.workspace, earlier + design, turns=[turn])
-        self.assertEqual(["docs/design/README.md", "docs/design/cache.md"], follow_up.turn_changes(state))
-        # The first request's stages start at 0; a turn saved before stage_index existed has no known start.
-        self.assertEqual(["app/old.py", "docs/design/README.md", "docs/design/cache.md"],
-                         follow_up.turn_changes(finished_design(self.workspace, earlier + design)))
-        state["turns"][0].pop("stage_index")
-        self.assertEqual([], follow_up.turn_changes(state))
+    def test_a_turn_s_changes_are_what_it_left_in_the_workspace_including_set_aside_attempts(self):
+        write(self.workspace, "app/old.py")
+        first = began(self.workspace)  # the first request begins, and changes app/old.py
+        (self.workspace / "app" / "old.py").write_text("changed\n")
+        start = began(self.workspace)  # the design turn begins
+        # An abandoned Builder wrote the design and the runner kept its edits ("workspace edits
+        # retained"); the fresh Builder after it changed nothing. A read-only stage's stray write
+        # was put back by the runner, so it is not in the workspace.
+        write(self.workspace, "docs/design/cache.md")
+        stages = [first, stage("sol"), start, stage("review_design", "app/stray.py", rejected=True),
+                  stage("terra", "docs/design/cache.md", rejected=True, abandoned=True), stage("terra")]
+        turn = {"at": "t0", "say": "Design it.", "stage_index": 2, "previous": {}}
+        state = finished_design(self.workspace, stages, turns=[turn])
+        self.assertEqual(["docs/design/cache.md"], follow_up.turn_changes(state, self.workspace))
+        self.assertEqual({"mode": "propose", "documents": ["docs/design/cache.md"]},
+                         follow_up.carried_design(state, self.workspace))
+        # The first request starts at 0; a turn saved before stage_index existed, or whose snapshot
+        # cannot be read, attributes nothing.
+        self.assertEqual(["app/old.py", "docs/design/cache.md"],
+                         follow_up.turn_changes(finished_design(self.workspace, stages), self.workspace))
+        unknown = copy.deepcopy(state)
+        unknown["turns"][0].pop("stage_index")
+        self.assertEqual([], follow_up.turn_changes(unknown, self.workspace))
+        Path(start["before_ref"]).unlink()
+        self.assertEqual([], follow_up.turn_changes(state, self.workspace))
 
     def test_the_next_turn_knows_what_the_previous_job_wrote_and_its_task_names_it(self):
-        discussion = {**finished_design(self.workspace, [stage("recognize_workflow"), stage("answer_question")]),
+        discussion = {**finished_design(self.workspace, []), "task": "In-process or shared?",
                       "workflow": {"kind": "discuss", "then": "requirements_gather"},
-                      "answer": {"answer": "shared", "note_path": "docs/decisions/cache.json", "questions": []},
-                      "task": "In-process or shared?"}
+                      "answer": {"answer": "shared", "note_path": "docs/decisions/cache.json", "questions": []}}
         discussion.pop("design_review")
-        (self.workspace / "docs" / "design").mkdir(parents=True)
-        (self.workspace / "docs" / "design" / "cache.md").write_text("# Cache\n")
-        built = [stage("terra", "docs/design/cache.md")]
-        many = [stage("terra", *[f"app/m{n}.py" for n in range(10)])]
         cases = {"discussion": (discussion, ["docs/decisions/cache.json"],
                                 "(discuss; it wrote docs/decisions/cache.json): In-process or shared?"),
-                 "review": (self.state, ["review/findings.json"], "(review; it wrote review/findings.json): Review"),
-                 "design": (finished_design(self.workspace, built), ["docs/design/cache.md"],
+                 "review": (self.state, [], "(review; it wrote review/findings.json): Review"),
+                 "design": (finished_design(self.workspace, []), ["docs/design/cache.md"],
                             "(design; it wrote docs/design/cache.md): Shared it is"),
                  # At most eight paths are named.
-                 "build": ({**finished_design(self.workspace, many), "workflow": {"kind": "build"}},
+                 "build": ({**finished_design(self.workspace, []), "workflow": {"kind": "build"}},
                            [f"app/m{n}.py" for n in range(10)],
                            "(build; it wrote app/m0.py, app/m1.py, app/m2.py, app/m3.py, app/m4.py, app/m5.py, "
                            "app/m6.py, app/m7.py and 2 more): Shared it is")}
-        for name, (state, wrote, said) in cases.items():
+        for name, (state, writes, said) in cases.items():
             with self.subTest(name):
                 state = copy.deepcopy(state)
+                if writes:  # the turn begins, then writes these
+                    state["stages"] = [began(self.workspace)]
+                    write(self.workspace, *writes)
                 follow_up.accept(state, "Go on.", self.workspace, "t1")
-                self.assertEqual(wrote, follow_up.current(state)["previous"]["wrote"])
+                self.assertEqual(writes or ["review/findings.json"], follow_up.current(state)["previous"]["wrote"])
                 self.assertIn(said, state["task"])
 
     def test_a_design_turn_carries_the_documents_it_wrote_and_a_review_its_report(self):
-        design_dir = self.workspace / "docs" / "design"
-        design_dir.mkdir(parents=True)
-        for name in ("cache.md", "README.md", "notes.txt"):
-            (design_dir / name).write_text("x\n")
-        built = [stage("review_design"), stage("terra", "docs/design/README.md", "docs/design/cache.md",
-                                                   "docs/design/notes.txt", "docs/design/gone.md")]
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        (Path(outside.name) / "secret.md").write_text("not in this repository\n")
+        built = [began(self.workspace)]
+        write(self.workspace, "docs/design/cache.md", "docs/design/README.md", "docs/design/Readme.MD",
+              "docs/design/notes.txt")
+        # A link is refused wherever it points: outside the workspace, or to the design itself.
+        (self.workspace / "docs" / "design" / "linked.md").symlink_to(Path(outside.name) / "secret.md")
+        (self.workspace / "docs" / "design" / "alias.md").symlink_to("cache.md")
         state = finished_design(self.workspace, built)
         follow_up.accept(state, "Build it.", self.workspace, "t1")
         self.assertEqual({"mode": "propose", "documents": ["docs/design/cache.md"]},
