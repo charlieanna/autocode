@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import shlex
 import subprocess
 import sys
@@ -59,11 +60,11 @@ def _ensure_worktree(repo: Path, target: Path) -> None:
 def _local_run_plan(parser, args, architecture):
     """Refuse --run-local before anything is built unless it could run."""
     if not args.run_local:
-        parser.error("--keep-running needs --run-local")
+        parser.error(f"{'--keep-running' if args.keep_running else '--health-timeout'} needs --run-local")
     if not args.integrate:
         parser.error("--run-local needs --integrate TARGET: it runs the integrated system")
-    if args.health_timeout <= 0:
-        parser.error("--health-timeout must be a positive number of seconds")
+    if args.health_timeout is not None and not (math.isfinite(args.health_timeout) and args.health_timeout > 0):
+        parser.error("--health-timeout must be a positive, finite number of seconds")
     try:
         plan = local_run.prepare(architecture.directory,
                                  {cid: component.runtime for cid, component in architecture.components.items()})
@@ -77,7 +78,8 @@ def _run_local(plan, target: Path, workspace: Path, args, exit_code: int, integr
     if exit_code != 0 or integration.get("detail") == "no finished component":
         return {"status": "not_run", "detail": "not every component finished and integrated cleanly"}
     return local_run.LocalRun(plan, target.resolve(), local_run.workdir(workspace),
-                              health_timeout=args.health_timeout, keep_running=args.keep_running).run()
+                              health_timeout=args.health_timeout or local_run.HEALTH_TIMEOUT,
+                              keep_running=args.keep_running).run()
 
 
 def cli(argv: list[str] | None = None) -> int:
@@ -96,8 +98,8 @@ def cli(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-local", action="store_true",
                         help="after integrating, start the combined system with Docker Compose, wait for each "
                              "component to be ready, run ARCHITECTURE/smoke.json against it, then tear it down "
-                             "(needs --integrate, and Docker with Compose v2)")
-    parser.add_argument("--health-timeout", type=float, default=local_run.HEALTH_TIMEOUT, metavar="SECONDS",
+                             "(needs --integrate, Docker Compose 2.17 or newer and a Docker daemon on this machine)")
+    parser.add_argument("--health-timeout", type=float, metavar="SECONDS",
                         help="with --run-local: how long each start layer may take to become ready (default: "
                              f"{local_run.HEALTH_TIMEOUT:g})")
     parser.add_argument("--keep-running", action="store_true",
@@ -126,7 +128,7 @@ def cli(argv: list[str] | None = None) -> int:
     except mc.ArchitectureError as error:
         parser.error(str(error))
     plan = None
-    if args.run_local or args.keep_running:
+    if args.run_local or args.keep_running or args.health_timeout is not None:
         plan = _local_run_plan(parser, args, architecture)
 
     options: list[str] = []

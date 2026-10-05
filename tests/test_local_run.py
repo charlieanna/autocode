@@ -11,6 +11,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -20,8 +21,11 @@ from unittest import mock
 
 import autocode_components
 import autocode_local_run as lr
+import autocode_multicomponent as mc
 from autocode_component_runtime import ComponentRuntime
 from autocode_compose_file import compose_document, render
+
+FAKE_DOCKER = Path(__file__).resolve().parents[1] / "tools" / "fixtures" / "fake_docker.py"
 
 
 def service(port=8000, health="/health", depends=(), start="python3 server.py"):
@@ -200,17 +204,58 @@ class DockerCheckTests(unittest.TestCase):
         with self.assertRaisesRegex(lr.DockerUnavailable, "not installed or not on PATH.*Compose v2"):
             lr.subprocess_runner(["autocode-no-such-docker-here", "compose", "version"], 5)
 
+    @staticmethod
+    def runner(fail=None, compose="2.29.0", endpoint="unix:///var/run/docker.sock"):
+        def run(argv, timeout):
+            if argv[1] == "compose":
+                return lr.CommandResult(1, "", "nope") if fail == "compose" else lr.CommandResult(0, compose + "\n")
+            if argv[1] == "version":
+                return lr.CommandResult(1, "", "nope") if fail == "daemon" else lr.CommandResult(0, "27.0.0\n")
+            if argv[1:3] == ["context", "inspect"]:
+                return lr.CommandResult(1, "", "no context") if fail == "context" else lr.CommandResult(0, endpoint)
+            raise AssertionError(argv)
+        return run
+
     def test_missing_compose_plugin_and_unreachable_daemon_are_named(self):
-        def runner(fail):
-            def run(argv, timeout):
-                failing = (fail == "compose" and argv[1] == "compose") or (fail == "daemon" and argv[1] == "version")
-                return lr.CommandResult(1 if failing else 0, "", "nope" if failing else "")
-            return run
         with self.assertRaisesRegex(lr.DockerUnavailable, "needs Compose v2"):
-            lr.check_docker(runner("compose"))
+            lr.check_docker(self.runner("compose"), env={})
         with self.assertRaisesRegex(lr.DockerUnavailable, "daemon is not reachable"):
-            lr.check_docker(runner("daemon"))
-        lr.check_docker(runner(None))
+            lr.check_docker(self.runner("daemon"), env={})
+        with self.assertRaisesRegex(lr.DockerUnavailable, "docker context inspect"):
+            lr.check_docker(self.runner("context"), env={})
+        lr.check_docker(self.runner(), env={})
+
+    def test_compose_older_than_2_17_is_refused(self):
+        for version in ("2.16.0", "v2.16.9", "1.29.2", "", "unknown"):
+            with self.subTest(version=version), self.assertRaisesRegex(lr.DockerUnavailable, "Compose 2.17 or newer"):
+                lr.check_docker(self.runner(compose=version), env={})
+        for version in ("2.17.0", "v2.29.1-desktop.1", "5.3.1", "v2.100.0"):
+            with self.subTest(version=version):
+                lr.check_docker(self.runner(compose=version), env={})
+
+    def test_a_daemon_on_another_machine_is_refused(self):
+        # Ports would publish on that machine while probes and smoke requests go to 127.0.0.1 here.
+        for env, endpoint in (({"DOCKER_HOST": "tcp://10.0.0.5:2376"}, "unix:///var/run/docker.sock"),
+                              ({"DOCKER_HOST": "ssh://me@build-box"}, "unix:///var/run/docker.sock"),
+                              ({}, "tcp://10.0.0.5:2376"), ({"DOCKER_HOST": ""}, "ssh://me@build-box\n")):
+            with self.subTest(env=env, endpoint=endpoint), \
+                    self.assertRaisesRegex(lr.DockerUnavailable, "needs a Docker daemon on this machine"):
+                lr.check_docker(self.runner(endpoint=endpoint), env=env)
+        for env, endpoint in (({"DOCKER_HOST": "unix:///run/user/1000/docker.sock"}, "tcp://ignored:1"),
+                              ({}, "unix:///var/run/docker.sock\n"), ({}, "npipe:////./pipe/docker_engine")):
+            with self.subTest(env=env, endpoint=endpoint):
+                lr.check_docker(self.runner(endpoint=endpoint), env=env)
+
+    def test_the_compose_directory_can_never_be_a_component_worktree(self):
+        # Component worktrees are .autocode-components/<id>; the compose directory must not be one.
+        with tempfile.TemporaryDirectory() as temp:
+            work = lr.workdir(Path(temp))
+            self.assertEqual(Path(temp) / ".autocode-components" / ".local-run", work)
+            architecture = Path(temp) / "architecture"
+            architecture.mkdir()
+            (architecture / "components.json").write_text(json.dumps([{"id": work.name}]))
+            with self.assertRaisesRegex(mc.ArchitectureError, "must be a plain name"):
+                mc.Architecture.load(architecture)
 
 
 class RunTests(unittest.TestCase):
@@ -235,7 +280,7 @@ class RunTests(unittest.TestCase):
         self.assertEqual("/notes/7", summary["steps"][1]["path"])
         self.assertIn(("POST", "/notes", {"text": "hello"}), server.seen)
         self.assertIn(("GET", "/notes/7"), server.seen)
-        self.assertEqual(["down", "-v", "--remove-orphans"], docker.calls[-1][6:])
+        self.assertEqual(["down", "-v", "--remove-orphans", "--rmi", "local"], docker.calls[-1][6:])
         self.assertTrue(summary["torn_down"])
         for call in docker.calls:
             self.assertEqual(["docker", "compose", "-p", "autocode-test", "-f", summary["compose_file"]], call[:6])
@@ -336,6 +381,46 @@ class RunTests(unittest.TestCase):
         self.assertIn("docker compose up failed for api: failed to solve", summary["detail"])
         self.assertEqual(["up", "logs", "down"], docker.commands())
 
+    def test_a_failed_up_of_a_layer_collects_the_logs_of_every_component_in_it(self):
+        ws = Workspace(self, {"api": service(), "web": service(port=8001)}, smoke(*NOTE_STEPS))
+        docker = FakeDocker({}, fail_up=True)
+        summary, said = ws.run(docker)
+        self.assertEqual(("failed", None), (summary["status"], summary["failed_component"]))
+        self.assertIn(["logs", "--no-color", "--tail", "50", "api", "web"], [call[6:] for call in docker.calls])
+        self.assertIn("boom", summary["logs"])
+        self.assertIn("last 50 log lines of api, web", said)
+
+    def test_a_failed_ps_collects_the_logs_of_the_layer_being_waited_on(self):
+        ws = Workspace(self, {"api": service(), "web": service(port=8001)}, smoke(*NOTE_STEPS))
+        docker = FakeDocker({})
+
+        def runner(argv, timeout):
+            if argv[6:7] == ["ps"]:
+                docker.calls.append(list(argv))
+                return lr.CommandResult(1, "", "Error response from daemon")
+            return docker(argv, timeout)
+        summary, _ = ws.run(runner)
+        self.assertIn("docker compose ps failed: Error response from daemon", summary["detail"])
+        self.assertIn(["logs", "--no-color", "--tail", "50", "api", "web"], [call[6:] for call in docker.calls])
+        self.assertEqual("down", docker.commands()[-1])
+
+    def test_a_service_that_exits_right_after_starting_is_reported_as_not_running(self):
+        # Compose still shows it running at the first ps; by the time its port is asked
+        # for, it has exited and `port` fails.
+        ws = Workspace(self, {"api": service()}, smoke(*NOTE_STEPS))
+        docker = FakeDocker({})
+
+        def runner(argv, timeout):
+            if argv[6:7] == ["port"]:
+                docker.calls.append(list(argv))
+                docker.states["api"] = "exited"
+                return lr.CommandResult(1, "", 'service "api" is not running')
+            return docker(argv, timeout)
+        summary, _ = ws.run(runner)
+        self.assertEqual(("failed", "api", "api is not running (state exited)"),
+                         (summary["status"], summary["failed_component"], summary["detail"]))
+        self.assertIn("boom", summary["logs"])
+
     def test_keep_running_leaves_the_system_up_and_says_how_to_stop_it(self):
         server = start_server(self)
         ws = Workspace(self, {"api": service()}, smoke(*NOTE_STEPS))
@@ -344,7 +429,7 @@ class RunTests(unittest.TestCase):
         self.assertEqual("passed", summary["status"])
         self.assertNotIn("down", docker.commands())
         self.assertFalse(summary["torn_down"])
-        self.assertIn("down -v --remove-orphans", summary["stop_command"])
+        self.assertIn("down -v --remove-orphans --rmi local", summary["stop_command"])
         self.assertIn(summary["stop_command"], said)
 
     def test_a_missing_dockerfile_is_refused_before_starting_anything(self):
@@ -423,6 +508,25 @@ class CliRefusalTests(unittest.TestCase):
     def test_keep_running_needs_run_local(self):
         self.assertIn("--keep-running needs --run-local", self.cli("--integrate", "out", "--keep-running"))
 
+    def test_health_timeout_needs_run_local(self):
+        self.assertIn("--health-timeout needs --run-local", self.cli("--integrate", "out", "--health-timeout", "5"))
+
+    def test_a_health_timeout_that_is_not_a_positive_finite_number_is_refused(self):
+        for value in ("nan", "inf", "-inf", "0", "-1"):
+            with self.subTest(value=value):
+                self.assertIn("--health-timeout must be a positive, finite number",
+                              self.cli("--integrate", "out", "--run-local", f"--health-timeout={value}"))
+
+    def test_a_remote_docker_daemon_is_refused(self):
+        fake = self.bindir / "docker"
+        fake.write_text(f"#!{sys.executable}\n" + FAKE_DOCKER.read_text())
+        fake.chmod(0o755)
+        log = self.repo / "docker.jsonl"
+        with mock.patch.dict(os.environ, {"FAKE_DOCKER_LOG": str(log), "DOCKER_HOST": "tcp://10.0.0.5:2376"}):
+            said = self.cli("--integrate", "out", "--run-local")
+        self.assertIn("needs a Docker daemon on this machine", said)
+        self.assertIn("tcp://10.0.0.5:2376", said)
+
     def test_a_missing_smoke_check_is_refused(self):
         (self.arch / "smoke.json").unlink()
         self.assertIn("missing", self.cli("--integrate", "out", "--run-local"))
@@ -434,7 +538,7 @@ class CliRefusalTests(unittest.TestCase):
     def test_an_unreachable_daemon_is_refused(self):
         fake = self.bindir / "docker"
         fake.write_text("#!/bin/sh\nif [ \"$1\" = version ]; then echo 'Cannot connect to the Docker daemon' >&2; "
-                        "exit 1; fi\nexit 0\n")
+                        "exit 1; fi\necho 2.29.0\n")
         fake.chmod(0o755)
         said = self.cli("--integrate", "out", "--run-local")
         self.assertIn("daemon is not reachable", said)

@@ -316,11 +316,17 @@ autocode components architecture --workspace /path/to/repo --integrate integrati
 ```
 
 `--run-local` needs `--integrate TARGET`, and Docker with Compose v2 (the
-`docker compose` plugin, 2.17 or newer) and a running Docker daemon. Before any
-component is built, the command refuses with a usage error unless every
-component declares a runtime block, at least one is a `service`, the runtime
-dependencies have a start order, `smoke.json` is valid and sends requests only
-to services, and `docker compose version` and `docker version` both succeed.
+`docker compose` plugin, 2.17 or newer) and a running Docker daemon on this
+machine. Before any component is built, the command refuses with a usage error
+unless every component declares a runtime block, at least one is a `service`,
+the runtime dependencies have a start order, `smoke.json` is valid and sends
+requests only to services, `docker compose version --short` reports 2.17 or
+newer, `docker version` reaches the daemon, and that daemon is local: its
+endpoint (`DOCKER_HOST` when set, otherwise the current docker context's) is a
+`unix://` or `npipe://` socket. A daemon reached over `tcp://` or `ssh://` would
+publish the ports on its own machine, where the checks on `127.0.0.1` cannot
+reach them. `--keep-running` and `--health-timeout` are refused without
+`--run-local`.
 
 After every component has finished and been integrated cleanly (otherwise the
 summary's `local_run.status` is `not_run`), it:
@@ -328,8 +334,9 @@ summary's `local_run.status` is `not_run`), it:
 1. Checks that `TARGET` holds `components/<id>/` for each component that runs,
    and the `dockerfile` of each that declares one.
 2. Writes the Compose file to
-   `<workspace>/.autocode-components/local-run/<project>/compose.json`, never into
-   `TARGET` or any tracked file. `<project>` is a new Compose project name for
+   `<workspace>/.autocode-components/.local-run/<project>/compose.json`, never into
+   `TARGET` or any tracked file. The leading dot keeps it apart from component
+   worktrees, `.autocode-components/<id>`, since no component id starts with a dot. `<project>` is a new Compose project name for
    each run, `autocode-` and 12 hex digits, passed with `-p`.
 3. Starts the components in runtime-dependency layers, one layer at a time,
    with `docker compose -p <project> -f <file> up -d --build --no-deps <ids>`,
@@ -337,16 +344,22 @@ summary's `local_run.status` is `not_run`), it:
    `GET <health>` on its published loopback port (from `docker compose port`)
    answers 2xx; a worker or database with a `health` command once Compose
    reports it `healthy`; a worker without one once it is running. A container
-   that exits or turns `unhealthy` fails at once. Each layer may take
-   `--health-timeout SECONDS` (default 120) to become ready.
+   that exits or turns `unhealthy` fails at once, reported as `<id> is not
+   running (state <state>)`. Each layer may take `--health-timeout SECONDS`
+   (a positive, finite number; default 120) to become ready.
 4. Runs the smoke steps in order against `127.0.0.1:<published port>`, stopping
    at the first that fails.
-5. Tears the project down with `docker compose ... down -v --remove-orphans`,
-   on success, on failure and on Ctrl-C alike. `--keep-running` leaves it
-   running instead and prints the `down` command that stops it.
+5. Tears the project down with
+   `docker compose ... down -v --remove-orphans --rmi local`, on success, on
+   failure and on Ctrl-C alike. This also removes the images the run built:
+   every run is a new project, so they would otherwise pile up. `--keep-running`
+   leaves it running instead and prints that `down` command to stop it.
 
 On a failure, the command prints which component or step failed and the last 50
-lines of that component's logs (`docker compose logs --tail 50`). Progress goes
+lines of that component's logs (`docker compose logs --tail 50`). When no single
+component is to blame (`up` failed for a layer of several components, or
+`docker compose ps` failed while waiting on a layer), it prints the last 50
+lines of each component in that layer. Progress goes
 to standard error. The JSON summary gains a `local_run` key: `status` (`passed`,
 `failed` or `not_run`), `project`, `compose_file`, `layers`, `ready`, `ports`
 (the published host port of each service), `steps` (each step's `name`,

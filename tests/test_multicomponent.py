@@ -396,7 +396,9 @@ class CliTests(BuildAndIntegrateTests):
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
         log = self.root / "docker.jsonl"
-        self.env.update(FAKE_DOCKER_LOG=str(log), FAKE_DOCKER_PORTS=json.dumps({"alpha": server.server_port}))
+        # DOCKER_HOST empty: the fake's current context, a local socket, decides where the daemon is.
+        self.env.update(FAKE_DOCKER_LOG=str(log), FAKE_DOCKER_PORTS=json.dumps({"alpha": server.server_port}),
+                        DOCKER_HOST="")
         args = ("architecture", "--workspace", str(self.repo), "--auto-approve", "--integrate", "integration",
                 "--run-local", "--options", " ".join(FIXTURE_OPTIONS))
 
@@ -410,14 +412,15 @@ class CliTests(BuildAndIntegrateTests):
         self.assertEqual([("greet", True, 200)], [(s["name"], s["ok"], s["status"]) for s in local["steps"]])
         self.assertTrue(local["torn_down"])
         compose = Path(local["compose_file"])
-        self.assertEqual(self.repo / ".autocode-components" / "local-run" / local["project"], compose.parent)
+        self.assertEqual(self.repo / ".autocode-components" / ".local-run" / local["project"], compose.parent)
         self.assertIn(str(self.repo / "integration" / "components" / "alpha"), compose.read_text())
         prefix = ["compose", "-p", local["project"], "-f", str(compose)]
         calls = [json.loads(line) for line in log.read_text().splitlines()]
-        self.assertEqual([["compose", "version"], ["version", "--format", "{{.Server.Version}}"]], calls[:2])
+        self.assertEqual([["compose", "version", "--short"], ["version", "--format", "{{.Server.Version}}"],
+                          ["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"]], calls[:3])
         self.assertEqual([prefix + ["up", "-d", "--build", "--no-deps", "alpha"],
                           prefix + ["up", "-d", "--build", "--no-deps", "beta"],
-                          prefix + ["down", "-v", "--remove-orphans"]],
+                          prefix + ["down", "-v", "--remove-orphans", "--rmi", "local"]],
                          [call for call in calls if call[5:6] in (["up"], ["down"])])
         status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=self.repo / "integration",
                                 capture_output=True, text=True, check=True).stdout
@@ -432,7 +435,8 @@ class CliTests(BuildAndIntegrateTests):
                                                         local["failed_step"]))
         self.assertIn("does not match expect_json", local["detail"])
         self.assertIn("fake log line from alpha", proc.stderr)
-        self.assertEqual(["down", "-v", "--remove-orphans"], json.loads(log.read_text().splitlines()[-1])[5:])
+        self.assertEqual(["down", "-v", "--remove-orphans", "--rmi", "local"],
+                         json.loads(log.read_text().splitlines()[-1])[5:])
 
     def test_cli_refuses_a_cycle_before_starting_any_component(self):
         (self.repo / "architecture" / "components.json").write_text(json.dumps(
