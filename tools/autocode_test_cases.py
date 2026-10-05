@@ -63,6 +63,18 @@ def design_only(state: dict) -> bool:
     return (state.get("workflow") or {}).get("kind") == "design"
 
 
+def declared_test_name(text: str) -> str | None:
+    """Keep a declared identifier when an annotation follows a clear separator.
+
+    The annotation explains the test; it must not silently replace its identity
+    with the criterion ID. Placeholders and free-form methods keep the existing
+    ID-based convention. Native Go names are valid explicit identifiers too.
+    """
+    match = re.fullmatch(r'(test_[A-Za-z0-9_]+|Test[A-Z0-9_][A-Za-z0-9_]*)'
+                         r'(?:\s+[—–-]\s+.+)?', text, re.DOTALL)
+    return match[1] if match else None
+
+
 def contract_cases(state: dict, *, all_due: bool = False) -> list[dict]:
     """The approved plan's criteria marked ``test:`` or ``guard:`` that are due now (every one with ``all_due``,
     as at final completion), as ``plan_cases``. None in a design-only job: nothing there is proven by a test the
@@ -81,9 +93,9 @@ def plan_cases(body) -> list[dict]:
     for row in (body.get("acceptance_criteria") if isinstance(body, dict) else None) or []:
         found = mark(row.get("verification_method")) if isinstance(row, dict) else None
         if found and row.get("id"):
-            test_name = str(row["verification_method"]).strip()[len(found):].strip()
+            test_name = declared_test_name(str(row["verification_method"]).strip()[len(found):].strip())
             cases.append({"id": row["id"], "text": row.get("criterion", ""),
-                          **({"test_name": test_name} if re.fullmatch(r"test_[A-Za-z0-9_]+", test_name) else {}),
+                          **({"test_name": test_name} if test_name else {}),
                           **({"kind": "preserve"} if found == GUARD_MARK else {})})
     return cases
 
@@ -150,6 +162,15 @@ def _words(name: str) -> list[str]:
     return [word for word in re.split(r"[^a-z0-9]+", name.lower()) if word]
 
 
+def _go_words(name: str) -> list[str]:
+    """Go aliases retain whole words and numeric groups across case separators.
+
+    To30 and to_30 are the same alias; To300 and version21 versus version2_1
+    remain different. Other runners keep their exact identifier comparison.
+    """
+    return [part for word in _words(name) for part in re.findall(r"[a-z]+|[0-9]+", word)]
+
+
 def _test_function(test_id: str) -> str:
     """The test's own name inside a runner's id (module.Class.test_x, path::Class::test_x[param], ...)."""
     names = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", re.sub(r"\[.*\]$", "", test_id))
@@ -157,13 +178,16 @@ def _test_function(test_id: str) -> str:
     return tests[-1] if tests else (names[-1] if names else "")
 
 
-def match_cases(cases: list[dict], test_ids: list[str]) -> dict[str, list[str]]:
+def match_cases(cases: list[dict], test_ids: list[str], *, framework=None) -> dict[str, list[str]]:
     """Match an approved exact test name, or a diagnosis case's id-based test name."""
     matched = {}
     for case in cases:
         if case.get("test_name"):
             matched[case["id"]] = [test for test in test_ids
-                                   if _test_function(test) == case["test_name"]]
+                                   if _test_function(test) == case["test_name"] or (
+                                       framework == "go" and case["test_name"].startswith("test_")
+                                       and re.match(r"^Test[A-Z0-9_]", _test_function(test))
+                                       and _go_words(_test_function(test)) == _go_words(case["test_name"]))]
         else:
             # The documented lowercase spelling keeps M1A as m1a. Retain the
             # CamelCase spelling too, without accepting prefixes of either form.

@@ -47,9 +47,21 @@ def cli(argv=None, *, formatter=filters.compact_output):
         parser.error('receipt filename must differ from the retained .log filename')
     if path.exists() or raw.exists():
         parser.error('use a unique evidence filename; existing evidence is immutable')
+    execution_cwd, verification_context = None, None
+    if os.environ.get('AUTOCODE_VERIFICATION_COPY'):
+        try:
+            try:
+                from . import autocode_verification_copy as copies
+            except ImportError:
+                import autocode_verification_copy as copies
+            execution_cwd, verification_context = copies.execution(
+                os.environ['AUTOCODE_VERIFICATION_COPY'],
+                os.environ.get('AUTOCODE_VERIFICATION_COPY_SHA256', ''), Path.cwd())
+        except (OSError, ValueError, KeyError) as error:
+            parser.error(str(error))
     started = time.monotonic()
     with raw.open('xb') as handle:
-        result = subprocess.run(command, stdout=handle, stderr=subprocess.STDOUT)
+        result = subprocess.run(command, cwd=execution_cwd, stdout=handle, stderr=subprocess.STDOUT)
     data = raw.read_bytes()
     original = representation(data)
     compact = {'format': 'text', **original, 'filter': 'raw'}
@@ -70,6 +82,8 @@ def cli(argv=None, *, formatter=filters.compact_output):
     receipt = {'command': command, 'command_text': shlex.join(command), 'exit_code': result.returncode,
                'duration_seconds': time.monotonic() - started, 'full_output': str(raw),
                'full_output_sha256': store.digest(data), 'summary': compact}
+    if verification_context:
+        receipt['verification_copy'] = verification_context
     if retained:
         receipt['exact_output'] = retained
     if capture_context:

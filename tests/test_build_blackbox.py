@@ -381,8 +381,17 @@ class BuildBlackbox(unittest.TestCase):
         self.assertEqual(1,len(self.events('repair',stage='terra_report_repair')))
 
     def test_29_report_repair_cannot_invent_passing_checks(self):
-        self.seed(); self.env['BUILD_AUDIT_FAULT']='repair_lies'; self.build(2)
-        self.assertNotIn('autocode',self.state()['unit_handoffs'])
+        self.seed(); self.env['BUILD_AUDIT_FAULT']='repair_lies'; self.build()
+        # Shape repair may continue, but the exported candidate must retain the
+        # original failed execution, never the repairer's invented passing check.
+        reports = [json.loads(Path(json.loads(Path(path).read_text())['report']).read_text())
+                   for path in self.candidate()['implementation']['builder_reports']]
+        failed = [report for report in reports if 'server/health.py' in report['changed_files']]
+        self.assertEqual(1, len(failed))
+        self.assertEqual([self.spec['checks']['M1']], failed[0]['commands_run'])
+        self.assertEqual(['check exit=1'], failed[0]['results'])
+        self.assertEqual(['event:check'], failed[0]['evidence_refs'])
+        self.assertEqual(1, len(self.events('repair', stage='terra_report_repair')))
 
     def test_30_33_repeated_build_does_not_redispatch_completed_wave(self):
         self.seed(); self.build(); first=self.events(); original=self.candidate()

@@ -107,6 +107,15 @@ def approved_commands(state, *, progressive_context=None):
     return list(dict.fromkeys(command for method in methods for command in commands(method)))
 
 
+def launch_commands(state, *, progressive_context=None):
+    """All declared commands whose tools must work before a contained stage."""
+    result = approved_commands(state, progressive_context=progressive_context)
+    regression = state.get('settings', {}).get('regression') or {}
+    result.extend(regression[key] for key in ('test_command', 'regression_command')
+                  if regression.get(key))
+    return list(dict.fromkeys(result))
+
+
 def obligations(state, *, progressive_context=None):
     """Project the plan before approval without inventing executable coverage.
 

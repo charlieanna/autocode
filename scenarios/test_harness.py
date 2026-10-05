@@ -836,6 +836,22 @@ class TurnTests(unittest.TestCase):
                      {"kind": "approve_plan", "token": "g"}):
             self.assertFalse(leaves_for_person(need))
 
+    def test_job_recovery_is_an_inspection_stop_not_an_automatic_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            driver = Driver(root, root, [], {}, autocode=[], max_steps=5, timeout_seconds=60)
+            for kind in ('retry_job', 'recover_source'):
+                stopped = {'done': False, 'status': 'PAUSED_JOB_FAILURE',
+                           'needs': {'kind': kind, 'job_retry_token': 'owned-attempt'}}
+                with self.subTest(kind=kind), patch.object(driver, 'view', return_value=stopped), \
+                        patch.object(driver, 'call') as call:
+                    self.assertEqual(stopped, driver.until_stopped())
+                    call.assert_not_called()
+            unknown = {'done': False, 'needs': {'kind': 'unrecognized_protocol_gate'}}
+            with patch.object(driver, 'view', return_value=unknown), \
+                    self.assertRaisesRegex(DriveError, 'no way to serve'):
+                driver.until_stopped()
+
     def test_stages_are_split_at_the_moment_each_follow_up_was_said(self):
         state = {"stages": [{"stage": "review_change", "finished_at": "2026-09-28T10:00:01+00:00"},
                             {"stage": "orchestrator", "started_at": None, "finished_at": "2026-09-28T10:05:00+00:00"},

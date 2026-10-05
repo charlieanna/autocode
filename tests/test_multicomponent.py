@@ -186,7 +186,7 @@ class BuildAndIntegrateTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="multicomponent-")
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.root = Path(temp.name).resolve()
         self.repo = self.root / "repo"
         self.repo.mkdir()
         git(self.repo, "init", "-q")

@@ -55,7 +55,7 @@ except ImportError:
     import autocode_wrapped_runner as wrapped_runner
 
 STAGE = "regression_proof"
-SUMMARY_KEYS = ("verdict", "failures", "unverified", "notes", "review_reasons", "fail_to_pass", "pass_to_pass",
+SUMMARY_KEYS = ("framework", "verdict", "failures", "unverified", "notes", "review_reasons", "fail_to_pass", "pass_to_pass",
                 "not_run_on_base",
                 "commands", "base", "base_patch", "source_revision", "test_files", "source_files", "case_tests")
 
@@ -350,19 +350,21 @@ def check_cases(proof, cases, refused=None):
             proof["verdict"] = verify.UNVERIFIED
         return
     refused = refused or {}
+    framework = proof.get("framework") or {}
+    framework = framework.get("name") if isinstance(framework, dict) else framework
 
     def usable(tests):
         return [test for test in tests or [] if test not in refused]
 
     def refusal(label, case):
-        reasons = sorted({refused[test] for test in test_cases.match_cases([case], sorted(refused))[case["id"]]})
+        reasons = sorted({refused[test] for test in test_cases.match_cases([case], sorted(refused), framework=framework)[case["id"]]})
         return (f"{label} {test_cases.case_text(case)} has a test named after it that cannot prove it: "
                 + "; ".join(reasons)) if reasons else ""
 
     restore = [case for case in cases if case.get("kind", "restore") == "restore"]
     preserve = [case for case in cases if case.get("kind") == "preserve"]
-    proof["case_tests"] = test_cases.match_cases(restore, usable(proof["fail_to_pass"]))
-    proof["case_tests"].update(test_cases.match_cases(preserve, usable(proof.get("pass_to_pass"))))
+    proof["case_tests"] = test_cases.match_cases(restore, usable(proof["fail_to_pass"]), framework=framework)
+    proof["case_tests"].update(test_cases.match_cases(preserve, usable(proof.get("pass_to_pass")), framework=framework))
     failures = []
     missing = [case for case in restore if not proof["case_tests"][case["id"]]]
     failures += [refusal("Test case", case) or
@@ -373,7 +375,7 @@ def check_cases(proof, cases, refused=None):
     # shown to fail there: it counts, with a note that its before-state is unproven.
     unrun = usable(proof.get("not_run_on_base"))
     for case in preserve:
-        found = [] if proof["case_tests"][case["id"]] else test_cases.match_cases([case], unrun)[case["id"]]
+        found = [] if proof["case_tests"][case["id"]] else test_cases.match_cases([case], unrun, framework=framework)[case["id"]]
         if found:
             proof["case_tests"][case["id"]] = found
             proof["notes"] = list(proof.get("notes") or []) + [
@@ -381,7 +383,7 @@ def check_cases(proof, cases, refused=None):
                 "on the original code (its test file imports code the change adds), so it is not shown to "
                 "have passed before"]
     mistagged = [case for case in preserve
-                 if set(test_cases.match_cases([case], usable(proof["fail_to_pass"]))[case["id"]]) - set(unrun)]
+                 if set(test_cases.match_cases([case], usable(proof["fail_to_pass"]), framework=framework)[case["id"]]) - set(unrun)]
     untested = [case for case in preserve
                 if not proof["case_tests"][case["id"]] and case not in mistagged]
     failures += [refusal("Preserve case", case) or

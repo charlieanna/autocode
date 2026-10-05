@@ -54,7 +54,7 @@ PERSON_ONLY_SCOPES = ("operational_exhaustion", "blocker")
 
 def leaves_for_person(need: dict) -> bool:
     """Whether this need is an honest stop the driver must not answer for the user."""
-    return need["kind"] == "resume" or (need["kind"] == "answer"
+    return need["kind"] in ("resume", "retry_job", "recover_source") or (need["kind"] == "answer"
                                         and need.get("resolver_scope") in PERSON_ONLY_SCOPES)
 
 
