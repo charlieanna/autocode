@@ -161,6 +161,13 @@ class DropSlowTests(unittest.TestCase):
         self.assertEqual({"tests.test_slow": "changed"}, kept)
         self.assertEqual([], skipped)
 
+    def test_all_fast_runs_every_module_but_the_unchanged_slow_ones(self):
+        selected = run_suite.select_all(["tests.test_fast", "tests.test_slow", "tests.test_changed_slow"],
+                                        {"tests.test_changed_slow": "changed"})
+        kept, skipped = run_suite.drop_slow(selected, {"tests.test_slow": "106 s", "tests.test_changed_slow": "20 s"})
+        self.assertEqual({"tests.test_fast": "all fast", "tests.test_changed_slow": "changed"}, kept)
+        self.assertEqual(["tests.test_slow"], skipped)
+
     def test_the_slow_list_names_only_real_test_modules(self):
         slow = run_suite.load_exclusions(run_suite.DEFAULT_SLOW_PATH)
         self.assertTrue(slow)

@@ -163,9 +163,14 @@ class DraftCadenceTests(unittest.TestCase):
         doc = self.send(self.create(), 'Use SQLite')
         self.refresh(doc)
         doc = self.store.send(doc['id'], 'Use Postgres instead')
+        # The queued update counts as in flight (#21): the newer answer joins
+        # the one update released when it ends instead of waiting for the cadence.
+        self.assertTrue(self.store.get(doc['id'])['draft_update']['coalesced'])
         self.store.pool.drain()
         latest = self.store.get(doc['id'])
-        self.assertTrue(latest['draft_update']['held'])
-        self.assertEqual('pending', latest['plan_drafts'][-1]['status'])
-        self.assertEqual(1, sum(kind == 'planner' for kind, *_ in self.calls), 'Superseded queued revision cannot spend or commit')
+        self.assertFalse(latest['draft_update']['held'])
+        self.assertEqual(2, sum(kind == 'planner' for kind, *_ in self.calls), 'Superseded queued revision cannot spend or commit')
+        self.assertEqual(('current', 3), (latest['plan_drafts'][-1]['status'], latest['plan_drafts'][-1]['requirements_revision']))
+        self.assertEqual(['Use SQLite', 'Use Postgres instead'],
+                         [row['excerpt'] for row in latest['plan_drafts'][-1]['freshness']['source_messages']])
         self.assertEqual('Use Postgres instead', latest['messages'][-2]['text'])

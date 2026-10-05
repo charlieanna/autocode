@@ -9,6 +9,7 @@ import contextlib
 import io
 import ast
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -24,7 +25,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import run  # noqa: E402
 from harness import api_cost, baseline, build_compare, catalog, compare, oracle, plan_compare, processes, profiles, routing, stats, verdict  # noqa: E402
-from harness.driver import Driver, DriveError, leaves_for_person, metrics, model_routes, split_by_turn, turn_state  # noqa: E402
+from harness.driver import (Driver, DriveError, changed_between, leaves_for_person, metrics, model_routes,  # noqa: E402
+                           split_by_turn, turn_state, workspace_files)
 
 
 class PhaseCatalogTests(unittest.TestCase):
@@ -758,6 +760,49 @@ class TurnTests(unittest.TestCase):
         self.assertTrue(approved(record))
         self.assertTrue(approved(record["turns"][0]))
         self.assertFalse(approved(record["turns"][1]))
+
+    def test_turn_paths_split_a_conversation_s_solution_one_list_per_turn(self):
+        scenario = catalog.load("discuss-then-design-then-build")
+        self.assertEqual(len(scenario.turns) + 1, len(scenario.fake_turn_paths))
+        with tempfile.TemporaryDirectory() as root:
+            original = catalog.CATALOG
+            catalog.CATALOG = Path(root)
+            self.addCleanup(setattr, catalog, "CATALOG", original)
+            cases = {"too-few": ('[["a/"]]', ["x"], "one list of relative path prefixes per turn"),
+                     "outside": ('[["a/"], ["../b/"]]', ["x"], "one list of relative path prefixes per turn"),
+                     "prefix": ('[["a/"], ["b/"], ["c/"]]', ["Go on.", "Go on. Now."],
+                                "no turn's message may begin another's"),
+                     # Identical messages begin each other: both follow-ups would be served as the last.
+                     "duplicate": ('[["a/"], ["b/"], ["c/"]]', ["Go on.", "Go on."],
+                                   "no turn's message may begin another's"),
+                     "brief": ('[["a/"], ["b/"]]', ["Do"], "no turn's message may begin another's or the brief")}
+            for name, (paths, says, error) in cases.items():
+                bad = Path(root) / name
+                bad.mkdir()
+                (bad / "brief.md").write_text("Do it.")
+                turns = "".join(f'[[turn]]\nafter = "complete"\nsay = "{say}"\n' for say in says)
+                (bad / "scenario.toml").write_text('title = "t"\ncategory = "conversation"\n[fake]\ncheck = "true"\n'
+                                                   f'turn_paths = {paths}\n{turns}')
+                with self.subTest(name), self.assertRaisesRegex(ValueError, re.escape(error)):
+                    catalog.load(name)
+
+    def test_the_design_turn_may_also_add_its_design_to_the_folder_s_index(self):
+        design_document = catalog.load("discuss-then-design-then-build").oracle().__globals__["design_document"]
+        written = {"changed_files": ["docs/design/README.md", "docs/design/metadata-cache.md"]}
+        self.assertEqual("docs/design/metadata-cache.md", design_document(None, {"turns": [{}, written, {}]}))
+
+    def test_each_turn_records_what_it_changed_in_the_workspace(self):
+        with tempfile.TemporaryDirectory() as root:
+            project = Path(root)
+            (project / ".autocode").mkdir()
+            (project / ".autocode" / "state.json").write_text("{}")
+            (project / "kept.txt").write_text("same")
+            (project / "edited.txt").write_text("before")
+            before = workspace_files(project)
+            (project / "edited.txt").write_text("after")
+            (project / "new.txt").write_text("new")
+            self.assertEqual(["edited.txt", "new.txt"], changed_between(before, workspace_files(project)))
+            self.assertNotIn(".autocode/state.json", before)
 
 
 class MetricsTests(unittest.TestCase):

@@ -17,14 +17,29 @@ import json
 import os
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 AUTOCODE = (sys.executable, str(Path(__file__).resolve().parent / "autocode.py"))
 
 
 class TaskRunError(RuntimeError):
-    """AutoCode rejected a command, or could not run it."""
+    """AutoCode rejected a command, or could not run it.
+
+    ``process`` is the CompletedProcess of the CLI call that failed, so a caller
+    can keep its output and exit code. It is None when the error is not a failed
+    call: a call that could not run or did not finish (a missing working
+    directory, a timeout), ``attach`` finding several runs, or a guard such as
+    ``advance_until_input``'s no-progress check, raised after its calls
+    finished (``TaskRun.last_advance`` still holds the latest advancing call).
+    ``run_dir`` is the run a failed ``start`` created, when it created exactly one.
+    """
+
+    def __init__(self, message: str, process: subprocess.CompletedProcess | None = None,
+                 run_dir: Path | None = None):
+        super().__init__(message)
+        self.process = process
+        self.run_dir = run_dir
 
 
 @dataclass
@@ -35,9 +50,15 @@ class TaskRun:
     options: tuple[str, ...] = ()  # engine and model flags, passed whenever the run starts or advances
     env: dict | None = None
     timeout: float | None = None
+    # The CLI's working directory; None keeps the caller's. Relative paths in options resolve against it.
+    cwd: Path | None = None
+    # The CompletedProcess of the latest call that starts or advances the run (also when it was
+    # rejected), for a caller that keeps the run's output or exit code. Status reads never replace it.
+    last_advance: subprocess.CompletedProcess | None = field(default=None, compare=False, repr=False)
 
     @classmethod
-    def start(cls, workspace, brief: str, *, options=(), start_options=(), command=AUTOCODE, env=None, timeout=None) -> "TaskRun":
+    def start(cls, workspace, brief: str, *, options=(), start_options=(), command=AUTOCODE, env=None, timeout=None,
+              cwd=None) -> "TaskRun":
         """Create a run that works directly in ``workspace`` and advance it to its first stop.
 
         The caller owns the workspace (for example a worktree it created), so
@@ -47,37 +68,52 @@ class TaskRun:
         """
         workspace = Path(workspace).resolve()
         before = set(_runs(workspace))
-        run = cls(workspace, Path(), tuple(command), tuple(options), env, timeout)
-        proc = run._invoke("start", brief, "--in-place", "--no-chat", *run.options, *start_options,
-                    advancing=True, with_run_dir=False)
+        run = cls(workspace, Path(), tuple(command), tuple(options), env, timeout, _path(cwd))
+        try:
+            proc = run._invoke("start", brief, "--in-place", "--no-chat", *run.options, *start_options,
+                               advancing=True, with_run_dir=False)
+        except TaskRunError as error:
+            created = set(_runs(workspace)) - before
+            if len(created) == 1:  # the start saved its run before it failed
+                error.run_dir = created.pop()
+            raise
         created = set(_runs(workspace)) - before
         if not created:
             detail = (proc.stderr or proc.stdout).strip()[-800:]
-            raise TaskRunError(f"start exited {proc.returncode} without creating a run: {detail}")
+            raise TaskRunError(f"start exited {proc.returncode} without creating a run: {detail}", proc)
         if len(created) != 1:
-            raise TaskRunError(f"expected one new run in {workspace}, found {sorted(map(str, created))}")
+            raise TaskRunError(f"expected one new run in {workspace}, found {sorted(map(str, created))}", proc)
         run.run_dir = created.pop()
         return run
 
     @classmethod
-    def attach(cls, workspace, *, options=(), command=AUTOCODE, env=None, timeout=None) -> "TaskRun | None":
+    def attach(cls, workspace, *, options=(), command=AUTOCODE, env=None, timeout=None, cwd=None,
+               exclude=()) -> "TaskRun | None":
         """Reattach to the one run in ``workspace``, or None if it has none yet.
 
         For a caller that lost its record of ``run_dir``, for example because it
-        crashed while ``start`` was still advancing the new run.
+        crashed while ``start`` was still advancing the new run. ``exclude`` lists
+        runs that are not the caller's: in a workspace someone else may also run
+        AutoCode in, pass what ``runs_in`` returned before the start.
         """
         workspace = Path(workspace).resolve()
-        runs = _runs(workspace)
+        skip = {Path(path).resolve() for path in exclude}
+        runs = [run for run in _runs(workspace) if run.resolve() not in skip]
         if len(runs) > 1:
             raise TaskRunError(f"expected at most one run in {workspace}, found {sorted(map(str, runs))}")
-        return cls(workspace, runs[0], tuple(command), tuple(options), env, timeout) if runs else None
+        return cls(workspace, runs[0], tuple(command), tuple(options), env, timeout, _path(cwd)) if runs else None
+
+    @staticmethod
+    def runs_in(workspace) -> list[Path]:
+        """The runs already saved in ``workspace``; see ``attach``'s ``exclude``."""
+        return sorted(_runs(Path(workspace).resolve()))
 
     def status(self) -> dict:
         proc = self._invoke("status", "--status")
         try:
             return json.loads(proc.stdout)["view"]
         except (ValueError, KeyError) as error:
-            raise TaskRunError(f"--status did not return a status view: {error}") from None
+            raise TaskRunError(f"--status did not return a status view: {error}", proc) from None
 
     def show_goal(self) -> str:
         """Return the displayed brief a person must read before approving its token."""
@@ -133,7 +169,7 @@ class TaskRun:
         result = json.loads(self._invoke("restore checkpoint", "checkpoint", "--restore", checkpoint_id,
             "--expected-token", expected_token, "--request-id", request_id).stdout)
         return TaskRun(Path(result["workspace"]), Path(result["run_dir"]), self.command,
-                       self.options, self.env, self.timeout)
+                       self.options, self.env, self.timeout, self.cwd)
 
     def accept_transport_change(self) -> dict:
         """Explicitly accept a validated OpenCode transport change and continue."""
@@ -207,11 +243,16 @@ class TaskRun:
         cmd = [*self.command, *args, "--workspace", str(self.workspace)]
         if with_run_dir:
             cmd += ["--run-dir", str(self.run_dir)]
+        where = {"cwd": self.cwd} if self.cwd is not None else {}
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout,
-                                  env={**os.environ, **(self.env or {})})
+                                  env={**os.environ, **(self.env or {})}, **where)
         except subprocess.TimeoutExpired:
             raise TaskRunError(f"{name} did not finish within {self.timeout} s") from None
+        except OSError as error:  # e.g. a working directory or workspace that was removed
+            raise TaskRunError(f"{name} could not run: {error}") from error
+        if advancing:
+            self.last_advance = proc
         # Advancing exits 0 when complete and 2 when stopped for input. Usage errors
         # also exit 2, so recognize argparse's message rather than trusting the code.
         usage_error = proc.returncode == 2 and proc.stderr.startswith("usage:")
@@ -221,8 +262,12 @@ class TaskRun:
         accepted = proc.returncode in (0, 2) if advancing else proc.returncode == 0
         if usage_error or rejected_input or not accepted:
             detail = (proc.stderr or proc.stdout).strip()[-800:]
-            raise TaskRunError(f"{name} exited {proc.returncode}: {detail}")
+            raise TaskRunError(f"{name} exited {proc.returncode}: {detail}", proc)
         return proc
+
+
+def _path(value) -> Path | None:
+    return None if value is None else Path(value)
 
 
 def _runs(workspace: Path) -> list[Path]:

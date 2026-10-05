@@ -8,15 +8,20 @@ import subprocess
 import threading
 import time
 
-import psutil
-
 try:
     from . import autocode_process_children as process_children, autocode_process_receipts as process_receipts
+    from . import autocode_util as util
     from .autocode_activity import idle_timeout_reason
 except ImportError:
     import autocode_process_children as process_children
     import autocode_process_receipts as process_receipts
+    import autocode_util as util
     from autocode_activity import idle_timeout_reason
+
+try:
+    import psutil
+except ImportError as missing:  # autocode.py loads this module for --version and doctor too (#67)
+    psutil = util.MissingModule("psutil", missing)
 
 
 class ProcessError(RuntimeError):

@@ -70,7 +70,8 @@ plan — an explicit person's decision to delegate, not a default choice.
 `--integrate TARGET` combines every finished component's changes into `TARGET`
 (created fresh from the repository's HEAD if it does not exist yet), left
 uncommitted for review, the same way a single AutoCode task leaves its own
-work. Extra flags for the underlying task runs (models, reasoning effort,
+work. An existing `TARGET` must be the top directory of a worktree of the same
+repository; anything else is refused before a file is written. Extra flags for the underlying task runs (models, reasoning effort,
 provider) go after `--options`, shell-quoted.
 
 ### A component with a Figma design
@@ -115,7 +116,7 @@ field keep their ordinary text brief.
 
 Figma implementation requires the existing native Codex Figma workflow, ChatGPT
 login and the connected Figma plugin; use `--engine codex` for this build.
-Explicit OpenCode or GoCode engines are rejected before components start. See
+Any other explicit `--engine` is rejected before components start. See
 [Figma design and implementation](figma.md) for setup and visual verification.
 Implementation and review inspect the live file because it can change remotely.
 This command consumes an existing design; it does not create a design run.
@@ -129,7 +130,18 @@ second time. If `components.json`, a contract or an accepted UI handoff changed
 since the saved build, the command refuses to resume, because the saved components
 were built against the old contracts or designs; remove `.autocode-components/`
 to rebuild from scratch. A worktree the manifest does not record is refused too,
-rather than guessed at.
+rather than guessed at. Rerunning with the same `--integrate TARGET` is safe:
+a component whose exact result `TARGET` already holds (the same content and
+file mode at every path it changed) is left alone and listed in the summary's
+`integration.already_applied`, and a component that finished since is added.
+A component is applied only to a `TARGET` that holds none of its result yet,
+so a rerun never applies a change twice. Otherwise integration stops at that
+component and names the paths that differ. If `TARGET` was edited there or is
+checked out at another commit, the message says to integrate into a new
+target. If HEAD itself changed those paths since the component was built (for
+example, an earlier integration was committed and then edited), a new target
+would differ the same way, so the message says to rebuild the component:
+remove its worktree `.autocode-components/<id>` and run the command again.
 
 When the work is one requirement that must be split, built in parallel and
 combined, use a [program](program.md) instead of lanes: workstreams declare

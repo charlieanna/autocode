@@ -1074,7 +1074,11 @@ $('#interview').append($('#change-history'));
 function composerShouldSend(event) {return event.key==='Enter'&&!event.shiftKey&&!event.altKey&&!event.isComposing;}
 function conversationDeliveryBlocked(doc){return [doc?.pending_dispatch,doc?.planner_delivery].some(delivery=>delivery&&['UNCERTAIN','ACTIVE','DISPATCH_PREPARED','PROCESS_STARTING','PROCESS_STARTED','PROVIDER_IDENTIFIED','RESULT_CAPTURED','PENDING'].includes(String(delivery.state||delivery.status||'').toUpperCase()));}
 function conversationRetryAllowed(doc){if(doc?.project_scope_error)return false;const deliveries=[doc?.pending_dispatch,doc?.planner_delivery].filter(Boolean);return !conversationDeliveryBlocked(doc)&&(!deliveries.length||deliveries.some(delivery=>delivery.retryable===true));}
-function draftSendBlocked(doc,pending,text) {return !doc||!!(doc.project_removed||doc.task_archived||doc.archived_at||pending||conversationDeliveryBlocked(doc)||doc.status==='thinking'||doc.attachment||doc.status==='error')||!String(text||'').trim();}
+// A Planner draft still running does not block the next answer: the server
+// coalesces answers sent meanwhile into one follow-up draft (#21). A Gatherer
+// reply in flight, or an uncertain Planner delivery, still does.
+function conversationSendBlocked(doc){const planner=doc?.planner_delivery,uncertain=String(planner?.state||planner?.status||'').toUpperCase()==='UNCERTAIN';return conversationDeliveryBlocked({pending_dispatch:doc?.pending_dispatch,planner_delivery:uncertain?planner:null});}
+function draftSendBlocked(doc,pending,text) {return !doc||!!(doc.project_removed||doc.task_archived||doc.archived_at||pending||conversationSendBlocked(doc)||doc.status==='thinking'||doc.attachment||doc.status==='error')||!String(text||'').trim();}
 function resizeComposer(input) {const minimum=(input.id==='draft-text'&&$('#draft-conversation').classList.contains('scoped-start'))?24:48;input.style.height='auto';input.style.height=Math.min(160,Math.max(minimum,input.scrollHeight))+'px';}
 for(const [input,form] of [['#change-text','#change-form'],['#draft-text','#draft-form']]){
   $(input).addEventListener('keydown',event=>{if(composerShouldSend(event)){event.preventDefault();const submit=$(form).querySelector('button[type="submit"]');if(submit&&!submit.disabled&&$(input).value.trim())$(form).requestSubmit();}});
@@ -1500,7 +1504,12 @@ function appendMessage(host,message) {
 function draftUpdateCard(doc){
   const update=doc.draft_update,host=card('','lifecycle-card');
   host.dataset.draftUpdate='true';host.append(n('h3','Draft update'));
-  host.append(n('p',update.answers_since_update+' of your latest messages are saved. Automatic draft updates group '+update.answers_per_update+' messages to limit extra model calls.'));
+  if(update.coalesced&&!update.stalled){
+    host.append(n('p',update.answers_since_update+' of your latest messages are saved. The Planner is finishing the draft it already started; one update covering all of them starts as soon as it finishes.'));
+    host.append(n('p','You can keep answering. This does not approve a plan or start implementation.'));
+    return host;
+  }
+  host.append(n('p',update.answers_since_update+' of your latest messages are saved. '+(update.coalesced?'The draft they were waiting for has stopped reporting progress, so its update may not arrive.':'Automatic draft updates group '+update.answers_per_update+' messages to limit extra model calls.')));
   host.append(n('p','You can keep answering or update the draft now. This does not approve a plan or start implementation.'));
   const action=button('Update draft now',()=>refreshConversationDraft(doc),'secondary');
   action.disabled=!update.can_refresh||conversationPending.has(doc.id)||conversationArchiveBlocked(doc)||doc.task_archived||doc.project_removed;
@@ -1585,7 +1594,7 @@ function renderDraftConversation(doc) {
 $('#draft-text').oninput=event=>{persist('conversation-draft:'+event.target.dataset.conversation,event.target.value);$('#draft-send').disabled=draftSendBlocked(latestConversation,conversationPending.has(activeConversation),event.target.value);};
 $('#draft-form').onsubmit=event=>{event.preventDefault();if(latestConversation?.id===activeConversation)sendDraftMessage(latestConversation);};
 async function sendDraftMessage(doc,retry) {
-  if(conversationArchiveBlocked(doc)||doc.task_archived||taskArchiveBlocked(doc.attachment?.run)||doc.project_removed||doc.project_scope_error||projectBlocked(conversationWorkspace(doc))||conversationPending.has(doc.id)||conversationDeliveryBlocked(doc)||doc.status==='thinking')return;
+  if(conversationArchiveBlocked(doc)||doc.task_archived||taskArchiveBlocked(doc.attachment?.run)||doc.project_removed||doc.project_scope_error||projectBlocked(conversationWorkspace(doc))||conversationPending.has(doc.id)||conversationSendBlocked(doc)||doc.status==='thinking')return;
   const text=$('#draft-text').value.trim(),request=retry||{text,request_id:savedRequest('conversation-request:'+doc.id,{text}).id};if(!request.text)return;
   conversationPending.add(doc.id);conversationRetries.delete(doc.id);seq++;renderDraftConversation(doc);
   try{const saved=await api('/api/conversation/message',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:doc.id,text:request.text,request_id:request.request_id})});persist('conversation-request:'+doc.id,'');persist('conversation-scroll:'+doc.id,'');if($('#draft-text').dataset.conversation===doc.id&&$('#draft-text').value.trim()===request.text){$('#draft-text').value='';persist('conversation-draft:'+doc.id,'');}renderDraftConversation(saved);if(activeConversation===doc.id)requestAnimationFrame(()=>{scrollDraftToEnd();$('#draft-text').focus();});}
@@ -1953,13 +1962,31 @@ function planDraftPreviewCard(draft,options={}){
     const section=card('','quiet-plan-section');section.append(n('h3',title));const list=n('ul');
     for(const row of rows)list.append(n('li',typeof row==='string'?row:row.question||planEntryText(row)));section.append(list);host.append(section);
   }
-  const sources=Array.isArray(freshness.source_messages)?freshness.source_messages:[];
-  if(sources.length){const section=card('','quiet-plan-section');section.append(n('h3','Updated from your messages'));const list=n('ul');for(const item of sources){const row=n('li',item.excerpt||'Saved message');row.dataset.sourceMessage=item.message_id;list.append(row);}section.append(list);host.append(section);}
   const stamp=freshness.updated_at?new Date(freshness.updated_at).toLocaleString():'';
-  host.append(Object.assign(n('p',((options.updateReason||freshness.reason)==='batching_answers'?'Answers saved · draft update batched':labels[options.updateState||freshness.state]||'Saved draft')+(stamp?' · '+stamp:'')),{className:'quiet-plan-freshness'}));
+  const causes=draftCauseLine(draft),reason=options.updateReason||freshness.reason,state=options.updateState||freshness.state;
+  const status=reason==='batching_answers'?'Answers saved · draft update batched':reason===DRAFT_COALESCED?'Answers saved · one draft update follows the one in progress':causes&&state==='fresh'?'':labels[state]||'Saved draft';
+  if(causes){if(!status&&stamp)causes.append(n('span',' · '+stamp));host.append(causes);}
+  if(status)host.append(Object.assign(n('p',status+(stamp?' · '+stamp:'')),{className:'quiet-plan-freshness'}));
   const prior=(options.allDrafts||[]).filter(row=>row.revision!==draft.revision);
   if(prior.length)host.append(disclosure('Earlier drafts ('+prior.length+')','draft-history:'+options.key,[renderDocument(prior)],options.key||''));
   host.append(Object.assign(n('p',options.frozen?'Frozen scope. Requirement changes need a newly reviewed and approved revision.':options.ready?'Plan reviewed. Approve this revision before building.':'Draft only. Independent plan review and your approval are required before implementation.'),{className:'quiet-plan-safety'}));return host;
+}
+const DRAFT_COALESCED='coalesced_behind_draft_in_flight';
+function draftCauseQuote(text){
+  const value=String(text||'').replace(/\s+/g,' ').trim();
+  return value.length>80?value.slice(0,79).replace(/\s+\S*$/,'')+'…':value;
+}
+// The human turns a Planner-produced draft answers, from its saved
+// freshness.source_messages (every turn since the previous accepted draft, so a
+// coalesced update lists all of them). Only a validated Planner result has
+// them: a pending, failed or superseded placeholder the Planner never produced
+// claims no update.
+function draftCauseLine(draft){
+  const freshness=draft?.freshness||{},sources=Array.isArray(freshness.source_messages)?freshness.source_messages:[];
+  if(!sources.length||freshness.structured_result!==true||!['fresh','stale'].includes(freshness.state))return null;
+  const line=Object.assign(n('p',sources.length>1?'Updated after your answers: ':'Updated after your answer: '),{className:'quiet-plan-freshness quiet-plan-causes'});
+  sources.forEach((item,index)=>{const quote=n('span',(index?' · ':'')+'“'+(draftCauseQuote(item.excerpt)||'Saved message')+'”');quote.dataset.sourceMessage=item.message_id||'';line.append(quote);});
+  return line;
 }
 function renderQuietPlanPreview(doc){
   const host=$('#quiet-plan');if(!host)return;const draft=currentConversationDraft(doc);host.hidden=!draft;

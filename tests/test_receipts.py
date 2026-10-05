@@ -90,3 +90,11 @@ class ValidatorEvidenceInstructionTests(unittest.TestCase):
             if "'event:'" in sentence:
                 with self.subTest(sentence=sentence):
                     self.assertIn("receipt", sentence)
+
+    def test_the_scratch_directory_is_named_as_uncitable(self):
+        # Live greenfield-todo-cli (2026-10-04): the prompt told writers to keep scratch under the
+        # evidence directory (.autocode/), and the Validator then cited `sh .autocode/probe.sh` as a
+        # check. The replay runs on a clean source copy with no .autocode/, so it could never pass.
+        self.assertIn(".autocode/", support.COMMON)
+        self.assertIn("Never cite", support.COMMON)
+        self.assertIn("clean-copy replay cannot pass", support.COMMON)

@@ -2,6 +2,7 @@
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
@@ -372,6 +373,53 @@ class TaskRunTests(unittest.TestCase):
         upgraded.approve_plan(view["needs"]["token"])
         self.assertEqual("TASK_COMPLETE", upgraded.advance_until_input()["status"])
 
+    def test_follow_up_can_revise_a_protected_behavior_but_still_needs_new_plan_approval(self):
+        request = "Add optional punctuation to the greeting API while preserving the current default."
+        replacement = "Print Hello, NAME for one nonempty name by default; allow optional punctuation"
+        provider = Path(self.env["PATH"].split(os.pathsep)[0]) / "codex"
+        script = provider.read_text()
+        anchor = '    output = Path(sys.argv[sys.argv.index("-o") + 1])'
+        self.assertIn(anchor, script)
+        amendment = textwrap.dedent("""
+            if stage in ("astra_discovery", "glm_revise", "astra_finalize") and os.environ.get("FOLLOW_UP_PROVENANCE_TEST") == "1":
+                previous = "Print Hello, NAME for one nonempty name"
+                event = next((e for e in data.get("brief_feedback", []) if e.get("text") == REQUEST), {})
+                report["contract"].setdefault("initial_task", _planning_contract()["initial_task"])
+                report["contract"]["required_behaviors"][0] = REPLACEMENT
+                report["requirement_trace"][0]["evidence"] = REPLACEMENT
+                behaviors = ((data.get("goal_contract") or {}).get("body") or {}).get("required_behaviors", [])
+                if previous in behaviors or not behaviors:
+                    report["contract_changes"] = [{"item": previous, "change": "reworded",
+                        "replacement": REPLACEMENT, "basis": "user_feedback",
+                        "answer_id": event.get("id", "feedback-unrecorded-follow-up"), "example_correction": None}]
+        """).replace("REQUEST", repr(request)).replace("REPLACEMENT", repr(replacement))
+        provider.write_text(script.replace(anchor, textwrap.indent(amendment, "    ") + "\n" + anchor, 1))
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS,
+                                   start_options=("--workflow", "build"), env=self.env, timeout=300)
+        first = run.status()["needs"]["token"]
+        run.approve_plan(first)
+        self.assertEqual("TASK_COMPLETE", run.advance_until_input()["status"])
+        accepted = {name: (self.workspace / name).read_bytes() for name in ("greet.py", "test_greet.py", "README.md")}
+        run.follow_up(request)
+        self.env["FOLLOW_UP_PROVENANCE_TEST"] = "1"
+        self.env["LIVE_FIXTURE_CLARITY"] = "clear"
+        recognizing = taskrun.TaskRun(self.workspace, run.run_dir,
+            options=(*FIXTURE_OPTIONS, "--pause-after-stage"), env=self.env, timeout=300)
+        boundary = recognizing.advance()
+        self.assertEqual(("PAUSED_REQUESTED", "requirements_gather"),
+                         (boundary["status"], boundary["next_stage"]), boundary)
+        # Reattach: refresh the prior handoff, and retain the recorded request and authorization identity.
+        run = taskrun.TaskRun(self.workspace, run.run_dir, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
+        view = run.resume_paused()
+        self.assertEqual("AWAITING_GOAL_APPROVAL", view["status"], view)
+        self.assertEqual(2, view["turn"])
+        self.assertIn(replacement, run.show_goal())
+        self.assertNotEqual(first, view["needs"]["token"])
+        with self.assertRaises(taskrun.TaskRunError):
+            run.approve_plan(first)
+        self.assertEqual("approve_plan", run.status()["needs"]["kind"])
+        self.assertEqual(accepted, {name: (self.workspace / name).read_bytes() for name in accepted})
+
     def test_usage_errors_are_not_mistaken_for_a_pause(self):
         run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
         broken = taskrun.TaskRun(self.workspace, run.run_dir, options=("--no-such-flag",), env=self.env)
@@ -487,6 +535,125 @@ class TaskRunClientTests(unittest.TestCase):
         with patch.object(run, "_invoke", return_value=completed) as invoke:
             self.assertEqual(completed.stdout, run.show_goal())
         invoke.assert_called_once_with("show goal", "--show-goal")
+
+
+# A stand-in for the autocode CLI: a start saves a run, any other call reports its working directory.
+STUB_CLI = textwrap.dedent("""
+    import json, os, pathlib, sys
+    args = sys.argv[1:]
+    workspace = pathlib.Path(args[args.index("--workspace") + 1])
+    if "--restore" in args:
+        print(json.dumps({"workspace": str(workspace), "run_dir": str(workspace / ".autocode" / "runs" / "two")}))
+        sys.exit(0)
+    if "--status" in args:
+        print(json.dumps({"view": {"status": "RUNNING", "cwd": os.getcwd()}}))
+        sys.exit(0)
+    if "--in-place" in args:
+        (workspace / ".autocode" / "runs" / "one").mkdir(parents=True, exist_ok=True)
+        (workspace / ".autocode" / "runs" / "one" / "state.json").write_text("{}")
+    print("advanced in " + os.getcwd())
+    if os.environ.get("STUB_REJECT"):
+        print("Input rejected: the run is busy", file=sys.stderr)
+    sys.exit(2)
+""")
+
+
+class TaskRunProcessTests(unittest.TestCase):
+    """The invocation a caller keeps (last_advance, TaskRunError.process) and the CLI's working directory."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name).resolve()
+        self.workspace = self.root / "project"
+        self.workspace.mkdir()
+        self.cwd = self.root / "elsewhere"
+        self.cwd.mkdir()
+        stub = self.root / "stub_cli.py"
+        stub.write_text(STUB_CLI)
+        self.command = (sys.executable, str(stub))
+
+    def test_start_keeps_the_advancing_invocation_and_status_reads_do_not_replace_it(self):
+        run = taskrun.TaskRun.start(self.workspace, "A task", command=self.command, cwd=self.cwd)
+        started = run.last_advance
+        self.assertEqual((2, f"advanced in {self.cwd}\n"), (started.returncode, started.stdout))
+        self.assertEqual(self.cwd, run.cwd)
+        self.assertEqual(str(self.cwd), run.status()["cwd"])
+        self.assertIs(started, run.last_advance)
+        run.advance()
+        self.assertIsNot(started, run.last_advance)
+        self.assertEqual(2, run.last_advance.returncode)
+
+    def test_a_rejected_advance_carries_its_process(self):
+        run = taskrun.TaskRun.start(self.workspace, "A task", command=self.command)
+        rejected = taskrun.TaskRun(self.workspace, run.run_dir, command=self.command, env={"STUB_REJECT": "1"})
+        with self.assertRaisesRegex(taskrun.TaskRunError, "the run is busy") as raised:
+            rejected.advance()
+        self.assertEqual(2, raised.exception.process.returncode)
+        self.assertIs(raised.exception.process, rejected.last_advance)
+        self.assertIn("--run-dir", raised.exception.process.args)
+
+    def test_a_start_that_creates_no_run_carries_its_process(self):
+        (self.workspace / ".autocode" / "runs" / "one").mkdir(parents=True)
+        (self.workspace / ".autocode" / "runs" / "one" / "state.json").write_text("{}")
+        with self.assertRaisesRegex(taskrun.TaskRunError, "without creating a run") as raised:
+            taskrun.TaskRun.start(self.workspace, "A task", command=self.command)
+        self.assertEqual(2, raised.exception.process.returncode)
+
+    def test_cwd_defaults_to_the_callers_and_attach_accepts_one(self):
+        taskrun.TaskRun.start(self.workspace, "A task", command=self.command)
+        attached = taskrun.TaskRun.attach(self.workspace, command=self.command, cwd=self.cwd)
+        self.assertEqual((self.cwd, None), (attached.cwd, attached.last_advance))
+        self.assertEqual(str(self.cwd), attached.status()["cwd"])
+        plain = taskrun.TaskRun.attach(self.workspace, command=self.command)
+        self.assertIsNone(plain.cwd)
+        self.assertEqual(os.getcwd(), plain.status()["cwd"])
+
+    def test_a_start_rejected_after_saving_its_run_names_that_run(self):
+        with self.assertRaisesRegex(taskrun.TaskRunError, "the run is busy") as raised:
+            taskrun.TaskRun.start(self.workspace, "A task", command=self.command, env={"STUB_REJECT": "1"})
+        self.assertEqual(self.workspace / ".autocode" / "runs" / "one", raised.exception.run_dir)
+        self.assertEqual(2, raised.exception.process.returncode)
+
+    def test_a_call_that_cannot_run_is_a_task_run_error(self):
+        run = taskrun.TaskRun(self.workspace, self.workspace / ".autocode" / "runs" / "one",
+                              command=self.command, cwd=self.root / "removed")
+        with self.assertRaisesRegex(taskrun.TaskRunError, "status could not run: .*No such file") as raised:
+            run.status()
+        self.assertIsNone(raised.exception.process)
+        with self.assertRaisesRegex(taskrun.TaskRunError, "start could not run") as raised:
+            taskrun.TaskRun.start(self.workspace, "A task", command=self.command, cwd=self.root / "removed")
+        self.assertIsNone(raised.exception.run_dir)
+
+    def test_attach_skips_the_runs_noted_before_the_start(self):
+        before = taskrun.TaskRun.runs_in(self.workspace)
+        self.assertEqual([], before)
+        mine = taskrun.TaskRun.start(self.workspace, "A task", command=self.command)
+        theirs = self.workspace / ".autocode" / "runs" / "theirs"
+        theirs.mkdir()
+        (theirs / "state.json").write_text("{}")
+        self.assertEqual(sorted([mine.run_dir, theirs]), taskrun.TaskRun.runs_in(self.workspace))
+        with self.assertRaises(taskrun.TaskRunError):
+            taskrun.TaskRun.attach(self.workspace, command=self.command)
+        self.assertIsNone(taskrun.TaskRun.attach(self.workspace, command=self.command,
+                                                 exclude=[str(mine.run_dir), theirs]))
+        self.assertEqual(mine.run_dir, taskrun.TaskRun.attach(self.workspace, command=self.command,
+                                                              exclude=[theirs]).run_dir)
+
+    def test_a_restored_continuation_keeps_the_working_directory(self):
+        run = taskrun.TaskRun.start(self.workspace, "A task", command=self.command, cwd=self.cwd)
+        continuation = run.restore_checkpoint("checkpoint-1", "token", "request-1")
+        self.assertEqual((self.workspace / ".autocode" / "runs" / "two", self.cwd),
+                         (continuation.run_dir, continuation.cwd))
+        self.assertEqual(str(self.cwd), continuation.status()["cwd"])
+
+    def test_status_errors_carry_the_status_process(self):
+        run = taskrun.TaskRun(self.workspace, self.workspace / ".autocode" / "runs" / "one",
+                              command=(sys.executable, "-c", "import sys; sys.exit(1)"))
+        with self.assertRaises(taskrun.TaskRunError) as raised:
+            run.status()
+        self.assertEqual(1, raised.exception.process.returncode)
+        self.assertIsNone(run.last_advance)
 
 
 if __name__ == "__main__":

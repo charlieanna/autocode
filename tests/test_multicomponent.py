@@ -229,6 +229,27 @@ class CliTests(BuildAndIntegrateTests):
         self.assertEqual("from alpha\n", (target / "components" / "alpha" / "message.txt").read_text())
         self.assertEqual("from beta\n", (target / "components" / "beta" / "message.txt").read_text())
 
+    def test_cli_integrates_into_the_same_target_twice(self):
+        # Reproduces a real failure: rerunning the same command after a finished
+        # build stopped at alpha with "already exists in working directory" and exit 1.
+        self.write_manifest()
+        args = ("architecture", "--workspace", str(self.repo), "--auto-approve",
+                "--integrate", "integration", "--options", " ".join(FIXTURE_OPTIONS))
+        first = self.run_cli(*args)
+        self.assertEqual(0, first.returncode, first.stderr[-1500:])
+        second = self.run_cli(*args)
+        self.assertEqual(0, second.returncode, second.stdout[-1500:] + second.stderr[-1500:])
+
+        self.assertEqual([], json.loads(first.stdout)["integration"]["already_applied"])
+        summary = json.loads(second.stdout)
+        self.assertTrue(all(info["resumed"] for info in summary["components"].values()))
+        self.assertIsNone(summary["integration"]["failed"])
+        self.assertEqual(["alpha", "beta"], summary["integration"]["integrated"])
+        self.assertEqual(["alpha", "beta"], summary["integration"]["already_applied"])
+        target = self.repo / "integration"
+        self.assertEqual("from alpha\n", (target / "components" / "alpha" / "message.txt").read_text())
+        self.assertEqual("from beta\n", (target / "components" / "beta" / "message.txt").read_text())
+
     def test_cli_builds_components_that_declare_how_they_run(self):
         # Runtime sentences, an embedded schema's "required" and a backticked contract name
         # all reach the real requirement-coverage and brief-literal checks; the scripted

@@ -150,6 +150,7 @@ class ActivityMonitor:
         self._line = None
         self._seen = set()
         self._text_items = {}
+        self._stream_items = {}
         self._active = {}
         self._closed = set()
         self._explicit_starts = False
@@ -227,10 +228,42 @@ class ActivityMonitor:
             self._activity(now, provider=True)
             self._report("text", suffix)
 
+    def _stream_progress(self, row, now):
+        """Native progress hashes are liveness, never report or command evidence."""
+        value = row.get("progress")
+        session = self._identifier(row.get("sessionID"))
+        if type(row.get("version")) is not int or row["version"] != 1 or not session or not isinstance(value, dict):
+            return
+        identifier = self._identifier(value.get("id"))
+        position, kind = value.get("position"), value.get("kind")
+        hashes = [value.get("content_hash"), value.get("delta_hash")]
+        if (not identifier or kind not in ("text", "reasoning") or value.get("nonwhite") is not True
+                or type(position) is not int or not 0 < position <= 2**53 - 1
+                or any(not isinstance(h, str) or len(h) != 64
+                       or any(c not in "0123456789abcdef" for c in h) for h in hashes)):
+            return
+        key = self._digest(session + "\0" + identifier)
+        previous = self._stream_items.get(key)
+        if previous and (position <= previous[0] or kind != previous[1]):
+            return
+        if previous is None and len(self._stream_items) >= self.MAX_ITEMS:
+            return
+        self._stream_items[key] = (position, kind)
+        # Both the bounded content window and its new suffix must be new.
+        # New counters or IDs cannot turn repeated content into fresh activity.
+        content_new = self._new("progress:" + hashes[0])
+        delta_new = self._new("progress:" + hashes[1]) if hashes[1] != hashes[0] else content_new
+        if content_new and delta_new:
+            self._activity(now, provider=True)
+            self._report("progress", "native provider stream advanced")
+
     def _event(self, row, now):
         if not isinstance(row, dict):
             return
         event_type = row.get("type")
+        if event_type == "autocode_progress":
+            self._stream_progress(row, now)
+            return
         item = row.get("item")
         if isinstance(item, dict) and event_type in ("item.started", "item.updated", "item.completed"):
             kind = item.get("type")

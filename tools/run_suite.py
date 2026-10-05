@@ -19,6 +19,7 @@ Usage:
     python3 tools/run_suite.py --jobs 1          # the same, in one process (the old serial run)
     python3 tools/run_suite.py --changed         # only the tests for what changed since origin/master
     python3 tools/run_suite.py --changed --include-slow   # the same, with the slow end-to-end modules
+    python3 tools/run_suite.py --changed --all-fast       # every fast module, plus slow ones that changed
     python3 tools/run_suite.py --list-excluded   # print excluded modules and reasons, run nothing
     python3 tools/run_suite.py --scenario-harness  # scenarios/test_harness.py, one test per process
 
@@ -34,6 +35,14 @@ file by name, and always test_architecture. A change to the suite machinery
 itself runs everything. It does not follow imports transitively: most of
 tools/ is one import cycle, so that would select almost every test. A break
 that crosses modules is caught by the full run on master.
+
+Those rules cannot see a test that drives the CLI as a separate process: it
+imports scenarios.harness, not the tools/ module it exercises, so a change to
+that module skips it and the break first shows on master (#232, #242, #330).
+--all-fast runs every fast module instead, which is what pull-request CI uses.
+Recording which files each test actually runs did not help: the core tools/
+modules run inside almost every test, so a typical change selected about 88%
+of the fast modules' time anyway.
 
 --changed also leaves out the slow end-to-end modules listed, with their CI
 time, in tests/suite_slow.json (over 10 s each: they start the CLI, Git and fake
@@ -191,6 +200,11 @@ def drop_slow(selected: dict[str, str], slow: dict[str, str]) -> tuple[dict[str,
     return {module: why for module, why in selected.items() if module not in skipped}, skipped
 
 
+def select_all(modules: list[str], selected: dict[str, str]) -> dict[str, str]:
+    """Every test module, keeping the reason a change selected it (so a changed slow module still runs)."""
+    return {module: selected.get(module, "all fast") for module in modules}
+
+
 def changed_paths(base: str) -> list[str]:
     """Files changed since the merge base with ``base``, including uncommitted and untracked ones."""
     def git(*args):
@@ -273,6 +287,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="report the N slowest tests (Python 3.12+; runs in one process)")
     parser.add_argument("--changed", nargs="?", const="origin/master", metavar="BASE",
                         help="run only the tests for files changed since BASE (default origin/master)")
+    parser.add_argument("--all-fast", action="store_true",
+                        help="with --changed, run every test module except the slow ones that did not change")
     parser.add_argument("--include-slow", action="store_true",
                         help="with --changed, also run the slow modules listed in tests/suite_slow.json")
     parser.add_argument("--scenario-harness", action="store_true",
@@ -324,6 +340,8 @@ def main(argv: list[str] | None = None) -> int:
         sources = {module: REPO_ROOT.joinpath(*module.split(".")).with_suffix(".py").read_text()
                    for module in modules}
         selected = select_tests(changed, sources)
+        if selected is not None and args.all_fast:
+            selected = select_all(modules, selected)
         skipped: list[str] = []
         if selected is not None and not args.include_slow:
             selected, skipped = drop_slow(selected, slow)

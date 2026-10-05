@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import unittest
 import venv
 from unittest.mock import patch
@@ -109,18 +110,20 @@ class CompatScenarios(CompatCase):
         self.finish(summary="PAUSED_SAFE: unsupported future versions never execute")
 
     def test_cfg03_running_vs_installed_versions_visible(self):
-        """CFG-03. Scoped note: no CLI version flag exists; the distinction is
-        visible through package metadata, which this case records explicitly."""
-        running = subprocess.run(
-            [sys.executable, "-c",
-             "import tomllib;print(tomllib.loads(open('pyproject.toml').read())['project']['version'])"],
-            cwd=REPO_ROOT, capture_output=True, text=True).stdout.strip()
-        self.bundle.log("version_record",
-                        running_source=running,
-                        note="the runner exposes no --version flag; running-source version comes "
-                             "from pyproject metadata and the installed CLI is inspected in CFG-09")
-        self.check("running_version_recorded", True, isinstance(running, str))
-        self.finish(summary="EXPLICIT_VERSION_TRANSITION: versions recorded; CLI flag is a scoped gap")
+        """CFG-03. `autocode --version` names the running source: the package version and,
+        run from a checkout, that checkout's commit. An installed copy prints "commit
+        unknown" instead (tests/test_doctor.py SourceCommitTests), so the two differ."""
+        version = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())["project"]["version"]
+        head = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "--short", "HEAD"],
+                              capture_output=True, text=True, timeout=60).stdout.strip()
+        shown = subprocess.run([sys.executable, str(REPO_ROOT / "tools" / "autocode.py"), "--version"],
+                               cwd=REPO_ROOT, capture_output=True, text=True, timeout=60)
+        self.bundle.log("version_record", package_version=version, checkout_commit=head,
+                        stdout=shown.stdout, stderr=shown.stderr)
+        self.check("version_flag_exit", 0, shown.returncode)
+        self.check("version_names_package_and_commit", True,
+                   bool(head) and shown.stdout.startswith(f"autocode {version} (commit {head}"))
+        self.finish(summary="EXPLICIT_VERSION_TRANSITION: --version names the running version and commit")
 
     def test_cfg04_static_model_routes_preserved(self):
         """CFG-04. Existing: configure() precedence tests in test_autocode."""

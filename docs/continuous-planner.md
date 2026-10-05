@@ -109,6 +109,61 @@ message, draft and evidence. Retry is available only when saved evidence proves
 that delivery did not begin. Captured replies can be recovered without making
 another provider call.
 
+## Live draft updates
+
+The Requirements Gatherer replies to every human turn. Planner drafts are
+limited in two ways. The policy is in
+`tools/dashboard/conversation_draft_cadence.py` (`schedule`, `launch`,
+`release`):
+
+- **Answer cadence.** When no draft is running, an automatic update covers three
+  answers (`ANSWERS_PER_UPDATE`). Between updates, the chat shows a Draft update
+  card with **Update draft now**.
+- **Coalescing.** At most one Planner draft runs for each conversation. A turn
+  that arrives while a draft is running does not start a Planner call. It is saved
+  as a held intent (`cadence_reason: coalesced_behind_draft_in_flight`), and the
+  card says the update will follow. When the running draft finishes, fails or is
+  superseded before launch, at most one new draft starts. It is bound to the newest
+  requirements revision, so it covers every turn that arrived meanwhile. The
+  running draft's result is still discarded because newer input exists; the
+  follow-up replaces it. A turn can arrive just after the running draft ends but
+  before the follow-up starts; that turn's draft then becomes the follow-up. An
+  explicit **Update draft now** request made while another draft is running
+  joins that follow-up. Retry cannot force a second call. The chat composer stays
+  open while a draft runs; only a Gatherer reply in flight or an uncertain
+  Planner delivery holds it.
+- **What counts as running.** A draft counts from the moment it is queued for a
+  worker in this dashboard until that worker ends, because the shared worker pool
+  can hold it in a backlog first. It also counts while any worker holds its
+  Planner delivery lease. The lease is an OS file lock, held in any dashboard
+  process and released when that process exits. After a restart, recovery
+  never replays a launched draft whose outcome is unknown. It starts the
+  coalesced follow-up once nothing is running. If the draft ahead ended in another
+  dashboard process, or died with it, opening the conversation starts the
+  follow-up. A draft queued but not yet started in another dashboard process is
+  not visible here: a turn sent then follows the answer cadence instead.
+- **Stalled drafts.** The Planner call has no timeout. A draft whose delivery
+  record has not changed for `STALLED_AFTER_SECONDS` (10 minutes) stops blocking
+  the follow-up: the card offers **Update draft now** again, and that request
+  starts the follow-up at once. If the stalled call ever returns, its result is
+  discarded as stale.
+
+Any number of quick turns during one draft costs at most two Planner calls: the
+draft already running and one follow-up. Only an explicit update after a stall
+adds a call while the stalled one may still be running. If someone keeps answering faster
+than the Planner finishes, the dashboard makes at most one call per Planner
+run. The draft catches up once they pause.
+
+Each draft records the human turns that caused it in `freshness.source_messages`.
+This covers every turn since the previous accepted draft, giving each turn's
+message ID, logical turn, requirements revision and a 240-character excerpt. The
+list is computed from the saved messages and requirements revisions when the
+draft opens, and it travels with the handoff. The draft card shows **Updated
+after your answers: "…" · "…"** with a short quote for each turn, instead of the
+generic freshness label. A coalesced draft lists all of its turns. Only a draft
+the Planner produced (`freshness.structured_result`) shows causes; a pending,
+failed or superseded placeholder claims no update. Drafts never grant approval.
+
 ## History and permanent deletion
 
 Archive keeps files and is reversible. A temporary workspace confirmed missing

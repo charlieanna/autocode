@@ -373,6 +373,13 @@ cannot each have a precise deadline; an explicit stage cap remains available.
 Explicit tool starts supersede the fallback. These observations measure liveness, not acceptance progress;
 independent milestone evidence remains mandatory.
 
+OpenCode's JSON CLI waits for a text block to finish before publishing it. AutoCode
+loads a local hook for each OpenCode invocation to forward native text and reasoning
+progress as bounded hashes while the block is still streaming. Existing plugins and
+agent permissions are preserved. The hook does not emit periodic heartbeats or
+completion evidence: a real idle gap still expires, and the stage hard cap remains
+in force even during continuous streaming.
+
 CLI updates and `--status`'s `active_stage.activity` show provider/tool activity,
 elapsed and idle time, active tool time, applicable limits and an observation
 timestamp. A saved observation does not prove a recorded worker is still alive.
@@ -384,9 +391,9 @@ is the runner default or was set explicitly, and how to change it (`--resume-pau
 limit is saved but no provider launches until `--grant-recovery N` is also given.
 Routes of a model family that reasons in long silent blocks run under a higher default:
 MiMo routes get 900 seconds when the limit is the runner default (`autocode_idle_policy`).
-OpenCode reports reasoning only as completed blocks, so a live MiMo Builder can emit no event
-for over 300 seconds. An explicit `--max-idle-seconds` is always used as given, and the saved
-setting is not rewritten.
+Native deltas count when the provider exposes them; wholly silent reasoning intervals
+still use the configured inactivity limit. An explicit `--max-idle-seconds` is always
+used as given, and the saved setting is not rewritten.
 A workflow job's stop (review, design, design check, bug investigation, question,
 stuck-stage investigation) says instead that its exact retry runs under the same
 limit: that retry is bound to the limits the job ran under, so a changed limit
