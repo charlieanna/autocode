@@ -182,6 +182,28 @@ class ProcessTests(unittest.TestCase):
         with patch.object(processes.psutil, 'Process', side_effect=processes.psutil.NoSuchProcess(101)):
             self.assertEqual({}, processes.process_table({101}))
 
+    def test_descendant_discovery_denial_fails_closed_without_another_scan(self):
+        row = {'pid': 101, 'parent': 90, 'group': 101, 'birth_identity': 123,
+               'state': 'running'}
+        parent = MagicMock(pid=101, _ident=(101, 123))
+        parent.create_time.return_value = 123
+        for error in (PermissionError('discovery denied'), processes.psutil.AccessDenied(101)):
+            checkpoint = MagicMock()
+            tree = processes.ProcessTree(101, checkpoint)
+            with self.subTest(error=type(error).__name__), \
+                    patch.object(processes, 'process_table', return_value={101: row}) as table, \
+                    patch.object(processes.psutil, 'Process', return_value=parent), \
+                    patch.object(processes.process_children, 'descendants', side_effect=error) as descendants, \
+                    patch.object(processes, 'process_ids') as scan:
+                with self.assertRaisesRegex(processes.ProcessError, 'Cannot inspect descendants of owned process 101') as raised:
+                    tree.sample()
+                self.assertIs(error, raised.exception.__cause__)
+                descendants.assert_called_once_with(parent)
+                table.assert_called_once_with({101})
+                scan.assert_not_called()
+                checkpoint.assert_not_called()
+                self.assertEqual({101: processes.identity(row)}, tree.known)
+
     def test_optional_native_name_failure_retains_owned_identity(self):
         for error in (processes.psutil.AccessDenied(101), PermissionError('native name denied'),
                       SystemError('proc_cmdline returned a result with an exception set')):

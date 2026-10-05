@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import venv
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -144,6 +145,72 @@ class VerificationCommandGuards(unittest.TestCase):
 
 
 class VerificationProofCache(unittest.TestCase):
+    def setUp(self):
+        runtime = tempfile.TemporaryDirectory(prefix='verification-proof-runtime-')
+        self.addCleanup(runtime.cleanup)
+        root = Path(runtime.name)
+        venv.EnvBuilder(with_pip=False).create(root)
+        # These stdlib fixtures do not depend on the editable controller checkout
+        # or the transient Git repositories other test modules create inside it.
+        self.python = str(root / 'bin' / 'python')
+
+    def test_operator_patch_mutation_invalidates_a_cached_complete_proof(self):
+        import difflib
+        import autocode_base_patch as base_patch
+        import autocode_regression as regression
+        import autocode_verify as verify
+        from .test_verify import Project, REFERENCE, SEED
+
+        project = Project()
+        self.addCleanup(project.close)
+        marker = '# Operator instrumentation marker\n'
+        patch = Path(project.temp.name) / 'base.patch'
+        patch.write_text(''.join(difflib.unified_diff(
+            SEED['greet.py'].splitlines(True), (marker + SEED['greet.py']).splitlines(True),
+            'a/greet.py', 'b/greet.py')))
+        pinned = base_patch.pin(patch, project.root, project.base)
+        project.write({**REFERENCE, 'greet.py': marker + REFERENCE['greet.py']})
+        state = {'goal_contract': {'body': {'task_kind': 'bugfix'}}, 'base_commit': project.base,
+                 'settings': {'regression': {'python': self.python, 'test_timeout': 15, 'base_patch': pinned}}}
+        identity = {'source_revision': verify.util.snapshot(project.root)['revision'], 'reuse_supported': True}
+        with mock.patch.object(verify, 'execution_identity', return_value=identity):
+            first = regression.prove(state, project.root, project.evidence)
+            self.assertEqual('PASS', first['verdict'], first)
+            self.assertTrue(any("operator's base patch" in reason for reason in first['review_reasons']))
+            self.assertEqual(first['path'], regression.prove(state, project.root, project.evidence)['path'])
+            patch.write_text(patch.read_text() + '\n')
+            changed = regression.prove(state, project.root, project.evidence)
+        self.assertEqual(first['source_revision'], changed['source_revision'])
+        self.assertEqual('UNVERIFIED', changed['verdict'], changed)
+        self.assertIn('changed after it was set', ' '.join(changed['unverified']))
+        self.assertFalse(regression.complete(state, changed['source_revision']))
+
+    def test_current_complete_proof_reuses_but_tampered_output_and_environment_do_not(self):
+        import autocode_regression as regression
+        from .test_verify import Project, REFERENCE
+        import os
+
+        project = Project()
+        self.addCleanup(project.close)
+        project.write(REFERENCE)
+        state = {'goal_contract': {'body': {'task_kind': 'bugfix'}}, 'base_commit': project.base,
+                 'settings': {'regression': {'python': self.python, 'test_timeout': 15}}}
+        first = regression.prove(state, project.root, project.evidence)
+        self.assertEqual('PASS', first['verdict'], first)
+        self.assertTrue(regression.complete(state, first['source_revision']))
+        self.assertEqual(first['path'], regression.prove(state, project.root, project.evidence)['path'])
+        output = Path(first['checks']['regression_on_candidate']['output'])
+        output.write_text('tampered PASS summary\n')
+        self.assertFalse(regression.complete(state, first['source_revision']))
+        second = regression.prove(state, project.root, project.evidence)
+        self.assertEqual('PASS', second['verdict'], second)
+        self.assertNotEqual(first['path'], second['path'])
+        self.assertEqual('tampered PASS summary\n', output.read_text(), 'old evidence must never be overwritten')
+        with mock.patch.dict(os.environ, {'VERIFICATION_FIXTURE_SEED': 'changed'}):
+            third = regression.prove(state, project.root, project.evidence)
+        self.assertEqual('PASS', third['verdict'], third)
+        self.assertNotEqual(second['path'], third['path'])
+
     def test_changed_detected_suite_reruns_proof_for_unchanged_source_and_options(self):
         import autocode_regression as regression
         import autocode_verify as verify
@@ -159,12 +226,12 @@ class VerificationProofCache(unittest.TestCase):
             base = subprocess.check_output(['git', '-C', str(project), 'rev-parse', 'HEAD'], text=True).strip()
             bugfix.references.write(bugfix.references.BUGFIX_REFERENCE, project)
             state = {'goal_contract': {'body': {'task_kind': 'bugfix'}},
-                     'base_commit': base, 'settings': {'regression': {'test_timeout': 15}}}
+                     'base_commit': base, 'settings': {'regression': {'python': self.python, 'test_timeout': 15}}}
             original_options = copy.deepcopy(state['settings'])
             run = project / '.autocode' / 'runs' / 'fixture'
-            python = shlex.quote(sys.executable)
-            working = verify.Framework('unittest', f'{python} -m unittest discover -v', python=sys.executable)
-            failing = verify.Framework('unittest', f'{python} -c "raise SystemExit(7)"', python=sys.executable)
+            python = shlex.quote(self.python)
+            working = verify.Framework('unittest', f'{python} -m unittest discover -v', python=self.python)
+            failing = verify.Framework('unittest', f'{python} -c "raise SystemExit(7)"', python=self.python)
             with mock.patch.object(verify, 'detect_framework', return_value=working):
                 first = regression.prove(state, project, run)
             self.assertEqual('PASS', first['verdict'], first)

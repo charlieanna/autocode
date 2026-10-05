@@ -178,11 +178,14 @@ def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "
 
 
 NAMED_PROOF_NOTE = """
-NAMED TEST PROOF: the runner can attribute cases with Python unittest/pytest, Go tests, or Node's built-in
-node:test. In Node projects register each named case with node:test, for example
-`const {test} = require('node:test'); test('test_c2_example', async () => { /* existing assertions */ });`,
+NAMED TEST PROOF: the runner attributes cases with Python unittest/pytest, Go tests, Node's built-in
+node:test, and native Vitest 4. In a Vitest project keep cases in Vitest and run
+`npx --no-install vitest run <test files>` or an npm test script that is a single `vitest run` command.
+The runner owns the reporter and checks actual named outcomes; missing, skipped and ambiguous cases
+never pass. Do not create node:test wrappers just to relabel existing Vitest cases.
+For node:test register each case with `test('test_c2_example', async () => { /* assertions */ });`
 and run `node --test tests/example.cjs`. Keep fixture helpers and assertions; await every async check.
-Custom scripts printing PASS labels, or npm/Jest/Vitest/Mocha summaries, do not supply named proof.
+Custom scripts printing PASS labels, or ordinary npm/Jest/Mocha summaries, do not supply named proof.
 A node:test case must assert the behavior itself, never spawn another test runner (npm/pnpm/yarn test,
 npx vitest, jest, mocha or node --test through child_process): its pass would be that runner's exit code,
 which is 0 even when a -t filter matches no test, so the runner refuses such a file as named proof.

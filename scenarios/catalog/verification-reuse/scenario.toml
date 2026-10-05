@@ -1,0 +1,11 @@
+title = "Completed clean verification survives an interrupted validation commit"
+category = "feature"
+
+[fake]
+check = "python3 -m unittest discover -v"
+fault = "verification_reuse"
+
+[run]
+requires_stages = ["terra", "sol", "astra_review"]
+timeout_minutes = 5
+max_steps = 20

@@ -148,6 +148,11 @@ def context_packet(state, stage, state_path):
             import autocode_progressive_state as progressive_state
             import autocode_verification_plan as verification_plan
         progressive = progressive_state.context(state)
+        base["verification_obligations"] = verification_plan.obligations(state, progressive_context=progressive)
+        instruction += ("\nVERIFICATION OBLIGATIONS: declared commands retain their distinct purposes. "
+            "Builder feedback is not independent acceptance. Unknown test inventory or execution setup "
+            "is not proof of coverage. Only runner-authenticated scheduling receipts may establish reuse; "
+            "do not omit approved commands, fresh final checks, or required image review.\n")
         if progressive:
             base["progressive_verification"] = {
                 **progressive,

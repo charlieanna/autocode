@@ -21,10 +21,15 @@ class ResolverProducerTests(unittest.TestCase):
         self.root = Path(temp.name)
         self.run = self.root / '.autocode'
         self.run.mkdir()
+        source = self.root / 'greet.py'
+        source.write_text('def greet(name):\n    return f"Hello, {name}"\n')
+        # Keep the producer-boundary identity synthetic, but inventory real source bytes.
+        snapshot = {'head': 'fixture-head', 'revision': 'source-one',
+                    'files': {'greet.py': util.file_hash(source)}}
         # The runner reads the source revision through autocode_support; the Resolver and the
         # human-review evaluator read it through autocode_util. Pin both.
         for module in (support, util):
-            pinned = patch.object(module, 'snapshot', return_value={'revision': 'source-one'})
+            pinned = patch.object(module, 'snapshot', return_value=snapshot)
             pinned.start()
             self.addCleanup(pinned.stop)
         self.state = {'version': 3, 'task_id': 'goal-one', 'task': 'Build greeting',
@@ -119,7 +124,7 @@ class ResolverProducerTests(unittest.TestCase):
         self.state['settings']['joint_planning'] = True
         draft = body(questions=True)
         draft.update(technical_approach=[], milestones=[])
-        value = {'contract': draft, 'summary': 'Need user intent', 'code_refs': [],
+        value = {'contract': draft, 'summary': 'Need user intent', 'code_refs': ['greet.py:1-2'],
                  'alternatives': [], 'uncertainties': [], 'contract_changes': [],
                  'conflict_resolutions': [], 'requirement_trace': []}
         self.apply('astra_discovery', value)

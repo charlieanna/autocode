@@ -8,9 +8,9 @@ import copy
 from pathlib import Path
 from urllib.parse import urlsplit
 try:
-    from . import autocode_util as util, autocode_design_manifest as design
+    from . import autocode_util as util, autocode_design_manifest as design, autocode_contract_identity as contract
 except ImportError:
-    import autocode_util as util, autocode_design_manifest as design
+    import autocode_util as util, autocode_design_manifest as design, autocode_contract_identity as contract
 
 
 def reference_hash(settings):
@@ -160,7 +160,13 @@ def native_refs(state, report):
     outcomes = report.get('criterion_results', [])
     complete = ({row.get('id') for row in outcomes} == {row['id'] for row in state.get('acceptance_criteria', [])}
                 and all(row.get('status') == 'PASS' for row in outcomes))
-    if report.get('verdict') == 'PASS' and complete and not rows:
+    body = (state.get('goal_contract') or {}).get('body') or {}
+    strict = any(isinstance(row, str) and row.startswith(('VISUAL_CASE_CRITERIA=', 'VISUAL_REVIEW_PROFILE='))
+                 for row in body.get('constraints', []))
+    functional_only = (contract.approved(state) and not strict
+                       and 'visual acceptance' in {row.strip().casefold() for row in body.get('scope_exclusions', [])
+                                                   if isinstance(row, str)})
+    if report.get('verdict') == 'PASS' and complete and not rows and not functional_only:
         raise ValueError('Visual PASS needs current implementation capture receipts, not historical screenshots')
     refs, candidates = [], set()
     cited = {str(local_file(state['workspace'], ref)) for result in report.get('criterion_results', [])

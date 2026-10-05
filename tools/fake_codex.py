@@ -66,6 +66,16 @@ if data.get('report_repair'):
     print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 20, 'output_tokens': 10}}))
     raise SystemExit(0)
 stage = data["stage"]
+if stage == "terra" and os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
+    import time
+    barrier = Path(os.environ["AUTOCODE_CONSUMER_BARRIER"])
+    if barrier.exists():
+        barrier.with_suffix(".entered").write_text("stage active")
+        deadline = time.monotonic() + 15
+        while barrier.exists():
+            if time.monotonic() > deadline:
+                raise SystemExit("fixture barrier timed out")
+            time.sleep(0.02)
 mode = os.environ.get("AUTOCODE_FIXTURE_MODE", "standard")
 # Bug-fix fixtures: the job type the planners propose, and the exact files the Builder writes.
 task_kind = os.environ.get("AUTOCODE_FIXTURE_TASK_KIND", "build")
@@ -247,6 +257,9 @@ elif stage == "terra":
             Path(name).write_text(content)
     else:
         Path("greet.py").write_text("import sys\nif len(sys.argv) != 2 or not sys.argv[1].strip():\n    raise SystemExit(2)\nprint('Hello, ' + sys.argv[1])\n# batch " + batch + "\n")
+    if os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
+        with Path("greet.py").open("a") as fixture_output:
+            fixture_output.write("# revision " + str(uuid.uuid4()) + "\n")
     result = {**common, "summary": "Greeting written", "changed_files": ["greet.py"], "commands_run": [],
               "results": ["Written"], "remaining_risks": [], "evidence_refs": ["greet.py"],
               "addressed_requirements": data["current_task"]["requirements"], "untested_behavior": ["CLI execution"],

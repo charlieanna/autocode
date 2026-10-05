@@ -1,0 +1,51 @@
+{
+  "services": {
+    "gateway": {
+      "build": {
+        "context": "/TREE/components/gateway",
+        "dockerfile_inline": "FROM python:3.12-slim\nWORKDIR /app\nCOPY . /app\n"
+      },
+      "command": [
+        "/bin/sh",
+        "-c",
+        "python3 server.py"
+      ],
+      "depends_on": {
+        "store": {
+          "condition": "service_started"
+        }
+      },
+      "environment": {
+        "PORT": "8002",
+        "STORE_URL": "http://store:8001"
+      },
+      "init": true,
+      "mem_limit": "2g",
+      "pids_limit": 1024,
+      "ports": [
+        "127.0.0.1::8002"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ]
+    },
+    "store": {
+      "build": {
+        "context": "/TREE/components/store",
+        "dockerfile": "Dockerfile"
+      },
+      "environment": {
+        "PORT": "8001"
+      },
+      "init": true,
+      "mem_limit": "2g",
+      "pids_limit": 1024,
+      "ports": [
+        "127.0.0.1::8001"
+      ],
+      "security_opt": [
+        "no-new-privileges:true"
+      ]
+    }
+  }
+}

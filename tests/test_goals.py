@@ -1058,6 +1058,10 @@ class GoalTests(unittest.TestCase):
                       "    - test_greeting.py\n  Kind: implement\n  Milestone id: M1\n  Requirements: (none)\n"
                       "  Acceptance criteria:\n    - C1\n  Validation plan:\n    - python3 -m unittest\n", shown)
         self.assertNotIn("{", shown)
+        self.assertIn("Verification obligations (declarations, not execution proof):", shown)
+        self.assertIn("Collected test ids:\n        (unmeasured)", shown)
+        self.assertIn("Execution inventory complete:\n    no", shown)
+        self.assertIn("global runtimes execute fresh", shown)
 
     def test_cli_can_approve_reviewed_goal_after_unapproved_resume_pause(self):
         self.draft()

@@ -15,10 +15,12 @@ driver then resumes the pause that answer leaves, once.
 A scenario with follow-up turns (issue #51) continues the same run: once it
 reaches the state a turn names, the driver says that turn's message with
 ``--follow-up`` and drives on. ``turn_marks`` records where each turn began, so
-the run record can be split per turn afterwards.
+the run record can be split per turn afterwards, including what each turn changed in
+the workspace (``workspace_files``: read from disk, never from AutoCode's state).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -92,7 +94,8 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
                                   "paths": overlay_paths(solution), "fault": scenario.fake_fault,
                                   "turns": [turn.say for turn in scenario.turns],
                                   "probe": scenario.fake_probe,
-                                  "milestones": list(scenario.fake_milestones)}))
+                                  "milestones": list(scenario.fake_milestones),
+                                  "turn_paths": [list(row) for row in scenario.fake_turn_paths]}))
     return [*FAKE_FLAGS, *scenario.fake_flags], {"PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
                         "SCENARIO_FAKE_CONFIG": str(config)}
 
@@ -115,8 +118,10 @@ class Driver:
         self.run_dir: Path | None = None
         self.log = root / "steps.jsonl"
         # One mark per turn after the first: when it was said, how many CLI calls
-        # and answers came before it, and the view the previous turn ended with.
+        # and answers came before it, the view the previous turn ended with, and
+        # the workspace files at that moment.
         self.turn_marks: list[dict] = []
+        self.start_files: dict[str, str] = {}
 
     def state(self) -> dict:
         """The saved state, read only for evidence and metrics after the run."""
@@ -172,6 +177,7 @@ class Driver:
         return proc
 
     def drive(self, brief: str, turns=()) -> dict:
+        self.start_files = workspace_files(self.project)
         self.call("start", task=brief)
         runs = self.project / ".autocode" / "runs"
         candidates = sorted(runs.glob("*/state.json"), key=lambda path: path.stat().st_mtime) if runs.is_dir() else []
@@ -187,7 +193,8 @@ class Driver:
                 raise DriveError(f"turn {number + 1} is said after {turn.after!r}, but the run ended "
                                  f"{' / '.join(reached)} (status {view['status']!r})")
             self.turn_marks.append({"said_at": datetime.now(timezone.utc).isoformat(), "say": turn.say,
-                                    "steps": len(self.steps), "answers": len(self.answers), "view": view})
+                                    "steps": len(self.steps), "answers": len(self.answers), "view": view,
+                                    "files": workspace_files(self.project)})
             self.call("follow-up", "--follow-up", turn.say, action=True)
             view = self.until_stopped(turns[number].after if number < len(turns) else None)
         return view
@@ -282,6 +289,23 @@ def split_by_turn(state: dict, marks: list[dict]) -> list[list[dict]]:
         index = sum(1 for when in said if moment and when and moment >= when)
         turns[index].append(stage)
     return turns
+
+
+def workspace_files(root: Path) -> dict[str, str]:
+    """Every file in the delivered workspace with its content hash; AutoCode's own .autocode/
+    and Git's .git/ are left out, and so are bytecode caches."""
+    found = {}
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if (path.is_file() and relative.parts[0] not in (".git", ".autocode")
+                and "__pycache__" not in relative.parts and path.suffix != ".pyc"):
+            found[relative.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return found
+
+
+def changed_between(before: dict[str, str], after: dict[str, str]) -> list[str]:
+    """The files created, changed or deleted between two ``workspace_files`` snapshots."""
+    return sorted(path for path in set(before) | set(after) if before.get(path) != after.get(path))
 
 
 def _moment(text) -> datetime | None:

@@ -13,7 +13,8 @@ Deployment workstreams never launch without ``--authorize-deployment``.
 What this module does **not** do: it never approves a child plan, never
 merges the integration branch into the project's default branch, never
 resolves conflicts, and never treats a child's exit code as completion. The
-child run's saved ``state.json`` is the only source of a workstream's status.
+child's status view (``autocode --status``, read through autocode_taskrun by
+autocode_program_children) is the only source of a workstream's status.
 """
 from __future__ import annotations
 
@@ -32,22 +33,22 @@ import uuid
 try:
     from . import autocode_util as util, autocode_workspaces as workspaces
     from . import autocode_goals as goals, autocode_planning_graph as graph
+    from . import autocode_program_children as children
 except ImportError:
     import autocode_util as util
     import autocode_workspaces as workspaces
     import autocode_goals as goals
     import autocode_planning_graph as graph
+    import autocode_program_children as children
 
 
 KINDS = ("code", "integration", "deployment")
 ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
-TERMINAL_CODE = {"TASK_COMPLETE"}
 STATE_LOCK = threading.Lock()  # worker threads update records; the main thread serializes state
 # Workstreams in one batch launch in parallel threads, but `git worktree add` on one repository
 # is not safe to run concurrently (ref and worktree-metadata locks): a collision fails one
 # workstream and blocks the program. Only the git setup is serialized; the runs stay parallel.
 WORKTREE_LOCK = threading.Lock()
-WAITING_CODE = {"WAITING_FOR_USER", "AWAITING_GOAL_APPROVAL"}
 GIT_IDENTITY = ("-c", "user.name=Autocode", "-c", "user.email=autocode@localhost")
 SHARED_LISTS = ("constraints", "permission_boundaries", "end_to_end_flow", "technical_approach", "deliverables")
 
@@ -362,48 +363,12 @@ def compose_brief(manifest, workstream, state):
 # --- child runs -------------------------------------------------------------
 
 def refresh(record):
-    run = record.get("run_dir")
-    if not run and record.get("workspace") and "runs_before" in record:
-        created = set(Path(record["workspace"]).glob(".autocode/runs/*")) - {Path(p) for p in record["runs_before"]}
-        candidates = [p for p in created if (p / "state.json").is_file()]
-        if len(candidates) == 1:
-            run = record["run_dir"] = str(candidates[0].resolve())
-        elif len(candidates) > 1:
-            record.update(status="FAILED", error="Multiple child checkpoints found; select the correct run before retrying")
-            return
-    if not run:
-        return
-    path = Path(run) / "state.json"
-    if not path.is_file():
-        record.update(status="FAILED", run_status=None, error=f"Saved child checkpoint is missing: {path}")
-        return
-    try:
-        saved = json.loads(path.read_text())
-    except (OSError, ValueError) as error:
-        record.update(status="FAILED", run_status=None, error=f"Cannot read child checkpoint: {error}")
-        return
-    if not isinstance(saved, dict) or not isinstance(saved.get("status"), str):
-        record.update(status="FAILED", run_status=None, error=f"Invalid child checkpoint: {path}")
-        return
-    status = saved.get("status")
-    record["run_status"] = status
-    if record["status"] == "MERGED":
-        return
-    if status in TERMINAL_CODE:
-        if record["status"] not in ("COMPLETE", "CONFLICT"):
-            record.update(status="COMPLETE", finished_at=util.now())
-    elif status == "RUNNING" and record["status"] in ("COMPLETE", "CONFLICT"):
-        record["status"] = "WAITING"
-        record.pop("finished_at", None)
-    elif status in WAITING_CODE:
-        record["status"] = "WAITING"
-    elif status not in ("RUNNING", None):
-        record["status"] = "PAUSED"
+    """Bring a workstream record up to date from its child's status view (autocode_program_children)."""
+    return children.refresh(record)
 
 
 def launch(project, program_dir, manifest, workstream, record, state, options):
     """Run one workstream as an ordinary AutoCode run; never approve anything on its behalf."""
-    runner = Path(__file__).with_name("autocode.py")
     if workstream["kind"] == "integration":
         workspace = Path(state["integration"]["workspace"])
         with STATE_LOCK:
@@ -423,30 +388,21 @@ def launch(project, program_dir, manifest, workstream, record, state, options):
     artifact = program_dir / workstream["id"]
     artifact.mkdir(parents=True, exist_ok=True)
     (artifact / "brief.md").write_text(brief + "\n")
-    if record.get("run_dir"):
-        command = [sys.executable, str(runner), "--workspace", str(workspace), "--run-dir", record["run_dir"], "--no-chat"]
-    else:
-        command = [sys.executable, str(runner), brief, "--workspace", str(workspace), "--in-place", "--no-chat"]
-        engine = workstream.get("engine") or options.get("engine")
-        if engine:
-            command += ["--engine", engine]
-        command += list(options.get("passthrough", []))
     with STATE_LOCK:
-        if not record.get("run_dir"):
-            record.setdefault("runs_before", [str(p) for p in workspace.glob(".autocode/runs/*")])
-        record.update(status="RUNNING", started_at=util.now(), command=command)
+        record.update(status="RUNNING", started_at=util.now())
         record.pop("error", None)
-        # Save the worktree and discovery boundary before launch, so an interrupted
-        # controller can recover its child checkpoint instead of duplicating it.
+        record.pop("command", None)  # rewritten from the invocation itself
+        children.prepare_start(record, workspace)
+        # Save the worktree and the runs already in it before launch, so an interrupted
+        # controller reattaches to the child run it started instead of starting a duplicate.
         util.atomic_json(program_dir / "state.json", state)
-    result = subprocess.run(command, cwd=workspace, capture_output=True, text=True)
-    (artifact / "stdout.log").write_text(result.stdout)
-    (artifact / "stderr.log").write_text(result.stderr)
-    with STATE_LOCK:
-        record.update(exit_code=result.returncode, last_invocation_at=util.now())
-        refresh(record)
-        if record["status"] == "RUNNING":
-            record["status"] = "FAILED" if result.returncode not in (0, 2) or not record.get("run_dir") else "WAITING"
+    if record.get("run_dir"):
+        children.advance(record, log_dir=artifact, lock=STATE_LOCK)
+    else:
+        # Engine and pass-through flags configure the new run once; resuming it uses its saved settings.
+        engine = workstream.get("engine") or options.get("engine")
+        start_options = [*(["--engine", engine] if engine else []), *options.get("passthrough", [])]
+        children.start(record, workspace, brief, start_options, log_dir=artifact, lock=STATE_LOCK)
     return record
 
 
@@ -617,18 +573,20 @@ def execute(options, source, manifest, project, program_dir, state_path):
         raise ValueError(f"Program manifest or project differs from its saved checkpoint {state_path}; "
                          "a saved program's manifest is frozen. Use a new program name to start over")
     by_id = {row["id"]: row for row in manifest["workstreams"]}
+    fresh: set[str] = set()  # records whose status view was read after every other child had run
     for wid in options.get("retry_workstreams", []):
         if wid not in by_id or state["workstreams"][wid]["status"] != "FAILED":
             raise ValueError(f"--retry-workstream requires a failed workstream: {wid}")
         record = state["workstreams"][wid]
         refresh(record)
+        fresh.add(wid)
         if record["status"] == "FAILED":
-            if record.get("run_dir") and not (Path(record["run_dir"]) / "state.json").is_file():
-                raise ValueError(f"Saved child checkpoint is missing for {wid}; restore it before retrying")
             if record.get("run_dir") and record.get("run_status") is None:
-                raise ValueError(f"Saved child checkpoint is invalid for {wid}; restore it before retrying")
-            if record.get("error", "").startswith("Multiple child checkpoints"):
+                raise ValueError(f"Saved child checkpoint for {wid} cannot be read ({record.get('error')}); "
+                                 "restore it before retrying")
+            if record.get("error", "").startswith(children.MULTIPLE):
                 raise ValueError(record["error"])
+            # Without a run, the retry starts one in the same worktree.
             record["status"] = "WAITING" if record.get("run_dir") else "PENDING"
         note(state, "workstream_retry_requested", workstream=wid)
     state.pop("pause", None)
@@ -639,12 +597,15 @@ def execute(options, source, manifest, project, program_dir, state_path):
     try:
         while True:
             for wid, record in state["workstreams"].items():
-                if record["status"] in ("RUNNING", "WAITING", "PAUSED", "COMPLETE", "CONFLICT", "FAILED"):
+                # A fresh record was read after the previous batch's other children had finished.
+                if wid not in fresh and record["status"] in (
+                        "RUNNING", "WAITING", "PAUSED", "COMPLETE", "CONFLICT", "FAILED"):
                     refresh(record)
                 if record["status"] == "RUNNING" and not record.get("run_dir"):
                     record.update(status="FAILED", error="Controller interrupted before a child checkpoint was saved; retry explicitly")
                 if record["status"] == "CONFLICT":
                     adopt_manual_merge(state, by_id[wid], record)
+            fresh.clear()
             save()
             for wid, record in state["workstreams"].items():
                 if record["status"] == "COMPLETE":
@@ -664,15 +625,23 @@ def execute(options, source, manifest, project, program_dir, state_path):
             with ThreadPoolExecutor(max_workers=options["max_parallel"]) as pool:
                 futures = {pool.submit(launch, project, program_dir, manifest, workstream, record, state, options): workstream
                            for workstream, record in batch}
+                last = None
                 for future in as_completed(futures):
                     workstream = futures[future]
+                    last = None
                     try:
                         future.result()
+                        last = workstream["id"]
                     except Exception as error:  # noqa: BLE001 - keep the program state honest
                         with STATE_LOCK:
-                            state["workstreams"][workstream["id"]].update(status="FAILED", error=str(error),
-                                                                           finished_at=util.now())
+                            failed = state["workstreams"][workstream["id"]]
+                            failed.update(status="FAILED", error=str(error), finished_at=util.now())
+                            children.forget_view(failed)
                     save()
+                # Only the last launch read its child's view after the whole batch ran; an earlier
+                # one may be stale (a person can act on its child while a sibling still runs).
+                if last:
+                    fresh.add(last)
     except util.Paused as pause:
         note(state, "paused", status=pause.status, reason=str(pause))
         state["pause"] = {"status": pause.status, "reason": str(pause)}
@@ -775,9 +744,10 @@ def cli_run(argv, *, status_only=False):
     if args.dry_run or status_only:
         state = json.loads(state_path.read_text()) if state_path.is_file() else new_state(source, manifest, project, key)
         if status_only:
+            # A read: the children's status views, without the lock and without saving.
             for record in state["workstreams"].values():
                 if record["status"] in ("RUNNING", "WAITING", "PAUSED"):
-                    refresh(record)
+                    children.read(record)
         preview = summarize(manifest, state, state_path)
         if not state_path.is_file():
             preview["status"] = "NOT_STARTED"

@@ -82,6 +82,7 @@ def explicit_recovery_requested(args):
 
 def handle(runner, args, parser, state, state_path, run_dir, workspace):
     """Apply this invocation's action to the saved run; return an exit code to stop, or None to build."""
+    args._failure_retry_authorization = None  # Invocation-local; saved history is audit data, not credit.
     # An applied durable stop is terminal: no recovery, user action, answer,
     # approval, feedback or resume may relaunch a stopped run or complete it.
     if stop.applied_stop(state) is not None:
@@ -290,7 +291,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                     pass  # exact job authorization was validated before generic recovery
                 elif args.retry_failed_stage:
                     try:
-                        authorization = runner.authorize_failure_retry(state, run_dir, workspace)
+                        authorization = (runner.resolver_recovery.authorize_retry(runner, state, run_dir, workspace)
+                                         or runner.authorize_failure_retry(state, run_dir, workspace))
+                        args._failure_retry_authorization = authorization
                         print("Failure retry authorized for the recorded repeated failure; "
                               "one fresh attempt proceeds under existing limits.", flush=True)
                     except ValueError as error:

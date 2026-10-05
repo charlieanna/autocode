@@ -522,7 +522,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'paused for repeated failure'):
             self.admit()
 
-    def test_finish_accepts_retry_and_clears_the_failure_identity(self):
+    def test_finish_accepts_retry_and_retains_the_failure_identity(self):
         record = self.repeated_terra_failure()
         self.admit()
         result = runner.resolver_runtime.finish_operational_diagnosis(
@@ -532,7 +532,9 @@ class OperationalDiagnosisTests(unittest.TestCase):
         self.assertEqual('terra', self.state['next_stage'])
         self.assertEqual('RUNNING', self.state['status'])
         self.assertNotIn('diagnosis_request', self.state)
-        self.assertNotIn(record['failure_key'], self.state['failure_history'])
+        history = self.state['failure_history'][record['failure_key']]
+        self.assertEqual(3, history['count'])
+        self.assertEqual(1, len(history['diagnostic_retries']))
         self.assertEqual([2], list(self.state['resolver']['attempts'].values()))
 
     def test_finish_rejects_escalate_and_preserves_the_failure_identity(self):
@@ -648,23 +650,16 @@ class OperationalDiagnosisTests(unittest.TestCase):
                 self.assertEqual([], launches)
                 self.assertNotIn('active_stage', self.state)
 
-    def test_charge_dispatch_charges_a_genuine_timeout_relaunch_again(self):
-        # The exact case the review found uncounted: a real timeout archives
-        # the attempt and routes back to astra_diagnose for a real relaunch,
-        # which is a second genuine provider call and must be charged again.
+    def test_unchanged_timeout_diagnosis_cannot_relaunch_without_novelty(self):
         self.repeated_terra_failure()
         self.admit()
         self.charge()
         self.assertEqual(1, self.state['resolver']['diagnostic_calls'])
         self.archive_timed_out_astra_diagnose_attempt()
-        self.charge()
-        self.assertEqual(2, self.state['resolver']['diagnostic_calls'])
-        # And a third relaunch (e.g. the cap is 2) is refused before launch.
-        self.archive_timed_out_astra_diagnose_attempt()
         with self.assertRaises(support.Paused) as caught:
             self.charge()
-        self.assertEqual('PAUSED_REPEATED_FAILURE', caught.exception.status)
-        self.assertEqual(2, self.state['resolver']['diagnostic_calls'])
+        self.assertEqual('PAUSED_NO_PROGRESS', caught.exception.status)
+        self.assertEqual(1, self.state['resolver']['diagnostic_calls'])
 
     def test_charge_dispatch_pauses_at_the_cap_before_any_launch(self):
         self.repeated_terra_failure()
@@ -801,31 +796,40 @@ class OperationalDiagnosisTests(unittest.TestCase):
         self.assertEqual(1, saved['resolver']['diagnostic_calls'])
         self.assertEqual([2], list(saved['resolver']['attempts'].values()))
 
+    def test_valid_diagnosis_without_discriminating_change_is_not_another_builder_grant(self):
+        self.repeated_terra_failure()
+        with self.provider() as launches:
+            self.assertEqual(2, self.cli('--diagnose-failed-stage', '--pause-after-stage'))
+            self.state = support.read(self.run / 'state.json')
+            self.assertEqual(2, self.cli())
+        self.assertEqual(['astra_diagnose'], [row['stage'] for row in launches])
+        saved = support.read(self.run / 'state.json')
+        self.assertIn('No causal progress', saved['stop_reason'])
+        self.assertTrue(saved['failure_history'])
+
     def test_shared_dispatch_real_timeout_recovery_reload_and_replacement_cap(self):
         self.repeated_terra_failure()
         self.admit()
         with self.provider(timeout=True) as launches:
-            for count in (1, 2):
-                self.assertIs(runner.autopilot.SKIP, self.dispatch())
-                self.state = support.read(self.run / 'state.json')
-                self.assertNotIn('active_stage', self.state)
-                self.assertEqual(count, self.state['resolver']['diagnostic_calls'])
-                self.assertEqual(count, len(self.state['automatic_timeout_recoveries']))
-            with self.assertRaisesRegex(support.Paused, 'budget exhausted'):
+            self.assertIs(runner.autopilot.SKIP, self.dispatch())
+            self.state = support.read(self.run / 'state.json')
+            self.assertNotIn('active_stage', self.state)
+            self.assertEqual(1, self.state['resolver']['diagnostic_calls'])
+            self.assertEqual(1, len(self.state['automatic_timeout_recoveries']))
+            with self.assertRaisesRegex(support.Paused, 'No causal progress'):
                 self.dispatch()
-        self.assertEqual(2, len(launches))
-        self.assertEqual(2, len({row['diagnostic_reservation_id'] for row in launches}))
+        self.assertEqual(1, len(launches))
 
-    def test_cli_real_timeout_recovery_stops_at_lifetime_cap(self):
+    def test_cli_real_timeout_recovery_stops_before_repeat_diagnosis(self):
         self.repeated_terra_failure()
         with self.provider(timeout=True) as launches:
             self.assertEqual(2, self.cli('--diagnose-failed-stage'))
         saved = support.read(self.run / 'state.json')
-        self.assertEqual(2, len(launches))
-        self.assertEqual(2, saved['resolver']['diagnostic_calls'])
-        self.assertEqual(2, len(saved['automatic_timeout_recoveries']))
+        self.assertEqual(1, len(launches))
+        self.assertEqual(1, saved['resolver']['diagnostic_calls'])
+        self.assertEqual(1, len(saved['automatic_timeout_recoveries']))
         # The exhausted pause is surfaced as an AutoResolver operational request.
-        assert_operational_wait(self, saved, 'PAUSED_REPEATED_FAILURE')
+        assert_operational_wait(self, saved, 'PAUSED_NO_PROGRESS')
         self.assertNotIn('active_stage', saved)
 
     def test_cli_new_iteration_source_and_blocker_do_not_reset_lifetime_cap(self):
@@ -836,6 +840,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
                 self.assertEqual(iteration, self.state['iteration'])
                 (self.root / 'cause-fixed.txt').write_text(f'source revision {iteration}')
                 original = self.repeated_terra_failure()
+                self.state['failure_history'][original['failure_key']]['last_error'] = f'Missing distinct required field {iteration}'
                 blockers.append(original['failure_key'])
                 self.assertEqual(2, self.cli('--diagnose-failed-stage', '--pause-after-stage'))
                 self.state = support.read(self.run / 'state.json')
@@ -861,7 +866,7 @@ class OperationalDiagnosisTests(unittest.TestCase):
         # The lifetime cap still refuses a third diagnosis; the pause is published as an operational request.
         assert_operational_wait(self, self.state, 'PAUSED_REPEATED_FAILURE')
 
-    def test_cli_rejected_output_resume_spends_new_reservation(self):
+    def test_cli_rejected_output_resume_does_not_spend_another_diagnosis(self):
         self.repeated_terra_failure()
         self.state['settings']['report_repair'] = {'max_attempts': 0}
         with self.provider(value={}) as launches:
@@ -872,17 +877,13 @@ class OperationalDiagnosisTests(unittest.TestCase):
             self.assertEqual(1, self.state['resolver']['diagnostic_calls'])
             self.assertEqual(2, self.cli())
             self.state = support.read(self.run / 'state.json')
-            self.assertEqual(2, self.state['resolver']['diagnostic_calls'])
-            self.assertEqual(2, self.cli())
-            self.state = support.read(self.run / 'state.json')
-            # The exhausted diagnosis budget is published as an AutoResolver operational request ...
-            public = assert_operational_wait(self, self.state, 'PAUSED_REPEATED_FAILURE')
+            self.assertEqual(1, self.state['resolver']['diagnostic_calls'])
+            public = assert_operational_wait(self, self.state, 'PAUSED_NO_PROGRESS')
             self.assertEqual(2, self.cli())
             self.state = support.read(self.run / 'state.json')
             # ... and a further bare resume retains that same request without a new launch.
-            self.assertEqual(public, assert_operational_wait(self, self.state, 'PAUSED_REPEATED_FAILURE'))
-        self.assertEqual(2, len(launches))
-        self.assertEqual(2, len({row['diagnostic_reservation_id'] for row in launches}))
+            self.assertEqual(public, assert_operational_wait(self, self.state, 'PAUSED_NO_PROGRESS'))
+        self.assertEqual(1, len(launches))
 
     def test_uncertain_launch_is_not_refunded_or_replayed_on_reload(self):
         self.repeated_terra_failure()
@@ -904,9 +905,8 @@ class OperationalDiagnosisTests(unittest.TestCase):
         self.state = support.read(self.run / 'state.json')
         with self.provider() as replacements:
             self.assertEqual(2, self.cli('--pause-after-stage'))
-        self.assertEqual(1, len(replacements))
-        self.assertNotEqual(reservation, replacements[0]['diagnostic_reservation_id'])
-        self.assertEqual(2, support.read(self.run / 'state.json')['resolver']['diagnostic_calls'])
+        self.assertEqual(0, len(replacements))
+        self.assertEqual(1, support.read(self.run / 'state.json')['resolver']['diagnostic_calls'])
 
     def test_crash_after_reservation_checkpoint_before_popen_remains_uncertain(self):
         self.repeated_terra_failure()
@@ -951,8 +951,8 @@ class OperationalDiagnosisTests(unittest.TestCase):
 
     def test_report_only_repair_has_separate_allowance_not_another_diagnosis(self):
         self.repeated_terra_failure()
-        self.admit()
         self.state['settings']['operational_diagnosis'] = {'max_calls_per_run': 1}
+        self.admit()
         with self.provider(value={}) as launches:
             self.assertIs(runner.autopilot.SKIP, self.dispatch())
         self.assertEqual(1, len(launches))

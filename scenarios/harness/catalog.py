@@ -28,7 +28,7 @@ CATEGORIES = ("bugfix", "feature", "greenfield", "port", "parallel", "architectu
 EXPECTED = ("complete", "stop", "any")
 KEYS = {"title", "category", "requires", "fake", "run", "turn"}
 RUN_KEYS = {"max_steps", "timeout_minutes", "expected", "known_failure", "requires_stages"}
-FAKE_KEYS = {"check", "flags", "fault", "live_investigator", "probe", "milestones", "answers"}
+FAKE_KEYS = {"check", "flags", "fault", "live_investigator", "probe", "milestones", "turn_paths", "answers"}
 # A follow-up turn is said to the same run once it reaches the state ``after``
 # names: it completed, it stopped, or it is waiting on a particular need
 # (``needs:answer``), in which case the message is said instead of the driver
@@ -73,6 +73,9 @@ class Scenario:
     # each milestone's id, dependencies, owned paths and verify command so the
     # scripted provider can rehearse parallel scheduling without model spend.
     fake_milestones: tuple[dict, ...] = ()
+    # [fake] turn_paths: in a conversation the solution is the end state of every turn; entry i lists
+    # the solution path prefixes the scripted model delivers in turn i (0 = the brief).
+    fake_turn_paths: tuple[tuple[str, ...], ...] = ()
     # [fake] answers: {question_id = answer} the person gives explicitly, for a question the driver
     # never answers by default (an AutoResolver stop such as a quota question, ``route-sol``).
     fake_answers: tuple[tuple[str, str], ...] = ()
@@ -132,15 +135,30 @@ def load(scenario_id: str) -> Scenario:
         if turn["after"] not in TURN_AFTER and not str(turn["after"]).startswith("needs:"):
             raise ValueError(f"{scenario_id}: [[turn]] {number} after must be one of {TURN_AFTER} or needs:<kind>")
         turns.append(Turn(turn["after"], turn["say"].strip()))
+    turn_paths = fake.get("turn_paths", [])
+    if turn_paths and (len(turn_paths) != len(turns) + 1
+                       or not all(isinstance(row, list) and row and all(
+                           isinstance(p, str) and p and not p.startswith("/") and ".." not in p.split("/")
+                           for p in row) for row in turn_paths)):
+        raise ValueError(f"{scenario_id}: [fake] turn_paths needs one list of relative path prefixes per turn, "
+                         f"the brief included ({len(turns) + 1})")
+    # The scripted model tells turns apart by the message the handoff's task starts with, so a
+    # message may not begin another (an identical one does) or the brief, which is turn 0's task.
+    brief = (root / "brief.md").read_text().strip()
+    says = [turn.say for turn in turns]
+    if turn_paths and (any(i != j and says[j].startswith(says[i]) for i in range(len(says)) for j in range(len(says)))
+                       or any(brief.startswith(say) for say in says)):
+        raise ValueError(f"{scenario_id}: with [fake] turn_paths no turn's message may begin another's or the brief")
     return Scenario(
         id=scenario_id, dir=root, title=meta["title"], category=meta["category"],
-        brief=(root / "brief.md").read_text().strip(), requires=tuple(meta.get("requires", ())),
+        brief=brief, requires=tuple(meta.get("requires", ())),
         fake_check=meta.get("fake", {}).get("check"), max_steps=run.get("max_steps", 40),
         timeout_minutes=run.get("timeout_minutes", 60), expected=run.get("expected", "complete"),
         known_failure=run.get("known_failure", ""), fake_flags=tuple(fake.get("flags", ())),
         fake_fault=fake.get("fault", ""), fake_live_calls=bool(fake.get("live_investigator", False)),
         fake_probe=fake.get("probe", ""), turns=tuple(turns), requires_stages=tuple(run.get("requires_stages", ())),
-        fake_milestones=tuple(fake.get("milestones", ())), fake_answers=tuple(sorted(answers.items())))
+        fake_milestones=tuple(fake.get("milestones", ())),
+        fake_turn_paths=tuple(tuple(row) for row in turn_paths), fake_answers=tuple(sorted(answers.items())))
 
 
 def load_all() -> list[Scenario]:

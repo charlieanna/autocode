@@ -47,6 +47,21 @@ def limits(settings: dict, iteration: int) -> str:
     return "Limits in effect: " + ", ".join(parts) + "."
 
 
+def field_lines(value, indent=2) -> list[str]:
+    """Show structured declarations without implying missing values were measured."""
+    prefix = " " * indent
+    if isinstance(value, dict):
+        lines = []
+        for key, item in value.items():
+            lines.append(prefix + key.replace("_", " ").capitalize() + ":")
+            lines.extend(field_lines(item, indent + 2))
+        return lines or [prefix + "(none declared)"]
+    if isinstance(value, list):
+        return [line for item in value for line in field_lines(item, indent + 2)] or [prefix + "(none declared)"]
+    text = "(unmeasured)" if value is None else "yes" if value is True else "no" if value is False else str(value)
+    return [prefix + text]
+
+
 def duration(seconds) -> str:
     if type(seconds) is int and seconds % 3600 == 0:
         return f"{seconds // 3600} h"

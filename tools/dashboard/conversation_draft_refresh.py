@@ -31,25 +31,26 @@ class DraftRefreshMixin:
             current = cadence.public(doc) or {}
             if any(current.get(key) != value for key, value in requested.items()):
                 raise ValueError('The conversation changed. Inspect the latest draft before updating it.')
-            if not current.get('can_refresh'):
+            if not cadence.refreshable(doc):
                 raise ValueError('This draft is not waiting for a refresh. Its saved delivery is preserved.')
             self._authorized_dispatch_routes(doc)
             dispatch = doc['_planner_dispatches'][logical_turn_id]
-            doc['_planner_dispatches'][logical_turn_id] = protocol.transition(
-                dispatch, 'DISPATCH_PREPARED', cadence_hold=False, cadence_reason='explicit_chat_refresh')
-            for draft in doc.get('plan_drafts', []):
-                if draft.get('logical_turn_id') == logical_turn_id and draft.get('status') == 'pending':
-                    draft['freshness'].update(reason='explicit_chat_refresh', updated_at=_now())
-            doc.setdefault('_draft_refresh_requests', {})[request_id] = {'target': deepcopy(requested), 'at': _now()}
-            self._save(doc)  # a crash from here is a normal recoverable pre-dispatch intent
-            try:
-                self.pool.submit(self._planner_reply, conversation_id, None, logical_turn_id)
-            except RuntimeError:
+            if cadence.launch(doc, requirements_revision, self._planner_turns_in_flight(doc),
+                              explicit=True) == cadence.COALESCE:
+                if cadence.coalesced(dispatch):
+                    raise ValueError('This draft update starts automatically when the Planner finishes the draft in progress.')
+                # Another draft is running: this request joins the one update
+                # released when it finishes instead of launching a second one.
                 doc['_planner_dispatches'][logical_turn_id] = protocol.transition(
-                    doc['_planner_dispatches'][logical_turn_id], 'SAFE_NOT_DISPATCHED',
-                    reason='Draft worker was unavailable before provider launch')
-                self._mark_planner_draft_failed(doc, logical_turn_id, {
-                    'stage': 'planner_dispatch', 'reason': 'worker_unavailable',
-                    'message': 'The draft update is saved. Retry its confirmed pre-dispatch failure from chat.'})
+                    dispatch, dispatch['state'], cadence_reason=cadence.COALESCED)
+                for draft in doc.get('plan_drafts', []):
+                    if draft.get('logical_turn_id') == logical_turn_id and draft.get('status') == 'pending':
+                        draft['freshness'].update(reason=cadence.COALESCED, updated_at=_now())
+                doc.setdefault('_draft_refresh_requests', {})[request_id] = {'target': deepcopy(requested), 'at': _now()}
                 self._save(doc)
+                return self._public(doc)
+            # Nothing is in flight, or the draft ahead of a coalesced update has
+            # stalled: launch this revision's draft now.
+            doc.setdefault('_draft_refresh_requests', {})[request_id] = {'target': deepcopy(requested), 'at': _now()}
+            self._launch_deferred_draft(doc, logical_turn_id, 'explicit_chat_refresh')
             return self._public(doc)

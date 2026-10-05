@@ -8,6 +8,8 @@ import unittest
 from tests.visual_capture_fixtures import make_capture
 import autocode_visual_evidence as visual
 import autocode_util as util
+import autocode_contract_identity as identity
+import goal_fixtures
 
 
 class CaptureEvidenceTests(unittest.TestCase):
@@ -117,3 +119,44 @@ class CaptureEvidenceTests(unittest.TestCase):
         report['criterion_results'].append({'id': 'C2', 'status': 'PASS', 'evidence_refs': []})
         with self.assertRaisesRegex(ValueError, 'current implementation capture'):
             visual.native_refs(self.state, report)
+
+    def approve_functional_scope(self):
+        body = goal_fixtures.body()
+        body['scope_exclusions'].append('Visual acceptance')
+        goal = {'task_id': 'functional-reference-consumer', 'revision': 1, 'body': body,
+                'approval_status': 'approved'}
+        goal['hash'] = util.digest({key: goal[key] for key in ('task_id', 'revision', 'body')})
+        goal['approval_event'] = {'actor': 'user_cli', 'token': identity.token(goal)}
+        self.state.update(goal_contract=goal, user_events=[copy.deepcopy(goal['approval_event'])],
+                          acceptance_criteria=copy.deepcopy(body['acceptance_criteria']))
+        self.state['settings'] = {'figma_file': 'https://www.figma.com/design/FILE/Fixture'}
+        return {'verdict': 'PASS', 'criterion_results': [{'id': 'C1', 'status': 'PASS', 'evidence_refs': []}]}
+
+    def test_explicit_approved_functional_only_scope_does_not_claim_visual_pass(self):
+        report = self.approve_functional_scope()
+        self.assertEqual([], visual.native_refs(self.state, report))
+        report['implementation_captures'] = [{'capture_ref': 'missing.json', 'capture_sha256': 'a' * 64}]
+        with self.assertRaises(ValueError):
+            visual.native_refs(self.state, report)
+
+    def test_unapproved_or_conflicting_exclusion_never_skips_visual_proof(self):
+        for change in ('unapproved', 'changed_body', 'prose', 'strict_visual', 'strict_profile'):
+            with self.subTest(change=change):
+                report = self.approve_functional_scope()
+                goal = self.state['goal_contract']
+                if change == 'unapproved':
+                    goal['approval_status'] = 'draft'
+                elif change == 'changed_body':
+                    goal['body']['required_behaviors'].append('Changed scope')
+                else:
+                    if change == 'prose':
+                        goal['body']['scope_exclusions'][-1] = 'Do not skip visual acceptance'
+                    elif change == 'strict_visual':
+                        goal['body']['constraints'].append('VISUAL_CASE_CRITERIA={"case":["C1"]}')
+                    else:
+                        goal['body']['constraints'].append('VISUAL_REVIEW_PROFILE=strict')
+                    goal['hash'] = util.digest({key: goal[key] for key in ('task_id', 'revision', 'body')})
+                    goal['approval_event']['token'] = identity.token(goal)
+                    self.state['user_events'] = [copy.deepcopy(goal['approval_event'])]
+                with self.assertRaisesRegex(ValueError, 'current implementation capture'):
+                    visual.native_refs(self.state, report)

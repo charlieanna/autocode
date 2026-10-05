@@ -15,6 +15,7 @@ import tomllib
 
 # Re-export shared helpers for existing callers and test patches.
 try:
+    from .autocode_baseline import BASELINE_POLICY
     from .autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command
     from .autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report
     from . import autocode_output_filter as output_filter, autocode_request_usage as request_usage
@@ -25,6 +26,7 @@ try:
     from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary
     from .autocode_event_matching import same_command
 except ImportError:
+    from autocode_baseline import BASELINE_POLICY
     from autocode_legacy_process import assert_no_legacy_process, duplicate_runner_command
     from autocode_report_schema import review_generation_schema, review_validation_schema, hydrate_review_report
     import autocode_output_filter as output_filter, autocode_request_usage as request_usage
@@ -436,17 +438,8 @@ Use existing evidence when it still applies. Every scratch file, marker or captu
 output you create yourself must stay inside the current workspace, under the
 evidence directory supplied in this handoff when one is given: the provider sandbox
 denies /tmp, mktemp's default location and every path outside the workspace, so
-those denials are a dead end rather than a permissions request to escalate. Return concise schema-valid FINAL output; ordinary commentary
-can be plain text. Do not edit runner/state/config or authentication.
-"""
-
-
-BASELINE_POLICY = """For an explicitly authorized baseline exception with Vitest default-reporter logs,
-use baseline_compare_command with BASELINE_LOG CANDIDATE_LOG --output REPORT.json.
-Use --baseline-root and --candidate-root only for equivalent checkout paths.
-Do not invent a task-local comparator or loosen its checks. Unknown formats require review.
-A matched comparison does not authorize a waiver: verify identical test selection,
-source provenance, and the saved exception separately; investigate baseline-only failures.
+those denials are a dead end rather than a permissions request to escalate. Never cite a path under
+.autocode/ as a check: its clean-copy replay cannot pass. Return concise schema-valid FINAL output; ordinary commentary can be plain text. Do not edit runner/state/config or authentication.
 """
 
 

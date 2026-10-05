@@ -24,15 +24,18 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import uuid
 from pathlib import Path
+import shlex
+import uuid
 
 try:
     from . import autocode_verification_plan as verification_plan, autocode_test_quality as test_quality
     from . import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles
+    from . import autocode_util as util, autocode_verification_schedule as schedule
 except ImportError:
     import autocode_verification_plan as verification_plan, autocode_test_quality as test_quality
     import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles
+    import autocode_util as util, autocode_verification_schedule as schedule
 
 PASS, FAIL = "PASS", "FAIL"
 # Told to the Validator with every request. A live Validator showed "fails without __init__.py" as a check
@@ -67,9 +70,22 @@ TIMEOUT_SECONDS = 900
 TAIL_CHARS = 600
 
 
+def evidence_pins(result):
+    """Bind accepted runner output to the existing completion evidence guard."""
+    pins = {}
+    for row in (result or {}).get("checks", []):
+        if row.get("output") and row.get("output_sha256"):
+            pins[row["output"]] = row["output_sha256"]
+        receipt = row.get("scheduling") or {}
+        if receipt.get("receipt") and receipt.get("receipt_sha256"):
+            pins[receipt["receipt"]] = receipt["receipt_sha256"]
+    return pins
+
+
 def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_SECONDS, approved_state=None,
-           required_commands=None, progressive_context=None) -> dict:
+            required_commands=None, progressive_context=None, execution_identity=None) -> dict:
     """Re-run each distinct check command; return the result or raise ValueError on the first that fails."""
+    schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     # Report stems repeat across iterations, repairs and retries of one attempt.
     # Allocate before any scratch/protected-test writes so old citations stay intact.
     stem = Path(record.get("output") or "validation").stem
@@ -87,22 +103,77 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
     reported = {check["command"] for check in checks}
     checks += [{"command": command, "exit_code": 0, "evidence_ref": "approved-plan"}
                for command in prescribed if command not in reported]
+    checks += [{"command": command, "exit_code": 0, "evidence_ref": "approved-repeat", "repetition": repeat}
+               for command, count in verification_plan.repetitions(
+                   approved_state or {}, progressive_context=progressive_context).items()
+               for repeat in range(2, count + 1)]
     test_quality.require_behavioral_tests(workspace, [check["command"] for check in checks])
-    rows, seen = [], {}
+    state = approved_state or {}
+    # The original provider execution, not its repaired JSON formatting, owns
+    # this obligation. A later Validator or any final/protected check is new work.
+    events = Path(record.get("events") or "")
+    obligation = ({"events": str(events.resolve()), "events_sha256": util.file_hash(events),
+                   "stage": record.get("stage"), "task_id": record.get("task_id"),
+                   "contract": state.get("goal_contract"), "task": state.get("current_task"),
+                   "settings_identity": util.digest(state.get("settings") or {}),
+                   "progressive": progressive_context, "purpose": "independent_clean_replay"}
+                  if (execution_identity and record.get("stage") in ("sol", "astra_checkpoint")
+                      and events.is_file() and not events.is_symlink()) else None)
+    rows, seen, contexts = [], {}, {}
     for check in checks:
         command = check["command"]
-        if command not in seen:
-            receipt = scratch_run(workspace, out / f"check-{len(seen) + 1:02d}", command=command, timeout=timeout)
-            seen[command] = {"command": command, "exit_code": receipt.get("exit_code"),
+        key = (command, check.get("repetition", 1))
+        if key not in seen:
+            if obligation:
+                eligible = command not in prescribed and bool(schedule.collection_kind(command))
+                runtime = (shlex.split(command)[0], eligible)
+                def identity(*, refresh=False):
+                    if refresh or runtime not in contexts:
+                        contexts[runtime] = execution_identity(workspace, command=command, full=eligible)
+                    execution = contexts[runtime]
+                    if util.file_hash(events) != obligation["events_sha256"]:
+                        raise ValueError("Validator execution evidence changed during clean replay")
+                    if record.get("source_revision") and execution["source_revision"] != record["source_revision"]:
+                        raise ValueError("The source changed since this Validator obligation; fresh validation is required")
+                    return {"execution": execution, "obligation": obligation, "command": command,
+                            "repetition": check.get("repetition", 1), "timeout": timeout}
+                binding = identity()
+                reason = ("mandatory_approved_execution" if command in prescribed else
+                          "command_has_no_supported_inventory" if not eligible else
+                          "execution_identity_not_cacheable" if not binding["execution"].get("reuse_supported", False)
+                          else "no_current_receipt")
+                receipt = schedule.run(Path(run_dir) / "check-replay" / "obligations", binding,
+                    lambda directory: scratch_run(workspace, directory, command=command, timeout=timeout),
+                    reuse_allowed=eligible and binding["execution"].get("reuse_supported", False),
+                    reason=reason,
+                    # Reuse the previous check's *post-execution* measurement
+                    # only inside this invocation, never across restarts. Every
+                    # execution still receives a fresh after-context check.
+                    current_identity=lambda: identity(refresh=True))
+            else:
+                receipt = scratch_run(workspace, out / f"check-{len(seen) + 1:02d}",
+                                      command=command, timeout=timeout)
+            seen[key] = {"command": command, "exit_code": receipt.get("exit_code"),
                              "timed_out": bool(receipt.get("timed_out")), "output": receipt.get("output"),
                              "output_sha256": receipt.get("output_sha256"),
-                             "duration_seconds": receipt.get("duration_seconds"),
+                              "duration_seconds": receipt.get("duration_seconds"), "results": receipt.get("results"),
+                              "purpose": "approved_execution" if command in prescribed else "independent_clean_replay",
+                              "scheduling": receipt.get("scheduling"),
                              "error": receipt.get("error") or "", "tail": (receipt.get("tail") or "")[-TAIL_CHARS:]}
-        rows.append({**seen[command], "reported_exit_code": check.get("exit_code"),
+        rows.append({**seen[key], "reported_exit_code": check.get("exit_code"),
                      "evidence_ref": check.get("evidence_ref")})
     failed = [row for row in rows if row["error"] or row["timed_out"] or row["exit_code"] != 0]
     result = {"verdict": FAIL if failed else PASS, "checks": rows, "source_revision": record.get("source_revision"),
               "protected_tests": protected, "timeout_seconds": timeout, "replayed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+    decisions = [row for row in seen.values() if row.get("scheduling")]
+    result["scheduling"] = {
+        "executed_count": sum(row["scheduling"]["action"] == "execute" for row in decisions),
+        "reused_count": sum(row["scheduling"]["action"] == "reuse" for row in decisions),
+        "executed_seconds": sum(row.get("duration_seconds") or 0 for row in decisions
+                                if row["scheduling"]["action"] == "execute"),
+        "avoided_seconds": sum(row.get("duration_seconds") or 0 for row in decisions
+                               if row["scheduling"]["action"] == "reuse"),
+        "duration_basis": "Original command subprocess seconds, not net wall-time savings or scheduling overhead"}
     (out / "replay.json").write_text(json.dumps(result, indent=2) + "\n")
     if failed:
         row = failed[0]

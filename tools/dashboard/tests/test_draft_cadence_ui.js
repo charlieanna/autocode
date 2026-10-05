@@ -47,10 +47,10 @@ vm.runInContext(source.slice(source.indexOf('function planDraftPreviewCard('),so
  }
  ctx.renderDraftDeliveryProblem(problem,{...failed,archived_at:'now'},null);assert.equal(problem.hidden,true);
  ctx.renderDraftDeliveryProblem(problem,doc,null);assert.equal(problem.hidden,true);
- const draft={revision:2,goal:'Use a database',freshness:{state:'fresh',source_messages:[
+ const draft={revision:2,goal:'Use a database',freshness:{state:'fresh',structured_result:true,source_messages:[
   {message_id:'message-two',excerpt:'Use SQLite <script>'}]},requirements:['Persist messages']};
  const preview=ctx.planDraftPreviewCard(draft);
- assert.match(text(preview),/Updated from your messages/);assert.match(text(preview),/Use SQLite <script>/);
+ assert.match(text(preview),/Updated after your answer:\s+“Use SQLite <script>”/);
  assert.equal(all(preview).some(row=>row.tag==='script'),false);
  assert.match(text(preview),/Independent plan review and your approval are required/);
  assert.equal(all(preview).filter(row=>row.tag==='button').length,0,'Draft artifact cannot approve or launch implementation');
