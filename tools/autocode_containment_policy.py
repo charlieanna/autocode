@@ -1,8 +1,8 @@
 """Whether a run's built-in OpenCode stages launch inside the kernel tool boundary (#413).
 
 Every built-in OpenCode stage that is not planning (Builder, Validator, Completion
-Reviewer, Resolver, workflow jobs) launches only inside the strict tool boundary of
-autocode_tool_containment, which exists only on macOS sandbox-exec with the
+Reviewer, Resolver, Investigator, workflow jobs) launches only inside the strict tool
+boundary of autocode_tool_containment, which exists only on macOS sandbox-exec with the
 conformance-tested OpenCode. A run that cannot have it is refused at setup, before
 any planning stage spends money, unless the person explicitly accepted uncontained
 tools with --allow-uncontained-tools.
@@ -20,8 +20,10 @@ from __future__ import annotations
 
 try:
     from . import autocode_tool_containment as tool_containment, autocode_quota_route as quota_route
+    from . import autocode_stuck_job as stuck_job
 except ImportError:
     import autocode_tool_containment as tool_containment, autocode_quota_route as quota_route
+    import autocode_stuck_job as stuck_job
 
 FLAG = "--allow-uncontained-tools"
 SETTING = "allow_uncontained_tools"
@@ -32,13 +34,16 @@ CONTAINED, UNCONTAINED = "contained", "uncontained_user_accepted"
 def applies(settings, *, configured_tool=False) -> bool:
     """Whether the run launches built-in OpenCode stages that the kernel boundary covers.
 
-    Configured (TOML) providers and the native Codex engine never do.
+    Configured (TOML) providers never do; a native Codex run does only through an OpenCode
+    route: a role on OpenCode, or a pinned --investigator-model provider/model, whose route
+    is saved outside ``roles`` until the Investigator runs.
     """
     settings = settings or {}
     if configured_tool or settings.get("provider") not in (None, "opencode"):
         return False
-    return settings.get("engine") == "opencode" or any(
-        quota_route.engine(settings, role) == "opencode" for role in settings.get("roles") or {})
+    return (settings.get("engine") == "opencode"
+            or any(quota_route.engine(settings, role) == "opencode" for role in settings.get("roles") or {})
+            or (stuck_job.pinned_route(settings) or {}).get("engine") == "opencode")
 
 
 def accepted(settings) -> bool:
@@ -54,10 +59,10 @@ def mode(settings) -> str | None:
 
 def refusal(problem: str) -> str:
     return (f"Refused before any stage launched: {problem}. Built-in OpenCode stages other than planning "
-            "(Builder, Validator, Completion Reviewer, Resolver) run only inside the kernel tool boundary, "
-            f"qualified on macOS sandbox-exec with OpenCode {tool_containment.SUPPORTED_VERSION}. Use that setup, "
-            f"or add {FLAG} to run those stages with OpenCode's own permission checks only (no kernel "
-            "containment); it is saved with the run.")
+            "(Builder, Validator, Completion Reviewer, Resolver, Investigator) run only inside the kernel tool "
+            f"boundary, qualified on macOS sandbox-exec with OpenCode {tool_containment.SUPPORTED_VERSION}. "
+            f"Use that setup, or add {FLAG} to run those stages with OpenCode's own permission checks only "
+            "(no kernel containment); it is saved with the run.")
 
 
 def configure(state, settings, *, allow, configured_tool, workspace, now) -> None:

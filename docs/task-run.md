@@ -326,7 +326,8 @@ tools: `contained` (inside the kernel tool boundary, see
 (the run was started or resumed with `--allow-uncontained-tools`; those stages have
 OpenCode's own permission checks only, and each such stage record says
 `uncontained_tools: true`). It is `null` for runs that launch no such stage: the
-native Codex engine and configured providers.
+native Codex engine (unless its Investigator is pinned to an OpenCode model) and
+configured providers.
 
 `direct_rework_assignments` records a repair assigned directly from a Completion
 Owner's accepted REWORK report. Each entry binds the original and assigned tasks,

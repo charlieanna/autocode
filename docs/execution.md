@@ -816,11 +816,11 @@ message names the reason. Two ways on:
 
 - Use the qualified setup.
 - Add `--allow-uncontained-tools` to the new run or to the resume. The Builder,
-  Validator, Completion Reviewer, Resolver and workflow-job stages then launch with
-  OpenCode's own permission checks and the workspace snapshot checks only, with no
-  kernel containment and no boundary prompt. The choice is saved with the run (it
-  is not repeated on later resumes) and recorded as an `uncontained_tools_accepted`
-  user event with the time and reason. Each such stage record says
+  Validator, Completion Reviewer, Resolver, Investigator and workflow-job stages
+  then launch with OpenCode's own permission checks and the workspace snapshot
+  checks only, with no kernel containment and no boundary prompt. The choice is
+  saved with the run (it is not repeated on later resumes) and recorded as an
+  `uncontained_tools_accepted` user event with the time and reason. Each such stage record says
   `uncontained_tools: true`, and the status view says `tool_containment:
   "uncontained_user_accepted"`. Only that flag sets it: no environment variable,
   model output or dashboard default.
@@ -828,7 +828,10 @@ message names the reason. Two ways on:
 If the boundary was available at setup but fails at a launch (for example OpenCode
 was upgraded mid-run), the run still pauses as `PAUSED_TOOL_CONTAINMENT`; that
 message names `--allow-uncontained-tools` as the explicit way to continue. Native
-Codex runs, configured providers and `--dry-run` previews are not checked.
+Codex runs, configured providers and `--dry-run` previews are not checked, except a
+Codex run whose stuck-stage Investigator is pinned to an OpenCode model
+(`--investigator-model provider/model`): that stage runs on built-in OpenCode, so
+the run is checked and accepts the flag like an OpenCode run.
 
 Tool networking remains denied, including ephemeral loopback HTTP tests. The
 tested Seatbelt `localhost` rule also permits non-loopback addresses belonging to

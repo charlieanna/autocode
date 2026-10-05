@@ -1,11 +1,13 @@
 """Run-setup tool-containment policy (#413): refuse early, or a recorded explicit opt-out. Pure functions."""
 import copy
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 import tests  # noqa: F401 - runtime import path
 import autocode_containment_policy as policy
 import autocode_run_view as run_view
+import autocode_stuck_job as stuck_job
 
 OPENCODE = {"engine": "opencode", "provider": "opencode",
             "roles": {"terra": {"engine": "opencode", "model": "zai-coding-plan/glm-5.3"},
@@ -82,6 +84,27 @@ class ContainmentPolicyTests(unittest.TestCase):
                 self.assertEqual(({}, settings), (state, saved))
         self.assertIsNone(run_view.view({"status": "RUNNING", "settings": CODEX})["tool_containment"])
         self.assertIsNone(run_view.view({"status": "RUNNING"})["tool_containment"])
+
+    def test_a_codex_run_with_a_pinned_opencode_investigator_is_covered(self):
+        # --investigator-model provider/model saves an OpenCode route outside settings.roles; that
+        # stage is not planning, so its launch asks for the kernel boundary like any OpenCode stage.
+        def pinned(model):
+            args = SimpleNamespace(investigator_model=model, investigator_reasoning_effort=None)
+            return stuck_job.configure(copy.deepcopy(CODEX), args)
+
+        self.assertFalse(policy.applies(pinned("gpt-6-sol")))  # a bare name stays on Codex
+        settings = pinned("zai-coding-plan/glm-5.3")
+        self.assertTrue(policy.applies(settings))
+        self.assertFalse(policy.applies(settings, configured_tool=True))
+        self.assertEqual("contained", run_view.view({"status": "RUNNING", "settings": settings})["tool_containment"])
+        with self.assertRaisesRegex(ValueError, "before any stage launched: this machine is linux"):
+            self.configure({}, settings, problem="this machine is linux")
+        state = {"status": "PAUSED_TOOL_CONTAINMENT"}
+        self.configure(state, settings, allow=True, problem="this machine is linux")
+        self.assertTrue(policy.accepted(settings))
+        self.assertEqual(["uncontained_tools_accepted"], [event["kind"] for event in state["user_events"]])
+        self.assertEqual("uncontained_user_accepted",
+                         run_view.view({"status": "RUNNING", "settings": settings})["tool_containment"])
 
     def test_only_a_literal_true_setting_counts_as_acceptance(self):
         for value in ("true", 1, {"accepted": True}, None):
