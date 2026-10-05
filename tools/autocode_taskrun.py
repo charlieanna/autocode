@@ -20,6 +20,11 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+try:
+    from .autocode_captured_process import ProcessError, run as run_captured
+except ImportError:
+    from autocode_captured_process import ProcessError, run as run_captured
+
 AUTOCODE = (sys.executable, str(Path(__file__).resolve().parent / "autocode.py"))
 
 
@@ -266,10 +271,16 @@ class TaskRun:
             cmd += ["--run-dir", str(self.run_dir)]
         where = {"cwd": self.cwd} if self.cwd is not None else {}
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout,
-                                  env={**os.environ, **(self.env or {})}, **where)
+            environment = {**os.environ, **(self.env or {})}
+            if advancing:
+                proc = run_captured(cmd, timeout=self.timeout, env=environment, **where)
+            else:
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=self.timeout,
+                                      env=environment, **where)
         except subprocess.TimeoutExpired:
             raise TaskRunError(f"{name} did not finish within {self.timeout} s") from None
+        except ProcessError as error:
+            raise TaskRunError(f"{name} could not supervise its processes: {error}") from error
         except OSError as error:  # e.g. a working directory or workspace that was removed
             raise TaskRunError(f"{name} could not run: {error}") from error
         if advancing:

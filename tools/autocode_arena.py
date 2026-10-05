@@ -196,7 +196,7 @@ def attempt(args, store: Store):
                             timeout=args.timeout, cwd=runner)
         row["run_dir"] = str(run.run_dir)
         view = run.advance_until_input()
-        if args.approve_benchmark_plans and view["needs"]["kind"] == "approve_plan":
+        if args.approve_benchmark_plans and (view.get("needs") or {}).get("kind") == "approve_plan":
             (directory / "approved-plan.txt").write_text(run.show_goal())
             run.approve_plan(view["needs"]["token"])
             view = run.advance_until_input()
@@ -220,6 +220,8 @@ def attempt(args, store: Store):
         row["verdict"] = policy.verdict(view["status"], row["checks"])
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError, tarfile.TarError) as error:
         row.update(verdict="ERROR", error=str(error))
+        if isinstance(error, TaskRunError) and error.run_dir is not None:
+            row.setdefault("run_dir", str(error.run_dir))
     row["elapsed_seconds"] = time.monotonic() - started
     store.finish(row)
     write_json(directory / "result.json", row)

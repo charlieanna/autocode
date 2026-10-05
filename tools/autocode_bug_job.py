@@ -115,7 +115,8 @@ What to do:
      call or command) and then (the exact expected result, with literal values: "returns 1", "prints
      'Hello, Ada'", "exits 2"). No vague words such as "correctly" or "gracefully". The Builder writes one
      test per case named test_<id>_<what it checks> (for example test_t1_new_year_week_is_one_row), and
-     the runner checks that each case's test fails on the original code and passes after the fix. So each
+     the runner checks that a restore case's test fails on the original code because of the bug and passes
+     after the fix, while a preserve case's test passes on the original code and after the fix. So each
      case's when uses only calls, commands and inputs that exist before the fix (never a hook, variable or
      helper the fix would add: a test using one cannot even build on the original code), driving the real
      failure path, and its then is the behavior (a result, an error, saved state), never only a log line
@@ -324,11 +325,13 @@ def correction_contract(state: dict) -> dict:
                  "human_review": False}]
     naming = []
     for number, case in enumerate(test_cases(state), start=2):
+        comparison = ("passes on the original code and after the fix" if case.get("kind") == "preserve"
+                      else "fails on the original code and passes after the fix")
         criteria.append({"id": f"C{number}", "criterion": case_text(case),
                          "verification_method": f"The runner checks that a test named {case_test_name(case['id'])} "
-                                                "fails on the original code and passes after the fix",
+                                                + comparison,
                          "human_review": False})
-        naming.append(f"Write test case {case_text(case)} as a test named {case_test_name(case['id'])}")
+        naming.append(f"Write test case {case_text(case)} as a test named {case_test_name(case['id'])} that {comparison}")
     ids = [row["id"] for row in criteria]
     return {
         "intended_outcome": "The reported misbehavior no longer happens: " + found["observed"],
