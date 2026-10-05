@@ -137,9 +137,10 @@ class ReworkPolicyTests(unittest.TestCase):
         case.queue.assert_called_once()
         case.runtime.goals.record_decision.assert_not_called()
 
-    def capture_case(self, *, shared):
+    def capture_case(self, *, shared, contained=False):
         case = self.case(seal=False)
-        directory = self.workspace / '.autocode' / 'evidence' if shared else case.run / 'evidence'
+        directory = ((self.workspace / '.autocode' / 'tool-containment-397f7959' / 'scratch') if contained
+                     else self.workspace / '.autocode' / 'evidence' if shared else case.run / 'evidence')
         path = directory / (str(self.count) + '.json')
         command = [sys.executable, str(Path(runtime.__file__)), 'capture', '--output', str(path), '--no-compress',
                    '--', sys.executable, '-c', "import sys; print('invalid input reproduced'); sys.exit(1)"]
@@ -333,6 +334,17 @@ class ReworkPolicyTests(unittest.TestCase):
                     self.route(case)
                 case.queue.assert_not_called()
                 case.runtime.lifecycle.assign_task.assert_not_called()
+
+    def test_check_receipts_under_tool_containment_scratch_are_owned_evidence(self):
+        # The capture command writes Validator check receipts into the
+        # tool-containment scratch root (.autocode/tool-containment-*/scratch/),
+        # outside any single run; the check-evidence path owns them like shared
+        # evidence instead of refusing them as another run's property.
+        case, _, _ = self.capture_case(shared=True, contained=True)
+        try:
+            self.route(case)
+        except util.Paused as error:
+            self.fail(f'containment check receipt refused: {error}')
 
     def test_shared_layout_does_not_relax_stage_or_foreign_run_evidence_ownership(self):
         case, path, _ = self.capture_case(shared=True)

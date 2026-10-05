@@ -97,6 +97,15 @@ def main():
         if time.monotonic() > deadline:
             raise RuntimeError("Builders were not concurrent")
         time.sleep(.02)
+    if os.environ.get("AUTOCODE_BUILDER_QUOTA_FAIL_ONCE") == task["milestone_id"]:
+        once = Path(data["state_file"]).parent / "quota-failed-once"
+        if not once.exists():
+            once.write_text(task["milestone_id"])
+            print(json.dumps({"type": "error", "error": {"message": "subscription usage limit reached"}}), flush=True)
+            raise SystemExit(2)
+    if os.environ.get("AUTOCODE_BUILDER_RESULT_STATUS") == task["milestone_id"]:
+        print(json.dumps({"type": "error", "error": {"message": "Selected model is at capacity"}}), flush=True)
+        raise SystemExit(2)
     if os.environ.get("AUTOCODE_BUILDER_FAIL") == task["milestone_id"]:
         raise SystemExit(9)
     paths = task["affected_paths"]

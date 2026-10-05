@@ -18,7 +18,7 @@ try:
     from . import autocode_progressive_state as progressive
     from . import autocode_resolver_recovery as recovery
     from . import autocode_recovery_grants as recovery_grants, autocode_recovery_limits as recovery_limits
-    from . import autocode_quota_route as quota_route
+    from . import autocode_quota_route as quota_route, autocode_worker_quota as worker_quota
 except ImportError:
     import autocode_resolver as policy
     import autocode_support as support
@@ -30,6 +30,7 @@ except ImportError:
     import autocode_recovery_grants as recovery_grants
     import autocode_recovery_limits as recovery_limits
     import autocode_quota_route as quota_route
+    import autocode_worker_quota as worker_quota
 
 
 REVIEW_STAGES = ('astra_challenge', 'astra_finalize')
@@ -419,13 +420,16 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
         if attempt:
             options.append(f'Abandon the uncertain attempt with --abandon-stage {attempt}')
     # A quota or content-filter stop of one routable role asks the person to name a model (#184); never a default.
-    stopped = (quota_route.stopped_attempt(state, failure_status=support.failure_status)
-               if error.status in quota_route.STATUSES and request is None else None)
+    parallel = worker_quota.stopped(state, error) if request is None else None
+    stopped = parallel or (quota_route.stopped_attempt(state, failure_status=support.failure_status)
+                           if error.status in quota_route.STATUSES and request is None else None)
     route = quota_route.question(
         state, stopped, cross_check=getattr(getattr(runner, 'dispatch', None), 'enforce_cross_model_verification', None),
         configured_tool=getattr(getattr(runner, 'opencode', None), 'CONFIGURED', False)) if stopped and stopped['active'] else None
+    if parallel and route:
+        route = worker_quota.question(state, parallel)
     if route:
-        decision += ' ' + quota_route.advice(route, stopped['attempt_id'])
+        decision += ' ' + quota_route.advice(route, None if parallel else stopped['attempt_id'])
         options.insert(0, quota_route.option(route))
     request = request or {'kind': 'blocker', 'discovered': str(error),
                           'impact': 'AutoResolver retained the attempts, work and evidence but cannot continue safely.',
@@ -433,7 +437,8 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
                           'options': options,
                           'proposed_delta': 'Answering does not authorize a retry, approval, permission or budget change.'}
     human.queue(state, 'operational_exhaustion',
-                {'stage': state.get('next_stage') or 'operational_recovery', 'pause_status': error.status, 'budget': budget},
+                {'stage': state.get('next_stage') or 'operational_recovery', 'pause_status': error.status, 'budget': budget,
+                 **({'quota_worker': parallel} if parallel else {})},
                 request=request, questions=[route] if route else None,
                 evidence={'resolver_receipt_id': receipt}, next_stage=state.get('next_stage'))
     # Keep the printed stop reason on the same contract as the published request, after the cause it

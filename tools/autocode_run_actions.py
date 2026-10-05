@@ -31,7 +31,7 @@ try:
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_progressive_state as progressive
-    from . import autocode_quota_route as quota_route
+    from . import autocode_quota_route as quota_route, autocode_worker_quota as worker_quota
     from . import autocode_resolver_human as resolver_human
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_resolver_runtime as resolver_runtime
@@ -58,6 +58,7 @@ except ImportError:
     import autocode_planning_artifacts as planning_artifacts
     import autocode_progressive_state as progressive
     import autocode_quota_route as quota_route
+    import autocode_worker_quota as worker_quota
     import autocode_resolver_human as resolver_human
     import autocode_recovery_progress as recovery_progress
     import autocode_resolver_runtime as resolver_runtime
@@ -706,11 +707,20 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
                 raise ValueError(str(error)) from None
         if interventions.pending(run_dir):
             raise ValueError('Apply the queued intervention before answering')
-        attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status)
-        if not attempt or not attempt['active'] or attempt['role'] != role:
-            raise ValueError('The quota-stopped attempt is no longer current; run with --no-chat to see the request')
-        runner.abandon_stage(candidate, run_dir, workspace, attempt['attempt_id'])
-        attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status) or attempt  # archived
+        parallel = worker_quota.current(candidate, proposal['origin'])
+        if proposal['origin'].get('quota_worker') and not parallel:
+            raise ValueError('The quota-stopped Builder is no longer current; inspect the batch before retrying')
+        if parallel:
+            row, stopped_worker = parallel
+            worker_quota.validate_model(model, stopped_worker, dispatch._model_family)
+            attempt = {**stopped_worker, 'stage': 'terra', 'pause_status': quota_route.QUOTA_STATUS}
+            worker_quota.assign_child(row, stopped_worker, model, abandon=runner.abandon_stage)
+        else:
+            attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status)
+            if not attempt or not attempt['active'] or attempt['role'] != role:
+                raise ValueError('The quota-stopped attempt is no longer current; run with --no-chat to see the request')
+            runner.abandon_stage(candidate, run_dir, workspace, attempt['attempt_id'])
+            attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status) or attempt
         record = quota_route.assign(candidate, role, model, at=runner.now(), via='answer', attempt=attempt,
                                     request_id=published['request_id'])
         runner.finish_human_action(candidate, published)

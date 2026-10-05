@@ -30,7 +30,13 @@ def _owned(path, workspace, run_dir, *, artifact=False, check_evidence=False):
     _require('..' not in target.parts and target.is_relative_to(workspace),
              'Repair evidence is outside this workspace')
     _require(not artifact or target.is_relative_to(run_dir), 'Stage evidence belongs to another run')
-    shared = check_evidence and target.is_relative_to(workspace / '.autocode' / 'evidence')
+    # Validator check receipts live in the tool-containment scratch root the
+    # capture command writes into (.autocode/tool-containment-*/scratch/...),
+    # outside any single run directory; they are runner-owned like shared
+    # evidence, and only the check-evidence path may cite them.
+    containment = any(part.startswith('tool-containment-') for part in target.parts)
+    shared = check_evidence and (target.is_relative_to(workspace / '.autocode' / 'evidence')
+                                 or containment)
     _require(not target.is_relative_to(workspace / '.autocode') or target.is_relative_to(run_dir) or shared,
              'Repair evidence belongs to another run')
     _require(not any(parent.is_symlink() for parent in (target, *target.parents)

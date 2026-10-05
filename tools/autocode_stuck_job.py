@@ -537,12 +537,18 @@ def drive(state, dispatch, *, apply=None, before=None, after=None, persist=None,
                 status, reason = abandon(state, reason)
                 if persist:
                     persist(state)
-                raise paused(status, reason) from error
+                reraised = paused(status, reason)
+                if getattr(error, "quota_worker", None):
+                    reraised.quota_worker = error.quota_worker
+                raise reraised from error
             retire(state)
             if not fresh():
                 raise
             if not intercept(state, status, reason):
-                raise paused(status, annotate(state, status, reason)) from error
+                reraised = paused(status, annotate(state, status, reason))
+                if getattr(error, "quota_worker", None):
+                    reraised.quota_worker = error.quota_worker
+                raise reraised from error
             if persist:
                 persist(state)
             continue
