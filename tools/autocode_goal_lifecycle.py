@@ -25,7 +25,7 @@ try:
     from . import autocode_util as s, autocode_workflows as workflows, autocode_milestones as checkpoints
     from . import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
     from . import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view, autocode_design_plan as design_plan
-    from . import autocode_progressive_state as progressive_state
+    from . import autocode_progressive_state as progressive_state, autocode_test_cases as test_cases
     from .autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -35,7 +35,7 @@ except ImportError:
     import autocode_util as s, autocode_workflows as workflows, autocode_milestones as checkpoints
     import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
     import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view, autocode_design_plan as design_plan
-    import autocode_progressive_state as progressive_state
+    import autocode_progressive_state as progressive_state, autocode_test_cases as test_cases
     from autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -398,6 +398,8 @@ def render(state, run_dir=None):
         lines += ["", f"Review token (current validated artifact): {review}",
                   "Validation: " + json.dumps(state["validation"], indent=2)]
     if asks_approval:
+        # The last screen: the decision in brief, then the limits and the commands (#381).
+        lines += [""] + approval_view.summary(body, contract["revision"], design_only=test_cases.design_only(state))
         lines += [""] + approval_view.actions(token(contract), state.get("settings") or {},
                                               state.get("iteration", 0), run_dir)
     lines += ["", f"State: {state.get('phase')} / {state['status']}"]
