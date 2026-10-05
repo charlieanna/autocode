@@ -52,7 +52,7 @@ try:
     from . import autocode_progressive_state as progressive_state
     from . import autocode_findings as findings_ledger
     from . import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
-    from . import autocode_output_policy as output_policy
+    from . import autocode_output_policy as output_policy, autocode_output_cap as output_cap
     from .autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
@@ -86,7 +86,7 @@ except ImportError:
     import autocode_progressive_state as progressive_state
     import autocode_findings as findings_ledger
     import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
-    import autocode_output_policy as output_policy
+    import autocode_output_policy as output_policy, autocode_output_cap as output_cap
     from autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
@@ -423,6 +423,7 @@ def run_role(
         record.update(permission_config=str(base.with_suffix(".opencode.json")),
                       isolation="Kernel-constrained native shell; other tools disabled" if worker_context.get('tool_containment') else "OpenCode tool permissions and workspace snapshot checks; no OS sandbox")
         record['tool_containment'] = worker_context.get('tool_containment')
+        record['output_token_cap'] = worker_context.get('output_token_cap')
     elif engine == "opencode":
         record.update(provider=opencode.NAME,
                       isolation="Config-tool sandbox flag and workspace snapshot checks")
@@ -558,8 +559,9 @@ def run_role(
             state["sessions"][route_role] = thread
             record["thread_id"] = thread
         if not any(e.get("type") == "turn.completed" for e in support.events(events)):
-            raise support.Paused("PAUSED_UNCERTAIN_STAGE",
-                                 support.terminal_failure_reason(events) or "Process exited without turn.completed")
+            raise support.Paused("PAUSED_UNCERTAIN_STAGE", output_cap.explain(
+                support.terminal_failure_reason(events), record.get('output_token_cap'))
+                or "Process exited without turn.completed")
     elif not output.is_file():
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without a report file")
     after = support.snapshot(workspace)
@@ -938,7 +940,8 @@ def reconcile_active(state, run_dir, workspace):
     assert_stage_stopped(record)
     supports_sessions = stage_supports_sessions(state, record)
     if not stage_completed(state, record) or (supports_sessions and record.get("exit_code") not in (None, 0)):
-        reason = refusal_reason(state, record) or support.terminal_failure_reason(record["events"])
+        reason = refusal_reason(state, record) or output_cap.explain(
+            support.terminal_failure_reason(record["events"]), record.get('output_token_cap'))
         raise support.Paused(support.failure_status(record["events"]),
             (f"{reason.rstrip('.')}. " if reason else "") +
             f"Uncertain stage must be inspected, never automatically replayed. After review, "

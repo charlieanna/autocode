@@ -7,9 +7,9 @@ from pathlib import Path
 import subprocess
 import sys
 try:
-    from . import autocode_agent_env as agent_env, autocode_util as util
+    from . import autocode_agent_env as agent_env, autocode_output_cap as output_cap, autocode_util as util
 except ImportError:
-    import autocode_agent_env as agent_env, autocode_util as util
+    import autocode_agent_env as agent_env, autocode_output_cap as output_cap, autocode_util as util
 
 
 def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
@@ -63,6 +63,9 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
         worker['fresh_session_reason'] = 'Native tool containment requires a newly bound provider session'
     if environment.get('AUTOCODE_TOOL_CONTAINMENT'):
         worker['tool_containment'] = json.loads(environment['AUTOCODE_TOOL_CONTAINMENT'])
+    if engine == "opencode" and not worker["configured"]:
+        # Read from the scrubbed environment: the cap the process will actually get.
+        worker['output_token_cap'] = output_cap.recorded(os.environ, environment)
     return command, environment, overrides, worker
 
 
