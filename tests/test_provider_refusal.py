@@ -232,11 +232,12 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
         self.root = Path(temp.name).resolve()
         self.runs = 0
 
-    def build(self, rows, *, sessions=True, saved_session=None):
+    def build(self, rows, *, sessions=True, saved_session=None, exited=(0, False)):
         """The Builder's run_role, in a fresh run, over a provider that writes ``rows`` and exits 0: (stop, state).
 
         With ``saved_session`` the provider is a configured tool that prints OpenCode events (as Kilo
-        does) and resumes the Builder's saved session; the built-in OpenCode Builder starts a new one."""
+        does) and resumes the Builder's saved session; the built-in OpenCode Builder starts a new one.
+        ``exited`` is the provider's (exit code, timed out) as the runner's wait returns it."""
         self.runs += 1
         self.run = self.root / ".autocode/runs" / f"fixture-{self.runs}"
         self.run.mkdir(parents=True)
@@ -260,7 +261,7 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
              patch.object(runner.subprocess, "Popen", Child), \
              patch.object(support, "snapshot", return_value={"head": "h", "files": {}, "revision": "r"}), \
              patch.object(runner.processes, "preflight", return_value=None), \
-             patch.object(runner.processes, "wait_for_stage", return_value=(0, False)), \
+             patch.object(runner.processes, "wait_for_stage", return_value=exited), \
              contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaises(support.Paused) as caught:
                 runner.run_role(role="terra", prompt="Fixture", sandbox="workspace-write", workspace=self.root,
@@ -305,29 +306,57 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
 
     def test_session_provenance_is_checked_before_the_refusal(self):
         # A refusal from a session the run did not expect, or naming none, is not typed or answered with a
-        # model: not at the first stop, and not when --resume-paused reconciles the same saved attempt.
+        # model: not at the first stop, and not when --resume-paused reconciles the same saved attempt,
+        # including one whose exit the runner never saved because it stopped while the provider ran.
         missing = "Provider returned a missing or unexpected session ID"
         recovered = "Recovered response belongs to an unexpected session"
+        human = runner.resolver_runtime.human
+        for saved, written in self.unexpected_refusals():
+            for saved_exit in (0, None):
+                with self.subTest(saved_session=saved, saved_exit=saved_exit):
+                    stop, state = self.build(written, saved_session=saved)
+                    self.assertEqual(("PAUSED_UNCERTAIN_STAGE", missing), (stop.status, str(stop)))
+                    self.assertEqual((0, saved), (state["active_stage"]["exit_code"],
+                                                  state["active_stage"]["expected_session"]))
+                    thread = runner.format_correction.event_thread_id(Path(state["active_stage"]["events"]))
+                    self.assertTrue(thread != saved if saved else thread is None, thread)
+                    self.assertEqual("PAUSED_CONTENT_FILTER", support.failure_status(state["active_stage"]["events"]))
+                    state["active_stage"]["exit_code"] = saved_exit
+                    resumed = self.reconcile(state)
+                    self.assertEqual(("PAUSED_UNCERTAIN_STAGE", recovered), (resumed.status, str(resumed)))
+                    self.assertIn("active_stage", state)
+                    self.assertEqual({"terra": saved} if saved else {}, state["sessions"])
+                    # The request the resumed stop stages asks no model question.
+                    self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, state, self.run, resumed))
+                    self.assertEqual("PAUSED_UNCERTAIN_STAGE", state[human.PRIVATE]["origin"]["pause_status"])
+                    self.assertEqual([], human.internal_questions(state))
+
+    def test_a_resumed_refusal_from_an_unexpected_session_keeps_the_first_stop(self):
+        # As in run_role, a timeout names the stop before the session or the response is read, and the
+        # refusal is typed for a provider that exited with an error; the resume says the same. A provider
+        # that handles the stop signal exits 0, and the timeout still recovers on its own.
+        for saved, written in self.unexpected_refusals():
+            for exited, status in (((0, True), "PAUSED_PROVIDER_TIMEOUT"), ((-15, True), "PAUSED_PROVIDER_TIMEOUT"),
+                                   ((1, False), "PAUSED_CONTENT_FILTER")):
+                with self.subTest(saved_session=saved, exited=exited):
+                    stop, state = self.build(written, saved_session=saved, exited=exited)
+                    self.assertEqual(status, stop.status)
+                    resumed = self.reconcile(state)
+                    self.assertEqual(status, resumed.status, str(resumed))
+                    if status == "PAUSED_PROVIDER_TIMEOUT":
+                        self.assertIn(state["active_stage"]["timeout_reason"], str(resumed))
+                        with patch.object(support, "snapshot", return_value={"head": "h", "files": {}, "revision": "r"}), \
+                             patch.object(runner, "run_role", side_effect=AssertionError("Recovery must not replay")):
+                            self.assertTrue(runner.automatically_recover_timed_out_stage(state, self.run, self.root, resumed))
+                        self.assertNotIn("active_stage", state)
+                        self.assertNotIn("terra", state["sessions"])
+
+    @staticmethod
+    def unexpected_refusals():
+        """(saved session, rows): a finish-only refusal from another session, and an error-event one naming none."""
         rows = [json.loads(line) for line in FINISH_ONLY.read_text().splitlines()]
-        refusal = [{"type": "turn.failed", "error": {"code": "content_filter", "message": "filtered"}}]
-        for saved, written in (("ses_saved_builder", rows), (None, refusal)):
-            with self.subTest(saved_session=saved):
-                stop, state = self.build(written, saved_session=saved)
-                self.assertEqual(("PAUSED_UNCERTAIN_STAGE", missing), (stop.status, str(stop)))
-                self.assertEqual((0, saved), (state["active_stage"]["exit_code"],
-                                              state["active_stage"]["expected_session"]))
-                thread = runner.format_correction.event_thread_id(Path(state["active_stage"]["events"]))
-                self.assertTrue(thread != saved if saved else thread is None, thread)
-                self.assertEqual("PAUSED_CONTENT_FILTER", support.failure_status(state["active_stage"]["events"]))
-                resumed = self.reconcile(state)
-                self.assertEqual(("PAUSED_UNCERTAIN_STAGE", recovered), (resumed.status, str(resumed)))
-                self.assertIn("active_stage", state)
-                self.assertEqual({"terra": saved} if saved else {}, state["sessions"])
-                # The request the resumed stop stages asks no model question.
-                human = runner.resolver_runtime.human
-                self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, state, self.run, resumed))
-                self.assertEqual("PAUSED_UNCERTAIN_STAGE", state[human.PRIVATE]["origin"]["pause_status"])
-                self.assertEqual([], human.internal_questions(state))
+        return (("ses_saved_builder", rows),
+                (None, [{"type": "turn.failed", "error": {"code": "content_filter", "message": "filtered"}}]))
 
     def test_other_clean_exits_without_a_completed_turn_stay_uncertain(self):
         rows = [json.loads(line) for line in FINISH_ONLY.read_text().splitlines()]

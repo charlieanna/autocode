@@ -949,21 +949,29 @@ def reconcile_active(state, run_dir, workspace):
             'This completed attempt was already rejected. Explicitly retry planning with autocode resume; do not recover the rejected output.')
     assert_stage_stopped(record)
     supports_sessions = stage_supports_sessions(state, record)
-    completed, exit_code = stage_completed(state, record), record.get("exit_code")
     thread = format_correction.event_thread_id(Path(record["events"])) if supports_sessions else None
-    # As in run_role, a clean exit's session is checked before its events are read (#464): a response
-    # from a session the run did not expect, or naming none, never types a refusal or asks for a model.
-    if (supports_sessions and (exit_code == 0 or (exit_code is None and completed))
-            and (("expected_session" in record and not thread)
-                 or (record.get("expected_session") and thread != record["expected_session"]))):
-        raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Recovered response belongs to an unexpected session")
-    if not completed or (supports_sessions and exit_code not in (None, 0)):
-        reason = refusal_reason(state, record) or output_cap.explain(
+    unexpected = supports_sessions and (("expected_session" in record and not thread)
+                                        or (record.get("expected_session") and thread != record["expected_session"]))
+    unexpected_session = support.Paused("PAUSED_UNCERTAIN_STAGE", "Recovered response belongs to an unexpected session")
+    if not stage_completed(state, record) or (supports_sessions and record.get("exit_code") not in (None, 0)):
+        reason = refusal_reason(state, record)
+        # A refusal in a response from a session the run did not expect, or naming none, is never typed or
+        # answered with a model (#464). As in run_role, a timeout names that stop (and recovers on its own),
+        # a failed exit keeps its typed stop and any other exit is uncertain. Other stops keep their type.
+        if reason and unexpected and record.get("timed_out"):
+            timeout = record.get("timeout_reason") or "Stage timed out"
+            raise support.Paused("PAUSED_PROVIDER_TIMEOUT",
+                                 f"{record['role']}: {timeout}; partial work and logs retained at {record['events']}")
+        if reason and unexpected and record.get("exit_code") in (None, 0):
+            raise unexpected_session
+        reason = reason or output_cap.explain(
             support.terminal_failure_reason(record["events"]), record.get('output_token_cap'))
         raise support.Paused(support.failure_status(record["events"]),
             (f"{reason.rstrip('.')}. " if reason else "") +
             f"Uncertain stage must be inspected, never automatically replayed. After review, "
             f"use --abandon-stage {attempt_id(record)} to retain partial work and set aside this response.")
+    if unexpected:
+        raise unexpected_session
     if thread and not record.get('report_only'):
         state["sessions"][record.get("route_role", record["role"])] = thread
         record["thread_id"] = thread

@@ -257,12 +257,14 @@ never does. When no error event follows the finish, the provider's words in the 
 
 A refusal in a response the provider returned with exit 0 from a session the run did not
 expect, or one that names no session, stays `PAUSED_UNCERTAIN_STAGE` ("Provider returned a
-missing or unexpected session ID") and asks no model question; `--resume-paused` keeps it
-uncertain ("Recovered response belongs to an unexpected session"), because the session is
-checked before the saved response is read. `--answer route-ROLE=MODEL` is accepted only
-where the request asks it, so while such a stop is open (or one a run paused on before a
-finish-only refusal was typed), the role's model flag alone (`--terra-model`) is refused and
-names only the other route: `--abandon-stage ATTEMPT`, then
-`--resume-paused --terra-model MODEL`.
+missing or unexpected session ID") and asks no model question. `--resume-paused` keeps it
+uncertain ("Recovered response belongs to an unexpected session"), and so does a resume
+after AutoCode stopped before it saved the provider's exit. When the stage timed out, the
+stop stays `PAUSED_PROVIDER_TIMEOUT`, which the automatic timeout recovery may set aside.
+Only a provider that exited with an error has such a refusal typed, as at its first stop.
+`--answer route-ROLE=MODEL` is accepted only where the request asks it, so while such a
+stop is open (or one a run paused on before a finish-only refusal was typed), the role's
+model flag alone (`--terra-model`) is refused and names only the other route:
+`--abandon-stage ATTEMPT`, then `--resume-paused --terra-model MODEL`.
 
 See also: [Providers](providers.md) · [Workflow](workflow.md) · [CLI](cli.md)
