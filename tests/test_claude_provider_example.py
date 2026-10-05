@@ -15,6 +15,7 @@ import unittest
 from pathlib import Path
 
 from providers import command
+import autocode_support as support
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "claude-provider"
 spec = importlib.util.spec_from_file_location("claude_stage", EXAMPLE / "claude_stage.py")
@@ -91,7 +92,7 @@ import json, sys
 sys.stdin.read()
 if "--resume" in sys.argv:
     assert sys.argv[sys.argv.index("--resume") + 1] == "s1"
-    row = {{"type": "result", "is_error": False, "session_id": "s1", "result": "done",
+    row = {{"type": "result", "is_error": False, "session_id": "s1", "result": {said},
             "usage": {{"input_tokens": 2}}, "total_cost_usd": 0.25}}
     if {remembers}:
         row["structured_output"] = {{"summary": "done"}}
@@ -106,11 +107,11 @@ else:
 class ForgottenReportTests(unittest.TestCase):
     """A stage that ends without its report is asked for it once, in the same session."""
 
-    def stage(self, remembers):
+    def stage(self, remembers, said="done"):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             claude = root / "claude"
-            claude.write_text(FORGETFUL_CLAUDE.format(python=sys.executable, remembers=remembers))
+            claude.write_text(FORGETFUL_CLAUDE.format(python=sys.executable, remembers=remembers, said=json.dumps(said)))
             claude.chmod(0o755)
             (root / "schema.json").write_text("{}")
             env = {**os.environ, "PATH": f"{root}{os.pathsep}{os.environ['PATH']}"}
@@ -119,6 +120,9 @@ class ForgottenReportTests(unittest.TestCase):
                                   input="Build it.", capture_output=True, text=True, env=env, timeout=60)
             events = [json.loads(line) for line in done.stdout.splitlines()]
             report = json.loads((root / "report.json").read_text()) if (root / "report.json").exists() else None
+            (root / "events.jsonl").write_text(done.stdout)
+            self.status = support.failure_status(root / "events.jsonl")
+            self.events = events
             return done.returncode, events[-1], report
 
     def test_the_report_is_taken_from_the_reminder_and_both_calls_are_billed(self):
@@ -130,6 +134,16 @@ class ForgottenReportTests(unittest.TestCase):
     def test_a_stage_that_still_returns_no_report_fails_after_one_reminder(self):
         code, last, report = self.stage(remembers=False)
         self.assertEqual((1, "turn.failed", None), (code, last["type"], report))
+
+    def test_the_model_s_own_words_are_never_the_provider_s_error(self):
+        # AutoCode reads a failure's message for the provider's words. Prose that names a content filter or a
+        # budget is the model's, so the stop stays uncertain: not a refusal, not a quota stop.
+        said = "I added the profanity content filter and the token budget check but wrote no report."
+        code, last, report = self.stage(remembers=False, said=said)
+        self.assertEqual((1, "turn.failed", None), (code, last["type"], report))
+        self.assertEqual("claude returned no structured report", last["error"]["message"])
+        self.assertIn(said, [row["item"]["text"] for row in self.events if row["type"] == "item.completed"])
+        self.assertEqual("PAUSED_PROVIDER_UNCERTAIN", self.status)
 
 
 class BatchTests(unittest.TestCase):

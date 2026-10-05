@@ -162,8 +162,16 @@ def run(workspace, sandbox, model, effort, schema, report, prompt):
         Path(report).write_text(json.dumps(value, indent=2) + "\n")
         emit({"type": "turn.completed", "usage": totals, "cost_usd": (result or {}).get("total_cost_usd"), "model": model})
         sys.exit(0)
+    # Only the CLI's own error (is_error) speaks for the provider. AutoCode reads a failure's message for the
+    # provider's words (a quota, a rate limit, a content filter), so a result that is not an error, the model's
+    # own prose, goes out as its message and never as the error: a Builder that wrote a "content filter" or a
+    # "budget" check would otherwise stop as a refusal or a quota stop.
+    said = str((result or {}).get("result") or "")
+    if said and not (result or {}).get("is_error"):
+        emit({"type": "item.completed", "item": {"id": "result", "type": "agent_message", "text": said[:2000]}})
+        said = ""
     emit({"type": "turn.failed", "usage": totals, "cost_usd": (result or {}).get("total_cost_usd"),
-          "error": {"message": ((result or {}).get("result") or "claude returned no structured report")[:500]}})
+          "error": {"message": (said or "claude returned no structured report")[:500]}})
     sys.exit(1)
 
 
