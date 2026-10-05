@@ -7,7 +7,10 @@ category = "feature"
 # not pass without it", the test listed under pass_to_pass).
 #
 # Deliberate nudge, disclosed: the seed's only refusal test is written in exactly that style, so a
-# Builder that follows the seed's tests writes vacuous refusal tests. The product code is easy.
+# Builder that follows the seed's tests writes vacuous refusal tests. The product code is easy, and the seed's
+# helpers are correct: quantity() takes ASCII digits only and refuses what int() cannot read, and load() refuses a
+# JSON true. Until 2026-10-05 they were not ("²" crashed, "٣" read as 3, true passed as 1), and all six hybrid
+# Resolvers rightly put stock.py in scope.
 #
 # Routing basis: a Completion REWORK goes straight back to the Builder (#294, autocode_rework_policy)
 # only after a Validator FAIL backed by an executed failing check whose receipt is in the run's own

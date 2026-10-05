@@ -1442,6 +1442,40 @@ class StockRefusalsProductTests(unittest.TestCase):
         self.assertEqual({"more than held"}, oracle.refusal_rules(phrase))
         self.assertEqual(set(), oracle.refusal_rules(apart))
 
+    # The helpers seed, reference and both broken variants shared until 2026-10-05. In the six hybrid live runs
+    # the Validators and Completion Owners found that they crash on a QTY of a superscript two or of 5000 digits
+    # (a traceback, exit 1), read an Arabic-Indic three as 3 and take a JSON true in stock.json for 1, and every
+    # Resolver rightly put stock.py in scope.
+    OLD_HELPERS = '''def quantity(text):
+    if not text.isdigit() or int(text) <= 0:
+        raise Refused(f"quantity must be a positive integer, got {text!r}")
+    return int(text)
+'''
+
+    def test_the_hidden_tests_fail_the_helpers_the_live_checkers_found_wrong(self):
+        from harness.project import materialize
+        scenario = catalog.load("feature-stock-refusals")
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "p", scenario.dir / "reference")
+            source = project / "stock.py"
+            text = source.read_text()
+            start, end = text.index("def quantity(text):"), text.index("def cmd_receive")
+            source.write_text((text[:start] + self.OLD_HELPERS + "\n\n" + text[end:])
+                              .replace("type(q) is int", "isinstance(q, int)"))
+            shutil.copytree(scenario.dir / "hidden", project / "hidden_checks")
+            failing = {}
+            for case in ("Move", "Remove", "RefusesQuantityThatIsNotPositive", "RefusesMoveToSameLocation",
+                         "RefusesTakingMoreThanHeld", "RefusesMalformedStore"):
+                proc = subprocess.run([sys.executable, "-m", "unittest", "-v",
+                                       f"hidden_checks.test_stock_hidden.{case}"],
+                                      cwd=project, capture_output=True, text=True, timeout=120,
+                                      env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+                if proc.returncode:
+                    failing[case] = sorted(set(re.findall(r"^(?:FAIL|ERROR): (test_\w+)", proc.stderr, re.M)))
+        self.assertEqual({"RefusesQuantityThatIsNotPositive": ["test_more_digits_than_int_reads_are_refused",
+                                                               "test_non_ascii_digits_are_refused"],
+                          "RefusesMalformedStore": ["test_refused_by_both_commands"]}, failing)
+
     def test_shortage_tests_that_pass_on_the_original_code_still_fail_the_product(self):
         check = self.evaluate(self.rename_shortage_tests, "broken/vacuous-refusal-tests")[
             "new_command_tests_fail_on_original_code"]
