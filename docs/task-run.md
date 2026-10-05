@@ -4,15 +4,18 @@
 
 How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
-code outside the runner (the scenario harness, and the planned architecture and
-multi-component layer) to control a run. Such code must not import runner
-internals such as `autocode.py` or read `state.json` directly; that file has
+code outside the runner (the scenario harness, `autocode program`, and the planned
+architecture and multi-component layer) to control a run. Such code must not import
+runner internals such as `autocode.py` or read `state.json` directly; that file has
 about 140 keys and changes without notice.
 
 Every step is one CLI invocation, and the run's state lives on disk. A caller
 that crashes can reattach to the same run directory with
 `TaskRun(workspace, run_dir)`, or with `TaskRun.attach(workspace)` if it never
-learned the run directory (it returns the workspace's only run, or `None`).
+learned the run directory (it returns the workspace's only run, or `None`). In a
+workspace where someone else may also run AutoCode, note `TaskRun.runs_in(workspace)`
+before the start and pass it as `attach(workspace, exclude=...)`, so that only a run
+created since can be adopted.
 
 ## Python client
 
@@ -56,6 +59,23 @@ Inputs fixed when a run starts, such as `--ui-run`, belong in `start_options`
 instead of `options`: `TaskRun.start(workspace, brief, options=("--engine", "codex"),
 start_options=("--ui-run", str(design_run)))`. They are passed once; later advances
 and reattachment use the saved design settings.
+
+A caller that keeps each invocation's output, as `autocode program` keeps a
+workstream's `stdout.log`, `stderr.log` and exit code, reads it from the client:
+
+- `TaskRun.last_advance` is the `subprocess.CompletedProcess` of the latest call that
+  starts or advances the run (start, advance, resume and retries), also when AutoCode
+  rejected it. Status reads and user actions never replace it.
+- `TaskRunError.process` is the `CompletedProcess` of the CLI call that failed. It is
+  `None` when the error is not a failed call: a call that could not run or did not
+  finish (a missing working directory, a timeout), `attach` finding several runs, or a
+  guard such as `advance_until_input`'s no-progress check, which is raised after its
+  calls finished; `last_advance` still holds the latest advancing call. A start that
+  fails may still have created its run: `TaskRunError.run_dir` names it when it
+  created exactly one.
+- `TaskRun.cwd` (`cwd=` on `start` and `attach`) is the CLI's working directory, so
+  relative paths in `options` and `start_options` resolve against it. `None`, the
+  default, keeps the caller's. A continuation from `restore_checkpoint` keeps it.
 
 Operator-declared prerequisites can be supplied once with `--task-preflight`
 in `start_options`. A failed prerequisite pauses before paid dispatch and is
