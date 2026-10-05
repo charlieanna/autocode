@@ -1077,6 +1077,186 @@ class FakeRunTests(unittest.TestCase):
         self.assertEqual(verdict.FALSE_COMPLETE, result["verdict"], result["summary"])
 
 
+class StockRefusalsRunTests(unittest.TestCase):
+    """feature-stock-refusals (issue #59) end to end with the scripted model (about 20 s each). Only the model
+    is fake: the runner's regression proof finds the vacuous refusal tests, and the scripted Resolver writes
+    its diagnosis from its handoff alone. These prove the route is reached and that the scoring can come out
+    CORRECT and INCORRECT, never how well a real model diagnoses."""
+
+    def run_fake(self, solution="reference", env=None):
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
+            args = argparse.Namespace(fake=True, profile=None, fake_solution=solution, out=Path(out), autocode=None,
+                                      max_steps=None, timeout_minutes=10)
+            result = run.run_one(catalog.load("feature-stock-refusals"), args, extra_env=env)
+            state = json.loads((Path(result["evidence"]) / "state.json").read_text())
+            proofs = [json.loads(Path(row["path"]).read_text())["verdict"] for row in state["regression_proofs"]]
+            return result, state, proofs
+
+    def test_each_broken_variant_fails_for_its_own_reason(self):
+        scenario = catalog.load("feature-stock-refusals")
+        from harness.project import materialize
+        with tempfile.TemporaryDirectory() as root:
+            for name, failing in (("seed", {"hidden_tests_pass", "new_command_tests_fail_on_original_code",
+                                            "readme_documents_move_and_remove"}),
+                                  ("reference", set()), ("broken/refusal-writes-store", {"hidden_tests_pass"}),
+                                  ("broken/vacuous-refusal-tests", {"new_command_tests_fail_on_original_code"})):
+                overlay = [] if name == "seed" else [scenario.dir / name]
+                project = materialize(scenario.seed, Path(root) / name.replace("/", "-"), *overlay)
+                result = verdict.evaluate(scenario, project)
+                with self.subTest(variant=name):
+                    self.assertEqual("", result.error)
+                    self.assertEqual(6, len(result.checks))
+                    self.assertEqual(failing, {check.name for check in result.checks if not check.ok})
+
+    def test_the_reference_reaches_autoresolver_through_the_failed_proof_and_is_scored_correct(self):
+        result, state, proofs = self.run_fake()
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertEqual(["recognize_workflow", "astra_discovery", "astra_challenge", "terra", "sol", "astra_review",
+                          "astra_resolve", "terra", "sol", "astra_review"], result["metrics"]["model_stage_names"])
+        # The proof failed, AutoResolver ran (not the direct Builder repair of #294), and the next proof passed.
+        self.assertEqual(["FAIL", "PASS"], proofs)
+        self.assertEqual(1, len(state["resolution_history"]))
+        self.assertEqual([], state.get("direct_rework_assignments") or [])
+        diagnosis = result["diagnosis"]
+        self.assertEqual(verdict.CORRECT, diagnosis["verdict"], diagnosis["reason"])
+        self.assertEqual(["test_c3_move_more_than_on_hand_is_refused", "test_c4_move_to_same_location_is_refused",
+                          "test_c5_malformed_store_is_refused", "test_c6_non_positive_quantity_is_refused",
+                          "test_c7_remove_more_than_on_hand_is_refused"], diagnosis["vacuous_tests"])
+        self.assertEqual(7, len(diagnosis["checks"]))
+        self.assertEqual(1, diagnosis["resolver_calls_on_trap"])
+
+    def test_a_misattributed_diagnosis_is_incorrect_while_the_run_still_passes(self):
+        result, _, proofs = self.run_fake(env={"SCENARIO_FAKE_RESOLVER": "misattribute"})
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertEqual(["FAIL", "PASS"], proofs)
+        self.assertEqual(verdict.INCORRECT, result["diagnosis"]["verdict"])
+        self.assertEqual({"diagnosis_names_each_vacuous_test", "diagnosis_explains_why_they_pass_on_original_code",
+                          "resolver_chose_bounded_test_repair"},
+                         {check["name"] for check in result["diagnosis"]["checks"] if not check["ok"]})
+
+    def test_tests_that_never_discriminate_stop_honestly_after_repeated_resolver_calls(self):
+        result, state, proofs = self.run_fake("broken/vacuous-refusal-tests")
+        self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
+        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", result["runner_status"])
+        self.assertEqual(3, result["metrics"]["model_stage_names"].count("astra_resolve"))
+        self.assertEqual(["retry", "escalate", "pause"], [row["action"] for row in state["builder_retry_decisions"]])
+        self.assertEqual({"FAIL"}, set(proofs))
+        diagnosis = result["diagnosis"]
+        self.assertEqual((verdict.INCORRECT, 3), (diagnosis["verdict"], diagnosis["resolver_calls_on_trap"]))
+        self.assertEqual(["repair_made_the_tests_discriminate"],
+                         [check["name"] for check in diagnosis["checks"] if not check["ok"]])
+
+
+class StockRefusalsDiagnosisTests(unittest.TestCase):
+    """feature-stock-refusals' diagnosis() on synthetic run records: which Resolver calls count (issue #59)."""
+
+    VACUOUS = "tests.test_stock.MoveRemoveTests.test_c3_move_more_than_on_hand_is_refused"
+    GOOD = {"status": "REWORK",
+            "diagnosis": "test_c3_move_more_than_on_hand_is_refused passes on the original code too: there `move` is "
+                         "an unknown subcommand, so argparse exits 2 (invalid choice) and never writes the store.",
+            "next_objective": "Make the refusal tests fail on the original code",
+            "next_task": {"kind": "implement", "requirements": ["In tests/test_stock.py assert that stderr starts "
+                                                                "with 'stock.py: ' and has no 'invalid choice'"]}}
+
+    def setUp(self):
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        self.project = Path(root.name) / "project"
+        self.run_dir = self.project / ".autocode" / "runs" / "20261005-000000-stock"
+        self.run_dir.mkdir(parents=True)
+        self.state = {"regression_proofs": [], "stages": []}
+        self.clock = 0
+
+    def tick(self):
+        self.clock += 1
+        return f"2026-10-05T00:00:{self.clock:02d}+00:00"
+
+    def save(self, name, value):
+        path = self.run_dir / name
+        path.write_text(json.dumps(value))
+        return str(path)
+
+    def proof(self, revision, verdict_, **fields):
+        path = self.save(f"proof-{len(self.state['regression_proofs']) + 1}.json", {"verdict": verdict_, **fields})
+        self.state["regression_proofs"].append({"source_revision": revision, "verdict": verdict_,
+                                                "proved_at": self.tick(), "path": path})
+
+    def trap(self, revision="trap"):
+        self.proof(revision, "FAIL", pass_to_pass=[self.VACUOUS], fail_to_pass=[], failures=[
+            "Test case C3: move more than on hand is refused has no test named "
+            "test_c3_move_more_than_on_hand_is_refused that passes with the change and did not pass without it"])
+
+    def stage(self, stage="astra_resolve", revision="trap", report=None, model="resolver-model", **fields):
+        name = f"{stage}-{len(self.state['stages']) + 1}.json"
+        output = self.save(name, report) if report is not None else str(self.run_dir / name)
+        row = {"stage": stage, "source_revision": revision, "output": output, "launch_route": {"model": model},
+               "runner_calls": 1, "changed_files": [], "finished_at": self.tick(), **fields}
+        self.state["stages"].append(row)
+        return row
+
+    def repaired(self):
+        self.stage("terra", revision="fixed", report={}, changed_files=["tests/test_stock.py"])
+        self.proof("fixed", "PASS", pass_to_pass=[], fail_to_pass=[self.VACUOUS], failures=[])
+
+    def diagnose(self):
+        (self.run_dir / "state.json").write_text(json.dumps(self.state))
+        return verdict.diagnose(catalog.load("feature-stock-refusals"), self.project, {"model_stages": []})
+
+    def test_the_scored_call_is_the_first_accepted_one_and_unsaved_or_runner_calls_never_count(self):
+        self.trap()
+        self.stage(report=self.GOOD, runner_owned=True)
+        self.stage(model="")                                       # never launched with a model
+        self.stage(exit_code=-9, timed_out=True)                   # crashed: no report saved
+        self.stage(report={**self.GOOD, "status": "BLOCKED"}, rejected=True, rejection_reason="schema")
+        accepted = self.stage(report=self.GOOD)
+        self.repaired()
+        block = self.diagnose()
+        self.assertEqual(verdict.CORRECT, block["verdict"], block["reason"])
+        self.assertEqual((2, 1), (block["resolver_calls_on_trap"], block["launched_without_report"]))
+        self.assertEqual([accepted["output"]], [call["output"] for call in block["trap_calls"] if call["scored"]])
+        self.assertEqual([False, True], [call["accepted"] for call in block["trap_calls"]])
+
+    def test_a_rejected_report_alone_is_scored_and_not_accepted(self):
+        self.trap()
+        self.stage(report=self.GOOD, rejected=True, rejection_reason="Report-file providers require capture receipts")
+        self.repaired()
+        block = self.diagnose()
+        self.assertEqual(verdict.INCORRECT, block["verdict"])
+        self.assertEqual(["diagnosis_accepted"], [check["name"] for check in block["checks"] if not check["ok"]])
+
+    def test_a_resolver_at_a_revision_without_the_trap_is_not_exercised_and_kept_for_a_human(self):
+        self.proof("other", "PASS", pass_to_pass=[], fail_to_pass=[self.VACUOUS], failures=[])
+        self.stage(revision="other", report={**self.GOOD, "diagnosis": "An unrelated defect in load()."})
+        block = self.diagnose()
+        self.assertEqual(verdict.NOT_EXERCISED, block["verdict"])
+        self.assertEqual(["An unrelated defect in load()."], [call["diagnosis"] for call in block["other_resolver_calls"]])
+        self.trap("trapped-later")
+        block = self.diagnose()
+        self.assertEqual(verdict.NOT_EXERCISED, block["verdict"])
+        self.assertIn("never ran at that revision", block["reason"])
+
+    def test_a_killed_resolver_at_the_trap_is_unscored(self):
+        self.trap()
+        before = self.save("resolver-01.before.json", {"revision": "trap"})
+        self.state["active_stage"] = {"stage": "astra_resolve", "output": str(self.run_dir / "resolver-01.json"),
+                                      "before_ref": before, "launch_route": {"model": "resolver-model"},
+                                      "runner_calls": 1, "started_at": self.tick()}
+        self.assertEqual(verdict.UNSCORED, self.diagnose()["verdict"])
+
+    def test_astra_diagnose_and_investigator_calls_are_not_autoresolver_diagnoses(self):
+        self.trap()
+        for stage in ("astra_diagnose", "investigate_stuck", "astra_resolve_report_repair"):
+            self.stage(stage, report=self.GOOD)
+        self.assertEqual(verdict.NOT_EXERCISED, self.diagnose()["verdict"])
+
+    def test_check_mode_a_run_without_state_and_a_run_whose_proofs_never_failed_are_not_exercised(self):
+        scenario = catalog.load("feature-stock-refusals")
+        self.assertEqual(verdict.NOT_EXERCISED, verdict.diagnose(scenario, self.project, None)["verdict"])
+        self.assertEqual(verdict.NOT_EXERCISED, verdict.diagnose(scenario, self.project, {})["verdict"])
+        self.stage(report=self.GOOD)
+        self.assertEqual(verdict.NOT_EXERCISED, self.diagnose()["verdict"])
+
+
 class PlanCompareTests(unittest.TestCase):
     """scenarios/planning.toml and `run.py plan-compare`, with the scripted model (seconds)."""
 
