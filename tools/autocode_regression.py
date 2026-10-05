@@ -90,7 +90,7 @@ def required(state):
 def _test_only_exception(state):
     """True when the user granted a test-only regression-proof exception on this contract."""
     contract = state.get("goal_contract") or {}
-    if not contract.get("hash"):
+    if not contract.get("hash") or contract.get("revision") is None:
         return False
     try:
         from .autocode_contract_identity import token
