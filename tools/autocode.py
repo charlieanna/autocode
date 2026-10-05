@@ -932,6 +932,8 @@ def reconcile_active(state, run_dir, workspace):
     if record.get('report_only'):
         accept_repaired_report(state, run_dir, workspace, value, record)
         return
+    if run_actions.stale_result(state, value, after["revision"]):
+        return run_actions.discard_stale_recovered(state, run_dir, record)
     try:
         commit_stage_result(state, record["stage"], value, record, workspace, run_dir)
     except (ValueError, KeyError, support.Paused) as error:

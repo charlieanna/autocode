@@ -19,11 +19,13 @@ import copy
 
 try:
     from . import autocode_util as s
+    from . import autocode_finding_cause as finding_cause
     from . import autocode_milestone_scope as milestone_scope
     from . import autocode_finding_scope as finding_scope
     from . import autocode_review_gate as review_gate
 except ImportError:
     import autocode_util as s
+    import autocode_finding_cause as finding_cause
     import autocode_milestone_scope as milestone_scope
     import autocode_finding_scope as finding_scope
     import autocode_review_gate as review_gate
@@ -232,6 +234,11 @@ def _apply_dispositions(state, source, dispositions, record, scope, all_criteria
         row.update(status=disposition, resolved_at=s.now(), resolved_in=report, resolution_evidence=evidence)
         row.pop("pending_resolution", None)
         row.pop("not_rechecked_in", None)
+        if disposition == "resolved":
+            # A settled cause closes its duplicates; the runner keeps identity
+            # ownership and only groups rows already in the ledger (#300).
+            finding_cause.inherit_resolution(rows, row["id"], resolved_in=report,
+                                             evidence=evidence, at=s.now())
 
 
 def _record(state, source, reported, record, initial_scope=None):
