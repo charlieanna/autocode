@@ -759,8 +759,8 @@ class VerifyCase(unittest.TestCase):
             framework = verify.Framework("unittest", "python -m unittest", python="python")
             results = verify.per_test_results(framework, {"output": str(log)}, Path(temp) / "none.xml")
             self.assertEqual({"passed": ["m.C.test_a", "m.C.test_d"], "failed": ["m.C.test_b", "m.C::test_c"],
-                              "skipped": ["m.C.test_e", "m.C.test_f"], "collection_errors": [], "total": 6,
-                              "complete": True}, results)
+                              "skipped": ["m.C.test_e", "m.C.test_f"], "collection_errors": [], "uncollected": [],
+                              "total": 6, "complete": True}, results)
 
     def test_skipping_a_test_that_passed_on_base_is_a_regression(self):
         """Review r1: break greet(), skip the test that would catch it, add a real regression test."""
@@ -917,6 +917,145 @@ class SuitePreservationTests(unittest.TestCase):
                 finally:
                     project.close()
 
+    @unittest.skipUnless(shutil.which('node'), 'Node is required for a real hook-failure suite')
+    def test_a_pre_existing_hook_failure_does_not_block_preservation(self):
+        """#503: a failed beforeEach executed, so it is judged like a test that already failed on base."""
+        suite_test = ("const {test, describe, beforeEach} = require('node:test');\n"
+                      "const assert = require('node:assert/strict');\n"
+                      "const {add} = require('./calc.cjs');\n"
+                      "test('add_works', () => assert.equal(3, add(1, 2)));\n"
+                      "describe('broken_fixture', () => {\n"
+                      "  beforeEach(() => { throw new Error('broken fixture'); });\n"
+                      "  test('sub_works', () => {});\n"
+                      "});\n")
+        regression_test = ("const {test} = require('node:test');\n"
+                           "const assert = require('node:assert/strict');\n"
+                           "const {sub} = require('./calc.cjs');\n"
+                           "test('sub_subtracts', () => assert.equal(1, sub(2, 1)));\n")
+        files = {'calc.cjs': 'function add(a, b) { return a + b; }\n'
+                             'function sub(a, b) { return a + b; }\n'  # the bug: sub does not subtract
+                             'module.exports = {add, sub};\n',
+                 'a.test.cjs': suite_test}
+        project = Project(files)
+        try:
+            framework = verify.Framework('node', 'node --test a.test.cjs')
+            suite = 'node --test a.test.cjs'
+            regression = 'node --test test_sub.test.cjs'
+            base = verify.baseline(project.root, project.base, project.evidence, framework=framework,
+                                   suite_command=suite, timeout=30)
+            base_hook = base['receipt']['results']['collection_errors']
+            self.assertTrue(base_hook, base)
+            self.assertEqual([], base['receipt']['results']['uncollected'], base)
+            project.write({'calc.cjs': 'function add(a, b) { return a + b; }\n'
+                                       'function sub(a, b) { return a - b; }\n'
+                                       'module.exports = {add, sub};\n',
+                           'test_sub.test.cjs': regression_test})
+            result = verify.verify(project.root, project.base, project.evidence, framework=framework,
+                                   suite_command=suite, regression_command=regression,
+                                   base_suite=base, timeout=30)
+            self.assertEqual(['test_sub.test.cjs::sub_subtracts'], result['fail_to_pass'], result)
+            self.assertEqual('PASS', result['verdict'], result['failures'] + result['unverified'])
+            self.assertTrue(any('already failed on base' in note for note in result['notes']), result)
+        finally:
+            project.close()
+
+
+class IncompleteEvidenceRegressionTests(unittest.TestCase):
+    """#421/#503: incompleteness and hook failures neither hide nor invent a named regression."""
+
+    @staticmethod
+    def suite_results(*, passed=(), failed=(), skipped=(), collection=(), uncollected=None,
+                      total=None, complete=True):
+        results = {"passed": list(passed), "failed": list(failed), "skipped": list(skipped),
+                   "collection_errors": list(collection),
+                   "total": total if total is not None else len(passed) + len(failed) + len(skipped),
+                   "complete": complete}
+        if uncollected is not None:
+            results["uncollected"] = list(uncollected)
+        return results
+
+    def judge_suite(self, candidate, base_results, *, base_timed_out=False):
+        fail, unverified, notes = [], [], []
+        base_suite = {"command": "suite", "base": "b", "health": "failing_tests",
+                      "receipt": {"timed_out": base_timed_out, "exit_code": 1,
+                                  "results_expected": True, "results": base_results}}
+        verify._judge_suite({"timed_out": False, "exit_code": 1, "results_expected": True,
+                             "results": candidate}, base_suite, fail, unverified, notes)
+        return fail, unverified, notes
+
+    def test_an_incomplete_base_suite_does_not_hide_a_named_regression(self):
+        for base_timed_out in (False, True):
+            with self.subTest(base_timed_out=base_timed_out):
+                base = self.suite_results(passed=["t_keep", "t_break"], failed=["t_old"], complete=False)
+                candidate = self.suite_results(passed=["t_keep"], failed=["t_break"])
+                fail, unverified, _ = self.judge_suite(candidate, base, base_timed_out=base_timed_out)
+                self.assertTrue(any("t_break" in reason and "fail on the candidate" in reason
+                                    for reason in fail), (fail, unverified))
+                self.assertTrue(any("base suite was incomplete" in reason for reason in unverified))
+
+    def test_a_test_that_never_ran_on_an_incomplete_base_is_not_a_regression(self):
+        base = self.suite_results(passed=["t_keep"], complete=False)
+        candidate = self.suite_results(passed=["t_keep"], failed=["t_never_ran"], total=2)
+        fail, unverified, _ = self.judge_suite(candidate, base)
+        self.assertEqual([], fail, unverified)  # the absence of a failure stays unproven
+        self.assertTrue(any("base suite was incomplete" in reason for reason in unverified))
+
+    def test_incomplete_candidate_results_still_judge_observed_failures(self):
+        base = self.suite_results(passed=["t_keep", "t_break"])
+        candidate = self.suite_results(passed=["t_keep"], failed=["t_break"], total=1, complete=False)
+        fail, unverified, _ = self.judge_suite(candidate, base)
+        self.assertTrue(any("t_break" in reason and "fail on the candidate" in reason
+                            for reason in fail), (fail, unverified))
+        self.assertTrue(any("incomplete" in reason for reason in unverified))
+
+    def test_a_failed_hook_is_an_executed_failure_not_an_uncollected_module(self):
+        # A Node/Vitest hook failure sits in collection_errors but never collected nothing;
+        # only results saved before the ``uncollected`` split stay unproven (fail closed).
+        base = self.suite_results(passed=["t_keep"], failed=["t_hooked"], collection=["t_hooked"])
+        candidate = self.suite_results(passed=["t_keep"], failed=["t_hooked"], collection=["t_hooked"])
+        fail, unverified, notes = self.judge_suite(candidate, base)
+        self.assertEqual([], fail, (fail, unverified))
+        self.assertTrue(any("already failed on base" in note for note in notes), notes)
+        self.assertEqual(["The base suite has collection errors; preservation is unproven: t_hooked",
+                          "The candidate suite has collection errors; preservation is unproven: t_hooked"],
+                         [reason for reason in unverified if "collection errors" in reason])
+        for results in (base, candidate):
+            results["uncollected"] = []
+        fail, unverified, notes = self.judge_suite(candidate, base)
+        self.assertEqual([], fail, (fail, unverified))
+        self.assertEqual([], unverified, unverified)
+
+    def test_an_uncollected_candidate_module_keeps_preservation_unproven(self):
+        base = self.suite_results(passed=["t_keep"], uncollected=[])
+        candidate = self.suite_results(passed=["t_keep"], failed=["m::[collection]"],
+                                       collection=["m::[collection]"], uncollected=["m::[collection]"],
+                                       total=2)
+        fail, unverified, _ = self.judge_suite(candidate, base)
+        self.assertTrue(any("candidate suite has collection errors" in reason for reason in unverified))
+        self.assertTrue(any("m::[collection]" in reason for reason in fail), (fail, unverified))
+
+    def judge_regression(self, candidate_results, known):
+        fail, unverified, notes, proof, review_reasons = [], [], [], {}, []
+        on_candidate = {"timed_out": False, "exit_code": 1, "results_expected": True,
+                        "results": candidate_results}
+        verify._judge_regression(on_candidate, None, fail, unverified, notes, proof, review_reasons,
+                                 known_failures=lambda: known)
+        return fail, unverified, notes
+
+    def test_incomplete_regression_results_still_fail_named_candidate_failures(self):
+        candidate = self.suite_results(failed=["test_greet.Case.test_empty"], total=1, complete=False)
+        fail, unverified, _ = self.judge_regression(candidate, None)
+        self.assertTrue(any("The regression tests fail on the candidate" in reason
+                            and "test_greet.Case.test_empty" in reason for reason in fail), (fail, unverified))
+        self.assertTrue(any("incomplete" in reason for reason in unverified))
+
+    def test_incomplete_regression_results_keep_known_failures_as_notes(self):
+        candidate = self.suite_results(failed=["test_flaky"], total=1, complete=False)
+        fail, unverified, notes = self.judge_regression(candidate, {"test_flaky"})
+        self.assertEqual([], fail, (fail, unverified))
+        self.assertTrue(any("already fail on base" in note for note in notes), notes)
+        self.assertTrue(any("incomplete" in reason for reason in unverified))
+
 
 class GoResultTests(unittest.TestCase):
     """Go's per-test results come from `go test -json` (a live Go port could not be proven without them)."""
@@ -943,6 +1082,7 @@ class GoResultTests(unittest.TestCase):
         self.assertEqual(["m/a::TestLater"], results["skipped"])
         self.assertEqual(["m/a::TestTable", "m/a::TestTable/case_1", "m/b::[build failed]"], results["failed"])
         self.assertEqual(["m/b::[build failed]"], results["collection_errors"])
+        self.assertEqual(["m/b::[build failed]"], results["uncollected"])
         self.assertTrue(results["complete"])
 
     def test_a_test_that_never_ended_makes_the_results_incomplete_and_no_events_give_none(self):
