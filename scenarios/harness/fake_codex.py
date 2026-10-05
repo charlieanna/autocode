@@ -460,6 +460,13 @@ def emit(event: dict) -> None:
     print(json.dumps(event), flush=True)
 
 
+QUOTA_SPENT_MODEL = "gpt-5.6-sol"  # the driver's default Tester model (driver.FAKE_FLAGS)
+
+
+def model_argument() -> str | None:
+    return sys.argv[sys.argv.index("--model") + 1] if "--model" in sys.argv[:-1] else None
+
+
 def run_check() -> int:
     proc = subprocess.run(CHECK, shell=True, capture_output=True, text=True, timeout=600)
     emit({"type": "item.completed", "item": {
@@ -978,6 +985,11 @@ def main() -> int:
     if data.get("report_repair"):
         # Report repairs are answered as the stage that owns them.
         stage = original.get("stage", stage)
+    if CONFIG.get("fault") == "quota_once" and stage == "sol" and model_argument() == QUOTA_SPENT_MODEL:
+        # Fault "quota_once" (scenarios/catalog/quota-route-handoff): the Tester's model has no quota left.
+        # It fails the first time; once a person names another model the Tester runs normally.
+        emit({"type": "error", "error": {"message": "subscription usage limit reached; add credits"}})
+        return 3
     report = report_for(stage, data)
     if "--output-schema" in sys.argv:
         complete(report, json.loads(Path(sys.argv[sys.argv.index("--output-schema") + 1]).read_text()))

@@ -99,6 +99,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Accept a changed OpenCode transport | `autocode --resume-paused --accept-transport-change --no-chat [options]` | 0 complete, 2 stopped for input |
 | Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN` (`--answer` repeatable) | 0 saved, 2 rejected |
 | Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT` | 0 saved, 2 rejected |
+| Name the model a quota-stopped role continues on | `autocode --answer route-ROLE=MODEL --resolver-token TOKEN`, then resume the pause | 0 saved, 2 rejected |
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
 | Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
 | Plan feedback | `autocode --feedback TEXT` | 0 saved, 2 rejected |
@@ -118,7 +119,12 @@ starting `Input rejected:`, and startup can exit 2 before any run exists;
 `TaskRun.start` raises with the tail of the CLI's output so a startup failure
 is never mistaken for a pause.
 `TaskRun.respond_operational()` uses the separate Resolver response command;
-an operational request cannot be answered with `TaskRun.answer()`.
+an operational request cannot be answered with `TaskRun.answer()`, except the
+quota question (`needs.route`, see [Models](models.md#when-a-roles-quota-runs-out)):
+`TaskRun.assign_model(role, model)` answers `route-ROLE` with a model a person
+named, updates a `--ROLE-model` in the client's `options`, and leaves the run
+paused for `resume_paused()`. A refused model raises and leaves the run paused
+with the question open.
 Each answer consumes the Resolver request whose token it carries, and the
 questions still open come back under a new `resolver_token`, so a token read
 before an earlier answer is rejected. Without `resolver_token`,
@@ -291,6 +297,13 @@ text. Automation must check these structured fields and bind the token to
 embedded in `--show-goal` prose. This projection is not approval, execution permission
 or completion proof; the existing CLI approval checks remain authoritative.
 
+`routes` maps every configured role to the `model` and `engine` its next launch
+uses. `route_assignments` lists, oldest first, every model a person named for a
+role after its quota ran out: `kind` (always `route_assignment`), `role`, `job`,
+`from`, `to`, `engine`, `stage`, `attempt_id`, `events`, `pause_status`, `at`,
+`actor`, `via` (`answer` or `resume_flag`) and, when `via` is `answer`, the
+`request_id` it answered. It is empty for runs that never stopped on quota.
+
 `direct_rework_assignments` records a repair assigned directly from a Completion
 Owner's accepted REWORK report. Each entry binds the original and assigned tasks,
 contract, source, report and evidence hashes, and the ordinary retry charged by
@@ -331,6 +344,11 @@ A `resolver_scope` of `operational_exhaustion` or `blocker` means Resolver
 stopped the run because it could not continue safely (for example, the
 run time limit was reached). That question is for a person who has looked at
 the run; a caller must not answer it with a proposed default.
+
+When a role's quota ran out, the `answer` need also carries `route`:
+`question_id` (`route-ROLE`), `role`, `job`, `current_model` and `engine`. Its
+question has no default and is never delegable; only a model a person names
+answers it (`--answer route-ROLE=MODEL`), and the run then needs a resume.
 
 Approving a plan or a review is a real user decision. Automated callers should
 do it only when a person has delegated that decision to them, as the scenario

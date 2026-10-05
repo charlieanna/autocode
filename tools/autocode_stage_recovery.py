@@ -83,6 +83,13 @@ def recover_legacy_report_repair(state, run_dir, workspace):
     return True
 
 
+def _stopped_on_quota(record):
+    try:
+        return bool(record.get("events")) and support.failure_status(record["events"]) == "PAUSED_BUDGET"
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def abandon_stage(state, run_dir, workspace, selected):
     """Explicitly discard an uncertain response, retaining its edits and evidence."""
     record = state.get("active_stage")
@@ -104,8 +111,11 @@ def abandon_stage(state, run_dir, workspace, selected):
     if record.get("report_only") and state.get("pending_report_repair"):
         state.setdefault("report_repair_archive", []).append({
             "reason": "Report repair attempt abandoned", "repair": state.pop("pending_report_repair")})
-    escalation.advance(state, record.get("route_role", record["role"]),
-                       trigger="abandoned_attempt", detail="Operator abandoned an uncertain response")
+    # A quota stop says nothing about how the model coped with the work: the person names
+    # the next model (autocode_quota_route, #184) and nothing changes the route on its own.
+    if not _stopped_on_quota(record):
+        escalation.advance(state, record.get("route_role", record["role"]),
+                           trigger="abandoned_attempt", detail="Operator abandoned an uncertain response")
     state["sessions"].pop(record.get("route_role", record["role"]), None)
     if state.get("validation"):
         state.setdefault("validation_archive", []).append({

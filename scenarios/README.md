@@ -130,7 +130,10 @@ harness must report `FALSE_COMPLETE`. That is how the harness itself is tested.
 The driver answers AutoCode's clarifying questions with AutoCode's own proposed
 default and records each answer in `result.json`. It approves the plan it is
 shown and accepts requested human reviews. It never writes AutoCode state and
-does not resume paused runs: a pause is reported as `HONEST_BLOCKER`.
+does not resume paused runs: a pause is reported as `HONEST_BLOCKER`. The one
+exception is a scenario's explicit `[fake] answers`: a person's own answer to a
+question the driver never answers by default (a quota stop's `route-sol`, for
+example). The driver gives that answer, then resumes the pause it leaves once.
 
 ## Fixed versus adaptive through completion
 
@@ -446,6 +449,8 @@ catalog/<id>/
                     optional [fake] flags = [...] (extra CLI flags), fault = "name" (a scripted
                     mistake in harness/fake_codex.py), live_investigator = true (the scripted run
                     still uses a real Investigator; needs --i-authorize-live-model-spend),
+                    answers = { "route-sol" = "gpt-6-luna" } (the person's own answers, by question id;
+                    fault "quota_once" stops the Tester on the driver's default Tester model),
                     [run] max_steps, timeout_minutes, expected = "complete"|"stop"|"any", known_failure = "why",
                           requires_stages = ["astra_resolve"] (a model stage the run must reach to count)
                     [[turn]] after = "complete"|"stop"|"needs:<kind>", say = "follow-up message" (optional, repeatable)

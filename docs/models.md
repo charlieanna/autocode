@@ -174,4 +174,56 @@ re-routed this way: resuming keeps its models, so start a new run instead.
 `autocode models` shows the same list at any time and checks every role's
 default route; see [CLI](cli.md).
 
+## When a role's quota runs out
+
+A provider that reports a used-up quota, usage limit or credits stops the stage with
+`PAUSED_BUDGET`. The stopped attempt is kept, never replayed, and AutoCode asks you
+which model the role should continue on, for example:
+
+```text
+[route-sol] Tester's quota is exhausted; name the model to continue on
+```
+
+The question names the job on screen (Tester, Builder, Completion Reviewer, …). It has
+no proposed default, is never delegable (`--delegate-all` refuses it) and the scenario
+driver never answers it for you. Answer it with a model:
+
+```sh
+autocode --run-dir RUN --answer route-sol=gpt-6-luna --resolver-token TOKEN
+autocode --run-dir RUN --resume-paused
+```
+
+The answer sets the stopped attempt aside exactly as `--abandon-stage` does (partial
+work and evidence retained, the role's session dropped), saves the model on the role,
+and records the change. `--resume-paused` then runs the role again on a fresh session
+with the new model. The same thing without answering the question:
+`--abandon-stage ATTEMPT`, then `--resume-paused --sol-model gpt-6-luna` (or both in
+one invocation). `--sol-model` alone is refused while the stopped attempt is still
+uncertain. Setting the attempt aside never raises the role's reasoning effort: a quota
+stop is not a sign the model struggled.
+
+A model is refused, and the run stays paused with the question open, when a launch
+would refuse it:
+
+- it is for a different engine: a Codex run takes a bare name (`gpt-6-luna`), an
+  OpenCode run a `provider/model` (`openai/gpt-6-luna`); sessions never move between
+  engines;
+- OpenCode does not list it (`opencode models`);
+- it breaks the cross-model rule: a checker never shares its producer's model, or
+  its GLM or MiMo family (Builder/Tester, Builder/Completion Reviewer,
+  Planner/Plan Reviewer);
+- it is the model that just ran out.
+
+Every change, through the answer or the resume flag, is appended to the run's
+`user_events` as a `route_assignment` (role, job, from, to, engine, stage, attempt,
+events path, time, `via` answer or resume_flag). A resume flag the launch refuses
+(another engine's format, a cross-model clash) is not recorded. The status view shows each role's
+current route under `routes` and the changes under `route_assignments`; while the
+question is open, `needs.route` names the role and its current model. The new model
+stays on the role until you change it again, including past the next milestone.
+
+There is no fallback list, configuration table or automatic switch: a quota stop is
+always your decision. Capacity errors retry the same model, rate limits pause as
+before, and authentication failures never ask for a model.
+
 See also: [Providers](providers.md) · [Workflow](workflow.md) · [CLI](cli.md)
