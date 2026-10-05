@@ -36,7 +36,9 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
         except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
             if not containment:
                 raise
-            raise util.Paused('PAUSED_TOOL_CONTAINMENT', 'Native tool boundary was not established: ' + str(error)) from error
+            raise util.Paused('PAUSED_TOOL_CONTAINMENT', 'Native tool boundary was not established: ' + str(error)
+                              + '. Restore the qualified setup, or resume with --allow-uncontained-tools to run '
+                              "this run's non-planning stages with OpenCode's own permission checks only") from error
         if child:
             environment = agent_env.scrubbed(child)
     elif engine == "codex":

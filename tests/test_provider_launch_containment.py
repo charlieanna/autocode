@@ -67,6 +67,8 @@ class LaunchContainment(unittest.TestCase):
                 with self.assertRaises(util.Paused) as caught:
                     launch.prepare(**self.options)
                 self.assertEqual('PAUSED_TOOL_CONTAINMENT', caught.exception.status)
+                # Available at setup, failed at launch: the pause names the explicit way on (#413).
+                self.assertIn('--allow-uncontained-tools', str(caught.exception))
 
     def test_handoff_changes_only_the_capture_example_not_old_evidence(self):
         data = {'workspace': str(self.root), 'old_receipt': '.autocode/evidence/accepted.json'}

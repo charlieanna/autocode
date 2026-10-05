@@ -24,6 +24,7 @@ try:
     from . import autocode_quota_route as quota_route, autocode_finding_rescope as finding_rescope
     from . import autocode_recovery_limits as recovery_limits
     from . import autocode_liveness as liveness_policy
+    from . import autocode_containment_policy as containment_policy
 except ImportError:
     import autocode_output_policy as output_policy, autocode_request_usage as request_usage
     import autocode_usage, autocode_efficiency, autocode_design_coverage as design_coverage
@@ -34,6 +35,7 @@ except ImportError:
     import autocode_quota_route as quota_route, autocode_finding_rescope as finding_rescope
     import autocode_recovery_limits as recovery_limits
     import autocode_liveness as liveness_policy
+    import autocode_containment_policy as containment_policy
 
 SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -86,6 +88,9 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
         # role after its quota ran out (autocode_quota_route): role, from, to, stage, at, via.
         "routes": quota_route.routes(state),
         "route_assignments": quota_route.assignments(state),
+        # Built-in OpenCode non-planning stages: "contained" (kernel tool boundary) or
+        # "uncontained_user_accepted" (--allow-uncontained-tools); None when no stage uses it (#413).
+        "tool_containment": containment_policy.mode(state.get("settings")),
     }
     result["efficiency"] = autocode_efficiency.summary(
         state, accounting=result["usage"]["accounting"], completion_current=completion_current,

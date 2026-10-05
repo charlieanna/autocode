@@ -566,9 +566,10 @@ class OpenCodeFlow(unittest.TestCase):
         self.entry = [sys.executable, str(fixture_cli.TOOLS / "autocode.py")]
         self.env["AUTOCODE_FIXTURE_MODE"] = "no-human"
         result = self.launch(["Greeting tool", "--chat"], 2, answers="CLI\nyes\n")
-        self.assertIn("PAUSED_TOOL_CONTAINMENT", result.stderr)
-        _, state = self.saved()
-        self.assertFalse(any(row["stage"] == "terra" for row in state["stages"]))
+        # The fake's version (or a non-macOS host) cannot hold the boundary: refused at setup (#413).
+        self.assertIn("Refused before any stage launched", result.stderr)
+        runs = self.project / ".autocode/runs"
+        self.assertEqual([], list(runs.glob("*/state.json")) if runs.exists() else [])
         self.assertFalse((self.project / "greet.py").exists())
 
     def test_cli_rejects_transient_validator_write_with_clean_final_source(self):
