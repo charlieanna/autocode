@@ -503,6 +503,17 @@ class DriverAnswerTests(unittest.TestCase):
                                           "--answer", "Q2=yes", action=True)
 
 
+# Where each variant must fail for its own stated reason, the oracle summary of every variant (#59, plan B1).
+CONTROL_SUMMARIES = {
+    "feature-stock-refusals": {
+        "seed": "3/6 checks; failing: hidden_tests_pass, new_command_tests_fail_on_original_code, "
+                "readme_documents_move_and_remove",
+        "reference": "6/6 checks",
+        "broken/refusal-writes-store": "5/6 checks; failing: hidden_tests_pass",
+        "broken/vacuous-refusal-tests": "5/6 checks; failing: new_command_tests_fail_on_original_code"},
+}
+
+
 def oracle_controls(scenario_id):
     """The oracle rejects the seed, accepts the reference and rejects every broken variant."""
     def test(self):
@@ -510,8 +521,11 @@ def oracle_controls(scenario_id):
         if scenario.missing_tools():
             self.skipTest("requires " + ", ".join(scenario.missing_tools()))
         self.assertIsNotNone(scenario.reference, "every scenario needs a reference solution")
-        for name, ok, summary in run.self_test(scenario):
+        rows = run.self_test(scenario)
+        for name, ok, summary in rows:
             self.assertTrue(ok, f"{name}: {summary}")
+        if scenario_id in CONTROL_SUMMARIES:
+            self.assertEqual(CONTROL_SUMMARIES[scenario_id], {name: summary for name, _, summary in rows})
     return test
 
 
@@ -715,19 +729,52 @@ class ExercisedTests(unittest.TestCase):
     def test_a_false_completion_is_never_hidden_behind_not_exercised(self):
         self.assertEqual(verdict.FALSE_COMPLETE, verdict.exercised(verdict.FALSE_COMPLETE, "bad", ("astra_resolve",), [])[0])
 
-    def test_the_refund_oracle_scores_what_autoresolver_said(self):
-        scenario = catalog.load("feature-refund-window")
-        self.assertEqual(("astra_resolve",), scenario.requires_stages)
-        check = scenario.oracle()
-        with tempfile.TemporaryDirectory() as root:
-            from harness.project import materialize
-            project = materialize(scenario.seed, Path(root) / "p", scenario.reference)
-            vague = {"resolutions": [{"diagnosis": "The implementation has a bug; fix it.", "evidence": []}]}
-            named = {"resolutions": [{"diagnosis": "store_date ignores the UTC-8 store offset, so the window "
-                                                   "counts UTC days", "evidence": []}]}
-            for run_record, ok in ((vague, False), (named, True), ({"resolutions": []}, None)):
-                scored = [c for c in check(project, scenario, run_record) if c.name == "resolver_named_a_planted_defect"]
-                self.assertEqual([] if ok is None else [ok], [c.ok for c in scored])
+    def test_the_oracles_reason_makes_a_good_ending_not_exercised(self):
+        # The stage ran, but the oracle's diagnosis found it never ran on the failure the scenario plants.
+        for ending in (verdict.PASS, verdict.HONEST_BLOCKER):
+            outcome, summary = verdict.exercised(ending, "fine", ("astra_resolve",), ["astra_resolve"], "unrelated rework")
+            self.assertEqual(verdict.NOT_EXERCISED, outcome)
+            self.assertIn("unrelated rework", summary)
+        for kept in (verdict.FALSE_COMPLETE, verdict.ERROR):
+            self.assertEqual(kept, verdict.exercised(kept, "bad", (), [], "unrelated rework")[0])
+        self.assertEqual(verdict.PASS, verdict.exercised(verdict.PASS, "fine", (), [], "")[0])
+
+
+class DiagnosisBlockTests(unittest.TestCase):
+    """An oracle's optional diagnosis(project, run), kept apart from the run verdict (issue #59)."""
+
+    def stand_in(self, diagnosis):
+        return Mock(diagnosis=Mock(return_value=diagnosis))
+
+    def test_no_diagnosis_function_means_no_block(self):
+        self.assertIsNone(verdict.diagnose(catalog.load("greenfield-greeting-cli"), Path("."), {}))
+
+    def test_checks_become_plain_values_for_result_json(self):
+        block = verdict.diagnose(self.stand_in(lambda project, run: {
+            "verdict": verdict.CORRECT, "reason": "", "checks": [oracle.Check("a", True)],
+            "trap_calls": [{"checks": [oracle.Check("b", False, "x")], "output": Path("/r.json")}]}), Path("."), {})
+        self.assertEqual([{"name": "a", "ok": True, "detail": ""}], block["checks"])
+        self.assertEqual({"checks": [{"name": "b", "ok": False, "detail": "x"}], "output": "/r.json"},
+                         block["trap_calls"][0])
+        json.dumps(block)
+
+    def test_a_skipped_run_saves_a_null_diagnosis(self):
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
+            args = argparse.Namespace(fake=True, profile=None, fake_solution="reference", out=Path(out),
+                                      autocode=None, max_steps=None, timeout_minutes=1)
+            result = run.run_one(catalog.load("stuck-planner-citation"), args)
+            saved = json.loads((Path(result["evidence"]) / "result.json").read_text())
+        self.assertEqual(verdict.SKIPPED, saved["verdict"])
+        self.assertIn("diagnosis", saved)
+        self.assertIsNone(saved["diagnosis"])
+
+    def test_a_crash_or_unknown_verdict_is_a_diagnosis_error_not_a_run_error(self):
+        def crash(project, run):
+            raise KeyError("stages")
+        for scorer in (crash, lambda project, run: {"verdict": "PASS"}):
+            block = verdict.diagnose(self.stand_in(scorer), Path("."), {})
+            self.assertEqual(verdict.ERROR, block["verdict"])
+            self.assertIn("diagnosis error", block["reason"])
 
 
 class TurnTests(unittest.TestCase):
@@ -893,6 +940,22 @@ class StatsTests(unittest.TestCase):
         self.assertEqual((0, 14, 15), (rows["glm53-openai"]["passes"], rows["glm53-openai"]["median_model_stages"],
                                        rows["glm53-openai"]["median_wall_minutes"]))
         self.assertEqual(["fake"], [row["mode"] for row in stats.summarize(results, mode="fake")])
+
+    def test_diagnosis_verdicts_are_counted_apart_from_run_verdicts(self):
+        results = [{**self.result("s", "fake", outcome, str(n)), "diagnosis": {"verdict": diagnosed}}
+                   for n, (outcome, diagnosed) in enumerate(((verdict.PASS, verdict.CORRECT),
+                                                             (verdict.PASS, verdict.INCORRECT),
+                                                             (verdict.HONEST_BLOCKER, verdict.UNSCORED),
+                                                             (verdict.NOT_EXERCISED, verdict.NOT_EXERCISED)))]
+        results.append({**self.result("s", "claude-tiers", verdict.PASS, "9"), "diagnosis": {"verdict": verdict.CORRECT}})
+        rows = {row["mode"]: row for row in stats.summarize(results)}
+        self.assertEqual((4, 2, 3, 1, 1, 1), tuple(rows["fake"][key] for key in
+                                                   ("runs", "passes", "diagnosed", "correct", "incorrect", "unscored")))
+        self.assertEqual((1, 1, 0), tuple(rows["claude-tiers"][key] for key in ("diagnosed", "correct", "incorrect")))
+        plain, = stats.summarize([self.result("t", "fake", verdict.PASS, "1")])
+        self.assertIsNone(plain["diagnosed"])
+        table = stats.format_table([rows["fake"], plain])
+        self.assertIn("diagnosed", table.splitlines()[0])
 
     def test_skipped_runs_do_not_count_and_older_results_still_read(self):
         old = {"scenario": "s", "mode": "fake", "verdict": verdict.PASS, "started_at": "1",
@@ -1073,6 +1136,587 @@ class FakeRunTests(unittest.TestCase):
         self.assertTrue(result["summary"].startswith("stopped before turn 2: AutoCode stopped at PAUSED_DESIGN_CONFLICT"))
         self.assertEqual("", result["harness_error"])  # the product stopped, not the harness
         self.assertIn("stopped before turn 2", result["turn_not_reached"])
+
+
+class StockRefusalsRunTests(unittest.TestCase):
+    """feature-stock-refusals (issue #59) end to end with the scripted model (about 30 s each). Only the model
+    is fake: the runner's regression proof finds the vacuous refusal tests, and the scripted Resolver writes
+    its diagnosis from its handoff alone. These prove the route is reached and that the scoring can come out
+    CORRECT and INCORRECT, never how well a real model diagnoses. Plan B1 (each variant fails for its own
+    reason) is OracleControlTests.test_feature_stock_refusals (CONTROL_SUMMARIES)."""
+
+    def run_fake(self, solution="reference", env=None):
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
+            args = argparse.Namespace(fake=True, profile=None, fake_solution=solution, out=Path(out), autocode=None,
+                                      max_steps=None, timeout_minutes=10)
+            result = run.run_one(catalog.load("feature-stock-refusals"), args, extra_env=env)
+            state = json.loads((Path(result["evidence"]) / "state.json").read_text())
+            proofs = [json.loads(Path(row["path"]).read_text())["verdict"] for row in state["regression_proofs"]]
+            return result, state, proofs
+
+    def test_the_reference_reaches_autoresolver_through_the_failed_proof_and_is_scored_correct(self):
+        result, state, proofs = self.run_fake()
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertEqual(["recognize_workflow", "astra_discovery", "astra_challenge", "terra", "sol", "astra_review",
+                          "astra_resolve", "terra", "sol", "astra_review"], result["metrics"]["model_stage_names"])
+        # The proof failed, AutoResolver ran (not the direct Builder repair of #294), and the next proof passed.
+        self.assertEqual(["FAIL", "PASS"], proofs)
+        self.assertEqual(1, len(state["resolution_history"]))
+        self.assertEqual([], state.get("direct_rework_assignments") or [])
+        diagnosis = result["diagnosis"]
+        self.assertEqual(verdict.CORRECT, diagnosis["verdict"], diagnosis["reason"])
+        self.assertEqual(["test_c3_move_more_than_on_hand_is_refused", "test_c4_move_to_same_location_is_refused",
+                          "test_c5_malformed_store_is_refused", "test_c6_non_positive_quantity_is_refused",
+                          "test_c7_remove_more_than_on_hand_is_refused"], diagnosis["vacuous_tests"])
+        # Which tests are about move/remove was read from the runner's code checkpoint of the trap source.
+        self.assertEqual(["code checkpoint"], list(diagnosis["trap_tests_read_from"].values()))
+        self.assertEqual(7, len(diagnosis["checks"]))
+        self.assertEqual(1, diagnosis["resolver_calls_on_trap"])
+
+    def test_a_misattributed_diagnosis_is_incorrect_while_the_run_still_passes(self):
+        result, _, proofs = self.run_fake(env={"SCENARIO_FAKE_RESOLVER": "misattribute"})
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertEqual(["FAIL", "PASS"], proofs)
+        self.assertEqual(verdict.INCORRECT, result["diagnosis"]["verdict"])
+        self.assertEqual({"diagnosis_names_each_vacuous_test", "diagnosis_explains_why_they_pass_on_original_code",
+                          "resolver_chose_bounded_test_repair"},
+                         {check["name"] for check in result["diagnosis"]["checks"] if not check["ok"]})
+
+    def test_tests_that_never_discriminate_stop_honestly_and_the_repair_is_scored_incorrect(self):
+        # The Builder keeps the vacuous tests. Since the efficiency controls (d535913) the runner holds the
+        # second review of the same incident without causal progress for a person (RESOLVER_PENDING) instead
+        # of three Resolver calls ending at PAUSED_BUILDER_RETRY_LIMIT, as plan B4 recorded on e2eadf0.
+        result, state, proofs = self.run_fake("broken/vacuous-refusal-tests")
+        self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
+        self.assertEqual("RESOLVER_PENDING", result["runner_status"])
+        self.assertEqual(1, result["metrics"]["model_stage_names"].count("astra_resolve"))
+        self.assertEqual(["retry"], [row["action"] for row in state["builder_retry_decisions"]])
+        self.assertEqual({"FAIL"}, set(proofs))
+        diagnosis = result["diagnosis"]
+        self.assertEqual((verdict.INCORRECT, 1), (diagnosis["verdict"], diagnosis["resolver_calls_on_trap"]))
+        self.assertEqual(["repair_made_the_tests_discriminate"],
+                         [check["name"] for check in diagnosis["checks"] if not check["ok"]])
+
+
+class StockRefusalsProductTests(unittest.TestCase):
+    """feature-stock-refusals' product check on delivered tests: each refusal rule needs a test that fails on the
+    original code; an extra valid test that argparse's own refusal also passes does not fail the product."""
+
+    USAGE_TEST = """
+    def test_move_with_missing_arguments_is_a_usage_error(self):
+        self.write_store({"A1": {"bolt": 1}})
+        before = self.store_bytes()
+        result = self.run_cli("move", "bolt", "1")
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(self.store_bytes(), before)
+"""
+
+    def evaluate(self, edit):
+        from harness.project import materialize
+        scenario = catalog.load("feature-stock-refusals")
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "p", scenario.dir / "reference")
+            tests = project / "tests" / "test_stock.py"
+            tests.write_text(edit(tests.read_text()))
+            return {check.name: check for check in verdict.evaluate(scenario, project).checks}
+
+    def test_an_extra_test_that_passes_on_the_original_code_is_reported_not_failed(self):
+        checks = self.evaluate(lambda text: text.replace("\n\nif __name__", self.USAGE_TEST + "\n\nif __name__"))
+        self.assertTrue(all(check.ok for check in checks.values()), checks)
+        self.assertIn("test_move_with_missing_arguments_is_a_usage_error",
+                      checks["new_command_tests_fail_on_original_code"].detail)
+
+    def test_a_rule_whose_only_test_passes_on_the_original_code_fails(self):
+        def vacuous_same_location(text):
+            start = text.index("def test_c4_")
+            end = text.index("self.assert_refused(result, before)", start)
+            return (text[:end] + "self.assertEqual(result.returncode, 2)\n        "
+                    "self.assertEqual(self.store_bytes(), before)" + text[end + len("self.assert_refused(result, before)"):])
+        check = self.evaluate(vacuous_same_location)["new_command_tests_fail_on_original_code"]
+        self.assertFalse(check.ok)
+        self.assertIn("FROM equal to TO", check.detail)
+
+
+# A planned case whose test passes on the original code but is not about move or remove (a receive case the
+# Planner tagged test: instead of guard:), and a move case planned with an exact test name.
+EXTRA_STOCK_TESTS = """from tests.test_stock import StockCase
+
+
+class ExtraTests(StockCase):
+    def test_c9_receive_zero_still_refused(self):
+        self.write_store({"A1": {"bolt": 3}})
+        self.assertEqual(self.run_cli("receive", "bolt", "0", "A1").returncode, 2)
+
+    def test_move_refuses_overdraw(self):
+        self.write_store({"A1": {"bolt": 1}})
+        self.assertEqual(self.run_cli("move", "bolt", "2", "A1", "B2").returncode, 2)
+"""
+
+
+class StockRefusalsDiagnosisTests(unittest.TestCase):
+    """feature-stock-refusals' diagnosis() on synthetic run records (issue #59): which Resolver calls count,
+    which tests are the trap, and which diagnoses the word lists must not pass or fail. The trap source is a
+    Git commit the runner's code checkpoint points to, in a fixture built once and copied per test."""
+
+    VACUOUS = "tests.test_stock.MoveRemoveTests.test_c3_move_more_than_on_hand_is_refused"
+    RECEIVE = "tests.test_extra.ExtraTests.test_c9_receive_zero_still_refused"
+    EXACT = "tests.test_extra.ExtraTests.test_move_refuses_overdraw"
+    GOOD = {"status": "REWORK",
+            "diagnosis": "test_c3_move_more_than_on_hand_is_refused passes on the original code too: there `move` is "
+                         "an unknown subcommand, so argparse exits 2 (invalid choice) and never writes the store.",
+            "next_objective": "Make the refusal tests fail on the original code",
+            "next_task": {"kind": "implement", "requirements": ["In tests/test_stock.py assert that stderr starts "
+                                                                "with 'stock.py: ' and has no 'invalid choice'"]}}
+    MISATTRIBUTED = {**GOOD, "diagnosis": "stock.py move does not validate its quantity.",
+                     "next_task": {"kind": "implement", "requirements": ["Fix stock.py"]}}
+
+    @classmethod
+    def setUpClass(cls):
+        from harness.project import git, materialize
+        cls.fixture_root = tempfile.mkdtemp(prefix="stock-diagnosis-")
+        scenario = catalog.load("feature-stock-refusals")
+        project = materialize(scenario.seed, Path(cls.fixture_root) / "project",
+                              scenario.dir / "broken" / "vacuous-refusal-tests")
+        (project / "tests" / "test_extra.py").write_text(EXTRA_STOCK_TESTS)
+        git(project, "add", "-A")
+        git(project, "commit", "-q", "-m", "trap source")
+        cls.trap_commit = git(project, "rev-parse", "HEAD").strip()
+        cls.fixture = project
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.fixture_root, ignore_errors=True)
+
+    def setUp(self):
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        self.project = Path(root.name) / "project"
+        shutil.copytree(self.fixture, self.project, symlinks=True)
+        self.run_dir = self.project / ".autocode" / "runs" / "20261005-000000-stock"
+        self.run_dir.mkdir(parents=True)
+        self.state = {"regression_proofs": [], "stages": [], "code_checkpoints": [
+            {"source_revision": "trap", "commit": self.trap_commit, "available": True}]}
+        self.clock = 0
+
+    def tick(self):
+        self.clock += 1
+        return f"2026-10-05T00:{self.clock // 60:02d}:{self.clock % 60:02d}+00:00"
+
+    def save(self, name, value):
+        path = self.run_dir / name
+        path.write_text(json.dumps(value))
+        return str(path)
+
+    def proof(self, revision, verdict_, **fields):
+        path = self.save(f"proof-{len(self.state['regression_proofs']) + 1}.json", {"verdict": verdict_, **fields})
+        self.state["regression_proofs"].append({"source_revision": revision, "verdict": verdict_,
+                                                "proved_at": self.tick(), "path": path})
+
+    @staticmethod
+    def failure(case, name):
+        """The runner's own wording (autocode_regression.check_cases)."""
+        return (f"Test case {case}: a planned case has no test named {name} that passes with the change and did "
+                "not pass without it")
+
+    def trap(self, revision="trap", cases=None):
+        """A FAIL proof whose planned cases' tests passed on the original code too."""
+        cases = cases or {"C3": (self.VACUOUS, "test_c3_move_more_than_on_hand_is_refused")}
+        self.proof(revision, "FAIL", pass_to_pass=[test for test, _ in cases.values()], fail_to_pass=[],
+                   test_files=["tests/test_stock.py", "tests/test_extra.py"],
+                   failures=[self.failure(case, name) for case, (_, name) in cases.items()])
+
+    def stage(self, stage="astra_resolve", revision="trap", report=None, model="resolver-model", **fields):
+        name = f"{stage}-{len(self.state['stages']) + 1}.json"
+        output = self.save(name, report) if report is not None else str(self.run_dir / name)
+        row = {"stage": stage, "source_revision": revision, "output": output, "launch_route": {"model": model},
+               "runner_calls": 1, "changed_files": [], "finished_at": self.tick(), **fields}
+        self.state["stages"].append(row)
+        return row
+
+    def repaired(self, revision="fixed", flipped=(VACUOUS,), verdict_="PASS"):
+        self.stage("terra", revision=revision, report={}, changed_files=["tests/test_stock.py"])
+        self.proof(revision, verdict_, pass_to_pass=[], fail_to_pass=list(flipped), failures=[])
+
+    def diagnose(self):
+        (self.run_dir / "state.json").write_text(json.dumps(self.state))
+        return verdict.diagnose(catalog.load("feature-stock-refusals"), self.project, {"model_stages": []})
+
+    def failing(self, block):
+        return {check["name"] for check in block["checks"] if not check["ok"]}
+
+    def test_the_scored_call_is_the_first_accepted_one_and_unsaved_or_runner_calls_never_count(self):
+        self.trap()
+        self.stage(report=self.GOOD, runner_owned=True)
+        self.stage(model="")                                       # never launched with a model
+        self.stage(exit_code=-9, timed_out=True)                   # crashed: no report saved
+        self.stage(report={**self.GOOD, "status": "BLOCKED"}, rejected=True, rejection_reason="schema")
+        accepted = self.stage(report=self.GOOD)
+        self.repaired()
+        block = self.diagnose()
+        self.assertEqual(verdict.CORRECT, block["verdict"], block["reason"])
+        self.assertEqual(3, block["resolver_calls_on_trap"])
+        self.assertEqual(["no report was saved"], [call["why"] for call in block["unscorable_calls"]])
+        self.assertEqual([accepted["output"]], [call["output"] for call in block["trap_calls"] if call["scored"]])
+        self.assertEqual([False, True], [call["accepted"] for call in block["trap_calls"]])
+
+    def test_a_rejected_report_alone_is_scored_and_not_accepted(self):
+        self.trap()
+        self.stage(report=self.GOOD, rejected=True, rejection_reason="Report-file providers require capture receipts")
+        self.repaired()
+        block = self.diagnose()
+        self.assertEqual(verdict.INCORRECT, block["verdict"])
+        self.assertEqual({"diagnosis_accepted"}, self.failing(block))
+
+    def test_a_report_accepted_after_a_report_repair_is_scored_on_the_repaired_report(self):
+        # The runner archives the rejected draft as an astra_resolve row, and the accepted report-only repair
+        # replaces the applied record (autocode.accept_repaired_report); resolution_history names its output.
+        self.trap()
+        self.stage(report={**self.GOOD, "evidence": []}, rejected=True, rejection_reason="missing evidence")
+        repair = self.stage("astra_resolve_report_repair", report=self.GOOD, report_only=True,
+                            original_stage="astra_resolve", model="repair-model")
+        self.state["resolution_history"] = [{"output": repair["output"], "diagnosis": self.GOOD["diagnosis"]}]
+        self.repaired()
+        block = self.diagnose()
+        self.assertEqual(verdict.CORRECT, block["verdict"], block["reason"])
+        self.assertEqual(1, block["resolver_calls_on_trap"])
+        call, = block["trap_calls"]
+        self.assertEqual((True, True, repair["output"]), (call["accepted"], call["report_repaired"], call["output"]))
+        self.assertIn("report-only repair", block["checks"][0]["detail"])
+        # A repair the runner rejected too leaves the call rejected.
+        self.state["stages"][1]["rejected"] = True
+        self.assertEqual({"diagnosis_accepted"}, self.failing(self.diagnose()))
+        # A repair still running when the run stopped has not decided it either way.
+        repair_row = self.state["stages"].pop(1)
+        self.state["stages"] = self.state["stages"][:1]
+        self.state["active_stage"] = {**repair_row, "rejected": False}
+        block = self.diagnose()
+        self.assertEqual(verdict.UNSCORED, block["verdict"], block["reason"])
+        self.assertIn("report repair was still running", block["unscorable_calls"][0]["why"])
+
+    def test_a_run_that_stops_before_the_next_build_is_proved_leaves_the_call_unscored(self):
+        self.trap()
+        self.stage(report=self.GOOD)
+        block = self.diagnose()
+        self.assertEqual(verdict.UNSCORED, block["verdict"], block["reason"])
+        self.assertIn("repair_made_the_tests_discriminate", block["reason"])
+        self.assertEqual(set(), self.failing(block))
+        # A required check that already failed decides it.
+        self.state["stages"].clear()
+        self.stage(report=self.MISATTRIBUTED)
+        self.assertEqual(verdict.INCORRECT, self.diagnose()["verdict"])
+
+    def test_the_next_proof_is_the_one_of_the_build_after_the_call(self):
+        self.trap()
+        self.stage(report=self.GOOD)
+        # The next build's report was rejected and then repaired; its proof passed with the test discriminating.
+        self.stage("terra", revision="fixed", report={}, rejected=True, changed_files=["tests/test_stock.py"])
+        self.stage("terra_report_repair", revision="fixed", report={}, report_only=True, original_stage="terra")
+        self.proof("fixed", "PASS", pass_to_pass=[], fail_to_pass=[self.VACUOUS], failures=[])
+        # A later, unrelated build whose proof failed is not this call's.
+        self.stage("terra", revision="later", report={}, changed_files=["README.md"])
+        self.proof("later", "FAIL", pass_to_pass=[self.VACUOUS], fail_to_pass=[], failures=["unrelated"])
+        block = self.diagnose()
+        self.assertEqual(verdict.CORRECT, block["verdict"], block["reason"])
+
+    def test_a_repair_that_replaces_the_vacuous_test_is_judged_by_the_runners_case_match(self):
+        # The Builder replaced the vacuous test with a discriminating one under a new name; the runner matched
+        # case C3 to it (case_tests) and the proof passed. Deleting the old test in the same sentence that
+        # replaces it is not weakening.
+        self.trap(cases={"C3": (self.VACUOUS, "test_c3_<what it checks>")})
+        new = "tests.test_stock.MoveRemoveTests.test_c3_move_overdraw_refused_by_the_command"
+        self.stage(report={**self.GOOD, "next_objective": "Replace each vacuous refusal test with one that asserts the "
+                                                          "command's own error message, and delete the old tests"})
+        self.stage("terra", revision="fixed", report={}, changed_files=["tests/test_stock.py"])
+        self.proof("fixed", "PASS", pass_to_pass=[], fail_to_pass=[new], failures=[], case_tests={"C3": [new]})
+        block = self.diagnose()
+        self.assertEqual(verdict.CORRECT, block["verdict"], block["reason"])
+        # A case the runner still found no discriminating test for fails, whatever else flipped.
+        self.state["regression_proofs"][-1]["path"] = self.save("proof-unmatched.json", {
+            "verdict": "FAIL", "pass_to_pass": [], "fail_to_pass": [new], "failures": [], "case_tests": {"C3": []}})
+        self.assertEqual({"repair_made_the_tests_discriminate"}, self.failing(self.diagnose()))
+
+    def test_only_planned_tests_about_move_or_remove_are_the_trap(self):
+        receive = {"C9": (self.RECEIVE, "test_c9_receive_zero_still_refused")}
+        self.trap(cases=receive)
+        self.stage(report=self.GOOD)
+        block = self.diagnose()
+        self.assertEqual(verdict.NOT_EXERCISED, block["verdict"], block["reason"])
+        # With a vacuous move test in the same proof, only that one is the trap: retagging the receive case
+        # guard: is the right fix for it, while retagging the move case guard: would weaken the proof.
+        self.state["regression_proofs"].clear()
+        self.state["stages"].clear()
+        self.trap(cases={"C3": (self.VACUOUS, "test_c3_move_more_than_on_hand_is_refused"), **receive})
+        retag = {**self.GOOD, "next_task": {**self.GOOD["next_task"], "requirements": [
+            *self.GOOD["next_task"]["requirements"],
+            "C9 describes behavior that already worked: make it a guard: test_c9_receive_zero_still_refused case"]}}
+        self.stage(report=retag)
+        self.repaired(flipped=(self.VACUOUS,), verdict_="FAIL")
+        block = self.diagnose()
+        self.assertEqual(["test_c3_move_more_than_on_hand_is_refused"], block["vacuous_tests"])
+        self.assertEqual(verdict.CORRECT, block["verdict"], block["reason"])
+        self.state["stages"][0]["output"] = self.save("weakening.json", {**self.GOOD, "next_objective":
+                                                      "Retag C3 as a guard: case so the proof passes"})
+        self.assertEqual({"repair_does_not_weaken_tests"}, self.failing(self.diagnose()))
+        # Without the source to read, every planned test that passed on the original code counts, and the
+        # block says so.
+        self.state["code_checkpoints"].clear()
+        block = self.diagnose()
+        self.assertEqual(sorted(["test_c3_move_more_than_on_hand_is_refused", "test_c9_receive_zero_still_refused"]),
+                         block["vacuous_tests"])
+        self.assertIn("source not rebuilt", block["trap_tests_read_from"]["trap"])
+
+    def test_a_planned_case_is_matched_to_its_test_as_the_runner_matches_it(self):
+        # An approved exact test name, whatever it is called; else the case id's words in the test name.
+        self.trap(cases={"C8": (self.EXACT, "test_move_refuses_overdraw"),
+                         "C3": (self.VACUOUS, "test_c3_<what it checks>")})
+        self.proof("other", "FAIL", pass_to_pass=["tests.test_stock.T.test_c30_move_more"], fail_to_pass=[],
+                   failures=[self.failure("C3", "test_c3_<what it checks>")])
+        block = self.diagnose()
+        self.assertEqual({"trap": ["test_c3_move_more_than_on_hand_is_refused", "test_move_refuses_overdraw"]},
+                         block["trap_tests"])
+
+    def test_a_resolver_the_runner_never_applied_is_unscored_even_with_a_report_on_disk(self):
+        self.trap()
+        self.state["active_stage"] = {"stage": "astra_resolve", "source_revision": "trap", "runner_calls": 1,
+                                      "output": self.save("resolver-01.json", self.GOOD),
+                                      "launch_route": {"model": "resolver-model"}, "started_at": self.tick()}
+        block = self.diagnose()
+        self.assertEqual(verdict.UNSCORED, block["verdict"], block["reason"])
+        self.assertEqual(["the run stopped before the runner applied it"],
+                         [call["why"] for call in block["unscorable_calls"]])
+
+    def test_a_resolver_at_a_revision_without_the_trap_is_not_exercised_and_kept_for_a_human(self):
+        self.proof("other", "PASS", pass_to_pass=[], fail_to_pass=[self.VACUOUS], failures=[])
+        self.stage(revision="other", report={**self.GOOD, "diagnosis": "An unrelated defect in load()."})
+        block = self.diagnose()
+        self.assertEqual(verdict.NOT_EXERCISED, block["verdict"])
+        self.assertEqual(["An unrelated defect in load()."], [call["diagnosis"] for call in block["other_resolver_calls"]])
+        self.trap("trapped-later")
+        block = self.diagnose()
+        self.assertEqual(verdict.NOT_EXERCISED, block["verdict"])
+        self.assertIn("never ran at that revision", block["reason"])
+
+    def test_a_killed_resolver_at_the_trap_is_unscored(self):
+        self.trap()
+        before = self.save("resolver-01.before.json", {"revision": "trap"})
+        self.state["active_stage"] = {"stage": "astra_resolve", "output": str(self.run_dir / "resolver-01.json"),
+                                      "before_ref": before, "launch_route": {"model": "resolver-model"},
+                                      "runner_calls": 1, "started_at": self.tick()}
+        self.assertEqual(verdict.UNSCORED, self.diagnose()["verdict"])
+
+    def test_astra_diagnose_and_investigator_calls_are_not_autoresolver_diagnoses(self):
+        self.trap()
+        for stage in ("astra_diagnose", "investigate_stuck", "astra_resolve_report_repair"):
+            self.stage(stage, report=self.GOOD)
+        self.assertEqual(verdict.NOT_EXERCISED, self.diagnose()["verdict"])
+
+    def test_check_mode_a_run_without_state_and_a_run_whose_proofs_never_failed_are_not_exercised(self):
+        scenario = catalog.load("feature-stock-refusals")
+        self.assertEqual(verdict.NOT_EXERCISED, verdict.diagnose(scenario, self.project, None)["verdict"])
+        self.assertEqual(verdict.NOT_EXERCISED, verdict.diagnose(scenario, self.project, {})["verdict"])
+        self.stage(report=self.GOOD)
+        self.assertEqual(verdict.NOT_EXERCISED, self.diagnose()["verdict"])
+
+    def score(self, report):
+        self.state["stages"].clear()
+        self.state["regression_proofs"].clear()
+        self.trap()
+        self.stage(report=report)
+        self.repaired()
+        return self.diagnose()
+
+    def test_wrong_diagnoses_are_not_scored_correct(self):
+        # Round-1 review probes: words found inside other words, generic causes, and a "repair" that changes
+        # the product's exit-code contract.
+        name = "test_c3_move_more_than_on_hand_is_refused"
+        wrong = {
+            "based on": ({**self.GOOD, "diagnosis": f"{name} is unreliable based on its fixture: location B2 does not "
+                                                     "exist in the store it writes, so move returns nonzero."},
+                         "diagnosis_explains_why_they_pass_on_original_code"),
+            "a missing store": ({**self.GOOD, "diagnosis": f"{name} passes because stock.json does not exist in the "
+                                                            "test's temp dir, so the original stock.py exits 2."},
+                                "diagnosis_explains_why_they_pass_on_original_code"),
+            "codebase": ({**self.GOOD, "diagnosis": f"{name} is flaky in this codebase: argparse exits 2 when the "
+                                                     "database file is locked."},
+                         "diagnosis_explains_why_they_pass_on_original_code"),
+            "exit-code contract": ({**self.GOOD, "next_task": {"kind": "implement", "requirements": [
+                "In stock.py make move and remove refusals exit 3", "Update tests/test_stock.py to expect exit 3"]}},
+                                   "resolver_chose_bounded_test_repair"),
+            "product edit": ({**self.GOOD, "next_objective": "Change stock.py so refusals print usage first",
+                              "next_task": {"kind": "implement", "requirements": ["Update tests/test_stock.py"]}},
+                             "resolver_chose_bounded_test_repair"),
+            "weakening": ({**self.GOOD, "next_objective": "Skip these refusal tests until move is stable"},
+                          "repair_does_not_weaken_tests"),
+            "deletion": ({**self.GOOD, "next_objective": "Delete the vacuous refusal tests from tests/test_stock.py"},
+                         "repair_does_not_weaken_tests"),
+            "product in affected_paths": ({**self.GOOD, "affected_paths": ["stock.py", "tests/test_stock.py"]},
+                                          "resolver_chose_bounded_test_repair"),
+            "argparse, another cause": ({**self.GOOD, "diagnosis": f"{name} passes on the original code because "
+                                                                    "argparse exits 2 on the malformed quantity."},
+                                        "diagnosis_explains_why_they_pass_on_original_code"),
+            "argparse and move, another cause": ({**self.GOOD, "diagnosis": f"{name} passes on the original code because "
+                                                  "argparse rejects the non-integer quantity given to move with exit 2."},
+                                                 "diagnosis_explains_why_they_pass_on_original_code"),
+            "argparse choices": ({**self.GOOD, "diagnosis": f"{name} passes on the original code: the location choices "
+                                                             "are validated by argparse, which exits 2 for B2, so the "
+                                                             "store is never touched."},
+                                 "diagnosis_explains_why_they_pass_on_original_code"),
+            "a command without a store": ({**self.GOOD, "diagnosis": f"{name} passes on the original code: the move "
+                                                                      "command finds no stock.json and argparse exits 2."},
+                                          "diagnosis_explains_why_they_pass_on_original_code"),
+            "unnamed retag": ({**self.GOOD, "next_objective": "Retag the refusal cases as guard: cases"},
+                              "repair_does_not_weaken_tests"),
+            "handler edit": ({**self.GOOD, "next_objective": "Rewrite the move handler so it refuses before argparse"},
+                             "resolver_chose_bounded_test_repair"),
+        }
+        for label, (report, check) in wrong.items():
+            with self.subTest(label):
+                block = self.score(report)
+                self.assertEqual(verdict.INCORRECT, block["verdict"], block["reason"])
+                self.assertEqual({check}, self.failing(block))
+
+    def test_right_diagnoses_are_not_scored_incorrect(self):
+        name = "test_c3_move_more_than_on_hand_is_refused"
+        right = {
+            "negated weakening": {**self.GOOD, "next_objective": "Strengthen the refusal tests; do not skip them or "
+                                                                 "relax any assertion, and do not weaken tests"},
+            "pre-change": {**self.GOOD, "next_objective": "Make each refusal test assert where the refusal comes from",
+                           "diagnosis": f"Against the pre-change stock.py, {name} also passes: argparse rejects "
+                                        "`move` with exit code 2 (invalid choice)."},
+            "product left alone": {**self.GOOD, "next_objective": "Leave stock.py unchanged; it is correct. Do not "
+                                                                  "change stock.py, only tests/test_stock.py"},
+            "short test name": {**self.GOOD, "diagnosis": "test_c3 passes on the base revision as well: the move "
+                                                          "subcommand does not exist there, so the CLI exits with "
+                                                          "status 2."},
+            "move tests named": {**self.GOOD, "next_objective": "Update the move command tests in tests/test_stock.py"},
+            "tests called too relaxed": {**self.GOOD, "diagnosis": self.GOOD["diagnosis"] + " Its assertions are too "
+                                                                   "relaxed and the proof weakened nothing."},
+            "guard as a verb": {**self.GOOD, "next_objective": "Guard against argparse's own exit 2 by asserting the "
+                                                               "stderr prefix"},
+            "test file named in affected_paths": {**self.GOOD, "affected_paths": ["tests/test_stock.py"], "next_task": {
+                "kind": "implement", "requirements": [f"In test_stock.py, make {name} assert stderr starts with "
+                                                      "'stock.py: ' and has no 'invalid choice'"]}},
+            "the exit status kept": {**self.GOOD, "next_objective": "Do not touch the product. Update "
+                                                                    "tests/test_stock.py; stock.py should exit 2 as it "
+                                                                    "already does"},
+            "not implemented": {**self.GOOD, "diagnosis": f"{name} also passes on the original code: move is not "
+                                                          "implemented there, so stock.py exits 2 and leaves "
+                                                          "stock.json alone."},
+            "no subparser": {**self.GOOD, "diagnosis": f"{name} also passes on the original code: the original parser "
+                                                       "has no move subparser, so parsing fails with exit code 2 and "
+                                                       "the store is untouched."},
+            "unknown verb": {**self.GOOD, "diagnosis": f"{name} passes on the original code because the CLI parser "
+                                                       "rejects the unknown `move` verb with exit code 2 before touching "
+                                                       "stock.json."},
+            "returns 2": {**self.GOOD, "diagnosis": f"{name} passes on the original code, where `move` is an unknown "
+                                                    "subcommand and main() returns 2."},
+            "SystemExit(2)": {**self.GOOD, "diagnosis": f"{name} passes on the original code, where argparse raises "
+                                                        "SystemExit(2) for the unknown `move` command."},
+            "code 2": {**self.GOOD, "diagnosis": f"{name} passes on the original code: `move` is an invalid choice "
+                                                 "there and the CLI ends with code 2."},
+        }
+        for label, report in right.items():
+            with self.subTest(label):
+                block = self.score(report)
+                self.assertEqual(verdict.CORRECT, block["verdict"], block["reason"])
+
+
+class RefundWindowDiagnosisTests(unittest.TestCase):
+    """feature-refund-window's diagnosis() on synthetic run records (issue #59): a Resolver call is on the
+    planted failure when the source it saw fails the hidden WindowTests or CapTests, rebuilt from the runner's
+    code checkpoint."""
+
+    NAMED = "store_date ignores the UTC-8 store offset, so the window counts UTC days"
+
+    @classmethod
+    def setUpClass(cls):
+        from harness.project import git, materialize
+        cls.fixture_root = tempfile.mkdtemp(prefix="refund-diagnosis-")
+        scenario = catalog.load("feature-refund-window")
+        project = materialize(scenario.seed, Path(cls.fixture_root) / "project",
+                              scenario.dir / "broken" / "trusts-store-date")
+        cls.commits = {"seed": git(project, "rev-parse", "HEAD").strip()}  # no shop/refunds.py yet
+        refunds = project / "shop" / "refunds.py"
+        for revision, overlay in (("planted", None), ("refusal-bug", scenario.reference), ("fixed", scenario.reference)):
+            if overlay:
+                shutil.copytree(overlay, project, dirs_exist_ok=True)
+            if revision == "refusal-bug":  # both planted defects fixed, but a disputed order is no longer refused
+                refunds.write_text(refunds.read_text().replace(
+                    '    if order.disputed:\n        raise RefundRefused("the order is disputed")\n', ""))
+            git(project, "add", "-A")
+            git(project, "commit", "-q", "-m", revision)
+            cls.commits[revision] = git(project, "rev-parse", "HEAD").strip()
+        cls.fixture = project
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.fixture_root, ignore_errors=True)
+
+    def setUp(self):
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        self.project = Path(root.name) / "project"
+        shutil.copytree(self.fixture, self.project, symlinks=True)
+        self.run_dir = self.project / ".autocode" / "runs" / "20261005-000000-refund"
+        self.run_dir.mkdir(parents=True)
+        self.scenario = catalog.load("feature-refund-window")
+        self.state = {"stages": [], "code_checkpoints": [
+            {"source_revision": revision, "commit": commit, "available": True} for revision, commit in self.commits.items()]}
+
+    def resolver(self, diagnosis=None, revision="planted", **fields):
+        name = f"resolver-{len(self.state['stages']) + 1}.json"
+        path = self.run_dir / name
+        if diagnosis is not None:
+            path.write_text(json.dumps({"status": "REWORK", "diagnosis": diagnosis}))
+        self.state["stages"].append({"stage": "astra_resolve", "source_revision": revision, "output": str(path),
+                                     "launch_route": {"model": "resolver-model"}, "runner_calls": 1, **fields})
+
+    def diagnose(self):
+        (self.run_dir / "state.json").write_text(json.dumps(self.state))
+        run_record = {"model_stages": ["terra", "sol", "astra_review", "astra_resolve"],
+                      "resolutions": [{"diagnosis": json.loads(Path(row["output"]).read_text())["diagnosis"]}
+                                      for row in self.state["stages"]
+                                      if not row.get("rejected") and Path(row["output"]).is_file()]}
+        block = verdict.diagnose(self.scenario, self.project, run_record)
+        # A poor diagnosis of correct code is not a false completion: the product checks pass alone.
+        self.assertTrue(verdict.evaluate(self.scenario, self.project, run_record).passed)
+        return block
+
+    def test_a_planted_defect_named_is_correct_and_a_vague_or_merely_topical_one_is_not(self):
+        for diagnosis, expected in ((self.NAMED, verdict.CORRECT),
+                                    ("The implementation has a bug; fix it.", verdict.INCORRECT),
+                                    ("The refund total in the store is wrong; fix the partial refund logic.",
+                                     verdict.INCORRECT)):
+            with self.subTest(diagnosis):
+                self.state["stages"].clear()
+                self.resolver(diagnosis)
+                self.assertEqual(expected, self.diagnose()["verdict"])
+
+    def test_a_call_that_saved_nothing_is_unscored_and_a_rejected_report_is_scored(self):
+        self.resolver(exit_code=-9)
+        self.assertEqual(verdict.UNSCORED, self.diagnose()["verdict"])
+        self.state["stages"].clear()
+        self.resolver(self.NAMED, rejected=True, rejection_reason="schema")
+        block = self.diagnose()
+        self.assertEqual(verdict.INCORRECT, block["verdict"])
+        self.assertEqual(["diagnosis_accepted"], [check["name"] for check in block["checks"] if not check["ok"]])
+
+    def test_a_call_on_source_that_passes_the_hidden_tests_was_not_on_the_planted_failure(self):
+        # Source that passes the planted classes, fails only another hidden test (a dropped disputed-order
+        # refusal), or misses the feature altogether is not the planted failure.
+        for revision, outcome, diagnosis in (
+                ("fixed", "pass", self.NAMED),
+                ("refusal-bug", "pass", "refund() no longer refuses a disputed order: the check was dropped."),
+                ("seed", "do not import", "The Builder never added shop/refunds.py; add the refund function.")):
+            with self.subTest(revision):
+                self.state["stages"].clear()
+                self.resolver(diagnosis, revision=revision)
+                block = self.diagnose()
+                self.assertEqual(verdict.NOT_EXERCISED, block["verdict"], block["reason"])
+                self.assertEqual([outcome], [call["planted_tests"] for call in block["other_resolver_calls"]])
+        self.state["stages"].clear()
+        self.assertEqual(verdict.NOT_EXERCISED, self.diagnose()["verdict"])
+        self.assertEqual(verdict.NOT_EXERCISED, verdict.diagnose(self.scenario, self.project, None)["verdict"])
 
 
 class PlanCompareTests(unittest.TestCase):
