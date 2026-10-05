@@ -130,6 +130,11 @@ def stopped_attempt(state: dict, *, failure_status) -> dict | None:
       retry bound to the run's configuration (#463). Its model is named with --answer and the
       job retry token, never with --abandon-stage or a --<role>-model flag;
     - ``abandoned``: the attempt a person set aside with --abandon-stage while nothing has run since.
+
+    ``workflow_job`` is True for a workflow job's attempt: the ``job`` kind, or an uncertain
+    ``stage`` that admission bound to its launch configuration (autocode_job_failure.admit saves
+    ``job_configuration``), which setting it aside turns into a job stop. ``bound_model`` is the
+    role's model in the configuration that job's exact retry is bound to, else None.
     """
     active = state.get("active_stage") or {}
     job = None if active else _job_row(state)
@@ -155,9 +160,14 @@ def stopped_attempt(state: dict, *, failure_status) -> dict | None:
             status = None
     if not role or status not in STATUSES:
         return None
+    bound = (state["job_failure"].get("configuration") if kind == "job"
+             else record.get("job_configuration") if kind == "stage" else None)
+    bound_route = ((bound.get("roles") if isinstance(bound, dict) else None) or {}).get(role)
     return {"role": role, "stage": record.get("original_stage") or record.get("stage"),
             "attempt_id": _attempt_id(record), "events": events, "active": kind == "stage", "kind": kind,
-            "model": _launched_model(record), "pause_status": status}
+            "model": _launched_model(record), "pause_status": status,
+            "workflow_job": kind == "job" or isinstance(bound, dict),
+            "bound_model": bound_route.get("model") if isinstance(bound_route, dict) else None}
 
 
 def question(state: dict, attempt: dict, *, cross_check=None, configured_tool: bool = False) -> dict:
@@ -377,9 +387,11 @@ def resume_refusal(state: dict, previous: dict, selected: dict, *, failure_statu
     While the stopped attempt is still uncertain the model is named with --answer, or
     the attempt is set aside first (--abandon-stage, in the same or an earlier invocation).
     Saving the flag alone would change the route under an unresolved attempt and leave the
-    question asking for the model just named. At a workflow job's stop the flag is never saved:
-    it would make the job's exact retry stale and record nothing; the job's answer names the
-    model and issues a new retry token (#463).
+    question asking for the model just named. For a workflow job's attempt the flag is never saved,
+    whether the job already stopped or is still uncertain (set aside in this invocation or later):
+    the job's exact retry is bound to the configuration it ran under, so the flag would make that
+    retry stale and record nothing; the job's answer names the model and issues a new retry token
+    (#463). Only a flag that puts back the bound model is saved: it restores that configuration.
 
     ``questions`` and ``origin`` are the current published request's. The saved events can
     classify as a quota or refusal stop while that request was published as another stop (a
@@ -389,15 +401,22 @@ def resume_refusal(state: dict, previous: dict, selected: dict, *, failure_statu
     changed = _changed_role(state, previous, selected, failure_status)
     if not changed:
         return None
-    attempt, role = changed[0], changed[0]["role"]
+    attempt, role, after = changed[0], changed[0]["role"], changed[2]
     job = roles.screen_name(attempt.get("stage") or role, state)
     asked = {"id": PREFIX + role, "route_role": role,
              "cause": "content_filter" if attempt.get("pause_status") == REFUSAL_STATUS else "quota"}
     stopped = _STOPPED.get(attempt.get("pause_status"), _STOPPED[QUOTA_STATUS])
     unsaved = flag(role) if role in ROLES else "the model change"
-    if attempt["kind"] == "job":
-        return (f"The {job} attempt that {stopped} was set aside for one exact retry bound to its "
-                f"configuration; {unsaved} is not saved. " + advice(asked, attempt["attempt_id"], kind="job"))
+    if attempt.get("workflow_job"):
+        if after == attempt.get("bound_model"):
+            return None  # puts back the model the job's exact retry is bound to
+        if attempt["kind"] == "job":
+            return (f"The {job} attempt that {stopped} was set aside for one exact retry bound to its "
+                    f"configuration; {unsaved} is not saved. " + advice(asked, attempt["attempt_id"], kind="job"))
+        return (f"The {job} attempt that {stopped} is a workflow job: setting it aside keeps one exact retry "
+                f"bound to the configuration it ran under, so {unsaved} is not saved. Set it aside first with "
+                f"--abandon-stage {attempt['attempt_id']} alone. "
+                + advice(asked, attempt["attempt_id"], kind="job"))
     if not attempt["active"] or (abandoning and abandoning == attempt["attempt_id"]):
         return None
     answerable = answers_route(questions, origin, role)
@@ -414,7 +433,7 @@ def record_resume_change(state: dict, previous: dict, selected: dict, *, failure
     A model a launch refuses (wrong format, a cross-model clash) is not recorded: it never runs.
     """
     changed = _changed_role(state, previous, selected, failure_status)
-    if not changed or changed[0]["kind"] == "job":  # a job's model is named by its answer (resume_refusal)
+    if not changed or changed[0].get("workflow_job"):  # a job's model is named by its answer (resume_refusal)
         return []
     attempt, before, after = changed
     role = attempt["role"]

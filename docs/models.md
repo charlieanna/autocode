@@ -246,7 +246,12 @@ autocode --run-dir RUN --resume-paused --retry-failed-stage --job-retry-token NE
 The answer applies the same checks and records the same `route_assignment`. The old
 token stops working, so the job never runs again on the model that stopped without
 your saying so. `--abandon-stage` and a `--sol-model` flag are refused at this stop
-(the flag would make the exact retry stale). The Architect (Designer, Design
+(the flag would make the exact retry stale; only putting back the model the retry is
+bound to is saved), and so is the flag next to an `--abandon-stage` that sets the
+job's uncertain attempt aside: set it aside on its own, then answer. The answer
+itself changes nothing but the job's model; given with another setting it is refused
+and nothing is saved. Once you have named a model, the status line and recovery card
+ask only for the retry on it. The Architect (Designer, Design
 Reviewer), Analyst and Investigator routes have no flag at all: the answer is the only
 way to move them. After a quota stop the shown token also retries the job unchanged,
 once the quota resets. The stuck-stage Investigator (`investigate_stuck`) is the

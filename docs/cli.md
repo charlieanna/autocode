@@ -255,8 +255,15 @@ would, records a `route_assignment` and issues a new token for the new model. Th
 old token stops working, and the exact retry with the new token is the only way on:
 `--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN`. The Architect,
 Analyst and Investigator have no `--ROLE-model` flag, so this answer is how they
-move. At that stop `--abandon-stage` is refused, and a `--ROLE-model` flag for the
-stopped role is refused with this advice instead of being saved (saving it would
-make the retry stale). After a quota stop, the unchanged retry with the shown token
-also works once the quota resets. A stuck-stage Investigator (`investigate_stuck`)
-keeps only the exact retry: its route is rebuilt on every launch.
+move. The answer changes only that model: given with a limit or another role's
+model, it is refused and nothing is saved. At that stop `--abandon-stage` is
+refused, and a `--ROLE-model` flag for the stopped role is refused with this advice
+instead of being saved (saving it would make the retry stale); only a flag that
+puts back the model the retry is bound to is saved. The same flag is refused while
+the job's attempt is still uncertain, including with `--abandon-stage` in the same
+command: run `--abandon-stage ATTEMPT` alone, then answer with the token it shows.
+After a quota stop, the unchanged retry with the shown token also works once the
+quota resets. A stuck-stage Investigator (`investigate_stuck`) keeps only the
+exact retry: its route is rebuilt on every launch, and an answer naming a model for
+it is refused with that reason. A job stop saved before stopped jobs could take
+another model keeps only the exact retry too.

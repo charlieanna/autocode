@@ -436,8 +436,13 @@ accepted model is saved as a `route_assignment` and the need comes back with a n
 `run.retry_job(view["needs"]["job_retry_token"])`. `assign_model` updates a
 `--ROLE-model` in the client's options, so the retry never passes the old model back;
 the CLI refuses a `--ROLE-model` change for the stopped role at this stop (it would
-make the exact retry stale). The Architect, Analyst and Investigator routes have no
-flag; only this answer moves them.
+make the exact retry stale), unless it puts back the model the retry is bound to.
+The answer carries no other setting: given with a limit or another role's model it
+is refused and nothing is saved. Once a model is named, `progress.needs_you` and the
+recovery card's `what_happened` ask only for the retry on it. The Architect, Analyst
+and Investigator routes have no flag; only this answer moves them (an
+`--investigator-model` in the options pins the stuck-stage Investigator and is left
+as it is).
 
 A missing or corrupt capture file does not prevent retry if the current source
 exactly matches the identity saved before the attempt, including file modes and

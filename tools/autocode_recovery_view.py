@@ -95,22 +95,37 @@ def _explanation(status, role):
     return f'{role or "The task"} stopped before starting another step. Inspect the saved reason before continuing.'
 
 
+# The stop of a job_failure saved before #463, which has its kind but no pause_status.
+_JOB_STOP_CAUSE = {'content_filter': 'PAUSED_CONTENT_FILTER', 'quota': 'PAUSED_BUDGET'}
+
+
 def _job_model_stop(state, role):
-    """What happened to a workflow job its provider refused or ran out of quota on (#463), or None."""
+    """What happened to a workflow job its provider refused or ran out of quota on (#463), or None.
+
+    Once a person named another model (``route_assignment``), the next step is only the retry
+    with the token issued for it; a job without a route keeps only its exact retry.
+    """
     if state.get('status') not in ('PAUSED_JOB_FAILURE', 'PAUSED_STAGE_ABANDONED'):
         return None
     failure = _dict(state.get('job_failure'))
     route = _dict(failure.get('route'))
+    cause = failure.get('pause_status') or _JOB_STOP_CAUSE.get(failure.get('kind'))
     job = route.get('job') or role or 'job'
-    model = route.get('stopped_model') or 'its model'
-    if failure.get('pause_status') == 'PAUSED_CONTENT_FILTER':
-        return (f"The provider's content filter refused the {job}'s response on {model}. The same model is likely "
-                "to refuse it again" + ("; name another model for this job, then retry it with the new token."
-                                        if route else "."))
-    if failure.get('pause_status') == 'PAUSED_BUDGET':
-        return (f"The {job}'s provider reported its quota, usage limit or credits used up on {model}. "
-                + ("Name another model for this job, or retry it unchanged once the quota resets."
-                   if route else "Retry it once the quota resets."))
+    on = f" on {route['stopped_model']}" if route.get('stopped_model') else ''
+    assigned = _dict(failure.get('route_assignment')).get('to') if route else None
+    now = f"The {job} now runs on {assigned}; retry it once with the new token." if assigned else ''
+    if cause == 'PAUSED_CONTENT_FILTER':
+        refused = f"The provider's content filter refused the {job}'s response{on}. The same model is likely to refuse it again"
+        if now:
+            return f"{refused}. {now}"
+        return refused + ("; name another model for this job, then retry it with the new token." if route
+                          else "; this stop keeps only its exact retry.")
+    if cause == 'PAUSED_BUDGET':
+        spent = f"The {job}'s provider reported its quota, usage limit or credits used up{on}."
+        if now:
+            return f"{spent} {now}"
+        return spent + (" Name another model for this job, or retry it unchanged once the quota resets."
+                        if route else " Retry it once the quota resets.")
     return None
 
 

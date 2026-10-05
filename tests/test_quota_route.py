@@ -302,6 +302,52 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertIsNone(quota_route.resume_refusal(state, previous, other, failure_status=support.failure_status,
                                                      abandoning=None))
 
+    def test_a_flag_that_puts_back_the_bound_model_is_saved_and_never_recorded(self):
+        # A route moved off the model the exact retry is bound to (a flag saved before #463) can be put back.
+        state = self.job_state()
+        state["job_failure"]["configuration"] = {"roles": {"sol": {"model": "gpt-5.6-sol"}}}
+        drifted = json.loads(json.dumps(state["settings"]))
+        drifted["roles"]["sol"]["model"] = "gpt-6-luna"
+        attempt = self.stopped({**state, "settings": drifted})
+        self.assertEqual((True, "gpt-5.6-sol"), (attempt["workflow_job"], attempt["bound_model"]))
+        back = json.loads(json.dumps(drifted))
+        back["roles"]["sol"]["model"] = "gpt-5.6-sol"
+        self.assertIsNone(quota_route.resume_refusal(state, drifted, back, failure_status=support.failure_status,
+                                                     abandoning=None))
+        self.assertEqual([], quota_route.record_resume_change(state, drifted, back,
+                                                              failure_status=support.failure_status, at="t"))
+        other = json.loads(json.dumps(drifted))
+        other["roles"]["sol"]["model"] = "gpt-6-nova"
+        self.assertIn("--sol-model is not saved", quota_route.resume_refusal(
+            state, drifted, other, failure_status=support.failure_status, abandoning=None))
+
+    def test_a_model_flag_while_a_workflow_job_is_uncertain_is_refused_even_when_setting_it_aside(self):
+        state = self.state(REFUSED, stage="review_change")
+        state["active_stage"]["job_configuration"] = {"roles": {"sol": {"model": "gpt-5.6-sol"}}}  # admit saved it
+        attempt = self.stopped(state)
+        self.assertEqual(("stage", True, "gpt-5.6-sol"), (attempt["kind"], attempt["workflow_job"], attempt["bound_model"]))
+        previous = state["settings"]
+        changed = json.loads(json.dumps(previous))
+        changed["roles"]["sol"]["model"] = "gpt-6-luna"
+        for abandoning in (None, "001/validator-01"):
+            with self.subTest(abandoning=abandoning):
+                refusal = quota_route.resume_refusal(state, previous, changed, failure_status=support.failure_status,
+                                                     abandoning=abandoning)
+                self.assertIn("The Code Reviewer attempt that its provider's content filter refused is a workflow job: "
+                              "setting it aside keeps one exact retry bound to the configuration it ran under, so "
+                              "--sol-model is not saved. Set it aside first with --abandon-stage 001/validator-01 alone.",
+                              refusal)
+                self.assertIn("--answer route-sol=MODEL --job-retry-token TOKEN", refusal)
+                self.assertNotRegex(refusal, r"--resume-paused --sol-model|--resolver-token")
+        self.assertEqual([], quota_route.record_resume_change(state, previous, changed,
+                                                              failure_status=support.failure_status, at="t"))
+        # A build stage keeps its rule: set aside in the same invocation, the flag is saved and recorded.
+        build = self.state(REFUSED)
+        self.assertFalse(self.stopped(build)["workflow_job"])
+        self.assertIsNone(quota_route.resume_refusal(build, build["settings"], changed,
+                                                     failure_status=support.failure_status,
+                                                     abandoning="001/validator-01"))
+
     def test_the_retry_job_need_carries_the_jobs_model_question(self):
         state = self.job_state()
         state["job_failure"].update(reason="r", archive="a", source_identity="s", write_diagnosis={}, unrestored=[],

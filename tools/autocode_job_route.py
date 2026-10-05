@@ -13,6 +13,9 @@ availability, cross-model; never the model that was just refused or the one alre
 Applying it is the usual recorded ``route_assignment`` (autocode_quota_route.assign); then
 autocode_job_failure.reroute binds the exact retry to the new configuration under a new token.
 Nothing launches: the person retries with --resume-paused --retry-failed-stage and the new token.
+The answer changes nothing else: settings_refusal (called by autocode_run_setup before it saves
+an invocation's settings) refuses an answer that also changes the bound configuration, so a
+rejected answer leaves the saved run as it was.
 
 It is given the runner module (autocode) and uses the runner's own services as runner.X, the
 way autocode_run_actions does; it never imports autocode, autopilot or a cycle member.
@@ -24,14 +27,63 @@ import sys
 
 try:
     from . import autocode_job_failure as job_failure, autocode_quota_route as quota_route, autocode_roles as roles
+    from . import autocode_stuck_job as stuck_job
 except ImportError:
     import autocode_job_failure as job_failure
     import autocode_quota_route as quota_route
     import autocode_roles as roles
+    import autocode_stuck_job as stuck_job
+
+_RETRY = '--resume-paused --retry-failed-stage --job-retry-token TOKEN'
+# A job_failure saved before #463 has the stop's kind but no pause_status (autocode_job_failure._reason).
+_CAUSE = {'content_filter': quota_route.REFUSAL_STATUS, 'quota': quota_route.QUOTA_STATUS}
 
 
 def _routes(args) -> bool:
     return any(item.partition('=')[0].startswith(quota_route.PREFIX) for item in [*args.answer, *args.delegate])
+
+
+def _answering(args, state) -> bool:
+    failure = state.get('job_failure') or {}
+    return (bool(failure) and state.get('status') in job_failure.PAUSES and bool(args.job_retry_token)
+            and bool(args.answer or args.delegate) and _routes(args) and not args.resume_paused)
+
+
+def settings_refusal(args, state, selected) -> str | None:
+    """Why this invocation's settings cannot be saved with a stopped job's model answer, or None.
+
+    The answer changes only the job's model and rebinds its exact retry. Any other configuration
+    change in the same invocation (a limit, another role's model) would be saved before the answer
+    is checked and leave the retry stale, so the run setup refuses it before writing anything.
+    """
+    if not _answering(args, state):
+        return None
+    if job_failure.configuration(state) == job_failure.configuration({'settings': selected}):
+        return None
+    return ("A stopped job's model answer changes only that job's model; this invocation also changes the "
+            "configuration its exact retry is bound to, so nothing is saved. Answer without other settings "
+            "flags: --answer route-ROLE=MODEL --job-retry-token TOKEN")
+
+
+def _no_route(failure, state) -> str:
+    """Why the stopped job takes no other model, naming its real cause (#463 review)."""
+    job = roles.screen_name(failure.get('stage'), state)
+    cause = failure.get('pause_status') or _CAUSE.get(failure.get('kind'))
+    if cause not in quota_route.STATUSES:
+        return (f"The stopped {job} did not stop on quota or a content-filter refusal, so it takes no other "
+                f"model; inspect it and retry it with {_RETRY}")
+    stopped = ("was refused by its provider's content filter" if cause == quota_route.REFUSAL_STATUS
+               else "stopped on quota")
+    if 'pause_status' not in failure:
+        why = "this stop was saved before a stopped job could take another model"
+    elif failure.get('stage') == stuck_job.STAGE:
+        why = ("the stuck-stage Investigator's route is rebuilt for every investigation, so a model named "
+               "for it would not stick")
+    else:
+        why = "this run has no route for it that a person can name"
+    retry = ('once the quota resets, retry it unchanged with ' if cause == quota_route.QUOTA_STATUS
+             else 'only its exact retry applies, on the same model, which is likely to refuse it again: ')
+    return f"The stopped {job} {stopped}, but {why}, so it takes no other model; {retry}{_RETRY}"
 
 
 def answer(runner, args, state, run_dir, workspace):
@@ -51,9 +103,7 @@ def answer(runner, args, state, run_dir, workspace):
             raise ValueError('--job-retry-token names a stopped workflow job; this run has none')
         route = failure.get('route')
         if not route:
-            raise ValueError(f"The stopped {roles.screen_name(failure.get('stage'), state)} did not stop on "
-                             "quota or a content-filter refusal, so it takes no other model; inspect it and "
-                             "retry it with --resume-paused --retry-failed-stage --job-retry-token TOKEN")
+            raise ValueError(_no_route(failure, state))
         if not args.job_retry_token:
             raise ValueError(f"Name the model with the job retry token the stop shows: "
                              f"--answer {route['id']}=MODEL --job-retry-token TOKEN")

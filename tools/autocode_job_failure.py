@@ -193,10 +193,12 @@ def reroute(runtime, state, run_dir, workspace, assignment):
 
     ``assignment`` is the route_assignment quota_route.assign just applied for the failure's own
     attempt. Nothing else may have changed: the source must still be the original, and the run's
-    configuration must equal the failure's except that role's model (``from`` -> ``to``). The
-    failure then binds the new configuration under a new token, so the shown token stops matching
-    and authorize/admit keep their exact checks. Writes nothing: the caller commits the state
-    (``runtime`` is accepted for symmetry with recover and authorize).
+    configuration must equal the failure's except that role's model, which is now ``to``. A route
+    already moved off the bound model (a --<role>-model flag saved at a job stop before #463) is
+    rebound by the answer too, so that run keeps a way forward. The failure then binds the new
+    configuration under a new token, so the shown token stops matching and authorize/admit keep
+    their exact checks. Writes nothing: the caller commits the state (``runtime`` is accepted for
+    symmetry with recover and authorize).
     """
     failure = state.get('job_failure') or {}
     route = failure.get('route') or {}
@@ -215,7 +217,7 @@ def reroute(runtime, state, run_dir, workspace, assignment):
     expected = copy.deepcopy(failure['configuration'])
     bound = (expected.get('roles') or {}).get(role)
     current = configuration(state)
-    if not isinstance(bound, dict) or bound.get('model') != assignment.get('from'):
+    if not isinstance(bound, dict):
         raise ValueError('Provider configuration or limits changed; retry is stale')
     bound['model'] = assignment.get('to')
     if current != expected:
