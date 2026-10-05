@@ -37,3 +37,13 @@ Dozens of other test modules commit in temporary repositories without this
 config. They are exposed whenever two of their loose objects share `17/`, which
 is rare for small fixtures. Set the same config in any fixture that commits and
 is then copied or deleted.
+
+The same writer broke a copy. In master run 37349094592 (2026-10-05) two
+scenario-harness tests failed in `setUp`: `shutil.copytree` of the diagnosis
+fixture that `setUpClass` had just committed raised `No such file or directory`
+on `.git/objects/maintenance.lock`, which maintenance removed mid-copy. The
+harness's `materialize` now gives its seed commit `-c maintenance.auto=false -c
+gc.auto=0` without changing the scenario project's configuration, so live runs
+keep Git's default. Fixtures that commit again and are then copied or deleted
+call `harness.project.without_maintenance`. `FixtureMaintenanceTests` in
+`scenarios/test_harness.py` checks both through `GIT_TRACE2_EVENT`.
