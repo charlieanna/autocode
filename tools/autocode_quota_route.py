@@ -40,9 +40,12 @@ def engine(settings: dict, role: str) -> str:
         "engine", (settings or {}).get("engine", "codex"))
 
 
-def model_problem(role: str, model, *, role_engine: str, configured_tool: bool) -> str | None:
-    """Why ``model`` cannot be saved for ``role`` on its engine, or None. One rule for configure and here."""
-    label = role.title()
+def model_problem(role: str, model, *, role_engine: str, configured_tool: bool, label: str | None = None) -> str | None:
+    """Why ``model`` cannot be saved for ``role`` on its engine, or None. One rule for configure and here.
+
+    ``label`` is the job a person sees (``Tester``); configure, which has no stage, falls back to the role.
+    """
+    label = label or role.title()
     if role_engine == "codex":
         if not isinstance(model, str) or "/" in model:
             return f"{label} uses a bare Codex model name on the Codex engine, e.g. gpt-5.6-sol"
@@ -167,19 +170,31 @@ def parse_answer(answers, questions, origin: dict) -> tuple[dict, str]:
     return asked, model
 
 
-def validate(state: dict, role: str, model: str, *, configured_tool: bool, cross_check) -> None:
-    """Refuse a model a launch would refuse: wrong format for the engine, unchanged, or a cross-model clash."""
+def validate(state: dict, role: str, model: str, *, configured_tool: bool, cross_check, job: str | None = None) -> None:
+    """Refuse a model a launch would refuse: wrong format for the engine, unchanged, or a cross-model clash.
+
+    ``job`` names the role as the question does (``Tester``), never by its code name.
+    """
     settings = state.get("settings") or {}
     route = (settings.get("roles") or {}).get(role)
+    job = job or roles.screen_name(role, state)
     if not isinstance(route, dict):
-        raise ValueError(f"This run has no {role} route to assign")
-    problem = model_problem(role, model, role_engine=engine(settings, role), configured_tool=configured_tool)
+        raise ValueError(f"This run has no {job} route to assign")
+    problem = model_problem(role, model, role_engine=engine(settings, role), configured_tool=configured_tool,
+                            label=job)
     if not problem and (not isinstance(model, str) or not model.strip() or any(c.isspace() for c in model)):
-        problem = f"{role.title()} needs a model name without spaces"
+        problem = f"{job} needs a model name without spaces"
     if problem:
         raise ValueError(problem)
     if route.get("model") == model:
-        raise ValueError(f"The {role} route already uses {model}; name a different model")
+        raise ValueError(f"The {job} already uses {model}; name a different model")
+    clash = _clashes(settings, role, model, cross_check)
+    if clash:
+        raise ValueError(clash)
+
+
+def _clashes(settings: dict, role: str, model: str, cross_check) -> str | None:
+    """The cross-model refusal a launch would raise with ``model`` on ``role``, or None."""
     trial = {"settings": copy.deepcopy(settings)}
     trial["settings"]["roles"][role]["model"] = model
     try:
@@ -187,7 +202,21 @@ def validate(state: dict, role: str, model: str, *, configured_tool: bool, cross
     except Exception as error:  # the rule raises Paused(PAUSED_CROSS_MODEL); a refused answer is input
         if getattr(error, "status", None) != "PAUSED_CROSS_MODEL":
             raise
-        raise ValueError(str(error)) from None
+        return str(error)
+    return None
+
+
+def _carry(state: dict, role: str, stopped: str | None, model: str) -> None:
+    """Keep a named model past the milestone boundary.
+
+    The Builder retry lane restores its saved routes when the next milestone starts
+    (autocode_builder_policy.lane); a saved route still on the model that ran out
+    would silently switch the role back to it.
+    """
+    lane = (state.get("builder_retries") or {}).get(state.get("builder_retry_key")) or {}
+    saved = lane.get("initial_route") if role == "terra" else (lane.get("checker_routes") or {}).get(role)
+    if isinstance(saved, dict) and stopped and saved.get("model") == stopped:
+        saved["model"] = model
 
 
 def assign(state: dict, role: str, model: str, *, at: str, via: str, attempt: dict | None = None,
@@ -202,22 +231,64 @@ def assign(state: dict, role: str, model: str, *, at: str, via: str, attempt: di
               "pause_status": QUOTA_STATUS, "events": (attempt or {}).get("events")}
     if request_id:
         record["request_id"] = request_id
+    _carry(state, role, route.get("model"), model)
     route["model"] = model
     state.setdefault("sessions", {}).pop(role, None)
     state.setdefault("user_events", []).append(record)
     return copy.deepcopy(record)
 
 
-def record_resume_change(state: dict, previous: dict, selected: dict, *, failure_status, at: str) -> list[dict]:
-    """Record a --<role>-model change saved while that role is stopped on quota (resume path)."""
+def _changed_role(state: dict, previous: dict, selected: dict, failure_status):
+    """(attempt, model before, model after) when the flags change the quota-stopped role's model."""
     attempt = stopped_attempt({**state, "settings": previous}, failure_status=failure_status)
     if not attempt:
-        return []
+        return None
     role = attempt["role"]
     before = ((previous.get("roles") or {}).get(role) or {}).get("model")
     after = ((selected.get("roles") or {}).get(role) or {}).get("model")
-    if not after or before == after:
+    return (attempt, before, after) if after and before != after else None
+
+
+def resume_refusal(state: dict, previous: dict, selected: dict, *, failure_status,
+                   abandoning: str | None) -> str | None:
+    """Why a --<role>-model change cannot be saved now, or None.
+
+    While the quota-stopped attempt is still uncertain the model is named with --answer, or
+    the attempt is set aside first (--abandon-stage, in the same or an earlier invocation).
+    Saving the flag alone would change the route under an unresolved attempt and leave the
+    question asking for the model just named.
+    """
+    changed = _changed_role(state, previous, selected, failure_status)
+    if not changed or not changed[0]["active"] or (abandoning and abandoning == changed[0]["attempt_id"]):
+        return None
+    attempt, role = changed[0], changed[0]["role"]
+    asked = {"id": PREFIX + role, "route_role": role}
+    return (f"The {roles.screen_name(attempt.get('stage') or role, state)} attempt that stopped on quota is still "
+            f"uncertain; {flag(role)} is not saved. " + advice(asked, attempt["attempt_id"]))
+
+
+def record_resume_change(state: dict, previous: dict, selected: dict, *, failure_status, at: str,
+                         cross_check=None, configured_tool: bool = False) -> list[dict]:
+    """Record a --<role>-model change saved while that role is stopped on quota (resume path).
+
+    A model a launch refuses (wrong format, a cross-model clash) is not recorded: it never runs.
+    """
+    changed = _changed_role(state, previous, selected, failure_status)
+    if not changed:
         return []
+    attempt, before, after = changed
+    role = attempt["role"]
+    if model_problem(role, after, role_engine=engine(selected, role), configured_tool=configured_tool):
+        return []
+    if cross_check is not None and _clashes(selected, role, after, cross_check):
+        return []
+    # A refused earlier flag (never recorded, never run) is not where the role came from.
+    stopped = attempt.get("model") or before
+    before = before if any(event.get("role") == role and event.get("to") == before
+                           for event in assignments(state)) else stopped
+    if before == after:
+        return []
+    _carry(state, role, before, after)
     record = {"kind": KIND, "actor": "user_cli", "at": at, "via": "resume_flag", "role": role,
               "job": roles.screen_name(attempt.get("stage") or role, state), "from": before, "to": after,
               "engine": engine(selected, role), "stage": attempt.get("stage"),
@@ -232,6 +303,21 @@ def routes(state: dict) -> dict:
     settings = state.get("settings") or {}
     return {role: {"model": config.get("model"), "engine": engine(settings, role)}
             for role, config in sorted((settings.get("roles") or {}).items()) if isinstance(config, dict)}
+
+
+def unassigned(state: dict, settings: dict) -> dict:
+    """``settings`` with every recorded route assignment undone, newest first.
+
+    A model a person named at a quota stop is not new evidence or a new cause, so a binding
+    taken before it (a recovery packet) still holds after it. Only a route still on the
+    assigned model is undone; any other model change stays visible to the binding.
+    """
+    settings = copy.deepcopy(settings)
+    for event in reversed(assignments(state)):
+        route = (settings.get("roles") or {}).get(event.get("role"))
+        if isinstance(route, dict) and event.get("from") and route.get("model") == event.get("to"):
+            route["model"] = event["from"]
+    return settings
 
 
 def assignments(state: dict) -> list[dict]:

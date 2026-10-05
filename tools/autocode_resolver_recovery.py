@@ -24,6 +24,7 @@ try:
     from . import autocode_process as processes
     from . import autocode_builder_policy as builder_policy
     from . import autocode_failures as failures
+    from . import autocode_quota_route as quota_route
 except ImportError:
     import autocode_recovery_novelty as novelty
     import autocode_util as util
@@ -35,6 +36,7 @@ except ImportError:
     import autocode_process as processes
     import autocode_builder_policy as builder_policy
     import autocode_failures as failures
+    import autocode_quota_route as quota_route
 
 
 def _stale(reason):
@@ -102,7 +104,8 @@ def _wrappers(state, record, run):
 
 def _binding(state, revision):
     contract = state.get("goal_contract") or {}
-    settings = copy.deepcopy(state.get("settings", {}))
+    # A model a person named at a quota stop (#184) is bound as the route it replaced.
+    settings = quota_route.unassigned(state, state.get("settings", {}))
     # These ceilings decide whether work may launch, not what source/evidence it
     # acts on. The controller still enforces them; changing one grants no novelty.
     for section in ("limits", "budget_origins"):

@@ -566,7 +566,7 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
         return None
     candidate = copy.deepcopy(state)
     published = resolver_human.current(candidate)
-    if not any(item.partition('=')[0].startswith(quota_route.PREFIX) for item in args.answer):
+    if not any(item.partition('=')[0].startswith(quota_route.PREFIX) for item in [*args.answer, *args.delegate]):
         # Refuse every other answer to an operational request here, before an uncertain attempt is
         # reconciled: reconciling it again would retire the request the person is reading.
         if published and published['scope'] in ('blocker', 'operational_exhaustion'):
@@ -574,22 +574,30 @@ def answer_quota_question(runner, args, state, run_dir, workspace):
                   'it is not a requirements answer', file=sys.stderr)
             return 2
         return None
-    if args.resolver_token and (not published or published['request_token'] != args.resolver_token):
-        published = resolver_human.rebind_stale(candidate, None, args.resolver_token) or published
-    if not published:
-        print('Input rejected: ' + resolver_human.stale_request_message(state), file=sys.stderr)
-        return 2
-    if published['scope'] != 'operational_exhaustion':
+    if published and published['scope'] != 'operational_exhaustion':
         return None  # not a quota question; the ordinary answer path decides
     try:
+        if not published:
+            raise ValueError(resolver_human.stale_request_message(state))
         resolver_human.require_response(candidate, published['request_id'], args.resolver_token)
+    except ValueError as error:
+        # A saved-state change after display strands the shown token; the person still
+        # answered this exact request, re-bound to the current state in this invocation.
+        fresh = resolver_human.rebind_stale(candidate, None, args.resolver_token) if args.resolver_token else None
+        if fresh is None:
+            print(f'Input rejected: {error}', file=sys.stderr)
+            return 2
+        published = fresh
+    if published['scope'] != 'operational_exhaustion':
+        return None
+    try:
         proposal = candidate['resolver']['human_escalations'][published['request_id']]['identity']['proposal']
         if args.delegate or args.delegate_all:
             raise ValueError('A quota question has no default to delegate; name the model yourself')
         asked, model = quota_route.parse_answer(args.answer, published['questions'], proposal['origin'])
         role = asked['route_role']
         quota_route.validate(candidate, role, model, configured_tool=getattr(runner.opencode, 'CONFIGURED', False),
-                             cross_check=dispatch.enforce_cross_model_verification)
+                             cross_check=dispatch.enforce_cross_model_verification, job=asked.get('job'))
         if quota_route.engine(candidate['settings'], role) == 'opencode':
             try:
                 runner.opencode.check_models({role: {'model': model}}, workspace)
