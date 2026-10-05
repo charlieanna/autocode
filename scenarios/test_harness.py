@@ -686,19 +686,62 @@ class ExercisedTests(unittest.TestCase):
     def test_a_false_completion_is_never_hidden_behind_not_exercised(self):
         self.assertEqual(verdict.FALSE_COMPLETE, verdict.exercised(verdict.FALSE_COMPLETE, "bad", ("astra_resolve",), [])[0])
 
-    def test_the_refund_oracle_scores_what_autoresolver_said(self):
+    def test_the_oracles_reason_makes_a_good_ending_not_exercised(self):
+        # The stage ran, but the oracle's diagnosis found it never ran on the failure the scenario plants.
+        for ending in (verdict.PASS, verdict.HONEST_BLOCKER):
+            outcome, summary = verdict.exercised(ending, "fine", ("astra_resolve",), ["astra_resolve"], "unrelated rework")
+            self.assertEqual(verdict.NOT_EXERCISED, outcome)
+            self.assertIn("unrelated rework", summary)
+        for kept in (verdict.FALSE_COMPLETE, verdict.ERROR):
+            self.assertEqual(kept, verdict.exercised(kept, "bad", (), [], "unrelated rework")[0])
+        self.assertEqual(verdict.PASS, verdict.exercised(verdict.PASS, "fine", (), [], "")[0])
+
+    def test_the_refund_oracle_scores_what_autoresolver_said_apart_from_the_product(self):
         scenario = catalog.load("feature-refund-window")
         self.assertEqual(("astra_resolve",), scenario.requires_stages)
-        check = scenario.oracle()
         with tempfile.TemporaryDirectory() as root:
             from harness.project import materialize
             project = materialize(scenario.seed, Path(root) / "p", scenario.reference)
-            vague = {"resolutions": [{"diagnosis": "The implementation has a bug; fix it.", "evidence": []}]}
-            named = {"resolutions": [{"diagnosis": "store_date ignores the UTC-8 store offset, so the window "
+            reached = ["terra", "sol", "astra_review", "astra_resolve"]
+            vague = {"model_stages": reached,
+                     "resolutions": [{"diagnosis": "The implementation has a bug; fix it.", "evidence": []}]}
+            named = {"model_stages": reached,
+                     "resolutions": [{"diagnosis": "store_date ignores the UTC-8 store offset, so the window "
                                                    "counts UTC days", "evidence": []}]}
-            for run_record, ok in ((vague, False), (named, True), ({"resolutions": []}, None)):
-                scored = [c for c in check(project, scenario, run_record) if c.name == "resolver_named_a_planted_defect"]
-                self.assertEqual([] if ok is None else [ok], [c.ok for c in scored])
+            for run_record, expected in ((vague, verdict.INCORRECT), (named, verdict.CORRECT),
+                                         ({"model_stages": reached, "resolutions": []}, verdict.UNSCORED),
+                                         ({"model_stages": ["terra"], "resolutions": []}, verdict.NOT_EXERCISED),
+                                         (None, verdict.NOT_EXERCISED)):
+                self.assertEqual(expected, verdict.diagnose(scenario, project, run_record)["verdict"])
+                # A poor diagnosis of correct code is not a false completion: the product checks pass alone.
+                self.assertTrue(verdict.evaluate(scenario, project, run_record).passed)
+
+
+class DiagnosisBlockTests(unittest.TestCase):
+    """An oracle's optional diagnosis(project, run), kept apart from the run verdict (issue #59)."""
+
+    def stand_in(self, diagnosis):
+        return Mock(diagnosis=Mock(return_value=diagnosis))
+
+    def test_no_diagnosis_function_means_no_block(self):
+        self.assertIsNone(verdict.diagnose(catalog.load("greenfield-greeting-cli"), Path("."), {}))
+
+    def test_checks_become_plain_values_for_result_json(self):
+        block = verdict.diagnose(self.stand_in(lambda project, run: {
+            "verdict": verdict.CORRECT, "reason": "", "checks": [oracle.Check("a", True)],
+            "trap_calls": [{"checks": [oracle.Check("b", False, "x")], "output": Path("/r.json")}]}), Path("."), {})
+        self.assertEqual([{"name": "a", "ok": True, "detail": ""}], block["checks"])
+        self.assertEqual({"checks": [{"name": "b", "ok": False, "detail": "x"}], "output": "/r.json"},
+                         block["trap_calls"][0])
+        json.dumps(block)
+
+    def test_a_crash_or_unknown_verdict_is_a_diagnosis_error_not_a_run_error(self):
+        def crash(project, run):
+            raise KeyError("stages")
+        for scorer in (crash, lambda project, run: {"verdict": "PASS"}):
+            block = verdict.diagnose(self.stand_in(scorer), Path("."), {})
+            self.assertEqual(verdict.ERROR, block["verdict"])
+            self.assertIn("diagnosis error", block["reason"])
 
 
 class TurnTests(unittest.TestCase):
@@ -842,6 +885,22 @@ class StatsTests(unittest.TestCase):
         self.assertEqual((0, 14, 15), (rows["glm53-openai"]["passes"], rows["glm53-openai"]["median_model_stages"],
                                        rows["glm53-openai"]["median_wall_minutes"]))
         self.assertEqual(["fake"], [row["mode"] for row in stats.summarize(results, mode="fake")])
+
+    def test_diagnosis_verdicts_are_counted_apart_from_run_verdicts(self):
+        results = [{**self.result("s", "fake", outcome, str(n)), "diagnosis": {"verdict": diagnosed}}
+                   for n, (outcome, diagnosed) in enumerate(((verdict.PASS, verdict.CORRECT),
+                                                             (verdict.PASS, verdict.INCORRECT),
+                                                             (verdict.HONEST_BLOCKER, verdict.UNSCORED),
+                                                             (verdict.NOT_EXERCISED, verdict.NOT_EXERCISED)))]
+        results.append({**self.result("s", "claude-tiers", verdict.PASS, "9"), "diagnosis": {"verdict": verdict.CORRECT}})
+        rows = {row["mode"]: row for row in stats.summarize(results)}
+        self.assertEqual((4, 2, 3, 1, 1, 1), tuple(rows["fake"][key] for key in
+                                                   ("runs", "passes", "diagnosed", "correct", "incorrect", "unscored")))
+        self.assertEqual((1, 1, 0), tuple(rows["claude-tiers"][key] for key in ("diagnosed", "correct", "incorrect")))
+        plain, = stats.summarize([self.result("t", "fake", verdict.PASS, "1")])
+        self.assertIsNone(plain["diagnosed"])
+        table = stats.format_table([rows["fake"], plain])
+        self.assertIn("diagnosed", table.splitlines()[0])
 
     def test_skipped_runs_do_not_count_and_older_results_still_read(self):
         old = {"scenario": "s", "mode": "fake", "verdict": verdict.PASS, "started_at": "1",

@@ -5,9 +5,14 @@ category = "feature"
 # offset, and the cap is on the running total of partial refunds, not on each
 # one. A Builder that reuses the helper, or checks each refund against the
 # amount paid, passes the obvious cases; the Validator should catch it at the
-# window boundary or on the second partial refund, and the correction goes
-# through AutoResolver. Runs that complete without reaching astra_resolve are
-# NOT_EXERCISED: they say nothing about AutoResolver's judgment.
+# window boundary or on the second partial refund. Since #294 a clean Validator
+# FAIL (an executed failing check whose receipt is in the run's own evidence,
+# such as a codex or opencode event log) can go straight back to the Builder
+# and skip AutoResolver; otherwise, as with the claude provider's
+# workspace-shared capture receipts, the correction goes through AutoResolver.
+# Runs that complete without reaching astra_resolve are NOT_EXERCISED: they say
+# nothing about AutoResolver's judgment. oracle.py's diagnosis() scores its
+# accepted diagnoses apart from the run verdict.
 
 [fake]
 check = "python3 -m unittest discover -s tests -t ."

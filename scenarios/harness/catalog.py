@@ -4,7 +4,8 @@
                          and optional [[turn]] follow-up messages
     <id>/brief.md        the request given to AutoCode, verbatim
     <id>/seed/           starting project, committed before the run (optional)
-    <id>/oracle.py       check(project, scenario[, run]) -> list[Check]
+    <id>/oracle.py       check(project, scenario[, run]) -> list[Check], and optionally
+                         diagnosis(project, run) -> dict, scored apart from the run verdict
     <id>/reference/      overlay that makes a correct solution (optional)
     <id>/broken/<name>/  overlays that look plausible but are wrong (optional)
     <id>/hidden/         files only the oracle sees (optional)
@@ -95,10 +96,17 @@ class Scenario:
         return [tool for tool in self.requires if shutil.which(tool) is None]
 
     def oracle(self):
+        return self._oracle_module().check
+
+    def diagnosis(self):
+        """The oracle's optional ``diagnosis(project, run)``, or None (scenarios/README.md, "Diagnosis")."""
+        return getattr(self._oracle_module(), "diagnosis", None)
+
+    def _oracle_module(self):
         spec = importlib.util.spec_from_file_location(f"oracle_{self.id.replace('-', '_')}", self.dir / "oracle.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        return module.check
+        return module
 
 
 def load(scenario_id: str) -> Scenario:

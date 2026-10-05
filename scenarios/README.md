@@ -125,7 +125,32 @@ harness must report `FALSE_COMPLETE`. That is how the harness itself is tested.
 | `HONEST_BLOCKER` | AutoCode stopped (paused, waiting for a person) without claiming completion, where completion was expected. The oracle summary shows how far the work got. |
 | `ERROR` | The harness could not finish (budget used up, no progress, a CLI crash) or the oracle crashed. |
 | `SKIPPED` | A required tool is missing, or the scenario does not support the requested mode. |
-| `NOT_EXERCISED` | The run ended well but never reached a stage the scenario exists to test (`[run] requires_stages`), so it says nothing about that stage. Not counted as a failure; `run.py stats` shows how often a scenario is exercised. A false completion or error keeps its own verdict. |
+| `NOT_EXERCISED` | The run ended well but never reached a stage the scenario exists to test (`[run] requires_stages`), or the oracle's [diagnosis](#diagnosis) found that the stage never ran on the failure the scenario plants, so it says nothing about that stage. Not counted as a failure; `run.py stats` shows how often a scenario is exercised. A false completion or error keeps its own verdict. |
+
+### Diagnosis
+
+Some scenarios test how a stage judged a failure, not only what was delivered:
+did AutoResolver name the real cause and write a repair that worked (#59)? Their
+oracle also defines `diagnosis(project, run)`. Its block is saved as
+`result.json["diagnosis"]` (null for other scenarios), printed after the run
+verdict, and scored apart from it: `check()` judges only the product, so a poor
+diagnosis of correct code is never a `FALSE_COMPLETE`, and a good one never
+rescues a wrong delivery.
+
+| Diagnosis verdict | Meaning |
+| --- | --- |
+| `CORRECT` | The stage ran on the failure the scenario plants, and every required check passed. |
+| `INCORRECT` | It ran on the planted failure, and a required check failed. |
+| `UNSCORED` | It launched on the planted failure but saved no output to score (killed or crashed). |
+| `NOT_EXERCISED` | The planted failure never reached the stage. A `PASS` or `HONEST_BLOCKER` run verdict then becomes `NOT_EXERCISED` too, with the oracle's reason; `FALSE_COMPLETE` and `ERROR` keep theirs. |
+| `ERROR` | `diagnosis()` crashed or returned no known verdict. The run verdict is unchanged. |
+
+Every block has `verdict`, `reason` and `checks` (the required checks, each
+`{name, ok, detail}`); other keys are reported, never scored. `run.py stats`
+counts, per scenario and mode, the `diagnosed` runs (`CORRECT`, `INCORRECT` or
+`UNSCORED`) and each of those verdicts. With the scripted model the diagnosis is
+written from the handoff, so a fake `CORRECT` proves the route and the scoring,
+never how well a real model diagnoses.
 
 The driver answers AutoCode's clarifying questions with AutoCode's own proposed
 default and records each answer in `result.json`. It approves the plan it is
@@ -217,7 +242,9 @@ single stage, and reads `workflow` from the status view.
 Oracles receive an optional third argument, `run`, with the final status view,
 the saved stage names, the questions the driver answered, the CLI calls it
 made, and AutoResolver's accepted diagnoses (`resolutions`). It is `None` in `check` mode, so run-level checks contribute nothing
-there and the reference/broken variants are told apart by files alone.
+there and the reference/broken variants are told apart by files alone. How
+well a stage diagnosed a failure belongs in `diagnosis(project, run)`, not in
+`check()` ([Diagnosis](#diagnosis)).
 
 ### Conversations: follow-up turns in the same run
 
@@ -348,7 +375,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `stuck-planner-citation` | bugfix | The stuck-stage Investigator, with a real model. Every stage is scripted except the Investigator (`--investigator-model openai/gpt-6-sol`, high); the scripted Planner repeatedly cites a nonexistent `.missing` sibling until repairs run out. Passes only if the real Investigator names the cause and its guidance gets the retried Planner through. Requires a real model call; interruptions or report repairs can add calls. Skipped without `--i-authorize-live-model-spend`. |
 | `bugfix-trivial` | bugfix | An off-by-one, through the full bug-fix path: diagnosis, plan review and the user's approval, no requirements gathering, no questions. Its proportionality checks (no plan-review rounds, at most five model stages) come back with the short path for small fixes. |
 | `bugfix-not-reproducible` | bugfix | The reported bug does not exist in this code. Passes by saying so or asking; a "defensive" change to working code fails. |
-| `feature-refund-window` | feature | Built to reach AutoResolver (#59): the seed's `store_date()` helper ignores the store's UTC-8 offset, and the cap is on the running total of partial refunds. A plausible first attempt passes its own tests and fails hidden boundary tests; the oracle checks that AutoResolver's diagnosis names a planted defect. Runs that never reach `astra_resolve` are `NOT_EXERCISED` (always, with the scripted model). |
+| `feature-refund-window` | feature | Built to reach AutoResolver (#59): the seed's `store_date()` helper ignores the store's UTC-8 offset, and the cap is on the running total of partial refunds. A plausible first attempt passes its own tests and fails hidden boundary tests; `diagnosis()` checks, by words, that AutoResolver's accepted diagnosis names a planted defect. Runs that never reach `astra_resolve` are `NOT_EXERCISED` (always, with the scripted model). |
 | `feature-timesheet-by-project` | feature | Adding an option to an existing CLI without changing existing output. |
 | `implement-locked-design` | feature | An approved design is a constraint: specified modules and signatures (checked by AST), clock injected, no questions about settled decisions. A single-class "simplification" fails. |
 | `implement-design-conflict` | feature | The approved design contradicts a frozen API. The right ending is a stop with the conflict written down and no code changed (`expected = "stop"`). |
@@ -454,6 +481,7 @@ catalog/<id>/
   brief.md          the request, exactly as a user would type it (plain text, no headings)
   seed/             the starting project, committed before the run (omit for an empty repo)
   oracle.py         def check(project, scenario, run=None) -> list[Check]
+                    optional def diagnosis(project, run) -> dict (see "Diagnosis"; never in check())
   reference/        files that, laid over the seed, make a correct solution
   broken/<name>/    plausible solutions with one real defect each
   hidden/           tests only the oracle sees; never copied into the workspace

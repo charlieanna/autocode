@@ -102,6 +102,9 @@ def cmd_run(args) -> int:
                 failures += 1
         elif outcome == verdict.PASS and scenario.known_failure:
             note = "\n  now passes: remove known_failure from scenario.toml"
+        diagnosis = result.get("diagnosis")
+        if diagnosis:
+            note += f"\n  diagnosis: {diagnosis['verdict']} — {diagnosis.get('reason', '')}"
         print(f"{scenario.id}: {outcome} — {result['summary']}{note}\n  evidence: {result['evidence']}")
     return 1 if failures else 0
 
@@ -165,8 +168,13 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         (out / "state.json").write_text(json.dumps(state, indent=2))
     record = run_record(driver, state)
     oracle = verdict.evaluate(scenario, project, record)
+    # Scored apart from the run verdict; only its NOT_EXERCISED reaches it (scenarios/README.md, "Diagnosis").
+    diagnosis = verdict.diagnose(scenario, project, record)
+    unexercised = ((diagnosis.get("reason") or "not exercised")
+                   if diagnosis and diagnosis.get("verdict") == verdict.NOT_EXERCISED else "")
     outcome, summary = verdict.judge(state.get("status", ""), oracle, scenario.expected)
-    outcome, summary = verdict.exercised(outcome, summary, scenario.requires_stages, record["model_stages"])
+    outcome, summary = verdict.exercised(outcome, summary, scenario.requires_stages, record["model_stages"],
+                                         unexercised)
     if drive_error:
         outcome, summary = verdict.ERROR, f"harness stopped: {drive_error}; oracle {oracle.summary}"
     result.update(runner_status=state.get("status"), run_dir=str(driver.run_dir or ""),
@@ -177,7 +185,8 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
                   workflow=record["view"].get("workflow"), expected=scenario.expected,
                   turns=[{"say": turn["say"], "workflow": turn["view"].get("workflow"),
                           "model_stage_names": turn["model_stages"]} for turn in record.get("turns", [])],
-                  checks=[dataclasses.asdict(check) for check in oracle.checks], oracle_error=oracle.error)
+                  checks=[dataclasses.asdict(check) for check in oracle.checks], oracle_error=oracle.error,
+                  diagnosis=diagnosis)
     return finish(out, result, outcome, summary)
 
 
