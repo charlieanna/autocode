@@ -19,12 +19,20 @@ A stage that only the runner executed costs nothing. Imports only the standard l
 from __future__ import annotations
 
 import datetime as dt
+from copy import deepcopy
 import fcntl
 import json
+import math
 import os
 from pathlib import Path
 import sys
 import tempfile
+import warnings
+
+try:
+    from . import autocode_request_usage as request_usage
+except ImportError:
+    import autocode_request_usage as request_usage
 
 # Historical comparison rates, USD per 1M inclusive input/output tokens.
 # These are not verified current provider prices or subscription charges.
@@ -45,7 +53,7 @@ def _count(value):
 
 
 def _money(value):
-    return value if type(value) in (int, float) and value >= 0 else None
+    return value if type(value) in (int, float) and math.isfinite(value) and value >= 0 else None
 
 
 def reported_cost(rows):
@@ -139,7 +147,206 @@ def summary(state):
         "partial_stages": partial,
         "by_role": {role: {key: round(value, 6) if isinstance(value, float) else value for key, value in entry.items()}
                     for role, entry in sorted(roles.items())},
+        # Unlike the legacy known subtotals above, totals here are nullable and
+        # each quantity has its own coverage, including active/failed attempts.
+        "accounting": accounting(state),
+        "legacy_scope": "Legacy fields are saved-stage known subtotals; nullable all-attempt quantities are in accounting",
     }
+
+
+def attempt_identity(record, *, namespace="", index=None):
+    """Artifact identity survives parent imports; anonymous legacy rows never merge."""
+    for field in ("events", "output"):
+        value = record.get(field)
+        if isinstance(value, str) and value:
+            path = Path(value)
+            if path.is_absolute():
+                return f"{field}:{path.resolve()}"
+            if namespace:
+                return f"{field}:{(Path(namespace) / path).resolve()}"
+    for field in ("worker_attempt", "attempt_id"):
+        if isinstance(record.get(field), str) and record[field]:
+            return f"{namespace}:{field}:{record[field]}"
+    return f"{namespace}:unidentified:{index}"
+
+
+def run_identity(value):
+    """Canonicalize public run paths without opening any run state."""
+    if not value:
+        return None
+    path = Path(str(value))
+    return str(path.resolve()) if path.is_absolute() else str(value)
+
+
+def _quantity(values, *, uncertain=False):
+    known = [value for value in values if value is not None]
+    complete = len(known) == len(values) and not uncertain
+    return {"value": sum(known) if complete else None, "known": sum(known),
+            "complete": complete, "known_items": len(known), "unknown_items": len(values) - len(known)}
+
+
+def accounting(state):
+    """Read supplied attempt logs, never another run's private state.
+
+    Saved request receipts are used when present. An explicit event path is
+    refreshed for live/partial usage; unreadable logs remain a coverage warning.
+    Cross-run callers use combine_accounting with public status attempts.
+    """
+    records = state.get("stages")
+    records = [row for row in records if isinstance(row, dict)] if isinstance(records, list) else []
+    active = _dict(state.get("active_stage"))
+    if active:
+        records = [*records, active]
+    namespace = run_identity(state.get("run_dir") or state.get("task_id")) or ""
+    attempts = []
+    for index, record in enumerate(records):
+        runner = record.get("runner_owned") is True and record.get("engine") == "runner"
+        metrics = _dict(record.get("metrics"))
+        context = _dict(metrics.get("request_context"))
+        native = _dict(context.get("accounting"))
+        is_active = record is active
+        if not runner and isinstance(record.get("events"), str) and record["events"]:
+            saved = _dict(native.get("event_file"))
+            try:
+                path = Path(record["events"])
+                stat = path.stat()
+                current = (saved.get("path") == str(path.resolve()) and saved.get("sha256")
+                           and saved.get("size") == stat.st_size and saved.get("mtime_ns") == stat.st_mtime_ns)
+            except (OSError, ValueError):
+                current = False
+            if is_active or not current:
+                native = request_usage.read(record["events"])["accounting"]
+        issues = [] if runner else list(native.get("issues") or [])
+        requests = [] if runner else native.get("requests") or []
+        if record.get("engine") == "opencode" and not requests:
+            issues.append("No native request finishes; unobserved usage is unknown")
+        tokens = {key: 0 if runner else _count(_dict(metrics.get("provider_tokens")).get(key))
+                  for key in request_usage.TOKEN_KEYS}
+        # Do not fall back to a stage sum when exact native counters are partial:
+        # that would conceal conflicting/replayed/missing requests.
+        if requests:
+            tokens = {key: sum(row["tokens"][key] for row in requests)
+                      if all(row["tokens"].get(key) is not None for row in requests) else None
+                      for key in request_usage.TOKEN_KEYS}
+        model = _model(record)
+        reported = _money(metrics.get("provider_cost_usd"))
+        reported = reported if reported else None
+        if requests:
+            costs = [row.get("reported_cost_usd") for row in requests]
+            reported = sum(costs) if all(cost is not None for cost in costs) else None
+        guessed = None if reported is not None or runner else estimate(model, tokens)
+        local_id = record.get("attempt_id")
+        if not local_id and type(record.get("iteration")) is int and record.get("output"):
+            local_id = f"{record['iteration']:03d}/{Path(record['output']).stem}"
+        attempts.append({"identity": attempt_identity(record, namespace=namespace, index=index),
+            "attempt_id": local_id, "run_id": namespace or None, "worker_attempt": record.get("worker_attempt"),
+            "stage": record.get("stage"), "role": record.get("role"), "model": model,
+            "original_stage": record.get("original_stage"),
+            "launch_route": deepcopy(_dict(record.get("launch_route"))), "engine": record.get("engine"),
+            "events": record.get("events"), "output": record.get("output"),
+            "recovery_novelty": deepcopy(_dict(record.get("recovery_novelty"))),
+            "task_id": record.get("task_id"), "source_revision": record.get("source_revision"),
+            "started_at": record.get("started_at"), "finished_at": record.get("finished_at"),
+            "duration_seconds": _money(record.get("duration_seconds")), "runner_owned": runner,
+            "active": is_active, "rejected": bool(record.get("rejected")),
+            "interrupted": bool(record.get("interrupted") or record.get("abandoned")),
+            "timed_out": bool(record.get("timed_out")), "exit_code": record.get("exit_code"),
+            "report_only": bool(record.get("report_only")), "planning": bool(record.get("planning")),
+            "tokens": tokens, "requests": requests, "reported_cost_usd": 0.0 if runner else reported,
+            "event_file": deepcopy(native.get("event_file")),
+            "historical_estimated_cost_usd": guessed, "issues": issues,
+            "request_coverage_complete": runner or bool(requests) and not issues and not is_active,
+            "unfinished_requests": native.get("unfinished_requests"),
+            "usage_basis": "runner" if runner else "native_requests" if requests else "stage_counters",
+            "unobserved_usage_possible": bool(is_active or issues),
+            "identity_complete": ":unidentified:" not in attempt_identity(record, namespace=namespace, index=index)})
+    result = combine_accounting(attempts)
+    workers = _dict(state.get("orchestration_batch")).get("workers") or []
+    result["parallel_workers_pending"] = [row.get("milestone_id") for row in workers
+        if isinstance(row, dict) and row.get("status") not in ("COMPLETE", "INTEGRATED", "DONE")]
+    result["parallel_worker_runs"] = [{"run_id": run_identity(row.get("run_dir")), "milestone_id": row.get("milestone_id")}
+        for row in workers if isinstance(row, dict) and row.get("status") not in ("COMPLETE", "INTEGRATED", "DONE")]
+    if result["parallel_workers_pending"]:
+        result["issues"].append("Active parallel workers require their public TaskRun views; parent imports are not live totals")
+        for value in result["tokens"].values():
+            value.update(value=None, complete=False)
+        result["cost"]["reported_usd"].update(value=None, complete=False)
+        result["cost"]["historical_estimated_usd"].update(value=None, complete=False)
+        result["provider_requests"].update(value=None, complete=False)
+        result["complete"] = False
+    return result
+
+
+def combine_accounting(attempts):
+    """Combine public attempt rows, deduplicating both imports and native events."""
+    unique, issues = {}, []
+    for index, row in enumerate(attempts):
+        row = deepcopy(row)
+        key = row["identity"] if row.get("identity_complete") else f"unidentified:{index}"
+        previous = unique.get(key)
+        if previous:
+            if previous.get("active") and not row.get("active"):
+                unique[key] = row
+            elif not previous.get("active") and row.get("active"):
+                continue
+            elif any(previous.get(field) != row.get(field) for field in
+                     ("tokens", "requests", "model", "reported_cost_usd", "historical_estimated_cost_usd")):
+                previous.update(tokens=dict.fromkeys(request_usage.TOKEN_KEYS), requests=[],
+                                reported_cost_usd=None, historical_estimated_cost_usd=None,
+                                request_coverage_complete=False, unobserved_usage_possible=True)
+                issues.append(f"Conflicting attempt snapshots: {key}")
+            continue
+        unique[key] = row
+    rows, requests, owners, sources = list(unique.values()), {}, {}, []
+    for row in rows:
+        issues.extend(f"{row['identity']}: {issue}" for issue in row.get("issues") or [])
+        if not row.get("identity_complete"):
+            issues.append(f"Missing exact attempt identity: {row['identity']}")
+        if not row.get("requests"):
+            sources.append(row)
+        for request in row.get("requests") or []:
+            key = tuple(request["identity"])
+            owners.setdefault(key, row["identity"])
+            item = {**request, "model": row.get("model")}
+            if key in requests and (requests[key].get("conflict") or any(
+                    requests[key].get(field) != item.get(field) for field in ("tokens", "reported_cost_usd"))):
+                issues.append(f"Conflicting native request: {'/'.join(key)}")
+                item = {"identity": list(key), "tokens": dict.fromkeys(request_usage.TOKEN_KEYS),
+                        "reported_cost_usd": None, "model": None, "conflict": True}
+            elif key in requests and requests[key].get("model") != item.get("model"):
+                issues.append(f"Conflicting model attribution for native request: {'/'.join(key)}")
+                requests[key].update(model=None, model_conflict=True)
+            if key not in requests or item.get("conflict"):
+                requests[key] = item
+    sources.extend(requests.values())
+    for row in rows:
+        charged = [request for key, request in requests.items() if owners[key] == row["identity"]]
+        portions = charged if row.get("requests") else [row]
+        row["attributed_tokens"] = {key: _quantity([_dict(part.get("tokens")).get(key) for part in portions],
+            uncertain=row.get("unobserved_usage_possible", False)) for key in request_usage.TOKEN_KEYS}
+        row["attributed_requests"] = len(charged) if row.get("requests") or row.get("runner_owned") else None
+        row["attributed_reported_usd"] = _quantity([part.get("reported_cost_usd") for part in portions],
+            uncertain=row.get("unobserved_usage_possible", False))
+    uncertain = any(row.get("unobserved_usage_possible") for row in rows)
+    tokens = {key: _quantity([_dict(row.get("tokens")).get(key) for row in sources], uncertain=uncertain)
+              for key in request_usage.TOKEN_KEYS}
+    costs = [row.get("reported_cost_usd") for row in sources]
+    # Historic flat estimates are stage-based comparison figures, never combined
+    # with native reported cost or described as a current API rate-card estimate.
+    estimates = [row.get("historical_estimated_cost_usd") for row in rows if not row.get("runner_owned")]
+    return {"schema": 1, "attempts": rows, "attempt_count": len(rows),
+            "active_attempts": sum(bool(row.get("active")) for row in rows),
+            "tokens": tokens, "provider_requests": {"observed": len(requests),
+                "unfinished_observed": sum(row.get("unfinished_requests") or 0 for row in rows),
+                "value": len(requests) if all(row.get("request_coverage_complete") for row in rows) else None,
+                "complete": all(row.get("request_coverage_complete") for row in rows)},
+            "cost": {"reported_usd": _quantity(costs, uncertain=uncertain),
+                "historical_estimated_usd": _quantity(estimates, uncertain=uncertain),
+                "api_equivalent_usd": None, "subscription_invoice_usd": None,
+                "basis": "Provider/transport-reported cost and historical estimates are separate; neither is a subscription invoice; no current rate card applied"},
+            "issues": list(dict.fromkeys(issues)),
+            "complete": all(value["complete"] for value in tokens.values()) and not issues,
+            "token_semantics": "Inclusive input includes cache once; reasoning is a subset of inclusive output"}
 
 
 def _read(path):
@@ -195,7 +402,8 @@ def record(path, state):
                "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(), **totals}
         _upsert(run_dir.parent.parent / LEDGER, row)
         _written[str(run_dir)] = signature
-    except Exception:
+    except Exception as error:
+        warnings.warn(f"Usage ledger could not be saved: {error}", RuntimeWarning, stacklevel=2)
         return
 
 

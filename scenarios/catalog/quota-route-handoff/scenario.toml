@@ -1,0 +1,13 @@
+title = "The Tester's quota runs out; the person names another model and the run continues on it"
+category = "greenfield"
+# Issue #184 (rescoped 2026-10-04): a quota stop asks the person for a model, never picks one.
+# The scripted Tester has no quota left on the driver's default Tester model (gpt-5.6-sol).
+# The person's answer is given explicitly below; the driver never answers this question by default.
+
+[run]
+requires_stages = ["sol"]
+
+[fake]
+check = "python3 -m unittest test_greet.py"
+fault = "quota_once"
+answers = { "route-sol" = "gpt-6-luna" }

@@ -29,9 +29,12 @@ You → Autopilot: recognize the kind of job (build, bugfix, review, design, dis
             a request for a NEW design → the build pipeline below
    discuss → Analyst only: an answer with evidence tied to repository files (and the note the
             request asks for, written by the runner), repository untouched, run complete
+   (a design review's or a discussion's questions do not hold the run: it completes, and you
+    answer them with --follow-up, the next turn of the same run)
    build → the build pipeline below;
-           implementing an APPROVED design document as written → Architect checks it against the
-             repository first, repository untouched:
+           implementing an APPROVED design document as written, or "Build it." after a design turn
+             (the design that turn wrote) → Architect checks it against the repository first,
+             repository untouched:
              conflicts (a frozen API, a documented invariant) → written to <design>.blockers.json,
                run stops (PAUSED_DESIGN_CONFLICT), nothing built, you decide;
              no conflicts → the design's binding decisions become a constraint and the pipeline starts
@@ -140,17 +143,28 @@ intact pinned evidence; unresolved user decisions and hard budgets still stop it
 Repetition may stop a repair path before its configured repair allowance is exhausted.
 
 Each fresh diagnostic provider attempt receives a durable reservation at final launch
-admission. Timeout replacements, invalid-output retries, new blockers and new iterations
-consume new reservations. Reloading the same attempt does not consume another, and an
-ambiguous launch is not refunded. The default run-level diagnostic allowance is two;
-explicit resume does not reset it. Report-only format repair has its separate existing
+admission. Relaunches after a timeout, capacity or startup failure or a denied path, new
+blockers and new iterations consume new reservations. A diagnosis whose report was
+rejected is not relaunched for the same failure: it holds as `PAUSED_NO_PROGRESS` without
+another reservation. Reloading the same
+attempt does not consume another, and an ambiguous launch is not refunded. The default
+run-level diagnostic allowance is two; explicit resume does not reset it. Report-only format repair has its separate existing
 allowance and remains subject to the parent's time/token limits. The diagnostic limit
 is not a count of every internal model/tool step or separately budgeted report repair.
 
 The model can recommend a bounded retry or escalation, not grant permissions, change
 approved requirements, implement a repair, or declare completion. The controller records
 the policy outcome before applying it. Escalation remains a durable pause; an admitted
-retry returns to the original owner and normal independent validation/review.
+retry returns to the original owner and normal independent validation/review. It admits
+the Builder without a proposed source change, because a rejected report usually has none,
+until one Builder attempt returns a result. An attempt that automatic recovery archives
+without a report does not use it up; that recovery's own budget bounds the relaunches.
+(`--retry-failed-stage` differs: the attempt it admits spends it even if it times out.)
+Another attempt at the same unchanged failure needs new evidence or an explicit
+`--retry-failed-stage`. The Builder's repair plan carries the diagnosis and the
+recommendation. A proposed `recovery_change` the incident packet cannot attest goes in it
+as `unattested_change`, with the reason: advice for the Builder that neither blocks the
+retry nor counts as a new experiment.
 
 ## When a stage stops making progress
 
@@ -567,7 +581,42 @@ ID cannot be requested again. Answers do not approve the task. The approval toke
 must exactly match the current displayed contract revision. At the approval stop the brief
 says which plan revision (`r3`) waits and that approving it authorizes implementation,
 explains the token as a SHA-256 lock on that exact plan (any revision changes it), and ends
-with the limits in effect and the exact `--approve-goal` and `--feedback` commands. Approval saves
+with the limits in effect and the exact `--approve-goal` and `--feedback` commands. The full
+brief can run to hundreds of lines, so just above the limits it summarizes the decision, quoting
+the plan: its outcome and milestones, every permission boundary, the first three scope
+exclusions, each acceptance criterion with how it is checked (and whether it also needs your
+review), and what passing proves for this job. The last screen reads:
+
+```text
+Before you approve r3 (a summary of the plan above):
+What it will do:
+  Provide a deterministic greeting CLI
+Built in 1 milestone: M1.
+What it may change:
+  - May edit only: greet.py, test_greeting.py
+Out of scope:
+  - Web service
+Done when:
+  [C1] `greet.py Ada` prints exactly "Hello, Ada" and exits 0
+    Checked by: test: test_c1_greets_ada
+What passing proves:
+  - An independent check of the final source must pass every criterion above, and the runner itself re-runs that check's commands in a clean copy: each must exit 0.
+  - The runner also runs the test each of these criteria names: C1 (test:) must pass with the change and must not have passed without it. No test that passed before may fail now.
+  - Not proven: behavior no criterion describes, or inputs no check exercises.
+
+Limits in effect: 12 h of active time for the run, 1 h per stage, no iteration ceiling, one Builder at a time.
+To approve this plan: autocode --run-dir RUN --approve-goal r3:<hash>
+To change it instead: autocode --run-dir RUN --feedback 'WHAT TO CHANGE' (the revised plan gets a new token)
+
+State: AWAITING_GOAL_APPROVAL / AWAITING_GOAL_APPROVAL
+```
+
+The proof lines name the cases the runner's regression proof will require a test for
+(`autocode_test_cases.proof_cases`, the same list `autocode_regression` checks): in a bug fix, the
+diagnosis's test cases when the bug was reproduced, else the plan's `test:` and `guard:` criteria,
+each with what its test must show; a guard whose test cannot load on the original code is called
+out, because the proof accepts it with only a note. When no criterion is marked `test:` or `guard:`
+(or in a design job) it says that nothing shows a check would fail without the change. Approval saves
 `READY_TO_EXECUTE`; the next ordinary invocation begins execution. User-input commands
 never launch an agent. This command-per-turn interface also works from scripts and
 other frontends; no continuously attached terminal is required.

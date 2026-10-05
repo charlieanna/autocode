@@ -198,7 +198,7 @@ class JobFailureTaskRunTests(unittest.TestCase):
         # a changed limit makes this job's exact retry stale, so a job's idle stop must not offer it.
         options=list(self.options);options[options.index('--max-idle-seconds')+1]='240';self.options=tuple(options)
         run=self.start('idle');need=self.paused(run)
-        self.assertIn('Reviewer: No new provider activity within the inactivity limit (240 seconds, set explicitly; '
+        self.assertIn('Code Reviewer: No new provider activity within the inactivity limit (240 seconds, set explicitly; '
                       'an exact job retry runs under the same limit; a different limit needs a new run)',need['reason'])
         self.assertNotIn('--max-idle-seconds',need['reason'])
         run.env['JOB_MODE']='success'

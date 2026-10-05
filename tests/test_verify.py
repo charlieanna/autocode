@@ -9,10 +9,12 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
@@ -43,6 +45,11 @@ class Project:
         self.root.mkdir()
         references.write(files, self.root)
         git(self.root, "init", "-q")
+        # A commit starts `git maintenance run --auto --detach`. On CI's Git 2.55 it repacks once two
+        # loose objects share the objects/17 shard, writing packs under .git while cleanup removes it
+        # ("Directory not empty"). docs/bugs/git-background-repack-cleanup-race.md
+        git(self.root, "config", "maintenance.auto", "false")
+        git(self.root, "config", "gc.auto", "0")
         git(self.root, "add", "-A")
         git(self.root, "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "seed")
         self.base = git(self.root, "rev-parse", "HEAD")
@@ -61,6 +68,259 @@ class Project:
 
     def close(self):
         self.temp.cleanup()
+
+
+class ProjectFixtureTests(unittest.TestCase):
+    def test_a_commit_starts_no_background_maintenance(self):
+        project = Project()
+        self.addCleanup(project.close)
+        trace = Path(project.temp.name) / "trace2.json"
+        (project.root / "extra.txt").write_text("extra\n")
+        git(project.root, "add", "extra.txt")
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "extra"],
+                       cwd=project.root, check=True, capture_output=True,
+                       env={**os.environ, "GIT_TRACE2_EVENT": str(trace)})
+        children = [event["argv"] for event in map(json.loads, trace.read_text().splitlines())
+                    if event.get("event") == "child_start"]
+        self.assertEqual([], [argv for argv in children if {"maintenance", "gc"} & set(argv)], children)
+
+
+class PreservationEvidenceCase(unittest.TestCase):
+    """Suite preservation needs actual base coverage, not matching runner errors."""
+
+    def check_suite(self, legacy, *, new_behavior=False):
+        project = Project({"calc.py": "VALUE = 'old'\n", **legacy})
+        self.addCleanup(project.close)
+        project.write({"calc.py": "VALUE = 'new'\n",
+                       "regression/test_change.py":
+                       "import unittest\nfrom calc import VALUE\n\n"
+                       "class Change(unittest.TestCase):\n"
+                       "    def test_new_value(self):\n"
+                       "        self.assertEqual('new', VALUE)\n"})
+        suite = f"{sys.executable} -m unittest discover -s legacy -v"
+        regression = f"{sys.executable} -m unittest discover -s regression -v"
+        framework = verify.Framework("unittest", suite, python=sys.executable)
+        base = verify.baseline(project.root, project.base, project.evidence,
+                               framework=framework, suite_command=suite, timeout=30)
+        result = verify.verify(project.root, project.base, project.evidence,
+                               framework=framework, suite_command=suite,
+                               regression_command=regression, base_suite=base, timeout=30,
+                               new_behavior=new_behavior)
+        self.assertEqual(["test_change.Change.test_new_value"], result["fail_to_pass"], result)
+        return base, result
+
+    @staticmethod
+    def broken_module():
+        return {"legacy/test_broken.py": "import missing_autocode_preservation_dependency\n"}
+
+    @staticmethod
+    def healthy_module():
+        return {"legacy/test_ok.py":
+                "import unittest\n\nclass Existing(unittest.TestCase):\n"
+                "    def test_existing(self):\n        self.assertEqual(2, 1 + 1)\n"}
+
+    @staticmethod
+    def failing_module():
+        return {"legacy/test_env.py":
+                "import unittest\n\nclass Environment(unittest.TestCase):\n"
+                "    def test_pre_existing_failure(self):\n"
+                "        self.fail('unavailable environment')\n"}
+
+    def test_matching_import_errors_are_not_preservation_evidence(self):
+        base, result = self.check_suite(self.broken_module())
+        candidate = result["checks"]["suite_on_candidate"]
+        self.assertEqual("broken", base["health"])
+        self.assertEqual(1, base["receipt"]["exit_code"])
+        self.assertEqual(1, candidate["exit_code"])
+        self.assertEqual(base["receipt"]["results"]["collection_errors"],
+                         candidate["results"]["collection_errors"])
+        self.assertTrue(candidate["results"]["collection_errors"])
+        self.assertEqual([], candidate["results"]["passed"])
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+        self.assertEqual([], result["failures"])
+        self.assertTrue(any("preservation" in reason for reason in result["unverified"]), result)
+
+    def test_partial_collection_errors_do_not_establish_preservation(self):
+        base, result = self.check_suite({**self.broken_module(), **self.healthy_module()})
+        self.assertEqual("broken", base["health"])
+        self.assertEqual(["test_ok.Existing.test_existing"], base["receipt"]["results"]["passed"])
+        self.assertTrue(base["receipt"]["results"]["collection_errors"])
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+        self.assertEqual([], result["failures"])
+
+    def test_a_base_with_no_passing_tests_does_not_establish_preservation(self):
+        base, result = self.check_suite(self.failing_module())
+        self.assertEqual("broken", base["health"])
+        self.assertEqual([], base["receipt"]["results"]["passed"])
+        self.assertEqual([], base["receipt"]["results"]["collection_errors"])
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+        self.assertEqual([], result["failures"])
+
+    def test_new_behavior_does_not_bypass_import_errors_in_an_existing_suite(self):
+        base, result = self.check_suite(self.broken_module(), new_behavior=True)
+        self.assertEqual("broken", base["health"])
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+
+    def check_first_suite(self, project):
+        self.addCleanup(project.close)
+        project.write({"calc.py": "VALUE = 'new'\n",
+                       "test_feature.py": "import unittest\nfrom calc import VALUE\n\n"
+                       "class Feature(unittest.TestCase):\n"
+                       "    def test_new_value(self):\n"
+                       "        self.assertEqual('new', VALUE)\n"})
+        framework = verify.detect_framework(project.root, python=sys.executable)
+        base = verify.baseline(project.root, project.base, project.evidence,
+                               framework=framework, suite_command=framework.suite, timeout=30)
+        result = verify.verify(project.root, project.base, project.evidence,
+                               framework=framework, base_suite=base, new_behavior=True, timeout=30)
+        self.assertIn(base["receipt"]["exit_code"], (0, 5))
+        self.assertEqual(0, base["receipt"]["results"]["total"])
+        self.assertEqual([], base["receipt"]["results"]["collection_errors"])
+        self.assertEqual(["test_feature.Feature.test_new_value"], result["fail_to_pass"], result)
+        self.assertEqual(verify.PASS, result["verdict"], result)
+
+    def test_new_project_with_no_existing_test_inventory_can_prove_a_feature(self):
+        self.check_first_suite(Project({"README.md": "A new project.\n"}))
+
+    def test_empty_pinned_project_can_prove_its_first_feature(self):
+        project = Project({"README.md": "A new project.\n"})
+        git(project.root, "rm", "README.md")
+        git(project.root, "-c", "user.name=t", "-c", "user.email=t@example.test",
+            "commit", "-qm", "empty project")
+        project.base = git(project.root, "rev-parse", "HEAD")
+        self.check_first_suite(project)
+
+    def check_existing_program(self, path, *, executable=False):
+        legacy = ("#!/usr/bin/env python3\nimport unittest\nVALUE = 'old'\n"
+                  "class Existing(unittest.TestCase):\n"
+                  "    def test_existing_value(self):\n"
+                  "        self.assertEqual('old', VALUE)\n"
+                  "if __name__ == '__main__': unittest.main()\n")
+        project = Project({path: legacy})
+        self.addCleanup(project.close)
+        if executable:
+            (project.root / path).chmod(0o755)
+            git(project.root, "add", path)
+            git(project.root, "-c", "user.name=t", "-c", "user.email=t@example.test",
+                "commit", "-qm", "executable existing program")
+            project.base = git(project.root, "rev-parse", "HEAD")
+        legacy_command = f"{sys.executable} {path} -v"
+        original = verify.scratch_run(project.root, project.evidence / "original-program",
+                                      command=legacy_command, timeout=30)
+        self.assertEqual(0, original["exit_code"], original)
+        project.write({path: legacy.replace("VALUE = 'old'", "VALUE = 'new'"),
+                       "calc.py": "VALUE = 'new'\n",
+                       "test_new.py": "import unittest\nfrom calc import VALUE\n\n"
+                       "class Feature(unittest.TestCase):\n"
+                       "    def test_new_value(self):\n"
+                       "        self.assertEqual('new', VALUE)\n"})
+        if executable:
+            # Inventory belongs to the pinned base, including its executable
+            # mode; changing the candidate's mode must not erase that evidence.
+            (project.root / path).chmod(0o644)
+        broken = verify.scratch_run(project.root, project.evidence / "candidate-program",
+                                    command=legacy_command, timeout=30)
+        self.assertEqual(1, broken["exit_code"], broken)
+        self.assertIn("test_existing_value", Path(broken["output"]).read_text())
+        self.assertIn("AssertionError", Path(broken["output"]).read_text())
+        suite = f"{sys.executable} -m unittest discover -p test_new.py -v"
+        framework = verify.Framework("unittest", suite, python=sys.executable)
+        base = verify.baseline(project.root, project.base, project.evidence,
+                               framework=framework, suite_command=suite, timeout=30)
+        result = verify.verify(project.root, project.base, project.evidence,
+                               framework=framework, suite_command=suite, regression_command=suite,
+                               base_suite=base, new_behavior=True, timeout=30)
+        self.assertIn(base["receipt"]["exit_code"], (0, 5))
+        self.assertEqual(0, base["receipt"]["results"]["total"])
+        self.assertEqual(0, result["checks"]["suite_on_candidate"]["exit_code"])
+        self.assertEqual(["test_new.Feature.test_new_value"], result["fail_to_pass"], result)
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+
+    def test_extensionless_existing_program_is_not_a_first_suite(self):
+        self.check_existing_program("legacy")
+
+    def test_executable_document_is_not_a_first_suite(self):
+        self.check_existing_program("README.md", executable=True)
+
+    def test_empty_collection_does_not_bypass_the_existing_base_test_inventory(self):
+        legacy = self.healthy_module()
+        project = Project({"calc.py": "VALUE = 'old'\n", **legacy})
+        self.addCleanup(project.close)
+        project.write({"calc.py": "VALUE = 'new'\n",
+                       "legacy/test_new.py": "import unittest\nfrom calc import VALUE\n\n"
+                       "class Feature(unittest.TestCase):\n"
+                       "    def test_new_value(self):\n"
+                       "        self.assertEqual('new', VALUE)\n"})
+        suite = f"{sys.executable} -m unittest discover -s legacy -p test_new.py -v"
+        framework = verify.Framework("unittest", suite, python=sys.executable)
+        base = verify.baseline(project.root, project.base, project.evidence,
+                               framework=framework, suite_command=suite, timeout=30)
+        result = verify.verify(project.root, project.base, project.evidence,
+                               framework=framework, suite_command=suite, regression_command=suite,
+                               base_suite=base, new_behavior=True, timeout=30)
+        self.assertIn(base["receipt"]["exit_code"], (0, 5))
+        self.assertEqual(0, base["receipt"]["results"]["total"])
+        self.assertEqual(0, result["checks"]["suite_on_candidate"]["exit_code"])
+        self.assertEqual(["test_new.Feature.test_new_value"], result["fail_to_pass"], result)
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+
+    def test_existing_source_with_unconventional_tests_is_not_a_first_suite(self):
+        project = Project({"calc.py": "VALUE = 'old'\n",
+                           "legacy.py": "import unittest\nfrom calc import VALUE\n\n"
+                           "class Existing(unittest.TestCase):\n"
+                           "    def test_existing_value(self):\n"
+                           "        self.assertEqual('old', VALUE)\n"})
+        self.addCleanup(project.close)
+        legacy_command = f"{sys.executable} -m unittest -v legacy"
+        original = verify.scratch_run(project.root, project.evidence / "original-legacy",
+                                      command=legacy_command, timeout=30)
+        self.assertEqual(["legacy.Existing.test_existing_value"], original["results"]["passed"])
+        project.write({"calc.py": "VALUE = 'new'\n",
+                       "test_new.py": "import unittest\nfrom calc import VALUE\n\n"
+                       "class Feature(unittest.TestCase):\n"
+                       "    def test_new_value(self):\n"
+                       "        self.assertEqual('new', VALUE)\n"})
+        # This explicit suite filters out the existing module, whose filename
+        # does not follow is_test_path's conventions. Empty collection is not
+        # independent evidence that existing product behavior is preserved.
+        suite = f"{sys.executable} -m unittest discover -p test_new.py -v"
+        framework = verify.Framework("unittest", suite, python=sys.executable)
+        base = verify.baseline(project.root, project.base, project.evidence,
+                               framework=framework, suite_command=suite, timeout=30)
+        result = verify.verify(project.root, project.base, project.evidence,
+                               framework=framework, suite_command=suite, regression_command=suite,
+                               base_suite=base, new_behavior=True, timeout=30)
+        self.assertIn(base["receipt"]["exit_code"], (0, 5))
+        self.assertEqual(0, base["receipt"]["results"]["total"])
+        self.assertEqual(["test_new.Feature.test_new_value"], result["fail_to_pass"], result)
+        self.assertEqual(verify.UNVERIFIED, result["verdict"], result)
+        old_behavior = verify.scratch_run(project.root, project.evidence / "candidate-legacy",
+                                          command=legacy_command, timeout=30)
+        self.assertEqual(1, old_behavior["exit_code"])
+        self.assertEqual(["legacy.Existing.test_existing_value"], old_behavior["results"]["failed"])
+
+    def test_a_healthy_suite_establishes_preservation(self):
+        base, result = self.check_suite(self.healthy_module())
+        self.assertEqual("passing", base["health"])
+        self.assertEqual(verify.PASS, result["verdict"], result)
+
+    def test_pre_existing_assertion_failures_with_passing_tests_stay_supported(self):
+        base, result = self.check_suite({**self.healthy_module(), **self.failing_module()})
+        self.assertEqual("failing_tests", base["health"])
+        self.assertEqual(verify.PASS, result["verdict"], result)
+        self.assertTrue(any("already failed on base" in note for note in result["notes"]), result)
+
+    def test_observed_named_regression_still_fails_with_collection_errors(self):
+        module = {"legacy/test_preserved.py":
+                  "import unittest\nfrom calc import VALUE\n\n"
+                  "class Existing(unittest.TestCase):\n"
+                  "    def test_existing_value(self):\n"
+                  "        self.assertEqual('old', VALUE)\n"}
+        base, result = self.check_suite({**self.broken_module(), **module})
+        self.assertEqual("broken", base["health"])
+        self.assertEqual(verify.FAIL, result["verdict"], result)
+        self.assertTrue(any("test_preserved.Existing.test_existing_value" in reason
+                            for reason in result["failures"]), result)
 
 
 class VerifyCase(unittest.TestCase):
@@ -215,6 +475,18 @@ class VerifyCase(unittest.TestCase):
         self.assertTrue(any("Only test files changed" in reason for reason in result["failures"]))
         self.assertTrue(any("fail on the candidate" in reason for reason in result["failures"]), result)
 
+    def test_preserve_only_coverage_may_add_a_test_that_passes_on_the_base(self):
+        project = self.project()
+        extra = project_file(project, "test_greet.py").replace(
+            "    def test_ada(self):\n        self.assertEqual(greet(\"Ada\"), \"Hello, Ada\")\n",
+            "    def test_ada(self):\n        self.assertEqual(greet(\"Ada\"), \"Hello, Ada\")\n\n"
+            "    def test_ada_still_greets(self):\n        self.assertEqual(greet(\"Ada\"), \"Hello, Ada\")\n")
+        project.write({"test_greet.py": extra})
+        result = project.verify(new_behavior=True, preserve_only=True)
+        self.assertEqual(verify.PASS, result["verdict"], result["failures"] + result["unverified"])
+        self.assertTrue(any(name.endswith("test_ada_still_greets") for name in result["pass_to_pass"]),
+                        result["pass_to_pass"])
+
     def test_removing_an_existing_test_is_rejected(self):
         project = self.project()
         weakened = REFERENCE["test_greet.py"].replace("    def test_two_arg(self):", "    def two_arg_disabled(self):")
@@ -350,6 +622,19 @@ class VerifyCase(unittest.TestCase):
         self.addCleanup(git, project.root, "worktree", "remove", "--force", str(tree))
         self.assertEqual(["src/pkg/_version.py"], verify.copy_generated_sources(project.root, tree))
         self.assertFalse((tree / "build").exists())
+        # Receipt identity must bind the same dependency-owned input that the
+        # scratch tree imports, without binding excluded stale build output.
+        def generated_identity():
+            return verify.execution_identity(task, dependencies_from=project.root, full=False)[
+                "generated_dependency_sources"]
+        generated = generated_identity()
+        self.assertEqual(["src/pkg/_version.py"], sorted(generated))
+        project.write({"build/lib/pkg/calc.py": "raise SystemExit('different stale output')\n"})
+        self.assertEqual(generated, generated_identity())
+        project.write({"src/pkg/_version.py": "VERSION = '2.0'\n"})
+        self.assertNotEqual(generated, generated_identity())
+        (project.root / "src/pkg/_version.py").unlink()
+        self.assertEqual({}, generated_identity())
 
     def test_a_suite_that_cannot_start_is_broken_not_failing(self):
         """Review finding 15: command-not-found and no-results runs stop before any model call."""
@@ -358,6 +643,24 @@ class VerifyCase(unittest.TestCase):
         self.assertEqual("failing", verify.suite_health({**receipt, "exit_code": 1}))
         self.assertEqual("broken", verify.suite_health({**receipt, "exit_code": 0, "results_expected": True}))
         self.assertEqual("timeout", verify.suite_health({**receipt, "exit_code": None, "timed_out": True}))
+
+    def test_partial_or_timed_out_baseline_is_not_a_fail_to_pass_proof(self):
+        project = self.project()
+        project.write(REFERENCE)
+        framework = verify.detect_framework(project.root)
+        for timed_out in (True, False):
+            with self.subTest(timed_out=timed_out):
+                def run(_framework, command, tree, out, label, **kwargs):
+                    base = label == 'regression-on-base'
+                    return {'command': command, 'exit_code': None if base and timed_out else 1 if base else 0,
+                            'timed_out': base and timed_out, 'results_expected': True, 'output': 'unused', 'tail': '',
+                            'results': {'passed': [] if base else ['test_greet.Case.test_empty'],
+                                        'failed': ['test_greet.Case.test_empty'] if base else [],
+                                        'skipped': [], 'collection_errors': [], 'total': 1, 'complete': not base}}
+                with mock.patch.object(verify, 'run_suite', side_effect=run):
+                    result = verify.verify(project.root, project.base, project.evidence, framework=framework)
+                self.assertEqual(verify.UNVERIFIED, result['verdict'], result)
+                self.assertTrue(any('base' in reason for reason in result['unverified']), result)
 
     def test_untracked_new_test_file_counts_as_the_regression_test(self):
         project = self.project()
@@ -558,6 +861,61 @@ GO_SEED = {"go.mod": "module pager\n\ngo 1.21\n",
 GO_FIX = {"pager.go": "package pager\n\nfunc PageCount(total, size int) int {\n\treturn (total + size - 1) / size\n}\n",
           "pager_test.go": GO_SEED["pager_test.go"]
           + "\nfunc Test_t1_partial_page_counts(t *testing.T) {\n\tif PageCount(11, 5) != 3 {\n\t\tt.Fatal(\"11/5\")\n\t}\n}\n"}
+
+
+class SuitePreservationTests(unittest.TestCase):
+    def test_suite_health_does_not_erase_real_regression_evidence(self):
+        suite_test = ('import unittest\nfrom calc import keep\n'
+                      'class Existing(unittest.TestCase):\n'
+                      ' def test_existing(self): self.assertEqual(9, keep())\n')
+        broken_import = 'import no_such_autocode_479_driver\n' + suite_test
+        failing_test = suite_test.replace('assertEqual(9', 'assertEqual(8')
+        skipped_test = suite_test.replace(' def test_existing',
+                                         ' @unittest.skip("optional service")\n def test_existing')
+        cases = [
+            ('collection_only', broken_import, None, 9, 'UNVERIFIED'),
+            ('passing_plus_collection', suite_test, broken_import, 9, 'UNVERIFIED'),
+            ('all_preexisting_failures', failing_test, None, 9, 'UNVERIFIED'),
+            ('all_skipped', skipped_test, None, 9, 'UNVERIFIED'),
+            ('healthy', suite_test, None, 9, 'PASS'),
+            ('passing_plus_preexisting_failure', suite_test, failing_test, 9, 'PASS'),
+            ('named_regression_with_collection', suite_test, broken_import, 0, 'FAIL'),
+        ]
+        for name, primary, optional, kept, expected in cases:
+            with self.subTest(name=name):
+                files = {'calc.py': 'def add(a,b): return a-b\ndef keep(): return 9\n',
+                         'test_db.py': primary}
+                if optional:
+                    files['test_optional.py'] = optional
+                project = Project(files)
+                try:
+                    framework = verify.detect_framework(project.root, python=sys.executable)
+                    suite = shlex.quote(sys.executable) + ' -m unittest -v test_db'
+                    if optional:
+                        suite += ' test_optional'
+                    baseline = verify.baseline(project.root, project.base, project.evidence,
+                                               framework=framework, suite_command=suite, timeout=30)
+                    project.write({'calc.py': f'def add(a,b): return a+b\ndef keep(): return {kept}\n',
+                                   'test_calc.py': 'import unittest\nfrom calc import add\n'
+                                   'class Addition(unittest.TestCase):\n'
+                                   ' def test_add(self): self.assertEqual(5,add(2,3))\n'})
+                    result = verify.verify(project.root, project.base, project.evidence,
+                                           framework=framework, suite_command=suite, base_suite=baseline,
+                                           regression_command=shlex.quote(sys.executable) + ' -m unittest -v test_calc',
+                                           timeout=30)
+                    self.assertEqual(['test_calc.Addition.test_add'], result['fail_to_pass'])
+                    self.assertEqual(expected, result['verdict'], result['failures'] + result['unverified'])
+                    if expected == 'UNVERIFIED':
+                        self.assertTrue(result['unverified'])
+                        self.assertFalse(result['failures'])
+                    elif expected == 'FAIL':
+                        self.assertTrue(any('test_db.Existing.test_existing' in reason
+                                            for reason in result['failures']), result)
+                    for path, original in files.items():
+                        if path != 'calc.py':
+                            self.assertEqual(original, (project.root / path).read_text())
+                finally:
+                    project.close()
 
 
 class GoResultTests(unittest.TestCase):

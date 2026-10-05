@@ -105,14 +105,17 @@ How to decide:
   the user's new message and follow_up says what came before. Judge the new message in that context.
   Asking to act on a review's findings ("fix them", "land it with those fixed", "apply the fixes") is
   build: the review already found and located the problems, and they are the task list.
+  Asking to build or implement what a design turn produced ("build it", "implement the design") is
+  build, with design_document set to the one document in follow_up.previous_design.documents (after
+  a design review, its design_under_review, and only when its verdict is approve).
 - Do not guess build when unsure. Build is the most expensive path; the other kinds are cheaper and can
   lead to a build later in the same conversation.
 
 Return JSON only: {"workflow": one of build|bugfix|review|design|discuss, "reason": one sentence,
 "signals": the words or phrases in the request that decided it, "design_document": for a build that asks
-to implement an EXISTING design document as written (approved, decided, "don't redesign it"), that
-document's path in the repository; otherwise ""}. Read nothing but the request and the file listing
-below; do not open files.
+to implement an EXISTING design document as written (approved, decided, "don't redesign it", or the
+design a follow-up asks to build), that document's path in the repository; otherwise ""}. Read nothing
+but the request and the file listing below; do not open files.
 """
 
 
@@ -141,7 +144,22 @@ def follow_up(state: dict) -> dict | None:
     return {"message": turns[-1]["say"], "previous_workflow": previous.get("workflow"),
             "previous_request": previous.get("task", ""),
             **({"previous_review": {"verdict": review.get("verdict"), "blocking": len(review.get("blocking") or []),
-                                    "advisory": len(review.get("advisory") or [])}} if review else {})}
+                                    "advisory": len(review.get("advisory") or [])}} if review else {}),
+            # What a design turn produced: a build of it names the document (approved_design checks it).
+            **({"previous_design": design_context(previous["design"], state.get("workspace"))}
+               if previous.get("design") else {})}
+
+
+def design_context(design: dict, workspace) -> dict:
+    """What the recognizer is told about a design turn: paths, a verdict and counts. The report's
+    own text (summaries, questions) stays out of its prompt, as previous_review's does."""
+    if design.get("mode") == "propose":
+        return {"mode": "propose", "documents": [path for path in design.get("documents") or []
+                                                 if workspace_file(workspace, path)]}
+    reviewed = str(design.get("design_under_review") or "")
+    return {"mode": "review", "design_under_review": reviewed if workspace_file(workspace, reviewed) else "",
+            "verdict": design.get("verdict") if design.get("verdict") in ("approve", "request_changes") else None,
+            **{key: len(design.get(key) or []) for key in ("blocking", "advisory", "questions")}}
 
 
 def prompt(state: dict, inventory: dict | None = None, soft_budget_tokens: int = 10000,
@@ -219,14 +237,43 @@ def approval_note(state: dict) -> str:
 
 
 def approved_design(state: dict, value: dict) -> str:
-    """The approved design a build asks to implement, if the recognizer named one that exists."""
+    """The approved design a build asks to implement, if the recognizer named one that exists.
+
+    In a follow-up, only a design the previous turn produced, or one its design review approved
+    (``buildable``), counts: anything else the recognizer names is dropped, and the build gathers
+    requirements as usual."""
     design = str(value.get("design_document") or "").strip()
     if value.get("workflow") != "build" or not design:
         return ""
-    parts = Path(design).parts
-    if Path(design).is_absolute() or ".." in parts or not (Path(state.get("workspace") or ".") / design).is_file():
+    turns = state.get("turns") or []
+    if turns and design not in buildable((turns[-1].get("previous") or {}).get("design")):
         return ""
-    return design
+    return design if workspace_file(state.get("workspace") or ".", design) else ""
+
+
+def buildable(design: dict | None) -> list[str]:
+    """The documents a follow-up may build as approved: the ones a design turn produced, or the
+    design a design review approved (a review that requested changes approved nothing)."""
+    design = design or {}
+    if design.get("mode") == "propose":
+        return [str(path) for path in design.get("documents") or []]
+    if design.get("mode") == "review" and design.get("verdict") == "approve" and design.get("design_under_review"):
+        return [str(design["design_under_review"])]
+    return []
+
+
+def workspace_file(workspace, path) -> bool:
+    """A regular file at the relative ``path`` inside ``workspace``. A symbolic link is refused even
+    when it resolves inside: its target can change, and one outside would be read as the design."""
+    relative = Path(str(path or ""))
+    if not str(path or "").strip() or relative.is_absolute() or ".." in relative.parts:
+        return False
+    root, target = Path(workspace or "."), Path(workspace or ".") / relative
+    try:
+        return (target.is_file() and not target.is_symlink()
+                and target.resolve().is_relative_to(root.resolve()))
+    except OSError:
+        return False
 
 
 def planner_stage(state: dict) -> str:

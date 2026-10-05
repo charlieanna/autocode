@@ -43,12 +43,12 @@ from pathlib import Path
 try:
     from . import autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
     from . import autocode_workflows as workflows
-    from .autocode_test_cases import case_text, case_test_name, match_cases, run_probes  # noqa: F401 (used by callers)
+    from .autocode_test_cases import case_text, case_test_name, diagnosis_cases, match_cases, run_probes  # noqa: F401 (used by callers)
 except ImportError:
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_workflows as workflows
-    from autocode_test_cases import case_text, case_test_name, match_cases, run_probes  # noqa: F401
+    from autocode_test_cases import case_text, case_test_name, diagnosis_cases, match_cases, run_probes  # noqa: F401
 
 STAGE = workflows.INVESTIGATE_STAGE
 NOTES_PREFIX, = stage_access.job_writes(STAGE)
@@ -115,7 +115,8 @@ What to do:
      call or command) and then (the exact expected result, with literal values: "returns 1", "prints
      'Hello, Ada'", "exits 2"). No vague words such as "correctly" or "gracefully". The Builder writes one
      test per case named test_<id>_<what it checks> (for example test_t1_new_year_week_is_one_row), and
-     the runner checks that each case's test fails on the original code and passes after the fix. So each
+     the runner checks that a restore case's test fails on the original code because of the bug and passes
+     after the fix, while a preserve case's test passes on the original code and after the fix. So each
      case's when uses only calls, commands and inputs that exist before the fix (never a hook, variable or
      helper the fix would add: a test using one cannot even build on the original code), driving the real
      failure path, and its then is the behavior (a result, an error, saved state), never only a log line
@@ -287,8 +288,7 @@ def large_correction(state: dict) -> dict | None:
 
 def test_cases(state: dict) -> list[dict]:
     """The reproduced bug's English test cases, or [] (bugs planned without an investigation, older runs)."""
-    found = state.get("investigation") or {}
-    return list(found.get("test_cases") or []) if found.get("outcome") == "reproduced" else []
+    return diagnosis_cases(state)
 
 
 # A small, reproduced bug skips requirements gathering and plan review: the runner turns
@@ -325,11 +325,13 @@ def correction_contract(state: dict) -> dict:
                  "human_review": False}]
     naming = []
     for number, case in enumerate(test_cases(state), start=2):
+        comparison = ("passes on the original code and after the fix" if case.get("kind") == "preserve"
+                      else "fails on the original code and passes after the fix")
         criteria.append({"id": f"C{number}", "criterion": case_text(case),
                          "verification_method": f"The runner checks that a test named {case_test_name(case['id'])} "
-                                                "fails on the original code and passes after the fix",
+                                                + comparison,
                          "human_review": False})
-        naming.append(f"Write test case {case_text(case)} as a test named {case_test_name(case['id'])}")
+        naming.append(f"Write test case {case_text(case)} as a test named {case_test_name(case['id'])} that {comparison}")
     ids = [row["id"] for row in criteria]
     return {
         "intended_outcome": "The reported misbehavior no longer happens: " + found["observed"],

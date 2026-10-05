@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shlex
 import sys
 import tempfile
 import unittest
@@ -340,6 +341,17 @@ class WhichRunIsChosen(Fixture):
         self.run_in(self.project, status="WAITING_FOR_USER")
         self.assertEqual(latest, finder.choose(self.project, "follow_up").run_dir)
 
+    def test_follow_up_never_reopens_an_older_run_behind_a_newer_unfinished_one(self):
+        # The user finished one run, then started another that now waits for plan approval: a
+        # follow-up is meant for the conversation they are in, which takes approval or feedback.
+        done = self.run_in(self.project, status="TASK_COMPLETE", completed_at="2026-10-04T01:30:00+00:00")
+        waiting = self.run_in(self.project, status="AWAITING_GOAL_APPROVAL")
+        message = self.refused(self.project, "follow_up")
+        self.assertIn("started after the latest one finished has not finished", message)
+        self.assertIn(f"AWAITING_GOAL_APPROVAL: {TASK}", message)
+        self.assertIn(f"autocode --run-dir {waiting} --status", message)
+        self.assertIn(f'autocode --run-dir {done} --follow-up "TEXT"', message)
+
     def test_follow_up_prefers_a_run_no_program_drives_even_when_one_completed_later(self):
         mine = self.run_in(self.project, status="TASK_COMPLETE", completed_at="2026-10-04T02:00:00+00:00")
         tree, program_run = self.worktree_run(status="TASK_COMPLETE", completed_at="2026-10-04T09:00:00+00:00")
@@ -436,6 +448,14 @@ class WhichRunIsChosen(Fixture):
         self.assertEqual(f"Continue with: autocode --run-dir {mine} --unit autoplanner (or autocode --unit "
                          "autoplanner from its project while it is the only unfinished run there)", hint,
                          "an action under a unit continues that unit, not every unit")
+        for status in ("PAUSED_PLANNING_BUDGET", "PAUSED_INVALID_OUTPUT", "BLOCKED_HUMAN", "RESOLVER_PENDING"):
+            with self.subTest(status=status):
+                self.assertEqual(f"Continue with: autocode --run-dir {mine} resume (or autocode resume from its "
+                                 "project while it is the only unfinished run there)",
+                                 finder.continue_hint(mine, {**state, "status": status}),
+                                 "plain autocode only shows a pause")
+        self.assertIn("--unit autoplanner resume (or autocode --unit autoplanner resume from",
+                      finder.continue_hint(mine, {**state, "status": "PAUSED_PLANNING_BUDGET"}, "autoplanner"))
         hint = finder.continue_hint(mine, {**state, "status": "TASK_COMPLETE"})
         self.assertIn(f"It has finished (TASK_COMPLETE); show it with: autocode --run-dir {mine} --status", hint)
         self.assertIn(f'autocode --run-dir {mine} --follow-up "TEXT"', hint)
@@ -545,11 +565,53 @@ class CommandLine(Fixture):
         self.assertIn("--in-place only applies to a new one", self.parse_error("resume", "--in-place"))
         self.assertEqual(run, self.parse("resume", "--run-dir", str(run))[0].run_dir)
 
+    def test_resume_acknowledges_a_pause_by_itself(self):
+        tree, run = self.worktree_run(status="PAUSED_RATE_LIMIT")
+        for argv in (["resume"], ["--no-chat", "resume"], ["resume", "--run-dir", str(run)],
+                     ["resume", "--retry-failed-stage"], ["resume", "--grant-recovery", "2"]):
+            with self.subTest(argv=argv):
+                args, _ = self.parse(*argv)
+                self.assertEqual((run, True), (args.run_dir, args.resume_paused))
+        for argv in ([], ["--no-chat"], ["--status"], ["resume", "--status"], ["resume", "--feedback", "smaller"],
+                     ["resume", "--abandon-stage", "001/terra-01"]):
+            with self.subTest(argv=argv):
+                self.assertFalse(self.parse(*argv)[0].resume_paused, "only the resume command acknowledges")
+        for status in ("RESOLVER_PENDING", "BLOCKED_HUMAN", "PLAN_REWORK_REQUIRED"):
+            with self.subTest(status=status):
+                # A plain relaunch only shows these too; --resume-paused continues them (#412).
+                other = self.run_in(tree, status=status)
+                for argv in (["resume"], ["resume", "--retry-failed-stage"], ["resume", "--max-seconds", "0"]):
+                    self.assertTrue(self.parse(*argv, "--run-dir", str(other))[0].resume_paused)
+                for argv in ([], ["resume", "--feedback", "smaller"],
+                             ["resume", "--resolver-response", "leave_paused", "--resolver-request", "R",
+                              "--resolver-token", "T"]):
+                    self.assertFalse(self.parse(*argv, "--run-dir", str(other))[0].resume_paused,
+                                     "never with a user action or a resolver response")
+        for status in ("WAITING_FOR_USER", "RUNNING", "PAUSED_DESIGN_CONFLICT", "BLOCKED", "WAITING_FOR_DEPENDENCY"):
+            with self.subTest(status=status):
+                other = self.run_in(tree, status=status)
+                self.assertFalse(self.parse("resume", "--run-dir", str(other))[0].resume_paused, "nothing to acknowledge")
+
+    def test_the_hint_after_a_user_action_at_a_pause_is_a_command_that_acknowledges_it(self):
+        run = self.worktree_run(status="PAUSED_PLANNING_BUDGET")[1]
+        hint = finder.continue_hint(run, json.loads((run / "state.json").read_text()))
+        command = shlex.split(hint.removeprefix("Continue with: ").split(" (or ")[0])
+        self.assertEqual("autocode", command[0])
+        args, _ = self.parse(*command[1:], cwd=self.root)
+        self.assertEqual((run, True), (args.run_dir, args.resume_paused))
+
     def test_resume_refuses_when_every_run_has_finished(self):
         self.run_in(self.project, status="TASK_COMPLETE")
         for argv in (["resume"], ["resume", "--no-chat"], []):
             with self.subTest(argv=argv):
                 self.assertIn("nothing to resume", self.parse_error(*argv))
+
+    def test_resume_does_not_acknowledge_an_unverified_operational_request(self):
+        self.run_in(self.project, status="WAITING_FOR_USER",
+                    resolver_human_request={"scope": "operational_exhaustion"})
+        self.assertFalse(self.parse("resume")[0].resume_paused)
+        self.assertIn("--grant-recovery requires --resume-paused",
+                      self.parse_error("resume", "--grant-recovery", "1"))
 
     def test_the_notice_names_the_run_on_one_stderr_line_that_is_never_read_as_a_rejection(self):
         run = self.run_in(self.project)
@@ -640,6 +702,28 @@ class CommandLine(Fixture):
         for run in runs:
             self.assertIn(f"autocode --run-dir {run} --answer 'Q1=CLI only'", message)
         self.assertNotIn("--workspace", message.split("unfinished AutoCode runs", 1)[1])
+
+    def test_ambiguous_resume_suggestions_preserve_the_command_and_companions(self):
+        runs = {self.run_in(self.project, name=name, status="PAUSED_TIMEOUT_RECOVERY")
+                for name in ("first paused run", "second paused run")}
+        for argv in (["resume"], ["--no-chat", "resume"], ["resume", "--retry-failed-stage"],
+                     ["resume", "--grant-recovery", "2"], ["resume", "--unit", "autoplanner"],
+                     ["resume", "--status"], ["resume", "--feedback", "resume"]):
+            with self.subTest(argv=argv):
+                message = self.parse_error(*argv)
+                commands = [shlex.split(line.strip())[1:] for line in message.splitlines()
+                            if line.strip().startswith("autocode --run-dir ")]
+                self.assertEqual(2, len(commands))
+                chosen = []
+                for command in commands:
+                    args, _ = self.parse(*command)
+                    chosen.append(args.run_dir)
+                    self.assertEqual(not any(flag in argv for flag in ("--status", "--feedback")),
+                                     args.resume_paused)
+                    self.assertEqual("--retry-failed-stage" in argv, args.retry_failed_stage)
+                    self.assertEqual(2 if "--grant-recovery" in argv else None, args.grant_recovery)
+                    self.assertEqual("autoplanner" if "--unit" in argv else None, args.unit)
+                self.assertEqual(runs, set(chosen))
 
 
 class InProcessCli(Fixture):

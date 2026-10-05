@@ -42,10 +42,15 @@ def record_launch(stage):
 if data.get('report_repair'):
     record_launch(data['original']['stage'] + '_report_repair')
     # This branch only reformats a saved report; never executes the original task.
-    if data['original'].get('truncated_output'):
+    loss_cache = os.environ.get('AUTOCODE_FIXTURE_REPORT_LOSS')
+    if loss_cache and data['original'].get('stage') == 'sol':
+        result = json.loads(Path(loss_cache).read_text())
+    elif data['original'].get('truncated_output'):
         result = json.loads(data['rejected_report']['content']['partial_text'] + '}')
     else:
         result = json.loads(Path(data['original']['output']).read_text())
+    if os.environ.get('AUTOCODE_FIXTURE_INVALID_INVESTIGATOR') and data['original'].get('stage') == 'investigate_stuck':
+        result['diagnosis'] = 'Offline fixture: retain the interrupted report repair and pause.'
     if 'summary' not in result and data['original'].get('stage', '').startswith(('terra', 'astra_discovery')):
         result['summary'] = 'Repaired fixture report'
     if os.environ.get("AUTOCODE_FIXTURE_MODE") == "human-pending":
@@ -66,6 +71,16 @@ if data.get('report_repair'):
     print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 20, 'output_tokens': 10}}))
     raise SystemExit(0)
 stage = data["stage"]
+if stage == "terra" and os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
+    import time
+    barrier = Path(os.environ["AUTOCODE_CONSUMER_BARRIER"])
+    if barrier.exists():
+        barrier.with_suffix(".entered").write_text("stage active")
+        deadline = time.monotonic() + 15
+        while barrier.exists():
+            if time.monotonic() > deadline:
+                raise SystemExit("fixture barrier timed out")
+            time.sleep(0.02)
 mode = os.environ.get("AUTOCODE_FIXTURE_MODE", "standard")
 # Bug-fix fixtures: the job type the planners propose, and the exact files the Builder writes.
 task_kind = os.environ.get("AUTOCODE_FIXTURE_TASK_KIND", "build")
@@ -83,8 +98,12 @@ NO_PROPOSAL = {"version": 0, "needed_because": "", "shared_decisions": [], "outs
 if os.environ.get("AUTOCODE_FIXTURE_SESSION_DRIFT"):
     session = str(uuid.uuid4())
 print(json.dumps({"type": "thread.started", "thread_id": session}))
-if os.environ.get("AUTOCODE_FIXTURE_QUOTA_STAGE") == stage:
-    print(json.dumps({"type": "error", "error": {"message": "subscription usage limit reached"}}))
+_quota_model = os.environ.get("AUTOCODE_FIXTURE_QUOTA_MODEL")  # only this model's quota is used up, when set
+if os.environ.get("AUTOCODE_FIXTURE_QUOTA_STAGE") == stage and (not _quota_model or (
+        "--model" in sys.argv and sys.argv[sys.argv.index("--model") + 1] == _quota_model)):
+    # AUTOCODE_FIXTURE_QUOTA_MESSAGE swaps in another provider error at the same point (a non-quota stop).
+    print(json.dumps({"type": "error", "error": {"message": os.environ.get(
+        "AUTOCODE_FIXTURE_QUOTA_MESSAGE", "subscription usage limit reached")}}))
     raise SystemExit(3)
 
 
@@ -245,6 +264,9 @@ elif stage == "terra":
             Path(name).write_text(content)
     else:
         Path("greet.py").write_text("import sys\nif len(sys.argv) != 2 or not sys.argv[1].strip():\n    raise SystemExit(2)\nprint('Hello, ' + sys.argv[1])\n# batch " + batch + "\n")
+    if os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
+        with Path("greet.py").open("a") as fixture_output:
+            fixture_output.write("# revision " + str(uuid.uuid4()) + "\n")
     result = {**common, "summary": "Greeting written", "changed_files": ["greet.py"], "commands_run": [],
               "results": ["Written"], "remaining_risks": [], "evidence_refs": ["greet.py"],
               "addressed_requirements": data["current_task"]["requirements"], "untested_behavior": ["CLI execution"],

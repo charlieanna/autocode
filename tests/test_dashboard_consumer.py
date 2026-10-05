@@ -1,4 +1,5 @@
 """Complete browser-consumer protocol through the real CLI and fake OpenCode."""
+import datetime
 import json
 from pathlib import Path
 import subprocess
@@ -15,27 +16,8 @@ class DashboardConsumerTests(unittest.TestCase):
         self.addCleanup(flow.doCleanups)
         # This provider is a copied offline fixture. A file barrier proves input
         # reaches the inbox before releasing the active implementation stage.
-        provider = flow.root/'fixture-bin/codex'
-        source = provider.read_text()
-        needle = 'stage = data["stage"]\n'
-        self.assertIn(needle, source)
-        source = source.replace(needle, needle+'''
-if stage == "terra" and os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
-    import time
-    barrier = Path(os.environ["AUTOCODE_CONSUMER_BARRIER"])
-    if barrier.exists():
-        barrier.with_suffix(".entered").write_text("stage active")
-        deadline = time.monotonic() + 15
-        while barrier.exists():
-            if time.monotonic() > deadline: raise SystemExit("fixture barrier timed out")
-            time.sleep(0.02)
-''')
-        # This test exercises reapproval and human-review transport, not no-op
-        # detection: make the fixture's post-replan implementation a real delta.
-        source = source.replace('    result = {**common, "summary": "Greeting written"',
-            '    with Path("greet.py").open("a") as fixture_output: fixture_output.write("# revision " + str(uuid.uuid4()) + "\\n")\n'
-            '    result = {**common, "summary": "Greeting written"')
-        provider.write_text(source)
+        # The exact trusted fixture includes this barrier and a post-replan delta;
+        # do not mutate the verified executable to add them at runtime.
         barrier = flow.root/'hold-terra'
         flow.env['AUTOCODE_CONSUMER_BARRIER'] = str(barrier)
         flow.launch(['Build a greeting tool','--no-chat'], 2)
@@ -47,6 +29,29 @@ if stage == "terra" and os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
                                     capture_output=True,text=True,timeout=20)
             self.assertEqual(expected,result.returncode,result.stdout+result.stderr)
             return json.loads(result.stdout)
+        def missed_barrier(worker,started):
+            # #314: tell a slow start from an early product/provider exit. State is read before the
+            # terminate, so it shows the run at the miss; the output wait keeps the 20 s cleanup bound.
+            waited,code,at=time.monotonic()-started,worker.poll(),datetime.datetime.now(datetime.timezone.utc).isoformat()
+            try:
+                saved=json.loads((run/'state.json').read_text())
+                active,last=saved.get('active_stage') or {},(saved.get('stages') or [{}])[-1]
+                where=(f"status={saved.get('status')} next_stage={saved.get('next_stage')} "
+                       f"active_stage={active.get('stage')} started_at={active.get('started_at')} "
+                       f"last_stage={last.get('stage')} finished_at={last.get('finished_at')}")
+            except (OSError,ValueError) as error:
+                where=f'unreadable: {error!r}'
+            if code is None:
+                worker.terminate()
+            try:
+                out,err=worker.communicate(timeout=20)
+            except subprocess.TimeoutExpired as error:
+                out,err=(f'<no exit 20 s after terminate; partial: {text!r}>' for text in (error.output,error.stderr))
+            ended=(f'exited with code {code}' if code is not None else
+                   f'still running; terminated, code {worker.returncode}' if worker.returncode is not None else
+                   'still running; terminate sent, no exit within 20 s')
+            return (f'\nwaited {waited:.3f} s (miss at {at}); worker {ended}; state.json at the miss: {where}'
+                    f'\n--- worker stdout ---\n{out}\n--- worker stderr ---\n{err}')
         identity=['--workspace',str(flow.project),'--run-dir',str(run)]
         listed=cli(['registry','list','--json'])
         self.assertEqual([str(run)], [row['run_dir'] for row in listed['runs']])
@@ -62,10 +67,11 @@ if stage == "terra" and os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
         worker=subprocess.Popen([*flow.entry,*identity,'--no-chat'],cwd=flow.root,env=flow.env,
                                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         try:
-            deadline=time.monotonic()+10
+            started=time.monotonic(); deadline=started+10
             while not barrier.with_suffix('.entered').exists() and worker.poll() is None and time.monotonic()<deadline:
                 time.sleep(.02)
-            self.assertTrue(barrier.with_suffix('.entered').exists(),'Fake implementation never reached its barrier')
+            entered=barrier.with_suffix('.entered').exists()
+            self.assertTrue(entered,'Fake implementation never reached its barrier'+('' if entered else missed_barrier(worker,started)))
             self.assertIsNone(worker.poll())
             request=['intervention','submit',*identity,'--request-id','feedback-1','--kind','feedback','--text','Keep the original plan history','--json']
             receipt=cli(request)

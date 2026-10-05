@@ -6,26 +6,33 @@ returned parser for the later errors that depend on the saved run.
 
 An invocation that names no run and starts none (no task, no new-run input) acts on the saved run
 autocode_run_finder chooses from the --workspace directory: ``autocode --status``, ``autocode``,
-``autocode resume`` and the user actions work from the project or a task worktree. ``autocode
-status`` is ``autocode --status``. --run-dir without --workspace selects the run's own checkout
-(a user's run; a parallel Builder's run keeps the usual workspace errors).
+``autocode resume`` and the user actions work from the project or a task worktree. On a paused
+or blocked run ``autocode resume`` also stands for --resume-paused (_acknowledges_pause).
+``autocode status`` is ``autocode --status``. --run-dir without --workspace selects the run's
+own checkout (a user's run; a parallel Builder's run keeps the usual workspace errors).
 """
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import shlex
 import sys
+import textwrap
 
 try:
     from . import autocode_workflows as workflows, autopilot, autocode_run_finder as run_finder
+    from . import autocode_subcommands as subcommands
+    from . import autocode_resolver_human as resolver_human
     from .autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
 except ImportError:
     import autocode_workflows as workflows, autopilot, autocode_run_finder as run_finder
+    import autocode_subcommands as subcommands
+    import autocode_resolver_human as resolver_human
     from autocode_configure import BUDGET_ARGUMENTS, DEFAULT_ROLE_MODELS
 
 # Inputs that only start a new run: with one of them and no task, nothing is looked up.
-NEW_RUN_INPUTS = ("ui_run", "figma_file", "figma_manifest", "figma_review", "in_place",
+NEW_RUN_INPUTS = ("ui_run", "figma_file", "figma_additional_file", "figma_manifest", "figma_review", "in_place",
                   "builder_strong_model", "conversation_handoff")
 # The user actions that only read the run: they return before the run lock and save nothing, so
 # with no unfinished run they may show a finished one. --show-goal is not one: it takes the lock,
@@ -36,9 +43,19 @@ COMMAND_WORDS = ("resume", "status")
 COMMAND_MARK = "\0command-word"
 
 
+def commands_help() -> str:
+    """The commands handled before this parser runs (autocode_subcommands and COMMAND_WORDS), for --help."""
+    words = ["--version", "doctor", *COMMAND_WORDS, *sorted(set(subcommands.SUBCOMMANDS) - {"doctor"})]
+    return textwrap.fill("Commands, typed first: autocode " + " | ".join(words) + ". Each subcommand takes "
+                         "--help (autocode doctor --help); docs/cli.md lists every command.",
+                         width=78, break_on_hyphens=False)
+
+
 def build_parser(unit, default_models) -> argparse.ArgumentParser:
     """default_models is the selected provider's DEFAULT_MODELS, shown in the role-model help text."""
-    parser = argparse.ArgumentParser(description="Independent requirements gathering, planning, plan review, build, validation and completion ownership")
+    parser = argparse.ArgumentParser(description=textwrap.fill(
+        "Independent requirements gathering, planning, plan review, build, validation and completion ownership",
+        width=78), epilog=commands_help(), formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("task", nargs="?", help="Idea for the requirements gatherer, planner and plan reviewer to turn into an approvable build brief")
     parser.add_argument("--workspace", type=Path, default=Path.cwd())
     parser.add_argument("--unit", choices=autopilot.UNITS, default=unit,
@@ -61,9 +78,13 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         help="Explicitly retry a stopped Builder after inspecting its retained work; requires --resume-paused")
     parser.add_argument("--figma-manifest", type=Path,
                         help="New run: immutable multi-file/frame/state inventory with exported Figma references; any saved engine")
+    parser.add_argument("--revise-figma-manifest", type=Path, help="Stopped run: propose complete updated references, preserving history and requiring plan review")
+    parser.add_argument("--expected-design-hash", help="Exact inspected reference hash for --revise-figma-manifest")
+    parser.add_argument("--design-change-reason", help="Concrete reason for --revise-figma-manifest")
     parser.add_argument("--task-preflight", type=Path,
                         help="Operator prerequisite manifest for planning/build/validation; repair only at its reconciled pause with --resume-paused")
     parser.add_argument("--figma-file", help="Figma Design URL to implement using the connected Codex plugin")
+    parser.add_argument("--figma-additional-file", action="append", default=[], help="Additional approved Figma file for complete native intake; repeat for multiple files")
     parser.add_argument("--ui-run", type=Path, help="Accepted autocode-ui run to implement")
     parser.add_argument("--figma-review", choices=["automatic", "human"], help="Visual review policy for new Figma runs (default: automatic)")
     parser.add_argument("--engine", choices=["codex", "opencode"],
@@ -72,7 +93,7 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
                         help="Tool that runs each role for a new run. Default: AUTOCODE_PROVIDER, then default_provider in "
                              "~/.config/autocode/config.toml, then opencode. Other names load ~/.config/autocode/providers/<name>.toml")
     parser.add_argument("--joint-planning", action="store_true",
-                        help="Separate requirements, planning, and independent review; default for new OpenCode/GoCode runs, opt-in for Codex")
+                        help="Separate requirements, planning, and independent review; default for new OpenCode runs, opt-in for Codex")
     parser.add_argument("--adaptive-planning", action=argparse.BooleanOptionalAction, default=None,
                         help="New runs plan adaptively by default when they use joint planning on the default flow: "
                              "skip requirements for a clear build request and let a Plan Reviewer with no blocking "
@@ -246,12 +267,8 @@ def parse(unit, argv, default_models):
     args = parser.parse_args(argv)
     # The word may also follow options (`autocode --no-chat resume`); argparse then reads it as
     # the task. After `--` it stays task text.
-    words = argv[:argv.index("--")] if "--" in argv else argv
-    if args.task in COMMAND_WORDS and args.task in words:
-        # The same word may also be an option's value (--feedback resume): mark each occurrence in
-        # turn until argparse reads the mark as the task. A word in place of a word parses alike.
-        at = next(index for index, word in enumerate(words) if word == args.task
-                  and parser.parse_args([*argv[:index], COMMAND_MARK, *argv[index + 1:]]).task == COMMAND_MARK)
+    at = _command_word_at(parser, argv, args.task) if args.task in COMMAND_WORDS else None
+    if at is not None:
         resume_only = resume_only or args.task == "resume"
         argv = argv[:at] + (["--status"] if args.task == "status" else []) + argv[at + 1:]
         args = parser.parse_args(argv)
@@ -283,7 +300,10 @@ def parse(unit, argv, default_models):
     args._explicit_budget_flags = explicit & budget_flags
     if unit and args.unit != unit:
         parser.error(f"This entry point runs only {unit}")
-    notice = _find_run(parser, args, explicit, resume_only, shlex.join(rest))
+    notice = _find_run(parser, args, explicit, resume_only,
+                       shlex.join(["resume", *rest] if resume_only else rest))
+    if resume_only and _acknowledges_pause(args):
+        args.resume_paused = True
     if args.inspect_evidence and (not args.run_dir or not args.status):
         parser.error("--inspect-evidence requires --run-dir and --status")
     if args.expected_recovery_token is not None and (not args.run_dir or not (args.resume_paused or args.abandon_stage)):
@@ -354,6 +374,65 @@ def parse(unit, argv, default_models):
         # stderr: --status and --dry-run print exactly one JSON object on stdout.
         print(notice, file=sys.stderr, flush=True)
     return args, parser
+
+
+def _command_word_at(parser, argv, word):
+    """Where argparse reads ``word`` as the task among the options of argv, else None.
+
+    After `--` it stays task text. The same word may also be an option's value (--feedback resume):
+    mark each occurrence in turn until argparse reads the mark as the task. A word in place of a
+    word parses alike. An argv argparse refuses exits via parser.error.
+    """
+    words = argv[:argv.index("--")] if "--" in argv else argv
+    if word not in words or parser.parse_args(argv).task != word:
+        return None
+    return next(index for index, item in enumerate(words) if item == word
+                and parser.parse_args([*argv[:index], COMMAND_MARK, *argv[index + 1:]]).task == COMMAND_MARK)
+
+
+def is_resume_command(argv) -> bool:
+    """Whether autocode reads argv as `autocode resume`: the command word, not task text or an option's value.
+
+    For a caller that must recognize the word without acting on the rest (autocode_unattended): on a
+    paused or blocked run the word stands for --resume-paused (_acknowledges_pause). An argv
+    argparse refuses exits via parser.error, as autocode itself would.
+    """
+    argv = list(argv)
+    if argv[:1] == ["resume"]:
+        return True
+    return _command_word_at(build_parser(None, DEFAULT_ROLE_MODELS), argv, "resume") is not None
+
+
+def _acknowledges_pause(args):
+    """Whether `autocode resume` stands for --resume-paused: the run is paused or blocked
+    (run_finder.resume_acknowledges) and nothing else is asked.
+
+    Typing the command is the explicit acknowledgement --resume-paused records, with the same
+    effects: no new budget or --grant-recovery allowance, but the per-cycle report-repair and
+    resolver attempt counts restart and an invalid-output pause gets its one fresh attempt. A plain
+    `autocode` still only shows the pause, and a finished or running run is left to the usual
+    relaunch. Recovery companions also acknowledge a verified operational pause published as
+    WAITING_FOR_USER; bare resume leaves that request alone. A design conflict waits for the
+    user to edit the design: resume shows it.
+    """
+    if args.resume_paused or not args.run_dir or args.resolver_response or any(user_actions(args).values()):
+        return False
+    try:
+        state = json.loads((Path(args.run_dir) / "state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    status = str(state.get("status", "")) if isinstance(state, dict) else ""
+    if status == "WAITING_FOR_USER" and any((
+            args.retry_builder, args.retry_failed_stage, args.retry_report, args.diagnose_failed_stage,
+            args.grant_recovery is not None, args.accept_transport_change,
+            args.expected_recovery_token is not None, args._explicit_budget_flags)):
+        # Publication changes the status, not the underlying pause. Verify its receipt rather
+        # than treating a request's scope label as authority; locked recovery still checks it.
+        issued = resolver_human.current(state)
+        if issued and issued['scope'] == 'operational_exhaustion':
+            proposal = state['resolver']['human_escalations'][issued['request_id']]['identity']['proposal']
+            status = str(proposal['origin'].get('pause_status', ''))
+    return run_finder.resume_acknowledges(status)
 
 
 def _requires_resume(parser, args, flag):

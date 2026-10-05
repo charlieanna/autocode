@@ -367,6 +367,11 @@ def choose(settings: dict, provider, workspace, *, interactive: bool, ask=input,
     return settings
 
 
+def default_roles(provider) -> dict[str, dict]:
+    """The route every role of a new run takes on ``provider``: what `autocode models` and doctor check."""
+    return {role: {"model": model} for role, model in provider.DEFAULT_MODELS.items() if role in ROLES}
+
+
 def cli(argv: list[str]) -> int:
     """`autocode models`: what your plans offer, and whether the default routes can be used."""
     parser = argparse.ArgumentParser(prog="autocode models",
@@ -386,7 +391,7 @@ def cli(argv: list[str]) -> int:
         available = provider.available_models(args.workspace)
         if available is None:
             raise RuntimeError(f"provider {name} does not list its models (no models or models_command)")
-        roles = {role: {"model": model} for role, model in provider.DEFAULT_MODELS.items() if role in ROLES}
+        roles = default_roles(provider)
         signed_in = getattr(provider, "openai_auth", None)
         openai_auth = signed_in(args.workspace) if signed_in and any(m.startswith("openai/") for m in available) else None
     except (RuntimeError, ValueError, OSError) as error:

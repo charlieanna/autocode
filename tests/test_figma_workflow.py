@@ -353,26 +353,33 @@ class FigmaWorkflow(unittest.TestCase):
         _, design, _ = self.run_ui()
         flow = test_subprocess.SubprocessFlow(); flow.setUp()
         self.addCleanup(flow.doCleanups)
-        from tests.visual_capture_fixtures import install_native_hook
-        install_native_hook(flow.root / 'fixture-bin' / 'codex')
+        from tests.figma_inventory_fixtures import install_inventory_hook, native_bundle
+        manifest_path = native_bundle(flow.root / 'native-source', 'Example123', 'greet.py')
+        install_inventory_hook(flow.root / 'fixture-bin' / 'codex', result='result', indent='')
         env = {**flow.env, 'AUTOCODE_FIXTURE_MODE': 'no-human', 'CODEX_HOME': str(flow.root / 'codex-config')}
+        env.update(FAKE_NATIVE_MANIFEST=str(manifest_path), FAKE_CAPTURE_REPO=str(Path(runner.__file__).parent.parent),
+                   FAKE_DESIGN_PROMPTS=str(flow.root / 'inventory-prompts.jsonl'))
         for key in ('OPENAI_API_KEY', 'CODEX_API_KEY', 'OPENAI_BASE_URL'):
             env.pop(key, None)
         result = subprocess.run([*flow.entry, '--workspace', str(flow.project), '--ui-run', str(design), '--chat'],
-                                input='CLI\nyes\n', capture_output=True, text=True, env=env, cwd=flow.root, timeout=45)
+                                input='CLI\nyes\n', capture_output=True, text=True, env=env, cwd=flow.root, timeout=180)
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
-        path = next(flow.project.glob('.autocode/worktrees/*/.autocode/runs/*/state.json'))
-        state = json.loads(path.read_text())
-        self.assertEqual('TASK_COMPLETE', state['status'])
-        self.assertEqual(URL, state['settings']['figma_file'])
-        self.assertEqual(str(design), state['ui_run'])
-        self.assertIn('The complete dashboard brief', state['task'])
-        self.assertEqual('codex', state['settings']['engine'])
-        self.assertEqual({'openai'}, {role['provider'] for role in state['settings']['roles'].values()})
-        self.assertTrue((Path(state['workspace']) / 'greet.py').exists())
+        from autocode_taskrun import TaskRun
+        run_dir = next(flow.project.glob('.autocode/worktrees/*/.autocode/runs/*'))
+        workspace = run_dir.parent.parent.parent
+        run = TaskRun(workspace, run_dir, command=flow.entry, env=env, timeout=180)
+        status = json.loads(run._invoke('status', '--status').stdout)
+        self.assertTrue(status['view']['done'], status)
+        self.assertEqual(URL, status['settings']['figma_file'])
+        self.assertEqual('codex', status['settings']['engine'])
+        self.assertEqual({'openai'}, {role['provider'] for role in status['settings']['roles'].values()})
+        self.assertTrue((workspace / 'greet.py').exists())
         self.assertFalse((flow.project / 'greet.py').exists())
-        for stage in state['stages']:
-            self.assertIn(URL, Path(stage['prompt']).read_text())
+        prompts = list(run_dir.glob('iterations/*/*.prompt.md'))
+        self.assertTrue(prompts)
+        self.assertTrue(any('The complete dashboard brief' in path.read_text() for path in prompts))
+        for path in prompts:
+            self.assertIn(URL, path.read_text())
 
 
 if __name__ == '__main__':

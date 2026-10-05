@@ -91,6 +91,9 @@ class SerialRecoveryTests(unittest.TestCase):
         self.assertEqual('astra_review', after['next_stage'])
         self.assertEqual('PASS', after['view']['evidence']['check_replay']['verdict'])
         self.assertEqual(before['contract_token'], after['contract_token'])
+        # Avoiding the first paid diagnosis leaves its inherited route lazy.
+        # Its later materialization must be exactly the approved planner route.
+        before['settings']['roles'].setdefault('resolver', copy.deepcopy(before['settings']['roles']['astra']))
         for field in ('roles', 'limits', 'builder_retry'):
             self.assertEqual(before['settings'][field], after['settings'][field])
         valid = subprocess.run([sys.executable, 'greet.py', 'Ada'], cwd=self.project,

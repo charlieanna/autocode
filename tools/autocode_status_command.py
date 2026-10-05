@@ -21,10 +21,15 @@ def render(runner, state, args, workspace, run_dir):
     check_workers = runner.processes.recorded_worker_state(check) if check else None
     stale_check = bool(check and not active and state.get("status") == "RUNNING"
                        and check_workers.get("checked") and not check_workers.get("alive"))
-    current = runner.support.snapshot(workspace) if state["status"] == "TASK_COMPLETE" else None
+    strict_visual = runner.visual_runtime.requested(state)
+    current = runner.support.snapshot(workspace) if state["status"] == "TASK_COMPLETE" or strict_visual or state.get('settings', {}).get('design_manifest') else None
+    visual_acceptance = (runner.visual_runtime.projection(state, current_snapshot=current)
+                         if (state.get('settings', {}).get('design_manifest') or strict_visual) and current else None)
     completion_current = (runner.completion_gate.completion_ready(state, state.get("final_decision", {}), current)
                           if state["status"] == "TASK_COMPLETE" else None)
-    public_view = runner.run_view.view(state)
+    if completion_current is True and (state.get('settings', {}).get('design_manifest') or strict_visual):
+        completion_current = runner.visual_runtime.completion_check(state, current_snapshot=current)['passed']
+    inspected = None
     if getattr(args, 'inspect_evidence', False):
         contract = state.get('goal_contract') or {}
         criteria = (contract.get('body') or {}).get('acceptance_criteria') or []
@@ -32,10 +37,14 @@ def render(runner, state, args, workspace, run_dir):
         accepted = [row['id'] for row in criteria if row.get('human_review') and row['id'] not in missing]
         inspected = verification.inspect(state, workspace, snapshot=runner.support.snapshot,
             read_state=lambda: runner.read_json(run_dir / 'state.json'), accepted_human_ids=accepted, initial_snapshot=current)
-        public_view['verification'] = inspected
         if completion_current is not None and (inspected['freshness'] != 'current'
                 or inspected.get('inspected_source_revision') != current['revision']):
             completion_current = False
+    public_view = runner.run_view.view(state, completion_current=completion_current,
+                                       visual_acceptance=visual_acceptance,
+                                       stale_report_repair=runner.stale_report_repair(state, workspace) is not None)
+    if inspected is not None:
+        public_view['verification'] = inspected
     checkpoint = runner.milestones.summary(state)
     stage = (active or {}).get("stage") or state.get("next_stage")
     next_action = (f"AutoResolver must reconcile retained attempt {runner.attempt_id(active)} before any provider call"

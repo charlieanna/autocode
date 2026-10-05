@@ -46,11 +46,31 @@ const ready=new Promise((resolve,reject)=>{let output='',errors='';server.stdout
   assert.equal(data('()=>document.querySelector("#draft-text").value'),'Keep this unsent thought');
   if(viewport==='mobile'||viewport==='tablet'){
    data('()=>{[...document.querySelectorAll("#quiet-plan button")].find(b=>b.textContent==="View full draft plan").click();return true}');
-   assert.match(data('()=>document.querySelector("#draft-plan-dialog").textContent'),/Updated from your messages/);
-  }else assert.match(data('()=>document.querySelector("#quiet-plan").textContent'),/Updated from your messages/);
+   assert.match(data('()=>document.querySelector("#draft-plan-dialog").textContent'),/Updated after your answer: “Use SQLite for /);
+  }else assert.match(data('()=>document.querySelector("#quiet-plan").textContent'),/Updated after your answer: “Use SQLite for /);
   const after=path.join(evidence,viewport+'-updated.png');browser('screenshot',after);
   results.push({viewport,bounds,before,after});
   if(viewport==='desktop'){
+   // While a Planner draft is running the composer stays open; the answer sent
+   // meanwhile waits behind it and one follow-up draft covers both (#21).
+   browser('fill','#draft-text','Slow draft: add an export screen');browser('click','#draft-send');
+   wait('latestConversation?.status==="ready"&&latestConversation?.draft_update?.held&&!conversationPending.has(activeConversation)');
+   browser('click',button);
+   wait('latestConversation?.planner_delivery?.state==="PROCESS_STARTED"&&latestConversation?.status==="ready"&&!conversationPending.has(activeConversation)');
+   browser('fill','#draft-text','Use CSV for the export');
+   assert.equal(data('()=>document.querySelector("#draft-send").disabled'),false,'The composer accepts an answer while the draft runs');
+   browser('click','#draft-send');
+   wait('latestConversation?.draft_update?.coalesced&&latestConversation?.status==="ready"&&!conversationPending.has(activeConversation)');
+   const waitingTurn=data('()=>latestConversation.draft_update.logical_turn_id');
+   assert.match(data('()=>document.querySelector("#draft-messages [data-draft-update]").textContent'),/one update covering all of them starts as soon as it finishes/);
+   assert.equal(data('()=>document.querySelectorAll("#draft-messages [data-draft-update] button").length'),0,'No second Planner launch is offered');
+   assert.match(data('()=>document.querySelector("#quiet-plan").textContent'),/one draft update follows the one in progress/);
+   assert.equal(JSON.parse(fs.readFileSync(fixture.calls)).filter(row=>row.role==='planner'&&row.turn===waitingTurn).length,0);
+   browser('screenshot',path.join(evidence,'desktop-coalesced.png'));
+   fs.writeFileSync(fixture.gate,'');
+   wait('latestConversation?.plan_drafts?.at(-1)?.status==="current"&&latestConversation?.plan_drafts?.at(-1)?.logical_turn_id==='+JSON.stringify(waitingTurn));
+   assert.equal(JSON.parse(fs.readFileSync(fixture.calls)).filter(row=>row.role==='planner'&&row.turn===waitingTurn).length,1,'One follow-up draft');
+   assert.match(data('()=>document.querySelector("#quiet-plan").textContent'),/Updated after your answers: “Slow draft: add an export screen” · “Use CSV for the export”/);
    for(const label of ['Safe draft failure','Ambiguous draft failure']){
     browser('fill','#draft-text',label);browser('click','#draft-send');
     wait('latestConversation?.status==="ready"&&latestConversation?.draft_update?.held');

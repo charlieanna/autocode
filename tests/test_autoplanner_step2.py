@@ -391,4 +391,5 @@ class NewBehaviorCriterionRuleTests(EpisodeCase):
         rule = 'A "test:" criterion describes behavior that does not exist before the run'
         self.assertIn(rule, planner.EXAMPLE_CRITERIA_RULE)
         self.assertIn(rule, prompt)
+        self.assertIn("A test: criterion cannot be proven by a test-only diff.", prompt)
         self.assertIn("imports without __init__.py", prompt)

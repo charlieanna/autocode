@@ -15,7 +15,7 @@ import json
 import re
 import uuid
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 try:
     from . import autocode_support as support, autocode_goals as goals, autocode_providers
@@ -24,7 +24,7 @@ try:
     from . import autocode_retired_token_budget as retired_token_budget, autocode_design_manifest as design_manifest
     from . import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
     from . import autocode_task_preflight as task_preflight, autocode_output_policy as output_policy
-    from . import autocode_base_patch as operator_patch
+    from . import autocode_base_patch as operator_patch, autocode_quota_route as quota_route
 except ImportError:
     import autocode_support as support, autocode_goals as goals, autocode_providers
     import autocode_opencode, autocode_figma as figma
@@ -32,7 +32,7 @@ except ImportError:
     import autocode_retired_token_budget as retired_token_budget, autocode_design_manifest as design_manifest
     import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
     import autocode_task_preflight as task_preflight, autocode_output_policy as output_policy
-    import autocode_base_patch as operator_patch
+    import autocode_base_patch as operator_patch, autocode_quota_route as quota_route
 
 DEFAULT_ROLE_MODELS = {
     "astra": "gpt-5.6-sol",
@@ -104,9 +104,21 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         raise ValueError("--provider requires the OpenCode engine; --engine codex uses its native transport")
     figma_file = getattr(args, "figma_file", None)
     saved_figma = state.get("settings", {}).get("figma_file")
-    if manifest_input and figma_file and urlparse(figma.design_url(figma_file)).path.strip("/").split("/")[1] not in {
-            file["key"] for file in manifest_input["body"]["files"]}:
-        raise ValueError("Native Figma file is not declared in --figma-manifest")
+    if manifest_input and figma_file:
+        target = urlparse(figma.design_url(figma_file))
+        parts = target.path.strip("/").split("/")
+        file_key = parts[1] if len(parts) > 1 else None
+        file = next((row for row in manifest_input["body"]["files"] if row["key"] == file_key), None)
+        if file is None:
+            raise ValueError("Native Figma file is not declared in --figma-manifest")
+        node_id = parse_qs(target.query).get("node-id", [None])[0]
+        if node_id:
+            node_id = node_id.replace("-", ":")
+            declared = (file["nodes"] if manifest_input["body"]["version"] == 1 else
+                        [node for page in file["pages"]
+                         for node in design_manifest.inventory._metadata_nodes(page, manifest_input["root"])[0]])
+            if node_id not in declared:
+                raise ValueError("Native Figma node is not declared in --figma-manifest")
     if (figma_file or saved_figma) and engine != "codex":
         raise ValueError("Figma integration requires the Codex engine")
     if figma_file or saved_figma:
@@ -323,7 +335,14 @@ def configure(args, state, *, planning, milestones, autopilot, opencode=None):
         figma.require_chatgpt(local)
         for config in settings["roles"].values():
             config["provider"] = "openai"
-        settings.update(figma_file=figma.design_url(figma_file), figma_review=getattr(args, "figma_review", None) or "automatic")
+        settings.update(figma_file=figma.design_url(figma_file), figma_review=getattr(args, "figma_review", None) or "automatic",
+                        figma_inventory_required=True, figma_references=[figma_file, *getattr(args, "figma_additional_file", [])])
+    if figma_file and manifest_input and manifest_input["body"]["version"] == 2:
+        try:
+            from . import autocode_design_intake as intake
+        except ImportError:
+            import autocode_design_intake as intake
+        intake.require_references(manifest_input, settings["figma_references"], exact=False)
     if joint:
         configure_joint(settings, args, fresh=True, planning=planning, opencode=opencode)
     if getattr(args, 'conversation_handoff', None):
@@ -406,19 +425,13 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
         settings["roles"]["plan_reviewer"]["model"] = args.plan_reviewer_model
     if getattr(args, "plan_reviewer_reasoning_effort", None):
         settings["roles"]["plan_reviewer"]["reasoning_effort"] = args.plan_reviewer_reasoning_effort
-    builtin_opencode = not getattr(opencode, "CONFIGURED", False)
+    configured_tool = getattr(opencode, "CONFIGURED", False)
     for role, config in settings["roles"].items():
-        if planning.engine_for(settings, role) == "codex":
-            if "/" in config["model"]:
-                raise ValueError(f"Joint planning {role.title()} uses a bare Codex model name, e.g. gpt-5.6-sol")
-        elif builtin_opencode:
-            # Preserve OpenCode's catalogue identifier, not a Codex alias or a
-            # provider whitelist. check_models verifies actual availability.
-            if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,120}", config["model"]):
-                raise ValueError(f"{role.title()} requires an OpenCode provider/model identifier; "
-                                 "saved session engines cannot be switched on resume")
-        elif not isinstance(config.get("model"), str) or not config["model"].strip() or any(char.isspace() for char in config["model"]):
-            raise ValueError(f"{role.title()} requires a model name from the provider config")
+        # One rule for a launch and for a model named at a quota stop (autocode_quota_route).
+        problem = quota_route.model_problem(role, config.get("model"), role_engine=planning.engine_for(settings, role),
+                                            configured_tool=configured_tool)
+        if problem:
+            raise ValueError(problem)
 
 
 def configure_codex_joint(settings, args, *, planning):

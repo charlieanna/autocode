@@ -32,8 +32,15 @@ assert permissions["task"] == "deny" and permissions["question"] == "deny"
 if agent != "autocode_terra":
     assert permissions["edit"] == "deny"
 prompt = sys.stdin.read()
-assert "OPENCODE OUTPUT CONTRACT" in prompt
-data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+if (os.environ.get("AUTOCODE_FIXTURE_REPORT_LOSS")
+        and prompt.startswith("Your previous final message could not be parsed as the report:")):
+    # Same-session serialization correction deliberately has no full handoff.
+    data = {"execution_engine": "opencode", "report_repair": True,
+            "stage": "sol_report_repair", "original": {"stage": "sol"}}
+    prompt += "\nCURRENT HANDOFF DATA\n" + json.dumps(data)
+else:
+    assert "OPENCODE OUTPUT CONTRACT" in prompt
+    data = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
 assert data["execution_engine"] == "opencode"
 session = sys.argv[sys.argv.index("--session") + 1] if "--session" in sys.argv else "ses_" + uuid.uuid4().hex
 if os.environ.get("AUTOCODE_FIXTURE_SESSION_DRIFT"):
@@ -65,10 +72,25 @@ with tempfile.TemporaryDirectory() as temp:
                           "state": {"status": "completed", "input": {"command": item["command"]},
                                     "metadata": {"exit": item["exit_code"]}, "output": item["aggregated_output"]}})
     final = report.read_text().replace('"event:check"', '"event:prt_check"')
-    if os.environ.get("AUTOCODE_FIXTURE_TRUNCATE_STAGE") == data.get("stage"):
+    if os.environ.get('AUTOCODE_FIXTURE_INVALID_INVESTIGATOR') and data.get('stage') == 'investigate_stuck':
+        value = json.loads(final)
+        value.pop('diagnosis')
+        final = json.dumps(value)
+    loss_cache = os.environ.get('AUTOCODE_FIXTURE_REPORT_LOSS')
+    owner = (data.get('original') or {}).get('stage', data.get('stage'))
+    if loss_cache and owner == 'sol':
+        # Preserve the synthetic complete report for report-only replies while
+        # dropping delivery from both the original and correction/repair calls.
+        Path(loss_cache).write_text(final)
+        final = final[:1]
+    if (os.environ.get("AUTOCODE_FIXTURE_TRUNCATE_STAGE")
+            and os.environ["AUTOCODE_FIXTURE_TRUNCATE_STAGE"] == data.get("stage")):
+        # Like OpenCode 1.x: use the output cap this process actually received.
+        cap = os.environ.get("OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX", "")
+        cap = int(cap) if cap.isdigit() and int(cap) > 0 else 32000
         emit("text", {"id": "prt_text", "type": "text", "text": final[:-1], "time": {"end": 1}})
         emit("step_finish", {"id": "prt_finish", "type": "step-finish", "reason": "length", "cost": 0,
-                             "tokens": {"input": 100, "output": 50, "reasoning": 0,
+                             "tokens": {"input": 100, "output": cap - cap // 2, "reasoning": cap // 2,
                                         "cache": {"read": 0, "write": 0}}})
         raise SystemExit(0)
     emit("text", {"id": "prt_text", "type": "text", "text": final, "time": {"end": 1}})

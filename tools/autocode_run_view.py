@@ -5,8 +5,9 @@ read this instead of the ~140 keys of state.json, which stay private to the
 runner. `autocode --run-dir RUN --status` prints it under "view".
 
 This is a contract (see docs/task-run.md). Add fields; never rename or remove
-one, and bump SCHEMA if a meaning changes. It is a pure function of the saved
-state and imports nothing from the runner.
+one, and bump SCHEMA if a meaning changes. It is a read-only projection of saved
+state and explicitly named usage logs, never sibling/private state discovery.
+It imports nothing from the runner.
 """
 from __future__ import annotations
 
@@ -15,18 +16,20 @@ from copy import deepcopy
 
 try:
     from . import autocode_output_policy as output_policy, autocode_request_usage as request_usage
-    from . import autocode_usage, autocode_design_coverage as design_coverage
-    from . import autocode_contract_identity as contract_identity
+    from . import autocode_usage, autocode_efficiency, autocode_design_coverage as design_coverage
+    from . import autocode_contract_identity as contract_identity, autocode_report_retry as report_retry
     from . import autocode_progressive_plan as progressive_rules
     from . import autocode_verification_view as verification_view
     from . import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
+    from . import autocode_quota_route as quota_route
 except ImportError:
     import autocode_output_policy as output_policy, autocode_request_usage as request_usage
-    import autocode_usage, autocode_design_coverage as design_coverage
-    import autocode_contract_identity as contract_identity
+    import autocode_usage, autocode_efficiency, autocode_design_coverage as design_coverage
+    import autocode_contract_identity as contract_identity, autocode_report_retry as report_retry
     import autocode_progressive_plan as progressive_rules
     import autocode_verification_view as verification_view
     import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
+    import autocode_quota_route as quota_route
 
 SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -35,7 +38,8 @@ CONTINUE = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER", "AWAITING_GOAL_APPROVA
 QUESTION_FIELDS = ("id", "question", "why", "options", "proposed_default")
 
 
-def view(state: dict) -> dict:
+def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_report_repair=False) -> dict:
+    """Caller supplies fresh completion, visual evidence and stale-repair projections."""
     status = state.get("status", "")
     task = state.get("current_task") or {}
     result = {
@@ -46,8 +50,8 @@ def view(state: dict) -> dict:
         "schema": SCHEMA,
         "status": status,
         "done": status in COMPLETE,
-        "needs": needs(state),
-        "recovery": recovery_view.project(state, needs(state)),
+        "needs": needs(state, stale_report_repair=stale_report_repair),
+        "recovery": recovery_view.project(state, needs(state, stale_report_repair=stale_report_repair)),
         "verification": verification_view.project(state),
         "code_checkpoints": code_checkpoints.project(state),
         "phase": state.get("phase"),
@@ -71,7 +75,14 @@ def view(state: dict) -> dict:
         "output_transport": output_policy.view(state),
         # Runner-owned assignment provenance, never a model diagnosis or completion proof.
         "direct_rework_assignments": deepcopy(state.get("direct_rework_assignments", [])),
+        # The model and engine each role's next launch uses, and every model a person named for a
+        # role after its quota ran out (autocode_quota_route): role, from, to, stage, at, via.
+        "routes": quota_route.routes(state),
+        "route_assignments": quota_route.assignments(state),
     }
+    result["efficiency"] = autocode_efficiency.summary(
+        state, accounting=result["usage"]["accounting"], completion_current=completion_current,
+        visual_acceptance=visual_acceptance)
     contract = state.get("goal_contract") or {}
     if isinstance(contract, dict) and isinstance(contract.get("body"), dict):
         try:
@@ -263,19 +274,23 @@ def evidence(state: dict) -> dict:
                        for case in investigation.get("test_cases") or [] if isinstance(case, dict)]
                       if investigation.get("outcome") == "reproduced" else [],
         "check_replay": {"protected_tests": deepcopy(replay.get("protected_tests")), "verdict": replay.get("verdict"), "source_revision": replay.get("source_revision"),
-                         "checks": [{key: row.get(key) for key in ("command", "exit_code", "timed_out", "output")}
-                                    for row in replay.get("checks") or [] if isinstance(row, dict)]}
+                         "scheduling": deepcopy(replay.get("scheduling")),
+                         "checks": [{key: deepcopy(row.get(key)) for key in
+                                     ("command", "exit_code", "timed_out", "output", "output_sha256", "duration_seconds",
+                                      "error", "tail", "purpose", "scheduling", "results")}
+                                     for row in replay.get("checks") or [] if isinstance(row, dict)]}
                         if isinstance(replay, dict) else None,
     }
 
 
-def needs(state: dict) -> dict | None:
+def needs(state: dict, *, stale_report_repair=False) -> dict | None:
     """What must happen next for the run to progress, or None when it is complete.
 
     kind          what it asks for                  answered with
     review        human acceptance of criteria      --approve-review CRITERION --review-token TOKEN
     answer        answers to pending questions      --answer QUESTION_ID=TEXT (plus --resolver-token
-                                                     when the view carries one)
+                                                     when the view carries one); with `route` set, a
+                                                     role's quota ran out: --answer route-ROLE=MODEL
     approve_plan  approval of the displayed plan    --approve-goal TOKEN
     planning_budget  more planning review calls     --feedback TEXT or --planning-review-call-limit N
     resume        a person to inspect a pause       --resume-paused, after resolving stop_reason;
@@ -336,6 +351,18 @@ def needs(state: dict) -> dict | None:
             answer["resolver_request_id"] = published.get("request_id")
             answer["resolver_token"] = published.get("request_token")
             answer["resolver_scope"] = published.get("scope")
+        # A quota stop or a content-filter refusal asks for a model (#184): answer --answer
+        # route-ROLE=MODEL. It has no default and is a person's decision, never a delegable
+        # requirements answer. ``cause`` is "quota" or "content_filter"; ``stopped_model`` is the
+        # model that stopped; ``candidates`` (refusal only) the configured models that would pass.
+        route = next((q for q in questions if q.get("category") == quota_route.CATEGORY
+                      and quota_route.asked_route(questions, q.get("id"))), None)
+        if route:
+            answer["route"] = {"question_id": route["id"], "role": route["route_role"], "job": route.get("job"),
+                               "current_model": route.get("current_model"), "engine": route.get("engine"),
+                               "cause": route.get("cause", "quota"), "stopped_model": route.get("stopped_model")}
+            if "candidates" in route:
+                answer["route"]["candidates"] = list(route["candidates"])
         return answer
     if status == "AWAITING_GOAL_APPROVAL":
         # The approval token is saved when the CLI displays the plan; until then, relaunch to display it.
@@ -350,12 +377,18 @@ def needs(state: dict) -> dict | None:
             attempt = f"{active['iteration']:03d}/{Path(active['output']).stem}"
             need["abandon_stage"] = attempt
             need["action"] = f"--abandon-stage {attempt} then --resume-paused"
+        if stale_report_repair:
+            need["action"] = "--resume-paused"
+            return need
         pending = state.get("pending_report_repair") or {}
-        rejected = pending.get("latest_rejected") or {}
+        rejected = report_retry.rejected_attempt(state) or {}
         if (status == "PAUSED_REPEATED_FAILURE"
-                and pending.get("error") == "Check is not supported by an exact executed Validator event"
-                and pending.get("attempts") == (state.get("settings") or {}).get("report_repair", {}).get("max_attempts", 2)
+                and (pending.get("original") or {}).get("stage") == "sol"
+                and not any(state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts"))
+                and pending.get("error") in report_retry.RETRYABLE_ERRORS
+                and report_retry.bounded_failure(state, (state.get("settings") or {}).get("report_repair", {}).get("max_attempts", 0))
                 and isinstance(rejected.get("iteration"), int) and rejected.get("output")):
             need["retry_report_attempt"] = f"{rejected['iteration']:03d}/{Path(rejected['output']).stem}"
+            need["action"] = f"--resume-paused --retry-report {need['retry_report_attempt']}"
         return need
     return {"kind": "continue"}

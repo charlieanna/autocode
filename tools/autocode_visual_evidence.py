@@ -8,9 +8,9 @@ import copy
 from pathlib import Path
 from urllib.parse import urlsplit
 try:
-    from . import autocode_util as util, autocode_design_manifest as design
+    from . import autocode_util as util, autocode_design_manifest as design, autocode_design_identity as design_identity, autocode_contract_identity as contract
 except ImportError:
-    import autocode_util as util, autocode_design_manifest as design
+    import autocode_util as util, autocode_design_manifest as design, autocode_design_identity as design_identity, autocode_contract_identity as contract
 
 
 def reference_hash(settings):
@@ -53,8 +53,9 @@ def _verify(state, capture_ref, capture_sha256=None, *, case=None, current=None)
     body = util.read_object(path)
     if body.get('version') != 1 or body.get('kind') != 'implementation_capture':
         raise ValueError('Missing implementation capture provenance')
-    if body.get('reference_hash') != reference_hash(state.get('settings', {})):
-        raise ValueError('Implementation capture belongs to a different design reference')
+    if (body.get('reference_hash') != reference_hash(state.get('settings', {}))
+            and not design_identity.matches(state.get('settings', {}), body.get('reference_hash'), (body.get('case') or {}).get('id'))):
+        raise ValueError('Implementation capture belongs to a different design reference or an affected case')
     current = current or util.snapshot(root)
     if body.get('source_revision') != current['revision']:
         raise ValueError('Stale implementation capture: source changed since capture; recapture the current implementation')
@@ -136,8 +137,6 @@ def context(state, current):
     for path in sorted((root / '.autocode' / 'captures').glob('*/manifest.json')):
         try:
             body = util.read_object(path)
-            if body.get('reference_hash') != reference:
-                continue
             cid = body['case']['id']
             if cases and cid not in cases:
                 continue
@@ -160,7 +159,13 @@ def native_refs(state, report):
     outcomes = report.get('criterion_results', [])
     complete = ({row.get('id') for row in outcomes} == {row['id'] for row in state.get('acceptance_criteria', [])}
                 and all(row.get('status') == 'PASS' for row in outcomes))
-    if report.get('verdict') == 'PASS' and complete and not rows:
+    body = (state.get('goal_contract') or {}).get('body') or {}
+    strict = any(isinstance(row, str) and row.startswith(('VISUAL_CASE_CRITERIA=', 'VISUAL_REVIEW_PROFILE='))
+                 for row in body.get('constraints', []))
+    functional_only = (contract.approved(state) and not strict
+                       and 'visual acceptance' in {row.strip().casefold() for row in body.get('scope_exclusions', [])
+                                                   if isinstance(row, str)})
+    if report.get('verdict') == 'PASS' and complete and not rows and not functional_only:
         raise ValueError('Visual PASS needs current implementation capture receipts, not historical screenshots')
     refs, candidates = [], set()
     cited = {str(local_file(state['workspace'], ref)) for result in report.get('criterion_results', [])

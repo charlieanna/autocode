@@ -4,15 +4,18 @@
 
 How a program drives one AutoCode task run: start it, read where it stands,
 answer what it asks, and let it continue. This is the only supported way for
-code outside the runner (the scenario harness, and the planned architecture and
-multi-component layer) to control a run. Such code must not import runner
-internals such as `autocode.py` or read `state.json` directly; that file has
+code outside the runner (the scenario harness, `autocode program`, and the planned
+architecture and multi-component layer) to control a run. Such code must not import
+runner internals such as `autocode.py` or read `state.json` directly; that file has
 about 140 keys and changes without notice.
 
 Every step is one CLI invocation, and the run's state lives on disk. A caller
 that crashes can reattach to the same run directory with
 `TaskRun(workspace, run_dir)`, or with `TaskRun.attach(workspace)` if it never
-learned the run directory (it returns the workspace's only run, or `None`).
+learned the run directory (it returns the workspace's only run, or `None`). In a
+workspace where someone else may also run AutoCode, note `TaskRun.runs_in(workspace)`
+before the start and pass it as `attach(workspace, exclude=...)`, so that only a run
+created since can be adopted.
 
 ## Python client
 
@@ -57,6 +60,23 @@ instead of `options`: `TaskRun.start(workspace, brief, options=("--engine", "cod
 start_options=("--ui-run", str(design_run)))`. They are passed once; later advances
 and reattachment use the saved design settings.
 
+A caller that keeps each invocation's output, as `autocode program` keeps a
+workstream's `stdout.log`, `stderr.log` and exit code, reads it from the client:
+
+- `TaskRun.last_advance` is the `subprocess.CompletedProcess` of the latest call that
+  starts or advances the run (start, advance, resume and retries), also when AutoCode
+  rejected it. Status reads and user actions never replace it.
+- `TaskRunError.process` is the `CompletedProcess` of the CLI call that failed. It is
+  `None` when the error is not a failed call: a call that could not run or did not
+  finish (a missing working directory, a timeout), `attach` finding several runs, or a
+  guard such as `advance_until_input`'s no-progress check, which is raised after its
+  calls finished; `last_advance` still holds the latest advancing call. A start that
+  fails may still have created its run: `TaskRunError.run_dir` names it when it
+  created exactly one.
+- `TaskRun.cwd` (`cwd=` on `start` and `attach`) is the CLI's working directory, so
+  relative paths in `options` and `start_options` resolve against it. `None`, the
+  default, keeps the caller's. A continuation from `restore_checkpoint` keeps it.
+
 Operator-declared prerequisites can be supplied once with `--task-preflight`
 in `start_options`. A failed prerequisite pauses before paid dispatch and is
 visible in the additive `task_preflight` status field. See
@@ -74,11 +94,12 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Status | `autocode --status` | 0; prints JSON, the view is under `"view"` |
 | Display brief | `autocode --show-goal` | 0; prints the current brief for human review |
 | Continue | `autocode --no-chat [options]` | 0 complete, 2 stopped for input |
-| Resume a pause | `autocode --resume-paused --no-chat [options]` | 0 complete, 2 stopped for input |
+| Resume a pause | `autocode resume --no-chat [options]`; after editing the design at `PAUSED_DESIGN_CONFLICT`, `autocode --resume-paused --no-chat [options]` | 0 complete, 2 stopped for input |
 | Grant N recoveries after resolving the cause | `autocode --resume-paused --grant-recovery N --no-chat [options]` | 0 complete, 2 stopped for input |
 | Accept a changed OpenCode transport | `autocode --resume-paused --accept-transport-change --no-chat [options]` | 0 complete, 2 stopped for input |
 | Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN` (`--answer` repeatable) | 0 saved, 2 rejected |
 | Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT` | 0 saved, 2 rejected |
+| Name the model a role stopped on quota or a content-filter refusal continues on | `autocode --answer route-ROLE=MODEL --resolver-token TOKEN`, then resume the pause | 0 saved, 2 rejected |
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
 | Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
 | Plan feedback | `autocode --feedback TEXT` | 0 saved, 2 rejected |
@@ -91,14 +112,25 @@ kind of job again from the new message and continues in the same run
 directory. After a review, a follow-up that asks to act on the findings is
 planned from them: the review's blocking findings are the requirements, so no
 requirements questions are asked, and the plan still goes to the user for
-approval. A usage error
+approval. The rewritten task names what the previous turn wrote (its report or
+note, then the files its stages changed; at most eight paths). After a design
+turn, a follow-up that asks to build the design names that document, so the
+build starts by checking it against the repository (`check_design`) instead of
+gathering requirements; its plan still needs approval. Only a finished run takes
+a follow-up, and a finished run takes no answer, feedback or edited plan: either
+mistake exits 2 and changes nothing (see [CLI](cli.md#waiting-or-finished)). A usage error
 also exits 2, with a message starting `usage:` on stderr; the client checks for
 it so a mistyped flag is not mistaken for a pause. A rejection also exits 2,
 starting `Input rejected:`, and startup can exit 2 before any run exists;
 `TaskRun.start` raises with the tail of the CLI's output so a startup failure
 is never mistaken for a pause.
 `TaskRun.respond_operational()` uses the separate Resolver response command;
-an operational request cannot be answered with `TaskRun.answer()`.
+an operational request cannot be answered with `TaskRun.answer()`, except the
+model question of a quota stop or a content-filter refusal (`needs.route`, see [Models](models.md#when-a-roles-quota-runs-out)):
+`TaskRun.assign_model(role, model)` answers `route-ROLE` with a model a person
+named, updates a `--ROLE-model` in the client's `options`, and leaves the run
+paused for `resume_paused()`. A refused model raises and leaves the run paused
+with the question open.
 Each answer consumes the Resolver request whose token it carries, and the
 questions still open come back under a new `resolver_token`, so a token read
 before an earlier answer is rejected. Without `resolver_token`,
@@ -109,6 +141,20 @@ they never saw.
 `TaskRun.accept_transport_change()` uses the explicit transport-change command
 after a person inspects the new route and the saved run reports
 `PAUSED_TRANSPORT_CHANGED`.
+
+## Reviewed Figma input changes
+
+Start with native references (`--figma-file` and repeatable `--figma-additional-file`)
+or a complete exported bundle (`--figma-manifest`) in `start_options`. Both inputs
+produce the same durable coverage and plan ownership, exposed in `view.design`.
+See [figma.md](figma.md) for collection, responsive derivation and source receipts.
+
+At a stopped, reconciled boundary, `run.revise_design(manifest_path,
+view["design"]["manifest_hash"], reason)` proposes a new complete bundle. It keeps
+the old references, approvals and independently recorded evidence, pauses for a
+new plan review, and launches no model. A changed hash, active worker or pending
+control rejects the correction. Resume through `TaskRun.resume_paused()` to
+review the updated coverage; existing plan and completion gates still apply.
 
 ## Exact stopped-run recovery
 
@@ -257,6 +303,13 @@ text. Automation must check these structured fields and bind the token to
 embedded in `--show-goal` prose. This projection is not approval, execution permission
 or completion proof; the existing CLI approval checks remain authoritative.
 
+`routes` maps every configured role to the `model` and `engine` its next launch
+uses. `route_assignments` lists, oldest first, every model a person named for a
+role after its quota ran out or its provider's content filter refused it: `kind` (always `route_assignment`), `role`, `job`,
+`from`, `to`, `engine`, `stage`, `attempt_id`, `events`, `pause_status`, `at`,
+`actor`, `via` (`answer` or `resume_flag`) and, when `via` is `answer`, the
+`request_id` it answered. It is empty for runs that never stopped on quota or a refusal.
+
 `direct_rework_assignments` records a repair assigned directly from a Completion
 Owner's accepted REWORK report. Each entry binds the original and assigned tasks,
 contract, source, report and evidence hashes, and the ordinary retry charged by
@@ -297,6 +350,13 @@ A `resolver_scope` of `operational_exhaustion` or `blocker` means Resolver
 stopped the run because it could not continue safely (for example, the
 run time limit was reached). That question is for a person who has looked at
 the run; a caller must not answer it with a proposed default.
+
+When a role's quota ran out or its provider's content filter refused it, the `answer`
+need also carries `route`: `question_id` (`route-ROLE`), `role`, `job`, `current_model`,
+`engine`, `cause` (`quota` or `content_filter`), `stopped_model` and, for a refusal,
+`candidates` (configured models that would pass the launch rules; advice only). Its
+question has no default and is never delegable; only a model a person names
+answers it (`--answer route-ROLE=MODEL`), and the run then needs a resume.
 
 Approving a plan or a review is a real user decision. Automated callers should
 do it only when a person has delegated that decision to them, as the scenario

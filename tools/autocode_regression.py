@@ -20,27 +20,33 @@ fails the proof.
 A feature gets the same proof when its approved plan marks acceptance criteria
 as tests (``verification_method: "test: test_c2_..."``,
 autocode_test_cases.contract_cases): each such test must pass with the change
-and must not have passed without it (verify's ``new_behavior``). With several
-milestones, a checkpoint proves the criteria of its own milestone and of those
-already accepted (autocode_test_cases.in_scope); a milestone with none due runs
-no proof.
+and must not have passed without it (verify's ``new_behavior``). A milestone
+whose due criteria are all ``guard:`` (behavior the product already implements)
+is coverage: the diff may be test files alone, and each test must pass on the
+base and on the candidate (verify's ``preserve_only``). A saved permission
+answer that grants a test-only regression-proof exception for the current
+contract is the same coverage proof, so a plan that marked that coverage
+``test:`` can still finish. With several milestones, a checkpoint proves the
+criteria of its own milestone and of those already accepted
+(autocode_test_cases.in_scope); a milestone with none due runs no proof.
 """
 from __future__ import annotations
 
 import subprocess
 import time
 from pathlib import Path
+import uuid
 
 try:
     from . import autocode_util as util, autocode_goals as goals, autocode_verify as verify
     from . import autocode_base_patch as operator_patch
     from . import autocode_workspaces as workspaces
-    from . import autocode_bug_job as bug_job, autocode_test_cases as test_cases
+    from . import autocode_test_cases as test_cases
     from . import autocode_follow_up as follow_up
     from . import autocode_runner_check as runner_check, autocode_status as status
+    from . import autocode_verification_schedule as schedule
     from . import autocode_wrapped_runner as wrapped_runner
 except ImportError:
-    import autocode_bug_job as bug_job
     import autocode_follow_up as follow_up
     import autocode_test_cases as test_cases
     import autocode_util as util
@@ -50,10 +56,11 @@ except ImportError:
     import autocode_workspaces as workspaces
     import autocode_runner_check as runner_check
     import autocode_status as status
+    import autocode_verification_schedule as schedule
     import autocode_wrapped_runner as wrapped_runner
 
 STAGE = "regression_proof"
-SUMMARY_KEYS = ("verdict", "failures", "unverified", "notes", "review_reasons", "fail_to_pass", "pass_to_pass",
+SUMMARY_KEYS = ("framework", "verdict", "failures", "unverified", "notes", "review_reasons", "fail_to_pass", "pass_to_pass",
                 "not_run_on_base",
                 "commands", "base", "base_patch", "source_revision", "test_files", "source_files", "case_tests")
 
@@ -80,9 +87,40 @@ def required(state):
     return goals.task_kind(state) == "bugfix" or bool(test_cases.contract_cases(state))
 
 
+def _test_only_exception(state):
+    """True when the user granted a test-only regression-proof exception on this contract."""
+    contract = state.get("goal_contract") or {}
+    if not contract.get("hash") or contract.get("revision") is None:
+        return False
+    try:
+        from .autocode_contract_identity import token
+    except ImportError:
+        from autocode_contract_identity import token
+    current = token(contract)
+    for answer in (state.get("answers") or {}).values():
+        if not isinstance(answer, dict) or answer.get("kind") != "permission_answer":
+            continue
+        if answer.get("contract_token") != current:
+            continue
+        text = str(answer.get("text") or "").lower()
+        if text.startswith("grant") and "test-only" in text and "regression" in text:
+            return True
+    return False
+
+
+def preserve_only(state):
+    """Coverage of existing behavior: every due case is a guard, or the user granted that exception."""
+    if goals.task_kind(state) == "bugfix":
+        return False
+    due = cases(state)
+    if not due:
+        return False
+    return all(case.get("kind") == "preserve" for case in due) or _test_only_exception(state)
+
+
 def cases(state):
     """The English cases this proof must cover: the bug's diagnosis, else the plan's test criteria."""
-    return bug_job.test_cases(state) or test_cases.contract_cases(state)
+    return test_cases.proof_cases(state)
 
 
 def base_commit(state, workspace):
@@ -154,31 +192,48 @@ def reviewed_patch(state, workspace):
 def _baseline(state, workspace, run_dir, base, framework, suite, dependencies, base_patch=None, progress=None):
     cached = state.get("regression_baseline") or {}
     patch = str(base_patch) if base_patch else None
-    if (cached.get("base") == base and cached.get("command") == suite and cached.get("base_patch") == patch
-            and Path(cached.get("path", "")).is_file()):
-        return util.read(cached["path"])
+    binding = {"base": base, "command": suite,
+               "framework": framework.to_dict() if framework else None,
+               "base_patch": schedule.tree_identity(base_patch) if base_patch else None,
+               "timeout": suite_timeout(state),
+               "runtime": verify.baseline_identity(workspace, command=suite, dependencies_from=dependencies)}
+    if cached.get("binding") == binding and binding["runtime"].get("reuse_supported"):
+        try:
+            result = util.read(cached["path"])
+            if (util.file_hash(cached["path"]) == cached.get("sha256")
+                    and schedule.intact(result["receipt"], root=Path(cached["path"]).parent)
+                    and not result["receipt"].get("timed_out")
+                    and (not result["receipt"].get("results_expected")
+                         or schedule.complete_results(result["receipt"]))):
+                return result
+        except (OSError, ValueError, TypeError, KeyError):
+            pass
+    directory = Path(run_dir) / "regression" / ("baseline-" + uuid.uuid4().hex)
     if progress:
         progress("Testing the original code before comparing the change", command=suite,
-                 output=Path(run_dir) / "regression" / "baseline" / "suite-on-base.log")
-    result = verify.baseline(workspace, base, Path(run_dir) / "regression", framework=framework,
+                 output=directory / "baseline" / "suite-on-base.log")
+    result = verify.baseline(workspace, base, directory, framework=framework,
                              suite_command=suite, dependencies_from=dependencies, timeout=suite_timeout(state),
                              base_patch=base_patch)
-    path = Path(run_dir) / "regression" / "baseline.json"
+    path = directory / "baseline.json"
     util.atomic_json(path, result)
     state["regression_baseline"] = {"base": base, "command": suite, "path": str(path), "health": result["health"],
-                                    "base_patch": patch}
+                                    "base_patch": patch, "binding": binding, "sha256": util.file_hash(path)}
     return result
 
 
 def prove(state, workspace, run_dir):
     """Run (or reuse) the proof for the current source; return its summary. Launches no model."""
     workspace = Path(workspace)
+    schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     current = util.snapshot(workspace)["revision"]
     saved = state.get("regression_proof") or {}
     scope = sorted(case["id"] for case in cases(state))
     options = settings(state)
     python = options.get("python") or verify.python_for(state.get("project_workspace") or workspace)
     framework = verify.detect_framework(workspace, python=python)
+    base = base_commit(state, workspace)
+    operator = operator_patch.pinned(state)
     # Stored only in regression_proof; prove reads it before reusing evidence.
     # A repaired test environment must invalidate a prior failure (or PASS)
     # even when the source and acceptance criteria have not changed.
@@ -188,18 +243,37 @@ def prove(state, workspace, run_dir):
         "test_command": options.get("test_command"),
         "regression_command": options.get("regression_command"),
         "timeout": suite_timeout(state),
-        "base_patch": (operator_patch.pinned(state) or {}).get("sha256"),
+        "identity": verify.execution_identity(workspace, command=options.get("test_command") or
+                                               (framework.suite if framework else None),
+                                               dependencies_from=state.get("project_workspace")) if base else
+                    {"source_revision": current, "reuse_supported": False},
+        "base": base,
+        "base_patch": schedule.tree_identity(reviewed_patch(state, workspace)) if reviewed_patch(state, workspace) else None,
+        "operator_base_patch": {"pin": operator, "file": schedule.tree_identity(operator["path"])} if operator else None,
+        "contract_identity": util.digest(state.get("goal_contract")), "cases_identity": util.digest(cases(state)),
+        "preserve_only": preserve_only(state),
     }
     if (saved.get("source_revision") == current and saved.get("case_scope", scope) == scope
-            and saved.get("execution_context") == execution_context):
-        return saved
+            and saved.get("execution_context") == execution_context and saved.get("verdict") == verify.PASS
+            and execution_context["identity"]["reuse_supported"]):
+        try:
+            result = util.read(saved["path"])
+            if (util.file_hash(saved["path"]) == saved.get("receipt_sha256")
+                    and all(schedule.intact(row, root=Path(saved["path"]).parent)
+                            and (not row.get("results_expected") or schedule.complete_results(row))
+                            for row in result["checks"].values())):
+                return saved
+        except (OSError, ValueError, TypeError, KeyError):
+            pass
     with runner_check.track(state, run_dir, STAGE, "Preparing regression checks", status.persist) as progress:
-        proof = _prove(state, workspace, run_dir, current, scope, progress, framework)
+        proof = _prove(state, workspace, run_dir, current, scope, progress, framework, execution_context)
         proof["execution_context"] = execution_context
+        if proof.get("path"):
+            proof["receipt_sha256"] = util.file_hash(proof["path"])
         return proof
 
 
-def _prove(state, workspace, run_dir, current, scope, progress, framework):
+def _prove(state, workspace, run_dir, current, scope, progress, framework, execution_context):
     started = time.monotonic()
     base = base_commit(state, workspace)
     options = settings(state)
@@ -230,23 +304,36 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework):
         base_suite = (_baseline(state, workspace, run_dir, base, framework, suite, dependencies, base_patch, progress)
                       if suite else None)
         number = len(state.get("regression_proofs", [])) + 1
-        out = Path(run_dir) / "regression" / f"proof-{number:02d}"
+        out = Path(run_dir) / "regression" / f"proof-{number:02d}-{uuid.uuid4().hex}"
         progress("Comparing regression tests and checking the full candidate suite", command=suite, output=out)
+        coverage = preserve_only(state)
+        due = cases(state)
+        if coverage and any(case.get("kind") != "preserve" for case in due):
+            due = [{**case, "kind": "preserve"} for case in due]
+        regression_command = options.get("regression_command")
+        if coverage and not regression_command:
+            regression_command = options.get("test_command")
         result = verify.verify(workspace, base, out, framework=framework, suite_command=options.get("test_command"),
-                               regression_command=options.get("regression_command"),
+                               regression_command=regression_command,
                                reported=None, base_suite=base_suite, dependencies_from=dependencies,
                                timeout=suite_timeout(state),
-                               new_behavior=goals.task_kind(state) != "bugfix", base_patch=base_patch)
+                               new_behavior=goals.task_kind(state) != "bugfix",
+                               preserve_only=coverage, base_patch=base_patch)
         path = out / "verification.json"
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
         if operator:
             proof["review_reasons"] = [*(proof.get("review_reasons") or []), operator_patch.review_reason(operator)]
-        wanted = cases(state)
         named = [test for key in ("fail_to_pass", "pass_to_pass", "not_run_on_base") for test in proof.get(key) or []]
-        check_cases(proof, wanted, wrapped_runner.refusals(workspace, named) if wanted else {})
+        check_cases(proof, due, wrapped_runner.refusals(workspace, named) if due else {})
         proof["checks"] = {label: {"command": receipt["command"], "exit_code": receipt["exit_code"],
                                    "timed_out": receipt["timed_out"], "output": receipt["output"]}
                            for label, receipt in result["checks"].items()}
+    after = verify.execution_identity(workspace, command=options.get("test_command") or
+                                       (framework.suite if framework else None),
+                                       dependencies_from=state.get("project_workspace")) if path else execution_context["identity"]
+    if after != execution_context["identity"]:
+        proof["verdict"] = verify.UNVERIFIED
+        proof.setdefault("unverified", []).append("Execution context changed while proving the candidate")
     proof.update(case_scope=scope, path=str(path) if path else None, proved_at=util.now(),
                  duration_seconds=round(time.monotonic() - started, 1))
     if path:
@@ -307,19 +394,21 @@ def check_cases(proof, cases, refused=None):
             proof["verdict"] = verify.UNVERIFIED
         return
     refused = refused or {}
+    framework = proof.get("framework") or {}
+    framework = framework.get("name") if isinstance(framework, dict) else framework
 
     def usable(tests):
         return [test for test in tests or [] if test not in refused]
 
     def refusal(label, case):
-        reasons = sorted({refused[test] for test in test_cases.match_cases([case], sorted(refused))[case["id"]]})
+        reasons = sorted({refused[test] for test in test_cases.match_cases([case], sorted(refused), framework=framework)[case["id"]]})
         return (f"{label} {test_cases.case_text(case)} has a test named after it that cannot prove it: "
                 + "; ".join(reasons)) if reasons else ""
 
     restore = [case for case in cases if case.get("kind", "restore") == "restore"]
     preserve = [case for case in cases if case.get("kind") == "preserve"]
-    proof["case_tests"] = test_cases.match_cases(restore, usable(proof["fail_to_pass"]))
-    proof["case_tests"].update(test_cases.match_cases(preserve, usable(proof.get("pass_to_pass"))))
+    proof["case_tests"] = test_cases.match_cases(restore, usable(proof["fail_to_pass"]), framework=framework)
+    proof["case_tests"].update(test_cases.match_cases(preserve, usable(proof.get("pass_to_pass")), framework=framework))
     failures = []
     missing = [case for case in restore if not proof["case_tests"][case["id"]]]
     failures += [refusal("Test case", case) or
@@ -330,7 +419,7 @@ def check_cases(proof, cases, refused=None):
     # shown to fail there: it counts, with a note that its before-state is unproven.
     unrun = usable(proof.get("not_run_on_base"))
     for case in preserve:
-        found = [] if proof["case_tests"][case["id"]] else test_cases.match_cases([case], unrun)[case["id"]]
+        found = [] if proof["case_tests"][case["id"]] else test_cases.match_cases([case], unrun, framework=framework)[case["id"]]
         if found:
             proof["case_tests"][case["id"]] = found
             proof["notes"] = list(proof.get("notes") or []) + [
@@ -338,7 +427,7 @@ def check_cases(proof, cases, refused=None):
                 "on the original code (its test file imports code the change adds), so it is not shown to "
                 "have passed before"]
     mistagged = [case for case in preserve
-                 if set(test_cases.match_cases([case], usable(proof["fail_to_pass"]))[case["id"]]) - set(unrun)]
+                 if set(test_cases.match_cases([case], usable(proof["fail_to_pass"]), framework=framework)[case["id"]]) - set(unrun)]
     untested = [case for case in preserve
                 if not proof["case_tests"][case["id"]] and case not in mistagged]
     failures += [refusal("Preserve case", case) or
@@ -356,6 +445,7 @@ def check_cases(proof, cases, refused=None):
 
 def before_review(state, stage, workspace, run_dir):
     """Called by both dispatch paths just before the Validator (or combined checkpoint) runs."""
+    schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     runner_check.clear(state, run_dir, status.persist)
     if stage in ("sol", "astra_checkpoint") and required(state):
         prove(state, workspace, run_dir)
@@ -366,7 +456,16 @@ def complete(state, current_revision):
     if not required(state):
         return True
     proof = state.get("regression_proof") or {}
-    return proof.get("verdict") == verify.PASS and proof.get("source_revision") == current_revision
+    if proof.get("verdict") != verify.PASS or proof.get("source_revision") != current_revision:
+        return False
+    try:
+        result = util.read(proof["path"])
+        return (util.file_hash(proof["path"]) == proof.get("receipt_sha256")
+                and result.get("verdict") == verify.PASS and bool(result.get("checks"))
+                and all(schedule.intact(row, root=Path(proof["path"]).parent)
+                        for row in result["checks"].values()))
+    except (OSError, ValueError, TypeError, KeyError):
+        return False
 
 
 def handoff(state):

@@ -82,6 +82,7 @@ PY=.venv/bin/python                               # AutoCode needs psutil from t
 $PY scenarios/run.py list                         # the catalog
 $PY scenarios/run.py check                        # prove every oracle (no AutoCode, no models)
 $PY scenarios/run.py run --fake                   # every scenario through AutoCode with a scripted model (no spend)
+$PY scenarios/run.py run feature-stock-refusals --fake --hybrid   # rehearse a hybrid route (no spend; "Hybrid runs")
 $PY scenarios/run.py run bugfix-iso-weeks --profile glm53-openai --i-authorize-live-model-spend
 $PY scenarios/run.py route --fake                 # which workflow AutoCode recognizes for each prompt in routing.toml
 $PY scenarios/run.py compare --fake               # AutoCode vs a plain agent on the same oracles (scripted; no spend)
@@ -116,6 +117,16 @@ unnoticed (issue #15).
 wrong solution. Because its own checks pass, AutoCode completes, and the
 harness must report `FALSE_COMPLETE`. That is how the harness itself is tested.
 
+`run --profile NAME --provider OTHER` runs the profile's models and efforts
+through another provider (`kilocode`, or any tool set up as in
+`docs/providers.md`). The result records the provider, and its mode is
+`NAME-via-OTHER`, so `stats` keeps it apart from runs through the profile's own
+provider.
+
+`run --profile NAME --hybrid` scripts the stages a scenario's `[hybrid]` route
+names and runs every other stage live; its mode is `NAME-hybrid`
+([Hybrid runs](#hybrid-runs)).
+
 ## Verdicts
 
 | Verdict | Meaning |
@@ -125,12 +136,165 @@ harness must report `FALSE_COMPLETE`. That is how the harness itself is tested.
 | `HONEST_BLOCKER` | AutoCode stopped (paused, waiting for a person) without claiming completion, where completion was expected. The oracle summary shows how far the work got. |
 | `ERROR` | The harness could not finish (budget used up, no progress, a CLI crash) or the oracle crashed. |
 | `SKIPPED` | A required tool is missing, or the scenario does not support the requested mode. |
-| `NOT_EXERCISED` | The run ended well but never reached a stage the scenario exists to test (`[run] requires_stages`), so it says nothing about that stage. Not counted as a failure; `run.py stats` shows how often a scenario is exercised. A false completion or error keeps its own verdict. |
+| `NOT_EXERCISED` | The run ended well but never reached a stage the scenario exists to test (`[run] requires_stages`), or the oracle's [diagnosis](#diagnosis) found that the stage never ran on the failure the scenario plants, so it says nothing about that stage. Not counted as a failure; `run.py stats` shows how often a scenario is exercised. A false completion or error keeps its own verdict. |
+
+### Diagnosis
+
+Some scenarios test how a stage judged a failure, not only what was delivered:
+did AutoResolver name the real cause and write a repair that worked (#59)? Their
+oracle also defines `diagnosis(project, run)`. Its block is saved as
+`result.json["diagnosis"]` (null for other scenarios and for skipped runs),
+printed after the run verdict, and scored apart from it: `check()` judges only
+the product, so a poor diagnosis of correct code is never a `FALSE_COMPLETE`, and
+a good one never rescues a wrong delivery.
+
+| Diagnosis verdict | Meaning |
+| --- | --- |
+| `CORRECT` | The stage ran on the failure the scenario plants, and every required check passed. |
+| `INCORRECT` | It ran on the planted failure, and a required check failed. |
+| `UNSCORED` | It launched on the planted failure, but nothing can be scored yet: no report was saved or applied by the runner (killed, crashed, or the run stopped first), or a required check could not be evaluated (the run stopped before the next build was proved) while every other one passed. |
+| `NOT_EXERCISED` | The planted failure never reached the stage. A `PASS` or `HONEST_BLOCKER` run verdict then becomes `NOT_EXERCISED` too, with the oracle's reason; `FALSE_COMPLETE` and `ERROR` keep theirs. |
+| `ERROR` | `diagnosis()` crashed or returned no known verdict. The run verdict is unchanged. |
+
+Every block has `verdict`, `reason` and `checks` (the required checks, each
+`{name, ok, detail}`); other keys are reported, never scored. `run.py stats`
+counts, per scenario and mode, the `diagnosed` runs (`CORRECT`, `INCORRECT` or
+`UNSCORED`) and each of those verdicts. The checks on what a diagnosis says are
+word lists (regular expressions), so the `correct` column is a lexical verdict:
+a live attempt is read by a person before it is cited. With the scripted model
+the diagnosis is written from the handoff, so a fake `CORRECT` proves the route
+and the scoring, never how well a real model diagnoses.
+
+Which AutoResolver calls count is `harness/resolver_calls.py`'s, from the
+runner's saved records only. A call counts when it is `astra_resolve`, not
+runner-owned, and launched with a model, unless the scripted side of a
+[hybrid run](#hybrid-runs) answered it; report repairs, `astra_diagnose` and
+Investigator calls never count on their own. A report the runner rejected and
+then accepted after a report-only repair (`astra_resolve_report_repair` at the
+same source) is one accepted call, scored on the repaired report. A call the
+runner never applied (still in `active_stage` when the run stopped, or with its
+report repair still running) cannot be scored. The first accepted call on the
+planted failure is scored, else the first saved one, which then fails
+`diagnosis_accepted`. Where an oracle needs the source a call saw, it rebuilds it
+from the runner's code checkpoint for that source (a Git commit), else from a
+stage's saved `git diff HEAD`, kept only when every file matches the stage's
+snapshot.
+
+In `feature-stock-refusals` the planted failure (the trap) is read from the
+runner's own record: a regression proof that failed because the test of a
+planned case passed on the original code too (it is under `pass_to_pass`). The
+case is matched to its test as the runner matches it (the approved exact test
+name, else the case id's words in the test name), and only tests about `move` or
+`remove` are the trap, read from the source at that revision; a receive case
+tagged `test:` instead of `guard:` fails the same proof for another reason. When
+that source cannot be rebuilt every such test counts, and `trap_tests_read_from`
+says so. Required:
+
+- `diagnosis_accepted`.
+- `diagnosis_names_each_vacuous_test`: by function name or its short `test_cN`
+  form, in the diagnosis or the task.
+- `diagnosis_explains_why_they_pass_on_original_code`: the diagnosis itself
+  gives the cause (the command does not exist there: unknown, invalid choice,
+  not implemented, no subparser; a bare "argparse" is not enough, since argparse
+  also refuses a bad quantity), the exit status 2 and the original code.
+- `resolver_chose_bounded_test_repair`: REWORK, an `implement` task naming
+  `tests/test_stock.py` (in the task or the report's `affected_paths`, which
+  scope the next Builder task), no `stock.py` in `affected_paths`, and no task
+  to change `stock.py` or its exit-code contract. BLOCKED fails.
+- `repair_does_not_weaken_tests`: no skip, expected failure, relaxing, deletion
+  (unless the same sentence replaces the tests) or retagging a trap case
+  `guard:`. A negated mention ("do not skip them") is not weakening.
+- `resolver_stayed_read_only`: the runner enforces it; recorded because #59 asks.
+- `repair_made_the_tests_discriminate`: in the proof of the next build (or its
+  accepted report repair) each trap case has a test under `fail_to_pass`, by the
+  runner's own match (`case_tests`), so a repair that replaces or renames the
+  vacuous test counts. That proof may still fail for another reason; its verdict
+  is in the detail. The Builder also
+  reads the Completion Owner's findings, so this is evidence that the repair
+  worked, not that the Resolver alone made it work.
+
+Reported only: `review_already_named_cause` (the same word lists over the
+Completion Owner's findings and task: in the three real 2026-10-04 Resolver calls
+the review had named the cause first, so a correct diagnosis is often a
+confirmation), `resolver_added_beyond_review`, `resolver_calls_on_trap`, `model`,
+`cost_usd`, `pending`, `trap_calls` (every scorable counted call at the trap,
+scored the same way), `unscorable_calls` (the other counted calls there: no
+report saved or applied), and `other_resolver_calls` (calls at other revisions,
+kept for a human read).
+
+`feature-refund-window` counts calls the same way. A call is on its planted
+failure when the source it saw fails the hidden `WindowTests` or `CapTests`, the
+classes of the two planted defects (another failing hidden test, or source
+without `shop/refunds.py`, does not count); then `diagnosis_accepted` and
+`resolver_named_a_planted_defect` (by words for the store-time window or the
+running cap) are required.
 
 The driver answers AutoCode's clarifying questions with AutoCode's own proposed
 default and records each answer in `result.json`. It approves the plan it is
 shown and accepts requested human reviews. It never writes AutoCode state and
-does not resume paused runs: a pause is reported as `HONEST_BLOCKER`.
+does not resume paused runs: a pause is reported as `HONEST_BLOCKER`. The one
+exception is a scenario's explicit `[fake] answers`: a person's own answer to a
+question the driver never answers by default (a quota stop's `route-sol`, for
+example). The driver gives that answer, then resumes the pause it leaves once.
+
+## Hybrid runs
+
+Some failures a real model rarely makes on cue. In six live `claude-tiers` runs
+of `feature-stock-refusals` (2026-10-05) no Builder wrote the vacuous refusal
+tests, so AutoResolver never saw the trap (#59). A scenario can declare a route
+that scripts the stages producing its failure and leaves the stage under test
+live:
+
+```toml
+[hybrid]
+scripted = ["recognize_workflow", "requirements_gather", "astra_discovery", "astra_challenge", "glm_revise",
+            "astra_finalize"]        # every call of these stages
+first_attempt = ["terra"]            # only the stage's first call in the run
+```
+
+`run ID --profile NAME --hybrid --i-authorize-live-model-spend` answers those
+calls with the scripted provider and the scenario's `[fake] fault`, and every
+other call, later attempts of a `first_attempt` stage included, with the
+profile's own tool. A report-only repair goes to the side that served the stage
+it repairs. `run ID --fake --hybrid` rehearses the route with no spend: a
+scripted stand-in takes the live side, so it proves the routing and the labels,
+nothing about a model.
+
+How: the harness writes a config-registered tool named `hybrid`
+(`harness/hybrid_stage.py`) under the run's evidence directory and points
+AutoCode at it with `XDG_CONFIG_HOME`; your own provider configs are read, never
+written. Each call reads its stage from the handoff, appends a row to
+`hybrid/trace.jsonl`, and runs either the scripted provider or the live tool's
+own command, filled with the same values and run with the environment the
+harness started from. The live tool must be registered with a TOML file and
+`output = "report_file"`, as `examples/claude-provider` is; built-in OpenCode and
+Codex, and tools with sessions, are `SKIPPED`. Through such a tool the scripted
+provider cites capture receipts, never Codex event ids, as the tool contract
+requires.
+
+Hybrid results never mix with natural ones:
+
+- the mode is `NAME-hybrid` (`fake-hybrid`), so `stats` and
+  `examples/claude-provider/batch.py` count and show them apart;
+- `result.json["hybrid"]` holds the route, every call with the side that served
+  it, and the model stages each side served (`scripted_stage_names`,
+  `live_stage_names`);
+- a scripted call counts for nothing: `requires_stages` needs a live stage, and a
+  diagnosis counts only the Resolver calls the live side served
+  (`scripted_resolver_calls` reports the others).
+
+For `feature-stock-refusals` the route scripts planning, whose plan has one
+`test: test_cN_...` case per reference test, and the first Builder, which
+delivers `broken/vacuous-refusal-tests`: a correct `stock.py` with refusal tests
+that also pass on the original code. The regression proof then fails on planned
+move and remove cases by construction. Planning is scripted too because the
+runner matches each planned case to a test by its approved name or case id: a
+live plan names its cases its own way (`AC4`, `test_ac5_...`), and the scripted
+Builder's fixed tests would fail the proof as missing, not as vacuous. The
+Validator, the Completion Owner, AutoResolver and the repair Builder are live. A hybrid `CORRECT` is narrower than
+a natural one would be: a real Resolver diagnosing a failure no model made, on a
+plan no model wrote. Whether AutoResolver is called at all still depends on the
+live Completion Owner's REWORK; a run where it is not is `NOT_EXERCISED`.
 
 ## Fixed versus adaptive through completion
 
@@ -217,7 +381,9 @@ single stage, and reads `workflow` from the status view.
 Oracles receive an optional third argument, `run`, with the final status view,
 the saved stage names, the questions the driver answered, the CLI calls it
 made, and AutoResolver's accepted diagnoses (`resolutions`). It is `None` in `check` mode, so run-level checks contribute nothing
-there and the reference/broken variants are told apart by files alone.
+there and the reference/broken variants are told apart by files alone. How
+well a stage diagnosed a failure belongs in `diagnosis(project, run)`, not in
+`check()` ([Diagnosis](#diagnosis)).
 
 ### Conversations: follow-up turns in the same run
 
@@ -228,21 +394,45 @@ tables in `scenario.toml`, in order:
 
 ```toml
 [[turn]]
-after = "complete"      # or "stop", or "needs:<kind>" to say it instead of serving that need
+after = "complete"      # the only value: a follow-up continues only a finished run
 say = "Fix them."
 ```
 
-When the run reaches the state `after` names, the driver says the message with
+When the run completes, the driver says the message with
 `autocode --follow-up TEXT` (an action on the existing run, like `--feedback`)
-and keeps driving. AutoCode takes a follow-up only on a finished run
-(`after = "complete"`): it records a new turn, recognizes the kind of job again
-from the message, and, after a review, plans the fix from the review's findings
-(docs/task-run.md). A stopped or waiting run refuses it; answer it or send
-`--feedback` instead. The
+and keeps driving. AutoCode takes a follow-up only on a finished run: it records
+a new turn, recognizes the kind of job again from the message, and, after a
+review, plans the fix from the review's findings (docs/task-run.md). A stopped
+or waiting run refuses it (docs/cli.md, "Waiting or finished"), so `catalog.load`
+refuses any `after` but `"complete"`: a turn after `"stop"` or `"needs:<kind>"`
+could never be said. A job whose report asks questions (a design review, a
+discussion) completes, and the next turn is the reply. A run that stops before a
+turn is said ends the drive with `TurnNotReached`: the verdict is judged as for
+any stopped run, but never better than HONEST_BLOCKER, and the summary says
+`stopped before turn N`. The
 oracle's `run` gets `turns`: one record per turn, with the same keys as `run`
 itself (the view that turn ended with, its stages, answers and CLI calls), so
 `run_checks` can judge each turn on its own. Stages are assigned to a turn by
-when they finished.
+when they finished. Each turn record also carries `changed_files`: the files
+that turn created, changed or deleted in the workspace, read from disk before
+and after it (`.git/`, `.autocode/` and bytecode left out), so reports the
+runner writes, such as a discussion's note, count for the turn that wrote them.
+
+The reference solution of a conversation is its end state, every turn's files
+together. With the scripted model, `[fake] turn_paths` says which turn delivers
+which files: one list of relative path prefixes per turn, the brief first, so a
+three-turn scenario has three lists for its brief and two `[[turn]]` messages:
+
+```toml
+[fake]
+turn_paths = [["docs/decisions/"], ["docs/design/"], ["app/", "tests/"]]
+```
+
+The scripted model tells the turns apart by the message the handoff's task
+starts with, so no turn's message may begin another's, repeat another or begin
+the brief (`catalog.load` refuses it). `discuss-then-design-then-build` is the
+example: a discussion's note, then a design that follows it, then "Build it."
+implementing that design (AutoCode checks it first as an approved design).
 
 ## Comparing with a plain agent
 
@@ -329,7 +519,8 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `stuck-planner-citation` | bugfix | The stuck-stage Investigator, with a real model. Every stage is scripted except the Investigator (`--investigator-model openai/gpt-6-sol`, high); the scripted Planner repeatedly cites a nonexistent `.missing` sibling until repairs run out. Passes only if the real Investigator names the cause and its guidance gets the retried Planner through. Requires a real model call; interruptions or report repairs can add calls. Skipped without `--i-authorize-live-model-spend`. |
 | `bugfix-trivial` | bugfix | An off-by-one, through the full bug-fix path: diagnosis, plan review and the user's approval, no requirements gathering, no questions. Its proportionality checks (no plan-review rounds, at most five model stages) come back with the short path for small fixes. |
 | `bugfix-not-reproducible` | bugfix | The reported bug does not exist in this code. Passes by saying so or asking; a "defensive" change to working code fails. |
-| `feature-refund-window` | feature | Built to reach AutoResolver (#59): the seed's `store_date()` helper ignores the store's UTC-8 offset, and the cap is on the running total of partial refunds. A plausible first attempt passes its own tests and fails hidden boundary tests; the oracle checks that AutoResolver's diagnosis names a planted defect. Runs that never reach `astra_resolve` are `NOT_EXERCISED` (always, with the scripted model). |
+| `feature-refund-window` | feature | Built to reach AutoResolver (#59): the seed's `store_date()` helper ignores the store's UTC-8 offset, and the cap is on the running total of partial refunds. A plausible first attempt passes its own tests and fails hidden boundary tests; `diagnosis()` checks, by words, that AutoResolver's diagnosis of source that still fails the hidden tests names a planted defect. Since #294 a clean Validator FAIL can go straight back to the Builder, so runs rarely reach `astra_resolve`; those that never do are `NOT_EXERCISED` (always, with the scripted model). |
+| `feature-stock-refusals` | feature | AutoResolver on a natural failure (#59). On the original code `stock.py move` is an unknown subcommand, so argparse exits 2 and never touches the store: refusal tests in the seed's style (exit 2, stderr, unchanged bytes) pass there too, and the runner's regression proof rejects them. No executed check fails, so the Completion Owner's REWORK goes to AutoResolver rather than straight back to the Builder (#294). `check()` judges the product (hidden refusal tests; each refusal rule needs a delivered test that fails on the original code, and an extra test that also passes there is reported, not failed); `diagnosis()` scores the Resolver call ([Diagnosis](#diagnosis)). The scripted run is `CORRECT`; `SCENARIO_FAKE_RESOLVER=misattribute` makes its Resolver blame `stock.py` and is `INCORRECT` while the run still passes; `--fake-solution broken/vacuous-refusal-tests` never repairs the tests, so the runner holds at `RESOLVER_PENDING` (`HONEST_BLOCKER`) and the diagnosis is `INCORRECT` on `repair_made_the_tests_discriminate`. Live Builders rarely write the vacuous tests (0 of 6 `claude-tiers` runs, 2026-10-05); `--hybrid` scripts planning and the first Builder so the trap is reached by construction, with AutoResolver live ([Hybrid runs](#hybrid-runs)). The first six hybrid runs (2026-10-05) found real defects in the helpers the seed and every solution shared: a QTY of `²` or of 5000 digits crashed (exit 1), `٣` was read as 3, and a JSON `true` in `stock.json` passed as 1. The seed (whose README contract already required those refusals) and every solution now refuse them, and the hidden tests check them for both commands; those six runs' diagnoses were rightly not bounded test repairs and are not comparable with later runs. |
 | `feature-timesheet-by-project` | feature | Adding an option to an existing CLI without changing existing output. |
 | `implement-locked-design` | feature | An approved design is a constraint: specified modules and signatures (checked by AST), clock injected, no questions about settled decisions. A single-class "simplification" fails. |
 | `implement-design-conflict` | feature | The approved design contradicts a frozen API. The right ending is a stop with the conflict written down and no code changed (`expected = "stop"`). |
@@ -346,6 +537,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `discuss-cache-choice` | discuss | In-process vs. shared cache, decided by facts planted in the repository (four shared-nothing workers against a 60/hour upstream limit). Cites sources, weighs both options, writes no code, asks at most three questions. |
 | `investigate-two-caches` | investigate | Explain two caches: scope, TTL and users must match the code; consequence of removing one named; nothing changed. |
 | `review-then-fix` | conversation | Review `pr-184.patch`, then "Fix them." in the same run: the PR lands with both regressions fixed and a test that catches each (the oracle swaps back one unfixed file at a time), the advisory finding is left alone, and the fix turn asks no requirements questions. |
+| `discuss-then-design-then-build` | conversation | Issue #185, three jobs in one run: `discuss-cache-choice`, then "Shared it is; design it.", then "Build it.". Each turn changes only its own report or code; the design follows the decision (shared directory, atomic writes) outside its rejected options; the build checks that design first (`check_design`), implements the modules and signatures it names, and passes hidden tests in which separate worker processes share one cache directory. The design and build turns each have their plan approved. |
 
 Planned next: Figma design → implementation, and multi-service systems started
 with `docker compose` and checked end to end.
@@ -426,12 +618,20 @@ catalog/<id>/
                     optional [fake] flags = [...] (extra CLI flags), fault = "name" (a scripted
                     mistake in harness/fake_codex.py), live_investigator = true (the scripted run
                     still uses a real Investigator; needs --i-authorize-live-model-spend),
+                    answers = { "route-sol" = "gpt-6-luna" } (the person's own answers, by question id;
+                    fault "quota_once" stops the Tester on the driver's default Tester model),
                     [run] max_steps, timeout_minutes, expected = "complete"|"stop"|"any", known_failure = "why",
                           requires_stages = ["astra_resolve"] (a model stage the run must reach to count)
-                    [[turn]] after = "complete"|"stop"|"needs:<kind>", say = "follow-up message" (optional, repeatable)
+                    [hybrid] scripted = ["astra_discovery", ...], first_attempt = ["terra"] (optional: the stages
+                          run --hybrid scripts, every call or only the first; see "Hybrid runs")
+                    [[turn]] after = "complete", say = "follow-up message" (optional, repeatable; said once
+                          the run completes, since a follow-up continues only a finished run)
+                    [fake] turn_paths = [["docs/"], ["app/"]] (a conversation: which solution paths each
+                          turn delivers, the brief first; one list per turn)
   brief.md          the request, exactly as a user would type it (plain text, no headings)
   seed/             the starting project, committed before the run (omit for an empty repo)
   oracle.py         def check(project, scenario, run=None) -> list[Check]
+                    optional def diagnosis(project, run) -> dict (see "Diagnosis"; never in check())
   reference/        files that, laid over the seed, make a correct solution
   broken/<name>/    plausible solutions with one real defect each
   hidden/           tests only the oracle sees; never copied into the workspace

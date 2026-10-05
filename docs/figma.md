@@ -257,7 +257,134 @@ combined with native Figma input, that file must also be declared in the manifes
 
 Version 1 declares every approved file and frame separately from its implementation
 cases. Every declared frame needs at least one case; states and responsive viewports
-use distinct stable case IDs. For example:
+use distinct stable case IDs. Version 1 remains supported for existing exported
+bundles. New complete inventories should use version 2, which adds read-only page
+metadata snapshots and component, variable, font, asset, and prototype-transition
+catalogs. The runner discovers page/Section-level screen frames from each complete
+page snapshot and requires a case for every discovered frame. Nested layout frames
+are not treated as screens. A frame omitted from `cases` therefore fails intake
+before a paid stage rather than disappearing from the denominator.
+
+Version 2 adds `native_size` and `inventory_refs` to `cases` and replaces each version-1 `{key,nodes}`
+file row with this source inventory shape:
+
+```json
+{
+  "version": 2,
+  "responsive_targets": [],
+  "files": [{
+    "key": "FILEKEY",
+    "revision": "Figma file version or complete-content identity",
+    "metadata_xml": {"path": "references/file.xml", "sha256": "<actual SHA256>"},
+    "pages": [{"id": "1:1", "name": "Workspace", "metadata_xml": {
+      "path": "references/workspace-page.xml", "sha256": "<actual SHA256>"
+    }, "source_json": {"path": "references/workspace-source.json", "sha256": "<actual SHA256>"}}],
+    "screen_states": [{"page_id": "1:1", "node_id": "1:10", "state": "default",
+      "viewport": {"width": 1440, "height": 900, "device_scale_factor": 1}}],
+    "components": [{"key": "stable-library-component-key", "name": "Button",
+      "source_page_id": "1:1", "source_node_id": "1:20",
+      "variants": [{"page_id": "1:1", "node_id": "1:2", "properties": {"Type": "Primary"}}]}],
+    "variables": [{"key": "stable-variable-key", "name": "surface", "kind": "COLOR",
+      "value": {"r": 1, "g": 1, "b": 1}, "collection": "Foundation", "mode": "Light",
+      "source_id": "VariableID:123", "mode_id": "light"}],
+    "fonts": [{"id": "font-inter", "family": "Inter", "style": "Regular", "status": "available",
+      "artifact": {"path": "references/Inter-Regular.woff2", "sha256": "<actual SHA256>"}}],
+    "assets": [{"id": "logo", "page_id": "1:1", "node_id": "1:3", "name": "Logo",
+      "mime_type": "image/svg+xml", "status": "available",
+      "artifact": {"path": "references/logo.svg", "sha256": "<actual SHA256>"}}],
+    "transitions": [{"id": "open-settings", "source_node_id": "1:10",
+      "target_node_id": "1:11", "trigger": "click",
+      "action": {"type": "NODE", "destinationId": "1:11", "navigation": "NAVIGATE"}}]
+  }],
+  "cases": [{
+    "id": "workspace.desktop.default", "file_key": "FILEKEY", "page_id": "1:1",
+    "node_id": "1:10", "state": "default", "route": "/workspace",
+    "native_size": {"width": 1440, "height": 900},
+    "implementation_paths": ["src/workspace.js"],
+    "inventory_refs": {"components": ["stable-library-component-key"],
+      "variables": ["stable-variable-key"], "fonts": ["font-inter"],
+      "assets": ["logo"], "transitions": ["open-settings"]},
+    "viewport": {"width": 1440, "height": 900, "device_scale_factor": 1},
+    "export_scale": 1,
+    "artifacts": {
+      "screenshot": {"path": "references/workspace.png", "sha256": "<actual PNG SHA256>"},
+      "design_context": {"path": "references/workspace.json", "sha256": "<actual context SHA256>"}
+    }
+  }]
+}
+```
+
+The file `metadata_xml` is the complete read-only document page roster and must
+enumerate all of the file's pages. When the connector refuses a document-root target, generate
+this roster faithfully from the pinned collector's actual `document_pages`, and
+identify it as generated XML. A connector's page listing may expose only the current
+page. Each page's `metadata_xml` is its complete read-only page tree. Both are stored
+as hash-bound relative artifacts. A page omitted from the manifest while present in the document page roster fails intake. Every discovered screen
+frame must have an explicit `screen_states` row, and each row must match exactly one
+case with the same state and viewport. That makes an omitted approved state/viewport
+case a hard intake error. The state table is an explicit inventory: native inspection
+must include interactive and lifecycle states from the approved design, rather than
+inferring them from the frame name. Transitions must point to source nodes under
+covered screen frames or mapped component definitions. Every listed component, variable, font, asset, and transition
+must be mapped by at least one case through `inventory_refs`; unknown and duplicate
+references fail intake. Builder handoffs contain only cases whose implementation
+paths overlap the assigned task paths and their linked inventory, while preserving
+all variants of a selected shared component. Tester handoffs carry the same slice and
+a complete case roster; the original full manifest remains retrievable by its hash-bound path.
+Planning and completion review retain the complete manifest. Each component entry binds a source set/component node; for a
+component set, every component variant in its page metadata must be listed. Shared
+components with the same stable library key are merged for handoff, while all
+distinct variant node IDs and properties are retained. Variables with the
+same stable key must have identical definitions, retaining each file's local source ID. Available fonts and assets require
+hash-bound local bytes. Unavailable references are represented with
+`"status":"missing"` and a concrete `reason`; they remain visible blockers and
+prevent overall completion. They cannot be replaced with guessed values.
+
+Each page also retains a `source_json` receipt from the read-only
+`tools/figma_inventory_page.js` collector. New receipts identify their source as
+`figma-plugin-api-properties-v1`: explicit read-only Plugin API getter snapshots,
+with a pinned property profile and API version. They are not REST exports. Genuine
+legacy REST receipts remain supported. New snapshots omit derived text glyph
+contours while retaining authored text, exact styled ranges and text-path/vector
+geometry. Both formats retain original visual properties,
+rich-text font families/styles, component and variant identities, instance references,
+all local variable modes plus remote bindings/aliases, image/vector resources and
+full prototype trigger/actions. Receipt node IDs must exactly match the complete XML.
+Large getter receipts use bounded, losslessly compressed parts to avoid connector
+text truncation. Set the collector's `outputPart` to every reported index; reconstruct
+all parts with `autocode_design_sources.reassemble(parts)` before saving `source_json`.
+Part identities and the SHA256 of the original JSON must agree. Missing, duplicate,
+truncated, corrupted or drifting parts are blockers; a transport envelope is not a
+page source receipt. Empty declarations cannot hide resources reported by the
+source. A screen must map its actual resources and the resources in every variant of its linked components.
+Library-only files may have an empty state table; qualify their font/asset/transition
+references as `FILEKEY/id` in consuming cases. Component and variable references use
+stable library keys across files. Missing remote definitions stop intake.
+
+These checks reconcile approved source receipts; they do not authenticate a
+hand-edited snapshot as a live connector response or infer an interaction state that
+inspection did not record. Explicit state collection and independent per-screen
+visual review remain required.
+
+The reviewed product contract includes `design_coverage`: the manifest hash and
+one `{id, criterion_ids, milestone_ids}` row per case. Each named milestone must
+own an implementation path for that case. The approval brief displays the mapping
+and source blockers, and an omitted case refuses plan installation and approval.
+Independent design reports retain this exact criterion mapping.
+When the visual runtime also uses a `VISUAL_CASE_CRITERIA` constraint, it must
+declare the same case-to-criterion mapping. Conflicting, repeated or malformed
+declarations refuse plan approval.
+
+Declare requested responsive targets separately as `{id, source_case_id,
+reference_case_id, viewport, constraints}`. Use a supplied case ID when an exact
+reference exists at that viewport. With no supplied reference, keep
+`reference_case_id` empty; the plan must then document its behavior in
+`design_coverage.responsive_derivations`, identify its criterion and milestone,
+use the supplied constraints or explicitly record derived behavior, and set
+`exact_match` to `false`. The runner refuses a claim of exact matching to an absent
+responsive reference.
+
+Version 1 example:
 
 ```json
 {
@@ -294,9 +421,11 @@ references to `.autocode/design-inputs/<manifest-hash>/` in the new task workspa
 This also retains ignored inputs or bundles outside the repository when a task gets
 an isolated worktree. Deleting the original exports later does not invalidate this
 retained copy. Changed retained inputs pause execution as `PAUSED_DESIGN_REFERENCE`.
-Saved runs cannot replace or add a manifest; start a new run for a changed inventory.
+The ordinary `--figma-manifest` flag remains a new-run input. Use the audited stopped-run
+revision command below to propose a new v2 inventory.
 
-Planning and execution contexts carry the full inventory and its hash. The
+Planning carries the full inventory and its hash; Builder and Tester receive their
+relevant slices with the original inventory retrievable. The
 independent Validator reports `design_manifest_hash` and `design_results`, one row
 per case, with `id`, `status` (PASS/FAIL/NOT_VERIFIED), `criterion_ids`,
 `candidate_ref`, `comparison_ref`, `capture_ref` and `capture_sha256`.
@@ -310,20 +439,92 @@ the capture inputs and artifacts alongside the independent check evidence and
 rechecks them at completion. FAIL/NOT_VERIFIED rows may leave the evidence
 fields empty when acquisition is unavailable.
 
-Intermediate milestones can explicitly leave future cases NOT_VERIFIED. Whole-task
-completion requires every case PASS in the same current independent validation;
-omissions, duplicates, stale manifests, changed evidence or wrong dimensions refuse
+Intermediate milestones can explicitly leave future cases NOT_VERIFIED. A visual
+launch marked NOT_READY leaves ordinary functional validation and rework available;
+it emits no image-delivery or visual-acceptance receipt. A functional FAIL or BLOCKED
+report likewise keeps its findings available for rework without gaining visual
+authority. A malformed or missing retained design manifest still refuses launch.
+Whole-task completion requires every case PASS in the same current independent
+validation; omissions, duplicates, stale manifests, changed evidence or wrong dimensions refuse
 completion. Existing contract, regression, replay and human acceptance gates remain
 mandatory. `--status` adds `view.design`: inventory/hash, reported source revision
 and cases without a reported PASS. It deliberately leaves
 `current_visual_acceptance` unknown: the status projection alone authenticates no
 current source or screenshot.
 
-Coverage and capture provenance do not guarantee pixel fidelity. They cannot detect
-a file/frame absent from the supplied inventory or determine whether a comparison
-artifact's conclusion is visually correct. Automatic discovery and plan coverage
-remain in issue #250; image comparison and independent visual adjudication remain
+Coverage and capture provenance do not guarantee pixel fidelity. A v1 declaration cannot discover
+an omitted frame; v2 detects omissions against complete retained source receipts.
+Neither determines whether a comparison artifact's conclusion is visually correct.
+Live multi-file connector qualification is a separate acceptance check for #250; image comparison and independent visual adjudication remain
 in issue #251. Capture freshness is checked separately from those judgments.
 The offline provider tests use synthetic images to exercise completion gates;
 the optional Chromium tests exercise real capture acquisition. Neither performs
 a live Figma/model review.
+
+
+### Native connected-file intake
+
+```sh
+autocode "Implement the approved workspace" --engine codex \
+  --figma-file "https://www.figma.com/design/FILEA?node-id=1-2" \
+  --figma-additional-file "https://www.figma.com/design/FILEB"
+```
+
+Repeat `--figma-additional-file` for each additional approved file. The existing
+single controller begins with **Design inventory** on the saved Requirements model
+route, before Requirements/Planner approval. This collector never authorizes
+implementation. It must retain all approved files, pages, frames, states and
+resources, use the read-only collector and pass the v2 loader. The source may be a
+screen or library component URL; the supplied starting node must be present.
+Unreadable nodes/pages, missing remote component definitions or conflicts pause as
+`PAUSED_DESIGN_INPUT` with the concrete reason. Resume the same run after the input
+is available. No alternate model or transport is selected. Native authentication
+requirements remain; exported bundles work with either supported engine.
+
+A supplied complete v2 export can satisfy intake directly. It must include every
+native URL's file and node. Extra explicitly supplied export files remain part of
+the approved inventory. A v1 export remains valid for older exported workflows,
+but a new native intake must gather the complete v2 inventory before planning.
+
+### Reviewed reference changes
+
+At a stopped, reconciled boundary, inspect `--status`, then propose the replacement:
+
+```sh
+autocode --workspace /path/to/project --run-dir /path/to/run \
+  --revise-figma-manifest /path/to/updated/manifest-v2.json \
+  --expected-design-hash INSPECTED_CURRENT_HASH \
+  --design-change-reason "The approved Settings screen gained a validation state"
+```
+
+`TaskRun.revise_design(manifest, expected_hash, reason)` exposes the same operation.
+The command retains both versions, approval/completion history, the prior independent
+report and a case-level added/removed/changed/unchanged audit. It pauses at
+`PAUSED_DESIGN_INPUT_CHANGED`; it neither launches a model nor approves a new plan.
+Resume for the existing independent planning exchange and explicit plan approval.
+Models, pins and limits stay saved. An active/uncertain attempt or pending artifact
+review must be reconciled first; changing the reference cannot bypass that boundary.
+
+Case identity binds its exact screenshot/context, route/state/viewport, linked
+resources, original node/variant properties and responsive targets. Only affected
+reference cases lose applicable historical evidence. Unchanged case results are
+reusable only when the original independent report, comparison and collector-owned
+capture are hash-bound and still match the current source/browser/build inputs.
+They remain historical results, never newly generated PASS verdicts. Whole-task
+acceptance still requires a current independent report covering every case and the
+updated approved plan. A partial passing case or functional PASS cannot complete it.
+
+The offline catalog scenario `figma-complete-inventory` accepts a sound two-file
+bundle and rejects an omitted unique frame and an omitted component variant while
+its functional tests stay green. Public CLI tests cover native acquisition,
+restart, plan refusal, reference revision and completion gates with a scripted
+provider. Those receipts qualify the protocol; they do not qualify the live Figma
+connector or certify pixel fidelity. Run live connector qualification only against
+explicitly approved files and with separately authorized model spend.
+
+An audited native reference revision also records the previous and current file URLs.
+Removed entry nodes fall back to the current file root; replacement files appear in the
+reviewed input list. Engine, authentication, role routes, pins and limits stay unchanged.
+Identical relocated reference bytes keep their case identity; file names alone do not
+require fresh visual proof. Shared token aliases are reconciled by library key while
+original file-local IDs remain in the retained source receipts.

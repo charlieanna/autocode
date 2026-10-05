@@ -14,10 +14,12 @@ try:
     from . import autocode_support as support
     from .autocode_util import criteria_definition
     from . import autocode_design_manifest as design_manifest, autocode_protected_oracles as protected_oracles, autocode_visual_evidence as visual
+    from . import autocode_milestone_replan as replan
 except ImportError:
     import autocode_support as support
     from autocode_util import criteria_definition
     import autocode_design_manifest as design_manifest, autocode_protected_oracles as protected_oracles, autocode_visual_evidence as visual
+    import autocode_milestone_replan as replan
 
 
 def context_packet(state, stage, state_path):
@@ -63,7 +65,8 @@ def context_packet(state, stage, state_path):
     protected = protected_oracles.context(state["settings"], (state.get("current_task") or {}).get("affected_paths", []))
     if protected:
         base["protected_tests"] = protected
-    manifest_context = design_manifest.context(state["settings"])
+    manifest_context = design_manifest.context(
+        state["settings"], stage=stage, current_task=state.get("current_task"))
     if manifest_context:
         base["design_manifest"] = manifest_context
     capture_context = visual.context(state, current)
@@ -148,6 +151,11 @@ def context_packet(state, stage, state_path):
             import autocode_progressive_state as progressive_state
             import autocode_verification_plan as verification_plan
         progressive = progressive_state.context(state)
+        base["verification_obligations"] = verification_plan.obligations(state, progressive_context=progressive)
+        instruction += ("\nVERIFICATION OBLIGATIONS: declared commands retain their distinct purposes. "
+            "Builder feedback is not independent acceptance. Unknown test inventory or execution setup "
+            "is not proof of coverage. Only runner-authenticated scheduling receipts may establish reuse; "
+            "do not omit approved commands, fresh final checks, or required image review.\n")
         if progressive:
             base["progressive_verification"] = {
                 **progressive,
@@ -210,6 +218,11 @@ def context_packet(state, stage, state_path):
         elif stage == "sol":
             milestone_policy += ("\nDo not include milestone_results for this non-batch task, including final "
                 "whole-product validation. Follow the current schema, not a previous batch report.\n")
+        required_replan = replan.constraint(base['milestone_checkpoint']['current'], base['milestone_checkpoint']['limits'])
+        if required_replan and stage in ("astra_plan", "astra_review"):
+            # State the gate the decision must pass, and drop the general rule it refuses (#459).
+            instruction = instruction.replace(replan.GENERAL_VALIDATE_RULE, replan.REPLAN_VALIDATE_RULE)
+            milestone_policy += required_replan
     if workflow.enabled(state):
         workflow.guard(state)
         base["workflow"] = state["settings"]["workflow"]

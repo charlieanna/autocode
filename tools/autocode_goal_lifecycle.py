@@ -24,8 +24,8 @@ SUPPORTED_VERSION = 3
 try:
     from . import autocode_util as s, autocode_workflows as workflows, autocode_milestones as checkpoints
     from . import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
-    from . import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view
-    from . import autocode_progressive_state as progressive_state
+    from . import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view, autocode_design_plan as design_plan
+    from . import autocode_progressive_state as progressive_state, autocode_test_cases as test_cases
     from .autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -34,8 +34,8 @@ try:
 except ImportError:
     import autocode_util as s, autocode_workflows as workflows, autocode_milestones as checkpoints
     import autocode_findings as findings, autocode_resolver_human as human, autocode_verification_plan as verification_plan
-    import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view
-    import autocode_progressive_state as progressive_state
+    import autocode_adaptive_planning as adaptive, autocode_approval_view as approval_view, autocode_design_plan as design_plan
+    import autocode_progressive_state as progressive_state, autocode_test_cases as test_cases
     from autocode_goals import (
         BODY_SCHEMA, BRIEF_FIELDS, LEGACY_BODY_SCHEMA, PLANNING_BODY_SCHEMA, approved, check_delegable,
         handoff_ref, initial_decision, invalidate, missing_human_reviews, open_obligations,
@@ -45,7 +45,8 @@ except ImportError:
 
 def validate_body(state, body, *, ready=False, allow_legacy=False):
     legacy = allow_legacy and not any(key in body for key in BRIEF_FIELDS)
-    s.validate_schema(body, PLANNING_BODY_SCHEMA if "initial_task" in body else LEGACY_BODY_SCHEMA if legacy else BODY_SCHEMA)
+    schema = PLANNING_BODY_SCHEMA if "initial_task" in body else LEGACY_BODY_SCHEMA if legacy else BODY_SCHEMA
+    s.validate_schema(body, design_plan.body_schema(schema, (state.get("settings") or {}).get("design_manifest")))
     if "initial_task" in body and not (body["initial_task"]["kind"] == "none" and body["open_blocking_questions"]):
         first = body["initial_task"]
         verification_plan.require_scaffolding(state.get("workspace"), first["affected_paths"], first["validation_plan"])
@@ -130,6 +131,7 @@ def validate_body(state, body, *, ready=False, allow_legacy=False):
                     raise ValueError(f"Build brief is missing {key}")
             if set(c for m in milestones for c in m["acceptance_criteria"]) != criterion_ids:
                 raise ValueError("Implementation milestones must cover every acceptance criterion")
+    design_plan.validate((state.get("settings") or {}).get("design_manifest"), body, ready=ready)
 
 
 def apply_requirements(state, body, *, artifact_sha256, record=None):
@@ -299,8 +301,10 @@ def render(state, run_dir=None):
         lines += ["", "Job type: bug fix. Before completion the runner itself checks that a new or changed",
                   "test fails on the original code and passes with the fix, and that no test that",
                   "passed before now fails."]
+    elif "task_kind" in body and test_cases.design_only(state):
+        lines += ["", f"Job type: design (not a bug fix): {approval_view.DESIGN}."]
     elif "task_kind" in body:
-        lines += ["", "Job type: build (not a bug fix). Criteria verified by \"test: ...\" are proven by the runner at their milestone and at completion: each named test must pass with the change and not without it."]
+        lines += ["", "Job type: build (not a bug fix). Criteria verified by \"test: ...\" are proven by the runner at their milestone and at completion: each named test " + approval_view.RESTORE["build"] + "."]
     display_order = ("intended_user", "intended_outcome", "end_to_end_flow", "deliverables", "scope_exclusions",
                      "constraints", "permission_boundaries", "accepted_assumptions", "delegated_decisions",
                      "required_behaviors", "important_failure_cases", "acceptance_criteria", "technical_approach",
@@ -347,6 +351,10 @@ def render(state, run_dir=None):
                         lines.append("    Owned paths: " + (", ".join(row["affected_paths"]) or "unspecified; serial dispatch"))
                 else:
                     lines.append(f"  - {row['text']} (basis: {row['basis']}; answer: {row['answer_id'] or 'none'})")
+    lines += design_plan.render((state.get("settings") or {}).get("design_manifest"), body)
+    lines += ["", "Verification obligations (declarations, not execution proof):"]
+    lines += approval_view.field_lines(
+        verification_plan.obligations(state, progressive_context=progressive_state.context(state)))
     lines += examples.review_notes(state)
     declared = contract.get("declared_changes") or []
     if declared:
@@ -392,6 +400,9 @@ def render(state, run_dir=None):
         lines += ["", f"Review token (current validated artifact): {review}",
                   "Validation: " + json.dumps(state["validation"], indent=2)]
     if asks_approval:
+        # The last screen: the decision in brief, then the limits and the commands (#381).
+        lines += [""] + approval_view.summary(body, contract["revision"], test_cases.proof_cases(state, all_due=True),
+                                              design_only=test_cases.design_only(state))
         lines += [""] + approval_view.actions(token(contract), state.get("settings") or {},
                                               state.get("iteration", 0), run_dir)
     lines += ["", f"State: {state.get('phase')} / {state['status']}"]

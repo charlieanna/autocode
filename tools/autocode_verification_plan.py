@@ -13,8 +13,10 @@ import shlex
 
 try:
     from . import autocode_verification_expectations as expectations
+    from . import autocode_verification_schedule as schedule
 except ImportError:
     import autocode_verification_expectations as expectations
+    import autocode_verification_schedule as schedule
 
 # Plain text (no backticks) is a command only when all of it is one: prose after a command makes the whole
 # method prose, left to the Validator. Live bugfix-trivial runs (Claude models, 2026-09-30) approved
@@ -103,6 +105,90 @@ def approved_commands(state, *, progressive_context=None):
     methods += [row.get("verification_method", "") for row in body.get("acceptance_criteria") or []
                 if not row.get("human_review") and (not ids or row.get("id") in ids)]
     return list(dict.fromkeys(command for method in methods for command in commands(method)))
+
+
+def launch_commands(state, *, progressive_context=None):
+    """All declared commands whose tools must work before a contained stage."""
+    result = approved_commands(state, progressive_context=progressive_context)
+    regression = state.get('settings', {}).get('regression') or {}
+    result.extend(regression[key] for key in ('test_command', 'regression_command')
+                  if regression.get(key))
+    return list(dict.fromkeys(result))
+
+
+def obligations(state, *, progressive_context=None):
+    """Project the plan before approval without inventing executable coverage.
+
+    Selectors and natural-language claims are declarations, not collected test
+    IDs. Only a subsequent runner receipt can attest inventory/environment.
+    This projection never changes an approved command or execution obligation.
+    """
+    contract = state.get("goal_contract") or {}
+    body = contract.get("body") or {}
+    task = state.get("current_task") or body.get("initial_task") or {}
+    selected = set(task.get("acceptance_criteria") or [])
+    criteria = body.get("acceptance_criteria") or []
+    checks = []
+    for row in criteria:
+        method = row.get("verification_method", "")
+        checks.append({"criterion_ids": [row["id"]], "criterion_identity": hashlib.sha256(
+            json.dumps(row, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+            "commands": commands(method) if not row.get("human_review") else [],
+            "due_in_current_task": not selected or row["id"] in selected,
+            "purpose": "human_review" if row.get("human_review") else "approved_acceptance",
+            "claim": row.get("criterion"), "method": method,
+            "collected_test_ids": None, "environment": None,
+            "uncertainty": ["Test inventory and execution conditions require runner collection"]})
+    for method in task.get("validation_plan") or []:
+        checks.append({"criterion_ids": sorted(selected), "commands": commands(method),
+                       "purpose": "approved_task_check", "claim": method,
+                       "collected_test_ids": None, "environment": None,
+                       "uncertainty": ["Exact CID-to-test coverage is not declared by a command string"]})
+    for check in checks:
+        check["collection_recipe"] = [{"command": command, "collector": schedule.collection_kind(command),
+                                       "minimum_tests": 1 if schedule.collection_kind(command) else None,
+                                       "require_complete_ids_for_reuse": True} for command in check["commands"]]
+        check["environment"] = "runner_clean_copy"
+    recipe_complete = bool(checks) and all(check["commands"] and all(
+        row["collector"] for row in check["collection_recipe"]) for check in checks)
+    return {"contract_hash": contract.get("hash"), "checks": checks,
+            "required_commands": approved_commands({**state, "current_task": task}, progressive_context=progressive_context),
+            "required_commands_scope": "current_task",
+            "phases": ["builder_feedback", "runner_regression", "independent_clean_replay",
+                       "visual_acceptance", "mandatory_final_execution"],
+            "environment_recipe": {"runner_clean_copy": {
+                "cwd": "repository root in a fresh source copy", "source": "full current source snapshot",
+                "environment": "credential-scrubbed inherited environment; CI=1; PYTHONDONTWRITEBYTECODE=1",
+                "dependencies": "project dependencies; virtualenv may be linked from the main checkout",
+                "fixtures": "source and copied generated/vendor inputs; explicit seed variables are identity-bound",
+                "reuse": "only named Python collectors with a fully hashed virtualenv; global runtimes execute fresh",
+                "parallel": False, "attested": False}},
+            "plan_recipe_complete": recipe_complete, "execution_inventory_complete": False,
+            "policy": "No phase substitutes for another. Approved commands still execute. Reuse is limited "
+                      "to completed runner proof of the identical check in the same validation obligation.",
+            "complete": False, "uncertainty": ["No preapproval runner-collected test inventory or environment "
+                                               "attestation is implied by this declaration"]}
+
+
+def repetitions(state, *, progressive_context=None):
+    """Explicit repeated invocations remain obligations, not cache duplicates."""
+    body = (state.get("goal_contract") or {}).get("body") or {}
+    task = state.get("current_task") or {}
+    selected = set(task.get("acceptance_criteria") or [])
+    methods = list(task.get("validation_plan") or []) + [row.get("verification_method", "")
+        for row in body.get("acceptance_criteria") or []
+        if not row.get("human_review") and (not selected or row.get("id") in selected)]
+    if progressive_context:
+        methods += [row["method"] for row in progressive_context.get("required_checks", [])]
+    result = {}
+    for method in methods:
+        extracted = commands(method)
+        # Count repeated snippets in one instruction, not the same command
+        # cited by two criteria. No fuzzy command equivalence is used.
+        count = 2 if re.search(r"\b(?:twice|two times)\b", re.sub(r"`[^`]*`", "", method), re.I) else 1
+        for command in extracted:
+            result[command] = max(result.get(command, 1), extracted.count(command), count)
+    return result
 
 
 def product_checks(body, required_checks):

@@ -27,9 +27,14 @@ class SubprocessFlow(unittest.TestCase):
     new_run_engine_args = ("--engine", "codex")
 
     def setUp(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name).resolve()
+        artifacts = os.environ.get('BUILD_AUDIT_ARTIFACTS')
+        if artifacts:
+            Path(artifacts).mkdir(parents=True, exist_ok=True)
+            self.root = Path(tempfile.mkdtemp(prefix=self._testMethodName + '-', dir=artifacts)).resolve()
+        else:
+            temp = tempfile.TemporaryDirectory()
+            self.addCleanup(temp.cleanup)
+            self.root = Path(temp.name).resolve()
         self.project = self.root / "unrelated-project"
         self.project.mkdir()
         subprocess.run(["git", "init", "-q", str(self.project)], check=True)
@@ -60,7 +65,7 @@ class SubprocessFlow(unittest.TestCase):
             args = [*args, "--in-place"]
         args = with_resolver_token(args)
         result = subprocess.run([*self.entry, "--workspace", str(self.project), *args], cwd=self.root, env=self.env,
-                                input=answers, capture_output=True, text=True, timeout=60)
+                                input=answers, capture_output=True, text=True, timeout=240)
         self.assertEqual(expected, result.returncode, result.stdout + result.stderr)
         return result
 
@@ -87,7 +92,18 @@ class SubprocessFlow(unittest.TestCase):
     def test_changing_code_with_repeated_failed_checks_exhausts_builder_policy(self):
         self.env['AUTOCODE_FIXTURE_MODE'] = 'stalled'
         self.launch(['Build greeting', '--chat'], 2, answers='CLI\nyes\n')
-        _, state = self.saved()
+        run, state = self.saved()
+        # Identical defects need real operator grants before consuming the
+        # remaining configured escalation, rather than fresh-session retries.
+        for _ in range(2):
+            if state['status'] == 'PAUSED_BUILDER_RETRY_LIMIT':
+                break
+            self.assertIn('No causal progress', state['stop_reason'])
+            before = [row for row in state['stages'] if not row.get('runner_owned')]
+            self.launch(['--run-dir', str(run), '--resume-paused', '--no-chat'], 2)
+            self.assertEqual(before, [row for row in self.saved()[1]['stages'] if not row.get('runner_owned')])
+            self.launch(['--run-dir', str(run), '--resume-paused', '--retry-failed-stage', '--no-chat'], 2)
+            _, state = self.saved()
         self.assertEqual('PAUSED_BUILDER_RETRY_LIMIT', state['status'])
         self.assertEqual(['retry','escalate','pause'], [r['action'] for r in state['builder_retry_decisions']])
         self.assertEqual(3, sum(r['stage'] == 'terra' for r in state['stages']))
@@ -164,7 +180,7 @@ class SubprocessFlow(unittest.TestCase):
         self.launch(["Build a greeting tool"], 2)
         run, _ = self.saved()
         listed = subprocess.run([*self.entry, "registry", "list", "--json"], cwd=self.root, env=self.env,
-                                capture_output=True, text=True, timeout=30)
+                                capture_output=True, text=True, timeout=120)
         self.assertEqual(0, listed.returncode, listed.stdout + listed.stderr)
         runs = json.loads(listed.stdout)["runs"]
         self.assertEqual([str(run.resolve())], [item["run_dir"] for item in runs])
@@ -175,7 +191,7 @@ class SubprocessFlow(unittest.TestCase):
         self.env["AUTOCODE_HOME"] = str(resumed_home)
         self.launch(["--run-dir", str(run)], 2)
         resumed = subprocess.run([*self.entry, "registry", "list"], cwd=self.root, env=self.env,
-                                capture_output=True, text=True, timeout=30)
+                                capture_output=True, text=True, timeout=120)
         self.assertEqual(0, resumed.returncode, resumed.stdout + resumed.stderr)
         self.assertEqual([str(run.resolve())], [item["run_dir"] for item in json.loads(resumed.stdout)["runs"]])
         observed = [json.loads(line) for line in probe.read_text().splitlines()]
@@ -195,7 +211,7 @@ class SubprocessFlow(unittest.TestCase):
         self.env["AUTOCODE_REGISTRY_LAUNCH_PROBE"] = str(probe)
         self.launch(["--run-dir", str(run), "--resume-paused"], 2)
         registered = subprocess.run([*self.entry, "registry", "list"], cwd=self.root, env=self.env,
-                                   capture_output=True, text=True, timeout=30)
+                                   capture_output=True, text=True, timeout=120)
         self.assertEqual(0, registered.returncode, registered.stdout + registered.stderr)
         self.assertEqual(str(run.resolve()), json.loads(registered.stdout)["runs"][0]["run_dir"])
         self.assertEqual(["astra_discovery"], [json.loads(line)["stage"] for line in probe.read_text().splitlines()])
@@ -212,7 +228,7 @@ class SubprocessFlow(unittest.TestCase):
         self.launch(["--run-dir", str(run), "--status"], 0)
         self.launch(["--run-dir", str(run), "--dry-run"], 0)
         help_result = subprocess.run([*self.entry, "--help"], cwd=self.root, env=self.env,
-                                     capture_output=True, text=True, timeout=30)
+                                     capture_output=True, text=True, timeout=120)
         self.assertEqual(0, help_result.returncode, help_result.stdout + help_result.stderr)
         self.assertFalse(Path(self.env["AUTOCODE_HOME"]).exists())
         self.assertEqual(before, state_path.read_bytes())

@@ -30,7 +30,7 @@ selected read-only/workspace-write policy. OpenCode uses its actual agent and
 diagnostic path auto-allows `ask`. Unresolved approvals block admission; the
 runner never grants permissions. Read-only planning can check design files
 with `read` even when `bash` is denied. OpenCode tool permissions are not an OS
-sandbox. Command providers and GoCode currently fail closed for required
+sandbox. Command providers currently fail closed for required
 worker probes: they have no supported model-free adapter. Runner checks cannot
 substitute for a required worker check. No probe falls back to a model call.
 

@@ -1,7 +1,7 @@
 """CLI for building a multi-component system from an architecture record.
 
     autocode components ARCHITECTURE --workspace REPO [--auto-approve] \\
-        [--integrate TARGET] [--engine codex] [model options...]
+        [--integrate TARGET [--run-local]] [--engine codex] [model options...]
 
 ``ARCHITECTURE`` (absolute, or relative to ``--workspace``) holds
 ``components.json``, ``dependency_trace.json`` and ``contracts/*.schema.json``
@@ -22,19 +22,25 @@ approve it directly with ``autocode --workspace WORKSPACE --run-dir RUN_DIR``
 (the ``run_dir`` this command prints) before running this command again. If the
 architecture changed since the saved build, the command refuses to resume;
 remove ``.autocode-components/`` to rebuild from scratch.
+
+With ``--run-local``, the integrated system is then started with Docker Compose
+and checked with ``ARCHITECTURE/smoke.json``; see ``autocode_local_run.py``.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import shlex
 import subprocess
 import sys
 from pathlib import Path
 
 try:
+    from . import autocode_local_run as local_run
     from . import autocode_multicomponent as mc
 except ImportError:
+    import autocode_local_run as local_run
     import autocode_multicomponent as mc
 
 
@@ -51,6 +57,31 @@ def _ensure_worktree(repo: Path, target: Path) -> None:
                    "worktree", "add", str(target), "HEAD"], cwd=repo, check=True, capture_output=True, text=True)
 
 
+def _local_run_plan(parser, args, architecture):
+    """Refuse --run-local before anything is built unless it could run."""
+    if not args.run_local:
+        parser.error(f"{'--keep-running' if args.keep_running else '--health-timeout'} needs --run-local")
+    if not args.integrate:
+        parser.error("--run-local needs --integrate TARGET: it runs the integrated system")
+    if args.health_timeout is not None and not (math.isfinite(args.health_timeout) and args.health_timeout > 0):
+        parser.error("--health-timeout must be a positive, finite number of seconds")
+    try:
+        plan = local_run.prepare(architecture.directory,
+                                 {cid: component.runtime for cid, component in architecture.components.items()})
+        local_run.check_docker()
+    except (ValueError, local_run.DockerUnavailable) as error:
+        parser.error(f"--run-local: {error}")
+    return plan
+
+
+def _run_local(plan, target: Path, workspace: Path, args, exit_code: int, integration: dict) -> dict:
+    if exit_code != 0 or integration.get("detail") == "no finished component":
+        return {"status": "not_run", "detail": "not every component finished and integrated cleanly"}
+    return local_run.LocalRun(plan, target.resolve(), local_run.workdir(workspace),
+                              health_timeout=args.health_timeout or local_run.HEALTH_TIMEOUT,
+                              keep_running=args.keep_running).run()
+
+
 def cli(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("architecture", type=Path,
@@ -64,11 +95,20 @@ def cli(argv: list[str] | None = None) -> int:
     parser.add_argument("--integrate", type=Path, metavar="TARGET",
                         help="combine finished components into this worktree of the same repository, relative "
                              "to --workspace unless absolute; created fresh from HEAD if it does not exist")
+    parser.add_argument("--run-local", action="store_true",
+                        help="after integrating, start the combined system with Docker Compose, wait for each "
+                             "component to be ready, run ARCHITECTURE/smoke.json against it, then tear it down "
+                             "(needs --integrate, Docker Compose 2.17 or newer and a Docker daemon on this machine)")
+    parser.add_argument("--health-timeout", type=float, metavar="SECONDS",
+                        help="with --run-local: how long each start layer may take to become ready (default: "
+                             f"{local_run.HEALTH_TIMEOUT:g})")
+    parser.add_argument("--keep-running", action="store_true",
+                        help="with --run-local: leave the system running afterwards instead of tearing it down")
     parser.add_argument("--engine", choices=["codex", "opencode"])
     parser.add_argument("--provider", help="see docs/providers.md")
     parser.add_argument("--joint-planning", action="store_true",
                         help="separate requirements, planning and independent review per component; default for "
-                             "new OpenCode/GoCode runs, opt-in for --engine codex (see docs/models.md)")
+                             "new OpenCode runs, opt-in for --engine codex (see docs/models.md)")
     parser.add_argument("--reasoning-effort", choices=["low", "medium", "high", "xhigh", "max"])
     parser.add_argument("--options", default="", metavar="FLAGS",
                         help="extra flags passed to every component's `autocode` invocation verbatim, "
@@ -87,6 +127,9 @@ def cli(argv: list[str] | None = None) -> int:
         architecture.batches()  # fail fast on a cycle before starting anything
     except mc.ArchitectureError as error:
         parser.error(str(error))
+    plan = None
+    if args.run_local or args.keep_running or args.health_timeout is not None:
+        plan = _local_run_plan(parser, args, architecture)
 
     options: list[str] = []
     for flag, value in (("--engine", args.engine), ("--provider", args.provider),
@@ -135,6 +178,10 @@ def cli(argv: list[str] | None = None) -> int:
             parser.error(str(error))
         if summary["integration"]["failed"]:
             exit_code = max(exit_code, 1)
+        if plan is not None:
+            summary["local_run"] = _run_local(plan, target, workspace, args, exit_code, summary["integration"])
+            if summary["local_run"]["status"] != "passed":
+                exit_code = max(exit_code, 1)
 
     print(json.dumps(summary, indent=2, default=str))
     return exit_code

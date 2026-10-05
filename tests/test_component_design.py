@@ -140,8 +140,12 @@ class ComponentDesignCliTests(unittest.TestCase):
 
     def setUp(self):
         fixture.BuildAndIntegrateTests.setUp(self)
-        from tests.visual_capture_fixtures import install_native_hook
-        install_native_hook(self.root / 'bin' / 'codex', result='report', asset="spec['file']", indent='    ')
+        from tests.figma_inventory_fixtures import install_inventory_hook, native_bundle
+        manifest_path = native_bundle(self.root / 'native-source', 'Alpha123', 'components/alpha/message.txt')
+        install_inventory_hook(self.root / 'bin' / 'codex', asset="spec['file']")
+        self.env.update(FAKE_NATIVE_MANIFEST=str(manifest_path),
+                        FAKE_CAPTURE_REPO=str(Path(__file__).resolve().parents[1]),
+                        FAKE_DESIGN_PROMPTS=str(self.root / 'inventory-prompts.jsonl'))
         self.env["CODEX_HOME"] = str(self.root / "codex-config")
         self.ui_run = accepted_ui_run(self.root / "accepted-alpha")
         self.observations = self.root / "observations"
@@ -183,6 +187,8 @@ class ComponentDesignCliTests(unittest.TestCase):
             self.assertEqual(stopped["components"][cid]["run_dir"], info["run_dir"])
         self.assertEqual(branches, self.component_branches())
         self.assertEqual(["alpha", "beta"], completed["integration"]["integrated"])
+        self.assertIsNone(completed['components']['alpha']['view']['efficiency']['visual']['accepted_frames'])
+        self.assertIsNone(completed['components']['alpha']['view']['efficiency']['visual']['accepted_states'])
         for cid in ("alpha", "beta"):
             path = self.repo / "integration" / "components" / cid / "message.txt"
             self.assertEqual(f"from {cid}\n", path.read_text())

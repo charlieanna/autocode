@@ -1,10 +1,14 @@
 """The task-run interface: the status view and the CLI client. See docs/task-run.md."""
 import os
+import json
+import signal
 import shutil
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -13,6 +17,8 @@ import autocode_run_view as run_view
 import autocode_taskrun as taskrun
 import autocode_run_actions as run_actions
 import autocode_util as util
+import autocode_captured_process as captured_process
+import autocode_process as processes
 
 HERE = Path(__file__).resolve().parents[1] / "tools"  # its fixtures stay beside the runtime
 # The offline fixture provider plans and builds exactly this greeting task.
@@ -33,7 +39,9 @@ class RunViewTests(unittest.TestCase):
     def test_contract_fields(self):
         self.assertEqual({"schema", "status", "done", "needs", "phase", "next_stage", "iteration", "stop_reason", "runner_check",
                           "current_task", "workflow", "workflow_source", "workflow_reason", "turn", "evidence",
-                          "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments", "recovery", "verification", "code_checkpoints"},
+                          "dependency", "usage", "request_context", "output_transport", "direct_rework_assignments",
+                          "efficiency", "recovery", "verification", "code_checkpoints", "routes",
+                          "route_assignments"},
                          set(run_view.view({"status": "RUNNING"})))
 
     def test_evidence_is_empty_before_planning(self):
@@ -51,7 +59,9 @@ class RunViewTests(unittest.TestCase):
         contract["hash"] = util.digest(contract)
         token = f"r3:{contract['hash']}"
         state = {"status": "AWAITING_GOAL_APPROVAL", "goal_contract": contract, "displayed_goal": token}
-        displayed = run_view.view(state)["displayed_plan"]
+        public = run_view.view(state)
+        displayed = public["displayed_plan"]
+        self.assertEqual(0, public["efficiency"]["delivery"]["verified_deliveries"])
         self.assertEqual((3, contract["hash"], token), (displayed["revision"], displayed["hash"], displayed["token"]))
         self.assertEqual(body, {key: displayed[key] for key in body})
         self.assertIs(displayed["acceptance_criteria"][0]["human_review"], True)
@@ -204,7 +214,7 @@ class RunViewTests(unittest.TestCase):
         state = {"status": "PAUSED_REPEATED_FAILURE", "stop_reason": "report rejected",
                  "settings": {"report_repair": {"max_attempts": 2}},
                  "pending_report_repair": {"error": "Check is not supported by an exact executed Validator event",
-                                           "attempts": 2,
+                                           "original": {"stage": "sol"}, "attempts": 2,
                                            "latest_rejected": {"iteration": 1, "output": "/run/sol_report_repair-02.json"}}}
         self.assertEqual("001/sol_report_repair-02", run_view.needs(state)["retry_report_attempt"])
 
@@ -231,9 +241,13 @@ class TaskRunTests(unittest.TestCase):
     """End to end through the real CLI with the offline fixture provider (a few seconds)."""
 
     def setUp(self):
-        temp = tempfile.TemporaryDirectory(prefix="taskrun-")
-        self.addCleanup(temp.cleanup)
-        root = Path(temp.name)
+        if artifacts := os.environ.get('BUILD_AUDIT_ARTIFACTS'):
+            Path(artifacts).mkdir(parents=True, exist_ok=True)
+            root = Path(tempfile.mkdtemp(prefix="taskrun-", dir=artifacts))
+        else:
+            temp = tempfile.TemporaryDirectory(prefix="taskrun-")
+            self.addCleanup(temp.cleanup)
+            root = Path(temp.name)
         self.workspace = root / "project"
         self.workspace.mkdir()
         subprocess.run(["git", "init", "-q", str(self.workspace)], check=True)
@@ -263,7 +277,8 @@ class TaskRunTests(unittest.TestCase):
             run.approve_plan("not-the-displayed-token")
         run.approve_plan(view["needs"]["token"])
         view = run.advance_until_input()
-        self.assertTrue(view["done"], view)
+        self.assertTrue(view["done"], {key: view.get(key) for key in ("status", "needs", "runner_check")})
+        self.assertEqual(0, view["efficiency"]["by_category"].get("report_repair", {}).get("attempts", 0))
         self.assertTrue((self.workspace / "greet.py").is_file())
         progress = view["progress"]
         self.assertEqual("Complete", progress["headline"], progress)
@@ -274,6 +289,12 @@ class TaskRunTests(unittest.TestCase):
         # A new caller can reattach to the saved run.
         again = taskrun.TaskRun(self.workspace, run.run_dir, options=FIXTURE_OPTIONS, env=self.env)
         self.assertEqual("TASK_COMPLETE", again.status()["status"])
+        self.assertEqual(1, view["efficiency"]["delivery"]["verified_deliveries"])
+        # Historical completion cannot supply a current accepted-outcome denominator.
+        (self.workspace / "greet.py").write_text("raise SystemExit(3)\n", encoding="utf-8")
+        stale = again.status()
+        self.assertEqual(0, stale["efficiency"]["delivery"]["verified_deliveries"])
+        self.assertIsNone(stale["efficiency"]["unit_metrics"]["wall_seconds"]["value"])
 
     def use_question_preserving_planner(self, *, genuine_questions=0):
         # Reproduce the live Planner faithfully carrying a question from its handoff.
@@ -435,13 +456,23 @@ class TaskRunTests(unittest.TestCase):
         self.assertEqual(before, (run.run_dir / 'state.json').read_bytes())
 
 
+    def test_rejected_verification_change_is_reported_to_the_caller(self):
+        run = taskrun.TaskRun.start(self.workspace, BRIEF, options=FIXTURE_OPTIONS, env=self.env, timeout=300)
+        before = (run.run_dir / 'state.json').read_bytes()
+        broken = taskrun.TaskRun(self.workspace, run.run_dir,
+                                options=('--test-command', 'python -m unittest'), env=self.env)
+        with self.assertRaisesRegex(taskrun.TaskRunError, 'Changing saved verification commands'):
+            broken.resume_paused()
+        self.assertEqual(before, (run.run_dir / 'state.json').read_bytes())
+
+
 class TaskRunClientTests(unittest.TestCase):
     def test_advancing_command_rejects_input_error_instead_of_treating_it_as_a_pause(self):
         run = taskrun.TaskRun(Path('/work/repo'), Path('/work/repo/.autocode/runs/one'))
         rejected = subprocess.CompletedProcess([], 2,
                                                stdout='Input rejected: pending report repair must be reconciled\n',
                                                stderr='')
-        with patch.object(taskrun.subprocess, 'run', return_value=rejected), \
+        with patch.object(taskrun, 'run_captured', return_value=rejected), \
                 self.assertRaisesRegex(taskrun.TaskRunError, 'pending report repair'):
             run._invoke('retry failed stage', '--resume-paused', '--retry-failed-stage', advancing=True)
 
@@ -534,6 +565,230 @@ class TaskRunClientTests(unittest.TestCase):
         with patch.object(run, "_invoke", return_value=completed) as invoke:
             self.assertEqual(completed.stdout, run.show_goal())
         invoke.assert_called_once_with("show goal", "--show-goal")
+
+
+# A stand-in for the autocode CLI: a start saves a run, any other call reports its working directory.
+STUB_CLI = textwrap.dedent("""
+    import json, os, pathlib, sys
+    args = sys.argv[1:]
+    workspace = pathlib.Path(args[args.index("--workspace") + 1])
+    if "--restore" in args:
+        print(json.dumps({"workspace": str(workspace), "run_dir": str(workspace / ".autocode" / "runs" / "two")}))
+        sys.exit(0)
+    if "--status" in args:
+        print(json.dumps({"view": {"status": "RUNNING", "cwd": os.getcwd()}}))
+        sys.exit(0)
+    if "--in-place" in args:
+        (workspace / ".autocode" / "runs" / "one").mkdir(parents=True, exist_ok=True)
+        (workspace / ".autocode" / "runs" / "one" / "state.json").write_text("{}")
+    print("advanced in " + os.getcwd())
+    if os.environ.get("STUB_REJECT"):
+        print("Input rejected: the run is busy", file=sys.stderr)
+    sys.exit(2)
+""")
+
+
+class TaskRunProcessTests(unittest.TestCase):
+    """The invocation a caller keeps (last_advance, TaskRunError.process) and the CLI's working directory."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name).resolve()
+        self.workspace = self.root / "project"
+        self.workspace.mkdir()
+        self.cwd = self.root / "elsewhere"
+        self.cwd.mkdir()
+        stub = self.root / "stub_cli.py"
+        stub.write_text(STUB_CLI)
+        self.command = (sys.executable, str(stub))
+
+    def test_start_keeps_the_advancing_invocation_and_status_reads_do_not_replace_it(self):
+        run = taskrun.TaskRun.start(self.workspace, "A task", command=self.command, cwd=self.cwd)
+        started = run.last_advance
+        self.assertEqual((2, f"advanced in {self.cwd}\n"), (started.returncode, started.stdout))
+        self.assertEqual(self.cwd, run.cwd)
+        self.assertEqual(str(self.cwd), run.status()["cwd"])
+        self.assertIs(started, run.last_advance)
+        run.advance()
+        self.assertIsNot(started, run.last_advance)
+        self.assertEqual(2, run.last_advance.returncode)
+
+    def test_a_rejected_advance_carries_its_process(self):
+        run = taskrun.TaskRun.start(self.workspace, "A task", command=self.command)
+        rejected = taskrun.TaskRun(self.workspace, run.run_dir, command=self.command, env={"STUB_REJECT": "1"})
+        with self.assertRaisesRegex(taskrun.TaskRunError, "the run is busy") as raised:
+            rejected.advance()
+        self.assertEqual(2, raised.exception.process.returncode)
+        self.assertIs(raised.exception.process, rejected.last_advance)
+        self.assertIn("--run-dir", raised.exception.process.args)
+
+    def test_a_start_that_creates_no_run_carries_its_process(self):
+        (self.workspace / ".autocode" / "runs" / "one").mkdir(parents=True)
+        (self.workspace / ".autocode" / "runs" / "one" / "state.json").write_text("{}")
+        with self.assertRaisesRegex(taskrun.TaskRunError, "without creating a run") as raised:
+            taskrun.TaskRun.start(self.workspace, "A task", command=self.command)
+        self.assertEqual(2, raised.exception.process.returncode)
+
+    def test_cwd_defaults_to_the_callers_and_attach_accepts_one(self):
+        taskrun.TaskRun.start(self.workspace, "A task", command=self.command)
+        attached = taskrun.TaskRun.attach(self.workspace, command=self.command, cwd=self.cwd)
+        self.assertEqual((self.cwd, None), (attached.cwd, attached.last_advance))
+        self.assertEqual(str(self.cwd), attached.status()["cwd"])
+        plain = taskrun.TaskRun.attach(self.workspace, command=self.command)
+        self.assertIsNone(plain.cwd)
+        self.assertEqual(os.getcwd(), plain.status()["cwd"])
+
+    def test_a_start_rejected_after_saving_its_run_names_that_run(self):
+        with self.assertRaisesRegex(taskrun.TaskRunError, "the run is busy") as raised:
+            taskrun.TaskRun.start(self.workspace, "A task", command=self.command, env={"STUB_REJECT": "1"})
+        self.assertEqual(self.workspace / ".autocode" / "runs" / "one", raised.exception.run_dir)
+        self.assertEqual(2, raised.exception.process.returncode)
+
+    def test_a_call_that_cannot_run_is_a_task_run_error(self):
+        run = taskrun.TaskRun(self.workspace, self.workspace / ".autocode" / "runs" / "one",
+                              command=self.command, cwd=self.root / "removed")
+        with self.assertRaisesRegex(taskrun.TaskRunError, "status could not run: .*No such file") as raised:
+            run.status()
+        self.assertIsNone(raised.exception.process)
+        with self.assertRaisesRegex(taskrun.TaskRunError, "start could not run") as raised:
+            taskrun.TaskRun.start(self.workspace, "A task", command=self.command, cwd=self.root / "removed")
+        self.assertIsNone(raised.exception.run_dir)
+
+    def test_attach_skips_the_runs_noted_before_the_start(self):
+        before = taskrun.TaskRun.runs_in(self.workspace)
+        self.assertEqual([], before)
+        mine = taskrun.TaskRun.start(self.workspace, "A task", command=self.command)
+        theirs = self.workspace / ".autocode" / "runs" / "theirs"
+        theirs.mkdir()
+        (theirs / "state.json").write_text("{}")
+        self.assertEqual(sorted([mine.run_dir, theirs]), taskrun.TaskRun.runs_in(self.workspace))
+        with self.assertRaises(taskrun.TaskRunError):
+            taskrun.TaskRun.attach(self.workspace, command=self.command)
+        self.assertIsNone(taskrun.TaskRun.attach(self.workspace, command=self.command,
+                                                 exclude=[str(mine.run_dir), theirs]))
+        self.assertEqual(mine.run_dir, taskrun.TaskRun.attach(self.workspace, command=self.command,
+                                                              exclude=[theirs]).run_dir)
+
+    def test_a_restored_continuation_keeps_the_working_directory(self):
+        run = taskrun.TaskRun.start(self.workspace, "A task", command=self.command, cwd=self.cwd)
+        continuation = run.restore_checkpoint("checkpoint-1", "token", "request-1")
+        self.assertEqual((self.workspace / ".autocode" / "runs" / "two", self.cwd),
+                         (continuation.run_dir, continuation.cwd))
+        self.assertEqual(str(self.cwd), continuation.status()["cwd"])
+
+    def test_status_errors_carry_the_status_process(self):
+        run = taskrun.TaskRun(self.workspace, self.workspace / ".autocode" / "runs" / "one",
+                              command=(sys.executable, "-c", "import sys; sys.exit(1)"))
+        with self.assertRaises(taskrun.TaskRunError) as raised:
+            run.status()
+        self.assertEqual(1, raised.exception.process.returncode)
+        self.assertIsNone(run.last_advance)
+
+    def test_timeout_stops_detached_workers_and_retains_saved_run_identity(self):
+        self.assert_owned_cleanup('timeout')
+
+    def test_sigterm_stops_detached_workers_and_restores_caller_handler(self):
+        self.assert_owned_cleanup('sigterm')
+
+    def assert_owned_cleanup(self, trigger):
+        ready = self.root / 'ready'
+        os.mkfifo(ready)
+        ready_fd = os.open(ready, os.O_RDWR)
+        self.addCleanup(os.close, ready_fd)
+        stub = self.root / 'timeout_cli.py'
+        stub.write_text(textwrap.dedent('''
+            import json, os, pathlib, subprocess, sys
+            args = sys.argv[1:]
+            workspace = pathlib.Path(args[args.index('--workspace') + 1])
+            run = workspace / '.autocode/runs/saved-before-timeout'
+            run.mkdir(parents=True)
+            (run / 'state.json').write_text('{}')
+            worker = subprocess.Popen([sys.executable, '-c',
+                'import os; reader,writer=os.pipe(); os.read(reader,1)'], start_new_session=True)
+            (workspace / 'worker.json').write_text(json.dumps({'pid': worker.pid}))
+            with open(os.environ['READY_FIFO'], 'w') as signal:
+                signal.write('R')
+            reader, writer = os.pipe()
+            os.read(reader, 1)
+        '''))
+        sentinel = subprocess.Popen([sys.executable, '-c', 'import sys; sys.stdin.read()'],
+                                    stdin=subprocess.PIPE)
+        supervisor_wait = captured_process.supervisor.wait
+        real_clock = captured_process.supervisor.time.monotonic
+        previous_handler = signal.getsignal(signal.SIGTERM)
+        receipt = None
+
+        def stop_after_fixture_is_ready(child, timeout):
+            nonlocal receipt
+            self.assertEqual(b'R', os.read(ready_fd, 1))
+            if trigger == 'sigterm':
+                worker_pid = json.loads((self.workspace / 'worker.json').read_text())['pid']
+                sample = processes.ProcessTree.sample
+                interrupted = False
+
+                def interrupt_owned_sample(tree, *args, **kwargs):
+                    nonlocal interrupted, receipt
+                    result = sample(tree, *args, **kwargs)
+                    if worker_pid in tree.known and not interrupted:
+                        interrupted = True
+                        receipt = {'owned': list(tree.known.values())}
+                        os.kill(os.getpid(), signal.SIGTERM)
+                    return result
+
+                # Signal only after the supervisor has recorded the detached
+                # worker and entered the wait's cleanup-protected loop.
+                with patch.object(processes.ProcessTree, 'sample', interrupt_owned_sample):
+                    return supervisor_wait(child, timeout)
+            first = True
+
+            def deadline_clock():
+                nonlocal first
+                now = real_clock()
+                if first:
+                    first = False
+                    return now
+                return now + timeout + 1
+
+            # Advance the deadline without waiting for it in real time. Process
+            # cleanup still uses the real monotonic clock after this offset.
+            with patch.object(captured_process.supervisor.time, 'monotonic', deadline_clock):
+                code, expired, receipt = supervisor_wait(child, timeout)
+            return code, expired, receipt
+
+        try:
+            expected_error = (self.assertRaisesRegex(taskrun.TaskRunError, 'start did not finish within 60 s')
+                              if trigger == 'timeout' else self.assertRaises(KeyboardInterrupt))
+            with patch.object(captured_process.supervisor, 'wait', stop_after_fixture_is_ready), \
+                    expected_error as raised:
+                taskrun.TaskRun.start(self.workspace, 'A task', command=(sys.executable, str(stub)),
+                                     env={'READY_FIFO': str(ready)}, timeout=60)
+            saved_run = self.workspace / '.autocode/runs/saved-before-timeout'
+            self.assertEqual([saved_run], taskrun.TaskRun.runs_in(self.workspace))
+            if trigger == 'timeout':
+                self.assertIsNone(raised.exception.process)
+                self.assertEqual(saved_run, raised.exception.run_dir)
+            worker_pid = json.loads((self.workspace / 'worker.json').read_text())['pid']
+            self.assertIn(worker_pid, {row['pid'] for row in receipt['owned']})
+            self.assertEqual([], processes.live_processes(receipt['owned']))
+            self.assertIsNone(sentinel.poll())
+            self.assertIs(previous_handler, signal.getsignal(signal.SIGTERM))
+        finally:
+            sentinel.stdin.close()
+            sentinel.wait(timeout=5)
+
+    def test_captured_cli_can_be_driven_from_a_worker_thread(self):
+        with ThreadPoolExecutor(max_workers=1) as worker:
+            result = worker.submit(captured_process.run, [sys.executable, '-c', "print('thread caller')"],
+                                   timeout=60).result(timeout=10)
+        self.assertEqual((0, 'thread caller\n', ''), (result.returncode, result.stdout, result.stderr))
+
+    def test_supervision_failure_is_a_task_run_error(self):
+        with patch.object(taskrun, 'run_captured', side_effect=processes.ProcessError('ownership unavailable')), \
+                self.assertRaisesRegex(taskrun.TaskRunError, 'could not supervise.*ownership unavailable') as raised:
+            taskrun.TaskRun.start(self.workspace, 'A task', command=self.command)
+        self.assertIsNone(raised.exception.process)
+        self.assertIsNone(raised.exception.run_dir)
 
 
 if __name__ == "__main__":

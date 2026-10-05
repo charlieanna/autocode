@@ -23,7 +23,7 @@ import copy
 import uuid
 try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
-    from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_task_preflight as task_preflight
+    from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy
@@ -31,13 +31,13 @@ except ImportError:
     import autocode_dependency as dependency, autocode_status_command as status_command, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     import autocode_regression as regression, autocode_format_correction as format_correction, autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_event_log as event_log
     import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
-    import autocode_providers, autocode_opencode as opencode, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_task_preflight as task_preflight
+    import autocode_providers, autocode_opencode as opencode, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight
     import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
     import autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_rework_policy as rework_policy
-    import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue
+    import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
 
 try:
-    from . import autocode_job_source as job_source, autocode_job_failure as job_failure
+    from . import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_refusal as provider_refusal
     from . import autocode_workspaces as task_workspaces, autocode_figma as figma
     from . import autopilot
     from . import autocode_workflow as workflow
@@ -52,14 +52,14 @@ try:
     from . import autocode_progressive_state as progressive_state
     from . import autocode_findings as findings_ledger
     from . import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
-    from . import autocode_output_policy as output_policy
+    from . import autocode_output_policy as output_policy, autocode_output_cap as output_cap
     from .autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)
     from .autocode_report_source import (REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)
-    from .autocode_report_findings import preserved_dispositions
+    from .autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions
     from .autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,
         authorize_failure_retry, automatically_recover_capacity_stage,
         automatically_recover_external_directory_denial, automatically_recover_report_repair_timeout,
@@ -70,7 +70,7 @@ try:
     from .autocode_activity import ActivityMonitor, CHANGE_IDLE_LIMIT, JOB_IDLE_LIMIT
     from . import autocode_idle_policy as idle_policy
 except ImportError:
-    import autocode_job_source as job_source, autocode_job_failure as job_failure
+    import autocode_job_source as job_source, autocode_job_failure as job_failure, autocode_provider_refusal as provider_refusal
     import autocode_workspaces as task_workspaces
     import autocode_figma as figma
     import autopilot
@@ -86,14 +86,14 @@ except ImportError:
     import autocode_progressive_state as progressive_state
     import autocode_findings as findings_ledger
     import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
-    import autocode_output_policy as output_policy
+    import autocode_output_policy as output_policy, autocode_output_cap as output_cap
     from autocode_run_records import (PLANNING_STAGES, PROVENANCE_LISTS, account_stage, archive_rejected_stage,
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)
     from autocode_report_source import (REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)
-    from autocode_report_findings import preserved_dispositions
+    from autocode_report_findings import REPAIR_INSTRUCTION as DISPOSITION_REPAIR_RULE, retained as retained_dispositions
     from autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,
         authorize_failure_retry, automatically_recover_capacity_stage,
         automatically_recover_external_directory_denial, automatically_recover_report_repair_timeout,
@@ -201,6 +201,8 @@ def load_stage_report(record, workspace=None, evidence_record=None, state=None):
             raise ValueError('Cannot derive check metadata without the validation workspace')
         support.verify_checks(checks, workspace, evidence_record['events'], **check_evidence_options(evidence_record))
     schema = support.review_validation_schema(read_json(Path(record["schema"])), state, record, value)
+    if "recovery_change" in schema.get("properties", {}):
+        value.setdefault("recovery_change", None)  # Absence grants no new recovery authority.
     # finding_dispositions may be present in reports validated against schemas
     # saved before the field was introduced. Strip it before validation rather
     # than rejecting a correct report.
@@ -293,7 +295,7 @@ def reject_completed_stage(state, run_dir, record, error):
     repeated = bool(failure and failures.stalled(failure))
     message = (f"Completed {record['stage']} output was rejected ({error}); attempt archived. "
                + ("Consecutive attempts at this source failed with the same error; inspect the saved output probe and fix the cause before retrying."
-                  if repeated else "Resume explicitly with --resume-paused to retry with a fresh request."))
+                  if repeated else "Resume explicitly with autocode resume to retry with a fresh request."))
     status = "PAUSED_REPEATED_FAILURE" if repeated else "PAUSED_INVALID_OUTPUT"
     state.update(status=status, phase="PAUSED_OR_BLOCKED", stop_reason=message, paused_at=now())
     write_json(run_dir / "state.json", state)
@@ -305,10 +307,12 @@ def reject_completed_stage(state, run_dir, record, error):
 def run_role(
     *, role: str, prompt: str, sandbox: str, workspace: Path, run_dir: Path,
     state: dict[str, Any], schema: Path, model: str | None, allow_write: bool,
-    dry_run: bool, report_only: bool = False, resume_session: str | None = None,
+    dry_run: bool, report_only: bool = False, resume_session: str | None = None, retry_authorization=None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if state.get('next_stage') == 'astra_diagnose' and state.get('active_stage'):
         raise support.Paused('PAUSED_UNCERTAIN_STAGE', 'Reconcile the active diagnosis before another provider request')
+    if state.get('next_stage') == 'sol' and visual_runtime.requested(state):
+        visual_runtime.verify_reference(state)
     timeout_recovery_guard(state)
     if role in ("terra", "sol", "completion", "astra", "plan_reviewer", "glm"):
         dispatch.enforce_cross_model_verification(state)
@@ -365,15 +369,34 @@ def run_role(
         engine=engine, adapter=opencode, role=role, route_role=route_role, workspace=workspace,
         run_dir=run_dir, session=session, model=model, effort=effort, allow_write=allow_write,
         planning=joint_stage or report_only, report=output, schema=schema, prompt_file=prompt_file,
-        sandbox=sandbox, transport_args=transport_args, chatgpt=planning.enabled(state), provider=route.get('provider'))
+        sandbox=sandbox, transport_args=transport_args, chatgpt=planning.enabled(state), provider=route.get('provider'), enforce_tool_boundary=not dry_run,
+        tool_commands=verification_plan.launch_commands(state, progressive_context=progressive_state.context(state))
+        if engine == "opencode" and not dry_run and not (joint_stage or report_only) else ())
+    session = worker_context.get('provider_session', session)
     child_options = {"start_new_session": True, "env": child_environment}
     if engine == "opencode":
         prompt = opencode.prompt_for_schema(prompt, read_json(schema), events)
+        prompt = provider_launch.containment_prompt(prompt, worker_context)
         if not configured_tool:
             write_json(base.with_suffix(".opencode.json"), overrides)
     child_options["env"].update(output_policy.environment(state["settings"], workspace, events))
     if not dry_run:
         task_preflight.guard(state, workspace, run_dir, worker=worker_context, persist=write_json)
+    visual_context = None
+    if original_stage == 'sol' and visual_runtime.requested(state) and not report_only:
+        if engine != 'opencode' or configured_tool:
+            raise support.Paused('PAUSED_VISUAL_EVIDENCE', 'Verified visual delivery requires the supported native OpenCode route')
+        saved_transport = state['settings'].get('transport_identities', {}).get('opencode', state['settings'].get('transport_identity'))
+        if saved_transport is None or opencode.transport_drift(opencode.local_settings(workspace), saved_transport):
+            raise support.Paused('PAUSED_VISUAL_EVIDENCE', 'Visual transport changed since its approved profile')
+        visual_context, command, child_environment, prompt = visual_runtime.prepare(
+            state, original_stage, workspace, run_dir, base, command, child_environment, prompt,
+            launch_authority=visual_profile.authority(state, worker_context, workspace, run_dir), current_snapshot=support.snapshot(workspace))
+        worker_context['visual_runtime'] = visual_context
+        child_options['env'] = child_environment
+        worker_context.update(command=command, environment=child_environment)
+        if visual_context and visual_context.get('status') == 'READY' and engine == 'opencode' and not configured_tool:
+            write_json(base.with_suffix('.opencode.json'), json.loads(child_environment['OPENCODE_CONFIG_CONTENT']))
     if report_only and len(prompt.encode('utf-8')) > REPAIR_HANDOFF_BYTES:
         raise support.Paused('PAUSED_REPORT_REPAIR_INPUT',
                              f'Provider-decorated repair prompt exceeds {REPAIR_HANDOFF_BYTES} bytes; no request was launched')
@@ -386,6 +409,8 @@ def run_role(
               "stage_timeout_seconds": stage_timeout, "idle_timeout_seconds": idle_timeout,
               "tool_timeout_seconds": tool_timeout, "expected_session": session,
               "supports_sessions": supports_sessions, "withheld_env": agent_env.withheld(os.environ)}
+    if visual_context:
+        record['visual_runtime'] = visual_context
     if route_role != role:
         record["route_role"] = route_role
     record["engine"] = engine
@@ -398,7 +423,9 @@ def run_role(
         record["planning"] = True
     if engine == "opencode" and not configured_tool:
         record.update(permission_config=str(base.with_suffix(".opencode.json")),
-                      isolation="OpenCode tool permissions and workspace snapshot checks; no OS sandbox")
+                      isolation="Kernel-constrained native shell; other tools disabled" if worker_context.get('tool_containment') else "OpenCode tool permissions and workspace snapshot checks; no OS sandbox")
+        record['tool_containment'] = worker_context.get('tool_containment')
+        record['output_token_cap'] = worker_context.get('output_token_cap')
     elif engine == "opencode":
         record.update(provider=opencode.NAME,
                       isolation="Config-tool sandbox flag and workspace snapshot checks")
@@ -430,6 +457,13 @@ def run_role(
     with processes.interruption_handler(), prompt_file.open("r") as stdin, event_log.open_events(events) as stdout:
         try:
             with interventions.admission(run_dir):
+                provider_launch.verify_containment(worker_context)
+                if original_stage == 'sol' and visual_runtime.requested(state):
+                    visual_runtime.verify_reference(state)
+                if visual_context and visual_context.get('status') == 'READY':
+                    visual_runtime.verify_prelaunch(visual_context, state, run_dir=run_dir,
+                                                   current_snapshot=before, command=command, env=child_environment)
+                resolver_recovery.admit_dispatch(state, record, workspace, run_dir, retry_authorization=retry_authorization)
                 if joint_stage and not report_only:
                     planning.charge(state, original_stage, record=record, workspace=workspace)
                     if fallback_route:
@@ -516,7 +550,9 @@ def run_role(
         raise support.Paused("PAUSED_PROVIDER_TIMEOUT",
                              f"{role}: {record['timeout_reason']}; partial work and logs retained at {events}")
     if exit_code != 0:
-        raise support.Paused(support.failure_status(events), f"{role} exited {exit_code}; reconcile {events}, no automatic replay")
+        refused = refusal_reason(state, record)
+        raise support.Paused(support.failure_status(events), (f"{refused}. " if refused else "")
+                             + f"{role} exited {exit_code}; reconcile {events}, no automatic replay")
     if supports_sessions:
         thread = format_correction.event_thread_id(events)
         if not thread or (session and thread != session):
@@ -525,8 +561,9 @@ def run_role(
             state["sessions"][route_role] = thread
             record["thread_id"] = thread
         if not any(e.get("type") == "turn.completed" for e in support.events(events)):
-            raise support.Paused("PAUSED_UNCERTAIN_STAGE",
-                                 support.terminal_failure_reason(events) or "Process exited without turn.completed")
+            raise support.Paused("PAUSED_UNCERTAIN_STAGE", output_cap.explain(
+                support.terminal_failure_reason(events), record.get('output_token_cap'))
+                or "Process exited without turn.completed")
     elif not output.is_file():
         raise support.Paused("PAUSED_UNCERTAIN_STAGE", "Process exited without a report file")
     after = support.snapshot(workspace)
@@ -553,20 +590,54 @@ def run_role(
     return value, record
 
 
+HISTORY_FIELDS = ('commands_run', 'results', 'changed_files', 'remaining_risks',
+                  'untested_behavior', 'addressed_requirements', 'deferred_backlog')
+
+
+def restore_builder_history(original, value):
+    """Put the original Builder execution history back into a repaired report.
+
+    A repair fixes shape and citations; it must not rewrite a recorded execution. The
+    prompt says so, and a repair that ignores it used to be thrown away whole — losing
+    a correct fix over bookkeeping (2026-10-05 live cases). Copy the history fields
+    back from the original instead of trusting the repair to have left them alone.
+    Schema-valid history is restored; missing or ill-typed history stays repairable.
+    """
+    if original.get('stage') != 'terra' or not isinstance(value, dict):
+        return False
+    previous = repair_report_source(original)['content']
+    if not isinstance(previous, dict):
+        previous = {}
+    changed = False
+    for field in HISTORY_FIELDS:
+        old = previous.get(field)
+        if isinstance(old, list) and all(isinstance(item, str) for item in old):
+            if value.get(field) != old:
+                value[field] = list(old)
+                changed = True
+    old_request = previous.get('user_request')
+    if (isinstance(old_request, dict) and old_request.get('kind') not in (None, 'none')
+            and value.get('user_request') != old_request):
+        value['user_request'] = copy.deepcopy(old_request)
+        changed = True
+    return changed
+
+
 def assert_repair_preserves_builder_history(original, value):
     """Repair a report's shape/citations, never rewrite a recorded execution.
 
     Schema-valid history fields in the original report are immutable. Missing or
     ill-typed fields may still be repaired, but newly supplied command names must
     come from the original execution events, not a new repair-stage execution.
+    restore_builder_history() puts those fields back first, so this is the guard
+    that they did: it fails only when history is unrestorable and still rewritten.
     """
     if original.get('stage') != 'terra':
         return
     previous = repair_report_source(original)['content']
     if not isinstance(previous, dict):
         previous = {}
-    for field in ('commands_run', 'results', 'changed_files', 'remaining_risks',
-                  'untested_behavior', 'addressed_requirements', 'deferred_backlog'):
+    for field in HISTORY_FIELDS:
         old = previous.get(field)
         if isinstance(old, list) and all(isinstance(item, str) for item in old):
             if value.get(field) != old:
@@ -596,11 +667,14 @@ def accept_repaired_report(state, run_dir, workspace, value, repair_record):
         raise support.Paused('PAUSED_STALE_VALIDATION', 'Original report evidence or goal changed during repair')
     # Evidence checks use ORIGINAL tool events, not new commands from the repairer.
     try:
+        # History comes from the original report, not from the repair's draft of it.
+        if restore_builder_history(original, value):
+            write_json(Path(repair_record['output']), value)
         output_hash = support.file_hash(repair_record['output'])
         assert_repair_preserves_builder_history(original, value)
-        # Only unchanged dispositions from the pinned fresh review may survive.
-        original['preserved_finding_dispositions'] = preserved_dispositions(original,
-            original_report_for_repair(original)['report'] if stage_completed(state, original) else None, value)
+        # Only unchanged dispositions from the pinned fresh review may survive; the ledger names any other.
+        original.update(retained_dispositions(original,
+            original_report_for_repair(original)['report'] if stage_completed(state, original) else None, value))
         original.update(output=repair_record['output'], repaired_by=repair_record['events'],
                         rejected=False, report_repaired=True)
         apply_result(state, original['stage'], value, original, workspace, run_dir)
@@ -609,15 +683,15 @@ def accept_repaired_report(state, run_dir, workspace, value, repair_record):
         # Mutating only the copy lets the outer exception handler overwrite it
         # with the old active attempt, causing every resume to replay rejection.
         reject_completed_stage(owner, run_dir, repair_record, error)
-    # apply_result saves a stage. Keep one metrics entry per actual provider call,
-    # not a second charge for the original completed implementation.
+    # One charge per provider call; preserve any outer repair restored by apply_result.
     repair_record['applied_original_events'] = original['events']
     state['stages'][-1] = repair_record
     state['history'][-1] = repair_record
     state.setdefault('report_repair_history', []).append({
         'original_output': pending['original']['output'], 'repair': repair_record,
         'output_hash': output_hash, 'attempts': pending['attempts'], 'result': 'accepted', 'at': now()})
-    state.pop('pending_report_repair', None)
+    if state.get('pending_report_repair') == pending:
+        state.pop('pending_report_repair')
     if state['status'] == 'RUNNING':
         state['phase'] = 'PLANNING' if planning.is_planning(state, state['next_stage']) else 'EXECUTING'
         state.pop('stop_reason', None)
@@ -661,7 +735,7 @@ def execute_report_repair(state, run_dir, workspace):
     if stale_report_repair(state, workspace):
         raise support.Paused('PAUSED_STALE_VALIDATION',
             f"The source changed after the rejected {original['stage']} report, so its repair cannot run. Resume with "
-            f"--resume-paused to archive the repair (evidence retained) and start a fresh {original['stage']} attempt.")
+            f"autocode resume to archive the repair (evidence retained) and start a fresh {original['stage']} attempt.")
     if (support.snapshot(workspace)['revision'] != original['source_revision']
             or (state.get('goal_contract') or {}).get('hash') != pending['contract_hash']
             or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending['pins'].items())):
@@ -687,12 +761,12 @@ def execute_report_repair(state, run_dir, workspace):
               'an internal task or milestone, remove that duplicate row while keeping the approved '
               'obligation in the existing contract. Cover every requirement_coverage_checklist entry. '
               'Its path is an archived, hash-pinned copy, not a request to reconstruct a missing file. '
-              'Use archived_paths to update citations to artifacts that moved during archival; '
+              'Use archived_paths to update citations outside finding_dispositions to artifacts that moved during archival; '
               'never invent a replacement for missing evidence. '
               + report_repair_context.baseline_instruction(original['stage'])
               + planning.repair_rules(original['stage'],
                                       support.read(Path(original['schema'])))
-              + 'Correct format and evidence citations; preserve findings, failures and uncertainty. '
+              + 'Correct format and evidence citations outside finding_dispositions; preserve findings, failures and uncertainty. '
               'Missing evidence must remain NOT_VERIFIED, never invented PASS. '
               'For Builder reports, copy existing valid commands_run, results, changed_files, '
               'remaining_risks, untested_behavior, addressed_requirements and deferred_backlog '
@@ -703,9 +777,7 @@ def execute_report_repair(state, run_dir, workspace):
               'Finding identities belong to their source reviewer: the Validator may reuse only open sol IDs, '
               'and the Plan Reviewer only open astra IDs. If the original report copied the other reviewer\'s ID, '
               'leave id empty while preserving the defect, severity, blocking status and evidence. '
-              'Never introduce or change finding resolutions or retractions. Copy only exact '
-              'finding_dispositions already present in the original completed, nonblocked review, not claims from a later repair. '
-              'For a Plan Reviewer execution decision, return every acceptance_criteria definition '
+              + DISPOSITION_REPAIR_RULE + 'For a Plan Reviewer execution decision, return every acceptance_criteria definition '
               'in order with exact IDs and criterion text; omit text only when the schema requests IDs only. '
               'Restore omitted criteria as unverified; do not treat milestone scope as permission '
               'to omit approved criteria or invent verified evidence for pending work. '
@@ -840,6 +912,15 @@ def repeated_failure_resume_guard(state, workspace, *, authorization=None):
             "one inspected retry with --retry-failed-stage.")
 
 
+def refusal_reason(state, record):
+    """Whose response the provider's content filter refused, and on which model; None for any other stop."""
+    if not record.get("events"):
+        return None
+    return provider_refusal.explain(support.events(record["events"]),
+                                    job=autocode_status.role_name(record.get("original_stage") or record.get("stage"), state),
+                                    model=(record.get("launch_route") or {}).get("model"))
+
+
 def reconcile_active(state, run_dir, workspace):
     record = state.get("active_stage")
     if not record:
@@ -855,13 +936,14 @@ def reconcile_active(state, run_dir, workspace):
         raise support.Paused('PAUSED_RATE_LIMIT', state['stop_reason'])
     if record.get('rejected'):
         raise support.Paused('PAUSED_INVALID_OUTPUT',
-            'This completed attempt was already rejected. Explicitly retry planning with --resume-paused; do not recover the rejected output.')
+            'This completed attempt was already rejected. Explicitly retry planning with autocode resume; do not recover the rejected output.')
     assert_stage_stopped(record)
     supports_sessions = stage_supports_sessions(state, record)
     if not stage_completed(state, record) or (supports_sessions and record.get("exit_code") not in (None, 0)):
-        reason = support.terminal_failure_reason(record["events"])
+        reason = refusal_reason(state, record) or output_cap.explain(
+            support.terminal_failure_reason(record["events"]), record.get('output_token_cap'))
         raise support.Paused(support.failure_status(record["events"]),
-            (f"{reason} " if reason else "") +
+            (f"{reason.rstrip('.')}. " if reason else "") +
             f"Uncertain stage must be inspected, never automatically replayed. After review, "
             f"use --abandon-stage {attempt_id(record)} to retain partial work and set aside this response.")
     if supports_sessions:
@@ -888,7 +970,7 @@ def reconcile_active(state, run_dir, workspace):
             f"Read-only stage revision changed across interruption: {record['stage']} ran on source "
             f"{before['revision'][:12]}, the workspace is now at {after['revision'][:12]}; its result is not applied. "
             f"After inspecting the change, use --abandon-stage {attempt_id(record)} to set the result aside "
-            "(evidence and edits retained), then --resume-paused for a fresh attempt on the current source.")
+            "(evidence and edits retained), then autocode resume for a fresh attempt on the current source.")
     base = Path(record["output"]).with_suffix("")
     write_json(base.with_suffix(".after.json"), after)
     record.update(after_ref=str(base.with_suffix(".after.json")), source_revision=after["revision"],
@@ -903,6 +985,8 @@ def reconcile_active(state, run_dir, workspace):
     if record.get('report_only'):
         accept_repaired_report(state, run_dir, workspace, value, record)
         return
+    if run_actions.stale_result(state, value, after["revision"]):
+        return run_actions.discard_stale_recovered(state, run_dir, record)
     try:
         commit_stage_result(state, record["stage"], value, record, workspace, run_dir)
     except (ValueError, KeyError, support.Paused) as error:
@@ -988,7 +1072,7 @@ def accept_completion(state: dict[str, Any], workspace: Path) -> None:
              "task_id": (state.get("current_task") or {}).get("id", ""),
              "acceptance_criteria": [{**c, "status": "verified", "evidence": "Current Validator criterion evidence"}
                                      for c in state["acceptance_criteria"]]}
-    if not completion_gate.completion_ready(state, probe, current):
+    if not visual_runtime.completion_allowed(state, current_snapshot=current) or not completion_gate.completion_ready(state, probe, current):
         stale = completion_gate.stale_validation(state, current)
         if stale:
             raise ValueError(f"Validation is stale: {stale}. Resume with --resume-paused to re-validate the current "
@@ -1019,7 +1103,7 @@ def recheck_completion(state, workspace):
     state["human_reviews"] = {}
     state.pop("displayed_review", None)
     state.update(status="PAUSED_STALE_VALIDATION", phase="PAUSED_OR_BLOCKED", next_stage=workflow.review_stage(state),
-        stop_reason="Completion is no longer current. Use --resume-paused for fresh independent validation.")
+        stop_reason="Completion is no longer current. Use autocode resume for fresh independent validation.")
 
 
 def intervention_metadata(workspace, run_dir, state):

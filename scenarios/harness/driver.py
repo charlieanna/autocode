@@ -7,15 +7,22 @@ clarifying questions (answered with AutoCode's proposed default, and recorded),
 plan approval, human-review acceptance, and planning-budget feedback. A pause
 that needs a person is left for the verdict to judge, and so is an AutoResolver
 escalation that it could not continue safely (``PERSON_ONLY_SCOPES``): answering
-one with a proposed default would hide an honest stop.
+one with a proposed default would hide an honest stop. Only a scenario's explicit
+``[fake] answers`` answer such a request (for example the model a quota-stopped
+role continues on): they are the person's own decision, never a default, so the
+driver then resumes the pause that answer leaves, once.
 
 A scenario with follow-up turns (issue #51) continues the same run: once it
-reaches the state a turn names, the driver says that turn's message with
-``--follow-up`` and drives on. ``turn_marks`` records where each turn began, so
-the run record can be split per turn afterwards.
+completes, the driver says the next turn's message with ``--follow-up`` and
+drives on. Turns follow completion only, because ``--follow-up`` continues only a
+finished run (docs/cli.md); a run that stops first never hears the next turn
+(``TurnNotReached``). ``turn_marks`` records where each turn began, so the run
+record can be split per turn afterwards, including what each turn changed in the
+workspace (``workspace_files``: read from disk, never from AutoCode's state).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -47,12 +54,21 @@ PERSON_ONLY_SCOPES = ("operational_exhaustion", "blocker")
 
 def leaves_for_person(need: dict) -> bool:
     """Whether this need is an honest stop the driver must not answer for the user."""
-    return need["kind"] == "resume" or (need["kind"] == "answer"
+    return need["kind"] in ("resume", "retry_job", "recover_source") or (need["kind"] == "answer"
                                         and need.get("resolver_scope") in PERSON_ONLY_SCOPES)
 
 
 class DriveError(RuntimeError):
     """The harness could not take the run any further."""
+
+
+class TurnNotReached(DriveError):
+    """The run stopped before a follow-up turn could be said: the product stopped, not the harness.
+    ``turn`` is the number of the turn that was never said (2 for the first follow-up)."""
+
+    def __init__(self, message: str, turn: int):
+        super().__init__(message)
+        self.turn = turn
 
 
 def _question_answer(question: dict) -> str:
@@ -89,19 +105,23 @@ def fake_setup(scenario, root: Path, solution: Path) -> tuple[list[str], dict]:
                                   "paths": overlay_paths(solution), "fault": scenario.fake_fault,
                                   "turns": [turn.say for turn in scenario.turns],
                                   "probe": scenario.fake_probe,
-                                  "milestones": list(scenario.fake_milestones)}))
+                                  "milestones": list(scenario.fake_milestones),
+                                  "turn_paths": [list(row) for row in scenario.fake_turn_paths]}))
     return [*FAKE_FLAGS, *scenario.fake_flags], {"PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
                         "SCENARIO_FAKE_CONFIG": str(config)}
 
 
-def live_setup(profile_name: str) -> tuple[list[str], dict]:
-    return profiles.flags(profiles.resolve(profile_name)), {}
+def live_setup(profile_name: str, provider: str | None = None) -> tuple[list[str], dict]:
+    return profiles.flags(profiles.with_provider(profiles.resolve(profile_name), provider)), {}
 
 
 class Driver:
     def __init__(self, project: Path, root: Path, flags: list[str], env: dict, *,
-                 autocode: list[str], max_steps: int, timeout_seconds: int):
-        self.project, self.root, self.flags, self.autocode = project, root, flags, autocode
+                 autocode: list[str], max_steps: int, timeout_seconds: int, explicit_answers=()):
+        self.project, self.root, self.flags, self.autocode = project, root, list(flags), autocode
+        # The person's own answers, by question id; served even where no default may be used.
+        self.explicit_answers = dict(explicit_answers)
+        self.resume_after_explicit = False
         self.env = {**os.environ, "AUTOCODE_HOME": str(root / "registry"), "PYTHONDONTWRITEBYTECODE": "1", **env}
         self.max_steps, self.deadline = max_steps, time.monotonic() + timeout_seconds
         self.steps: list[dict] = []
@@ -109,8 +129,10 @@ class Driver:
         self.run_dir: Path | None = None
         self.log = root / "steps.jsonl"
         # One mark per turn after the first: when it was said, how many CLI calls
-        # and answers came before it, and the view the previous turn ended with.
+        # and answers came before it, the view the previous turn ended with, and
+        # the workspace files at that moment.
         self.turn_marks: list[dict] = []
+        self.start_files: dict[str, str] = {}
 
     def state(self) -> dict:
         """The saved state, read only for evidence and metrics after the run."""
@@ -166,6 +188,7 @@ class Driver:
         return proc
 
     def drive(self, brief: str, turns=()) -> dict:
+        self.start_files = workspace_files(self.project)
         self.call("start", task=brief)
         runs = self.project / ".autocode" / "runs"
         candidates = sorted(runs.glob("*/state.json"), key=lambda path: path.stat().st_mtime) if runs.is_dir() else []
@@ -174,25 +197,35 @@ class Driver:
             raise DriveError("the first CLI call did not create a run: "
                              + (last["stderr_tail"] or last["stdout_tail"]).strip()[-500:])
         self.run_dir = candidates[-1].parent
-        view = self.until_stopped(turns[0].after if turns else None)
+        view = self.until_stopped()
         for number, turn in enumerate(turns, start=1):
             reached = turn_state(view)
             if turn.after not in reached:
-                raise DriveError(f"turn {number + 1} is said after {turn.after!r}, but the run ended "
-                                 f"{' / '.join(reached)} (status {view['status']!r})")
+                raise TurnNotReached(f"stopped before turn {number + 1}: it is said after {turn.after!r}, but the "
+                                     f"run ended {' / '.join(reached)} (status {view['status']!r})", number + 1)
             self.turn_marks.append({"said_at": datetime.now(timezone.utc).isoformat(), "say": turn.say,
-                                    "steps": len(self.steps), "answers": len(self.answers), "view": view})
+                                    "steps": len(self.steps), "answers": len(self.answers), "view": view,
+                                    "files": workspace_files(self.project)})
             self.call("follow-up", "--follow-up", turn.say, action=True)
-            view = self.until_stopped(turns[number].after if number < len(turns) else None)
+            view = self.until_stopped()
         return view
 
     def until_stopped(self, say_at: str | None = None) -> dict:
         """Drive until the run is done or needs something the driver does not serve.
-        ``say_at`` (``needs:<kind>``) stops at that need instead of serving it, so a
-        follow-up turn can answer it in its own words."""
+        ``say_at`` (``needs:<kind>``) stops at that need instead of serving it, so the
+        caller can serve it its own way (plan_compare compares plans at ``needs:approve_plan``)."""
         while True:
             view = self.view()
             need = view["needs"]
+            if not view["done"] and self.answered_explicitly(need):
+                self.serve(need)
+                self.resume_after_explicit = need.get("resolver_scope") in PERSON_ONLY_SCOPES
+                continue
+            if not view["done"] and need["kind"] == "resume" and self.resume_after_explicit:
+                # The person's explicit answer to a stopped run was their decision to continue it.
+                self.resume_after_explicit = False
+                self.call("resume", "--resume-paused")
+                continue
             if view["done"] or leaves_for_person(need) or say_at == f"needs:{need['kind']}":
                 return view
             if need["kind"] == "continue":
@@ -203,6 +236,16 @@ class Driver:
                     raise DriveError(f"no progress at {view['status']!r} (next_stage={view['next_stage']!r})")
             else:
                 self.serve(need)
+
+    def answered_explicitly(self, need: dict) -> bool:
+        return (need["kind"] == "answer" and bool(self.explicit_answers) and bool(need.get("questions"))
+                and all(question["id"] in self.explicit_answers for question in need["questions"]))
+
+    def use_model(self, role: str, model: str) -> None:
+        """The person named ``model`` for ``role``: later relaunches must not pass the old one back."""
+        flag = "--" + role.replace("_", "-") + "-model"
+        if flag in self.flags[:-1]:
+            self.flags[self.flags.index(flag) + 1] = model
 
     def serve(self, need: dict) -> None:
         """Answer one gate the way a cooperative user would, recording every answer."""
@@ -216,10 +259,14 @@ class Driver:
             pairs = []
             answers = []
             for question in need["questions"]:
-                answer = _question_answer(question)
+                explicit = question["id"] in self.explicit_answers
+                answer = self.explicit_answers[question["id"]] if explicit else _question_answer(question)
                 answers.append({"id": question["id"], "question": question.get("question"),
-                                "why": question.get("why"), "answer": answer})
+                                "why": question.get("why"), "answer": answer,
+                                **({"explicit": True} if explicit else {})})
                 pairs.append(f"{question['id']}={answer}")
+                if explicit and (need.get("route") or {}).get("question_id") == question["id"]:
+                    self.use_model(need["route"]["role"], answer)
             args = [item for pair in pairs for item in ("--answer", pair)]
             if need.get("resolver_token"):
                 args += ["--resolver-token", need["resolver_token"]]
@@ -253,6 +300,23 @@ def split_by_turn(state: dict, marks: list[dict]) -> list[list[dict]]:
         index = sum(1 for when in said if moment and when and moment >= when)
         turns[index].append(stage)
     return turns
+
+
+def workspace_files(root: Path) -> dict[str, str]:
+    """Every file in the delivered workspace with its content hash; AutoCode's own .autocode/
+    and Git's .git/ are left out, and so are bytecode caches."""
+    found = {}
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if (path.is_file() and relative.parts[0] not in (".git", ".autocode")
+                and "__pycache__" not in relative.parts and path.suffix != ".pyc"):
+            found[relative.as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return found
+
+
+def changed_between(before: dict[str, str], after: dict[str, str]) -> list[str]:
+    """The files created, changed or deleted between two ``workspace_files`` snapshots."""
+    return sorted(path for path in set(before) | set(after) if before.get(path) != after.get(path))
 
 
 def _moment(text) -> datetime | None:

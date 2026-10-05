@@ -22,11 +22,13 @@ try:
     from . import autocode_milestone_scope as milestone_scope
     from . import autocode_finding_scope as finding_scope
     from . import autocode_review_gate as review_gate
+    from . import autocode_report_findings as report_findings
 except ImportError:
     import autocode_util as s
     import autocode_milestone_scope as milestone_scope
     import autocode_finding_scope as finding_scope
     import autocode_review_gate as review_gate
+    import autocode_report_findings as report_findings
 
 SOURCES = ("sol", "astra")
 SEVERITIES = ("critical", "high", "medium", "low")
@@ -214,7 +216,10 @@ def _apply_dispositions(state, source, dispositions, record, scope, all_criteria
         # original review, never from a repairer's newly supplied claims.
         preserved = record.get("preserved_finding_dispositions", {}).get(source, [])
         if not can_resolve and raw not in preserved:
-            raise ValueError("A report-only repair cannot close findings; resubmit the review")
+            # Name every row the repair may not keep, not only this first one, so one repair can fix them all.
+            raise ValueError(report_findings.refusal(source, [other["id"] for other in dispositions
+                if isinstance(other, dict) and isinstance(other.get("id"), str) and other["id"] in open_rows
+                and other not in preserved], record))
         if not _covers(scope, row.get("scope"), all_criteria):
             raise ValueError(f"{source} disposition {target} belongs to work this report did not review")
         if disposition == "resolved" and all_criteria:

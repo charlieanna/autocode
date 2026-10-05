@@ -9,6 +9,14 @@ import json
 from pathlib import Path
 import re
 
+BASELINE_POLICY = """For an explicitly authorized baseline exception with Vitest default-reporter logs,
+use baseline_compare_command with BASELINE_LOG CANDIDATE_LOG --output REPORT.json.
+Use --baseline-root and --candidate-root only for equivalent checkout paths.
+Do not invent a task-local comparator or loosen its checks. Unknown formats require review.
+A matched comparison does not authorize a waiver: verify identical test selection,
+source provenance, and the saved exception separately; investigate baseline-only failures.
+"""
+
 ANSI = re.compile(r'\x1b\[[0-9;]*m')
 DIVIDER = re.compile(r'^⎯{5,}.*$', re.M)
 HEADER = re.compile(r'^ FAIL  (.+)$', re.M)
@@ -141,9 +149,9 @@ def cli(argv=None):
     if args.output.resolve() in (args.baseline.resolve(), args.candidate.resolve()):
         parser.error('Output must not overwrite input evidence')
     try:
-        from .autocode_support import atomic_json
+        from .autocode_util import atomic_json
     except ImportError:
-        from autocode_support import atomic_json
+        from autocode_util import atomic_json
     report = compare(parse(args.baseline.read_bytes().decode('utf-8'), root=args.baseline_root, dependency_prefixes=args.normalize_dependency_prefixes),
                      parse(args.candidate.read_bytes().decode('utf-8'), root=args.candidate_root, dependency_prefixes=args.normalize_dependency_prefixes))
     report['normalization'] = {'transport': 'ANSI SGR, line endings, trailing whitespace and structural dividers',

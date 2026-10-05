@@ -14,6 +14,7 @@ try:
     from . import autocode_job_failure as job_failure
     from . import autocode_escalation as escalation
     from . import autocode_failures as failures
+    from . import autocode_report_retry as report_retry
     from . import autocode_interventions as interventions
     from . import autocode_planning as planning
     from . import autocode_process as processes
@@ -25,10 +26,12 @@ try:
     from . import autocode_run_records as records
     from . import autocode_validation_recovery as validation_recovery
     from . import autocode_permission_recovery as permission_recovery
+    from . import autocode_quota_route as quota_route
 except ImportError:
     import autocode_job_failure as job_failure
     import autocode_escalation as escalation
     import autocode_failures as failures
+    import autocode_report_retry as report_retry
     import autocode_interventions as interventions
     import autocode_planning as planning
     import autocode_process as processes
@@ -40,6 +43,7 @@ except ImportError:
     import autocode_run_records as records
     import autocode_validation_recovery as validation_recovery
     import autocode_permission_recovery as permission_recovery
+    import autocode_quota_route as quota_route
 
 
 def recover_legacy_report_repair(state, run_dir, workspace):
@@ -83,6 +87,14 @@ def recover_legacy_report_repair(state, run_dir, workspace):
     return True
 
 
+def _stopped_on_route(record):
+    """The provider stopped this attempt on its model (quota or a content-filter refusal), not on the work."""
+    try:
+        return bool(record.get("events")) and support.failure_status(record["events"]) in quota_route.STATUSES
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def abandon_stage(state, run_dir, workspace, selected):
     """Explicitly discard an uncertain response, retaining its edits and evidence."""
     record = state.get("active_stage")
@@ -104,8 +116,12 @@ def abandon_stage(state, run_dir, workspace, selected):
     if record.get("report_only") and state.get("pending_report_repair"):
         state.setdefault("report_repair_archive", []).append({
             "reason": "Report repair attempt abandoned", "repair": state.pop("pending_report_repair")})
-    escalation.advance(state, record.get("route_role", record["role"]),
-                       trigger="abandoned_attempt", detail="Operator abandoned an uncertain response")
+    # A quota stop or a content-filter refusal says nothing about how the model coped with the
+    # work: the person names the next model (autocode_quota_route, #184), and nothing changes the
+    # route on its own (a higher effort on the refusing model would be refused again).
+    if not _stopped_on_route(record):
+        escalation.advance(state, record.get("route_role", record["role"]),
+                           trigger="abandoned_attempt", detail="Operator abandoned an uncertain response")
     state["sessions"].pop(record.get("route_role", record["role"]), None)
     if state.get("validation"):
         state.setdefault("validation_archive", []).append({
@@ -681,7 +697,8 @@ def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None, *, 
                 for record in state.get('stages', [])))
     if ((stage != state.get('next_stage') and not reroute_abandoned_sol) or stage == 'astra_discovery'
             or planning.is_planning(state, stage)
-            or pending.get('attempts') != records.repair_limit(state)):
+            or not (pending.get('attempts') == records.repair_limit(state)
+                    or allow_repeated and report_retry.bounded_failure(state, records.repair_limit(state)))):
         return False
     repeated = failures.repeated(state, original)
     if repeated and not allow_repeated and (workspace is None or support.snapshot(workspace)['revision'] == original.get('source_revision')):
@@ -694,14 +711,14 @@ def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None, *, 
     if reroute_abandoned_sol:
         state['next_stage'] = 'sol'
     state.setdefault('report_repair_archive', []).append({
-        'at': records.now(), 'reason': 'Explicit fresh execution retry after exhausted report repairs',
+        'at': records.now(), 'reason': 'Explicit fresh execution retry after bounded report failures',
         'repair': state.pop('pending_report_repair')})
     role = original.get('route_role') or original.get('role')
     old = state.setdefault('sessions', {}).pop(role, None) if role else None
     if old:
         state.setdefault('session_rotations', []).append({
             'role': role, 'old_session': old, 'at': records.now(),
-            'reason': 'Explicit fresh execution retry after exhausted report repairs'})
+            'reason': 'Explicit fresh execution retry after bounded report failures'})
     state.setdefault('reconciliation_notes', []).append({
         'at': records.now(), 'stage': stage, 'iteration': original.get('iteration'),
         'reason': 'Explicit fresh execution retry; rejected reports retained'})
@@ -719,7 +736,7 @@ def stale_report_repair(state, workspace):
     resuming (archiving would also change the frontier the request is bound to)."""
     pending = state.get('pending_report_repair')
     status = str(state.get('status') or '')
-    if (not isinstance(pending, dict) or any(state.get(key) for key in ('active_stage', 'uncertain_artifacts'))
+    if (not isinstance(pending, dict) or any(state.get(key) for key in ('active_stage', 'active_runner_check', 'uncertain_artifacts'))
             or not (status == 'RUNNING' or status.startswith('PAUSED_'))
             or (state.get(resolver_human.PUBLIC) or {}).get('scope') in ('operational_exhaustion', 'blocker')
             or state.get(resolver_human.PRIVATE)):
@@ -768,22 +785,26 @@ def retry_format_failed_report(state, run_dir, workspace, selected):
     """Explicitly request fresh evidence after a bounded report rejection."""
     pending = state.get('pending_report_repair') or {}
     original = pending.get('original') or {}
-    repair = next((row for row in reversed(state.get('stages', []))
-                   if row.get('report_only') and row.get('rejected')
-                   and row.get('original_stage') == original.get('stage')), None)
+    # A fresh attempt the failure bound stopped before any repair is retried itself, never an earlier repair.
+    repair = (original if not pending.get('latest_rejected') and report_retry.rejected_attempt(state) else
+              next((row for row in reversed(state.get('stages', []))
+                    if row.get('report_only') and row.get('rejected')
+                    and row.get('original_stage') == original.get('stage')), None))
     if (state.get('status') != 'PAUSED_REPEATED_FAILURE'
-            or pending.get('error') not in (
-                'OpenCode final message is not a JSON report; inspect the saved raw events',
-                'Check is not supported by an exact executed Validator event')
+            or any(state.get(key) for key in ('active_stage', 'active_runner_check', 'uncertain_artifacts'))
+            or pending.get('error') not in report_retry.RETRYABLE_ERRORS
             or original.get('stage') != 'sol'
             or not repair or selected != records.attempt_id(repair)
-            or repair.get('original_stage') != original.get('stage')
+            or (repair.get('original_stage') or repair.get('stage')) != original.get('stage')
             or repair.get('source_revision') != original.get('source_revision')
             or not repair.get('schema') or not original.get('schema')
             or not Path(repair['schema']).is_file() or not Path(original['schema']).is_file()
             or support.file_hash(repair['schema']) != support.file_hash(original['schema'])
-            or pending.get('attempts') != records.repair_limit(state)):
-        raise ValueError('--retry-report must match the exhausted rejected report-only attempt')
+            or not report_retry.bounded_failure(state, records.repair_limit(state))):
+        raise ValueError('--retry-report must match the bounded rejected report-only attempt')
+    if stale_report_repair(state, workspace):
+        raise ValueError('The source changed after this report was rejected, so it cannot be retried; '
+                         'use --resume-paused to archive the stale repair and validate the current source afresh')
     if (support.snapshot(workspace)['revision'] != original['source_revision']
             or (state.get('goal_contract') or {}).get('hash') != pending.get('contract_hash')
             or any(not Path(p).is_file() or support.file_hash(p) != h

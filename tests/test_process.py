@@ -182,6 +182,28 @@ class ProcessTests(unittest.TestCase):
         with patch.object(processes.psutil, 'Process', side_effect=processes.psutil.NoSuchProcess(101)):
             self.assertEqual({}, processes.process_table({101}))
 
+    def test_descendant_discovery_denial_fails_closed_without_another_scan(self):
+        row = {'pid': 101, 'parent': 90, 'group': 101, 'birth_identity': 123,
+               'state': 'running'}
+        parent = MagicMock(pid=101, _ident=(101, 123))
+        parent.create_time.return_value = 123
+        for error in (PermissionError('discovery denied'), processes.psutil.AccessDenied(101)):
+            checkpoint = MagicMock()
+            tree = processes.ProcessTree(101, checkpoint)
+            with self.subTest(error=type(error).__name__), \
+                    patch.object(processes, 'process_table', return_value={101: row}) as table, \
+                    patch.object(processes.psutil, 'Process', return_value=parent), \
+                    patch.object(processes.process_children, 'descendants', side_effect=error) as descendants, \
+                    patch.object(processes, 'process_ids') as scan:
+                with self.assertRaisesRegex(processes.ProcessError, 'Cannot inspect descendants of owned process 101') as raised:
+                    tree.sample()
+                self.assertIs(error, raised.exception.__cause__)
+                descendants.assert_called_once_with(parent)
+                table.assert_called_once_with({101})
+                scan.assert_not_called()
+                checkpoint.assert_not_called()
+                self.assertEqual({101: processes.identity(row)}, tree.known)
+
     def test_optional_native_name_failure_retains_owned_identity(self):
         for error in (processes.psutil.AccessDenied(101), PermissionError('native name denied'),
                       SystemError('proc_cmdline returned a result with an exception set')):
@@ -582,11 +604,11 @@ time.sleep(30)
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             worker = root / 'worker.py'
-            worker.write_text("from pathlib import Path\nimport os,signal\nsignal.signal(signal.SIGUSR1,lambda *_:None)\nPath('worker.pid').write_text(str(os.getpid()))\nsignal.pause()\nPath('late-write').write_text('leaked')\n")
+            worker.write_text("from pathlib import Path\nimport os,signal\nsignal.signal(signal.SIGUSR1,lambda *_:None)\nPath('worker.pid').write_text(str(os.getpid()))\nprint('worker-ready',flush=True)\nsignal.pause()\nPath('late-write').write_text('leaked')\n")
             parent = root / 'parent.py'
             parent.write_text("import subprocess,sys\nsubprocess.Popen([sys.executable,'worker.py'],start_new_session=True)\nsys.stdin.read(1)\n")
             child = subprocess.Popen([sys.executable, str(parent)], cwd=root, start_new_session=True,
-                                     stdin=subprocess.PIPE, text=True)
+                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
             saved = []
             timers, workers = [], []
             original_timer = threading.Timer
@@ -618,7 +640,15 @@ time.sleep(30)
                     child.stdin.write('x')
                     child.stdin.flush()
 
+            stage_started = False
             try:
+                # Ownership checkpoints publish membership changes, not fixture
+                # file readiness. Wait until the detached writer has published
+                # its pid before supervision can checkpoint that membership.
+                self.assertTrue(select.select([child.stdout], [], [], 15)[0],
+                                'fixture worker did not become ready')
+                self.assertEqual('worker-ready', child.stdout.readline().strip())
+                stage_started = True
                 with patch.object(threading, 'Timer', timer):
                     code, expired = processes.wait_for_stage(child, 30, checkpoint)
                 pid = int((root / 'worker.pid').read_text())
@@ -626,10 +656,16 @@ time.sleep(30)
                 self.assertEqual([], processes.live_processes(saved))
                 return code, expired
             finally:
-                child.stdin.close()
-                if child.poll() is None:
-                    child.kill()
-                    child.wait()
+                try:
+                    if child.poll() is None:
+                        if not stage_started:
+                            processes.ProcessTree(child.pid, lambda _rows: None).stop(child)
+                        else:
+                            child.kill()
+                        child.wait()
+                finally:
+                    child.stdin.close()
+                    child.stdout.close()
                 for worker_process in workers:
                     cleanup_fixture_worker(worker_process)
 
@@ -649,8 +685,9 @@ time.sleep(30)
             nonlocal calls
             calls += 1
             if calls == 1:
-                time.sleep(.4)  # longer than the bounded stage deadline
-                exit_during_stall.append(child.poll())
+                # Keep sampling blocked until the real watchdog stops this
+                # worker; a fixed sleep instead races host scheduling latency.
+                exit_during_stall.append(child.wait(timeout=3))
             return original_sample(tree, *args, **kwargs)
 
         try:
@@ -660,7 +697,7 @@ time.sleep(30)
             self.assertNotEqual(0, code)
             # Verify the watchdog stopped the worker before sampling returned;
             # total cleanup time also includes host-dependent ps latency.
-            self.assertIsNotNone(exit_during_stall[0])
+            self.assertEqual([code], exit_during_stall)
         finally:
             if child.poll() is None:
                 child.kill()

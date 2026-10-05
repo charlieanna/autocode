@@ -169,6 +169,25 @@ assessment still needs human review, `FAIL` (exit 1) for failed independent chec
 required for non-fixture profiles. Passing fixture regressions does not close the
 real-model diagnosis-validation requirement.
 
+Whether AutoResolver diagnoses a real failure correctly (#59) is measured by the scenario
+`feature-stock-refusals` through `astra_resolve`: refusal tests that also pass on the
+original code fail the runner's regression proof, and the oracle's `diagnosis()` scores the
+Resolver's diagnosis and repair task apart from the run verdict (see
+[the scenario harness](../scenarios/README.md#diagnosis)). Its scope is narrow. The defect is
+a test-validity defect that the runner's model-free proof already flags, naming each vacuous
+test, and in the three real 2026-10-04 Resolver calls the Completion Owner's review had named
+the cause first (`review_already_named_cause`). A `CORRECT` therefore shows that AutoResolver
+confirms the cause, writes a bounded repair that works and stays read-only; it does not show
+unaided discovery of a product-logic defect. The scripted runs prove only the route and the
+scoring. In six natural live `claude-tiers` runs (2026-10-05) no Builder wrote the vacuous
+tests, so none reached the trap. A hybrid run (`run --profile NAME --hybrid`, see
+[the scenario harness](../scenarios/README.md#hybrid-runs)) scripts planning and the first
+Builder, which delivers the vacuous tests, and keeps the Validator, Completion Owner, Resolver
+and repair Builder live; its results have their own mode (`NAME-hybrid`) and its diagnosis
+counts only the live Resolver's calls. `tools/live_diagnosis_trial.py` exercises
+`astra_diagnose` only: a different stage, for repeated Builder report rejections, that writes
+no repair task. Its results never count toward #59.
+
 ## Legacy migration — opt-in only
 
 Existing v3 approved contracts retain their exact content, hash and approval. New

@@ -5,6 +5,8 @@
   python3 scenarios/run.py check [ID ...]    # prove each oracle: seed fails, reference passes, broken variants fail
   python3 scenarios/run.py run ID ... --fake  # full AutoCode run with a scripted model (no spend)
   python3 scenarios/run.py run ID ... --profile glm53-openai --i-authorize-live-model-spend
+  python3 scenarios/run.py run ID ... --profile glm53-mimo --provider kilocode --i-authorize-live-model-spend
+  python3 scenarios/run.py run ID ... --fake --hybrid   # rehearse the scenario's [hybrid] route (no spend)
   python3 scenarios/run.py route --fake      # which workflow AutoCode recognizes for each prompt in routing.toml
   python3 scenarios/run.py compare ID ... --fake  # AutoCode vs a plain agent, same oracle (scripted; no spend)
   python3 scenarios/run.py compare ID ... --profile openai-only --baseline opencode --i-authorize-live-model-spend
@@ -30,9 +32,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from harness import baseline, build_compare, catalog, compare, plan_compare, profiles, routing, stats, verdict  # noqa: E402
-from harness.driver import (REPO, DriveError, Driver, default_autocode, fake_setup, live_setup, metrics,  # noqa: E402
-                            split_by_turn)
+from harness import (baseline, build_compare, catalog, compare, hybrid, plan_compare, profiles, routing,  # noqa: E402
+                     stats, verdict)
+from harness.driver import (REPO, DriveError, Driver, TurnNotReached, default_autocode, fake_setup,  # noqa: E402
+                            live_setup, metrics, changed_between, split_by_turn, workspace_files)
 from harness.project import materialize  # noqa: E402
 
 
@@ -83,6 +86,8 @@ def require_mode(args) -> None:
         sys.exit("run needs --fake or --profile NAME")
     if args.profile and not args.i_authorize_live_model_spend:
         sys.exit(f"refusing to spend on live models: add --i-authorize-live-model-spend (profile {args.profile})")
+    if getattr(args, "provider", None) and not args.profile:
+        sys.exit("--provider changes a live profile's provider: use it with --profile NAME")
     if importlib.util.find_spec("psutil") is None:
         sys.exit("Scenario process supervision needs psutil, which this Python lacks: run with the project's "
                  "virtualenv (.venv/bin/python scenarios/run.py ...), including for custom --autocode commands")
@@ -102,6 +107,13 @@ def cmd_run(args) -> int:
                 failures += 1
         elif outcome == verdict.PASS and scenario.known_failure:
             note = "\n  now passes: remove known_failure from scenario.toml"
+        split = result.get("hybrid") or {}
+        if "live_stage_names" in split:
+            note += (f"\n  hybrid: scripted {', '.join(split['scripted_stage_names']) or 'nothing'}; "
+                     f"live ({split['live_tool']}) {', '.join(split['live_stage_names']) or 'nothing'}")
+        diagnosis = result.get("diagnosis")
+        if diagnosis:
+            note += f"\n  diagnosis: {diagnosis['verdict']} — {diagnosis.get('reason', '')}"
         print(f"{scenario.id}: {outcome} — {result['summary']}{note}\n  evidence: {result['evidence']}")
     return 1 if failures else 0
 
@@ -125,38 +137,54 @@ def evidence_directory(root: Path, label: str) -> tuple[str, Path]:
 
 
 def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
-    mode = ("fake" if args.fake_solution == "reference" else f"fake-{Path(args.fake_solution).name}") if args.fake else args.profile
+    provider = getattr(args, "provider", None)
+    split = getattr(args, "hybrid", False)  # the scenario's [hybrid] route: some stages scripted, the rest live
+    mode = (("fake" if args.fake_solution == "reference" else f"fake-{Path(args.fake_solution).name}") if args.fake
+            else f"{args.profile}-via-{provider}" if provider else args.profile)
+    mode = hybrid.mode(mode) if split else mode  # never counted with natural runs (harness/hybrid.py)
     stamp, out = evidence_directory(args.out, f"{scenario.id}-{mode}")
     result = {"scenario": scenario.id, "title": scenario.title, "category": scenario.category, "mode": mode,
               "autocode": autocode_revision(), "started_at": stamp, "evidence": str(out)}
     if not args.fake:
-        result["profile"] = profiles.resolve(args.profile)
+        result["profile"] = profiles.with_provider(profiles.resolve(args.profile), provider)
     skip = [f"requires {tool}" for tool in scenario.missing_tools()]
     solution = scenario.dir / args.fake_solution
-    if args.fake and not scenario.fake_check:
+    if (args.fake or split) and not scenario.fake_check:
         skip.append("no [fake] check in scenario.toml")
     if args.fake and scenario.fake_live_calls and not getattr(args, "i_authorize_live_model_spend", False):
         skip.append("its Investigator is a real model: add --i-authorize-live-model-spend")
     # Under a live profile no stage is scripted, so the fault it needs is never injected: three live runs of
     # stuck-planner-citation (2026-09-30) were judged FALSE_COMPLETE on checks that could not have passed.
-    if not args.fake and scenario.fake_live_calls:
+    if not args.fake and not split and scenario.fake_live_calls:
         skip.append("hybrid scenario: only its Investigator is live; run it with --fake --i-authorize-live-model-spend")
-    if args.fake and not solution.is_dir():
+    if (args.fake or split) and not solution.is_dir():
         skip.append(f"no {args.fake_solution}/ solution for the fake to apply")
+    if split and not skip:
+        live_flags = None if args.fake else live_setup(args.profile, provider)[0]
+        try:
+            flags, env, route = hybrid.setup(scenario, out, solution, live_flags=live_flags)
+        except hybrid.Unavailable as error:
+            skip.append(f"hybrid: {error}")
+        result["hybrid"] = hybrid.route(scenario)
     if skip:
+        result["diagnosis"] = None  # nothing ran, so nothing was diagnosed (scenarios/README.md, "Diagnosis")
         return finish(out, result, verdict.SKIPPED, "; ".join(skip))
 
     project = materialize(scenario.seed, out / "project")
-    flags, env = fake_setup(scenario, out, solution) if args.fake else live_setup(args.profile)
+    if not split:
+        flags, env = fake_setup(scenario, out, solution) if args.fake else live_setup(args.profile, provider)
     flags = [*flags, *caps_flags(args), *extra_flags]
     env = {**env, **(extra_env or {})}
     driver = Driver(project, out, flags, env, autocode=args.autocode or default_autocode(),
                     max_steps=args.max_steps or scenario.max_steps,
-                    timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes))
-    drive_error = ""
+                    timeout_seconds=60 * (args.timeout_minutes or scenario.timeout_minutes),
+                    explicit_answers=scenario.fake_answers if args.fake and not split else ())
+    drive_error, not_reached = "", None
     started = time.monotonic()
     try:
         driver.drive(scenario.brief, scenario.turns)
+    except TurnNotReached as error:
+        not_reached = error  # AutoCode stopped before a turn could be said: judged, never PASS
     except DriveError as error:
         drive_error = str(error)
     wall_seconds = round(time.monotonic() - started, 1)
@@ -164,20 +192,34 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
     if state:
         (out / "state.json").write_text(json.dumps(state, indent=2))
     record = run_record(driver, state)
+    live_stages = record["model_stages"]
+    if split:
+        served = hybrid.calls(out)
+        # A scripted call is no model's: the diagnosis does not count it, nor does requires_stages.
+        record["scripted_outputs"] = hybrid.scripted_outputs(served)
+        result["hybrid"] = hybrid.block(route, served, state)
+        live_stages = result["hybrid"]["live_stage_names"]
     oracle = verdict.evaluate(scenario, project, record)
+    # Scored apart from the run verdict; only its NOT_EXERCISED reaches it (scenarios/README.md, "Diagnosis").
+    diagnosis = verdict.diagnose(scenario, project, record)
+    unexercised = ((diagnosis.get("reason") or "not exercised")
+                   if diagnosis and diagnosis.get("verdict") == verdict.NOT_EXERCISED else "")
     outcome, summary = verdict.judge(state.get("status", ""), oracle, scenario.expected)
-    outcome, summary = verdict.exercised(outcome, summary, scenario.requires_stages, record["model_stages"])
+    if not_reached:
+        outcome, summary = verdict.turn_not_reached(outcome, summary, not_reached.turn)
+    outcome, summary = verdict.exercised(outcome, summary, scenario.requires_stages, live_stages, unexercised)
     if drive_error:
         outcome, summary = verdict.ERROR, f"harness stopped: {drive_error}; oracle {oracle.summary}"
     result.update(runner_status=state.get("status"), run_dir=str(driver.run_dir or ""),
-                  harness_error=drive_error, oracle_passed=oracle.passed,
+                  harness_error=drive_error, turn_not_reached=str(not_reached or ""), oracle_passed=oracle.passed,
                   cli_calls=len(driver.steps), answers=driver.answers, metrics=metrics(state),
                   resolutions=record["resolutions"],
                   wall_seconds=wall_seconds, cli_seconds=round(sum(step["seconds"] for step in driver.steps), 1),
                   workflow=record["view"].get("workflow"), expected=scenario.expected,
                   turns=[{"say": turn["say"], "workflow": turn["view"].get("workflow"),
                           "model_stage_names": turn["model_stages"]} for turn in record.get("turns", [])],
-                  checks=[dataclasses.asdict(check) for check in oracle.checks], oracle_error=oracle.error)
+                  checks=[dataclasses.asdict(check) for check in oracle.checks], oracle_error=oracle.error,
+                  diagnosis=diagnosis)
     return finish(out, result, outcome, summary)
 
 
@@ -207,6 +249,9 @@ def run_record(driver: Driver, state: dict) -> dict:
         steps = [0, *(mark["steps"] for mark in driver.turn_marks), len(driver.steps)]
         answers = [0, *(mark["answers"] for mark in driver.turn_marks), len(driver.answers)]
         record["turns"] = []
+        # Workspace snapshots at the start, at each follow-up and now (None where a record has none).
+        files = [getattr(driver, "start_files", None), *(mark.get("files") for mark in driver.turn_marks),
+                 workspace_files(driver.project) if getattr(driver, "project", None) else None]
         for index, stages in enumerate(stage_turns):
             turn_metrics = metrics({"stages": stages})
             record["turns"].append({
@@ -216,6 +261,9 @@ def run_record(driver: Driver, state: dict) -> dict:
                 "cli_calls": [step["kind"] for step in driver.steps[steps[index]:steps[index + 1]]],
                 "steps": [{"kind": step["kind"], "exit": step["exit"]}
                           for step in driver.steps[steps[index]:steps[index + 1]]],
+                # What this turn changed in the workspace, read from disk before and after it.
+                "changed_files": (changed_between(files[index], files[index + 1])
+                                  if files[index] is not None and files[index + 1] is not None else None),
                 "view": (driver.turn_marks[index].get("view") if index < len(driver.turn_marks) else view) or {}})
     return record
 
@@ -426,6 +474,12 @@ def main(argv=None) -> int:
     run.add_argument("--fake-solution", default="reference", metavar="DIR",
                      help="overlay the fake applies, e.g. broken/special-case to prove FALSE_COMPLETE detection")
     mode.add_argument("--profile", help="live model profile from harness/profiles.py")
+    run.add_argument("--provider", help="run the profile's models through this provider instead "
+                                        "(e.g. kilocode, or a tool set up in docs/providers.md)")
+    run.add_argument("--hybrid", action="store_true",
+                     help="script the stages the scenario's [hybrid] route names with its fake fault and run the rest "
+                          "on --profile (a tool registered with a TOML file), or on a scripted stand-in with --fake; "
+                          "mode NAME-hybrid")
     run.add_argument("--i-authorize-live-model-spend", action="store_true")
     run.add_argument("--out", type=Path, default=REPO / ".scenario-runs")
     run.add_argument("--autocode", nargs="+", help="AutoCode command to test (default: this checkout)")
@@ -506,7 +560,7 @@ def main(argv=None) -> int:
 
     summary = commands.add_parser("stats", help="runs, passes, pass streak, time and model stages from saved results")
     summary.add_argument("ids", nargs="*")
-    summary.add_argument("--mode", help="only this mode: fake, or a live profile name")
+    summary.add_argument("--mode", help="only this mode: fake, a live profile name, or either with -hybrid")
     summary.add_argument("--out", type=Path, default=REPO / ".scenario-runs")
     summary.set_defaults(func=cmd_stats)
     args = parser.parse_args(argv)

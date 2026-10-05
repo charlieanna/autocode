@@ -144,7 +144,7 @@ class PausedSourceEditTests(unittest.TestCase):
         self.assertEqual(2, self.invoke("--no-chat", role=provider))
         self.assertEqual([], calls)
         self.assertEqual("PAUSED_STALE_VALIDATION", self.state["status"])
-        self.assertIn("--resume-paused to archive the repair", self.stderr)
+        self.assertIn("autocode resume to archive the repair", self.stderr)
         self.assertEqual(pending, self.state["pending_report_repair"])
 
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
@@ -258,18 +258,62 @@ class PausedSourceEditTests(unittest.TestCase):
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
         self.assertEqual([("sol", False)], [(call["stage"], call["report_only"]) for call in calls])
 
-    def assert_recovered_result_set_aside(self, record, why):
+    def assert_recovered_result_set_aside(self, record, foreign_field):
+        recovered = json.loads(Path(record["output"]).read_text())
+        expected = envelope(self.state)
+        self.assertNotEqual(expected[foreign_field], recovered[foreign_field])
+        retained = {key: Path(record[key]).read_bytes()
+                    for key in ("output", "events", "before_ref", "after_ref")}
+        current = s.snapshot(self.root)["revision"]
         self.state.update(status="PAUSED_INTERRUPTED", phase="PAUSED_OR_BLOCKED", next_stage="sol", active_stage=record)
         calls, provider = self.provider([])
         self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
-        self.assertEqual([], calls)
-        self.assertNotIn(self.state["status"], ("PAUSED_STALE_GOAL", "PAUSED_STALE_TASK"))
-        self.assertIn(f"Completed sol output was rejected ({why}); attempt archived", self.state["stop_reason"])
-        self.assertEqual(why, self.state["stages"][-1]["rejection_reason"])
-        self.assertNotIn("validation", self.state)
-        self.assertNotIn("active_stage", self.state)
-        self.assertTrue(self.state["stages"][-1]["rejected"])
-        return calls, provider
+        self.assertEqual([("sol", False)], [(call["stage"], call["report_only"]) for call in calls])
+
+        # Explicit resume discards the foreign report and starts a fresh attempt. Intercept that
+        # attempt before it can answer: the old PASS must not appear as current validation.
+        self.assertEqual(0, self.invoke("--status", "--inspect-evidence"))
+        view = json.loads(self.stdout)["view"]
+        self.assertFalse(view["done"])
+        self.assertEqual("not_recorded", view["verification"]["freshness"])
+        self.assertIsNone(view["verification"]["report_token"])
+        self.assertIsNone(view["evidence"]["validator_source_revision"])
+        self.assertIsNone(view["evidence"]["check_replay"])
+        self.assertTrue(all(row["state"] == "unchecked" for row in view["verification"]["coverage"]))
+        attempts = [row for row in view["usage"]["accounting"]["attempts"]
+                    if row["attempt_id"] == "002/sol-01" and row["rejected"]]
+        self.assertEqual(1, len(attempts))
+        archived = attempts[0]
+        archive = Path(archived["output"]).parent
+        self.assertNotEqual(Path(record["output"]).parent, archive)
+        for key, original in retained.items():
+            with self.subTest(artifact=key):
+                self.assertEqual(original, (archive / Path(record[key]).name).read_bytes())
+                self.assertFalse(Path(record[key]).exists())
+
+        # A second authorized resume gets a real fixture answer. The runner must replay its
+        # checks, bind the result to the current approved contract/task, and retain the archive.
+        fresh_calls, provider = self.provider([self.validator])
+        self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
+        self.assertEqual(["sol", "astra_review"], [call["stage"] for call in fresh_calls])
+        self.assertEqual(0, self.invoke("--status", "--inspect-evidence"))
+        view = json.loads(self.stdout)["view"]
+        verification = view["verification"]
+        self.assertEqual("current", verification["freshness"])
+        self.assertIsNotNone(verification["report_token"])
+        self.assertEqual(f"r{expected['contract_revision']}:{expected['contract_hash']}",
+                         verification["contract_token"])
+        self.assertEqual(expected["task_id"] or None, verification["task_id"])
+        self.assertEqual(current, verification["source_revision"])
+        self.assertEqual([("C1", "checked", "PASS")],
+                         [(row["id"], row["state"], row["recorded_status"]) for row in verification["coverage"]])
+        replay = view["evidence"]["check_replay"]
+        self.assertEqual(("PASS", current), (replay["verdict"], replay["source_revision"]))
+        self.assertEqual([("python3 -m unittest", 0)],
+                         [(row["command"], row["exit_code"]) for row in replay["checks"]])
+        self.assertIn(archived, view["usage"]["accounting"]["attempts"])
+        for key, original in retained.items():
+            self.assertEqual(original, (archive / Path(record[key]).name).read_bytes())
 
     def test_resume_never_applies_a_recovered_result_of_another_task(self):
         self.approve()
@@ -278,11 +322,7 @@ class PausedSourceEditTests(unittest.TestCase):
         follow_up = copy.deepcopy(self.decision())
         follow_up["next_objective"] = "Validate again"
         lifecycle.assign_task(self.state, follow_up, s.snapshot(self.root))
-        calls, provider = self.assert_recovered_result_set_aside(
-            record, "Role result belongs to another implementation task")
-
-        self.assertEqual(2, self.invoke("--resume-paused", "--no-chat", role=provider))
-        self.assertEqual([("sol", False)], [(call["stage"], call["report_only"]) for call in calls])
+        self.assert_recovered_result_set_aside(record, "task_id")
 
     def test_resume_never_applies_a_recovered_result_of_another_goal_revision(self):
         self.approve()
@@ -294,7 +334,7 @@ class PausedSourceEditTests(unittest.TestCase):
         lifecycle.human.evaluate(self.state)
         lifecycle.present(self.state)
         lifecycle.approve(self.state, runner.goals.token(self.state["goal_contract"]))
-        self.assert_recovered_result_set_aside(record, "Role result belongs to another goal revision")
+        self.assert_recovered_result_set_aside(record, "contract_hash")
 
 
 class StaleValidationTests(unittest.TestCase):

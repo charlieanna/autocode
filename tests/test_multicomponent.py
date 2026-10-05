@@ -2,18 +2,23 @@
 build+integrate through the real CLI with a scripted, per-component fake model."""
 import json
 import os
+import runpy
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_multicomponent as mc
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HERE = Path(__file__).resolve().parents[1] / "tools"  # its fixtures stay beside the runtime
 FAKE_PROVIDER = HERE / "fixtures" / "multicomponent_fake.py"
+FAKE_DOCKER = HERE / "fixtures" / "fake_docker.py"
 FIXTURE_OPTIONS = ("--engine", "codex", "--joint-planning", "--astra-model", "gpt-6-astra",
                    "--terra-model", "gpt-5.6-terra", "--sol-model", "gpt-5.6-sol", "--completion-model",
                    "gpt-6-astra", "--glm-model", "gpt-5.6-sol", "--plan-reviewer-model", "gpt-6-astra")
@@ -30,6 +35,18 @@ def architecture(*components, contracts_dir):
         id=c["id"], description=c["description"], requirements=tuple(c["requirements"]),
         depends_on=tuple(c["depends_on"]), publishes_contracts=tuple(c["publishes_contracts"]),
         consumes_contracts=tuple(c["consumes_contracts"])) for c in components}, contracts_dir=contracts_dir)
+
+
+class WorkdirPathTests(unittest.TestCase):
+    def test_workdir_is_canonical_whether_the_workspace_is_spelled_var_or_private_var(self):
+        import autocode_local_run as local_run
+        with tempfile.TemporaryDirectory() as temp:
+            raw = Path(temp) / "project"
+            raw.mkdir()
+            # /var vs /private/var on macOS: same directory, different spelling.
+            alias = Path(os.path.realpath(raw))
+            self.assertEqual(local_run.workdir(raw).resolve(), local_run.workdir(alias).resolve())
+            self.assertEqual(alias, local_run.workdir(raw).parent.parent.resolve())
 
 
 class BatchingTests(unittest.TestCase):
@@ -100,13 +117,88 @@ def git(cwd, *args):
                    cwd=cwd, check=True, capture_output=True, text=True)
 
 
+class FakeSchemaCompatibilityTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix="component-schema-")
+        self.addCleanup(temp.cleanup)
+        manifest = Path(temp.name) / "manifest.json"
+        manifest.write_text("{}")
+        with patch.dict(os.environ, {"FAKE_MANIFEST": str(manifest)}):
+            self.complete = runpy.run_path(str(FAKE_PROVIDER))["complete"]
+        self.schema = {"type": "object", "required": ["recovery_change"], "properties": {
+            "contract_hash": {"type": "string"},
+            "recovery_change": {"type": ["object", "null"],
+                                "required": ["before", "after", "evidence_refs"], "properties": {
+                                    "before": {"type": "string"}, "after": {"type": "string"},
+                                    "evidence_refs": {"type": "array", "items": {"type": "string"}}}}}}
+
+    def test_absent_nullable_field_defaults_to_null_and_preserves_explicit_null(self):
+        for value in ({}, {"recovery_change": None}):
+            with self.subTest(value=value):
+                self.assertEqual({"recovery_change": None}, self.complete(value, self.schema))
+
+    def test_explicit_nullable_object_keeps_its_values_and_completes_its_fields(self):
+        proposal = {"before": "original", "after": "changed"}
+        value = self.complete({"recovery_change": proposal}, self.schema)
+        self.assertIs(proposal, value["recovery_change"])
+        self.assertEqual({"before": "original", "after": "changed", "evidence_refs": []}, proposal)
+
+    def test_invalid_supplied_value_and_report_identity_are_not_rewritten(self):
+        value = {"recovery_change": "invalid object", "contract_hash": "not-the-approved-contract"}
+        expected = dict(value)
+        self.assertEqual(expected, self.complete(value, self.schema))
+
+    def test_report_repair_preserves_original_failures_and_runs_no_new_checks(self):
+        with tempfile.TemporaryDirectory(prefix="component-report-repair-") as tmp:
+            root = Path(tmp)
+            marker = root / "must-not-be-created"
+            command = f"touch {marker}"
+            manifest = root / "manifest.json"
+            manifest.write_text(json.dumps({"alpha": {"description": "the alpha component", "file": "output.txt",
+                                                       "content": "new work", "check": command}}))
+            events = root / "original.jsonl"
+            event = {"type": "item.completed", "item": {"id": "original-check", "type": "command_execution",
+                     "command": command, "exit_code": 1, "aggregated_output": "original failure"}}
+            events.write_text(json.dumps(event) + "\n")
+            original_events = events.read_bytes()
+            report = {"contract_revision": 3, "contract_hash": "original-contract", "task_id": "original-task",
+                      "summary": "Implement the alpha component of this fixture", "verdict": "FAIL",
+                      "checks_run": [command], "checks": [{"command": command, "exit_code": 1,
+                                                           "evidence_ref": "event:original-check"}],
+                      "findings": [{"id": "F1", "summary": "Original failure remains open"}],
+                      "unverified_criteria": ["C1"], "implementation_captures": []}
+            schema = root / "schema.json"
+            schema.write_text(json.dumps({"type": "object", "properties": {}, "required": []}))
+            output = root / "report.json"
+            for repeated in (False, True):
+                with self.subTest(repeated=repeated):
+                    data = {"report_repair": True, "original": {"stage": "sol", "events": str(events)},
+                            "report_identity": {key: report[key] for key in
+                                                ("contract_revision", "contract_hash", "task_id")},
+                            "rejected_report": {"content": dict(report)},
+                            "original_executed_checks": report["checks"]}
+                    if repeated:
+                        data["original_report"] = {"content": report}
+                        data["rejected_report"]["content"].update(verdict="PASS", findings=[], contract_hash="wrong")
+                    proc = subprocess.run([sys.executable, "-B", str(FAKE_PROVIDER), "exec",
+                                           "--output-schema", str(schema), "-o", str(output)],
+                                          input="CURRENT HANDOFF DATA\n" + json.dumps(data), cwd=root,
+                                          env={**os.environ, "FAKE_MANIFEST": str(manifest)},
+                                          capture_output=True, text=True, timeout=10)
+                    self.assertEqual(0, proc.returncode, proc.stdout + proc.stderr)
+                    self.assertEqual(report, json.loads(output.read_text()))
+                    self.assertFalse(marker.exists(), "format repair must not execute the reported command")
+                    self.assertEqual(original_events, events.read_bytes())
+                    self.assertNotIn("command_execution", proc.stdout, "evidence must cite the original events")
+
+
 class BuildAndIntegrateTests(unittest.TestCase):
     """Two independent components, built through the real CLI with a scripted model."""
 
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="multicomponent-")
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.root = Path(temp.name).resolve()
         self.repo = self.root / "repo"
         self.repo.mkdir()
         git(self.repo, "init", "-q")
@@ -199,7 +291,7 @@ class BuildAndIntegrateTests(unittest.TestCase):
 
 
 class CliTests(BuildAndIntegrateTests):
-    """The installed entry point (`autocode components`), not just the Python API."""
+    """The real CLI entry point (`autocode components`), not just the Python API."""
 
     def setUp(self):
         super().setUp()
@@ -213,7 +305,7 @@ class CliTests(BuildAndIntegrateTests):
         git(self.repo, "commit", "-q", "-m", "architecture")
 
     def run_cli(self, *args):
-        return subprocess.run([sys.executable, "-m", "tools.autocode", "components", *args], cwd=REPO_ROOT,
+        return subprocess.run([sys.executable, str(HERE / "autocode.py"), "components", *args], cwd=REPO_ROOT,
                               env={**os.environ, **self.env}, capture_output=True, text=True, timeout=120)
 
     def test_cli_builds_and_integrates_both_components(self):
@@ -249,6 +341,116 @@ class CliTests(BuildAndIntegrateTests):
         target = self.repo / "integration"
         self.assertEqual("from alpha\n", (target / "components" / "alpha" / "message.txt").read_text())
         self.assertEqual("from beta\n", (target / "components" / "beta" / "message.txt").read_text())
+
+    def test_cli_builds_components_that_declare_how_they_run(self):
+        # Runtime sentences, an embedded schema's "required" and a backticked contract name
+        # all reach the real requirement-coverage and brief-literal checks; the scripted
+        # model keeps the whole brief, and alpha delivers two files.
+        architecture = self.repo / "architecture"
+        (architecture / "contracts" / "greeting.schema.json").write_text(
+            '{"type": "object", "required": ["text"], "properties": {"text": {"type": "string"}}}')
+        (architecture / "components.json").write_text(json.dumps([
+            {**component("alpha", publishes=["greeting"]),
+             "runtime": {"kind": "service", "port": 8001, "dockerfile": "Dockerfile", "health": "/health"}},
+            {**component("beta", consumes=["greeting"]),  # built against the contract, in the same batch
+             "runtime": {"kind": "service", "port": 8002, "start": "python3 server.py", "health": "/health",
+                         "runtime_depends_on": ["alpha"]}}]))
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "runtime blocks")
+        self.write_manifest(alpha={"description": "the alpha component", "check": "test -f components/alpha/Dockerfile",
+                                   "files": {"components/alpha/server.py": "print('alpha')\n",
+                                             "components/alpha/Dockerfile": "FROM python:3.12-slim\n"}})
+        proc = self.run_cli("architecture", "--workspace", str(self.repo), "--auto-approve",
+                            "--integrate", "integration", "--options", " ".join(FIXTURE_OPTIONS))
+        self.assertEqual(0, proc.returncode, proc.stderr[-1500:])
+        summary = json.loads(proc.stdout)
+        self.assertEqual({"alpha": "done", "beta": "done"},
+                         {cid: info["status"] for cid, info in summary["components"].items()})
+        target = self.repo / "integration"
+        self.assertEqual("FROM python:3.12-slim\n", (target / "components" / "alpha" / "Dockerfile").read_text())
+        self.assertEqual("print('alpha')\n", (target / "components" / "alpha" / "server.py").read_text())
+        self.assertEqual("from beta\n", (target / "components" / "beta" / "message.txt").read_text())
+
+    def test_cli_runs_the_integrated_system_locally(self):
+        # The whole --run-local path without Docker: a fake `docker` on PATH records each
+        # command and publishes alpha on the port of a local HTTP server standing in for
+        # its container. A second invocation, against a server that now answers wrongly,
+        # fails the smoke check, prints alpha's logs and still tears down.
+        architecture = self.repo / "architecture"
+        (architecture / "components.json").write_text(json.dumps([
+            {**component("alpha"), "runtime": {"kind": "service", "port": 8001, "start": "python3 server.py",
+                                               "health": "/health"}},
+            {**component("beta"), "runtime": {"kind": "worker", "start": "python3 work.py",
+                                              "runtime_depends_on": ["alpha"]}}]))
+        (architecture / "smoke.json").write_text(json.dumps({"version": 1, "steps": [
+            {"name": "greet", "service": "alpha", "method": "GET", "path": "/greeting", "expect_status": 200,
+             "expect_json": {"text": "hello"}}]}))
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "runtime blocks and smoke check")
+        self.write_manifest()
+        shutil.copy2(FAKE_DOCKER, self.root / "bin" / "docker")
+        (self.root / "bin" / "docker").chmod(0o755)
+
+        class Alpha(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                body = json.dumps({"text": self.server.greeting}).encode()
+                self.send_response(200 if self.path in ("/health", "/greeting") else 404)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Alpha)
+        server.greeting = "hello"
+        threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        log = self.root / "docker.jsonl"
+        # DOCKER_HOST empty: the fake's current context, a local socket, decides where the daemon is.
+        self.env.update(FAKE_DOCKER_LOG=str(log), FAKE_DOCKER_PORTS=json.dumps({"alpha": server.server_port}),
+                        DOCKER_HOST="")
+        args = ("architecture", "--workspace", str(self.repo), "--auto-approve", "--integrate", "integration",
+                "--run-local", "--options", " ".join(FIXTURE_OPTIONS))
+
+        proc = self.run_cli(*args)
+        self.assertEqual(0, proc.returncode, proc.stderr[-1500:])
+        summary = json.loads(proc.stdout)
+        self.assertEqual(["alpha", "beta"], summary["integration"]["integrated"])
+        local = summary["local_run"]
+        self.assertEqual("passed", local["status"], local["detail"])
+        self.assertEqual([["alpha"], ["beta"]], local["layers"])
+        self.assertEqual([("greet", True, 200)], [(s["name"], s["ok"], s["status"]) for s in local["steps"]])
+        self.assertTrue(local["torn_down"])
+        compose = Path(local["compose_file"])
+        # macOS temporary paths may use /var, while the CLI emits canonical /private/var paths.
+        self.assertEqual((self.repo / ".autocode-components" / ".local-run" / local["project"]).resolve(),
+                         compose.parent.resolve())
+        self.assertIn(str((self.repo / "integration" / "components" / "alpha").resolve()), compose.read_text())
+        prefix = ["compose", "-p", local["project"], "-f", str(compose)]
+        calls = [json.loads(line) for line in log.read_text().splitlines()]
+        self.assertEqual([["compose", "version", "--short"], ["version", "--format", "{{.Server.Version}}"],
+                          ["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"]], calls[:3])
+        self.assertEqual([prefix + ["up", "-d", "--build", "--no-deps", "alpha"],
+                          prefix + ["up", "-d", "--build", "--no-deps", "beta"],
+                          prefix + ["down", "-v", "--remove-orphans", "--rmi", "local"]],
+                         [call for call in calls if call[5:6] in (["up"], ["down"])])
+        status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=self.repo / "integration",
+                                capture_output=True, text=True, check=True).stdout
+        self.assertEqual(["components/"], sorted({line[3:].split("/")[0] + "/" for line in status.splitlines()}))
+
+        server.greeting = "goodbye"
+        log.unlink()
+        proc = self.run_cli(*args)
+        self.assertEqual(1, proc.returncode, proc.stderr[-1500:])
+        local = json.loads(proc.stdout)["local_run"]
+        self.assertEqual(("failed", "alpha", "greet"), (local["status"], local["failed_component"],
+                                                        local["failed_step"]))
+        self.assertIn("does not match expect_json", local["detail"])
+        self.assertIn("fake log line from alpha", proc.stderr)
+        self.assertEqual(["down", "-v", "--remove-orphans", "--rmi", "local"],
+                         json.loads(log.read_text().splitlines()[-1])[5:])
 
     def test_cli_refuses_a_cycle_before_starting_any_component(self):
         (self.repo / "architecture" / "components.json").write_text(json.dumps(
@@ -286,7 +488,8 @@ class CliTests(BuildAndIntegrateTests):
             self.assertEqual("done", second["components"][cid]["status"])
             self.assertTrue(second["components"][cid]["resumed"])
             # The same run was continued, not a new one started beside it.
-            self.assertEqual(first["components"][cid]["run_dir"], second["components"][cid]["run_dir"])
+            self.assertEqual(Path(first["components"][cid]["run_dir"]).resolve(),
+                             Path(second["components"][cid]["run_dir"]).resolve())
         self.assertEqual(branches, self.component_branches())
         self.assertEqual(["alpha", "beta"], second["integration"]["integrated"])
 
@@ -303,7 +506,8 @@ class CliTests(BuildAndIntegrateTests):
                             "--options", " ".join(FIXTURE_OPTIONS))
         self.assertEqual(0, proc.returncode, proc.stderr[-1500:])
         second = json.loads(proc.stdout)
-        self.assertEqual(first["components"]["alpha"]["run_dir"], second["components"]["alpha"]["run_dir"])
+        self.assertEqual(Path(first["components"]["alpha"]["run_dir"]).resolve(),
+                         Path(second["components"]["alpha"]["run_dir"]).resolve())
         self.assertEqual("done", second["components"]["alpha"]["status"])
 
     def test_a_changed_architecture_is_not_resumed(self):

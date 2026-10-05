@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import copy
 import sys
+from pathlib import Path
 
 try:
-    from . import autocode_job_failure as job_failure
+    from . import autocode_job_failure as job_failure, autocode_design_revision as design_revision, autocode_design_intake as design_intake
     from . import autopilot
     from . import autocode_dependency as dependency
     from . import autocode_conversation_ingress as conversation_ingress
@@ -30,16 +31,18 @@ try:
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_progressive_state as progressive
+    from . import autocode_quota_route as quota_route, autocode_worker_quota as worker_quota
     from . import autocode_resolver_human as resolver_human
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_run_finder as run_finder
+    from . import autocode_run_records as records
     from . import autocode_stop as stop
     from . import autocode_support as support
     from . import autocode_workflows as workflows
     from . import autocode_worktrees as worktrees
 except ImportError:
-    import autocode_job_failure as job_failure
+    import autocode_job_failure as job_failure, autocode_design_revision as design_revision, autocode_design_intake as design_intake
     import autopilot
     import autocode_dependency as dependency
     import autocode_conversation_ingress as conversation_ingress
@@ -54,10 +57,13 @@ except ImportError:
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
     import autocode_progressive_state as progressive
+    import autocode_quota_route as quota_route
+    import autocode_worker_quota as worker_quota
     import autocode_resolver_human as resolver_human
     import autocode_recovery_progress as recovery_progress
     import autocode_resolver_runtime as resolver_runtime
     import autocode_run_finder as run_finder
+    import autocode_run_records as records
     import autocode_stop as stop
     import autocode_support as support
     import autocode_workflows as workflows
@@ -78,8 +84,104 @@ def explicit_recovery_requested(args):
                 bool(budget_flags)))
 
 
+PAUSE_BUDGET_KIND = {
+    'PAUSED_TIME_LIMIT': 'max_seconds',
+    'PAUSED_ITERATION_LIMIT': 'iteration_ceiling',
+    'PAUSED_MILESTONE_TIME_LIMIT': 'milestone_max_seconds',
+    'PAUSED_MILESTONE_BUDGET': 'milestone_max_seconds',
+    'PAUSED_NO_PROGRESS': 'no_progress_batches',
+}
+BUDGET_FLAGS = {
+    'max_seconds': ('max_seconds',),
+    'iteration_ceiling': ('max_iterations', 'legacy_iteration_ceiling', 'unlimited_iterations'),
+    'milestone_max_seconds': ('max_milestone_seconds',),
+    'no_progress_batches': ('no_progress_limit',),
+}
+
+
+def _explicit_budget_change(args, origin):
+    """True when this invocation explicitly resets the bound the request exhausted."""
+    kind = (origin.get('budget') or {}).get('kind') or PAUSE_BUDGET_KIND.get(origin.get('pause_status'))
+    explicit = getattr(args, '_explicit_budget_flags', None) or set()
+    return any(flag in explicit for flag in BUDGET_FLAGS.get(kind, ()))
+
+
+def next_command(state, issued, run_dir, workspace):
+    """One concrete operator command for the pause class holding this run.
+
+    --grant-recovery is named only for PAUSED_TIMEOUT_RECOVERY: the CLI rejects
+    it for every other pause class, so suggesting it anywhere else is a dead end
+    (#301).
+    """
+    origin = {}
+    if issued:
+        entry = state.get('resolver', {}).get('human_escalations', {}).get(issued.get('request_id'), {})
+        origin = entry.get('identity', {}).get('proposal', {}).get('origin', {}) or {}
+    pause = origin.get('pause_status') or state.get('status')
+    where = f'--workspace {workspace} --run-dir {run_dir}'
+    if pause == 'PAUSED_TIMEOUT_RECOVERY':
+        return f'Next command: autocode --resume-paused --grant-recovery N {where}'
+    budget_flag = {'PAUSED_TIME_LIMIT': '--max-seconds',
+                   'PAUSED_ITERATION_LIMIT': '--max-iterations',
+                   'PAUSED_MILESTONE_TIME_LIMIT': '--max-milestone-seconds',
+                   'PAUSED_MILESTONE_BUDGET': '--max-milestone-seconds',
+                   'PAUSED_NO_PROGRESS': '--no-progress-limit'}.get(pause)
+    if budget_flag:
+        return f'Next command: autocode --resume-paused {budget_flag} N {where}'
+    if pause == 'PAUSED_BUILDER_RETRY_LIMIT':
+        milestone = (state.get('current_task') or {}).get('milestone_id') or 'MILESTONE_ID'
+        return f'Next command: autocode --resume-paused --retry-builder {milestone} {where}'
+    if pause == 'PAUSED_REPEATED_FAILURE':
+        return f'Next command: autocode --resume-paused --retry-failed-stage {where}'
+    if issued:
+        return (f'Next command: autocode --resolver-request {issued["request_id"]} '
+                f'--resolver-token {issued["request_token"]} --resolver-response provide_information '
+                f'--resolver-message \'WHAT CHANGED\' {where}')
+    return f'Next command: autocode --resume-paused {where}'
+
+
+def stale_result(state, result, revision):
+    """True when a recovered result is bound to another contract, task or tree (#302)."""
+    contract = state.get('goal_contract') or {}
+    task = state.get('current_task') or {}
+    return ((result.get('contract_revision') is not None
+             and result.get('contract_revision') != contract.get('revision'))
+            or (result.get('contract_hash') and contract.get('hash')
+                and result.get('contract_hash') != contract.get('hash'))
+            or (result.get('task_id') and task.get('id') and result.get('task_id') != task.get('id'))
+            or (result.get('source_revision') and result.get('source_revision') != revision))
+
+
+def discard_stale_recovered(state, run_dir, record):
+    """Set aside stale recovered values and schedule one fresh attempt (#302)."""
+    stage = record.get('original_stage') or str(record.get('stage', '')).removesuffix('_report_repair')
+    originals = records.archive_rejected_stage(state, run_dir, record,
+        'Recovered result is bound to another contract, task or source revision; stale values discarded')
+    state.setdefault('sessions', {}).pop(record.get('route_role', record.get('role')), None)
+    state.update(status='RUNNING',
+                 phase='PLANNING' if planning.is_planning(state, stage) else 'EXECUTING', next_stage=stage)
+    state.pop('stop_reason', None)
+    for artifact in originals:
+        Path(artifact).unlink(missing_ok=True)
+    records.write_json(run_dir / 'state.json', state)
+
+
+def revalidate_on_resume(state, workspace):
+    """A validation older than the workspace cannot support completion (#302)."""
+    validation = state.get('validation') or {}
+    revision = validation.get('source_revision')
+    if not revision or revision == support.snapshot(workspace)['revision']:
+        return False
+    state.setdefault('validation_archive', []).append({
+        'reason': 'Validation is non-current: the workspace revision changed after it ran',
+        'validation': state.pop('validation')})
+    state.update(next_stage=workflows.review_stage(state))
+    return True
+
+
 def handle(runner, args, parser, state, state_path, run_dir, workspace):
     """Apply this invocation's action to the saved run; return an exit code to stop, or None to build."""
+    args._failure_retry_authorization = None  # Invocation-local; saved history is audit data, not credit.
     # An applied durable stop is terminal: no recovery, user action, answer,
     # approval, feedback or resume may relaunch a stopped run or complete it.
     if stop.applied_stop(state) is not None:
@@ -87,6 +189,19 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             runner.write_json(state_path, state)
         print(f"{state['status']}: {state['stop_reason']}")
         return 2
+    if args.revise_figma_manifest:
+        try:
+            metadata = runner.intervention_metadata(workspace, run_dir, state)
+            if metadata["pending_count"] or metadata["inbox_error"]:
+                raise ValueError("Apply queued interventions before revising design references")
+            design_revision.apply(state, design_revision.manifest.load(args.revise_figma_manifest),
+                                  args.expected_design_hash, args.design_change_reason, workspace)
+        except (ValueError, OSError) as error:
+            print(f'Input rejected: {error}', file=sys.stderr)
+            return 2
+        runner.write_json(state_path, state)
+        print(state['stop_reason'])
+        return 0
     try:
         conversation_ingress.require_expected_goal(state, getattr(args, 'expected_goal_token', None),
                                                    token_for=goals.token, is_approved=goals.approved)
@@ -154,6 +269,11 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             specific_recovery = runner.prepare_abandoned_completion_revalidation(state, run_dir, workspace)
             if not specific_recovery:
                 state['status'] = published_status
+    # A source-only stale repair is already a recognized recovery. Do not let
+    # an answered operational request hide it or publish the same request again.
+    if (args.resume_paused and not decision_action and not explicit_recovery_requested(args)
+            and runner.stale_report_repair(state, workspace)):
+        specific_recovery = True
     acknowledged_planning_extension = (args.resume_paused and state.get('status') == 'PAUSED_PLANNING_BUDGET'
         and bool(state.get('user_events')) and state['user_events'][-1].get('kind') == 'planning_budget_change'
         and state['user_events'][-1].get('limit') == planning.review_call_limit(state)
@@ -185,7 +305,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         state.update(status='RUNNING', phase='EXECUTING')
         state.pop('stop_reason', None)
         runner.write_json(state_path, state)
-    if (not decision_action and not explicit_recovery_requested(args)
+    if (not decision_action and not specific_recovery and not explicit_recovery_requested(args)
             and state.get('status') != 'RUNNING'
             and not acknowledged_planning_extension and not acknowledged_bound_change
             and str(state.get('status', '')).startswith('PAUSED_')
@@ -200,6 +320,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             if resolver_human.current(state):
                 print(lifecycle.render(state))
                 return 2
+    routed = answer_quota_question(runner, args, state, run_dir, workspace)
+    if routed is not None:
+        return routed
     if args.resolver_response:
         candidate = copy.deepcopy(state)
         try:
@@ -285,7 +408,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                     pass  # exact job authorization was validated before generic recovery
                 elif args.retry_failed_stage:
                     try:
-                        authorization = runner.authorize_failure_retry(state, run_dir, workspace)
+                        authorization = (runner.resolver_recovery.authorize_retry(runner, state, run_dir, workspace)
+                                         or runner.authorize_failure_retry(state, run_dir, workspace))
+                        args._failure_retry_authorization = authorization
                         print("Failure retry authorized for the recorded repeated failure; "
                               "one fresh attempt proceeds under existing limits.", flush=True)
                     except ValueError as error:
@@ -349,6 +474,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         except ValueError as error:
             parser.error(str(error))
         runner.write_json(state_path, state)
+    if not args.run_dir:
+        design_intake.queue(state)
+        runner.write_json(state_path, state)
     if args.milestone_checkpoints:
         milestones.activate(state)
         if args.max_milestone_seconds is not None:
@@ -382,6 +510,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         candidate = copy.deepcopy(state)
         try:
             published = resolver_human.current(candidate)
+            if not published and candidate.get('status') == 'TASK_COMPLETE':
+                follow_up.refuse_on_finished(args)  # only --follow-up reopens a finished run
             if args.answer or args.delegate:
                 if not published or not args.resolver_token:
                     raise ValueError('Answers require the current --resolver-token shown by AutoResolver')
@@ -496,7 +626,8 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         if args.resume_paused and runner.recover_legacy_report_repair(state, run_dir, workspace):
             pass
         elif not args.resume_paused:
-            print(f"{state['status']}: {state.get('stop_reason','explicit resume required')}")
+            word = "autocode resume" if run_finder.resume_acknowledges(state["status"]) else "--resume-paused"
+            print(f"{state['status']}: {state.get('stop_reason', f'explicit resume required: {word}')}")
             return 2
         else:
             resumed_at = runner.now()
@@ -528,3 +659,85 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                                                token_for=goals.token, is_approved=goals.approved):
         runner.write_json(state_path, state)
     return None
+
+
+def answer_quota_question(runner, args, state, run_dir, workspace):
+    """--answer route-ROLE=MODEL at a quota stop (#184); None when this invocation answers something else.
+
+    The one operational question answered with --answer. The model must pass the launch rules
+    (engine format, availability, cross-model); a rejection leaves the run paused and the
+    request open. An accepted model sets the stopped attempt aside exactly as --abandon-stage
+    does, then applies and records the route; --resume-paused continues on a fresh session.
+    """
+    if not (args.answer or args.delegate):
+        return None
+    candidate = copy.deepcopy(state)
+    published = resolver_human.current(candidate)
+    if not any(item.partition('=')[0].startswith(quota_route.PREFIX) for item in [*args.answer, *args.delegate]):
+        # Refuse every other answer to an operational request here, before an uncertain attempt is
+        # reconciled: reconciling it again would retire the request the person is reading.
+        if published and published['scope'] in ('blocker', 'operational_exhaustion'):
+            print('Input rejected: Use --resolver-response for this operational request; '
+                  'it is not a requirements answer', file=sys.stderr)
+            return 2
+        return None
+    if published and published['scope'] != 'operational_exhaustion':
+        return None  # not a model question; the ordinary answer path decides
+    try:
+        if not published:
+            raise ValueError(follow_up.ANSWER_FINISHED if state.get('status') == 'TASK_COMPLETE'
+                             else resolver_human.stale_request_message(state))
+        resolver_human.require_response(candidate, published['request_id'], args.resolver_token)
+    except ValueError as error:
+        # A saved-state change after display strands the shown token; the person still
+        # answered this exact request, re-bound to the current state in this invocation.
+        fresh = resolver_human.rebind_stale(candidate, None, args.resolver_token) if args.resolver_token else None
+        if fresh is None:
+            print(f'Input rejected: {error}', file=sys.stderr)
+            return 2
+        published = fresh
+    if published['scope'] != 'operational_exhaustion':
+        return None
+    try:
+        proposal = candidate['resolver']['human_escalations'][published['request_id']]['identity']['proposal']
+        if args.delegate or args.delegate_all:
+            raise ValueError('A model question has no default to delegate; name the model yourself')
+        asked, model = quota_route.parse_answer(args.answer, published['questions'], proposal['origin'])
+        role = asked['route_role']
+        quota_route.validate(candidate, role, model, configured_tool=getattr(runner.opencode, 'CONFIGURED', False),
+                             cross_check=dispatch.enforce_cross_model_verification, job=asked.get('job'))
+        if quota_route.engine(candidate['settings'], role) == 'opencode':
+            try:
+                runner.opencode.check_models({role: {'model': model}}, workspace)
+            except RuntimeError as error:
+                raise ValueError(str(error)) from None
+        if interventions.pending(run_dir):
+            raise ValueError('Apply the queued intervention before answering')
+        parallel = worker_quota.current(candidate, proposal['origin'])
+        if proposal['origin'].get('quota_worker') and not parallel:
+            raise ValueError('The quota-stopped Builder is no longer current; inspect the batch before retrying')
+        if parallel:
+            row, stopped_worker = parallel
+            worker_quota.validate_model(model, stopped_worker, dispatch._model_family)
+            attempt = {**stopped_worker, 'stage': 'terra', 'pause_status': quota_route.QUOTA_STATUS}
+            worker_quota.assign_child(row, stopped_worker, model, abandon=runner.abandon_stage)
+        else:
+            attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status)
+            if not attempt or not attempt['active'] or attempt['role'] != role:
+                raise ValueError('The quota-stopped attempt is no longer current; run with --no-chat to see the request')
+            runner.abandon_stage(candidate, run_dir, workspace, attempt['attempt_id'])
+            attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status) or attempt
+        record = quota_route.assign(candidate, role, model, at=runner.now(), via='answer', attempt=attempt,
+                                    request_id=published['request_id'])
+        runner.finish_human_action(candidate, published)
+    except (ValueError, KeyError) as error:
+        print(f'Input rejected: {error}', file=sys.stderr)
+        return 2
+    candidate['pending_questions'] = []
+    candidate.pop('user_request', None)
+    candidate['stop_reason'] = (f"The {record['job']} now runs on {model} (was {record['from']}). The stopped "
+                                "attempt was set aside without replay; its partial work is retained. "
+                                "Continue with --resume-paused.")
+    runner.commit_user_action(state, candidate, run_dir)
+    print(f"{state['status']}: {state['stop_reason']} Saved; no agent launched.")
+    return 0

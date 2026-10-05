@@ -28,6 +28,16 @@ try:
 except ImportError:
     import autocode_progressive_state as progressive_state
 
+# A verification method may name the test and then say how to run it ("test: TestFoo (go test ...)").
+# Go subtests keep hyphens and dots (Run_-_creates_..., Package.Case_Test). Stop before a parenthetical command.
+_NAMED_TEST = re.compile(r"(test_[A-Za-z0-9_]+|Test[A-Za-z0-9_]+(?:/[A-Za-z0-9_.-]+)*)")
+
+
+def _named_test(rest: str) -> str:
+    match = _NAMED_TEST.match(str(rest or "").strip())
+    return match.group(1) if match else ""
+
+
 MARK = "test:"
 # Behavior that already works and must keep working: its test passes before and after the change
 # (a "preserve" case, autocode_regression.check_cases). Live review-then-fix plans (2026-09-29) had
@@ -46,10 +56,14 @@ def proof(method) -> str:
     still retried" from test: to guard:, as its Plan Reviewer asked, without asking the user.
     """
     text = str(method or "").strip()
-    for mark in (MARK, GUARD_MARK):
-        if text.lower().startswith(mark):
-            return "tested: " + text[len(mark):].strip()
-    return text
+    found = mark(text)
+    return "tested: " + text[len(found):].strip() if found else text
+
+
+def mark(method) -> str | None:
+    """MARK or GUARD_MARK when a verification method names a test the runner proves, else None."""
+    lowered = str(method or "").strip().lower()
+    return GUARD_MARK if lowered.startswith(GUARD_MARK) else MARK if lowered.startswith(MARK) else None
 
 
 def design_only(state: dict) -> bool:
@@ -59,24 +73,55 @@ def design_only(state: dict) -> bool:
     return (state.get("workflow") or {}).get("kind") == "design"
 
 
-def contract_cases(state: dict) -> list[dict]:
-    """The approved plan's criteria marked ``test:`` or ``guard:`` that are due now, as cases (id, text, and
-    kind "preserve" for a guard). None in a design-only job: nothing there is proven by a test the Builder writes."""
+def declared_test_name(text: str) -> str | None:
+    """Keep a declared identifier when an annotation follows a clear separator.
+
+    The annotation explains the test; it must not silently replace its identity
+    with the criterion ID. Placeholders and free-form methods keep the existing
+    ID-based convention. Native Go names are valid explicit identifiers too.
+    """
+    match = re.fullmatch(r'(test_[A-Za-z0-9_]+|Test[A-Z0-9_][A-Za-z0-9_]*(?:/[A-Za-z0-9_.-]+)*)'
+                         r'(?:\s+(?:[—–-]\s+.+|\(.+\)))?', text, re.DOTALL)
+    return match[1] if match else None
+
+
+def contract_cases(state: dict, *, all_due: bool = False) -> list[dict]:
+    """The approved plan's criteria marked ``test:`` or ``guard:`` that are due now (every one with ``all_due``,
+    as at final completion), as ``plan_cases``. None in a design-only job: nothing there is proven by a test the
+    Builder writes."""
     if design_only(state):
         return []
-    body = (state.get("goal_contract") or {}).get("body") or {}
-    due = in_scope(state)
+    due = None if all_due else in_scope(state)
+    return [case for case in plan_cases((state.get("goal_contract") or {}).get("body"))
+            if due is None or case["id"] in due]
+
+
+def plan_cases(body) -> list[dict]:
+    """A plan body's criteria marked ``test:`` or ``guard:``, as cases: id, text, the test it names when that
+    is a test name, and kind "preserve" for a guard."""
     cases = []
-    for row in body.get("acceptance_criteria") or []:
-        method = str(row.get("verification_method", "")).strip() if isinstance(row, dict) else ""
-        lowered = method.lower()
-        if row.get("id") and (due is None or row["id"] in due) and lowered.startswith((MARK, GUARD_MARK)):
-            mark = GUARD_MARK if lowered.startswith(GUARD_MARK) else MARK
-            test_name = method[len(mark):].strip()
+    for row in (body.get("acceptance_criteria") if isinstance(body, dict) else None) or []:
+        found = mark(row.get("verification_method")) if isinstance(row, dict) else None
+        if found and row.get("id"):
+            test_name = declared_test_name(str(row["verification_method"]).strip()[len(found):].strip())
             cases.append({"id": row["id"], "text": row.get("criterion", ""),
-                          **({"test_name": test_name} if re.fullmatch(r"test_[A-Za-z0-9_]+", test_name) else {}),
-                          **({"kind": "preserve"} if mark == GUARD_MARK else {})})
+                          **({"test_name": test_name} if test_name else {}),
+                          **({"kind": "preserve"} if found == GUARD_MARK else {})})
     return cases
+
+
+def diagnosis_cases(state: dict) -> list[dict]:
+    """A reproduced bug's English test cases (autocode_bug_job), or [] (bugs planned without an
+    investigation, older runs)."""
+    found = state.get("investigation") or {}
+    return list(found.get("test_cases") or []) if found.get("outcome") == "reproduced" else []
+
+
+def proof_cases(state: dict, *, all_due: bool = False) -> list[dict]:
+    """The cases the runner's regression proof (autocode_regression) requires a test for: a reproduced bug's
+    diagnosis, else the plan's ``contract_cases``. The plan approval summary (autocode_approval_view) states
+    the same cases with ``all_due``."""
+    return diagnosis_cases(state) or contract_cases(state, all_due=all_due)
 
 
 def in_scope(state: dict) -> set[str] | None:
@@ -127,6 +172,15 @@ def _words(name: str) -> list[str]:
     return [word for word in re.split(r"[^a-z0-9]+", name.lower()) if word]
 
 
+def _go_words(name: str) -> list[str]:
+    """Go aliases retain whole words and numeric groups across case separators.
+
+    To30 and to_30 are the same alias; To300 and version21 versus version2_1
+    remain different. Other runners keep their exact identifier comparison.
+    """
+    return [part for word in _words(name) for part in re.findall(r"[a-z]+|[0-9]+", word)]
+
+
 def _test_function(test_id: str) -> str:
     """The test's own name inside a runner's id (module.Class.test_x, path::Class::test_x[param], ...)."""
     names = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", re.sub(r"\[.*\]$", "", test_id))
@@ -134,13 +188,17 @@ def _test_function(test_id: str) -> str:
     return tests[-1] if tests else (names[-1] if names else "")
 
 
-def match_cases(cases: list[dict], test_ids: list[str]) -> dict[str, list[str]]:
+def match_cases(cases: list[dict], test_ids: list[str], *, framework=None) -> dict[str, list[str]]:
     """Match an approved exact test name, or a diagnosis case's id-based test name."""
     matched = {}
     for case in cases:
         if case.get("test_name"):
             matched[case["id"]] = [test for test in test_ids
-                                   if _test_function(test) == case["test_name"]]
+                                   if (_test_function(test) == case["test_name"]
+                                       or test.rsplit("::", 1)[-1] == case["test_name"]
+                                       or (framework == "go" and case["test_name"].startswith("test_")
+                                           and re.match(r"^Test[A-Z0-9_]", _test_function(test))
+                                           and _go_words(_test_function(test)) == _go_words(case["test_name"])))]
         else:
             # The documented lowercase spelling keeps M1A as m1a. Retain the
             # CamelCase spelling too, without accepting prefixes of either form.
@@ -178,11 +236,14 @@ def run_probes(rows: list[dict], run_probe, *, what: str = "claim", key: str = "
 
 
 NAMED_PROOF_NOTE = """
-NAMED TEST PROOF: the runner can attribute cases with Python unittest/pytest, Go tests, or Node's built-in
-node:test. In Node projects register each named case with node:test, for example
-`const {test} = require('node:test'); test('test_c2_example', async () => { /* existing assertions */ });`,
+NAMED TEST PROOF: the runner attributes cases with Python unittest/pytest, Go tests, Node's built-in
+node:test, and native Vitest 4. In a Vitest project keep cases in Vitest and run
+`npx --no-install vitest run <test files>` or an npm test script that is a single `vitest run` command.
+The runner owns the reporter and checks actual named outcomes; missing, skipped and ambiguous cases
+never pass. Do not create node:test wrappers just to relabel existing Vitest cases.
+For node:test register each case with `test('test_c2_example', async () => { /* assertions */ });`
 and run `node --test tests/example.cjs`. Keep fixture helpers and assertions; await every async check.
-Custom scripts printing PASS labels, or npm/Jest/Vitest/Mocha summaries, do not supply named proof.
+Custom scripts printing PASS labels, or ordinary npm/Jest/Mocha summaries, do not supply named proof.
 A node:test case must assert the behavior itself, never spawn another test runner (npm/pnpm/yarn test,
 npx vitest, jest, mocha or node --test through child_process): its pass would be that runner's exit code,
 which is 0 even when a -t filter matches no test, so the runner refuses such a file as named proof.
@@ -205,6 +266,18 @@ existing test to make its name match a planned case id. The regression proof rej
 """ + NAMED_PROOF_NOTE
 
 
+# A live Arena bug fix (Boltons #474, 2026-10-05) used the plan's AC ids for its
+# tests, while the proof still required the Investigator's T ids. Give the
+# Builder the same cases the runner proves, including each case's before-state.
+DIAGNOSIS_BUILDER_NOTE = """
+TESTS NAMED IN THE DIAGNOSIS: write one separate test for each Investigator case below, asserting its
+exact given, when and then. Use each diagnosis case's own id in the test name, even when the plan uses
+different acceptance criterion ids or describes verification in prose. The runner proves these diagnosis
+cases before the Validator runs; tests named only after the plan's criteria cannot satisfy them.
+Keep existing test names and assertions intact. Add new case tests; do not rename or remove existing tests.
+"""
+
+
 # Issue #299: a seam the fix adds cannot compile on the unfixed code, and a log line the fix adds proves nothing.
 BUGFIX_TEST_NOTE = """
 BUG FIX TESTS: each regression test must build and run on the unfixed code. A test of behavior the fix
@@ -225,6 +298,15 @@ def bugfix(state: dict) -> bool:
 
 def builder_note(state: dict) -> str:
     fix_note = BUGFIX_TEST_NOTE if bugfix(state) else ""
+    diagnosis = diagnosis_cases(state)
+    if diagnosis:
+        rows = []
+        for case in diagnosis:
+            before = ("preserve: must pass on the original code and with the fix"
+                      if case.get("kind") == "preserve" else
+                      "restore: must fail on the original code because of the bug and pass with the fix")
+            rows.append(f"- {case_text(case)}; test name: {case_test_name(case['id'])}; {before}.")
+        return DIAGNOSIS_BUILDER_NOTE + "\n".join(rows) + "\n" + NAMED_PROOF_NOTE + fix_note
     if contract_cases(state):
         return BUILDER_NOTE + fix_note
-    return (NAMED_PROOF_NOTE if (state.get("investigation") or {}).get("test_cases") else "") + fix_note
+    return fix_note

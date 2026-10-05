@@ -14,6 +14,7 @@ try:
     from .. import autocode_bug_job as bug_job, autocode_workflows as workflows, autocode_test_cases as test_cases
     from .. import autocode_follow_up as follow_up, autocode_adaptive_planning as adaptive, autocode_draft_examples as examples
     from .. import autocode_progressive_state as progressive, autocode_brief_literals as brief_literals
+    from .. import autocode_design_plan as design_plan
 except ImportError:
     import autocode_acceptance_policy as acceptance_policy
     import autocode_test_cases as test_cases
@@ -28,6 +29,7 @@ except ImportError:
     import autocode_draft_examples as examples
     import autocode_progressive_state as progressive
     import autocode_brief_literals as brief_literals
+    import autocode_design_plan as design_plan
 
 STAGES = ("requirements_gather", "astra_discovery", "astra_challenge", "glm_revise", "astra_finalize")
 # A build that implements an approved design (autocode_design_check_job) skips requirements
@@ -49,7 +51,9 @@ Every plan must uphold its invariant as an acceptance criterion, checked as exac
 original code and passes after the fix, and must keep the project's existing tests passing. Its test_cases
 are those regression tests in plain English: make each one an acceptance criterion quoting its given, when
 and then, and require one test per case named test_<id>_<what it checks> (T1 -> test_t1_...); the runner
-refuses the fix unless every case has such a test that fails on the original code and passes after it. Fix the cause,
+refuses the fix unless every restore case (the default kind) has such a test that fails on the original code
+because of the bug and passes after the fix. A preserve case describes behavior that already works: its test
+must pass on the original code and after the fix. Keep each case's kind when planning its verification. Fix the cause,
 not the symptom, and do not widen the change beyond what the root cause needs. Do not ask the user what the
 fix should achieve; ask only about a genuine choice the diagnosis leaves open.
 Cite the diagnosis in code_refs as exactly its note_path; explanations go in summaries, never inside a path.
@@ -101,7 +105,9 @@ runner can never prove it. Make the "test:" criteria the behavior the new code a
 result, a command's output, a refused input).
 Behavior that already works and must keep working (the change must not break it) is a guard: write it as the
 same kind of example, with verification_method "guard: test_<criterion id in lowercase>_<what it checks>". The
-runner checks that its test passes both before and after the change. A guard needs a real behavior to check;
+runner checks that its test passes both before and after the change. Coverage of behavior the product already
+implements — a named scenario, an existing rule, tests added with no product change — is a guard for every
+such criterion. A test: criterion cannot be proven by a test-only diff. A guard needs a real behavior to check;
 something trivially true (a package that imports, a file that exists) gets an ordinary verification_method.
 For independent parallel milestones, use distinct milestone-specific criterion IDs as well as disjoint
 affected_paths: the scheduler serializes milestones that share criterion IDs. Scope each criterion to its
@@ -1197,14 +1203,16 @@ def prepare(state, stage, state_path, schema_dir):
         raise
     role = role_for(state, stage)
     return ModelRequest(role, route_for(state, stage, role), prompt, metrics,
-                        schema_for(state, stage) if joint else goals.DISCOVERY_SCHEMA, False)
+                        schema_for(state, stage) if joint else design_plan.report_schema(
+                            goals.DISCOVERY_SCHEMA, (state.get("settings") or {}).get("design_manifest")), False)
 
 
 def schema_for(state, stage):
     """The report schema for a planning stage in this run (adaptive runs extend two of them)."""
     if stage == RECOGNIZE:
         return adaptive.recognizer_schema(state, SCHEMAS[stage])
-    return adaptive.report_schema(state, stage, SCHEMAS[stage], goals.PLANNING_BODY_SCHEMA)
+    return design_plan.report_schema(adaptive.report_schema(state, stage, SCHEMAS[stage], goals.PLANNING_BODY_SCHEMA),
+                                     (state.get("settings") or {}).get("design_manifest"))
 
 
 def after_challenge(state, value, record):

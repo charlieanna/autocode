@@ -34,6 +34,34 @@ def feature_state(project, criteria, milestones=1):
 
 
 class ContractCasesTests(unittest.TestCase):
+    def test_annotated_go_name_binds_only_the_declared_actual_test(self):
+        state = {"goal_contract": {"body": {"acceptance_criteria": [{
+            "id": "AC1", "criterion": "golden behavior", "verification_method":
+            "test: test_c1_golden_vectors — Go test TestC1GoldenVectors in policy_test.go"}]}}}
+        cases = test_cases.contract_cases(state)
+        actual = "policy::TestC1GoldenVectors"
+        names = [actual, "policy::TestC10GoldenVectors", "policy::TestC1GoldenVectorsExtra"]
+        self.assertEqual({"AC1": [actual]}, test_cases.match_cases(cases, names, framework="go"))
+        self.assertEqual({"AC1": []}, test_cases.match_cases(cases, names, framework="pytest"))
+        for passing, expected in (([actual], "PASS"), (names[1:], "FAIL"), ([], "FAIL")):
+            with self.subTest(passing=passing):
+                proof = {"framework": {"name": "go"}, "verdict": "PASS", "failures": [],
+                         "unverified": [], "fail_to_pass": passing}
+                regression.check_cases(proof, cases)
+                self.assertEqual(expected, proof["verdict"])
+        proof = {"framework": {"name": "go"}, "verdict": "PASS", "failures": [],
+                 "unverified": [], "fail_to_pass": [actual]}
+        regression.check_cases(proof, cases, refused={actual: "assertion does not test the behavior"})
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertIn("assertion does not test the behavior", " ".join(proof["failures"]))
+
+    def test_native_go_declaration_and_python_case_sensitive_name_are_preserved(self):
+        self.assertEqual("TestC1GoldenVectors", test_cases.declared_test_name("TestC1GoldenVectors"))
+        self.assertEqual("test_C1_vectors", test_cases.declared_test_name("test_C1_vectors — explanation"))
+        self.assertEqual({"AC1": []}, test_cases.match_cases(
+            [{"id": "AC1", "test_name": "test_C1_vectors"}], ["test_c1_vectors"], framework="pytest"))
+        self.assertIsNone(test_cases.declared_test_name("test_c1_<what it checks>"))
+
     def test_approved_test_name_can_prove_two_criteria_with_one_focused_test(self):
         criteria = [
             {"id": "AC1", "criterion": "add returns five", "verification_method": "test: test_adds_two_integers"},
@@ -271,6 +299,48 @@ class FeatureProofTests(unittest.TestCase):
     GUARD_TEST = "\n    def test_c4_add_still_works(self):\n        self.assertEqual(3, add(1, 2))\n"
     OWN_FILE = "import unittest\nfrom calc import add\n\n\nclass GuardTests(unittest.TestCase):" + GUARD_TEST
 
+    def test_a_parenthetical_go_name_is_the_test_the_proof_matches(self):
+        method = ("test: TestAgentDomainStartPendingModDelayPreFlightAutomatonESSlices "
+                  "(go test ./rule/preflight/ -run TestAgentDomainStartPendingModDelayPreFlightAutomatonESSlices)")
+        state = {"goal_contract": {"body": {"acceptance_criteria": [
+            {"id": "AC1", "criterion": "external nameservers relay", "verification_method": method}]}}}
+        cases = test_cases.contract_cases(state)
+        self.assertEqual("TestAgentDomainStartPendingModDelayPreFlightAutomatonESSlices", cases[0]["test_name"])
+        self.assertNotIn("kind", cases[0])
+        hyphenated = ("test: TestAgentDomainStartPendingModDelayPreFlightImpl/"
+                      "Run_-_creates_missing_internal_zone_and_stages_status_4 "
+                      "(go test ./rule/preflight/ -run 'TestAgentDomainStartPendingModDelayPreFlightImpl/"
+                      "Run_-_creates_missing_internal_zone_and_stages_status_4' -v)")
+        named = test_cases.contract_cases({"goal_contract": {"body": {"acceptance_criteria": [
+            {"id": "AC3", "criterion": "creates the zone", "verification_method": hyphenated}]}}})
+        self.assertEqual(
+            "TestAgentDomainStartPendingModDelayPreFlightImpl/Run_-_creates_missing_internal_zone_and_stages_status_4",
+            named[0]["test_name"])
+
+    def test_guard_only_coverage_passes_when_only_the_test_file_changes(self):
+        proof = self.prove([self.GUARD], {"test_guard.py": self.OWN_FILE})
+        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual(["test_guard.GuardTests.test_c4_add_still_works"], proof["case_tests"]["C4"])
+
+    def test_a_granted_test_only_exception_proves_coverage_marked_as_test(self):
+        import autocode_contract_identity as identity
+        import autocode_util as util
+        project = Project(SEED)
+        self.addCleanup(project.close)
+        project.write({"test_guard.py": self.OWN_FILE})
+        criterion = {**self.GUARD, "verification_method": "test: test_c4_add_still_works"}
+        state = feature_state(project, [criterion])
+        contract = state["goal_contract"]
+        contract.update(task_id="t", revision=2)
+        contract["hash"] = util.digest({"task_id": "t", "revision": 2, "body": contract["body"]})
+        state["answers"] = {"q": {
+            "kind": "permission_answer", "contract_token": identity.token(contract),
+            "text": "Grant a scoped test-only regression-proof exception for this goal.",
+        }}
+        proof = regression.prove(state, project.root, Path(tempfile.mkdtemp(prefix="coverage-exception-")))
+        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual(["test_guard.GuardTests.test_c4_add_still_works"], proof["case_tests"]["C4"])
+
     def test_a_guard_passes_with_a_test_that_passes_before_and_after(self):
         proof = self.prove([EXAMPLE, self.GUARD], {**FEATURE, "test_guard.py": self.OWN_FILE})
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
@@ -385,7 +455,9 @@ class PromptTests(unittest.TestCase):
         state_path = Path(state["workspace"]) / "state.json"
         prompt = common.execution_request(state, "terra", state_path, schemas).prompt
         self.assertNotIn("TESTS NAMED IN THE PLAN", prompt)
+        self.assertIn("TESTS NAMED IN THE DIAGNOSIS", prompt.split("\nCURRENT HANDOFF DATA\n")[0])
         self.assertIn("BUG FIX TESTS", prompt.split("\nCURRENT HANDOFF DATA\n")[0])
+        state.pop("investigation")
         with patch.object(test_cases, "contract_cases", return_value=[{"id": "C2", "text": "x"}]):
             prompt = common.execution_request(state, "terra", state_path, schemas).prompt
         self.assertIn("TESTS NAMED IN THE PLAN", prompt.split("\nCURRENT HANDOFF DATA\n")[0])
@@ -406,6 +478,72 @@ BUG_FIX = {"pager.py": "def page_count(total, size):\n    return (total + size -
 T1 = {"id": "T1", "given": "total=11, size=5", "when": "page_count(11, 5)", "then": "returns 3"}
 T4 = {"id": "T4", "given": "total=10 and total=0, size=5", "when": "page_count runs", "then": "returns 2 and 0",
       "kind": "preserve"}
+
+
+class DiagnosisCaseBuilderTests(unittest.TestCase):
+    """The live Boltons fix used AC names, leaving the runner's T1–T6 cases unproven."""
+
+    CASES = [
+        {"id": "T1", "given": "IndexedSet([1]) and three lists", "when": "update receives the lists",
+         "then": "members are [1, 2, 3, 4] and the return value is None"},
+        {"id": "T2", "given": "IndexedSet([1]) and two tuples", "when": "update receives the tuples",
+         "then": "members are [1, 2, 3, 4] and the return value is None", "kind": "restore"},
+        {"id": "T3", "given": "IndexedSet([1]) and two one-shot iterators", "when": "update receives the iterators",
+         "then": "members are [1, 2, 3, 4] and both iterators are exhausted", "kind": "restore"},
+        {"id": "T4", "given": "iterables yielding tuple-valued members", "when": "update receives the iterables",
+         "then": "each tuple remains one member", "kind": "restore"},
+        {"id": "T5", "given": "IndexedSet([1])", "when": "update receives no arguments",
+         "then": "members remain [1] and the return value is None", "kind": "preserve"},
+        {"id": "T6", "given": "IndexedSet([1]) and [2, 1, 3]", "when": "update receives one iterable",
+         "then": "members are [1, 2, 3] and the return value is None", "kind": "preserve"},
+    ]
+
+    def test_the_actual_builder_prompt_lists_every_diagnosis_case_and_its_proof(self):
+        from tests.test_bug_job import approved_small_fix
+        from units import common
+        state = approved_small_fix(test_cases=self.CASES)
+        schemas = Path(test_cases.__file__).with_name("autocode-schemas")
+        prompt = common.execution_request(state, "terra", Path(state["workspace"]) / "state.json", schemas).prompt
+        note = prompt.split("\nCURRENT HANDOFF DATA\n")[0]
+        self.assertIn("TESTS NAMED IN THE DIAGNOSIS", note)
+        self.assertIn("one separate test for each Investigator case", note)
+        self.assertIn("NAMED TEST PROOF", note)
+        self.assertIn("BUG FIX TESTS", note)
+        for case in self.CASES:
+            with self.subTest(case=case["id"]):
+                row = next(line for line in note.splitlines() if line.startswith("- " + case["id"] + ":"))
+                self.assertIn(test_cases.case_text(case), row)
+                self.assertIn("test_" + case["id"].lower() + "_<what it checks>", row)
+                self.assertIn("must pass on the original code and with the fix" if case.get("kind") == "preserve"
+                              else "must fail on the original code because of the bug and pass with the fix", row)
+
+    def test_diagnosis_names_take_precedence_over_the_plans_named_criteria(self):
+        state = {"investigation": {"outcome": "reproduced", "test_cases": [T1, T4]},
+                 "goal_contract": {"body": {"task_kind": "bugfix", "acceptance_criteria": [
+                     {"id": "AC1", "criterion": "partial pages", "verification_method": "test: test_ac1_pages"}]}}}
+        note = test_cases.builder_note(state)
+        self.assertIn("test_t1_<what it checks>", note)
+        self.assertIn("test_t4_<what it checks>", note)
+        self.assertNotIn("TESTS NAMED IN THE PLAN", note)
+        self.assertEqual([T1, T4], regression.cases(state))
+
+    def test_a_real_proof_still_rejects_plan_names_for_diagnosis_cases(self):
+        project = Project(BUG_SEED)
+        self.addCleanup(project.close)
+        project.write({**BUG_FIX, "test_pager.py": BUG_FIX["test_pager.py"]
+                       .replace("test_t1_partial", "test_ac1_partial").replace("test_t4_exact", "test_ac4_exact")})
+        state = {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
+                 "goal_contract": {"body": {"task_kind": "bugfix", "acceptance_criteria": [
+                     {"id": "AC1", "criterion": "partial pages", "verification_method": "test: test_ac1_partial_page_counts"}],
+                     "milestones": [{"id": "M1"}]}},
+                 "investigation": {"outcome": "reproduced", "test_cases": [T1, T4]}}
+        proof = regression.prove(state, project.root, project.evidence)
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertEqual({"T1": [], "T4": []}, proof["case_tests"])
+        self.assertIn("test_pager.PagerTests.test_ac1_partial_page_counts", proof["fail_to_pass"])
+        self.assertIn("test_pager.PagerTests.test_ac4_exact_multiple_and_zero", proof["pass_to_pass"])
+        self.assertTrue(any("test_t1_" in reason for reason in proof["failures"]), proof["failures"])
+        self.assertTrue(any("test_t4_" in reason for reason in proof["failures"]), proof["failures"])
 
 
 class PreserveCaseProofTests(unittest.TestCase):

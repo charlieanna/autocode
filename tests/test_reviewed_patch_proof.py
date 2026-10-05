@@ -11,6 +11,7 @@ These run real unittest suites in scratch Git worktrees; no provider is launched
 from __future__ import annotations
 
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -117,6 +118,29 @@ class ReviewedPatchProofTests(unittest.TestCase):
         self.assertEqual(verify.UNVERIFIED, proof["verdict"])
         [reason] = proof["unverified"]
         self.assertIn("The reviewed change change.patch cannot be applied to the base revision", reason)
+
+    def test_replacing_patch_bytes_at_same_ignored_path_invalidates_baseline(self):
+        import autocode_util as util
+        patch = self.root / '.autocode' / 'review.patch'
+        patch.parent.mkdir()
+        patch.write_text((self.root / 'change.patch').read_text())
+        state = {'base_commit': self.base, 'settings': {'regression': {'python': sys.executable}},
+                 'goal_contract': {'body': {'task_kind': 'bugfix'}}, 'workflow': {'kind': 'build'},
+                 'turns': [{'say': 'Fix them.', 'previous': {'workflow': 'review', 'review': {
+                     'report_path': 'review/findings.json', 'change_under_review': '',
+                     'change_patch': '.autocode/review.patch', 'blocking': [{'id': 'F1'}], 'advisory': []}}}]}
+        first = regression.prove(state, self.root, self.evidence)
+        self.assertEqual(verify.PASS, first['verdict'], first)
+        original_revision = util.snapshot(self.root)['revision']
+        old_baseline = state['regression_baseline']['path']
+        patch.write_text(patch.read_text().replace('+REGISTRIES = {"com": 4}',
+                                                 '+REGISTRIES = {"com": 4, "de": 1}'))
+        self.assertEqual(original_revision, util.snapshot(self.root)['revision'])
+        second = regression.prove(state, self.root, self.evidence)
+        self.assertEqual(verify.FAIL, second['verdict'], second)
+        self.assertNotEqual(old_baseline, state['regression_baseline']['path'])
+        self.assertTrue(Path(old_baseline).is_file())
+        self.assertIn('do not reproduce the bug', ' '.join(second['failures']))
 
 
 if __name__ == "__main__":

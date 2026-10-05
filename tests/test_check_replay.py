@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import venv
 
 from . import test_subprocess
 import autocode_check_replay as check_replay
@@ -229,6 +230,32 @@ class ScratchReplayTests(unittest.TestCase):
         return check_replay.replay([{"command": command, "exit_code": 0, "evidence_ref": "event:a"}],
                                    self.workspace, self.run_dir, {"output": "sol-01.json", "source_revision": "r"},
                                    verify.scratch_run, timeout=60)
+
+    def test_multiline_and_plain_commands_have_separate_runtime_contexts(self):
+        # Copied venv aliases have distinct paths even when their bytes match.
+        # A multiline command falls back to the task's python, while the plain
+        # command binds its explicit python3. Sharing just argv[0] is unsafe.
+        with (self.workspace / ".gitignore").open("a") as stream:
+            stream.write(".venv/\n")
+        venv.EnvBuilder(with_pip=False, symlinks=False).create(self.workspace / ".venv")
+        python = self.workspace / ".venv/bin/python3"
+        multiline = shlex.join([str(python), "-c", "print('multiline')\n"])
+        plain = shlex.join([str(python), "-c", "print('plain')"])
+        self.run_dir.mkdir()
+        events = self.run_dir / "validator.events"
+        events.write_text("validator command execution\n")
+        record = {"stage": "sol", "events": str(events), "output": "validator.json", "task_id": "T1",
+                  "source_revision": util.snapshot(self.workspace)["revision"]}
+        checks = [{"command": command, "exit_code": 0, "evidence_ref": "event:check"}
+                  for command in (multiline, multiline, plain)]
+        result = check_replay.replay(checks, self.workspace, self.run_dir, record, verify.scratch_run,
+                                     execution_identity=verify.execution_identity, timeout=30)
+        self.assertEqual("PASS", result["verdict"])
+        self.assertEqual(2, result["scheduling"]["executed_count"])
+        first, duplicate, last = result["checks"]
+        self.assertEqual(first["output"], duplicate["output"], "an identical command still executes once")
+        self.assertEqual("multiline\n", Path(first["output"]).read_text())
+        self.assertEqual("plain\n", Path(last["output"]).read_text())
 
     def test_later_replays_preserve_the_receipt_and_every_log_cited_by_a_rejection(self):
         variants = (

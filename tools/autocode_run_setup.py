@@ -30,7 +30,7 @@ try:
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_registry as registry
     from . import autocode_regression as regression, autocode_verify as verify
-    from . import autocode_resolver_human as resolver_human
+    from . import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_status_command as status_command
     from . import autocode_recovery_view as recovery_view
@@ -49,7 +49,7 @@ except ImportError:
     import autocode_planning_artifacts as planning_artifacts
     import autocode_registry as registry
     import autocode_regression as regression, autocode_verify as verify
-    import autocode_resolver_human as resolver_human
+    import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
     import autocode_retired_token_budget as retired_token_budget
     import autocode_status_command as status_command
     import autocode_recovery_view as recovery_view
@@ -61,6 +61,14 @@ except ImportError:
 # that comes with one leaves that request for the action to check.
 OTHER_RECOVERY = ('retry_failed_stage', 'retry_report', 'retry_builder', 'abandon_stage', 'diagnose_failed_stage',
                   'resolver_response')  # and --grant-recovery
+# Pauses a resume acknowledges when it reasserts a bound that admits the used amount, even one
+# already saved: (pause status, settings limit, explicit flag, used counter, superseded reason).
+REASSERTABLE_BOUNDS = (
+    ('PAUSED_TIME_LIMIT', 'max_seconds', 'max_seconds', 'active_seconds',
+     'Operator explicitly resumed with an available active-time limit'),
+    ('PAUSED_NO_PROGRESS', 'no_progress_batches', 'no_progress_limit', 'no_progress_batches',
+     'Operator explicitly resumed with a no-progress limit above the retained count'),
+)
 
 
 def resolve(runner, args, parser):
@@ -70,10 +78,19 @@ def resolve(runner, args, parser):
             args._task_preflight_input = task_preflight.load(args.task_preflight)
         except (OSError, ValueError) as error:
             parser.error(f"Invalid task preflight: {error}")
+    if args.revise_figma_manifest and (not args.run_dir or not args.expected_design_hash or not args.design_change_reason
+                                     or args.status or args.dry_run):
+        parser.error("--revise-figma-manifest requires a stopped --run-dir, --expected-design-hash and --design-change-reason")
     if getattr(args, "figma_manifest", None):
         if args.run_dir:
             parser.error("--figma-manifest is a new-run input; saved references are immutable")
         args._design_manifest_input = design_manifest.load(args.figma_manifest)
+    if args.figma_additional_file and not args.figma_file:
+        parser.error("--figma-additional-file requires --figma-file")
+    if args.run_dir and args.figma_additional_file:
+        parser.error("Native references are fixed for a saved run")
+    for reference in args.figma_additional_file:
+        figma.design_url(reference)
     if args.ui_run and args.figma_file:
         parser.error("Choose --ui-run or --figma-file")
     if args.run_dir and (args.ui_run or args.figma_review):
@@ -220,24 +237,30 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
                 if resolver_human.supersede_operational(state,
                         'User delegated this finite harness limit to bounded AutoResolver recovery'):
                     state['_authorized_bound_change'] = {'pause_status': pause_status, 'at': runner.now()}
-    # A response can consume the request before a time-limit change is applied.
-    # Reasserting that saved limit is also explicit authority, but only with headroom.
-    time_limit = settings.get('limits', {}).get('max_seconds')
-    if (args.resume_paused and 'max_seconds' in args._explicit_budget_flags
-            and time_limit is not None
-            and (time_limit == 0 or state.get('active_seconds', 0) < time_limit)):
+    # A response can consume the request before a bound change is applied, and a plain resume
+    # after saving the change asks again under the unchanged settings. Reasserting that saved
+    # bound is also explicit authority, but only with headroom (0 removes the bound).
+    for pause, limit_key, flag, used_key, reason in REASSERTABLE_BOUNDS:
+        limit = settings.get('limits', {}).get(limit_key)
+        if not (args.resume_paused and flag in args._explicit_budget_flags and limit is not None
+                and (limit == 0 or state.get(used_key, 0) < limit)):
+            continue
         published = resolver_human.current(state)
         entry = state.get('resolver', {}).get('human_escalations', {}).get(
             published['request_id'], {}) if published else {}
         origin = entry.get('identity', {}).get('proposal', {}).get('origin', {})
-        time_pause = (published and published['scope'] == 'operational_exhaustion'
-                      and origin.get('pause_status') == 'PAUSED_TIME_LIMIT')
+        live_pause = (published and published['scope'] == 'operational_exhaustion'
+                      and origin.get('pause_status') == pause)
         consumed_pause = (not state.get(resolver_human.PUBLIC) and not state.get(resolver_human.PRIVATE)
-                          and state.get('status') == 'PAUSED_TIME_LIMIT')
-        if ((time_pause and resolver_human.supersede_operational(state,
-                'Operator explicitly resumed with an available active-time limit')) or consumed_pause):
-            state['_authorized_bound_change'] = {'pause_status': 'PAUSED_TIME_LIMIT', 'at': runner.now()}
+                          and state.get('status') == pause)
+        if (live_pause and resolver_human.supersede_operational(state, reason)) or consumed_pause:
+            state['_authorized_bound_change'] = {'pause_status': pause, 'at': runner.now()}
     if state.get("settings") and settings != state["settings"]:
+        # A --<role>-model change under a quota-stopped, still uncertain attempt is refused (#184).
+        refusal = quota_route.resume_refusal(state, state["settings"], settings, failure_status=support.failure_status,
+                                             abandoning=args.abandon_stage)
+        if refusal:
+            parser.error(refusal)
         published = state.get(resolver_human.PUBLIC) or {}
         entry = state.get('resolver', {}).get('human_escalations', {}).get(published.get('request_id'), {})
         origin = entry.get('identity', {}).get('proposal', {}).get('origin', {})
@@ -285,6 +308,10 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         state.setdefault("configuration_changes", []).append({"at":runner.now(),"previous":state["settings"],"selected":settings,
             "reason":("Cumulative token budgets were removed" if retiring_token_pause else
                       "Run settings updated at a saved stage boundary")})
+        # A --<role>-model change while that role is stopped on quota is a recorded route assignment (#184).
+        quota_route.record_resume_change(state, previous_settings, settings, failure_status=support.failure_status,
+                                         at=runner.now(), cross_check=runner.dispatch.enforce_cross_model_verification,
+                                         configured_tool=getattr(runner.opencode, 'CONFIGURED', False))
         state["settings"] = settings
         if enabling_joint and settings.get("engine") == "codex":
             if contract:

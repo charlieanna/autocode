@@ -1,0 +1,23 @@
+title = "Discuss, then design, then build: three jobs in one conversation"
+category = "conversation"
+# Issue #185. Turn 1 is discuss-cache-choice: in-process or a shared file cache,
+# decided by four shared-nothing gunicorn workers against a 60/hour upstream
+# limit. Turn 2 accepts the recommendation and asks for a design, which must
+# follow the decision and write no code. Turn 3 says only "Build it.": the build
+# must implement that design (AutoCode checks it as an approved design) and pass
+# hidden tests that run separate worker processes against one cache directory.
+# Each turn follows a completed one: --follow-up continues only a finished run.
+
+[fake]
+check = "python3 -m unittest discover -s tests -t ."
+# The solution is the end state of the conversation: the decision note is turn 1's,
+# the design turn 2's, the code and tests turn 3's.
+turn_paths = [["docs/decisions/"], ["docs/design/"], ["app/", "tests/"]]
+
+[[turn]]
+after = "complete"
+say = "Shared it is; design it."
+
+[[turn]]
+after = "complete"
+say = "Build it."

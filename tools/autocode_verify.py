@@ -36,19 +36,24 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path, PurePosixPath
+from urllib.parse import unquote, urlparse
 
 try:
     from . import autocode_util as util, autocode_agent_env as agent_env
     from . import autocode_test_environment as test_env
     from . import autocode_investigation_workspace as investigation_workspace
+    from . import autocode_verification_schedule as schedule
     from . import autocode_node_tests as node_tests, autocode_proof_seam as proof_seam
+    from . import autocode_vitest_tests as vitest_tests
     from . import autocode_scratch_overlay as scratch_overlay
     from . import autocode_test_setup as test_setup
 except ImportError:
     import autocode_util as util, autocode_agent_env as agent_env
     import autocode_test_environment as test_env
     import autocode_investigation_workspace as investigation_workspace
+    import autocode_verification_schedule as schedule
     import autocode_node_tests as node_tests
+    import autocode_vitest_tests as vitest_tests
     import autocode_scratch_overlay as scratch_overlay
     import autocode_proof_seam as proof_seam
     import autocode_test_setup as test_setup
@@ -99,6 +104,22 @@ def _git(cwd, *args, check=True):
     if check and result.returncode:
         raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
     return result.stdout
+
+
+def _document_only_base(workspace, base):
+    """Only an empty pinned tree or a regular non-executable root README.md.
+
+    Source/test filename conventions cannot establish absence of existing
+    behavior. Keep this positive documentation inventory deliberately narrow:
+    unknown files, executable documents, links and submodules need preservation.
+    """
+    for entry in _git(workspace, "ls-tree", "-r", "-z", base).split("\0"):
+        if not entry:
+            continue
+        metadata, separator, path = entry.partition("\t")
+        if not separator or metadata.split()[:2] != ["100644", "blob"] or path != "README.md":
+            return False
+    return True
 
 
 def _ignored(path: str) -> bool:
@@ -193,7 +214,7 @@ class Framework:
 
     @property
     def per_test(self):
-        return self.name in ("pytest", "unittest", "go", "node")
+        return self.name in ("pytest", "unittest", "go", "node", "vitest")
 
     def targeted(self, test_paths):
         files = sorted(test_paths)
@@ -352,9 +373,11 @@ def _go_test(command):
     return command.startswith("go test ") and not re.search(r"[;&|<>`$()]", command)
 
 
-def _with_results(framework, command, xml_path):
+def _with_results(framework, command, xml_path, tree=None):
     if node_tests.command_words(command):
         return node_tests.instrument(command, xml_path)
+    if vitest_tests.command_words(command, tree):
+        return vitest_tests.instrument(command, xml_path, tree)
     if framework and framework.name == "pytest" and " -m pytest" in command:
         return f"{command} --junitxml={shlex.quote(str(xml_path))}"
     if framework and framework.name == "go" and _go_test(command) and " -json" not in command:
@@ -364,9 +387,11 @@ def _with_results(framework, command, xml_path):
     return command
 
 
-def expects_results(framework, command):
+def expects_results(framework, command, tree=None):
     """True when this command, run by the runner, must yield per-test results."""
     if node_tests.command_words(command):
+        return True
+    if vitest_tests.command_words(command, tree):
         return True
     if not framework or not framework.per_test or not command:
         return False
@@ -428,7 +453,9 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
     """
     if str(xml_path).endswith(".node.jsonl"):
         return node_tests.results(xml_path)
-    if not framework or not framework.per_test or framework.name == "node":
+    if str(xml_path).endswith(".vitest.json"):
+        return vitest_tests.results(xml_path, tree)
+    if not framework or not framework.per_test or framework.name in ("node", "vitest"):
         return None
     if framework.name == "go":
         output = receipt.get("output")
@@ -553,27 +580,36 @@ def link_dependencies(source_root, tree):
 GENERATED_SOURCE_LIMIT = 1_000_000
 
 
-def copy_generated_sources(source_root, tree):
-    """Copy build-generated source files (git-ignored code next to tracked code,
-    such as a setuptools-scm or hatch-vcs ``_version.py``) into a scratch tree.
-    A fresh worktree lacks them, so the package would not import there. Base and
-    candidate trees receive the same files, so the comparison stays fair."""
+def _generated_sources(source_root):
+    """Eligible ignored build inputs, shared by scratch copies and receipt identity."""
     if not source_root:
         return []
-    source_root, tree = Path(source_root), Path(tree)
+    source_root = Path(source_root)
     ignored = _git(source_root, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory",
                    check=False).split("\0")
     tracked_dirs = {str(PurePosixPath(p).parent) for p in _git(source_root, "ls-files", "-z", check=False).split("\0")
                     if p}
-    copied = []
+    selected = []
     for relative in ignored:
         path = PurePosixPath(relative)
         if (not relative or relative.endswith("/") or path.suffix not in CODE_SUFFIXES
                 or str(path.parent) not in tracked_dirs or any(part in DEPENDENCY_DIRS for part in path.parts)):
             continue
-        source, target = source_root / relative, tree / relative
-        if (source.is_file() and not source.is_symlink() and not target.exists()
-                and source.stat().st_size <= GENERATED_SOURCE_LIMIT):
+        source = source_root / relative
+        if source.is_file() and not source.is_symlink() and source.stat().st_size <= GENERATED_SOURCE_LIMIT:
+            selected.append(relative)
+    return selected
+
+
+def copy_generated_sources(source_root, tree):
+    """Copy build-generated source files (git-ignored code next to tracked code,
+    such as a setuptools-scm or hatch-vcs ``_version.py``) into a scratch tree.
+    A fresh worktree lacks them, so the package would not import there. Base and
+    candidate trees receive the same files, so the comparison stays fair."""
+    copied = []
+    for relative in _generated_sources(source_root):
+        source, target = Path(source_root) / relative, Path(tree) / relative
+        if not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
             copied.append(relative)
@@ -706,14 +742,182 @@ def select_commands(framework, test_paths, *, suite_command=None, regression_com
 
 
 def run_suite(framework, command, tree, evidence_dir, label, *, timeout):
-    extension = "node.jsonl" if node_tests.command_words(command) else "junit.xml"
+    extension = ("node.jsonl" if node_tests.command_words(command) else
+                 "vitest.json" if vitest_tests.command_words(command, tree) else "junit.xml")
     xml = Path(evidence_dir) / f"{label}.{extension}"
     xml.unlink(missing_ok=True)  # never parse a previous run's results
-    receipt = run_command(_with_results(framework, command, xml), tree, Path(evidence_dir) / f"{label}.log",
+    receipt = run_command(_with_results(framework, command, xml, tree), tree, Path(evidence_dir) / f"{label}.log",
                           timeout=timeout)
     receipt["results"] = per_test_results(framework, receipt, xml, tree=tree)
-    receipt["results_expected"] = expects_results(framework, command)
+    receipt["results_expected"] = expects_results(framework, command, tree)
     return receipt
+
+
+def command_framework(command):
+    """Recognize a plain runner invocation, never infer coverage from similar text."""
+    kind = schedule.collection_kind(command)
+    if kind:
+        return Framework(kind, command, python=shlex.split(command)[0])
+    if _go_test(command):
+        return Framework("go", command)
+    return None
+
+
+def execution_identity(workspace, *, command=None, dependencies_from=None, full=True):
+    """Conservative observable source/runtime/environment identity for receipts.
+
+    Full dependency bytes are included, not only manifests or changed paths.
+    Unknown runtimes cannot reuse clean replay evidence. This does not attest a
+    remote service, wall clock or provider sandbox; those remain fresh checks.
+    """
+    workspace = Path(workspace)
+    source_snapshot = util.snapshot(workspace)
+    source_symlinks = [name for name, value in source_snapshot.get("files", {}).items()
+                       if value.startswith("symlink:") and name not in DEPENDENCY_DIRS]
+    source_metadata = {}
+    for name in source_snapshot.get("files", {}):
+        path = workspace / name
+        if path.is_file() and not path.is_symlink():
+            stat = path.stat()
+            source_metadata[name] = [stat.st_mode, stat.st_mtime_ns, stat.st_uid, stat.st_gid]
+    environment = test_environment(workspace)
+    relative_pythonpath = [p for p in environment.get("PYTHONPATH", "").split(os.pathsep)
+                           if p and not Path(p).is_absolute()
+                           and not (workspace / p).resolve().is_relative_to(workspace.resolve())]
+    try:
+        words = shlex.split(command or "")
+    except ValueError:
+        words = []
+    python_command = bool(words and re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(words[0]).name)
+                          and not re.search(r"[;&|<>`$\n]", command))
+    python = words[0] if python_command else python_for(dependencies_from or workspace)
+    executable = shutil.which(python, path=environment.get("PATH", ""))
+    venv_config = Path(executable).parent.parent / "pyvenv.cfg" if executable else None
+    try:
+        isolated_runtime = venv_config is not None and venv_config.is_file() and not re.search(
+            r"^\s*include-system-site-packages\s*=\s*true\s*$", venv_config.read_text(), re.I | re.M)
+    except (OSError, UnicodeError):
+        isolated_runtime = False
+    # An unrestricted global interpreter has mutable, unrelated packages and
+    # potentially enormous inventories. Fresh checks remain valid; they are
+    # deliberately not cross-invocation cache candidates. No partial hash is
+    # advertised as a complete dependency identity.
+    full = bool(full and python_command and isolated_runtime and not source_symlinks and not relative_pythonpath)
+    # Identity collection must not import a candidate's sitecustomize from the
+    # workspace. Explicit PYTHONPATH roots are hashed below, not executed here.
+    paths = []
+    if full:
+        probe = subprocess.run([executable, "-I", "-B", "-c", "import json,sys; print(json.dumps(sys.path))"],
+                               cwd=workspace, env=environment, capture_output=True, text=True, timeout=30)
+        if probe.returncode:
+            raise ValueError("Verification runtime identity could not be collected")
+        paths = json.loads(probe.stdout) + environment.get("PYTHONPATH", "").split(os.pathsep)
+    paths = [(Path(p) if Path(p).is_absolute() else workspace / p).resolve() for p in paths if p]
+    roots = {p for p in paths if not p.is_relative_to(workspace.resolve())}
+    editable_sources, unbound_editables = {}, []
+    for site in set(paths):
+        for metadata in site.glob("*.dist-info/direct_url.json"):
+            try:
+                direct = json.loads(metadata.read_text())
+                if not direct.get("dir_info", {}).get("editable"):
+                    continue
+                url = urlparse(direct["url"])
+                target = Path(unquote(url.path)).resolve()
+                # Our own editable controller is bound in addition to installed
+                # dependency bytes. Other editable checkouts are not isolated
+                # fixtures and must execute fresh, never use an incomplete key.
+                if (url.scheme != "file" or url.netloc not in ("", "localhost") or
+                        target not in (workspace.resolve(), Path(__file__).resolve().parent.parent)):
+                    unbound_editables.append(str(metadata))
+                    continue
+                if target != workspace.resolve():
+                    if (target / ".git").exists():
+                        editable_sources[str(target)] = util.snapshot(target)["revision"]
+                    else:
+                        editable_sources[str(target)] = schedule.tree_identity(target, excluded={
+                            ".git", ".autocode", ".autocode-ui", ".scenario-runs", ".venv", "venv",
+                            "node_modules", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".DS_Store"})
+            except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.CalledProcessError):
+                unbound_editables.append(str(metadata))
+    full = full and not unbound_editables
+    dependency_roots = test_env.dependency_roots(dependencies_from or workspace) if full else []
+    for name in DEPENDENCY_DIRS if full else ():
+        candidates = dependency_roots if name in (".venv", "venv") else dependency_roots[:1]
+        source = next((root / name for root in candidates if (root / name).exists()), None)
+        if source:
+            roots.add(source.resolve())
+    if dependency_roots and (dependency_roots[0] / "vendor").exists():
+        roots.add((dependency_roots[0] / "vendor").resolve())
+    roots = {root for root in roots if not any(parent in roots for parent in root.parents)}
+    runtime_root = Path(__file__).parent
+    runtime = {str(p.relative_to(runtime_root)): util.file_hash(p)
+               for pattern in ("*.py", "*.json") for p in runtime_root.rglob(pattern)
+               if not _ignored(str(p.relative_to(runtime_root))) and "node_modules" not in p.parts}
+    generated = {p: schedule.tree_identity(workspace / p) for p in
+                 _git(workspace, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory").split("\0")
+                 if p and not p.endswith("/") and PurePosixPath(p).suffix in CODE_SUFFIXES
+                 and not _ignored(p) and not any(part in DEPENDENCY_DIRS for part in PurePosixPath(p).parts)}
+    return {"source_revision": source_snapshot["revision"], "source_metadata": util.digest(source_metadata),
+            "unbound_source_symlinks": source_symlinks,
+            "reuse_supported": python_command and full, "cache_binding_complete": full,
+            "cache_policy": "isolated_python_full_contents" if full else "fresh_execution_only",
+            "environment_hash": util.digest(environment), "runtime_sources": util.digest(runtime),
+            "interpreter": schedule.tree_identity(executable) if executable else None,
+            "shell": schedule.tree_identity("/bin/sh"),
+            "dependencies": [schedule.tree_identity(p) for p in sorted(roots)] if full else None,
+            "editable_sources": editable_sources, "unbound_editables": unbound_editables,
+            "unbound_relative_pythonpath": relative_pythonpath,
+            "generated_sources": generated,
+            # make_tree receives these from the dependency checkout, which may
+            # differ from the candidate. They also affect the base suite: keep
+            # this binding when baseline_identity drops candidate source fields.
+            "generated_dependency_sources": {
+                p: schedule.tree_identity(Path(dependencies_from or workspace) / p)
+                for p in _generated_sources(dependencies_from or workspace)},
+            "platform": [sys.platform, os.uname().release, os.uname().machine]}
+
+
+# Candidate-tree fields: they change with every Builder edit and therefore must
+# not key a cache of the base suite, which always runs on the base commit (#426).
+_SOURCE_IDENTITY_KEYS = ("source_revision", "source_metadata", "generated_sources", "unbound_source_symlinks")
+
+
+def baseline_identity(workspace, *, command=None, dependencies_from=None):
+    """Runtime/dependency identity of a base-suite run, never the candidate tree.
+
+    The base suite is executed on a scratch tree of the base commit (plus an
+    optional base patch). Builder edits to the candidate workspace cannot change
+    its result, so this binding omits source revision, per-file metadata and
+    generated sources. Generated inputs copied from the dependency checkout,
+    dependency trees, interpreter, environment and platform stay: they do
+    determine the base result.
+
+    Reuse is offered when the remaining binding is complete enough to notice a
+    runtime change (no unbound editables or relative PYTHONPATH, and dependency
+    roots hashed or none present). Unlike ``execution_identity``, an isolated
+    Python virtualenv is not required: npm, Go and a global interpreter still
+    get a stable cache key.
+    """
+    identity = execution_identity(workspace, command=command, dependencies_from=dependencies_from)
+    environment = test_environment(workspace)
+    roots = test_env.dependency_roots(dependencies_from or workspace)
+    dependencies = []
+    for name in DEPENDENCY_DIRS:
+        source = next((root / name for root in roots if (root / name).exists()), None)
+        if source:
+            dependencies.append(schedule.tree_identity(source.resolve()))
+    if roots and (roots[0] / "vendor").exists():
+        dependencies.append(schedule.tree_identity((roots[0] / "vendor").resolve()))
+    bound = {k: v for k, v in identity.items() if k not in _SOURCE_IDENTITY_KEYS}
+    bound["dependencies"] = sorted(dependencies) or identity.get("dependencies")
+    bound["environment_hash"] = util.digest(environment)
+    bound["cache_policy"] = "baseline_runtime_identity"
+    bound["cache_binding_complete"] = not (identity.get("unbound_editables")
+                                           or identity.get("unbound_relative_pythonpath"))
+    bound["reuse_supported"] = bool(bound["cache_binding_complete"]
+                                    and (bound["dependencies"] is not None or not any(
+                                        (root / name).exists() for name in DEPENDENCY_DIRS for root in roots)))
+    return bound
 
 
 def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeout=DEFAULT_TIMEOUT,
@@ -755,8 +959,25 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
             # A command naming the workspace's absolute path runs against the copy, never the workspace.
             for root in dict.fromkeys((str(workspace.resolve()), str(workspace))):
                 command = command.replace(root, str(tree))
-            receipt = run_command(command, tree, run_dir / "scratch-command.log", timeout=timeout)
-            receipt["results"] = None
+            framework = command_framework(command)
+            if framework:
+                receipt = run_suite(framework, command, tree, run_dir, "scratch-command", timeout=timeout)
+                if (receipt["exit_code"] == 0 and not receipt["timed_out"]
+                        and not schedule.complete_results(receipt)):
+                    return {**receipt, "error": "Test command reported zero tests or incomplete per-test results"}
+            else:
+                receipt = run_command(command, tree, run_dir / "scratch-command.log", timeout=timeout)
+                receipt["results"] = None
+                try:
+                    words = shlex.split(command)
+                except ValueError:
+                    words = []
+                if (words[1:3] == ["-m", "unittest"] and receipt["exit_code"] == 0
+                        and not re.search(r"[;&|<>`$\n]", command)):
+                    text = Path(receipt["output"]).read_text(errors="replace")
+                    ran = re.findall(r"^Ran (\d+) tests? in ", text, re.M)
+                    if not ran or int(ran[-1]) == 0 or not re.search(r"^OK(?:\s|$)", text, re.M):
+                        return {**receipt, "error": "Test command reported zero tests or incomplete output"}
         return {**receipt, "error": ""}
     finally:
         remove_tree(workspace, tree)
@@ -784,6 +1005,8 @@ def suite_health(receipt) -> str:
         return "broken"  # the command itself could not run
     if receipt.get("results_expected") and results is None:
         return "broken"  # the runner ended before reporting any test
+    if results is not None and not schedule.complete_results(receipt):
+        return "broken"
     if results is not None and (results["total"] == 0 or (results["complete"] and not results["passed"])):
         return "broken"
     if receipt["exit_code"] == 0:
@@ -793,7 +1016,7 @@ def suite_health(receipt) -> str:
 
 def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regression_command=None,
            reported=None, base_suite=None, timeout=DEFAULT_TIMEOUT, dependencies_from=None,
-           allow_no_test=False, new_behavior=False, base_patch=None) -> dict:
+           allow_no_test=False, new_behavior=False, preserve_only=False, base_patch=None) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
@@ -804,6 +1027,9 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     when it passes on the candidate and did not pass on base, which includes failing to
     import there because the code it tests does not exist yet. A bug fix's test must run
     and fail on base (an import error is not a reproduction).
+
+    ``preserve_only`` is coverage of behavior the product already implements: the diff may
+    be test files alone, and each new test must pass on the base and on the candidate.
     """
     workspace, run_dir = Path(workspace), Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -821,7 +1047,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     notes += commands["notes"]
     if not changes:
         fail.append("No change: the candidate is identical to the base revision")
-    elif not sources:
+    elif not sources and not preserve_only:
         fail.append("Only test files changed; a fix must change product code")
     deleted = [p for p in tests if changes[p] == "deleted"]
     if deleted:
@@ -844,7 +1070,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
         if changes and (commands["regression"] or commands["suite"]):
             trees["candidate"] = make_tree(workspace, base, run_dir / "scratch" / "candidate", workspace, changes,
                                            dependencies_from=dependencies_from)
-        if trees and sources and runnable_tests:
+        if trees and runnable_tests and (sources or preserve_only):
             trees["base_with_tests"] = make_tree(workspace, base, run_dir / "scratch" / "base-with-tests",
                                                  workspace, test_changes, dependencies_from=dependencies_from,
                                                  patch=base_patch)
@@ -859,7 +1085,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                     "regression-on-base", timeout=timeout)
                 checks["regression_on_base"] = on_base
             _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons,
-                              new_behavior=new_behavior, known_failures=lambda: _pre_existing(
+                              new_behavior=new_behavior, preserve_only=preserve_only, known_failures=lambda: _pre_existing(
                                   framework, commands, changes, runnable_tests, workspace, base, run_dir, checks,
                                   timeout=timeout, dependencies_from=dependencies_from, base_patch=base_patch),
                               seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt))
@@ -873,20 +1099,27 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                     "suite-on-base-with-tests", timeout=timeout)
                 checks["regression_on_base"] = on_base
                 review_reasons.append("the regression proof rests on the whole suite's exit code")
-                if on_base["exit_code"] == 0:
+                if on_base["exit_code"] == 0 and not preserve_only:
                     fail.append("The new tests pass on the unfixed base code, so they do not reproduce the bug")
         elif tests and sources:
             unverified.append("No command to run the regression tests; pass --regression-command")
 
         # No regressions: the suite on the candidate, compared with base.
-        if "candidate" in trees and sources and commands["suite"]:
+        if "candidate" in trees and (sources or preserve_only) and commands["suite"]:
             reuse = checks.get("regression_on_candidate") if commands["suite"] == commands["regression"] else None
             on_candidate = reuse or run_suite(framework, commands["suite"], trees["candidate"], run_dir,
                                               "suite-on-candidate", timeout=timeout)
             checks["suite_on_candidate"] = on_candidate
             comparable = base_suite if base_suite and base_suite.get("command") == commands["suite"] else None
-            _judge_suite(on_candidate, comparable, fail, unverified, notes)
-        elif sources:
+            # A positively identified document-only project may introduce its
+            # first source and suite. Filename heuristics cannot rule out old
+            # behavior: empty collection can hide a filtered existing program.
+            allow_empty_base = bool(new_behavior and not preserve_only and not base_patch
+                                    and comparable and comparable.get("base") == base
+                                    and _document_only_base(workspace, base))
+            _judge_suite(on_candidate, comparable, fail, unverified, notes,
+                         allow_empty_base=allow_empty_base)
+        elif sources or preserve_only:
             unverified.append("No project test command was found; existing behavior was not checked "
                               "(pass --test-command)")
     finally:
@@ -915,7 +1148,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
 
 
 def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons, *, known_failures,
-                      new_behavior=False, seam_names=None):
+                      new_behavior=False, preserve_only=False, seam_names=None):
     """Judge the targeted runs of the changed test files.
 
     With per-test results, the proof is a named test that ran and failed on base
@@ -943,10 +1176,8 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         if candidate["complete"]:
             passed = set(candidate["passed"])
         else:
-            # Output the parser could not fully attribute: exit 0 plus "not failed, not skipped".
-            review_reasons.append("per-test results of the regression run were incomplete")
-            passed = (set(base["failed"]) if base else set()) - failed - set(candidate["skipped"]) \
-                if on_candidate["exit_code"] == 0 else set()
+            unverified.append("Per-test results of the regression run were incomplete")
+            return
         if candidate["complete"] and not passed:
             fail.append("The regression command ran no passing tests")
         if failed:
@@ -960,14 +1191,16 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         if on_base is None:
             return
         if on_base["timed_out"]:
-            notes.append("The regression tests timed out on the base code; counted as a failure on base")
-            review_reasons.append("the regression proof is a timeout on base, not a named test")
+            unverified.append("The regression tests timed out on base; no complete fail-to-pass proof exists")
             return
         if base is None:
             # A module that reads a seam while loading can stop the whole run before it reports any test.
             seam = seam_names(on_base) if seam_names and not new_behavior else []
             unverified.append("The regression run on the base code reported no test results"
                               + (". " + proof_seam.reason([], seam) if seam else ""))
+            return
+        if not base.get("complete"):
+            unverified.append("Per-test results on the base code were incomplete")
             return
         setup_errors = base.get("setup_errors", {}) if not new_behavior else {}
         ran_and_failed = set(base["failed"]) - set(base["collection_errors"]) - set(setup_errors)
@@ -987,10 +1220,10 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         # errors may be real product bugs, so preserve the reviewer warning for them.
         seam = (seam_names(on_base) if seam_names and (base["collection_errors"] or flipped) and not new_behavior
                 else [])
-        if not flipped and new_behavior:
+        if not flipped and new_behavior and not preserve_only:
             fail.append("No new or changed test passes with the change and did not pass without it, "
                         "so the tests do not show the new behavior")
-        elif not flipped:
+        elif not flipped and not preserve_only:
             if setup_errors:
                 fail.append(test_setup.proof_note(setup_errors))
             elif seam:
@@ -1013,10 +1246,10 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         fail.append("The regression tests fail on the candidate")
     if on_base is None:
         return
-    if on_base["exit_code"] == 0:
+    if on_base["exit_code"] == 0 and not preserve_only:
         fail.append("The regression tests also pass on the unfixed base code, so they do not reproduce the bug")
     elif on_base["timed_out"]:
-        notes.append("The regression tests timed out on the base code; counted as a failure on base")
+        unverified.append("The regression tests timed out on base; no complete fail-to-pass proof exists")
 
 
 def _seam_names(workspace, base, changes, receipt):
@@ -1054,7 +1287,7 @@ def _pre_existing(framework, commands, changes, runnable_tests, workspace, base,
     return set(receipt["results"]["failed"]) if receipt.get("results") else None
 
 
-def _judge_suite(on_candidate, base_suite, fail, unverified, notes):
+def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_empty_base=False):
     """Nothing that passed on base may fail, be skipped, be deselected or disappear."""
     if on_candidate["timed_out"]:
         fail.append("The project suite timed out on the candidate")
@@ -1062,6 +1295,19 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes):
     candidate = on_candidate.get("results")
     base_receipt = (base_suite or {}).get("receipt") or {}
     base_results = base_receipt.get("results")
+    # A collection error is not an executed test. Keep comparison below so a
+    # separately observed regression still wins over incomplete preservation.
+    for label, results in (("base", base_results), ("candidate", candidate)):
+        collection = (results or {}).get("collection_errors") or []
+        if collection:
+            unverified.append(f"The {label} suite has collection errors; preservation is unproven: "
+                              + ", ".join(collection[:5]))
+    if base_receipt.get("timed_out") or (base_results is not None and not base_results.get("complete")):
+        unverified.append("The base suite was incomplete; preservation of its passing tests is unproven")
+        return
+    if candidate is not None and (not candidate.get("complete") or not candidate.get("total")):
+        unverified.append("The project suite reported zero tests or incomplete per-test results")
+        return
     if on_candidate.get("results_expected") and candidate is None:
         if on_candidate["exit_code"] == 0:
             unverified.append("The project suite exited 0 without reporting any test result "
@@ -1071,6 +1317,30 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes):
         else:
             unverified.append("The project suite reported no test results on the candidate")
         return
+    # Matching runner failures do not establish preserved behavior: a broken
+    # collector may report a complete set of error placeholders without running
+    # the suite. Keep comparing observed failures below so a real regression
+    # remains FAIL even when preservation coverage is unverified (#479).
+    # Python 3.14 unittest and pytest use exit 5 for honest empty collection.
+    # That is usable only when the caller identified a document-only pinned base and
+    # the candidate's new suite actually ran and passed in full.
+    empty_base = (allow_empty_base and base_results is not None
+                  and base_receipt.get("results_expected") is True
+                  and (base_receipt.get("exit_code") == 0
+                       or (base_receipt.get("exit_code") == 5
+                           and schedule.collection_kind(base_receipt.get("command", ""))
+                           in ("unittest", "pytest")))
+                  and base_results.get("complete") is True and base_results.get("total") == 0
+                  and all(base_results.get(key) == [] for key in
+                          ("passed", "failed", "skipped", "collection_errors"))
+                  and on_candidate["exit_code"] == 0 and schedule.complete_results(on_candidate)
+                  and candidate["passed"] and not candidate["failed"])
+    if base_results is not None:
+        if not empty_base and (not schedule.complete_results(base_receipt) or not base_results["passed"]):
+            unverified.append("The base suite provided no complete passing-test evidence; "
+                              "preservation of existing behavior is unproven")
+    elif base_suite is not None and base_suite.get("health") == "broken":
+        unverified.append("The base suite could not run; preservation of existing behavior is unproven")
     if candidate is not None and base_results is not None:
         new = sorted(set(candidate["failed"]) - set(base_results["failed"]))
         if new:

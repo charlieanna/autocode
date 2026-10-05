@@ -16,7 +16,9 @@ try:
     from . import autocode_goals as goals, autocode_failures as failures
     from . import autocode_resolver_human as human
     from . import autocode_progressive_state as progressive
+    from . import autocode_resolver_recovery as recovery
     from . import autocode_recovery_grants as recovery_grants, autocode_recovery_limits as recovery_limits
+    from . import autocode_quota_route as quota_route, autocode_worker_quota as worker_quota
 except ImportError:
     import autocode_resolver as policy
     import autocode_support as support
@@ -24,8 +26,11 @@ except ImportError:
     import autocode_failures as failures
     import autocode_resolver_human as human
     import autocode_progressive_state as progressive
+    import autocode_resolver_recovery as recovery
     import autocode_recovery_grants as recovery_grants
     import autocode_recovery_limits as recovery_limits
+    import autocode_quota_route as quota_route
+    import autocode_worker_quota as worker_quota
 
 
 REVIEW_STAGES = ('astra_challenge', 'astra_finalize')
@@ -166,6 +171,11 @@ def operational_boundary(runner, state, run_dir, workspace, *, persist=True):
             or state.get('status') not in ('RUNNING', 'PAUSED_PLANNING_BUDGET')
             or _operational_blocked(state, run_dir)):
         return False
+    # Give back unreported ordinary calls before reserving recovery credit, as admission
+    # would (#453). Reserving first left a grant its own refund made stale. Sealed grants
+    # keep their records: validation below still fails closed if anything they bind changed.
+    if not planning.get('recovery_review_grants'):
+        runner.planning.refund_unreported(state, planning)
     limit = runner.planning.review_call_limit(state)
     if limit == 0 or planning.get('astra_calls', 0) < limit:
         return False
@@ -196,8 +206,12 @@ def operational_boundary(runner, state, run_dir, workspace, *, persist=True):
         reviews = [row for row in state['stages'][start + 1:]
                    if row.get('stage') in REVIEW_STAGES and not row.get('runner_owned')
                    and not row.get('report_only')]
-        # Only ordinary attempts can fund recovery. Failed grants never mint grants.
-        ordinary = [row for row in reviews if not row.get('planning_recovery_grant')][:limit]
+        # Only ordinary attempts can fund recovery. Failed grants never mint grants, and a
+        # refunded attempt already gave its call back, so it cannot fund a grant as well
+        # (a separate rule from the #453 reorder). Every failed call admitted with a charge
+        # is refunded, here or at admission, so only calls admitted before charge IDs can.
+        ordinary = [row for row in reviews if not row.get('planning_recovery_grant')
+                    and not row.get('planning_review_refunded')][:limit]
         eligible = [(row, pins) for row in ordinary
                     if (pins := _timeout_evidence(state, row, binding['source_revision']))]
     except (KeyError, TypeError, ValueError, OSError, StopIteration, AttributeError):
@@ -346,6 +360,8 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
     (autocode_validation_rounds). The runner composes it from its own records, which may quote
     saved rejection reasons; no model proposes or edits it.
     """
+    if error.status == 'PAUSED_BUILDER_RETRY_LIMIT' and recovery.known_builder_pause(state):
+        return False
     if progressive.retained_review_budget_pause(state, error.status):
         return False
     if (error.status not in ('PAUSED_RESOLVER_OPERATIONAL', 'PAUSED_TIMEOUT_RECOVERY',
@@ -357,7 +373,7 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
                              'PAUSED_MILESTONE_STALLED', 'PAUSED_MILESTONE_BUDGET',
                              'PAUSED_MILESTONE_TIME_LIMIT',
                              'PAUSED_PROVIDER_UNCERTAIN', 'PAUSED_UNCERTAIN_STAGE', 'PAUSED_WORKSPACE_BUSY',
-                             'PAUSED_NO_PROGRESS')
+                             'PAUSED_NO_PROGRESS', quota_route.REFUSAL_STATUS)
             or state.get('pending_questions')
             or (Path(run_dir) / 'pause-requested').exists()):
         return False
@@ -380,7 +396,8 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
     category = ('no_progress' if error.status == 'PAUSED_NO_PROGRESS' else
                 'internal_default' if origin in ('runner_default', 'resolver_delegated') else
                 'explicit_user_cap' if origin == 'user_explicit' else 'protected_saved_limit') if kind else (
-                'provider_or_spending_guard' if error.status in ('PAUSED_BUDGET', 'PAUSED_RATE_LIMIT') else 'operational_recovery')
+                'provider_or_spending_guard' if error.status in ('PAUSED_BUDGET', 'PAUSED_RATE_LIMIT') else
+                'provider_content_filter' if error.status == quota_route.REFUSAL_STATUS else 'operational_recovery')
     budget = {'category': category, 'kind': kind, 'origin': origin, 'limit': limit}
     receipt = _operational_receipt(state, run_dir, 'hold',
         'AutoResolver cannot safely resolve this blocker under the current authority. ' + str(error), {
@@ -411,14 +428,28 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
                                                  attempt=attempt)
         if attempt:
             options.append(f'Abandon the uncertain attempt with --abandon-stage {attempt}')
+    # A quota or content-filter stop of one routable role asks the person to name a model (#184); never a default.
+    parallel = worker_quota.stopped(state, error) if request is None else None
+    stopped = parallel or (quota_route.stopped_attempt(state, failure_status=support.failure_status)
+                           if error.status in quota_route.STATUSES and request is None else None)
+    route = quota_route.question(
+        state, stopped, cross_check=getattr(getattr(runner, 'dispatch', None), 'enforce_cross_model_verification', None),
+        configured_tool=getattr(getattr(runner, 'opencode', None), 'CONFIGURED', False)) if stopped and stopped['active'] else None
+    if parallel and route:
+        route = worker_quota.question(state, parallel)
+    if route:
+        decision += ' ' + quota_route.advice(route, None if parallel else stopped['attempt_id'])
+        options.insert(0, quota_route.option(route))
     request = request or {'kind': 'blocker', 'discovered': str(error),
                           'impact': 'AutoResolver retained the attempts, work and evidence but cannot continue safely.',
                           'decision_needed': decision,
                           'options': options,
                           'proposed_delta': 'Answering does not authorize a retry, approval, permission or budget change.'}
     human.queue(state, 'operational_exhaustion',
-                {'stage': state.get('next_stage') or 'operational_recovery', 'pause_status': error.status, 'budget': budget},
-                request=request, evidence={'resolver_receipt_id': receipt}, next_stage=state.get('next_stage'))
+                {'stage': state.get('next_stage') or 'operational_recovery', 'pause_status': error.status, 'budget': budget,
+                 **({'quota_worker': parallel} if parallel else {})},
+                request=request, questions=[route] if route else None,
+                evidence={'resolver_receipt_id': receipt}, next_stage=state.get('next_stage'))
     # Keep the printed stop reason on the same contract as the published request, after the cause it
     # stops for (an external_directory denial, a spent budget), which the advice alone does not name.
     cause = str(error).strip()
@@ -817,6 +848,7 @@ def charge_diagnostic_dispatch(runner, state, run_dir, workspace, record):
     if reservation and reservation in saved.get('diagnostic_reservations', []):
         return
     diagnostic_calls = check_diagnostic_capacity(runner, state, run_dir)
+    recovery.admit_dispatch(state, record, workspace, run_dir)
     if 'diagnostic_reservations' not in saved:
         saved['diagnostic_legacy_calls'] = diagnostic_calls
         saved['diagnostic_reservations'] = []
@@ -881,6 +913,7 @@ def admit_operational_diagnosis(runner, state, run_dir, workspace):
         'contract_hash': state['goal_contract']['hash'], 'source_revision': record.get('source_revision'),
         'original_stage': record['stage'], 'failure_key': selected['failure_key'], 'blocker_id': blocker_id,
         'description': description, 'repeated_count': repeated['count'], 'evidence': evidence, 'evidence_hashes': pins}
+    recovery.prepare_diagnosis(state, state['diagnosis_request'], record, run_dir)
     # The stopped report-repair pointer is superseded by the diagnosis; leaving
     # it would make the next dispatch's before_code_stage hook try to execute it
     # against next_stage='astra_diagnose' and pause with PAUSED_STALE_REPORT_ROUTE.
@@ -892,10 +925,15 @@ def admit_operational_diagnosis(runner, state, run_dir, workspace):
     runner.write_json(Path(run_dir) / 'state.json', state)
 
 
-def finish_operational_diagnosis(state, run_dir, recommendation):
+def finish_operational_diagnosis(state, run_dir, recommendation, *, recovery_change=None, diagnosis=None):
     """Validate a model's diagnosis recommendation against the same bounded
     policy and per-incident budget used to admit the diagnosis (the second
     of that budget's two evaluations), before authorizing any retry.
+
+    An accepted retry's repair plan, which the Builder receives, carries the
+    diagnosis text, the recommendation and any proposed change: as
+    ``recovery_change`` only when the incident packet attests it, otherwise
+    as ``unattested_change`` with the reason (recovery.diagnosis_change).
 
     Called on the candidate state inside the commit-then-persist boundary
     (like ``queue_resolution``/``finish_resolution``): it mutates ``state``
@@ -930,10 +968,25 @@ def finish_operational_diagnosis(state, run_dir, recommendation):
         original_stage = request['original_stage']
         state.pop('diagnosis_request', None)
         if failure_key:
-            state.get('failure_history', {}).pop(failure_key, None)
-            for row in state.get('stages', []):
-                if row.get('failure_key') == failure_key:
-                    row.pop('failure_key', None)
+            entry = state.get('failure_history', {}).get(failure_key)
+            if entry is not None:
+                entry.setdefault('diagnostic_retries', []).append({
+                    'receipt': receipt.idempotency_key, 'recommendation': copy.deepcopy(recommendation),
+                    'recovery_packet': copy.deepcopy(request.get('recovery_packet'))})
+        plan = {'kind': 'operational-diagnosis', 'tasks': [copy.deepcopy(state.get('current_task') or {})],
+                'recommendation': copy.deepcopy(recommendation)}
+        if diagnosis:
+            plan['diagnosis'] = diagnosis
+        recovery.finish_resolution_packet(state, request, plan)
+        # The Builder sees the proposal either way. Only an attested one is a recovery_change;
+        # an unattested one is advice with its reason and must not void the retry (#422).
+        attested, unattested = recovery.diagnosis_change(request, recovery_change, run_dir)
+        if attested:
+            plan['recovery_change'] = attested
+        if unattested:
+            plan['unattested_change'] = unattested
+        state['repair_plan'] = plan
+        state.setdefault('resolution_history', []).append(copy.deepcopy(plan))
         state.update(status='RUNNING', phase='EXECUTING', next_stage=original_stage)
         state.pop('stop_reason', None)
         return True

@@ -290,7 +290,7 @@ cannot substitute for missing criterion results.
 A Tester's checks are first matched against its own session: the provider's
 event log or a capture receipt must show each command ran with the reported exit
 code. That shows the command ran, not that it passes on the code as it is. So
-before a PASS is accepted, the runner re-runs every check itself
+before a PASS is accepted, the runner requires its own current execution of each check
 (`tools/autocode_check_replay.py`):
 
 - **Where.** From the repository root, in a scratch copy of the current source:
@@ -312,6 +312,22 @@ before a PASS is accepted, the runner re-runs every check itself
   `evidence.check_replay`. Each invocation gets a fresh directory, including
   retries of the same report. Later replays preserve the earlier receipt and
   logs at their original paths; a failed replay remains available after a pass.
+
+If the controller stops after saving a successful supplementary check but before
+committing validation, it may reuse that exact completed runner receipt when the
+same Tester obligation resumes. Reuse requires unchanged source, command,
+task and contract, purpose, execution environment, interpreter, runtime and
+dependencies, plus intact original output and complete nonzero collected test
+results. It does not turn a Builder receipt into independent proof. Approved
+canonical commands, protected checks and a fresh Tester's obligations still
+execute; unsupported test inventories are not guessed. Public evidence records
+the scheduling decision and preserves the original receipt, output hashes and
+execution interval. Those artifacts remain pinned by the Completion gate.
+
+An uncertain earlier launch blocks subsequent owned verification even if its
+source, task or command identity changed. Starting a new identity does not prove
+that the previous process stopped. Missing, partial, stale or altered receipts
+cannot authorize reuse.
 
 This replaces trust in the Tester's own session with a run the runner owns.
 It does not judge whether the checks test the right thing: that is still the
@@ -386,7 +402,7 @@ timestamp. A saved observation does not prove a recorded worker is still alive.
 `longest_idle_seconds` is the longest quiet period that ended with new activity or
 a tool start (the open one is `idle_seconds`), so earlier silences can be compared
 with the limit before changing it. An inactivity stop names its limit, whether that
-is the runner default or was set explicitly, and how to change it (`--resume-paused
+is the runner default or was set explicitly, and how to change it (`autocode resume
 --max-idle-seconds N`). Once the automatic recovery allowance is spent, the new
 limit is saved but no provider launches until `--grant-recovery N` is also given.
 Routes of a model family that reasons in long silent blocks run under a higher default:
@@ -397,7 +413,7 @@ used as given, and the saved setting is not rewritten.
 A workflow job's stop (review, design, design check, bug investigation, question,
 stuck-stage investigation) says instead that its exact retry runs under the same
 limit: that retry is bound to the limits the job ran under, so a changed limit
-would make it stale. AutoResolver never changes this limit, even when limits were
+would make it stale. Resolver never changes this limit, even when limits were
 delegated to it.
 The task conversation also receives durable role-based progress messages: stage
 transitions, blockers with next steps, completion, and a heartbeat every 60 seconds
@@ -498,6 +514,13 @@ Inspect the saved cause and adjust limits as needed; explicit `--resume-paused`
 acknowledges `PAUSED_TIMEOUT_RECOVERY` and resets recovery counters while retaining
 history. Setting `--no-progress-limit 0` disables the unchanged-batch limit, but
 never disables the three-recovery safety ceiling.
+A run held at `PAUSED_NO_PROGRESS` keeps its count. `--resume-paused
+--no-progress-limit N` acknowledges that pause when N is above the count, or `0`;
+an N at or below the count holds without launching the Builder. Information alone
+(`--resolver-response provide_information`) never acknowledges it. Reasserting an
+already saved N on resume also acknowledges it, for example after a response
+consumed the request. The flag never acknowledges another cause's pause, such as
+the active-time limit.
 A terminal response, live worker or requested pause remains paused for inspection.
 Other uncertain provider requests still require explicit reconciliation.
 `--resume-paused` acknowledges operational pauses only. Saved limits persist unless you
@@ -518,13 +541,24 @@ receive the bounded automatic recovery above; other uncertain responses need ins
 first.
 
 An execution report whose two read-only repairs are exhausted can be retried with
-`--resume-paused`. Autocode archives the rejected reports and starts a fresh role
-session; it does not replay implementation or planning. When the source changes
+`--resume-paused`. If the same Validator report fails repeatedly, the failure
+guard may stop recovery earlier: the cheap serialization correction contributes
+to that guard but does not spend a full repair attempt. After correcting the
+cause and answering any published operational request, use the exact action
+shown by status: `--resume-paused --retry-report ATTEMPT_ID`. This requests fresh
+Validator evidence, preserving the real repair count, failure history and limits. Autocode archives the rejected reports and starts a fresh role
+session; it does not replay implementation or planning. Each retry runs one fresh
+Validator attempt. If that attempt fails the same way, the guard stops it before
+any repair, and status names that new attempt for the next explicit retry, never an
+earlier archived one. After a source edit `--retry-report` is refused and names
+`--resume-paused`, which validates the current source instead. When the source changes
 while a run is paused (an operator edit), a queued report repair can no longer
 run: `--resume-paused` archives it, evidence intact, and starts a fresh attempt
 of the same stage, in a new provider session, on the current source. It does
-not do this while an AutoResolver operational request is published or queued:
-that request is answered or withdrawn only through its own actions. A finished read-only response that was
+not do this while a Resolver operational request is published or queued:
+that request is answered or withdrawn only through its own actions. After it is
+answered, an explicit resume recognizes the changed source and archives its
+stale repair instead of repeating the guidance hold. A finished read-only response that was
 never applied stays paused instead, and its message names the `--abandon-stage`
 step. `--accept-completion` refuses a validation of another source, goal
 revision or task and says so; resume to re-validate first. A transport-change pause
@@ -561,9 +595,19 @@ the original evidence. Planning retries receive that diagnosis and a bounded
 source inventory excluding `.autocode` and `.git`, rather than repeating broad
 repository discovery without the failure context.
 
-For joint planning, proven nonterminal timeouts of ordinary reviewer calls can
-fund at most **two separately accounted recovery calls per planning cycle**.
-Every attempted call remains charged; these grants never erase the ordinary
+For joint planning, a Plan Reviewer call that times out or whose provider fails
+returned no review, so its call is given back before the next attempt (see
+[workflow](workflow.md)). A given-back call never also funds recovery: one failed
+review earns a refund or a recovery call, never both. A review call admitted under
+this refund policy (since 2026-09-29) is always given back when it fails, so Resolver
+reserves no planning recovery calls for such calls. Repeated silence stops instead
+at the ceiling of three automatic recoveries above (`PAUSED_TIMEOUT_RECOVERY`), where
+`--grant-recovery N` authorizes more. The one-use reviewer route fallback needs a
+recovery-funded second silent attempt, so it does not arise from such calls either.
+
+Review calls admitted before that policy stay charged. For their proven
+nonterminal timeouts, Resolver can fund at most **two separately accounted
+recovery calls per planning cycle**; these grants never erase the ordinary
 allowance or its usage. Explicit or unmarked saved review caps are protected.
 Grants are single-use, consumed durably at admission, pinned to the
 cycle/source/contract/settings/inputs/evidence, and cannot be replenished by
@@ -574,6 +618,51 @@ This narrow read-only recovery policy works before plan approval; it cannot
 approve a draft, start implementation, change requirements, grant permissions,
 switch billing routes, or change models/deadlines. Requirements and Planner
 timeouts remain in their own planning stage, never jump to execution review.
+
+### Evidence-bound repair
+
+Repeated repair incidents also retain their diagnostic history across task IDs,
+provider sessions and restarts. Original reports, errors, check output and prior
+attempts remain available through pinned packet artifacts. Changing incidental
+temporary paths or rephrasing a hypothesis is not new evidence.
+
+Before another paid diagnosis or repair of the same incident, the final dispatch
+boundary checks whether an unresolved causal question remains or a concrete,
+supported change has a discriminating check. A structured `recovery_change` may
+declare that change and cite its pinned evidence; it does not grant permission,
+approve scope, create another retry allowance or establish that the repair worked.
+The absence of a proposal is `null`, not a request to buy report repair.
+
+An unchanged incident can pause as `PAUSED_NO_PROGRESS` before another provider
+launch. A source hash, session rotation or comment-only edit alone cannot clear
+that hold. Existing healthy or uncertain workers are not restarted to create a
+new attempt. A supported known correction still receives the ordinary retry or
+escalation decision, assignment checks, fresh independent validation and the
+Completion gate. Unsupported changes remain unknown rather than being treated as
+proven progress.
+
+An attempt that automatic recovery archived because it ended without a completed
+turn (a provider timeout, capacity or startup failure, or a denied path) returned
+no report, so relaunching it repeats no experiment; that recovery route's own
+budget bounds the relaunch. An uncertain attempt an operator abandoned, a
+truncated report or a rejected report still counts. An accepted operational
+diagnosis that recommends a retry admits the Builder without a proposed source
+change until one Builder attempt returns a result; an attempt that automatic
+recovery archives does not use it up (#422). The Builder receives the diagnosis
+and its recommendation. A change the diagnosis proposed that the incident packet
+cannot attest reaches the Builder only as advice, with the reason, and is never
+treated as a new experiment.
+
+The explicit `--resume-paused --retry-failed-stage` control can authorize one
+scoped retry of a recorded hold under the existing limits. It retains previous
+attempts and evidence; ordinary resume is not that authorization. Unlike a
+diagnosis's retry, it is spent by the attempt it admits even if that attempt
+times out, and so is a `--retry-builder` grant. The grant does not carry over to
+the automatic recovery that follows. A relaunch of the same stage is admitted or
+held by novelty as it would be without the grant; a Builder timeout outside
+final-audit-only routing goes to the Completion Reviewer instead.
+Permission, product and scope decisions still require their existing bound human
+controls.
 
 ### Budget ownership and human escalation
 
@@ -628,7 +717,25 @@ declared artifact acceptance remain human decisions. External service failures
 cannot be guaranteed resolvable; automatic recovery is bounded rather than infinite.
 
 The Plan Reviewer and Tester use the read-only sandbox with the Codex engine; the Builder uses workspace-write.
-OpenCode uses the native permissions and snapshot checks described in [Providers](providers.md).
+Built-in OpenCode execution launches in this checkout additionally require the
+qualified macOS Seatbelt shell boundary on OpenCode 1.18.33. Each launch uses a
+fresh provider session, preserves effective Bash restrictions, and disables other
+model tools. Nonwriter stages may write only to their fresh stage scratch area;
+the Builder may also write application files, but not runner state, evidence,
+configuration or runtime authority. Failed conformance or changed boundary files
+pause as `PAUSED_TOOL_CONTAINMENT` before the provider is launched.
+
+Tool networking remains denied, including ephemeral loopback HTTP tests. The
+tested Seatbelt `localhost` rule also permits non-loopback addresses belonging to
+the host; it is not an exact loopback-IP boundary. Loopback capability requests
+are therefore rejected, not silently enabled. A test requiring such networking
+needs a separately qualified execution path; neither an approved test command nor
+a successful runner preflight establishes that the model's shell can execute it.
+
+This boundary covers shell-tool subprocesses, not the authenticated OpenCode
+client or its plugin hooks. Planning, report-only repair and configured custom
+providers are outside this kernel-containment claim; they retain the native
+permissions and snapshot checks described in [Providers](providers.md).
 The runner does not pass blanket auto-approval. Contract permission text is a role instruction,
 not a general-purpose OS policy compiler. The Codex sandbox/approval system remains
 responsible for individual tool permissions; custom MCP/connector write permissions

@@ -35,7 +35,8 @@ class GoalChangeTests(unittest.TestCase):
         subprocess.run(["git", "-C", str(self.workspace), "-c", "user.name=Fixture", "-c",
                         "user.email=fixture@example.test", "commit", "--allow-empty", "-qm", "fixture"], check=True)
         goal_fixtures.seed_greeting_workspace(self.workspace)
-        self.run_dir = self.workspace / ".autocode" / "runs" / "goal-change"
+        # The legacy worker guard also matches relative run paths across processes.
+        self.run_dir = self.workspace / ".autocode" / "runs" / f"goal-change-{self.workspace.name}"
         self.run_dir.mkdir(parents=True)
         self.state = {"version": 3, "task_id": "goal-change", "task": "Greeting and rejection",
             "workspace": str(self.workspace), "run_dir": str(self.run_dir), "iteration": 0,

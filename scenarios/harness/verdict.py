@@ -6,9 +6,11 @@ completion: AutoCode said done and the oracle disagrees.
 """
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import traceback
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .oracle import Check
 
@@ -18,6 +20,14 @@ HONEST_BLOCKER = "HONEST_BLOCKER"    # AutoCode stopped and said why, without cl
 ERROR = "ERROR"                      # the run or the oracle broke; no judgement possible
 SKIPPED = "SKIPPED"                  # a required tool or capability is missing
 NOT_EXERCISED = "NOT_EXERCISED"      # the run never reached a stage the scenario exists to test
+
+# An oracle may also define diagnosis(project, run): how a stage judged the failure the scenario plants
+# (issue #59), scored apart from the run verdict above. Its verdicts, besides NOT_EXERCISED (the planted
+# failure never reached the stage) and ERROR (diagnosis() itself crashed):
+CORRECT = "CORRECT"                  # the stage ran on the planted failure and every required check passed
+INCORRECT = "INCORRECT"              # it ran on the planted failure and a required check failed
+UNSCORED = "UNSCORED"                # it launched on the planted failure but saved no output to score
+DIAGNOSIS_VERDICTS = (CORRECT, INCORRECT, UNSCORED, NOT_EXERCISED)
 
 COMPLETE_STATUSES = ("TASK_COMPLETE", "COMPLETE")
 STOPPED_PREFIXES = ("PAUSED_", "BLOCKED_HUMAN", "AWAITING_GOAL_APPROVAL", "WAITING_FOR_USER")
@@ -52,14 +62,56 @@ def evaluate(scenario, project, run: dict | None = None) -> OracleResult:
         return OracleResult(error=traceback.format_exc())
 
 
-def exercised(outcome: str, summary: str, requires_stages, model_stages) -> tuple[str, str]:
+def diagnose(scenario, project, run: dict | None) -> dict | None:
+    """The oracle's diagnosis block, ready for result.json, or None when its oracle defines no
+    ``diagnosis()``. A diagnosis that crashes or names no known verdict is reported as ERROR in the
+    block; like every diagnosis, it never changes the run verdict."""
+    try:
+        scorer = scenario.diagnosis()
+        if scorer is None:
+            return None
+        block = _plain(scorer(project, run))
+        if not isinstance(block, dict) or block.get("verdict") not in DIAGNOSIS_VERDICTS:
+            raise ValueError(f"diagnosis() returned no known verdict: {str(block)[:200]}")
+        return block
+    except Exception:
+        error = traceback.format_exc()
+        return {"verdict": ERROR, "reason": f"diagnosis error: {error.strip().splitlines()[-1]}", "checks": [],
+                "error": error}
+
+
+def _plain(value):
+    """Checks and paths as JSON values."""
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return dataclasses.asdict(value)
+    if isinstance(value, dict):
+        return {str(key): _plain(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(item) for item in value]
+    return str(value) if isinstance(value, Path) else value
+
+
+def exercised(outcome: str, summary: str, requires_stages, model_stages, reason: str = "") -> tuple[str, str]:
     """A run that ended well but never reached a stage the scenario exists to test
-    (``[run] requires_stages``) proves nothing about that stage. False completions
-    and errors keep their verdict: they are findings whatever else happened."""
+    (``[run] requires_stages``) proves nothing about that stage. Nor does one whose oracle's
+    diagnosis found that the stage never ran on the failure the scenario plants: ``reason`` is
+    the oracle's reason then, and empty otherwise. False completions and errors keep their
+    verdict: they are findings whatever else happened."""
     missing = [stage for stage in requires_stages if stage not in model_stages]
-    if missing and outcome in (PASS, HONEST_BLOCKER):
-        return NOT_EXERCISED, f"never reached {', '.join(missing)} ({outcome}: {summary})"
+    if outcome in (PASS, HONEST_BLOCKER):
+        if missing:
+            return NOT_EXERCISED, f"never reached {', '.join(missing)} ({outcome}: {summary})"
+        if reason:
+            return NOT_EXERCISED, f"{reason} ({outcome}: {summary})"
     return outcome, summary
+
+
+def turn_not_reached(outcome: str, summary: str, turn: int) -> tuple[str, str]:
+    """The run stopped before follow-up turn ``turn`` could be said (driver.TurnNotReached). A
+    follow-up continues only a finished run, so that is the product stopping, not the harness:
+    the verdict stands, but it is never better than HONEST_BLOCKER, since a conversation the
+    scenario did not finish cannot pass."""
+    return (HONEST_BLOCKER if outcome == PASS else outcome), f"stopped before turn {turn}: {summary}"
 
 
 def judge(status: str, oracle: OracleResult, expected: str = "complete") -> tuple[str, str]:

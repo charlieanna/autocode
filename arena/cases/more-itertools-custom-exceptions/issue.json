@@ -1,0 +1,6 @@
+{
+  "title": "one and only discard custom exceptions that evaluate to false",
+  "html_url": "https://github.com/more-itertools/more-itertools/pull/1279",
+  "provenance": "Evaluator-authored problem-only adaptation of the upstream PR description, retrieved 2026-10-05. Not an authenticated pre-fix issue snapshot. Solution text and comments omitted.",
+  "body": "A custom exception instance may define __bool__ to return False. one([], too_short=that_exception), one([1, 2], too_long=that_exception), and only([1, 2], too_long=that_exception) must raise that exact supplied exception instance, but currently raise ValueError instead. Supplying a custom too_long exception must also work when the iterable's elements have a __repr__ that raises: no default error message is needed in that situation. Preserve normal one-item results, only's empty default, and default ValueError behavior when no exception is supplied. Add regression tests."
+}
