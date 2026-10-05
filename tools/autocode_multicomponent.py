@@ -167,7 +167,9 @@ class Architecture:
         the contract schemas and any accepted UI handoff. Saved builds require
         the same inputs; legacy text-only fingerprints remain unchanged. A runtime
         block lives inside components.json, so adding or editing one changes this
-        identity too, as it should: it changes that component's brief."""
+        identity too, as it should: it changes that component's brief. smoke.json,
+        beside components.json, is deliberately left out: it checks the combined
+        system and no brief mentions it, so editing it never forces a rebuild."""
         if self.directory is None and not any(c.design is not None for c in self.components.values()):
             return None
         digest = hashlib.sha256()
