@@ -327,6 +327,35 @@ class CliTests(BuildAndIntegrateTests):
         self.assertEqual("from alpha\n", (target / "components" / "alpha" / "message.txt").read_text())
         self.assertEqual("from beta\n", (target / "components" / "beta" / "message.txt").read_text())
 
+    def test_cli_builds_components_that_declare_how_they_run(self):
+        # Runtime sentences, an embedded schema's "required" and a backticked contract name
+        # all reach the real requirement-coverage and brief-literal checks; the scripted
+        # model keeps the whole brief, and alpha delivers two files.
+        architecture = self.repo / "architecture"
+        (architecture / "contracts" / "greeting.schema.json").write_text(
+            '{"type": "object", "required": ["text"], "properties": {"text": {"type": "string"}}}')
+        (architecture / "components.json").write_text(json.dumps([
+            {**component("alpha", publishes=["greeting"]),
+             "runtime": {"kind": "service", "port": 8001, "dockerfile": "Dockerfile", "health": "/health"}},
+            {**component("beta", consumes=["greeting"]),  # built against the contract, in the same batch
+             "runtime": {"kind": "service", "port": 8002, "start": "python3 server.py", "health": "/health",
+                         "runtime_depends_on": ["alpha"]}}]))
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "runtime blocks")
+        self.write_manifest(alpha={"description": "the alpha component", "check": "test -f components/alpha/Dockerfile",
+                                   "files": {"components/alpha/server.py": "print('alpha')\n",
+                                             "components/alpha/Dockerfile": "FROM python:3.12-slim\n"}})
+        proc = self.run_cli("architecture", "--workspace", str(self.repo), "--auto-approve",
+                            "--integrate", "integration", "--options", " ".join(FIXTURE_OPTIONS))
+        self.assertEqual(0, proc.returncode, proc.stderr[-1500:])
+        summary = json.loads(proc.stdout)
+        self.assertEqual({"alpha": "done", "beta": "done"},
+                         {cid: info["status"] for cid, info in summary["components"].items()})
+        target = self.repo / "integration"
+        self.assertEqual("FROM python:3.12-slim\n", (target / "components" / "alpha" / "Dockerfile").read_text())
+        self.assertEqual("print('alpha')\n", (target / "components" / "alpha" / "server.py").read_text())
+        self.assertEqual("from beta\n", (target / "components" / "beta" / "message.txt").read_text())
+
     def test_cli_refuses_a_cycle_before_starting_any_component(self):
         (self.repo / "architecture" / "components.json").write_text(json.dumps(
             [{**component("alpha"), "depends_on": ["beta"]}, {**component("beta"), "depends_on": ["alpha"]}]))

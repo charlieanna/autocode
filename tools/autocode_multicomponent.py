@@ -45,10 +45,12 @@ from pathlib import Path
 
 try:
     from .autocode_component_design import ComponentDesign, validate_engine
+    from .autocode_component_runtime import ComponentRuntime, brief_lines, near_miss_runtime_key, start_layers
     from .autocode_taskrun import TaskRun, TaskRunError
     from .autocode_workspaces import keep_out_of_git
 except ImportError:
     from autocode_component_design import ComponentDesign, validate_engine
+    from autocode_component_runtime import ComponentRuntime, brief_lines, near_miss_runtime_key, start_layers
     from autocode_taskrun import TaskRun, TaskRunError
     from autocode_workspaces import keep_out_of_git
 
@@ -87,6 +89,7 @@ class Component:
     publishes_contracts: tuple[str, ...]
     consumes_contracts: tuple[str, ...]
     design: ComponentDesign | None = None
+    runtime: ComponentRuntime | None = None  # how it runs in the combined system (autocode_component_runtime)
 
     @property
     def owned_prefix(self) -> str:
@@ -138,20 +141,33 @@ class Architecture:
                 design = ComponentDesign.load(row, directory)
             except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
                 raise ArchitectureError(f"component {component_id} design: {error}") from None
+            misspelled = near_miss_runtime_key(row)
+            if misspelled is not None:
+                raise ArchitectureError(f"component {component_id}: did you mean runtime? (found {misspelled!r})")
+            try:
+                runtime = ComponentRuntime.load(row, component_id)
+            except ValueError as error:
+                raise ArchitectureError(f"component {component_id} runtime: {error}") from None
             components[component_id] = Component(
                 id=component_id, description=row.get("description", ""),
                 requirements=tuple(row.get("requirements", [])), depends_on=tuple(row.get("depends_on", [])),
-                publishes_contracts=publishes, consumes_contracts=consumes, design=design)
+                publishes_contracts=publishes, consumes_contracts=consumes, design=design, runtime=runtime)
         for component in components.values():
             unknown = [dep for dep in component.depends_on if dep not in components]
             if unknown:
                 raise ArchitectureError(f"{component.id} depends_on unknown component(s) {unknown}")
+        try:
+            start_layers({cid: component.runtime for cid, component in components.items()})
+        except ValueError as error:
+            raise ArchitectureError(f"runtime: {error}") from None
         return cls(components=components, contracts_dir=directory / "contracts", directory=directory)
 
     def fingerprint(self) -> str | None:
         """A hash of the files every component is built against: components.json and
         the contract schemas and any accepted UI handoff. Saved builds require
-        the same inputs; legacy text-only fingerprints remain unchanged."""
+        the same inputs; legacy text-only fingerprints remain unchanged. A runtime
+        block lives inside components.json, so adding or editing one changes this
+        identity too, as it should: it changes that component's brief."""
         if self.directory is None and not any(c.design is not None for c in self.components.values()):
             return None
         digest = hashlib.sha256()
@@ -173,6 +189,11 @@ class Architecture:
                     kind = b"ui_run" if component.design.ui_run is not None else b"figma_file"
                     digest.update(component.id.encode() + b"\0" + kind + b"\0" + pin.encode() + b"\0")
         return digest.hexdigest()
+
+    @property
+    def runtimes(self) -> dict[str, ComponentRuntime]:
+        """The components that declare how they run, by id."""
+        return {cid: component.runtime for cid, component in self.components.items() if component.runtime is not None}
 
     def batches(self) -> list[list[Component]]:
         """Components grouped so a batch's members share no dependency between them,
@@ -196,13 +217,19 @@ def component_brief(component: Component, architecture: Architecture) -> str:
 
     Embeds the actual contract schemas, not just their names, so the Builder
     has ground truth for both what it must publish and what it may assume
-    about a dependency's data, without reading another component's code.
+    about a dependency's data, without reading another component's code. A
+    component with a runtime block is also told how it will run; one without
+    gets exactly the brief it always did.
     """
     lines = [
         f"Implement the {component.id} component of a larger system: {component.description}",
         f"Requirements this component is responsible for: {', '.join(component.requirements) or '(none declared)'}.",
         f"Own only the directory {component.owned_prefix}; do not create or edit any file outside it.",
     ]
+    # Before the contract lines, each of which ends in raw JSON with no full stop: placed
+    # after one, the first runtime sentence would merge into its cue sentence, and quoting
+    # the schema sentence alone would count as tracing it (autocode_requirement_cues).
+    lines += brief_lines(component.id, architecture.runtimes)
     for name in component.publishes_contracts:
         schema = _read_json(architecture.contracts_dir / f"{name}.schema.json")
         lines.append(f"This component publishes the `{name}` contract. Other components will send or store data "

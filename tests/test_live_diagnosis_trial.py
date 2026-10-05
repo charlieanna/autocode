@@ -269,19 +269,34 @@ class JudgeFinalVerdictTests(unittest.TestCase):
         for hang in (True, False):
             with self.subTest(hang=hang):
                 pidfile = self.project / "child.pid"
+                pidfile.unlink(missing_ok=True)
                 candidate = ("import subprocess, sys\n"
                              "from pathlib import Path\n"
                              "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
-                             f"Path({str(pidfile)!r}).write_text(str(child.pid))\n" + trial.REFERENCE_MODULE)
+                             f"Path({str(pidfile)!r}).write_text(str(child.pid) + '\\n')\n" + trial.REFERENCE_MODULE)
                 if hang:
                     candidate += "import time\ntime.sleep(60)\n"
                 (self.project / "convert.py").write_text(candidate)
-                # Only the hung fixture needs an accelerated deadline. The
-                # successful fixture must retain the normal grading budget:
-                # interpreter scheduling under suite load can exceed 0.3s.
-                timeout = 0.3 if hang else trial.GRADING_SUBPROCESS_TIMEOUT
-                with patch.object(trial, "GRADING_SUBPROCESS_TIMEOUT", timeout):
+                # Expire the fake clock after the real descendant publishes its
+                # complete PID. A 0.3s wall deadline could kill the interpreter
+                # before it spawned anything, leaving cleanup untested under load.
+                real_clock = trial.grader_process.time
+                clock = Mock(wraps=real_clock)
+                deadline_started, jump = False, 0
+
+                def now():
+                    nonlocal deadline_started, jump
+                    observed = real_clock.monotonic()
+                    if (deadline_started and hang and pidfile.exists()
+                            and pidfile.read_text().endswith("\n")):
+                        jump = trial.GRADING_SUBPROCESS_TIMEOUT + 1
+                    deadline_started = True
+                    return observed + jump
+
+                clock.monotonic.side_effect = now
+                with patch.object(trial.grader_process, "time", clock):
                     verdict = trial.judge_final_verdict(self.project, self.run_dir, self.frozen)
+                self.assertEqual(hang, bool(jump))
                 self.assertEqual(hang, verdict["timed_out"])
                 pid = int(pidfile.read_text())
                 try:

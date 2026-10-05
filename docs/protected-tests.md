@@ -2,7 +2,11 @@
 
 New task runs retain the eligible tests present in their workspace before the
 first model call. Git-ignored inputs are not included. The runner records the
-files' bytes, modes and original suite command in a content-addressed bundle.
+files' bytes, modes and original suite command in a content-addressed ZIP archive.
+The archive keeps internal copies out of ordinary test discovery (including
+`npm test` with Vitest). The runner verifies each member against the saved
+inventory before using it and extracts originals only into temporary storage
+outside the project for independent replay.
 Existing repository-internal file symlinks retain their relative link text and
 entire file-link chain, including the terminal file even when its name is not
 a test. Every target must be present in the source snapshot. Directory symlinks,
@@ -52,7 +56,21 @@ contract; changed requirements still need the normal contract revision and
 approval process.
 
 Regular-file inventories retain their version-one format; inventories with
-file links use version two. Existing bindings are never silently migrated.
+file links use version two. Those logical inventories and their binding hashes
+stay unchanged when storage is compacted. On an idle saved-run invocation,
+AutoCode converts only that run's own current and historical retained directories
+into verified archive companions.
+It preserves the saved settings, inventory and revision history, then removes
+only the copied files named in that inventory. Interrupted compaction resumes
+without recapturing the current implementation. Corrupt retained inputs fail
+verification; extra files and other runs' artifacts are left untouched.
+
+An older run that is still active keeps its existing storage until an idle
+invocation. Other old runs in the same project may still have discoverable
+backups until they are individually resumed at an idle boundary. New runs never
+sweep another run's `.autocode/` contents. The saved `root` is a storage locator:
+new bindings point to a ZIP file; legacy directory locators can resolve a verified
+ZIP companion after compaction.
 
 Existing saved runs without a binding keep their prior behavior. Their original
 tests cannot be inferred safely from an already modified checkout; use a new

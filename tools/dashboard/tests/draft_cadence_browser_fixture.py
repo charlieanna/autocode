@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import threading
+import time
 from urllib.parse import urlencode
 
 TOOLS = Path(__file__).resolve().parents[2]
@@ -23,6 +24,9 @@ def main():
         (project / '.git').mkdir(parents=True)
         calls, lock = [], threading.Lock()
         call_path = root / 'provider-calls.json'
+        # A 'Slow draft' Planner call stays in flight, after a real launch
+        # receipt, until the browser test creates this file.
+        gate = root / 'release-slow-draft'
 
         def record(role, messages):
             human = next(row for row in reversed(messages) if row['role'] == 'user')
@@ -45,6 +49,12 @@ def main():
                 raise ConversationProviderError('Fixture worker unavailable before launch', outcome='not_dispatched')
             if human['text'] == 'Ambiguous draft failure':
                 raise ConversationProviderError('Fixture lost the provider receipt')
+            if human['text'].startswith('Slow draft'):
+                delivery['dispatch_observer']('process_starting', {})
+                delivery['dispatch_observer']('process_started', {'owned': True, 'pid': None})
+                deadline = time.monotonic() + 120
+                while not gate.exists() and time.monotonic() < deadline:
+                    time.sleep(0.05)
             return json.dumps({'contract_version': 1, 'kind': 'autocode.planner-structured-draft',
                 'goal': 'Build a clear chat workspace', 'requirements': ['Keep project conversations and all answers'],
                 'milestones': ['Build and verify the chat'], 'parallelism': [], 'unresolved_questions': [],
@@ -80,7 +90,7 @@ def main():
         server.hosts = {f'127.0.0.1:{server.server_port}', f'localhost:{server.server_port}'}
         base_url = f'http://127.0.0.1:{server.server_port}/'
         print('FIXTURE='+json.dumps({'urls':{size:base_url+'#'+urlencode({'conversation':doc['id']})
-            for size,doc in documents.items()},'calls':str(call_path)}),flush=True)
+            for size,doc in documents.items()},'calls':str(call_path),'gate':str(gate)}),flush=True)
         try:
             server.serve_forever()
         except KeyboardInterrupt:

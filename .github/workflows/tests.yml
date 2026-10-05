@@ -129,6 +129,42 @@ jobs:
             node "$test_file" || exit 1
           done
 
+  wheel-smoke:
+    # The installed package, not the checkout (#67): build the wheel, install it into a
+    # fresh venv, and run it from a folder outside any Git repository. A separate job,
+    # so the suite above does not wait for it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build the wheel and install it into a fresh venv
+        run: |
+          python3 -m pip wheel --no-deps --wheel-dir "$RUNNER_TEMP/dist" .
+          python3 -m venv "$RUNNER_TEMP/smoke"
+          "$RUNNER_TEMP/smoke/bin/pip" install "$RUNNER_TEMP"/dist/*.whl
+      - name: Run --version and doctor outside any repository
+        # No engine is installed here, so doctor exits 1: check its JSON, not exit 0.
+        run: |
+          cd "$(mktemp -d)"
+          if git rev-parse --git-dir >/dev/null 2>&1; then echo "::error::$PWD is inside a Git repository"; exit 1; fi
+          "$RUNNER_TEMP/smoke/bin/autocode" --version | tee version.txt
+          grep -q "(commit unknown)" version.txt
+          code=0
+          "$RUNNER_TEMP/smoke/bin/autocode" doctor --json > doctor.json || code=$?
+          cat doctor.json
+          [ "$code" -le 1 ] || { echo "::error::doctor exited $code"; exit 1; }
+          python3 - doctor.json <<'PYTHON'
+          import json, sys
+          report = json.load(open(sys.argv[1]))
+          checks = {check["name"]: check["status"] for check in report["checks"]}
+          expected = {"python", "psutil", "git", "engine:opencode", "engine:codex", "engine", "workspace"}
+          assert expected <= set(checks), sorted(expected - set(checks))
+          assert all(checks[name] == "ok" for name in ("python", "psutil", "git")), checks
+          assert checks["workspace"] == "missing" and report["ok"] is False, report
+          PYTHON
+
   visual-comparison:
     runs-on: ubuntu-latest
     steps:

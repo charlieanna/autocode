@@ -438,8 +438,8 @@ Use existing evidence when it still applies. Every scratch file, marker or captu
 output you create yourself must stay inside the current workspace, under the
 evidence directory supplied in this handoff when one is given: the provider sandbox
 denies /tmp, mktemp's default location and every path outside the workspace, so
-those denials are a dead end rather than a permissions request to escalate. Return concise schema-valid FINAL output; ordinary commentary
-can be plain text. Do not edit runner/state/config or authentication.
+those denials are a dead end rather than a permissions request to escalate. Never cite a path under
+.autocode/ as a check: its clean-copy replay cannot pass. Return concise schema-valid FINAL output; ordinary commentary can be plain text. Do not edit runner/state/config or authentication.
 """
 
 

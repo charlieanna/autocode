@@ -83,6 +83,21 @@ class Paused(RuntimeError):
         self.status = status
 
 
+class MissingModule:
+    """Stands in for a dependency that failed to import, so a module that needs it only
+    at call time still loads: `autocode --version` and `autocode doctor` work without
+    psutil (#67). Using it raises ModuleNotFoundError naming the fix."""
+
+    def __init__(self, name, error):
+        self._name, self._error = name, error
+
+    def __getattr__(self, attribute):
+        if attribute.startswith("__"):  # hasattr, copy and pickle probe dunders; keep those ordinary
+            raise AttributeError(attribute)
+        raise ModuleNotFoundError(f"{self._name} cannot be imported ({self._error}); reinstall AutoCode "
+                                  "(docs/install.md) and run `autocode doctor`", name=self._name)
+
+
 @contextlib.contextmanager
 def workspace_lock(workspace):
     path = Path(workspace) / ".autocode" / "writer.lock"

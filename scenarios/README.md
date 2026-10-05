@@ -242,7 +242,26 @@ from the message, and, after a review, plans the fix from the review's findings
 oracle's `run` gets `turns`: one record per turn, with the same keys as `run`
 itself (the view that turn ended with, its stages, answers and CLI calls), so
 `run_checks` can judge each turn on its own. Stages are assigned to a turn by
-when they finished.
+when they finished. Each turn record also carries `changed_files`: the files
+that turn created, changed or deleted in the workspace, read from disk before
+and after it (`.git/`, `.autocode/` and bytecode left out), so reports the
+runner writes, such as a discussion's note, count for the turn that wrote them.
+
+The reference solution of a conversation is its end state, every turn's files
+together. With the scripted model, `[fake] turn_paths` says which turn delivers
+which files: one list of relative path prefixes per turn, the brief first, so a
+three-turn scenario has three lists for its brief and two `[[turn]]` messages:
+
+```toml
+[fake]
+turn_paths = [["docs/decisions/"], ["docs/design/"], ["app/", "tests/"]]
+```
+
+The scripted model tells the turns apart by the message the handoff's task
+starts with, so no turn's message may begin another's, repeat another or begin
+the brief (`catalog.load` refuses it). `discuss-then-design-then-build` is the
+example: a discussion's note, then a design that follows it, then "Build it."
+implementing that design.
 
 ## Comparing with a plain agent
 
@@ -346,6 +365,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `discuss-cache-choice` | discuss | In-process vs. shared cache, decided by facts planted in the repository (four shared-nothing workers against a 60/hour upstream limit). Cites sources, weighs both options, writes no code, asks at most three questions. |
 | `investigate-two-caches` | investigate | Explain two caches: scope, TTL and users must match the code; consequence of removing one named; nothing changed. |
 | `review-then-fix` | conversation | Review `pr-184.patch`, then "Fix them." in the same run: the PR lands with both regressions fixed and a test that catches each (the oracle swaps back one unfixed file at a time), the advisory finding is left alone, and the fix turn asks no requirements questions. |
+| `discuss-then-design-then-build` | conversation | Issue #185, three jobs in one run: `discuss-cache-choice`, then "Shared it is; design it.", then "Build it.". Each turn changes only its own report or code; the design follows the decision (shared directory, atomic writes) outside its rejected options; the build checks that design first (`check_design`), implements the modules and signatures it names, and passes hidden tests in which separate worker processes share one cache directory. |
 
 Planned next: Figma design → implementation, and multi-service systems started
 with `docker compose` and checked end to end.
@@ -429,6 +449,8 @@ catalog/<id>/
                     [run] max_steps, timeout_minutes, expected = "complete"|"stop"|"any", known_failure = "why",
                           requires_stages = ["astra_resolve"] (a model stage the run must reach to count)
                     [[turn]] after = "complete"|"stop"|"needs:<kind>", say = "follow-up message" (optional, repeatable)
+                    [fake] turn_paths = [["docs/"], ["app/"]] (a conversation: which solution paths each
+                          turn delivers, the brief first; one list per turn)
   brief.md          the request, exactly as a user would type it (plain text, no headings)
   seed/             the starting project, committed before the run (omit for an empty repo)
   oracle.py         def check(project, scenario, run=None) -> list[Check]

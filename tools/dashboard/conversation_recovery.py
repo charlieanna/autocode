@@ -13,9 +13,11 @@ except ImportError:
 
 
 try:
-    from .conversation_draft_cadence import held
+    from . import conversation_draft_cadence as cadence
+    from .conversation_draft_cadence import coalesced, held
 except ImportError:
-    from conversation_draft_cadence import held
+    import conversation_draft_cadence as cadence
+    from conversation_draft_cadence import coalesced, held
 
 
 class RecoveryMixin:
@@ -51,7 +53,7 @@ class RecoveryMixin:
         return result
 
     def _recover_saved(self, *, only=None):
-        pending = []
+        pending, behind = [], []
         with self._guard():
             for path in self.root.glob('*.json'):
                 if len(path.stem) != 32 or only is not None and path.stem != only:
@@ -62,6 +64,8 @@ class RecoveryMixin:
                     continue
                 if doc.get('attachment') or doc.get('archived_at'):
                     continue
+                if any(coalesced(row) for row in doc.get('_planner_dispatches', {}).values()):
+                    behind.append(doc['id'])
                 # The Gatherer can already be ready while the independent
                 # Planner is still in flight. Reconcile their receipts separately.
                 for turn, saved in list(doc.get('_planner_dispatches', {}).items()):
@@ -105,7 +109,12 @@ class RecoveryMixin:
                 finally:
                     lease.close()
         for ident, turn in pending:
-            self.pool.submit(self._planner_reply, ident, None, turn)
+            self._submit_planner(ident, None, turn)
+        # A draft coalesced behind one that never finished in a live process
+        # launches once nothing is in flight; a recovered draft still running
+        # releases it when it finishes instead.
+        for ident in behind:
+            self._release_coalesced_draft(ident)
 
     def retry(self, conversation_id):
         """Retry a confirmed pre-dispatch failure, or commit retained output."""
@@ -119,6 +128,12 @@ class RecoveryMixin:
             gatherer = doc.get('_dispatches', {}).get(turn, {})
             planner = doc.get('_planner_dispatches', {}).get(turn, {})
             safe = ('SAVED', 'SAFE_NOT_DISPATCHED', 'DISPATCH_PREPARED', 'RESULT_CAPTURED')
+            if doc.get('status') == 'ready' and coalesced(planner):
+                if cadence.launch(doc, planner.get('requirements_revision'), self._planner_turns_in_flight(doc),
+                                  explicit=True) == cadence.COALESCE:
+                    raise ValueError('This draft update starts automatically when the Planner finishes the draft in progress.')
+                raise ValueError('The draft this update waits for stopped reporting progress. '
+                                 'Use Update draft in chat to refresh it now.')
             if doc.get('status') == 'ready' and held(planner):
                 raise ValueError('This draft is batching answers. Use Update draft in chat to refresh it now.')
             if doc.get('status') == 'ready' and planner.get('state') in safe:
@@ -128,7 +143,7 @@ class RecoveryMixin:
                         row['status'] = 'pending'
                         row['freshness']['state'] = 'pending'
                 self._save(doc)
-                self.pool.submit(self._planner_reply, conversation_id, None, turn)
+                self._submit_planner(conversation_id, None, turn)
                 return self._public(doc)
             if doc.get('status') == 'thinking':
                 return self._public(doc)

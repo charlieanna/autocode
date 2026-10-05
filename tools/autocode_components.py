@@ -68,7 +68,7 @@ def cli(argv: list[str] | None = None) -> int:
     parser.add_argument("--provider", help="see docs/providers.md")
     parser.add_argument("--joint-planning", action="store_true",
                         help="separate requirements, planning and independent review per component; default for "
-                             "new OpenCode/GoCode runs, opt-in for --engine codex (see docs/models.md)")
+                             "new OpenCode runs, opt-in for --engine codex (see docs/models.md)")
     parser.add_argument("--reasoning-effort", choices=["low", "medium", "high", "xhigh", "max"])
     parser.add_argument("--options", default="", metavar="FLAGS",
                         help="extra flags passed to every component's `autocode` invocation verbatim, "
