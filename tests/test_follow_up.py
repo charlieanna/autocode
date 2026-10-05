@@ -322,7 +322,7 @@ if sys.argv[1:3] == ["sandbox", "--help"]:
 if sys.argv[1:2] == ["sandbox"]:
     raise SystemExit(subprocess.call(sys.argv[sys.argv.index("--") + 1:]))
 if sys.argv[1:] in (["login", "status"], ["--version"]):
-    print("codex fixture"); raise SystemExit(0)
+    print("Logged in using ChatGPT (codex fixture)"); raise SystemExit(0)
 sys.stdin.read()
 print(json.dumps({"type": "thread.started", "thread_id": str(uuid.uuid4())}), flush=True)
 Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps({
@@ -335,7 +335,8 @@ print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1, "output
 
 class FinishedRunCliTests(unittest.TestCase):
     """The rule through the public CLI (docs/cli.md, "Waiting or finished"): a finished design review
-    waits for no answer, so --answer is refused with the way to reply, and --follow-up is the reply."""
+    waits for no answer, so --answer is refused with the way to reply, nothing but --follow-up
+    reopens it, and --follow-up is the reply."""
 
     def test_a_finished_review_s_questions_are_answered_with_a_follow_up_not_an_answer(self):
         temp = tempfile.TemporaryDirectory(prefix="follow-up-cli-")
@@ -354,20 +355,29 @@ class FinishedRunCliTests(unittest.TestCase):
         (bindir / "codex").chmod(0o755)
         env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "AUTOCODE_HOME": str(root / "registry"),
                "PYTHONDONTWRITEBYTECODE": "1"}
+        # Planning v2, where --feedback without a contract once restarted a finished job's run.
         run = TaskRun.start(workspace, "Review the design in docs/design/cache.md.", env=env, timeout=120,
-                            options=("--engine", "codex", "--astra-model", "gpt-6-astra", "--sol-model", "gpt-5.6-sol"),
-                            start_options=("--workflow", "design"))
+                            options=("--engine", "codex", "--joint-planning", "--astra-model", "gpt-6-astra",
+                                     "--terra-model", "gpt-5.6-terra", "--sol-model", "gpt-5.6-sol",
+                                     "--completion-model", "gpt-6-astra", "--glm-model", "gpt-5.6-sol",
+                                     "--plan-reviewer-model", "gpt-6-astra"),
+                            start_options=("--workflow", "design", "--planning-v2"))
         view = run.status()
         self.assertEqual((True, "design", 1), (view["done"], view["workflow"], view["turn"]), view)
         self.assertIn("Reply with --follow-up TEXT", run.last_advance.stdout)
         saved = (run.run_dir / "state.json").read_bytes()
-        answered = subprocess.run([*AUTOCODE, "--answer", "Q1=host", "--workspace", str(workspace),
-                                   "--run-dir", str(run.run_dir)], capture_output=True, text=True, timeout=120,
-                                  env={**os.environ, **env})
-        self.assertEqual(2, answered.returncode, answered.stdout + answered.stderr)
-        self.assertIn("finished and waits for no answer; reply to the questions in its report with --follow-up",
-                      answered.stderr)
-        self.assertEqual(saved, (run.run_dir / "state.json").read_bytes())
+        (root / "body.json").write_text("{}")
+        reopens = "would reopen it without a new turn. Say the next thing with --follow-up TEXT"
+        for flags, refusal in ((("--answer", "Q1=host"), follow_up.ANSWER_FINISHED),
+                               (("--answer", "route-sol=gpt-6-luna"), follow_up.ANSWER_FINISHED),
+                               (("--feedback", "Per host."), "--feedback " + reopens),
+                               (("--edit-goal", str(root / "body.json")), "--edit-goal " + reopens)):
+            refused = subprocess.run([*AUTOCODE, *flags, "--workspace", str(workspace), "--run-dir", str(run.run_dir)],
+                                     capture_output=True, text=True, timeout=120, env={**os.environ, **env})
+            with self.subTest(flags[1] if flags[0] == "--answer" else flags[0]):
+                self.assertEqual(2, refused.returncode, refused.stdout + refused.stderr)
+                self.assertIn(refusal, refused.stderr)
+                self.assertEqual(saved, (run.run_dir / "state.json").read_bytes())
         with self.assertRaisesRegex(TaskRunError, "not waiting for an answer to Q1"):
             run.answer("Q1", "host")
         view = run.follow_up("Per host.")

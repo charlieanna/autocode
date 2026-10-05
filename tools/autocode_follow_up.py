@@ -58,6 +58,10 @@ NAMED = 8  # at most this many written paths are named in the rewritten task
 # --answer and --delegate answer a question the run is waiting on; a finished run waits on none.
 ANSWER_FINISHED = ("This run is finished and waits for no answer; reply to the questions in its report "
                    "with --follow-up TEXT")
+# Actions on a run that is still working, by their argparse names. On a finished run each would
+# reopen it without a new turn (--feedback restarts discovery, --edit-goal installs a draft).
+ANSWERS = (("answer", "--answer"), ("delegate", "--delegate"), ("delegate_all", "--delegate-all"))
+REOPENING = (("reject_assumption", "--reject-assumption"), ("feedback", "--feedback"), ("edit_goal", "--edit-goal"))
 
 
 def accept(state: dict, text: str, workspace, now: str) -> None:
@@ -103,6 +107,18 @@ def accept(state: dict, text: str, workspace, now: str) -> None:
     state.update(status="RUNNING", phase="DISCOVERING")
     for key in ("completed_at", "stop_reason"):
         state.pop(key, None)
+
+
+def refuse_on_finished(args) -> None:
+    """Raise ValueError when ``args`` (the CLI's) carry an action that only a run still working
+    takes: a finished run is continued with --follow-up, which records the new turn."""
+    given = lambda name: getattr(args, name, None) not in (None, False, [])
+    if any(given(name) for name, _ in ANSWERS) and not any(given(name) for name, _ in REOPENING):
+        raise ValueError(ANSWER_FINISHED)
+    flags = [flag for name, flag in ANSWERS + REOPENING if given(name)]
+    if flags:
+        raise ValueError(f"This run is finished; {', '.join(flags)} would reopen it without a new turn. "
+                         "Say the next thing with --follow-up TEXT")
 
 
 def turn_changes(state: dict, workspace) -> list[str]:
