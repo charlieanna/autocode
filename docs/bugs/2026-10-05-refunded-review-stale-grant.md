@@ -24,11 +24,40 @@ limit as protected, so it never reserves planning recovery for those runs.
 
 The boundary now gives back unreported ordinary calls before deciding whether
 credit is exhausted, as admission would. When nothing is exhausted after the
-refund, no grant is reserved. A refunded attempt also no longer counts as an
-ordinary attempt that can fund a grant: one failed review earns a refund or a
-grant, never both. Grants saved before this change are not reconciled or
-rewritten. Their bindings and evidence hashes still fail closed. Repeated silent
-reviews stop at the automatic recovery limit, three attempts in a row.
+refund, no grant is reserved. Grants saved before this change are not reconciled
+or rewritten. Their bindings and evidence hashes still fail closed. Adaptive and
+explicitly capped runs reach the boundary too: they are refunded there exactly as
+admission would refund them, and still never reserve.
+
+Leaving runner timeout events and refund markers out of the grant hashes would
+also have avoided the stop, but it would hide a grant that no longer has a call
+to fund. The issue asked not to rewrite grant hashes, so the order changed instead.
+
+A second, separate rule: a refunded attempt no longer counts as an ordinary
+attempt that can fund a grant, so one failed review earns a refund or a grant,
+never both. The #453 fix does not need it. Without it, a refunded timeout
+followed by reviews that reported and spent the allowance still funded one more
+review, which admission consumed at once. That extends the allowance, which the
+refund policy (`docs/workflow.md`: "Bounded recovery does not otherwise extend
+the allowance") rules out, so such a run now stops at `PAUSED_PLANNING_BUDGET`.
+Maintainers can drop the rule by removing the `planning_review_refunded`
+condition in `operational_boundary`.
+
+## Consequence for planning recovery
+
+Under the refund policy every ordinary review call carries a live charge, so the
+boundary refunds a failed one before computing eligibility, and a refunded call
+cannot fund a grant. Grants therefore come only from review calls admitted before
+charge IDs existed, which stay charged. For runs started under the refund policy, the
+planning recovery reservation, grant consumption, `MAX_PLANNING_RECOVERY_GRANTS`
+and the reviewer route fallback (`autocode_reviewer_fallback`, which needs a
+grant-funded second silent attempt) are unreachable. A throwaway fuzz of 240
+random challenge/finalize sequences over the real boundary and admission minted
+no grant without legacy rows and stranded none; before the fix the same
+sequences stranded grants even without legacy rows. Repeated silent reviews in
+new runs stop at the ceiling of three automatic recoveries
+(`PAUSED_TIMEOUT_RECOVERY`) and need `--grant-recovery N`. `docs/execution.md`
+says so.
 
 ## Regression coverage
 

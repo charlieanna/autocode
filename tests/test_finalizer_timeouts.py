@@ -57,10 +57,11 @@ class FinalizerTimeoutTests(unittest.TestCase):
                     return Silent(command, **kwargs)
             return real_popen(command, *args, **kwargs)
 
-        def wait(child, hard_limit, checkpoint, *, activity, activity_checkpoint, startup_grace):
+        def wait(child, hard_limit, checkpoint, *, activity, activity_checkpoint, **options):
             if not isinstance(child, Silent):
                 return real_wait(child, hard_limit, checkpoint, activity=activity,
-                                 activity_checkpoint=activity_checkpoint, startup_grace=startup_grace)
+                                 activity_checkpoint=activity_checkpoint, **options)
+            # Shaped like autocode_process.stop_at_deadline when the idle limit fires.
             checkpoint([])
             activity.timeout = {'kind': 'idle', 'reason': activity.idle_reason()}
             activity_checkpoint({**activity.poll(), 'activity': 'stalled', 'timeout_kind': 'idle',

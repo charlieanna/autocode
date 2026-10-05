@@ -584,9 +584,19 @@ the original evidence. Planning retries receive that diagnosis and a bounded
 source inventory excluding `.autocode` and `.git`, rather than repeating broad
 repository discovery without the failure context.
 
-For joint planning, proven nonterminal timeouts of ordinary reviewer calls can
-fund at most **two separately accounted recovery calls per planning cycle**.
-Every attempted call remains charged; these grants never erase the ordinary
+For joint planning, a Plan Reviewer call that times out or whose provider fails
+returned no review, so its call is given back before the next attempt (see
+[workflow](workflow.md)). A given-back call never also funds recovery: one failed
+review earns a refund or a recovery call, never both. A review call admitted under
+this refund policy (since 2026-09-29) is always given back when it fails, so Resolver
+reserves no planning recovery calls for such calls. Repeated silence stops instead
+at the ceiling of three automatic recoveries above (`PAUSED_TIMEOUT_RECOVERY`), where
+`--grant-recovery N` authorizes more. The one-use reviewer route fallback needs a
+recovery-funded second silent attempt, so it does not arise from such calls either.
+
+Review calls admitted before that policy stay charged. For their proven
+nonterminal timeouts, Resolver can fund at most **two separately accounted
+recovery calls per planning cycle**; these grants never erase the ordinary
 allowance or its usage. Explicit or unmarked saved review caps are protected.
 Grants are single-use, consumed durably at admission, pinned to the
 cycle/source/contract/settings/inputs/evidence, and cannot be replenished by

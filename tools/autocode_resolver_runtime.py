@@ -207,7 +207,9 @@ def operational_boundary(runner, state, run_dir, workspace, *, persist=True):
                    if row.get('stage') in REVIEW_STAGES and not row.get('runner_owned')
                    and not row.get('report_only')]
         # Only ordinary attempts can fund recovery. Failed grants never mint grants, and a
-        # refunded attempt already gave its call back, so it cannot fund a grant as well.
+        # refunded attempt already gave its call back, so it cannot fund a grant as well
+        # (a separate rule from the #453 reorder). Every failed call admitted with a charge
+        # is refunded, here or at admission, so only calls admitted before charge IDs can.
         ordinary = [row for row in reviews if not row.get('planning_recovery_grant')
                     and not row.get('planning_review_refunded')][:limit]
         eligible = [(row, pins) for row in ordinary
