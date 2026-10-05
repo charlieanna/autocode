@@ -24,7 +24,11 @@ class GoAliasTests(unittest.TestCase):
 class GoProductionProofTests(unittest.TestCase):
     def test_framework_survives_projection_and_unrelated_name_cannot_prove_case(self):
         project = Project({'go.mod': 'module policy\n\ngo 1.16\n',
-                           'policy.go': 'package policy\nfunc RetentionDays() int { return 0 }\n'})
+                           'policy.go': 'package policy\nfunc RetentionDays() int { return 0 }\n',
+                           'preserved_test.go': 'package policy\nimport "testing"\n'
+                               'func TestRetentionDaysIsNonNegative(t *testing.T) {\n'
+                               '    if RetentionDays() < 0 { t.Fatal("negative retention") }\n'
+                               '}\n'})
         self.addCleanup(project.close)
         project.write({'policy.go': 'package policy\nfunc RetentionDays() int { return 30 }\n'})
         state = {'base_commit': project.base, 'settings': {}, 'iteration': 1, 'stages': [], 'history': [],
@@ -40,4 +44,5 @@ class GoProductionProofTests(unittest.TestCase):
                     '(t *testing.T) { if RetentionDays()!=30 { t.Fatal("wrong retention") } }\n'})
                 proof = regression.prove(state, project.root, run)
                 self.assertEqual(expected, proof['verdict'], proof)
+                self.assertIn('policy::TestRetentionDaysIsNonNegative', proof['pass_to_pass'])
                 self.assertEqual({'AC3': ['policy::' + name] if expected == 'PASS' else []}, proof['case_tests'])
