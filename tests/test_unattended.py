@@ -19,9 +19,22 @@ class RefusalTests(unittest.TestCase):
     def test_operator_flags_and_abbreviations_are_refused(self):
         for argv in (["--approve-goal", "r1:abc"], ["--approve-g=r1:abc"], ["--resume-paused"],
                      ["--answer", "Q1=yes"], ["--delegate-all"], ["--accept-completion"],
-                     ["--retry-failed-stage"], ["--feedback", "x"], ["--chat"]):
+                     ["--retry-failed-stage"], ["--feedback", "x"], ["--chat"], ["resume"]):
             with self.subTest(argv=argv):
                 self.assertIsNotNone(unattended.refused(["--run-dir", "r", *argv]))
+
+    def test_the_resume_command_word_is_refused_wherever_autocode_reads_it(self):
+        # On a paused run `autocode resume` stands for --resume-paused, and its companions need no flag.
+        for argv in (["resume"], ["--no-chat", "resume"], ["resume", "--grant-recovery", "2"],
+                     ["resume", "--max-seconds", "0"], ["--workspace", "resume", "resume"]):
+            with self.subTest(argv=argv):
+                self.assertIn("'autocode resume' acknowledges a pause", unattended.refused(argv))
+
+    def test_resume_as_task_text_or_an_option_value_is_not_the_command_word(self):
+        for argv in (["--", "resume"], ["resume the parser work"], ["--workspace", "resume"],
+                     ["--run-dir", "resume", "--no-chat"]):
+            with self.subTest(argv=argv):
+                self.assertIsNone(unattended.refused(argv))
 
     def test_operator_subcommands_are_refused(self):
         self.assertIn("intervention", unattended.refused(["intervention", "submit"]))
@@ -75,6 +88,10 @@ class RunTests(unittest.TestCase):
             rc, _, calls = self.run_wrapper(["--run-dir", "r", "--resume-paused"], 0)
         self.assertEqual((rc, calls), (2, []))
         self.assertIn("refused", err.getvalue())
+        with contextlib.redirect_stderr(err):
+            rc, _, calls = self.run_wrapper(["resume", "--run-dir", "r"], 0)
+        self.assertEqual((rc, calls), (2, []))
+        self.assertIn("refused: 'autocode resume'", err.getvalue())
 
 
 class CompletionNoticeTests(unittest.TestCase):

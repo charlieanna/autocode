@@ -270,12 +270,8 @@ def parse(unit, argv, default_models):
     args = parser.parse_args(argv)
     # The word may also follow options (`autocode --no-chat resume`); argparse then reads it as
     # the task. After `--` it stays task text.
-    words = argv[:argv.index("--")] if "--" in argv else argv
-    if args.task in COMMAND_WORDS and args.task in words:
-        # The same word may also be an option's value (--feedback resume): mark each occurrence in
-        # turn until argparse reads the mark as the task. A word in place of a word parses alike.
-        at = next(index for index, word in enumerate(words) if word == args.task
-                  and parser.parse_args([*argv[:index], COMMAND_MARK, *argv[index + 1:]]).task == COMMAND_MARK)
+    at = _command_word_at(parser, argv, args.task) if args.task in COMMAND_WORDS else None
+    if at is not None:
         resume_only = resume_only or args.task == "resume"
         argv = argv[:at] + (["--status"] if args.task == "status" else []) + argv[at + 1:]
         args = parser.parse_args(argv)
@@ -381,6 +377,33 @@ def parse(unit, argv, default_models):
         # stderr: --status and --dry-run print exactly one JSON object on stdout.
         print(notice, file=sys.stderr, flush=True)
     return args, parser
+
+
+def _command_word_at(parser, argv, word):
+    """Where argparse reads ``word`` as the task among the options of argv, else None.
+
+    After `--` it stays task text. The same word may also be an option's value (--feedback resume):
+    mark each occurrence in turn until argparse reads the mark as the task. A word in place of a
+    word parses alike. An argv argparse refuses exits via parser.error.
+    """
+    words = argv[:argv.index("--")] if "--" in argv else argv
+    if word not in words or parser.parse_args(argv).task != word:
+        return None
+    return next(index for index, item in enumerate(words) if item == word
+                and parser.parse_args([*argv[:index], COMMAND_MARK, *argv[index + 1:]]).task == COMMAND_MARK)
+
+
+def is_resume_command(argv) -> bool:
+    """Whether autocode reads argv as `autocode resume`: the command word, not task text or an option's value.
+
+    For a caller that must recognize the word without acting on the rest (autocode_unattended): on a
+    paused run the word stands for --resume-paused (_acknowledges_pause). An argv argparse refuses
+    exits via parser.error, as autocode itself would.
+    """
+    argv = list(argv)
+    if argv[:1] == ["resume"]:
+        return True
+    return _command_word_at(build_parser(None, DEFAULT_ROLE_MODELS), argv, "resume") is not None
 
 
 def _acknowledges_pause(args):
