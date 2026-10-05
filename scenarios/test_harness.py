@@ -1584,7 +1584,8 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
 
 class RefundWindowDiagnosisTests(unittest.TestCase):
     """feature-refund-window's diagnosis() on synthetic run records (issue #59): a Resolver call is on the
-    planted failure when the source it saw fails the hidden tests, rebuilt from the runner's code checkpoint."""
+    planted failure when the source it saw fails the hidden WindowTests or CapTests, rebuilt from the runner's
+    code checkpoint."""
 
     NAMED = "store_date ignores the UTC-8 store offset, so the window counts UTC days"
 
@@ -1595,10 +1596,14 @@ class RefundWindowDiagnosisTests(unittest.TestCase):
         scenario = catalog.load("feature-refund-window")
         project = materialize(scenario.seed, Path(cls.fixture_root) / "project",
                               scenario.dir / "broken" / "trusts-store-date")
-        cls.commits = {}
-        for revision, overlay in (("planted", None), ("fixed", scenario.reference)):
+        cls.commits = {"seed": git(project, "rev-parse", "HEAD").strip()}  # no shop/refunds.py yet
+        refunds = project / "shop" / "refunds.py"
+        for revision, overlay in (("planted", None), ("refusal-bug", scenario.reference), ("fixed", scenario.reference)):
             if overlay:
                 shutil.copytree(overlay, project, dirs_exist_ok=True)
+            if revision == "refusal-bug":  # both planted defects fixed, but a disputed order is no longer refused
+                refunds.write_text(refunds.read_text().replace(
+                    '    if order.disputed:\n        raise RefundRefused("the order is disputed")\n', ""))
             git(project, "add", "-A")
             git(project, "commit", "-q", "-m", revision)
             cls.commits[revision] = git(project, "rev-parse", "HEAD").strip()
@@ -1658,10 +1663,18 @@ class RefundWindowDiagnosisTests(unittest.TestCase):
         self.assertEqual(["diagnosis_accepted"], [check["name"] for check in block["checks"] if not check["ok"]])
 
     def test_a_call_on_source_that_passes_the_hidden_tests_was_not_on_the_planted_failure(self):
-        self.resolver(self.NAMED, revision="fixed")
-        block = self.diagnose()
-        self.assertEqual(verdict.NOT_EXERCISED, block["verdict"], block["reason"])
-        self.assertEqual(["pass"], [call["hidden_tests"] for call in block["other_resolver_calls"]])
+        # Source that passes the planted classes, fails only another hidden test (a dropped disputed-order
+        # refusal), or misses the feature altogether is not the planted failure.
+        for revision, outcome, diagnosis in (
+                ("fixed", "pass", self.NAMED),
+                ("refusal-bug", "pass", "refund() no longer refuses a disputed order: the check was dropped."),
+                ("seed", "do not import", "The Builder never added shop/refunds.py; add the refund function.")):
+            with self.subTest(revision):
+                self.state["stages"].clear()
+                self.resolver(diagnosis, revision=revision)
+                block = self.diagnose()
+                self.assertEqual(verdict.NOT_EXERCISED, block["verdict"], block["reason"])
+                self.assertEqual([outcome], [call["planted_tests"] for call in block["other_resolver_calls"]])
         self.state["stages"].clear()
         self.assertEqual(verdict.NOT_EXERCISED, self.diagnose()["verdict"])
         self.assertEqual(verdict.NOT_EXERCISED, verdict.diagnose(self.scenario, self.project, None)["verdict"])

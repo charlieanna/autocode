@@ -210,9 +210,11 @@ confirmation), `resolver_added_beyond_review`, `resolver_calls_on_trap`, `model`
 for a human read).
 
 `feature-refund-window` counts calls the same way. A call is on its planted
-failure when the source it saw fails the scenario's hidden tests; then
-`diagnosis_accepted` and `resolver_named_a_planted_defect` (by words for the
-store-time window or the running cap) are required.
+failure when the source it saw fails the hidden `WindowTests` or `CapTests`, the
+classes of the two planted defects (another failing hidden test, or source
+without `shop/refunds.py`, does not count); then `diagnosis_accepted` and
+`resolver_named_a_planted_defect` (by words for the store-time window or the
+running cap) are required.
 
 The driver answers AutoCode's clarifying questions with AutoCode's own proposed
 default and records each answer in `result.json`. It approves the plan it is
