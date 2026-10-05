@@ -400,11 +400,24 @@ def _attest(packet, change):
     return ident, None
 
 
+def _sort_change(packet, change):
+    """``(change, None)`` for a proposal the packet attests, else ``(None, unattested)``.
+
+    ``unattested`` is ``{"change", "reason"}``: advice a repair plan passes to the Builder,
+    never a ``recovery_change`` (#418, #422).
+    """
+    _, why = _attest(packet, change)
+    if why:
+        return None, {"change": copy.deepcopy(change), "reason": f"Recovery packet: proposed change is unproven ({why})"}
+    return copy.deepcopy(change), None
+
+
 def validate_decision(state, value, record):
     """Record a Resolver or Completion decision's proposed change and its identity.
 
     An unproven proposal is kept with recovery_change_id None, like an unsupported grammar:
-    admit_dispatch then grants it no novelty, and route_known_change does not route it.
+    admit_dispatch then grants it no novelty, route_known_change does not route it, and
+    finish_resolution_packet passes it to the Builder only as unattested_change.
     """
     request = state.get("resolution_request") or {}
     if not request.get("recovery_packet"):
@@ -438,12 +451,13 @@ def diagnosis_change(request, change, run_dir):
                       "reason": "No incident packet attests a proposal in parallel or integrated scope"}
     packet = load_packet(request["recovery_packet"], run_dir)
     try:
-        _, why = _attest(packet, change)
+        return _sort_change(packet, change)
     except (util.Paused, ValueError, KeyError, TypeError, AttributeError) as error:
+        # An unproven proposal no longer raises (#418). What still can is a changed earlier
+        # packet that an input transition cites, or an unexpected error. finish_operational_diagnosis
+        # must not raise after its evaluation, so this is recorded as advice, not a stale handoff.
+        # It grants nothing: admit_dispatch never reads unattested_change.
         return None, {"change": copy.deepcopy(change), "reason": str(error)}
-    if why:
-        return None, {"change": copy.deepcopy(change), "reason": f"Recovery packet: proposed change is unproven ({why})"}
-    return copy.deepcopy(change), None
 
 
 def prepare_diagnosis(state, request, record, run_dir):
@@ -617,6 +631,15 @@ def finish_resolution_packet(state, request, plan):
     if request.get("recovery_packet"):
         run = Path(state.get("run_dir") or Path(request["recovery_packet"]["path"]).parents[2]).resolve()
         packet = load_packet(request["recovery_packet"], run)
+        # A plan's recovery_change is one the packet attests. An unproven proposal reaches the
+        # Builder only as advice with the check it failed, as a diagnosis's does (#418, #422);
+        # Builder admission then weighs only the reviewed decision's own proposal, as when the
+        # Resolver proposes none.
+        _, unattested = _sort_change(packet, request.get("recovery_change"))
+        if unattested:
+            plan.pop("recovery_change", None)
+            plan.pop("recovery_change_id", None)
+            plan["unattested_change"] = unattested
         admission = {"packet": request["recovery_packet"], "binding": _binding(state, packet["binding"]["source_revision"]),
                      "scope": _scope(state), "retry_charge": copy.deepcopy(state.get("builder_retry_decisions", [])[-1:])}
         path = _owned(run / "resolver" / "recovery" / (util.digest(admission) + ".json"), run)
