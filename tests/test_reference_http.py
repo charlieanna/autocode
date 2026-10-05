@@ -70,6 +70,18 @@ class ReferenceHttpTests(unittest.TestCase):
         self.assertNotIn("e2e.passes_with_tests", failed)
         self.assertFalse(any(name.startswith("health[") for name in failed), result.summary)
 
+    def test_reference_journey_with_reused_ephemeral_port(self):
+        # Closing a port-0 socket allows the OS to select that port again.
+        with socket.socket() as catalog, socket.socket() as cart, \
+                socket.socket() as checkout, socket.socket() as gateway:
+            sockets = (catalog, cart, checkout, gateway)
+            for sock in sockets:
+                sock.bind(("127.0.0.1", 0))
+            ports = [sock.getsockname()[1] for sock in sockets]
+        with patch.object(scenarios, "_free_port", side_effect=[*ports[:3], ports[0], ports[3]]):
+            result = scenarios.program01_oracle(self.project)
+        self.assertEqual(scenarios.PASS, result.status, result.summary)
+
     def test_e2e_startup_failure_reaps_children_and_closes_output_pipes(self):
         references.write({"services/catalog/server.py": 'raise RuntimeError("catalog startup failed")\n'},
                          self.project)
@@ -86,6 +98,14 @@ class ReferenceHttpTests(unittest.TestCase):
         for child in children:
             with self.assertRaises(ProcessLookupError, msg=str(child)):
                 os.kill(child["pid"], 0)
+
+    def test_repeated_duplicate_ports_refuse_before_launch(self):
+        with patch.object(scenarios, "_free_port", return_value=12345) as allocate, \
+                patch.object(scenarios.subprocess, "Popen") as launch:
+            with self.assertRaisesRegex(RuntimeError, "distinct local service ports"):
+                scenarios._Services(self.project)
+        self.assertEqual(33, allocate.call_count)
+        launch.assert_not_called()
 
 
 if __name__ == "__main__":
