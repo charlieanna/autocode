@@ -19,7 +19,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | `autoresolver` | Read-only diagnosis of reviewer-requested rework. |
 | `autocode ui` / `autocode-ui` | Figma design (and optional `--build` handoff to implementation). |
 | `autocode tasks` / `autocode-tasks` | Run a multi-lane task flow file. |
-| `autocode components` / `autocode-components` | Build the components of an architecture record in parallel and combine them (see [Task lanes](task-lanes.md#building-components-of-an-architecture-in-parallel)). |
+| `autocode components` / `autocode-components` | Build the components of an architecture record in parallel and combine them (see [Task lanes](task-lanes.md#building-components-of-an-architecture-in-parallel)); with `--integrate TARGET --run-local`, also start the combined system with Docker Compose and run its smoke check (see [Running the combined system locally](task-lanes.md#running-the-combined-system-locally)). |
 | `autocode program plan\|derive\|run\|status` / `autocode-program` | Plan a large requirement, derive a workstream manifest from the approved plan, run workstreams in parallel worktrees merged onto an integration branch (see [Programs](program.md)). |
 | `autocode-dashboard` | Local browser dashboard. |
 | `autocode --unit autoplanner\|autocode\|autoreview\|autoresolver` | Select one unit; omitting `--unit` runs all. |

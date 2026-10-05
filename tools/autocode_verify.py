@@ -846,6 +846,48 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
             "platform": [sys.platform, os.uname().release, os.uname().machine]}
 
 
+# Candidate-tree fields: they change with every Builder edit and therefore must
+# not key a cache of the base suite, which always runs on the base commit (#426).
+_SOURCE_IDENTITY_KEYS = ("source_revision", "source_metadata", "generated_sources", "unbound_source_symlinks")
+
+
+def baseline_identity(workspace, *, command=None, dependencies_from=None):
+    """Runtime/dependency identity of a base-suite run, never the candidate tree.
+
+    The base suite is executed on a scratch tree of the base commit (plus an
+    optional base patch). Builder edits to the candidate workspace cannot change
+    its result, so this binding omits source revision, per-file metadata and
+    generated sources. Dependency trees, interpreter, environment and platform
+    stay: they do determine the base result.
+
+    Reuse is offered when the remaining binding is complete enough to notice a
+    runtime change (no unbound editables or relative PYTHONPATH, and dependency
+    roots hashed or none present). Unlike ``execution_identity``, an isolated
+    Python virtualenv is not required: npm, Go and a global interpreter still
+    get a stable cache key.
+    """
+    identity = execution_identity(workspace, command=command, dependencies_from=dependencies_from)
+    environment = test_environment(workspace)
+    roots = test_env.dependency_roots(dependencies_from or workspace)
+    dependencies = []
+    for name in DEPENDENCY_DIRS:
+        source = next((root / name for root in roots if (root / name).exists()), None)
+        if source:
+            dependencies.append(schedule.tree_identity(source.resolve()))
+    if roots and (roots[0] / "vendor").exists():
+        dependencies.append(schedule.tree_identity((roots[0] / "vendor").resolve()))
+    bound = {k: v for k, v in identity.items() if k not in _SOURCE_IDENTITY_KEYS}
+    bound["dependencies"] = sorted(dependencies) or identity.get("dependencies")
+    bound["environment_hash"] = util.digest(environment)
+    bound["cache_policy"] = "baseline_runtime_identity"
+    bound["cache_binding_complete"] = not (identity.get("unbound_editables")
+                                           or identity.get("unbound_relative_pythonpath"))
+    bound["reuse_supported"] = bool(bound["cache_binding_complete"]
+                                    and (bound["dependencies"] is not None or not any(
+                                        (root / name).exists() for name in DEPENDENCY_DIRS for root in roots)))
+    return bound
+
+
 def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeout=DEFAULT_TIMEOUT,
                 files=None, links=None) -> dict:
     """Run tests or one command in a scratch copy of the workspace as it is now, never in the workspace.

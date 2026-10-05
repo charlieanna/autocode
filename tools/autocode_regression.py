@@ -157,11 +157,12 @@ def reviewed_patch(state, workspace):
 def _baseline(state, workspace, run_dir, base, framework, suite, dependencies, base_patch=None, progress=None):
     cached = state.get("regression_baseline") or {}
     patch = str(base_patch) if base_patch else None
-    binding = {"execution": verify.execution_identity(workspace, command=suite, dependencies_from=dependencies),
-               "base": base, "command": suite, "framework": framework.to_dict() if framework else None,
+    binding = {"base": base, "command": suite,
+               "framework": framework.to_dict() if framework else None,
                "base_patch": schedule.tree_identity(base_patch) if base_patch else None,
-               "timeout": suite_timeout(state)}
-    if cached.get("binding") == binding and binding["execution"]["reuse_supported"]:
+               "timeout": suite_timeout(state),
+               "runtime": verify.baseline_identity(workspace, command=suite, dependencies_from=dependencies)}
+    if cached.get("binding") == binding and binding["runtime"].get("reuse_supported"):
         try:
             result = util.read(cached["path"])
             if (util.file_hash(cached["path"]) == cached.get("sha256")
