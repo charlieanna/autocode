@@ -62,14 +62,14 @@ def command_words(command, tree=None):
             selected.append(arg)
     if selected not in (['test'], ['t'], ['run', 'test'], ['run-script', 'test']):
         return None
-    root = Path(tree).resolve()
-    package_root = (root / prefix).resolve()
-    if not package_root.is_relative_to(root):
-        return None
     try:
+        root = Path(tree).resolve()
+        package_root = (root / prefix).resolve()
+        if not package_root.is_relative_to(root):
+            return None
         package = json.loads((package_root / 'package.json').read_text())
         script = _words(package.get('scripts', {}).get('test'))
-    except (OSError, ValueError, TypeError, AttributeError):
+    except (OSError, ValueError, TypeError, AttributeError, RuntimeError):
         return None
     if script is None or extra is None or not _vitest([*script, *extra]):
         return None

@@ -46,6 +46,10 @@ class CommandTests(unittest.TestCase):
                 self.assertIsNone(vitest.command_words(command, self.root))
                 self.assertEqual(command, vitest.instrument(command, self.root / 'proof.json', self.root))
 
+    def test_package_prefix_symlink_cycle_is_not_a_supported_command(self):
+        (self.root / 'loop').symlink_to('loop', target_is_directory=True)
+        self.assertIsNone(vitest.command_words('npm --prefix loop test', self.root))
+
     def test_a_package_wrapper_or_shell_script_is_not_a_native_vitest_command(self):
         for script in ('node wrapper.cjs', 'vitest run && echo done', 'vitest run --reporter=json', None):
             (self.root / 'frontend/package.json').write_text(json.dumps({'scripts': {'test': script}}))
