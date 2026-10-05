@@ -91,6 +91,13 @@ a new run instead; `autocode resume` never does.
 
 ### Execution and recovery
 
+`autocode resume` can replace `--resume-paused` alongside a recovery companion such
+as `--grant-recovery N`, `--retry-failed-stage`, or an explicit budget change. This
+also works when AutoResolver has published the operational pause as
+`WAITING_FOR_USER`, provided its saved request is still valid. Bare `resume`
+does not acknowledge that published request; ordinary questions and approvals
+still require their own actions. Recovery eligibility and token checks are unchanged.
+
 | Flag | Meaning |
 | --- | --- |
 | `--resume-paused` | Acknowledge an operational pause and continue. Does not approve a draft, and does not restore a spent recovery allowance. |
