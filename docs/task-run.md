@@ -117,8 +117,8 @@ note, then the files its stages changed; at most eight paths). After a design
 turn, a follow-up that asks to build the design names that document, so the
 build starts by checking it against the repository (`check_design`) instead of
 gathering requirements; its plan still needs approval. Only a finished run takes
-a follow-up, and a finished run takes no answer: either mistake exits 2 and
-changes nothing (see [CLI](cli.md#waiting-or-finished)). A usage error
+a follow-up, and a finished run takes no answer, feedback or edited plan: either
+mistake exits 2 and changes nothing (see [CLI](cli.md#waiting-or-finished)). A usage error
 also exits 2, with a message starting `usage:` on stderr; the client checks for
 it so a mistyped flag is not mistaken for a pause. A rejection also exits 2,
 starting `Input rejected:`, and startup can exit 2 before any run exists;

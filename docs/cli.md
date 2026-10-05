@@ -57,7 +57,7 @@ as if you had passed `--run-dir RUN`.
 | `autocode`, `autocode resume`, `--resume-paused` and its `--retry-*` companions, `--unit` | The only unfinished run. A finished run (`TASK_COMPLETE`, or stopped) is never relaunched this way, and a run that `autocode program` or `autocode tasks` drives is left to that command. |
 | `--status`, `--dry-run`, `autocode status` | The only unfinished run; with none, the latest finished one. |
 | `--show-goal`, `--answer`, `--approve-goal`, `--feedback` and the other user actions | The only unfinished run, preferring one no program or task flow drives. These save the run, so they never pick a finished one. |
-| `--follow-up` | The most recently completed run, preferring one no program or task flow drives. |
+| `--follow-up` | The most recently completed run, preferring one no program or task flow drives. Refused when a run started after it finished has not finished: name the run with `--run-dir`. |
 
 With several unfinished runs the command changes nothing, exits 2 and lists them with the
 `--run-dir` command for each. With no run it says where it looked; with only finished
@@ -96,19 +96,27 @@ refuses it (exit 2, state unchanged): answer it (`--answer`/`--delegate` with `-
 approve or correct it (`--approve-goal`/`--feedback`), or resume it. Jobs that report without
 waiting for a reply (design review, discussion, code review) complete with their questions or
 findings in their report; you reply to them with `--follow-up`. After a design turn, "Build it."
-builds that design as approved (checked against the code first, no Requirements, plan approval
-still required).
+builds that design as approved (checked against the code first, no requirements gathering or
+questions, plan approval still required). A follow-up builds as approved only the design its
+previous turn wrote, or the design a design review approved; any other document is planned from
+requirements as usual.
 
 | The run is | Status view | Say the next thing with | Through `TaskRun` |
 | --- | --- | --- | --- |
 | finished | `done` is true, `needs` is null | `--follow-up TEXT` | `follow_up(text)` |
 | waiting for you | `needs.kind` is `answer`, `approve_plan`, `review` or `planning_budget` | `--answer`/`--delegate` with `--resolver-token`, `--approve-goal`, `--approve-review`, `--feedback` | `answer`, `approve_plan`, `approve_review`, `feedback` |
 | stopped | `needs.kind` is `resume` | `--resume-paused`, once the cause in `stop_reason` is resolved | `resume_paused()` |
+| stopped in a workflow job (Reviewer, Architect, Analyst, Investigator) | `needs.kind` is `retry_job`, or `recover_source` for an attempt with no saved source identity | `--resume-paused --retry-failed-stage --job-retry-token TOKEN` after inspecting `needs.archive`; for `recover_source`, a new run ([Task-run interface](task-run.md#failed-workflow-jobs)) | `retry_job(token)` |
+| waiting on another run | `needs.kind` is `dependency` | `--receive-dependency MANIFEST` once that run delivers | `receive_dependency(manifest)` |
 
 The wrong one is refused with exit 2 and the run left as it was. `--follow-up` on an unfinished
-run names what that run takes instead. `--answer` or `--delegate` on a finished run says: "This
-run is finished and waits for no answer; reply to the questions in its report with --follow-up
-TEXT". Through `TaskRun` both raise `TaskRunError`.
+run lists the alternatives (answer, approve or correct, resume). On a finished run, `--answer`,
+`--delegate` or `--delegate-all` says: "This run is finished and waits for no answer; reply to
+the questions in its report with --follow-up TEXT", and `--feedback`, `--edit-goal` or
+`--reject-assumption` says it would reopen the run without a new turn. Without `--run-dir`,
+`--follow-up` is also refused when a run started after the latest finished one has not finished:
+the message lists that run, and the command that continues the finished one anyway. Through
+`TaskRun` these raise `TaskRunError`.
 
 ### Execution and recovery
 
