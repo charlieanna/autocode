@@ -75,6 +75,15 @@ class MilestoneCheckpointTests(unittest.TestCase):
         record = {'role': 'sol', 'stage': 'sol', 'events': str(events), 'output': str(events), 'source_revision': s.snapshot(self.root)['revision']}
         runner.apply_result(self.state, 'sol', value, record, self.root, self.run)
 
+    def test_a_failed_validation_is_rechecked_before_another_completion_review(self):
+        self.start()
+        self.validate(statuses={'C1': 'PASS', 'C2': 'PASS', 'C3': 'NOT_VERIFIED'}, verdict='FAIL')
+        self.state['validation']['findings'] = [{
+            'finding': 'regression_proof is FAIL', 'severity': 'medium', 'blocking': True, 'evidence': 'old proof'}]
+        self.assign('M2')
+        self.assertEqual('sol', self.state['next_stage'])
+        self.assertIn('independent passing evidence', self.state.get('milestone_blocker', ''))
+
     def test_dependent_milestone_waits_for_accepted_prerequisites(self):
         draft = body()
         draft['acceptance_criteria'] += [

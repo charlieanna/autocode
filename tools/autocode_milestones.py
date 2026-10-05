@@ -476,7 +476,10 @@ def handle_gate(state, error, current, *, ask_user, origin=None):
     row["rejected_advances"] = row.get("rejected_advances", 0) + 1
     if settings(state)["stalled_reviews"] and row["rejected_advances"] >= settings(state)["stalled_reviews"]:
         state.update(status="PAUSED_MILESTONE_REPLAN", phase="PAUSED_OR_BLOCKED", stop_reason=str(error))
-    state["next_stage"] = "astra_review" if fresh_validation(state, current) else "sol"
+    # A current FAIL is not evidence the Completion Reviewer can turn into an advance.
+    # Sending that reviewer again repeats the same CONTINUE. The Validator re-checks.
+    passed = fresh_validation(state, current) and (state.get("validation") or {}).get("verdict") == "PASS"
+    state["next_stage"] = "astra_review" if passed else "sol"
 
 
 def activate(state):
