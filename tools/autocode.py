@@ -38,6 +38,7 @@ except ImportError:
 
 try:
     from . import autocode_job_source as job_source, autocode_job_failure as job_failure
+    from . import autocode_failure_retry as failure_retry
     from . import autocode_workspaces as task_workspaces, autocode_figma as figma
     from . import autopilot
     from . import autocode_workflow as workflow
@@ -71,6 +72,7 @@ try:
     from . import autocode_idle_policy as idle_policy
 except ImportError:
     import autocode_job_source as job_source, autocode_job_failure as job_failure
+    import autocode_failure_retry as failure_retry
     import autocode_workspaces as task_workspaces
     import autocode_figma as figma
     import autopilot
@@ -443,6 +445,7 @@ def run_role(
                 resolver_runtime.charge_diagnostic_dispatch(sys.modules[__name__], state, run_dir, workspace, record)
                 progressive_state.admit_attempt(state, record, before)
                 job_failure.admit(state, record, workspace)
+                failure_retry.launched(state, record)  # saved with active_stage just below
                 state["active_stage"] = record
                 write_json(run_dir / "state.json", state)
                 child_stdin = (subprocess.DEVNULL if engine == "opencode" and configured_tool

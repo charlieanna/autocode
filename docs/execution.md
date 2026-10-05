@@ -492,10 +492,14 @@ three automatic recoveries covers timeouts and provider-capacity failures. Exter
 denials have their own accounting instead: a denial retry never consumes the
 timeout-recovery budget, repeats of the same denied operation hold after one
 workspace-only retry, and distinct denials hold at their own ceiling of three
-recoveries without an accepted stage. Corrective information alone never lifts such a hold
-(nor AutoResolver's exhausted operational recovery after a stopped attempt); the stop advertises
-`--resume-paused --retry-failed-stage`, which lets exactly one fresh attempt past that denial
-and resets no count, so a repeat holds again (#301). Accepted
+recoveries without an accepted stage. Corrective information alone never lifts such a hold;
+the stop advertises `--resume-paused --retry-failed-stage`, which lets exactly one fresh attempt
+past that denial (#301). The authorization belongs to that command: it takes effect only once the
+rest of the command is accepted, and it is used up when its attempt launches. A command that is
+rejected or stops first leaves the hold for every later command, and the flag is accepted again
+at the hold. The authorized attempt is not stopped by the denials it retries, which count as
+unchanged Builder batches; the timeout-recovery allowance still applies. No count is reset, so a
+repeat of the denial holds again. Accepted
 intermediate reports and milestone-budget extensions do not reset these ceilings.
 Inspect the saved cause and adjust limits as needed; explicit `--resume-paused`
 acknowledges `PAUSED_TIMEOUT_RECOVERY` and resets recovery counters while retaining

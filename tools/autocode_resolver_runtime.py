@@ -17,7 +17,7 @@ try:
     from . import autocode_resolver_human as human
     from . import autocode_progressive_state as progressive
     from . import autocode_recovery_grants as recovery_grants, autocode_recovery_limits as recovery_limits
-    from . import autocode_operational_retry as operational_retry
+    from . import autocode_failure_retry as failure_retry
 except ImportError:
     import autocode_resolver as policy
     import autocode_support as support
@@ -27,7 +27,7 @@ except ImportError:
     import autocode_progressive_state as progressive
     import autocode_recovery_grants as recovery_grants
     import autocode_recovery_limits as recovery_limits
-    import autocode_operational_retry as operational_retry
+    import autocode_failure_retry as failure_retry
 
 
 REVIEW_STAGES = ('astra_challenge', 'astra_finalize')
@@ -399,10 +399,9 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
     maximum = int(getattr(runner, 'MAX_AUTOMATIC_RECOVERIES', 3) or 3)
     # Advice and grant eligibility share one check (#288): never name a command
     # the CLI will refuse at this stop. The same holds for the one fresh attempt
-    # that lifts a permission hold or an exhausted operational recovery (#301).
-    planning = getattr(runner, 'planning', None)
-    allow_retry = planning is not None and operational_retry.target(
-        state, cause=error.status, is_planning=planning.is_planning,
+    # past a held external_directory denial (#301).
+    allow_retry = failure_retry.target(
+        state, cause=error.status, maximum=maximum,
         revision=lambda: support.snapshot(Path(state['workspace']))['revision']) is not None
     allow_grant = recovery_grants.eligible(
         state, current_request=human.current, count=count, maximum=maximum,

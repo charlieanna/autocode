@@ -86,13 +86,6 @@ print(json.dumps({"type": "thread.started", "thread_id": session}))
 if os.environ.get("AUTOCODE_FIXTURE_QUOTA_STAGE") == stage:
     print(json.dumps({"type": "error", "error": {"message": "subscription usage limit reached"}}))
     raise SystemExit(3)
-# A file holding how many more Builder requests OpenCode's external_directory permission stops
-# before a terminal turn, the way the native tool reports it.
-denials = Path(os.environ["AUTOCODE_FIXTURE_PERMISSION_DENIALS"]) if os.environ.get("AUTOCODE_FIXTURE_PERMISSION_DENIALS") else None
-if stage == "terra" and denials and int(denials.read_text() or 0) > 0:
-    denials.write_text(str(int(denials.read_text()) - 1))
-    print("permission requested: external_directory (/tmp/fixture-scratch/*); auto-rejecting", flush=True)
-    raise SystemExit(0)
 
 
 def adaptive_task(draft, implement):

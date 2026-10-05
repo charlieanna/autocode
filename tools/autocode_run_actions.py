@@ -20,6 +20,7 @@ try:
     from . import autocode_dependency as dependency
     from . import autocode_conversation_ingress as conversation_ingress
     from . import autocode_dispatch as dispatch
+    from . import autocode_failure_retry as failure_retry
     from . import autocode_finding_close as finding_close
     from . import autocode_follow_up as follow_up
     from . import autocode_goals as goals
@@ -27,7 +28,6 @@ try:
     from . import autocode_jobs as jobs
     from . import autocode_goal_lifecycle as lifecycle
     from . import autocode_milestones as milestones
-    from . import autocode_operational_retry as operational_retry
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_progressive_state as progressive
@@ -45,6 +45,7 @@ except ImportError:
     import autocode_dependency as dependency
     import autocode_conversation_ingress as conversation_ingress
     import autocode_dispatch as dispatch
+    import autocode_failure_retry as failure_retry
     import autocode_finding_close as finding_close
     import autocode_follow_up as follow_up
     import autocode_goals as goals
@@ -52,7 +53,6 @@ except ImportError:
     import autocode_jobs as jobs
     import autocode_goal_lifecycle as lifecycle
     import autocode_milestones as milestones
-    import autocode_operational_retry as operational_retry
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
     import autocode_progressive_state as progressive
@@ -82,6 +82,7 @@ def explicit_recovery_requested(args):
 
 def handle(runner, args, parser, state, state_path, run_dir, workspace):
     """Apply this invocation's action to the saved run; return an exit code to stop, or None to build."""
+    failure_retry.disarm()  # only this invocation's own validated --retry-failed-stage may lift a hold
     # An applied durable stop is terminal: no recovery, user action, answer,
     # approval, feedback or resume may relaunch a stopped run or complete it.
     if stop.applied_stop(state) is not None:
@@ -248,6 +249,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         print(f"{state['status']}: {state['stop_reason']} No agent launched.")
         return 0
     # Recovery interprets terminal artifacts only. It never replays a model call.
+    authorization = None
     try:
         if args.resume_paused:
             # Acknowledgement is not a new spending/recovery allowance.
@@ -282,15 +284,14 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                     print(f"Input rejected: {error}", file=sys.stderr)
                     return 2
             else:
-                authorization = None
                 if args.retry_failed_stage and state.get("job_failure"):
                     pass  # exact job authorization was validated before generic recovery
                 elif args.retry_failed_stage:
                     try:
                         authorization = runner.authorize_failure_retry(state, run_dir, workspace)
-                        print(operational_retry.NOTICES.get(authorization.get('kind'),
-                              "Failure retry authorized for the recorded repeated failure; "
-                              "one fresh attempt proceeds under existing limits."), flush=True)
+                        print(failure_retry.NOTICE if authorization.get('kind') == failure_retry.PERMISSION_HOLD
+                              else "Failure retry authorized for the recorded repeated failure; "
+                                   "one fresh attempt proceeds under existing limits.", flush=True)
                     except ValueError as error:
                         print(f"Input rejected: {error}", file=sys.stderr)
                         return 2
@@ -530,4 +531,6 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
     if conversation_ingress.record_build_start(state, getattr(args, 'expected_goal_token', None),
                                                token_for=goals.token, is_approved=goals.approved):
         runner.write_json(state_path, state)
+    # Every check of this command has passed: only now may its authorization launch an attempt.
+    failure_retry.arm(authorization)
     return None

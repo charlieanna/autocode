@@ -14,6 +14,7 @@ try:
     from . import autopilot
     from . import autocode_checkout_lock as checkout_lock
     from . import autocode_dispatch as dispatch
+    from . import autocode_failure_retry as failure_retry
     from . import autocode_interventions as interventions
     from . import autocode_milestones as milestones
     from . import autocode_planning as planning
@@ -29,6 +30,7 @@ except ImportError:
     import autopilot
     import autocode_checkout_lock as checkout_lock
     import autocode_dispatch as dispatch
+    import autocode_failure_retry as failure_retry
     import autocode_interventions as interventions
     import autocode_milestones as milestones
     import autocode_planning as planning
@@ -72,8 +74,11 @@ def run(runner, args, state, state_path, run_dir, workspace):
         if limits["max_seconds"] and current.get("active_seconds",0) >= limits["max_seconds"]:
             if not runner.recover_default_budget(current, run_dir, workspace, 'max_seconds'):
                 raise support.Paused("PAUSED_TIME_LIMIT", "Saved active-time limit reached at stage boundary")
+        # Builder denial retries count as unchanged batches; the one attempt an operator authorized
+        # past a denial hold in this invocation is not stopped by the denials it retries.
         if (not repairing_before_upgrade and (not milestones.enabled(current) or current.get('next_stage') in ('terra', 'orchestrator')) and limits["no_progress_batches"]
-                and current.get("no_progress_batches",0) >= limits["no_progress_batches"]):
+                and current.get("no_progress_batches",0) >= limits["no_progress_batches"]
+                and not failure_retry.lifts(current)):
             raise support.Paused("PAUSED_NO_PROGRESS", "Repeated unchanged implementation batches require review")
         # Do not silently change auth/provider when local config changes.
         engine = current["settings"].get("engine")
