@@ -132,3 +132,74 @@ def native_bundle(root, file_key, implementation_path):
     artifact['sha256'] = file_hash(receipt_path)
     path.write_text(json.dumps(body))
     return path
+
+
+def plugin_source_bundle(root):
+    """Independent metadata/declarations for the frozen native-getter connector.
+
+    This exports production collector fixtures, not test results or real Figma
+    fidelity evidence. The source validator reconciles the exact output itself.
+    """
+    import json
+    import shutil
+    import subprocess
+    from autocode_util import file_hash
+    from tests.test_design_manifest import png
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    node = shutil.which('node')
+    if not node:
+        raise RuntimeError('Node is required for the offline connector fixture')
+    result = subprocess.run([node, str(Path(__file__).parents[1] / 'tools/test_figma_inventory_page.cjs'), '--fixture'],
+                            text=True, capture_output=True, timeout=20, check=True)
+    collected = json.loads(result.stdout)
+    receipt, parts = collected['receipt'], collected['parts']
+    source_path = root / 'source.json'
+    source_path.write_text(json.dumps(receipt))
+    # Metadata is a separate known document/page shape, not copied from source.
+    xml = '''<CANVAS id="0:1" name="Main">
+      <FRAME id="1:2" name="Home" width="1440" height="900">
+        <TEXT id="I4:5;10:12" name="Label" width="100" height="20"/>
+        <RECTANGLE id="1:7" name="Image" width="100" height="20"/>
+        <VECTOR id="1:8" name="Icon" width="100" height="20"/>
+        <INSTANCE id="1:9" name="Button" width="100" height="20"/>
+      </FRAME>
+      <COMPONENT_SET id="1:3" name="Button" width="100" height="20">
+        <COMPONENT id="1:4" name="Type=primary" width="100" height="20"/>
+      </COMPONENT_SET>
+    </CANVAS>'''
+    (root / 'page.xml').write_text(xml)
+    (root / 'file.xml').write_text('<DOCUMENT>' + xml + '</DOCUMENT>')
+    png(root / 'screen.png', 1440, 900)
+    (root / 'context.txt').write_text('Synthetic mixed typography, component variant, modes and original source properties')
+    (root / 'inter.woff2').write_bytes(b'offline fixture font, not a live font qualification')
+    (root / 'icon.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg"/>')
+    png(root / 'image.png')
+    def artifact(name):
+        return {'path': name, 'sha256': file_hash(root / name)}
+    fonts = []
+    for row in receipt['nodes']:
+        for font in row['fonts']:
+            definition = {key: font[key] for key in ('family', 'style')}
+            if not any(all(item[key] == definition[key] for key in definition) for item in fonts):
+                fonts.append(dict(id='font-' + str(len(fonts)), **definition, status='available', artifact=artifact('inter.woff2')))
+    assets = [dict(id=asset['id'], page_id='0:1', node_id=row['id'], name='Fixture source asset', mime_type=asset['mime_type'],
+                   status='available', artifact=artifact('icon.svg' if asset['mime_type'] == 'image/svg+xml' else 'image.png'))
+              for row in receipt['nodes'] for asset in row['assets']]
+    transitions = [dict(source_node_id=row['id'], **transition) for row in receipt['nodes'] for transition in row['transitions']]
+    file = dict(key='FILEA', revision='offline-plugin-fixture', metadata_xml=artifact('file.xml'),
+                pages=[dict(id='0:1', name='Main', metadata_xml=artifact('page.xml'), source_json=artifact('source.json'))],
+                screen_states=[dict(page_id='0:1', node_id='1:2', state='default', viewport=dict(width=1440, height=900, device_scale_factor=1))],
+                components=[dict(key='LIBRARY', name='Button', source_page_id='0:1', source_node_id='1:3',
+                                 variants=[dict(page_id='0:1', node_id='1:4', properties={'Type': 'primary'})])],
+                fonts=fonts, assets=assets, variables=receipt['variables'], transitions=transitions)
+    case = dict(id='home.default', file_key='FILEA', page_id='0:1', node_id='1:2', state='default', route='/fixture',
+                implementation_paths=['src/home.js'], viewport=dict(width=1440, height=900, device_scale_factor=1),
+                native_size=dict(width=1440, height=900), export_scale=1,
+                artifacts=dict(screenshot=artifact('screen.png'), design_context=artifact('context.txt')),
+                inventory_refs={section: [row['key' if section in ('components', 'variables') else 'id'] for row in file[section]]
+                                for section in ('components', 'variables', 'fonts', 'assets', 'transitions')})
+    body = dict(version=2, files=[file], cases=[case], responsive_targets=[])
+    path = root / 'manifest.json'
+    path.write_text(json.dumps(body))
+    return path, body, receipt, parts

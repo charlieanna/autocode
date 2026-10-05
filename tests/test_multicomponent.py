@@ -412,8 +412,9 @@ class CliTests(BuildAndIntegrateTests):
         self.assertEqual([("greet", True, 200)], [(s["name"], s["ok"], s["status"]) for s in local["steps"]])
         self.assertTrue(local["torn_down"])
         compose = Path(local["compose_file"])
-        self.assertEqual(self.repo / ".autocode-components" / ".local-run" / local["project"], compose.parent)
-        self.assertIn(str(self.repo / "integration" / "components" / "alpha"), compose.read_text())
+        # macOS temporary paths may use /var, while the CLI emits canonical /private/var paths.
+        self.assertEqual((self.repo / ".autocode-components" / ".local-run" / local["project"]).resolve(), compose.parent)
+        self.assertIn(str((self.repo / "integration" / "components" / "alpha").resolve()), compose.read_text())
         prefix = ["compose", "-p", local["project"], "-f", str(compose)]
         calls = [json.loads(line) for line in log.read_text().splitlines()]
         self.assertEqual([["compose", "version", "--short"], ["version", "--format", "{{.Server.Version}}"],

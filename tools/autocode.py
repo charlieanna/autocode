@@ -311,8 +311,8 @@ def run_role(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if state.get('next_stage') == 'astra_diagnose' and state.get('active_stage'):
         raise support.Paused('PAUSED_UNCERTAIN_STAGE', 'Reconcile the active diagnosis before another provider request')
-    if state.get('next_stage') == 'sol' and visual_runtime.requested(state) and not state.get('settings', {}).get('design_manifest'):
-        raise support.Paused('PAUSED_VISUAL_EVIDENCE', 'Approved visual contract requires its retained design manifest')
+    if state.get('next_stage') == 'sol' and visual_runtime.requested(state):
+        visual_runtime.verify_reference(state)
     timeout_recovery_guard(state)
     if role in ("terra", "sol", "completion", "astra", "plan_reviewer", "glm"):
         dispatch.enforce_cross_model_verification(state)
@@ -455,7 +455,9 @@ def run_role(
         try:
             with interventions.admission(run_dir):
                 provider_launch.verify_containment(worker_context)
-                if visual_context:
+                if original_stage == 'sol' and visual_runtime.requested(state):
+                    visual_runtime.verify_reference(state)
+                if visual_context and visual_context.get('status') == 'READY':
                     visual_runtime.verify_prelaunch(visual_context, state, run_dir=run_dir,
                                                    current_snapshot=before, command=command, env=child_environment)
                 resolver_recovery.admit_dispatch(state, record, workspace, run_dir, retry_authorization=retry_authorization)
