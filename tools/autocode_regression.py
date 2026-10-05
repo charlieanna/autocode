@@ -36,13 +36,12 @@ try:
     from . import autocode_util as util, autocode_goals as goals, autocode_verify as verify
     from . import autocode_base_patch as operator_patch
     from . import autocode_workspaces as workspaces
-    from . import autocode_bug_job as bug_job, autocode_test_cases as test_cases
+    from . import autocode_test_cases as test_cases
     from . import autocode_follow_up as follow_up
     from . import autocode_runner_check as runner_check, autocode_status as status
     from . import autocode_verification_schedule as schedule
     from . import autocode_wrapped_runner as wrapped_runner
 except ImportError:
-    import autocode_bug_job as bug_job
     import autocode_follow_up as follow_up
     import autocode_test_cases as test_cases
     import autocode_util as util
@@ -85,7 +84,7 @@ def required(state):
 
 def cases(state):
     """The English cases this proof must cover: the bug's diagnosis, else the plan's test criteria."""
-    return bug_job.test_cases(state) or test_cases.contract_cases(state)
+    return test_cases.proof_cases(state)
 
 
 def base_commit(state, workspace):

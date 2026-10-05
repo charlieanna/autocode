@@ -46,10 +46,14 @@ def proof(method) -> str:
     still retried" from test: to guard:, as its Plan Reviewer asked, without asking the user.
     """
     text = str(method or "").strip()
-    for mark in (MARK, GUARD_MARK):
-        if text.lower().startswith(mark):
-            return "tested: " + text[len(mark):].strip()
-    return text
+    found = mark(text)
+    return "tested: " + text[len(found):].strip() if found else text
+
+
+def mark(method) -> str | None:
+    """MARK or GUARD_MARK when a verification method names a test the runner proves, else None."""
+    lowered = str(method or "").strip().lower()
+    return GUARD_MARK if lowered.startswith(GUARD_MARK) else MARK if lowered.startswith(MARK) else None
 
 
 def design_only(state: dict) -> bool:
@@ -59,24 +63,43 @@ def design_only(state: dict) -> bool:
     return (state.get("workflow") or {}).get("kind") == "design"
 
 
-def contract_cases(state: dict) -> list[dict]:
-    """The approved plan's criteria marked ``test:`` or ``guard:`` that are due now, as cases (id, text, and
-    kind "preserve" for a guard). None in a design-only job: nothing there is proven by a test the Builder writes."""
+def contract_cases(state: dict, *, all_due: bool = False) -> list[dict]:
+    """The approved plan's criteria marked ``test:`` or ``guard:`` that are due now (every one with ``all_due``,
+    as at final completion), as ``plan_cases``. None in a design-only job: nothing there is proven by a test the
+    Builder writes."""
     if design_only(state):
         return []
-    body = (state.get("goal_contract") or {}).get("body") or {}
-    due = in_scope(state)
+    due = None if all_due else in_scope(state)
+    return [case for case in plan_cases((state.get("goal_contract") or {}).get("body"))
+            if due is None or case["id"] in due]
+
+
+def plan_cases(body) -> list[dict]:
+    """A plan body's criteria marked ``test:`` or ``guard:``, as cases: id, text, the test it names when that
+    is a test name, and kind "preserve" for a guard."""
     cases = []
-    for row in body.get("acceptance_criteria") or []:
-        method = str(row.get("verification_method", "")).strip() if isinstance(row, dict) else ""
-        lowered = method.lower()
-        if row.get("id") and (due is None or row["id"] in due) and lowered.startswith((MARK, GUARD_MARK)):
-            mark = GUARD_MARK if lowered.startswith(GUARD_MARK) else MARK
-            test_name = method[len(mark):].strip()
+    for row in (body.get("acceptance_criteria") if isinstance(body, dict) else None) or []:
+        found = mark(row.get("verification_method")) if isinstance(row, dict) else None
+        if found and row.get("id"):
+            test_name = str(row["verification_method"]).strip()[len(found):].strip()
             cases.append({"id": row["id"], "text": row.get("criterion", ""),
                           **({"test_name": test_name} if re.fullmatch(r"test_[A-Za-z0-9_]+", test_name) else {}),
-                          **({"kind": "preserve"} if mark == GUARD_MARK else {})})
+                          **({"kind": "preserve"} if found == GUARD_MARK else {})})
     return cases
+
+
+def diagnosis_cases(state: dict) -> list[dict]:
+    """A reproduced bug's English test cases (autocode_bug_job), or [] (bugs planned without an
+    investigation, older runs)."""
+    found = state.get("investigation") or {}
+    return list(found.get("test_cases") or []) if found.get("outcome") == "reproduced" else []
+
+
+def proof_cases(state: dict, *, all_due: bool = False) -> list[dict]:
+    """The cases the runner's regression proof (autocode_regression) requires a test for: a reproduced bug's
+    diagnosis, else the plan's ``contract_cases``. The plan approval summary (autocode_approval_view) states
+    the same cases with ``all_due``."""
+    return diagnosis_cases(state) or contract_cases(state, all_due=all_due)
 
 
 def in_scope(state: dict) -> set[str] | None:

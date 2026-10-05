@@ -1096,6 +1096,33 @@ class GoalTests(unittest.TestCase):
         self.assertNotIn("Before you approve", self.stdout)
         self.assertNotIn("Approval token:", self.stdout)
 
+    def test_approval_stop_states_what_the_regression_proof_will_require(self):
+        # A bug fix planned without an investigation: the proof falls back to the plan's test:/guard:
+        # criteria, and the approval stop names them with what each test must show.
+        plan = body(task_kind="bugfix")
+        plan["acceptance_criteria"] += [
+            {"id": "C2", "criterion": "Greets Ada", "verification_method": "test: test_c2_greets_ada",
+             "human_review": False},
+            {"id": "C3", "criterion": "Still rejects an empty name", "verification_method": "guard: test_c3_empty",
+             "human_review": False}]
+        plan["milestones"][0]["acceptance_criteria"] += ["C2", "C3"]
+        lifecycle.install_draft(self.state, plan, origin="test")
+        self.assertEqual(2, self.invoke("--no-chat"))
+        self.assertIn("\n  - The runner also runs the test each of these criteria names: C2 (test:) must fail on the "
+                      "original code and pass with the fix; C3 (guard:) must pass with the change and on the original "
+                      "code.\n  - If the test for C3 cannot load on the original code", self.stdout)
+        # A design job: no test a criterion names is run as proof, and no part of the brief says otherwise.
+        plan = body()
+        plan["acceptance_criteria"][0]["verification_method"] = "test: test_c1_greets"
+        self.state["workflow"] = {"kind": "design", "reason": "a design", "signals": [], "source": "model"}
+        lifecycle.install_draft(self.state, plan, origin="test")
+        self.assertEqual(2, self.invoke("--no-chat"))
+        self.assertIn("\nJob type: design (not a bug fix): no test named in a criterion is run as proof, so nothing "
+                      "shows that a check would fail without the change.\n", self.stdout)
+        self.assertIn("\n  - Design job: no test named in a criterion is run as proof", self.stdout)
+        self.assertNotIn("proven by the runner", self.stdout)
+        self.assertNotIn("The runner also runs", self.stdout)
+
     def test_brief_shows_a_structured_field_as_lines_not_json(self):
         task = {"objective": "Build the greeting", "affected_paths": ["greet.py", "test_greeting.py"],
                 "kind": "implement", "milestone_id": "M1", "requirements": [], "acceptance_criteria": ["C1"],
