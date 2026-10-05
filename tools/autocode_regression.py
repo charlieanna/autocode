@@ -20,10 +20,15 @@ fails the proof.
 A feature gets the same proof when its approved plan marks acceptance criteria
 as tests (``verification_method: "test: test_c2_..."``,
 autocode_test_cases.contract_cases): each such test must pass with the change
-and must not have passed without it (verify's ``new_behavior``). With several
-milestones, a checkpoint proves the criteria of its own milestone and of those
-already accepted (autocode_test_cases.in_scope); a milestone with none due runs
-no proof.
+and must not have passed without it (verify's ``new_behavior``). A milestone
+whose due criteria are all ``guard:`` (behavior the product already implements)
+is coverage: the diff may be test files alone, and each test must pass on the
+base and on the candidate (verify's ``preserve_only``). A saved permission
+answer that grants a test-only regression-proof exception for the current
+contract is the same coverage proof, so a plan that marked that coverage
+``test:`` can still finish. With several milestones, a checkpoint proves the
+criteria of its own milestone and of those already accepted
+(autocode_test_cases.in_scope); a milestone with none due runs no proof.
 """
 from __future__ import annotations
 
@@ -80,6 +85,37 @@ PROMPT_NOTES = {
 
 def required(state):
     return goals.task_kind(state) == "bugfix" or bool(test_cases.contract_cases(state))
+
+
+def _test_only_exception(state):
+    """True when the user granted a test-only regression-proof exception on this contract."""
+    contract = state.get("goal_contract") or {}
+    if not contract.get("hash"):
+        return False
+    try:
+        from .autocode_contract_identity import token
+    except ImportError:
+        from autocode_contract_identity import token
+    current = token(contract)
+    for answer in (state.get("answers") or {}).values():
+        if not isinstance(answer, dict) or answer.get("kind") != "permission_answer":
+            continue
+        if answer.get("contract_token") != current:
+            continue
+        text = str(answer.get("text") or "").lower()
+        if text.startswith("grant") and "test-only" in text and "regression" in text:
+            return True
+    return False
+
+
+def preserve_only(state):
+    """Coverage of existing behavior: every due case is a guard, or the user granted that exception."""
+    if goals.task_kind(state) == "bugfix":
+        return False
+    due = cases(state)
+    if not due:
+        return False
+    return all(case.get("kind") == "preserve" for case in due) or _test_only_exception(state)
 
 
 def cases(state):
@@ -215,6 +251,7 @@ def prove(state, workspace, run_dir):
         "base_patch": schedule.tree_identity(reviewed_patch(state, workspace)) if reviewed_patch(state, workspace) else None,
         "operator_base_patch": {"pin": operator, "file": schedule.tree_identity(operator["path"])} if operator else None,
         "contract_identity": util.digest(state.get("goal_contract")), "cases_identity": util.digest(cases(state)),
+        "preserve_only": preserve_only(state),
     }
     if (saved.get("source_revision") == current and saved.get("case_scope", scope) == scope
             and saved.get("execution_context") == execution_context and saved.get("verdict") == verify.PASS
@@ -269,18 +306,25 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
         number = len(state.get("regression_proofs", [])) + 1
         out = Path(run_dir) / "regression" / f"proof-{number:02d}-{uuid.uuid4().hex}"
         progress("Comparing regression tests and checking the full candidate suite", command=suite, output=out)
+        coverage = preserve_only(state)
+        due = cases(state)
+        if coverage and any(case.get("kind") != "preserve" for case in due):
+            due = [{**case, "kind": "preserve"} for case in due]
+        regression_command = options.get("regression_command")
+        if coverage and not regression_command:
+            regression_command = options.get("test_command")
         result = verify.verify(workspace, base, out, framework=framework, suite_command=options.get("test_command"),
-                               regression_command=options.get("regression_command"),
+                               regression_command=regression_command,
                                reported=None, base_suite=base_suite, dependencies_from=dependencies,
                                timeout=suite_timeout(state),
-                               new_behavior=goals.task_kind(state) != "bugfix", base_patch=base_patch)
+                               new_behavior=goals.task_kind(state) != "bugfix",
+                               preserve_only=coverage, base_patch=base_patch)
         path = out / "verification.json"
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
         if operator:
             proof["review_reasons"] = [*(proof.get("review_reasons") or []), operator_patch.review_reason(operator)]
-        wanted = cases(state)
         named = [test for key in ("fail_to_pass", "pass_to_pass", "not_run_on_base") for test in proof.get(key) or []]
-        check_cases(proof, wanted, wrapped_runner.refusals(workspace, named) if wanted else {})
+        check_cases(proof, due, wrapped_runner.refusals(workspace, named) if due else {})
         proof["checks"] = {label: {"command": receipt["command"], "exit_code": receipt["exit_code"],
                                    "timed_out": receipt["timed_out"], "output": receipt["output"]}
                            for label, receipt in result["checks"].items()}

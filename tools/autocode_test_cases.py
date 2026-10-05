@@ -28,6 +28,15 @@ try:
 except ImportError:
     import autocode_progressive_state as progressive_state
 
+# A verification method may name the test and then say how to run it ("test: TestFoo (go test ...)").
+_NAMED_TEST = re.compile(r"(test_[A-Za-z0-9_]+|Test[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)*)")
+
+
+def _named_test(rest: str) -> str:
+    match = _NAMED_TEST.match(str(rest or "").strip())
+    return match.group(1) if match else ""
+
+
 MARK = "test:"
 # Behavior that already works and must keep working: its test passes before and after the change
 # (a "preserve" case, autocode_regression.check_cases). Live review-then-fix plans (2026-09-29) had
@@ -81,9 +90,9 @@ def plan_cases(body) -> list[dict]:
     for row in (body.get("acceptance_criteria") if isinstance(body, dict) else None) or []:
         found = mark(row.get("verification_method")) if isinstance(row, dict) else None
         if found and row.get("id"):
-            test_name = str(row["verification_method"]).strip()[len(found):].strip()
+            test_name = _named_test(str(row["verification_method"]).strip()[len(found):])
             cases.append({"id": row["id"], "text": row.get("criterion", ""),
-                          **({"test_name": test_name} if re.fullmatch(r"test_[A-Za-z0-9_]+", test_name) else {}),
+                          **({"test_name": test_name} if test_name else {}),
                           **({"kind": "preserve"} if found == GUARD_MARK else {})})
     return cases
 
@@ -163,7 +172,8 @@ def match_cases(cases: list[dict], test_ids: list[str]) -> dict[str, list[str]]:
     for case in cases:
         if case.get("test_name"):
             matched[case["id"]] = [test for test in test_ids
-                                   if _test_function(test) == case["test_name"]]
+                                   if (_test_function(test) == case["test_name"]
+                                       or test.rsplit("::", 1)[-1] == case["test_name"])]
         else:
             # The documented lowercase spelling keeps M1A as m1a. Retain the
             # CamelCase spelling too, without accepting prefixes of either form.

@@ -271,6 +271,39 @@ class FeatureProofTests(unittest.TestCase):
     GUARD_TEST = "\n    def test_c4_add_still_works(self):\n        self.assertEqual(3, add(1, 2))\n"
     OWN_FILE = "import unittest\nfrom calc import add\n\n\nclass GuardTests(unittest.TestCase):" + GUARD_TEST
 
+    def test_a_parenthetical_go_name_is_the_test_the_proof_matches(self):
+        method = ("test: TestAgentDomainStartPendingModDelayPreFlightAutomatonESSlices "
+                  "(go test ./rule/preflight/ -run TestAgentDomainStartPendingModDelayPreFlightAutomatonESSlices)")
+        state = {"goal_contract": {"body": {"acceptance_criteria": [
+            {"id": "AC1", "criterion": "external nameservers relay", "verification_method": method}]}}}
+        cases = test_cases.contract_cases(state)
+        self.assertEqual("TestAgentDomainStartPendingModDelayPreFlightAutomatonESSlices", cases[0]["test_name"])
+        self.assertNotIn("kind", cases[0])
+
+    def test_guard_only_coverage_passes_when_only_the_test_file_changes(self):
+        proof = self.prove([self.GUARD], {"test_guard.py": self.OWN_FILE})
+        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual(["test_guard.GuardTests.test_c4_add_still_works"], proof["case_tests"]["C4"])
+
+    def test_a_granted_test_only_exception_proves_coverage_marked_as_test(self):
+        import autocode_contract_identity as identity
+        import autocode_util as util
+        project = Project(SEED)
+        self.addCleanup(project.close)
+        project.write({"test_guard.py": self.OWN_FILE})
+        criterion = {**self.GUARD, "verification_method": "test: test_c4_add_still_works"}
+        state = feature_state(project, [criterion])
+        contract = state["goal_contract"]
+        contract.update(task_id="t", revision=2)
+        contract["hash"] = util.digest({"task_id": "t", "revision": 2, "body": contract["body"]})
+        state["answers"] = {"q": {
+            "kind": "permission_answer", "contract_token": identity.token(contract),
+            "text": "Grant a scoped test-only regression-proof exception for this goal.",
+        }}
+        proof = regression.prove(state, project.root, Path(tempfile.mkdtemp(prefix="coverage-exception-")))
+        self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])
+        self.assertEqual(["test_guard.GuardTests.test_c4_add_still_works"], proof["case_tests"]["C4"])
+
     def test_a_guard_passes_with_a_test_that_passes_before_and_after(self):
         proof = self.prove([EXAMPLE, self.GUARD], {**FEATURE, "test_guard.py": self.OWN_FILE})
         self.assertEqual("PASS", proof["verdict"], proof["failures"] + proof["unverified"])

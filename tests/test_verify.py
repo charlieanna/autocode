@@ -216,6 +216,18 @@ class VerifyCase(unittest.TestCase):
         self.assertTrue(any("Only test files changed" in reason for reason in result["failures"]))
         self.assertTrue(any("fail on the candidate" in reason for reason in result["failures"]), result)
 
+    def test_preserve_only_coverage_may_add_a_test_that_passes_on_the_base(self):
+        project = self.project()
+        extra = project_file(project, "test_greet.py").replace(
+            "    def test_ada(self):\n        self.assertEqual(greet(\"Ada\"), \"Hello, Ada\")\n",
+            "    def test_ada(self):\n        self.assertEqual(greet(\"Ada\"), \"Hello, Ada\")\n\n"
+            "    def test_ada_still_greets(self):\n        self.assertEqual(greet(\"Ada\"), \"Hello, Ada\")\n")
+        project.write({"test_greet.py": extra})
+        result = project.verify(new_behavior=True, preserve_only=True)
+        self.assertEqual(verify.PASS, result["verdict"], result["failures"] + result["unverified"])
+        self.assertTrue(any(name.endswith("test_ada_still_greets") for name in result["pass_to_pass"]),
+                        result["pass_to_pass"])
+
     def test_removing_an_existing_test_is_rejected(self):
         project = self.project()
         weakened = REFERENCE["test_greet.py"].replace("    def test_two_arg(self):", "    def two_arg_disabled(self):")
