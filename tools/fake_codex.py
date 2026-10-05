@@ -93,7 +93,9 @@ NO_PROPOSAL = {"version": 0, "needed_because": "", "shared_decisions": [], "outs
 if os.environ.get("AUTOCODE_FIXTURE_SESSION_DRIFT"):
     session = str(uuid.uuid4())
 print(json.dumps({"type": "thread.started", "thread_id": session}))
-if os.environ.get("AUTOCODE_FIXTURE_QUOTA_STAGE") == stage:
+_quota_model = os.environ.get("AUTOCODE_FIXTURE_QUOTA_MODEL")  # only this model's quota is used up, when set
+if os.environ.get("AUTOCODE_FIXTURE_QUOTA_STAGE") == stage and (not _quota_model or (
+        "--model" in sys.argv and sys.argv[sys.argv.index("--model") + 1] == _quota_model)):
     print(json.dumps({"type": "error", "error": {"message": "subscription usage limit reached"}}))
     raise SystemExit(3)
 

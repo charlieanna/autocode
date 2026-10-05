@@ -221,6 +221,21 @@ class TaskRun:
                                    "advance the run to publish one, then answer")
         return self._act("answer", "--answer", f"{question_id}={text}", "--resolver-token", resolver_token)
 
+    def assign_model(self, role: str, model: str, *, resolver_token: str | None = None) -> dict:
+        """Name the model a quota-stopped role continues on (the view's ``needs.route``), then resume_paused().
+
+        The same answer as ``answer(f"route-{role}", model)``: AutoCode refuses a model the launch
+        would refuse (engine, format, availability, cross-model) and leaves the run paused. A
+        ``--<role>-model`` in ``options`` is updated, so advancing never passes the old model back.
+        """
+        view = self.answer(f"route-{role}", model, resolver_token=resolver_token)
+        flag = "--" + role.replace("_", "-") + "-model"
+        options = list(self.options)
+        if flag in options[:-1]:
+            options[options.index(flag) + 1] = model
+            self.options = tuple(options)
+        return view
+
     def respond_operational(self, request_id: str, request_token: str, text: str) -> dict:
         """Send corrective information to the published AutoResolver request."""
         return self._act("resolver response", "--resolver-request", request_id,

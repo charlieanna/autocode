@@ -18,6 +18,7 @@ try:
     from . import autocode_progressive_state as progressive
     from . import autocode_resolver_recovery as recovery
     from . import autocode_recovery_grants as recovery_grants, autocode_recovery_limits as recovery_limits
+    from . import autocode_quota_route as quota_route
 except ImportError:
     import autocode_resolver as policy
     import autocode_support as support
@@ -28,6 +29,7 @@ except ImportError:
     import autocode_resolver_recovery as recovery
     import autocode_recovery_grants as recovery_grants
     import autocode_recovery_limits as recovery_limits
+    import autocode_quota_route as quota_route
 
 
 REVIEW_STAGES = ('astra_challenge', 'astra_finalize')
@@ -415,6 +417,13 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
                                                  attempt=attempt)
         if attempt:
             options.append(f'Abandon the uncertain attempt with --abandon-stage {attempt}')
+    # A quota stop of one routable role asks the person to name a model (#184); never a default.
+    stopped = (quota_route.stopped_attempt(state, failure_status=support.failure_status)
+               if error.status == quota_route.QUOTA_STATUS and request is None else None)
+    route = quota_route.question(state, stopped) if stopped and stopped['active'] else None
+    if route:
+        decision += ' ' + quota_route.advice(route, stopped['attempt_id'])
+        options.insert(0, quota_route.option(route))
     request = request or {'kind': 'blocker', 'discovered': str(error),
                           'impact': 'AutoResolver retained the attempts, work and evidence but cannot continue safely.',
                           'decision_needed': decision,
@@ -422,7 +431,8 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
                           'proposed_delta': 'Answering does not authorize a retry, approval, permission or budget change.'}
     human.queue(state, 'operational_exhaustion',
                 {'stage': state.get('next_stage') or 'operational_recovery', 'pause_status': error.status, 'budget': budget},
-                request=request, evidence={'resolver_receipt_id': receipt}, next_stage=state.get('next_stage'))
+                request=request, questions=[route] if route else None,
+                evidence={'resolver_receipt_id': receipt}, next_stage=state.get('next_stage'))
     # Keep the printed stop reason on the same contract as the published request, after the cause it
     # stops for (an external_directory denial, a spent budget), which the advice alone does not name.
     cause = str(error).strip()

@@ -30,7 +30,7 @@ try:
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_registry as registry
     from . import autocode_regression as regression, autocode_verify as verify
-    from . import autocode_resolver_human as resolver_human
+    from . import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_status_command as status_command
     from . import autocode_recovery_view as recovery_view
@@ -49,7 +49,7 @@ except ImportError:
     import autocode_planning_artifacts as planning_artifacts
     import autocode_registry as registry
     import autocode_regression as regression, autocode_verify as verify
-    import autocode_resolver_human as resolver_human
+    import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
     import autocode_retired_token_budget as retired_token_budget
     import autocode_status_command as status_command
     import autocode_recovery_view as recovery_view
@@ -294,6 +294,9 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         state.setdefault("configuration_changes", []).append({"at":runner.now(),"previous":state["settings"],"selected":settings,
             "reason":("Cumulative token budgets were removed" if retiring_token_pause else
                       "Run settings updated at a saved stage boundary")})
+        # A --<role>-model change while that role is stopped on quota is a recorded route assignment (#184).
+        quota_route.record_resume_change(state, previous_settings, settings, failure_status=support.failure_status,
+                                         at=runner.now())
         state["settings"] = settings
         if enabling_joint and settings.get("engine") == "codex":
             if contract:

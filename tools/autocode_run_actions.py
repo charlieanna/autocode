@@ -30,6 +30,7 @@ try:
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_progressive_state as progressive
+    from . import autocode_quota_route as quota_route
     from . import autocode_resolver_human as resolver_human
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_resolver_runtime as resolver_runtime
@@ -54,6 +55,7 @@ except ImportError:
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
     import autocode_progressive_state as progressive
+    import autocode_quota_route as quota_route
     import autocode_resolver_human as resolver_human
     import autocode_recovery_progress as recovery_progress
     import autocode_resolver_runtime as resolver_runtime
@@ -214,6 +216,9 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             if resolver_human.current(state):
                 print(lifecycle.render(state))
                 return 2
+    routed = answer_quota_question(runner, args, state, run_dir, workspace)
+    if routed is not None:
+        return routed
     if args.resolver_response:
         candidate = copy.deepcopy(state)
         try:
@@ -547,3 +552,67 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                                                token_for=goals.token, is_approved=goals.approved):
         runner.write_json(state_path, state)
     return None
+
+
+def answer_quota_question(runner, args, state, run_dir, workspace):
+    """--answer route-ROLE=MODEL at a quota stop (#184); None when this invocation answers something else.
+
+    The one operational question answered with --answer. The model must pass the launch rules
+    (engine format, availability, cross-model); a rejection leaves the run paused and the
+    request open. An accepted model sets the stopped attempt aside exactly as --abandon-stage
+    does, then applies and records the route; --resume-paused continues on a fresh session.
+    """
+    if not (args.answer or args.delegate):
+        return None
+    candidate = copy.deepcopy(state)
+    published = resolver_human.current(candidate)
+    if not any(item.partition('=')[0].startswith(quota_route.PREFIX) for item in args.answer):
+        # Refuse every other answer to an operational request here, before an uncertain attempt is
+        # reconciled: reconciling it again would retire the request the person is reading.
+        if published and published['scope'] in ('blocker', 'operational_exhaustion'):
+            print('Input rejected: Use --resolver-response for this operational request; '
+                  'it is not a requirements answer', file=sys.stderr)
+            return 2
+        return None
+    if args.resolver_token and (not published or published['request_token'] != args.resolver_token):
+        published = resolver_human.rebind_stale(candidate, None, args.resolver_token) or published
+    if not published:
+        print('Input rejected: ' + resolver_human.stale_request_message(state), file=sys.stderr)
+        return 2
+    if published['scope'] != 'operational_exhaustion':
+        return None  # not a quota question; the ordinary answer path decides
+    try:
+        resolver_human.require_response(candidate, published['request_id'], args.resolver_token)
+        proposal = candidate['resolver']['human_escalations'][published['request_id']]['identity']['proposal']
+        if args.delegate or args.delegate_all:
+            raise ValueError('A quota question has no default to delegate; name the model yourself')
+        asked, model = quota_route.parse_answer(args.answer, published['questions'], proposal['origin'])
+        role = asked['route_role']
+        quota_route.validate(candidate, role, model, configured_tool=getattr(runner.opencode, 'CONFIGURED', False),
+                             cross_check=dispatch.enforce_cross_model_verification)
+        if quota_route.engine(candidate['settings'], role) == 'opencode':
+            try:
+                runner.opencode.check_models({role: {'model': model}}, workspace)
+            except RuntimeError as error:
+                raise ValueError(str(error)) from None
+        if interventions.pending(run_dir):
+            raise ValueError('Apply the queued intervention before answering')
+        attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status)
+        if not attempt or not attempt['active'] or attempt['role'] != role:
+            raise ValueError('The quota-stopped attempt is no longer current; run with --no-chat to see the request')
+        runner.abandon_stage(candidate, run_dir, workspace, attempt['attempt_id'])
+        attempt = quota_route.stopped_attempt(candidate, failure_status=support.failure_status) or attempt  # archived
+        record = quota_route.assign(candidate, role, model, at=runner.now(), via='answer', attempt=attempt,
+                                    request_id=published['request_id'])
+        runner.finish_human_action(candidate, published)
+    except (ValueError, KeyError) as error:
+        print(f'Input rejected: {error}', file=sys.stderr)
+        return 2
+    candidate['pending_questions'] = []
+    candidate.pop('user_request', None)
+    candidate['stop_reason'] = (f"The {record['job']} now runs on {model} (was {record['from']}). The stopped "
+                                "attempt was set aside without replay; its partial work is retained. "
+                                "Continue with --resume-paused.")
+    runner.commit_user_action(state, candidate, run_dir)
+    print(f"{state['status']}: {state['stop_reason']} Saved; no agent launched.")
+    return 0

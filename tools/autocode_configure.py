@@ -24,7 +24,7 @@ try:
     from . import autocode_retired_token_budget as retired_token_budget, autocode_design_manifest as design_manifest
     from . import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
     from . import autocode_task_preflight as task_preflight, autocode_output_policy as output_policy
-    from . import autocode_base_patch as operator_patch
+    from . import autocode_base_patch as operator_patch, autocode_quota_route as quota_route
 except ImportError:
     import autocode_support as support, autocode_goals as goals, autocode_providers
     import autocode_opencode, autocode_figma as figma
@@ -32,7 +32,7 @@ except ImportError:
     import autocode_retired_token_budget as retired_token_budget, autocode_design_manifest as design_manifest
     import autocode_planner_routes as planner_routes, autocode_adaptive_planning as adaptive
     import autocode_task_preflight as task_preflight, autocode_output_policy as output_policy
-    import autocode_base_patch as operator_patch
+    import autocode_base_patch as operator_patch, autocode_quota_route as quota_route
 
 DEFAULT_ROLE_MODELS = {
     "astra": "gpt-5.6-sol",
@@ -425,19 +425,13 @@ def configure_joint(settings, args, *, fresh, planning, opencode=None):
         settings["roles"]["plan_reviewer"]["model"] = args.plan_reviewer_model
     if getattr(args, "plan_reviewer_reasoning_effort", None):
         settings["roles"]["plan_reviewer"]["reasoning_effort"] = args.plan_reviewer_reasoning_effort
-    builtin_opencode = not getattr(opencode, "CONFIGURED", False)
+    configured_tool = getattr(opencode, "CONFIGURED", False)
     for role, config in settings["roles"].items():
-        if planning.engine_for(settings, role) == "codex":
-            if "/" in config["model"]:
-                raise ValueError(f"Joint planning {role.title()} uses a bare Codex model name, e.g. gpt-5.6-sol")
-        elif builtin_opencode:
-            # Preserve OpenCode's catalogue identifier, not a Codex alias or a
-            # provider whitelist. check_models verifies actual availability.
-            if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,120}", config["model"]):
-                raise ValueError(f"{role.title()} requires an OpenCode provider/model identifier; "
-                                 "saved session engines cannot be switched on resume")
-        elif not isinstance(config.get("model"), str) or not config["model"].strip() or any(char.isspace() for char in config["model"]):
-            raise ValueError(f"{role.title()} requires a model name from the provider config")
+        # One rule for a launch and for a model named at a quota stop (autocode_quota_route).
+        problem = quota_route.model_problem(role, config.get("model"), role_engine=planning.engine_for(settings, role),
+                                            configured_tool=configured_tool)
+        if problem:
+            raise ValueError(problem)
 
 
 def configure_codex_joint(settings, args, *, planning):
