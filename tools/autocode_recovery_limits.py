@@ -32,8 +32,9 @@ ABANDON_THEN_RESUME = (
     "A plain resume will hold; do not replay the failed attempt automatically.")
 BOUND_ADVICE = {
     'PAUSED_TIME_LIMIT': (
-        "After fixing the cause, raise the bound and continue in the same command with "
-        "--resume-paused --max-seconds N (a different N supersedes this request)."),
+        "To acknowledge this active-time pause, use --resume-paused --max-seconds N "
+        "with a total above elapsed active time, or 0 for no time cap. "
+        "You may reassert an already saved total; unrelated settings do not acknowledge this pause."),
     'PAUSED_ITERATION_LIMIT': (
         "After fixing the cause, raise the bound and continue in the same command with "
         "--resume-paused --max-iterations N (a different N supersedes this request)."),
