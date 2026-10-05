@@ -172,6 +172,9 @@ never runs live models; the pull request carries the evidence.
   (`scenarios/run.py run <scenario> --profile glm53-mimo --i-authorize-live-model-spend
   --max-seconds 2400 --max-stage-seconds 900 --max-iterations 6`; MiMo needs
   the longer stage limit) or `autocode` itself with the same model flags.
+  Until #413 is fixed, strict tool containment accepts only OpenCode 1.18.33;
+  any other version stops the run at `PAUSED_TOOL_CONTAINMENT` before the
+  build, which is not a result.
 - **Reach the change.** Pick the scenario or task that runs the changed code;
   a pass that never touches it proves nothing. A path a live run cannot reach
   on demand (a crash, a quota running out) gets a fault-injected or
