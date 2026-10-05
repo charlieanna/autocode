@@ -39,6 +39,9 @@ def _reason(runtime, record, error):
     path = Path(record.get('events', ''))
     raw = path.read_text(errors='replace') if path.is_file() else ''
     status = runtime.support.failure_status(path)
+    if getattr(error, 'status', None) == 'PAUSED_UNCERTAIN_STAGE' and status == 'PAUSED_CONTENT_FILTER':
+        # The runner did not trust this response (a session it did not expect, #464): name that, not a refusal.
+        status = 'PAUSED_PROVIDER_UNCERTAIN'
     diagnostic = raw.strip()
     try:
         event = json.loads(diagnostic)

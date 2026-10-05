@@ -15,6 +15,7 @@ import io
 import json
 import shutil
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -22,6 +23,7 @@ from unittest.mock import patch
 import autocode as runner
 import autocode_dispatch as dispatch
 import autocode_goals as goals
+import autocode_job_failure as job_failure
 import autocode_provider_refusal as provider_refusal
 import autocode_quota_route as quota_route
 import autocode_run_view as run_view
@@ -307,12 +309,13 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
     def test_session_provenance_is_checked_before_the_refusal(self):
         # A refusal from a session the run did not expect, or naming none, is not typed or answered with a
         # model: not at the first stop, and not when --resume-paused reconciles the same saved attempt,
-        # including one whose exit the runner never saved because it stopped while the provider ran.
+        # including one whose exit the runner never saved because it stopped while the provider ran, or
+        # one it interrupted (a signal exit, as child.poll() saves it after an interrupt or a cleanup).
         missing = "Provider returned a missing or unexpected session ID"
         recovered = "Recovered response belongs to an unexpected session"
         human = runner.resolver_runtime.human
         for saved, written in self.unexpected_refusals():
-            for saved_exit in (0, None):
+            for saved_exit in (0, None, -2, -15):
                 with self.subTest(saved_session=saved, saved_exit=saved_exit):
                     stop, state = self.build(written, saved_session=saved)
                     self.assertEqual(("PAUSED_UNCERTAIN_STAGE", missing), (stop.status, str(stop)))
@@ -350,6 +353,34 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
                             self.assertTrue(runner.automatically_recover_timed_out_stage(state, self.run, self.root, resumed))
                         self.assertNotIn("active_stage", state)
                         self.assertNotIn("terra", state["sessions"])
+
+    def test_a_timed_out_refusal_resumes_as_its_timeout_from_any_session(self):
+        # The resumed stop agrees with run_role's first one whatever the session: the timeout is named before
+        # the response is read, and automatic timeout recovery takes it, never a model question (#464).
+        rows = [json.loads(line) for line in FINISH_ONLY.read_text().splitlines()]
+        for saved in (None, rows[0]["sessionID"], "ses_saved_builder"):
+            for exited in ((0, True), (-15, True)):
+                with self.subTest(saved_session=saved, exited=exited):
+                    stop, state = self.build(rows, saved_session=saved, exited=exited)
+                    self.assertEqual("PAUSED_PROVIDER_TIMEOUT", stop.status)
+                    resumed = self.reconcile(state)
+                    self.assertEqual("PAUSED_PROVIDER_TIMEOUT", resumed.status, str(resumed))
+                    with patch.object(support, "snapshot", return_value={"head": "h", "files": {}, "revision": "r"}), \
+                         patch.object(runner, "run_role", side_effect=AssertionError("Recovery must not replay")):
+                        self.assertTrue(runner.automatically_recover_timed_out_stage(state, self.run, self.root, resumed))
+
+    def test_a_job_refused_from_an_unexpected_session_is_not_named_a_refusal(self):
+        # A workflow job's stop is classified from its log by job_failure; when the runner itself stopped on a
+        # session it did not expect, the job's stop says so instead of naming a refusal on its model.
+        record = {"stage": "review_change", "events": str(FINISH_ONLY), "exit_code": 0, "launch_route": {"model": MIMO}}
+        runtime = types.SimpleNamespace(support=support)
+        kind, reason = job_failure._reason(runtime, record, support.Paused(
+            "PAUSED_UNCERTAIN_STAGE", "Provider returned a missing or unexpected session ID"))
+        self.assertEqual("exit", kind)
+        self.assertIn("unexpected session", reason)
+        self.assertNotIn("content filter", reason)
+        refused = support.Paused("PAUSED_CONTENT_FILTER", "Code Reviewer: the provider's content filter refused it")
+        self.assertEqual("content_filter", job_failure._reason(runtime, record, refused)[0])
 
     @staticmethod
     def unexpected_refusals():

@@ -955,14 +955,16 @@ def reconcile_active(state, run_dir, workspace):
     unexpected_session = support.Paused("PAUSED_UNCERTAIN_STAGE", "Recovered response belongs to an unexpected session")
     if not stage_completed(state, record) or (supports_sessions and record.get("exit_code") not in (None, 0)):
         reason = refusal_reason(state, record)
-        # A refusal in a response from a session the run did not expect, or naming none, is never typed or
-        # answered with a model (#464). As in run_role, a timeout names that stop (and recovers on its own),
-        # a failed exit keeps its typed stop and any other exit is uncertain. Other stops keep their type.
-        if reason and unexpected and record.get("timed_out"):
+        # As in run_role, a timeout names the stop before the response is read (and recovers on its own),
+        # whatever session it came from. A refusal in a response from a session the run did not expect, or
+        # naming none, is typed only for a provider that exited with an error; after a clean, unsaved or
+        # signalled (interrupted) exit it is never typed or answered with a model (#464).
+        if reason and record.get("timed_out"):
             timeout = record.get("timeout_reason") or "Stage timed out"
             raise support.Paused("PAUSED_PROVIDER_TIMEOUT",
                                  f"{record['role']}: {timeout}; partial work and logs retained at {record['events']}")
-        if reason and unexpected and record.get("exit_code") in (None, 0):
+        exit_code = record.get("exit_code")
+        if reason and unexpected and not (type(exit_code) is int and exit_code > 0):
             raise unexpected_session
         reason = reason or output_cap.explain(
             support.terminal_failure_reason(record["events"]), record.get('output_token_cap'))
