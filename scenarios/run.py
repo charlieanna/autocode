@@ -5,6 +5,7 @@
   python3 scenarios/run.py check [ID ...]    # prove each oracle: seed fails, reference passes, broken variants fail
   python3 scenarios/run.py run ID ... --fake  # full AutoCode run with a scripted model (no spend)
   python3 scenarios/run.py run ID ... --profile glm53-openai --i-authorize-live-model-spend
+  python3 scenarios/run.py run ID ... --profile glm53-mimo --provider kilocode --i-authorize-live-model-spend
   python3 scenarios/run.py route --fake      # which workflow AutoCode recognizes for each prompt in routing.toml
   python3 scenarios/run.py compare ID ... --fake  # AutoCode vs a plain agent, same oracle (scripted; no spend)
   python3 scenarios/run.py compare ID ... --profile openai-only --baseline opencode --i-authorize-live-model-spend
@@ -83,6 +84,8 @@ def require_mode(args) -> None:
         sys.exit("run needs --fake or --profile NAME")
     if args.profile and not args.i_authorize_live_model_spend:
         sys.exit(f"refusing to spend on live models: add --i-authorize-live-model-spend (profile {args.profile})")
+    if getattr(args, "provider", None) and not args.profile:
+        sys.exit("--provider changes a live profile's provider: use it with --profile NAME")
     if importlib.util.find_spec("psutil") is None:
         sys.exit("Scenario process supervision needs psutil, which this Python lacks: run with the project's "
                  "virtualenv (.venv/bin/python scenarios/run.py ...), including for custom --autocode commands")
@@ -125,12 +128,14 @@ def evidence_directory(root: Path, label: str) -> tuple[str, Path]:
 
 
 def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
-    mode = ("fake" if args.fake_solution == "reference" else f"fake-{Path(args.fake_solution).name}") if args.fake else args.profile
+    provider = getattr(args, "provider", None)
+    mode = (("fake" if args.fake_solution == "reference" else f"fake-{Path(args.fake_solution).name}") if args.fake
+            else f"{args.profile}-via-{provider}" if provider else args.profile)
     stamp, out = evidence_directory(args.out, f"{scenario.id}-{mode}")
     result = {"scenario": scenario.id, "title": scenario.title, "category": scenario.category, "mode": mode,
               "autocode": autocode_revision(), "started_at": stamp, "evidence": str(out)}
     if not args.fake:
-        result["profile"] = profiles.resolve(args.profile)
+        result["profile"] = profiles.with_provider(profiles.resolve(args.profile), provider)
     skip = [f"requires {tool}" for tool in scenario.missing_tools()]
     solution = scenario.dir / args.fake_solution
     if args.fake and not scenario.fake_check:
@@ -147,7 +152,7 @@ def run_one(scenario, args, *, extra_flags=(), extra_env=None) -> dict:
         return finish(out, result, verdict.SKIPPED, "; ".join(skip))
 
     project = materialize(scenario.seed, out / "project")
-    flags, env = fake_setup(scenario, out, solution) if args.fake else live_setup(args.profile)
+    flags, env = fake_setup(scenario, out, solution) if args.fake else live_setup(args.profile, provider)
     flags = [*flags, *caps_flags(args), *extra_flags]
     env = {**env, **(extra_env or {})}
     driver = Driver(project, out, flags, env, autocode=args.autocode or default_autocode(),
@@ -433,6 +438,8 @@ def main(argv=None) -> int:
     run.add_argument("--fake-solution", default="reference", metavar="DIR",
                      help="overlay the fake applies, e.g. broken/special-case to prove FALSE_COMPLETE detection")
     mode.add_argument("--profile", help="live model profile from harness/profiles.py")
+    run.add_argument("--provider", help="run the profile's models through this provider instead "
+                                        "(e.g. kilocode, or a tool set up in docs/providers.md)")
     run.add_argument("--i-authorize-live-model-spend", action="store_true")
     run.add_argument("--out", type=Path, default=REPO / ".scenario-runs")
     run.add_argument("--autocode", nargs="+", help="AutoCode command to test (default: this checkout)")

@@ -929,6 +929,18 @@ class ModelProfileTests(unittest.TestCase):
                                   ("builder", "completion")):
             self.assertNotEqual(family(models[producer]), family(models[checker]))
 
+    def test_provider_override_keeps_every_route_and_effort(self):
+        from harness.driver import live_setup
+        own, _ = live_setup("glm53-mimo")
+        through_kilo, _ = live_setup("glm53-mimo", "kilocode")
+        self.assertEqual("kilocode", through_kilo[through_kilo.index("--provider") + 1])
+        self.assertEqual(own[2:], through_kilo[2:])
+        self.assertEqual("opencode", profiles.resolve("glm53-mimo")["provider"])
+
+    def test_provider_override_needs_a_live_profile(self):
+        with self.assertRaisesRegex(SystemExit, "use it with --profile"):
+            run.main(["run", "bugfix-trivial", "--fake", "--provider", "kilocode"])
+
 
 class FakeSchemaTests(unittest.TestCase):
     """The scripted model answers "none" for any required field its script does not know yet."""

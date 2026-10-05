@@ -174,7 +174,8 @@ never runs live models; the pull request carries the evidence.
   provider. Run a scenario
   (`scenarios/run.py run <scenario> --profile NAME --i-authorize-live-model-spend`;
   `scenarios/harness/profiles.py` has the profiles, such as `glm53-mimo` for
-  GLM and MiMo through OpenCode) or `autocode` itself with `--provider NAME`.
+  GLM and MiMo, and `--provider NAME` runs a profile's models through another
+  provider) or `autocode` itself with `--provider NAME`.
 - **Reach the change.** Pick the scenario or task that runs the changed code;
   a pass that never touches it proves nothing. A path a live run cannot reach
   on demand (a crash, a quota running out) gets a fault-injected or

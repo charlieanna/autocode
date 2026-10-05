@@ -118,6 +118,11 @@ def resolve(name: str) -> dict:
     return PROFILES[name]
 
 
+def with_provider(profile: dict, provider: str | None) -> dict:
+    """The same routes through another provider (``--provider``): any tool AutoCode can drive."""
+    return {**profile, "provider": provider} if provider else profile
+
+
 def flags(profile: dict) -> list[str]:
     result = ["--provider", profile["provider"], "--joint-planning", *profile.get("extra", [])]
     if profile.get("passthrough"):
