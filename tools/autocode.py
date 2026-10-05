@@ -761,7 +761,7 @@ def execute_report_repair(state, run_dir, workspace):
               'an internal task or milestone, remove that duplicate row while keeping the approved '
               'obligation in the existing contract. Cover every requirement_coverage_checklist entry. '
               'Its path is an archived, hash-pinned copy, not a request to reconstruct a missing file. '
-              'Use archived_paths to update citations to artifacts that moved during archival; '
+              'Use archived_paths to update citations outside finding_dispositions to artifacts that moved during archival; '
               'never invent a replacement for missing evidence. '
               + report_repair_context.baseline_instruction(original['stage'])
               + planning.repair_rules(original['stage'],

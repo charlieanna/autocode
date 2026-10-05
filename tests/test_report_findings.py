@@ -7,7 +7,8 @@ import unittest
 from unittest.mock import patch
 
 import autocode_findings as findings
-from autocode_report_findings import REPAIR_INSTRUCTION, UNAUTHORIZED, preserved_dispositions, refusal, retained
+from autocode_report_findings import (MALFORMED_ELSEWHERE, REPAIR_INSTRUCTION, UNAUTHORIZED, preserved_dispositions,
+                                      refusal, retained)
 from autocode_report_source import original_report_for_repair
 
 
@@ -175,14 +176,27 @@ class UnretainedDispositionTests(unittest.TestCase):
         fields = retained(self.SOL, original, report(disposition(), disposition('F-new')))
         self.assertEqual({'sol': [disposition()]}, fields['preserved_finding_dispositions'])
         self.assertEqual({'sol': {'F-new': 'is not in the original review'}}, fields['unretained_finding_dispositions'])
+        # An exact row lost only because another repaired row is malformed is not told it cannot be kept.
+        fields = retained(self.SOL, original, report(disposition(), {'id': 'F-2', 'disposition': 'resolved'}))
+        self.assertEqual({}, fields['preserved_finding_dispositions'])
+        self.assertEqual({'F-1': MALFORMED_ELSEWHERE, 'F-2': 'is not in the original review'},
+                         fields['unretained_finding_dispositions']['sol'])
 
-    def test_an_exact_row_without_authority_says_it_cannot_be_kept(self):
+    def test_a_row_without_authority_says_it_cannot_be_kept_even_when_edited(self):
+        # Naming a difference would imply an exact copy is kept, and following that would waste a repair.
         exact = report(disposition())
+        repairs = (exact, report(disposition(evidence='.autocode/evidence/receipt.json')),
+                   report(disposition(action='retracted')), report(disposition('F-new')))
         for record, before in ((self.SOL, report(disposition(), outcome='BLOCKED')), (self.SOL, None),
-                               ({**self.SOL, 'report_repaired': True}, exact), ({**self.SOL, 'exit_code': 1}, exact)):
-            with self.subTest(record=record, before=before):
-                self.assertEqual({'sol': {'F-1': UNAUTHORIZED}},
-                                 retained(record, before, exact)['unretained_finding_dispositions'])
+                               ({**self.SOL, 'report_repaired': True}, exact), ({**self.SOL, 'exit_code': 1}, exact),
+                               ({**self.SOL, 'timed_out': True}, exact), ({**self.SOL, 'truncated_output': True}, exact),
+                               ({**self.SOL, 'interrupted': True}, exact),
+                               (self.SOL, report(disposition(), {'id': 'F-2', 'disposition': 'resolved'}))):
+            for repaired in repairs:
+                with self.subTest(record=record, before=before, repaired=repaired):
+                    fid = repaired['finding_dispositions'][0]['id']
+                    self.assertEqual({'sol': {fid: UNAUTHORIZED}},
+                                     retained(record, before, repaired)['unretained_finding_dispositions'])
         self.assertEqual({}, retained({'stage': 'terra', 'exit_code': 0}, exact, exact)['unretained_finding_dispositions'])
 
     def test_checkpoint_explains_each_reviewer_separately(self):
@@ -194,16 +208,27 @@ class UnretainedDispositionTests(unittest.TestCase):
         self.assertEqual({'astra': [disposition('F-astra')]}, fields['preserved_finding_dispositions'])
         self.assertEqual({'sol': {'F-sol': "changed its evidence from the original review's row"}},
                          fields['unretained_finding_dispositions'])
+        # A blocked reviewer authorizes nothing; the other reviewer's difference is still named.
+        original['decision']['status'] = 'BLOCKED'
+        repaired['decision']['finding_dispositions'][0]['evidence'] = 'receipt.json'
+        fields = retained({'stage': 'astra_checkpoint', 'exit_code': 0}, original, repaired)
+        self.assertEqual({}, fields['preserved_finding_dispositions'])
+        self.assertEqual({'sol': {'F-sol': "changed its evidence from the original review's row"},
+                          'astra': {'F-astra': UNAUTHORIZED}}, fields['unretained_finding_dispositions'])
 
-    def test_refusal_names_the_row_and_falls_back_without_an_explanation(self):
-        record = {'unretained_finding_dispositions': {'sol': {'F-1': 'changed its evidence'}}}
-        message = refusal('sol', 'F-1', record)
+    def test_refusal_names_each_row_and_falls_back_without_an_explanation(self):
+        record = {'unretained_finding_dispositions': {'sol': {'F-1': 'changed its evidence',
+                                                              'F-2': 'is not in the original review'}}}
+        message = refusal('sol', ['F-1'], record)
         self.assertTrue(message.startswith('A report-only repair cannot close findings: '
                                            'sol finding_dispositions row F-1 changed its evidence. '), message)
         self.assertIn('byte-for-byte copy, evidence included', message)
+        self.assertIn('A report-only repair cannot close findings: sol finding_dispositions row F-1 changed its '
+                      'evidence; sol finding_dispositions row F-2 is not in the original review. ',
+                      refusal('sol', ['F-1', 'F-2', 'F-1'], record))
         self.assertIn('astra finding_dispositions row F-1 is not an exact row of the original completed review',
-                      refusal('astra', 'F-1', record))
-        self.assertIn('row F-2 is not an exact row', refusal('sol', 'F-2', {}))
+                      refusal('astra', ['F-1'], record))
+        self.assertIn('row F-2 is not an exact row', refusal('sol', ['F-2'], {}))
 
     def test_the_ledger_still_refuses_a_changed_row_and_names_it(self):
         state = {}
@@ -228,9 +253,30 @@ class UnretainedDispositionTests(unittest.TestCase):
         findings.record_validation(state, copy.deepcopy(original), record)
         self.assertEqual([], findings.open_entries(state))
 
+    def test_the_ledger_names_every_changed_row_of_open_findings_at_once(self):
+        state = {}
+        findings.record_validation(state, {'findings': [
+            {'severity': 'high', 'finding': defect, 'evidence': 'event:check', 'blocking': True}
+            for defect in ('Empty names are accepted', 'Long names are cut', 'Tabs are kept')]}, {'output': 'sol-01.json'})
+        first, second, third = (row['id'] for row in findings.open_entries(state))
+        original = report(disposition(first), disposition(second), disposition(third), disposition('F-closed'))
+        # The first and third rows were rewritten; the second is exact; F-closed names no open finding.
+        repaired = report(disposition(first, evidence='receipt.json'), disposition(second),
+                          disposition(third, evidence='receipt.json'), disposition('F-closed', evidence='x'))
+        record = {'output': 'repair.json', 'report_repaired': True, **retained(self.SOL, original, repaired)}
+        with self.assertRaises(ValueError) as caught:
+            findings.record_validation(state, copy.deepcopy(repaired), record)
+        message = str(caught.exception)
+        for fid in (first, third):
+            self.assertIn(f"sol finding_dispositions row {fid} changed its evidence from the original review's row",
+                          message)
+        self.assertNotIn(second, message)
+        self.assertNotIn('F-closed', message)
+        self.assertEqual(3, len(findings.open_entries(state)))
+
     def test_the_repair_prompt_rule_forbids_editing_a_closure_row(self):
         for phrase in ('byte-for-byte', 'evidence text', 'omit a row rather than edit it',
-                       'even where you correct a citation elsewhere'):
+                       'even where you correct a citation elsewhere', 'cites a check (check:N) that you corrected'):
             self.assertIn(phrase, REPAIR_INSTRUCTION)
 
 

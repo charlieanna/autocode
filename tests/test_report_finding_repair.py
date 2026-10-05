@@ -48,7 +48,9 @@ class ReportFindingRepairCLI(unittest.TestCase):
             result['verdict'] = 'PASS'
         elif attack == 'live-churn':
             # #459 live run: the first repair "corrected" a citation inside a closure row. Told only that
-            # a repair cannot close findings, the next one dropped the closures; told which row, it keeps it.
+            # a repair cannot close findings, the next one dropped the closures. This scripted repairer
+            # keeps the row exactly when the refusal names it, as the prompt and refusal ask; one that
+            # ignores both still churns as before until the run pauses (#446 owns report-repair limits).
             rows = result['finding_dispositions']
             if 'cannot close findings' not in data['error']:
                 rows[0]['evidence'] = '.autocode/evidence/receipt.json'
@@ -92,11 +94,12 @@ class ReportFindingRepairCLI(unittest.TestCase):
                 self.assertIn(f"sol finding_dispositions row {fid} ", view["stop_reason"])
                 self.assertIn(why, view["stop_reason"])
 
-    def test_edited_closure_row_is_named_so_the_next_repair_keeps_it_instead_of_churning(self):
+    def test_refusal_names_the_edited_closure_row_so_a_repair_that_follows_it_keeps_the_closure(self):
         # #459 (live run 8soi9a5s): a Validator report was rejected for a citation. Its repair also
         # rewrote the evidence inside a closure row, so it was refused with a message that named no row;
         # the next repair dropped the closures, the finding stayed open, and the whole validation and
-        # repair cycle repeated until completion was refused. Naming the row lets the repair keep it.
+        # repair cycle repeated until completion was refused. This checks that the refusal and prompt
+        # give a repair what it needs to keep the closure; it cannot show that a live model follows them.
         view, probes = self.run_case("live-churn", expected=0)
         self.assertEqual("TASK_COMPLETE", view["status"])
         self.assertEqual(0, sum(row["status"] == "open" for row in view["evidence"]["findings"]))

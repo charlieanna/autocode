@@ -25,7 +25,8 @@ REPAIR_INSTRUCTION = (
     "byte-for-byte from the original completed, nonblocked review (the handoff's original_report when it is "
     'set, otherwise its rejected_report): the same id, disposition and evidence text, even where you correct '
     'a citation elsewhere in the report. Never copy a row that a later repair changed or added. A row that '
-    'differs by one character cannot close its finding and the repair is rejected; omit a row rather than edit it. ')
+    'differs by one character cannot close its finding and the repair is rejected; omit a row rather than edit it. '
+    'Also omit a row whose evidence cites a check (check:N) that you corrected, removed or renumbered. ')
 
 
 def _rows(report):
@@ -46,6 +47,15 @@ def _rows(report):
     return result
 
 
+def _fresh(record):
+    """True for a completed review stage record that has not been repaired, cut short or abandoned."""
+    return (isinstance(record, dict)
+            and record.get('stage') in (*REVIEW_SOURCES, 'astra_checkpoint')
+            and type(record.get('exit_code')) is int and record['exit_code'] == 0
+            and not any(record.get(flag) for flag in ('report_only', 'report_repaired',
+                        'truncated_output', 'timed_out', 'interrupted', 'abandoned')))
+
+
 def _reports(stage, report):
     if stage == 'astra_checkpoint':
         if not isinstance(report, dict):
@@ -63,11 +73,7 @@ def preserved_dispositions(record, original_report, repaired_report):
     A checkpoint's blocked or unknown reviewer outcome authorizes no rows for
     that reviewer; its other valid reviewer can still retain exact dispositions.
     """
-    if (not isinstance(record, dict)
-            or record.get('stage') not in (*REVIEW_SOURCES, 'astra_checkpoint')
-            or type(record.get('exit_code')) is not int or record['exit_code'] != 0
-            or any(record.get(flag) for flag in ('report_only', 'report_repaired',
-                'truncated_output', 'timed_out', 'interrupted', 'abandoned'))):
+    if not _fresh(record):
         return {}
     if not isinstance(original_report, dict) or not isinstance(repaired_report, dict):
         return {}
@@ -101,7 +107,28 @@ def _named_rows(report):
 
 
 UNAUTHORIZED = ('cannot be kept: the original review was blocked, incomplete or already repaired, '
-                'or a finding_dispositions row is malformed')
+                'or its finding_dispositions are malformed')
+MALFORMED_ELSEWHERE = ("matches the original review's row, but this repair's finding_dispositions are malformed "
+                       'elsewhere: each row needs exactly id, disposition and evidence, and no id may repeat')
+
+
+def _authorities(record, original_report):
+    """Each reviewer's original rows by ID, where that original review lets a repair keep exact rows.
+
+    These are the original-side conditions of ``preserved_dispositions``; a
+    reviewer missing here can keep no row, however exactly it is copied.
+    """
+    original = _reports(record['stage'], original_report) if _fresh(record) and isinstance(original_report, dict) else None
+    authorities, ids = {}, set()
+    for source, report in (original or {}).items():
+        before = _rows(report)
+        if before is None or ids.intersection(before):
+            return {}
+        ids.update(before)
+        field, applicable = APPLICABLE_OUTCOMES[source]
+        if report.get(field) in applicable:
+            authorities[source] = before
+    return authorities
 
 
 def _reason(before, row):
@@ -109,7 +136,7 @@ def _reason(before, row):
         return 'is not in the original review'
     missing = object()
     changed = [key for key in sorted(set(before) | set(row)) if before.get(key, missing) != row.get(key, missing)]
-    return f"changed its {' and '.join(changed)} from the original review's row" if changed else UNAUTHORIZED
+    return f"changed its {' and '.join(changed)} from the original review's row" if changed else MALFORMED_ELSEWHERE
 
 
 def retained(record, original_report, repaired_report):
@@ -117,27 +144,27 @@ def retained(record, original_report, repaired_report):
 
     The second maps reviewer and finding ID to why that repaired row is not
     among the exact rows kept. It grants nothing: only the first field can.
+    It names a difference only where an exact copy would be kept.
     """
     kept = preserved_dispositions(record, original_report, repaired_report)
     stage = record.get('stage') if isinstance(record, dict) else None
     unretained = {}
     if stage in (*REVIEW_SOURCES, 'astra_checkpoint') and isinstance(repaired_report, dict):
-        original = _reports(stage, original_report) if isinstance(original_report, dict) else None
+        authorities = _authorities(record, original_report)
         for source, report in (_reports(stage, repaired_report) or {}).items():
-            earlier = {}
-            for row in _named_rows((original or {}).get(source)):
-                earlier.setdefault(row['id'], row)
             for row in _named_rows(report):
                 if row not in kept.get(source, []):
-                    why = _reason(earlier.get(row['id']), row) if original is not None else UNAUTHORIZED
+                    why = _reason(authorities[source].get(row['id']), row) if source in authorities else UNAUTHORIZED
                     unretained.setdefault(source, {}).setdefault(row['id'], why)
     return {'preserved_finding_dispositions': kept, 'unretained_finding_dispositions': unretained}
 
 
-def refusal(source, finding_id, record):
-    """The findings ledger's error for a repaired disposition it may not apply."""
-    why = ((record.get('unretained_finding_dispositions') or {}).get(source) or {}).get(finding_id)
-    return (f'A report-only repair cannot close findings: {source} finding_dispositions row {finding_id} '
-            f"{why or 'is not an exact row of the original completed review'}. A repair keeps a closure only as "
+def refusal(source, finding_ids, record):
+    """The findings ledger's error naming every repaired disposition of ``source`` it may not apply."""
+    why = (record.get('unretained_finding_dispositions') or {}).get(source) or {}
+    rows = '; '.join(f"{source} finding_dispositions row {fid} "
+                     f"{why.get(fid) or 'is not an exact row of the original completed review'}"
+                     for fid in dict.fromkeys(finding_ids))
+    return (f'A report-only repair cannot close findings: {rows}. A repair keeps a closure only as '
             'a byte-for-byte copy, evidence included, of a row from a completed, nonblocked original review; '
             'otherwise omit the row and leave the finding open for a fresh review')

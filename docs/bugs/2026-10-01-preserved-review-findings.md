@@ -36,8 +36,15 @@ citations", so a Validator report repair also rewrote the evidence inside a
 closure row (`check:1` became a receipt path). The guard refused it with a
 message that named no row, the next repair dropped the closures, the finding
 stayed open, and the validation and repair cycle repeated. The repair prompt now
-says to copy each kept row byte-for-byte, evidence included, and to omit a row
-rather than edit it. The refusal names the reviewer, the finding ID and the
-fields that differ, or says why the original review cannot authorize the row.
-The guard itself is unchanged: only exact rows from a completed, nonblocked
-original review survive a repair.
+says to copy each kept row byte-for-byte, evidence included, to omit a row
+rather than edit it, and to omit one whose cited `check:N` it corrected or
+renumbered. The refusal names every refused row of open findings, with the
+fields that differ, or says that the original review cannot authorize any row
+(then no copy, however exact, would be kept). The guard itself is unchanged:
+only exact rows from a completed, nonblocked original review survive a repair.
+
+This reduces churn only when the repairer follows the prompt and the refusal.
+A repairer that keeps editing or dropping the closure still cycles as before
+(in the CLI fixture: two Validator rounds, four repairs, then completion is
+refused and the run pauses). Bounding repeated closure refusals belongs with
+the report-repair limits in #446.
