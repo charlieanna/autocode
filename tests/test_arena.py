@@ -174,6 +174,45 @@ class ArenaTests(unittest.TestCase):
         with self.assertRaises(ArenaError):
             self.store.finish(row)
 
+    def test_failed_start_retains_the_created_run_for_inspection(self):
+        self.assertEqual(0, self.ingest().returncode)
+
+        def start(workspace, brief, **kwargs):
+            run_dir = workspace / ".autocode/runs/saved-before-timeout"
+            run_dir.mkdir(parents=True)
+            raise arena.TaskRunError("start did not finish within 60 s", run_dir=run_dir)
+
+        with patch.object(arena.TaskRun, "start", side_effect=start):
+            result = self.call("run", "greeting", "--cohort", "timeout", "--fixture")
+        self.assertEqual(1, result.returncode)
+        row = json.loads(result.stdout)
+        self.assertEqual("ERROR", row["verdict"])
+        self.assertTrue(Path(row["run_dir"]).is_dir())
+        self.assertTrue(Path(row["run_dir"]).is_relative_to(row["workspace"]))
+        self.assertEqual(row["run_dir"], self.store.rows()[0]["run_dir"])
+
+    def test_already_complete_attempt_does_not_require_a_plan_need(self):
+        self.assertEqual(0, self.ingest().returncode)
+        reference = self.reference
+
+        class CompleteRun:
+            @classmethod
+            def start(cls, workspace, brief, **kwargs):
+                import shutil
+                result = cls()
+                result.run_dir = workspace / ".autocode/runs/completed"
+                shutil.copyfile(reference / "greet.py", workspace / "greet.py")
+                return result
+
+            def advance_until_input(self):
+                return {"status": "TASK_COMPLETE", "done": True, "needs": None}
+
+        with patch.object(arena, "TaskRun", CompleteRun):
+            result = self.call("run", "greeting", "--cohort", "complete", "--fixture",
+                               "--approve-benchmark-plans")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("PASS", json.loads(result.stdout)["verdict"])
+
     def test_proposal_does_not_expose_holdout_failures_or_invent_causes(self):
         self.assertEqual(0, self.ingest().returncode)
         for case in ("greeting", "secret-holdout"):

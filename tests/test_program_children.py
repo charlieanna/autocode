@@ -153,9 +153,10 @@ class InvocationTests(unittest.TestCase):
         self.logs = self.root / "logs"
         self.logs.mkdir()
         self.child = FakeChild()
-        patcher = patch.object(taskrun.subprocess, "run", side_effect=self.child)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for target, name in ((taskrun.subprocess, "run"), (taskrun, "run_captured")):
+            patcher = patch.object(target, name, side_effect=self.child)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.record = {"status": "RUNNING", "workspace": str(self.workspace)}
 
     def start(self, record=None):

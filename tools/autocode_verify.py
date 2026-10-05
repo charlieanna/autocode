@@ -106,6 +106,22 @@ def _git(cwd, *args, check=True):
     return result.stdout
 
 
+def _document_only_base(workspace, base):
+    """Only an empty pinned tree or a regular non-executable root README.md.
+
+    Source/test filename conventions cannot establish absence of existing
+    behavior. Keep this positive documentation inventory deliberately narrow:
+    unknown files, executable documents, links and submodules need preservation.
+    """
+    for entry in _git(workspace, "ls-tree", "-r", "-z", base).split("\0"):
+        if not entry:
+            continue
+        metadata, separator, path = entry.partition("\t")
+        if not separator or metadata.split()[:2] != ["100644", "blob"] or path != "README.md":
+            return False
+    return True
+
+
 def _ignored(path: str) -> bool:
     # Top-level dependency links are runner-made (link_dependencies), never part of a fix.
     return (path.startswith((".autocode/", ".autocode-ui/")) or "/__pycache__/" in f"/{path}"
@@ -564,27 +580,36 @@ def link_dependencies(source_root, tree):
 GENERATED_SOURCE_LIMIT = 1_000_000
 
 
-def copy_generated_sources(source_root, tree):
-    """Copy build-generated source files (git-ignored code next to tracked code,
-    such as a setuptools-scm or hatch-vcs ``_version.py``) into a scratch tree.
-    A fresh worktree lacks them, so the package would not import there. Base and
-    candidate trees receive the same files, so the comparison stays fair."""
+def _generated_sources(source_root):
+    """Eligible ignored build inputs, shared by scratch copies and receipt identity."""
     if not source_root:
         return []
-    source_root, tree = Path(source_root), Path(tree)
+    source_root = Path(source_root)
     ignored = _git(source_root, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory",
                    check=False).split("\0")
     tracked_dirs = {str(PurePosixPath(p).parent) for p in _git(source_root, "ls-files", "-z", check=False).split("\0")
                     if p}
-    copied = []
+    selected = []
     for relative in ignored:
         path = PurePosixPath(relative)
         if (not relative or relative.endswith("/") or path.suffix not in CODE_SUFFIXES
                 or str(path.parent) not in tracked_dirs or any(part in DEPENDENCY_DIRS for part in path.parts)):
             continue
-        source, target = source_root / relative, tree / relative
-        if (source.is_file() and not source.is_symlink() and not target.exists()
-                and source.stat().st_size <= GENERATED_SOURCE_LIMIT):
+        source = source_root / relative
+        if source.is_file() and not source.is_symlink() and source.stat().st_size <= GENERATED_SOURCE_LIMIT:
+            selected.append(relative)
+    return selected
+
+
+def copy_generated_sources(source_root, tree):
+    """Copy build-generated source files (git-ignored code next to tracked code,
+    such as a setuptools-scm or hatch-vcs ``_version.py``) into a scratch tree.
+    A fresh worktree lacks them, so the package would not import there. Base and
+    candidate trees receive the same files, so the comparison stays fair."""
+    copied = []
+    for relative in _generated_sources(source_root):
+        source, target = Path(source_root) / relative, Path(tree) / relative
+        if not target.exists():
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
             copied.append(relative)
@@ -843,6 +868,12 @@ def execution_identity(workspace, *, command=None, dependencies_from=None, full=
             "editable_sources": editable_sources, "unbound_editables": unbound_editables,
             "unbound_relative_pythonpath": relative_pythonpath,
             "generated_sources": generated,
+            # make_tree receives these from the dependency checkout, which may
+            # differ from the candidate. They also affect the base suite: keep
+            # this binding when baseline_identity drops candidate source fields.
+            "generated_dependency_sources": {
+                p: schedule.tree_identity(Path(dependencies_from or workspace) / p)
+                for p in _generated_sources(dependencies_from or workspace)},
             "platform": [sys.platform, os.uname().release, os.uname().machine]}
 
 
@@ -857,8 +888,9 @@ def baseline_identity(workspace, *, command=None, dependencies_from=None):
     The base suite is executed on a scratch tree of the base commit (plus an
     optional base patch). Builder edits to the candidate workspace cannot change
     its result, so this binding omits source revision, per-file metadata and
-    generated sources. Dependency trees, interpreter, environment and platform
-    stay: they do determine the base result.
+    generated sources. Generated inputs copied from the dependency checkout,
+    dependency trees, interpreter, environment and platform stay: they do
+    determine the base result.
 
     Reuse is offered when the remaining binding is complete enough to notice a
     runtime change (no unbound editables or relative PYTHONPATH, and dependency
@@ -1079,7 +1111,14 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                               "suite-on-candidate", timeout=timeout)
             checks["suite_on_candidate"] = on_candidate
             comparable = base_suite if base_suite and base_suite.get("command") == commands["suite"] else None
-            _judge_suite(on_candidate, comparable, fail, unverified, notes)
+            # A positively identified document-only project may introduce its
+            # first source and suite. Filename heuristics cannot rule out old
+            # behavior: empty collection can hide a filtered existing program.
+            allow_empty_base = bool(new_behavior and not preserve_only and not base_patch
+                                    and comparable and comparable.get("base") == base
+                                    and _document_only_base(workspace, base))
+            _judge_suite(on_candidate, comparable, fail, unverified, notes,
+                         allow_empty_base=allow_empty_base)
         elif sources or preserve_only:
             unverified.append("No project test command was found; existing behavior was not checked "
                               "(pass --test-command)")
@@ -1248,7 +1287,7 @@ def _pre_existing(framework, commands, changes, runnable_tests, workspace, base,
     return set(receipt["results"]["failed"]) if receipt.get("results") else None
 
 
-def _judge_suite(on_candidate, base_suite, fail, unverified, notes):
+def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_empty_base=False):
     """Nothing that passed on base may fail, be skipped, be deselected or disappear."""
     if on_candidate["timed_out"]:
         fail.append("The project suite timed out on the candidate")
@@ -1263,8 +1302,6 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes):
         if collection:
             unverified.append(f"The {label} suite has collection errors; preservation is unproven: "
                               + ", ".join(collection[:5]))
-    if base_results is not None and not base_results.get("passed"):
-        unverified.append("The base suite has no passing tests; preservation of existing behavior is unproven")
     if base_receipt.get("timed_out") or (base_results is not None and not base_results.get("complete")):
         unverified.append("The base suite was incomplete; preservation of its passing tests is unproven")
         return
@@ -1280,6 +1317,30 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes):
         else:
             unverified.append("The project suite reported no test results on the candidate")
         return
+    # Matching runner failures do not establish preserved behavior: a broken
+    # collector may report a complete set of error placeholders without running
+    # the suite. Keep comparing observed failures below so a real regression
+    # remains FAIL even when preservation coverage is unverified (#479).
+    # Python 3.14 unittest and pytest use exit 5 for honest empty collection.
+    # That is usable only when the caller identified a document-only pinned base and
+    # the candidate's new suite actually ran and passed in full.
+    empty_base = (allow_empty_base and base_results is not None
+                  and base_receipt.get("results_expected") is True
+                  and (base_receipt.get("exit_code") == 0
+                       or (base_receipt.get("exit_code") == 5
+                           and schedule.collection_kind(base_receipt.get("command", ""))
+                           in ("unittest", "pytest")))
+                  and base_results.get("complete") is True and base_results.get("total") == 0
+                  and all(base_results.get(key) == [] for key in
+                          ("passed", "failed", "skipped", "collection_errors"))
+                  and on_candidate["exit_code"] == 0 and schedule.complete_results(on_candidate)
+                  and candidate["passed"] and not candidate["failed"])
+    if base_results is not None:
+        if not empty_base and (not schedule.complete_results(base_receipt) or not base_results["passed"]):
+            unverified.append("The base suite provided no complete passing-test evidence; "
+                              "preservation of existing behavior is unproven")
+    elif base_suite is not None and base_suite.get("health") == "broken":
+        unverified.append("The base suite could not run; preservation of existing behavior is unproven")
     if candidate is not None and base_results is not None:
         new = sorted(set(candidate["failed"]) - set(base_results["failed"]))
         if new:

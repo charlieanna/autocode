@@ -262,15 +262,20 @@ class SmallCorrectionTests(unittest.TestCase):
         self.assertEqual("RUNNING", state["status"])
 
     def test_each_english_test_becomes_a_criterion_and_a_named_test(self):
-        second = {"id": "T2", "given": "no timeout", "when": "renew('example.com') runs", "then": "1 mutation"}
+        second = {"id": "T2", "given": "no timeout", "when": "renew('example.com') runs", "then": "1 mutation",
+                  "kind": "preserve"}
         state = self.start(test_cases=[CASE, second])
         criteria = state["goal_contract"]["body"]["acceptance_criteria"]
         self.assertEqual(["C1", "C2", "C3"], [row["id"] for row in criteria])
         self.assertEqual(bug_job.case_text(CASE), criteria[1]["criterion"])
         self.assertIn("test_t1_", criteria[1]["verification_method"])
+        self.assertIn("fails on the original code and passes after the fix", criteria[1]["verification_method"])
+        self.assertIn("passes on the original code and after the fix", criteria[2]["verification_method"])
         task = state["current_task"]
         self.assertEqual(["C1", "C2", "C3"], task["acceptance_criteria"])
         self.assertIn("as a test named test_t2_", " ".join(task["requirements"]))
+        preserved = next(row for row in task["requirements"] if "as a test named test_t2_" in row)
+        self.assertIn("passes on the original code and after the fix", preserved)
 
     def test_a_large_fix_is_not_auto_approved(self):
         state = self.start(fix_size="large")
@@ -301,6 +306,20 @@ class SmallCorrectionTests(unittest.TestCase):
         small, _ = autoplanner.context({**state, "investigation": {**state["investigation"], "fix_size": "small"}},
                                        "astra_discovery", Path(state["workspace"]) / "state.json")
         self.assertNotIn(autoplanner.BUG_DIAGNOSIS_RULE, small)
+
+    def test_planning_keeps_restore_and_preserve_cases_provable(self):
+        from units import autoplanner
+        preserve = {**CASE, "id": "T2", "given": "no timeout", "kind": "preserve"}
+        state = self.start(fix_size="large", test_cases=[CASE, preserve])
+        state["settings"]["roles"]["plan_reviewer"] = {"model": "p"}
+        prompt, _ = autoplanner.context(state, "astra_discovery", Path(state["workspace"]) / "state.json")
+        instruction = prompt.split("\nCURRENT HANDOFF DATA\n")[0]
+        self.assertIn("restore case (the default kind)", instruction)
+        self.assertIn("fails on the original code\nbecause of the bug and passes after the fix", instruction)
+        self.assertIn("must pass on the original code and after the fix", instruction)
+        self.assertIn("Keep each case's kind", instruction)
+        packet = json.loads(prompt.split("\nCURRENT HANDOFF DATA\n", 1)[1])
+        self.assertEqual([CASE, preserve], packet["bug_diagnosis"]["test_cases"])
 
     def test_investigation_and_planning_keep_regression_tests_off_the_fixs_seams(self):
         # Issue #299: tests that spied on a variable the fix added could not build on the unfixed code.

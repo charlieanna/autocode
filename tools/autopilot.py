@@ -671,7 +671,7 @@ def apply_diagnosis_result(runtime, state, value, record, workspace, run_dir):
     """
     unit_module('astra_diagnose').validate_diagnosis(state, value, record, workspace)
     runtime.resolver_runtime.finish_operational_diagnosis(state, run_dir, value['recommendation'],
-                                                        recovery_change=value.get('recovery_change'))
+                                                        recovery_change=value.get('recovery_change'), diagnosis=value['diagnosis'])
 
 
 def apply_result(runtime, state, stage, value, record, workspace, run_dir):

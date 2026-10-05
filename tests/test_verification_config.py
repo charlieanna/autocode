@@ -211,6 +211,66 @@ class VerificationProofCache(unittest.TestCase):
         self.assertEqual('PASS', third['verdict'], third)
         self.assertNotEqual(second['path'], third['path'])
 
+    def test_generated_dependency_changes_invalidate_real_candidate_and_base_proofs(self):
+        import autocode_regression as regression
+        import autocode_verify as verify
+        from .test_verify import Project, git
+
+        seed = {
+            '.gitignore': 'pkg/_generated.py\n__pycache__/\n',
+            'pkg/__init__.py': '',
+            'app.py': 'from pkg._generated import OFFSET\ndef value(n):\n    return n + 1 + OFFSET\n',
+            'test_app.py': 'import unittest\nfrom app import value\nclass Case(unittest.TestCase):\n'
+                           '    def test_one_is_preserved(self):\n        self.assertEqual(2, value(1))\n',
+        }
+        project = Project(seed)
+        self.addCleanup(project.close)
+        project.write({'pkg/_generated.py': 'OFFSET = 0\n'})
+        candidate = Path(project.temp.name) / 'candidate'
+        git(project.root, 'worktree', 'add', '--detach', str(candidate), project.base)
+        self.addCleanup(verify.remove_tree, project.root, candidate)
+        (candidate / 'app.py').write_text(
+            'from pkg._generated import OFFSET\ndef value(n):\n'
+            '    return (4 if n == 2 else n + 1) + OFFSET\n')
+        (candidate / 'test_app.py').write_text(seed['test_app.py'] +
+            '    def test_two_is_fixed(self):\n        self.assertEqual(4, value(2))\n')
+        state = {'goal_contract': {'body': {'task_kind': 'bugfix'}}, 'base_commit': project.base,
+                 'project_workspace': str(project.root),
+                 'settings': {'regression': {'python': self.python, 'test_timeout': 15}}}
+        run = project.evidence
+        first = regression.prove(state, candidate, run)
+        self.assertEqual('PASS', first['verdict'], first)
+        self.assertTrue(first['execution_context']['identity']['reuse_supported'])
+        self.assertFalse((candidate / 'pkg/_generated.py').exists(), 'input comes from dependencies_from')
+        baseline = state['regression_baseline']['path']
+        self.assertEqual(first['path'], regression.prove(state, candidate, run)['path'])
+
+        # A Builder edit needs a new candidate proof, but leaves the original
+        # suite unchanged. This is real baseline reuse, without mocked identities.
+        with (candidate / 'app.py').open('a') as handle:
+            handle.write('# unrelated candidate edit\n')
+        edited = regression.prove(state, candidate, run)
+        self.assertEqual('PASS', edited['verdict'], edited)
+        self.assertNotEqual(first['path'], edited['path'])
+        self.assertEqual(baseline, state['regression_baseline']['path'])
+
+        project.write({'pkg/_generated.py': 'OFFSET = 1\n'})
+        changed = regression.prove(state, candidate, run)
+        self.assertEqual(edited['source_revision'], changed['source_revision'])
+        self.assertEqual('FAIL', changed['verdict'], changed)
+        self.assertNotEqual(edited['path'], changed['path'])
+        self.assertNotEqual(baseline, state['regression_baseline']['path'])
+        receipt = json.loads(Path(changed['path']).read_text())
+        self.assertEqual(1, receipt['checks']['suite_on_candidate']['exit_code'])
+        self.assertIn('test_app.Case.test_two_is_fixed', receipt['checks']['suite_on_candidate']['results']['failed'])
+
+        # A fresh proof of exactly the changed inputs is the independent negative
+        # control: cache invalidation must agree with actual Python execution.
+        fresh = regression.prove(copy.deepcopy({key: state[key] for key in
+            ('goal_contract', 'base_commit', 'project_workspace', 'settings')}), candidate, run / 'fresh')
+        self.assertEqual('FAIL', fresh['verdict'], fresh)
+        self.assertEqual(changed['source_revision'], fresh['source_revision'])
+
     def test_changed_detected_suite_reruns_proof_for_unchanged_source_and_options(self):
         import autocode_regression as regression
         import autocode_verify as verify

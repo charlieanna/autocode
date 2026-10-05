@@ -51,7 +51,9 @@ Every plan must uphold its invariant as an acceptance criterion, checked as exac
 original code and passes after the fix, and must keep the project's existing tests passing. Its test_cases
 are those regression tests in plain English: make each one an acceptance criterion quoting its given, when
 and then, and require one test per case named test_<id>_<what it checks> (T1 -> test_t1_...); the runner
-refuses the fix unless every case has such a test that fails on the original code and passes after it. Fix the cause,
+refuses the fix unless every restore case (the default kind) has such a test that fails on the original code
+because of the bug and passes after the fix. A preserve case describes behavior that already works: its test
+must pass on the original code and after the fix. Keep each case's kind when planning its verification. Fix the cause,
 not the symptom, and do not widen the change beyond what the root cause needs. Do not ask the user what the
 fix should achieve; ask only about a genuine choice the diagnosis leaves open.
 Cite the diagnosis in code_refs as exactly its note_path; explanations go in summaries, never inside a path.
