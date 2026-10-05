@@ -1946,6 +1946,27 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
                     "store, and must also assert that stderr has no argparse usage error ('usage:' and 'invalid "
                     "choice' absent) and contains the rule-specific refusal message produced by stock.py.",
                     "Only the file tests/test_stock.py."]}},
+            # Live 2026-10-05, second hybrid batch (fixed product): a guard on the product, and argparse named
+            # between "unknown" and "subcommands".
+            "live e6e57ewm: product change only to fix an exposed defect": {
+                **self.GOOD, "affected_paths": ["tests/test_stock.py"],
+                "next_task": {"kind": "implement", "requirements": [
+                    "Strengthen test_c3_move_more_than_on_hand_is_refused so it fails on base: assert the 'cannot "
+                    "take' refusal text and that stderr has no 'invalid choice'.",
+                    "Do not weaken ReceiveTests or the C1/C2 tests. Change stock.py or README.md only to fix a real "
+                    "defect that the stronger tests expose. Python standard library only."]}},
+            "live tzafwfjf: product change only if a test exposes a defect": {
+                **self.GOOD, "affected_paths": ["tests/test_stock.py"],
+                "next_task": {"kind": "implement", "requirements": [
+                    "Strengthen test_c3_move_more_than_on_hand_is_refused to assert the refusal text.",
+                    "Change stock.py/README.md only if a strengthened test exposes a genuine defect against the "
+                    "brief."]}},
+            "live q1le599l: unknown argparse subcommands": {
+                **self.GOOD, "affected_paths": ["tests/test_stock.py"],
+                "diagnosis": "The implementation is behaviorally correct; the defect is test discrimination. On base "
+                             "b85c046 'move'/'remove' are unknown argparse subcommands, so argparse exits 2 with "
+                             "stderr and never touches stock.json, which satisfies every assertion in "
+                             "test_c3..test_c7. That makes them pass_to_pass, and regression_proof FAILs."},
         }
         for label, report in right.items():
             with self.subTest(label):
