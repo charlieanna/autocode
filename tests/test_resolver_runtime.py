@@ -1,6 +1,7 @@
 """Runner boundary integration, with no live models or autonomous code writes."""
 import copy
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
+import io
 import json
 import os
 import sys
@@ -11,7 +12,7 @@ from unittest.mock import patch
 
 from . import test_autocode as base
 from . import test_report_repair as repairs
-from goal_fixtures import approve_fixture, assert_operational_wait, envelope
+from goal_fixtures import approve_fixture, assert_operational_wait, body, envelope
 
 runner, support = base.runner, base.s
 # The exact module instance runner.autopilot itself dispatches through: importing
@@ -1043,6 +1044,159 @@ class OperationalDiagnosisTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as caught:
                 runner.main()
         self.assertEqual(2, caught.exception.code)
+
+
+class OperationalBudgetResumeTests(unittest.TestCase):
+    """Public CLI recovery of an answered time-cap pause, without a live provider."""
+
+    def setUp(self):
+        base.RetrofitTest.setUp(self)
+        runner.lifecycle.migrate(self.state)
+        runner.lifecycle.install_draft(self.state, body(), origin='fixture', queue_human=False)
+        self.state.update(next_stage='astra_discovery', active_seconds=3870.78)
+        self.state['settings'].update(engine='codex', transport_identity={'auth_mode': 'fixture'},
+            limits={'iteration_ceiling': 18, 'max_seconds': 3600,
+                    'no_progress_batches': 3, 'automatic_retries': 0, 'stage_timeout_seconds': 900,
+                    'idle_timeout_seconds': 300, 'tool_timeout_seconds': 1800},
+            budget_origins={'max_seconds': 'user_explicit', 'iteration_ceiling': 'user_explicit'})
+        self.other_limits = {key: value for key, value in self.state['settings']['limits'].items()
+                             if key != 'max_seconds'}
+        self.contract = copy.deepcopy(self.state['goal_contract'])
+        self.active_seconds = self.state['active_seconds']
+
+    def cli(self, *options):
+        support.atomic_json(self.run / 'state.json', self.state)
+        argv = ['autocode.py', '--workspace', str(self.root), '--run-dir', str(self.run),
+                '--no-chat', *options]
+        output = io.StringIO()
+        with patch.dict(os.environ, {'AUTOCODE_HOME': str(self.root / '.autocode' / 'registry')}), \
+             patch.object(sys, 'argv', argv), patch.object(support, 'assert_no_legacy_process'), \
+             patch.object(support, 'local_settings', return_value={'auth_mode': 'fixture'}), \
+             patch.object(runner, 'run_role', side_effect=RuntimeError('offline planning admission')) as launch, \
+             redirect_stdout(output), redirect_stderr(output):
+            code = runner.main()
+        self.output = output.getvalue()
+        self.state = support.read(self.run / 'state.json')
+        return code, launch
+
+    def answered_time_pause(self):
+        code, launch = self.cli()
+        self.assertEqual(2, code)
+        launch.assert_not_called()
+        public = assert_operational_wait(self, self.state, 'PAUSED_TIME_LIMIT')
+        code, launch = self.cli('--resolver-request', public['request_id'],
+            '--resolver-token', public['request_token'], '--resolver-response', 'provide_information',
+            '--resolver-message', 'User authorizes another 1800 active seconds, total cap 5400.')
+        self.assertEqual(0, code)
+        launch.assert_not_called()
+        code, launch = self.cli('--resume-paused')
+        self.assertEqual(2, code)
+        launch.assert_not_called()
+        self.assertEqual('PAUSED_TIME_LIMIT', self.state['status'])
+        self.assertIsNone(runner.lifecycle.human.current(self.state))
+        self.assertEqual(3600, self.state['settings']['limits']['max_seconds'])
+        self.assert_preserved()
+
+    def assert_preserved(self, *, stage_seconds=900):
+        self.assertEqual(self.active_seconds, self.state['active_seconds'])
+        self.assertEqual(self.contract, self.state['goal_contract'])
+        self.assertFalse(runner.goals.approved(self.state))
+        self.assertEqual('astra_discovery', self.state['next_stage'])
+        self.assertEqual({**self.other_limits, 'stage_timeout_seconds': stage_seconds},
+                         {key: value for key, value in self.state['settings']['limits'].items()
+                          if key != 'max_seconds'})
+        self.assertEqual('user_explicit', self.state['settings']['budget_origins']['max_seconds'])
+        self.assertNotIn('active_stage', self.state)
+        self.assertFalse(any(row.get('stage') == 'terra' for row in self.state['stages']))
+
+    def assert_planning_admitted(self, code, launch):
+        self.assertEqual(2, code)  # The fake provider stops immediately at admission.
+        self.assertEqual(1, launch.call_count, self.output)
+        self.assertEqual('astra', launch.call_args.kwargs['role'])
+        self.assertFalse(launch.call_args.kwargs['allow_write'])
+        self.assertEqual('read-only', launch.call_args.kwargs['sandbox'])
+        self.assertEqual(5400, self.state['settings']['limits']['max_seconds'])
+        self.assert_preserved()
+
+    def test_cli_changed_time_cap_after_consumed_response_resumes_only_planning(self):
+        self.answered_time_pause()
+        self.assert_planning_admitted(*self.cli('--resume-paused', '--max-seconds', '5400'))
+
+    def test_cli_reasserting_persisted_time_cap_resumes_only_planning(self):
+        self.answered_time_pause()
+        self.persist_stale_time_pause()
+        self.assert_planning_admitted(*self.cli('--resume-paused', '--max-seconds', '5400'))
+
+    def persist_stale_time_pause(self):
+        # Save the larger cap without resuming, then expose the still-unacknowledged pause.
+        # This is the same public CLI sequence used by the independent live fixture.
+        for options in (('--max-seconds', '5400'), ('--resume-paused',)):
+            code, launch = self.cli(*options)
+            self.assertEqual(2, code)
+            launch.assert_not_called()
+        assert_operational_wait(self, self.state, 'PAUSED_TIME_LIMIT')
+
+    def test_cli_time_pause_requires_matching_unexhausted_explicit_cap(self):
+        self.answered_time_pause()
+        baseline = copy.deepcopy(self.state)
+        for options in (('--resume-paused',),
+                        ('--resume-paused', '--max-seconds', '3600'),
+                        ('--resume-paused', '--max-stage-seconds', '1200')):
+            with self.subTest(options=options):
+                self.state = copy.deepcopy(baseline)
+                code, launch = self.cli(*options)
+                self.assertEqual(2, code)
+                self.assertEqual(0, launch.call_count, self.output)
+                self.assertIn(self.state['status'], ('PAUSED_TIME_LIMIT', 'WAITING_FOR_USER'))
+                self.assertEqual(3600, self.state['settings']['limits']['max_seconds'])
+                self.assert_preserved(stage_seconds=1200 if '--max-stage-seconds' in options else 900)
+
+    def test_cli_persisted_time_cap_does_not_make_bare_or_unrelated_resume_authority(self):
+        self.answered_time_pause()
+        self.persist_stale_time_pause()
+        baseline = copy.deepcopy(self.state)
+        for options in (('--resume-paused',),
+                        ('--resume-paused', '--max-stage-seconds', '1200'),
+                        ('--max-seconds', '5400')):
+            with self.subTest(options=options):
+                self.state = copy.deepcopy(baseline)
+                code, launch = self.cli(*options)
+                self.assertEqual(2, code)
+                self.assertEqual(0, launch.call_count, self.output)
+                assert_operational_wait(self, self.state, 'PAUSED_TIME_LIMIT')
+                self.assertEqual(5400, self.state['settings']['limits']['max_seconds'])
+                self.assert_preserved(stage_seconds=1200 if '--max-stage-seconds' in options else 900)
+
+    def test_cli_reasserting_exhausted_persisted_cap_does_not_reset_elapsed_time(self):
+        self.answered_time_pause()
+        self.active_seconds = self.state['active_seconds'] = 5400
+        self.persist_stale_time_pause()
+        code, launch = self.cli('--resume-paused', '--max-seconds', '5400')
+        self.assertEqual(2, code)
+        launch.assert_not_called()
+        assert_operational_wait(self, self.state, 'PAUSED_TIME_LIMIT')
+        self.assertEqual(5400, self.state['settings']['limits']['max_seconds'])
+        self.assert_preserved()
+
+    def test_cli_time_cap_cannot_acknowledge_a_different_request_scope(self):
+        self.answered_time_pause()
+        baseline = copy.deepcopy(self.state)
+        for scope in ('permission', 'goal_change'):
+            with self.subTest(scope=scope):
+                self.state = copy.deepcopy(baseline)
+                runner.lifecycle.wait_for_user(self.state, {
+                    'kind': scope, 'discovered': 'The task needs a separate decision',
+                    'impact': 'Changes the permitted work', 'decision_needed': 'Authorize the changed scope?',
+                    'options': ['Leave paused', 'Revise the goal'], 'proposed_delta': 'Change permitted work'},
+                    origin={'stage': 'astra_discovery'})
+                runner.write_json(self.run / 'state.json', self.state)
+                self.state = support.read(self.run / 'state.json')
+                self.assertEqual(scope, runner.lifecycle.human.current(self.state)['scope'])
+                code, launch = self.cli('--resume-paused', '--max-seconds', '5400')
+                self.assertEqual(2, code)
+                self.assertEqual(0, launch.call_count, self.output)
+                self.assertEqual(scope, runner.lifecycle.human.current(self.state)['scope'])
+                self.assert_preserved()
 
 
 class OperationalDiagnosisUnitTests(unittest.TestCase):

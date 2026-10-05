@@ -80,7 +80,8 @@ def _configuration_sources(workspace, *, env=None):
     home = Path(effective["HOME"]) if effective.get("HOME") else Path.home()
     global_root = (Path(effective["XDG_CONFIG_HOME"]) if effective.get("XDG_CONFIG_HOME") else home / ".config") / "opencode"
     directories = {global_root, home / ".opencode"}
-    paths, definitions = set(), set()
+    paths = {Path(__file__).with_name("opencode_activity.mjs").resolve()}
+    definitions = set()
     for parent in (root, *root.parents):
         paths.update(parent / name for name in ("opencode.json", "opencode.jsonc"))
         directories.add(parent / ".opencode")
@@ -285,7 +286,9 @@ def launch(role, workspace, run_dir, session, model, effort, allow_write, *, pla
         # plugins' tools or edit escape hatch. The runner persists its report.
         permissions = {"*": "deny", "read": "allow", "glob": "allow", "grep": "allow", "list": "allow",
                        "edit": "deny", "bash": "deny", "task": "deny", "question": "deny", "external_directory": "deny"}
+    activity_plugin = Path(__file__).with_name("opencode_activity.mjs").resolve().as_uri()
     overrides = {"$schema": "https://opencode.ai/config.json", "share": "disabled", "autoupdate": False,
+                 "plugin": [activity_plugin],
                  "agent": {agent: {"description": f"Autocode {role} role", "mode": "primary",
                                     "permission": permissions}}}
     child = env_prep.child_environment(env)
@@ -304,7 +307,11 @@ def launch(role, workspace, run_dir, session, model, effort, allow_write, *, pla
     if not isinstance(policy, dict):
         raise ValueError("OpenCode agent permissions must be an action or an object")
     definition = {**prior, **overrides["agent"][agent], "permission": {**policy, **permissions}}
-    combined = {**inherited, **overrides, "agent": {**agents, agent: definition}}
+    plugins = inherited.get("plugin", [])
+    if not isinstance(plugins, list):
+        raise ValueError("OpenCode inline plugin configuration must be an array")
+    combined = {**inherited, **overrides, "agent": {**agents, agent: definition},
+                "plugin": [p for p in plugins if p != activity_plugin] + [activity_plugin]}
     child["OPENCODE_CONFIG_CONTENT"] = json.dumps(combined)
     command = ["opencode", "run", "--dir", str(workspace), "--format", "json", "--agent", agent,
                "--model", model, "--title", f"Autocode {role}: {run_dir}"]

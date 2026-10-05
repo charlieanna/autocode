@@ -9,8 +9,9 @@ the first stage that has the evidence:
 
 - Clarity, from the request text, at recognition. A build request the recognizer
   calls ``clear`` skips the Requirements stage; the Planner takes the requirements
-  from the request itself. Clarity is a property of the text, so the recognizer,
-  which reads no files, can judge it.
+  from the request itself. A follow-up with a saved requirements handoff refreshes
+  that handoff first, so the new request is not bound to the previous request's IDs.
+  Clarity is a property of the text, so the recognizer, which reads no files, can judge it.
 - Convergence, from the Plan Reviewer. The Planner's draft carries its initial_task,
   so a first review with no blocking concern approves an ordinary draft as written and it
   goes to the user. Progressive delegations retain revision and final independent review.
@@ -162,9 +163,10 @@ def recognizer_schema(state: dict, base: dict) -> dict:
 
 
 def entry_stage(state: dict, value: dict, then: str, planner_stage: str) -> str:
-    """The build pipeline's first stage after recognition: the Planner for a clear request."""
+    """Skip Requirements for clarity only when no prior-turn handoff needs refreshing."""
+    refresh_follow_up = bool(state.get("turns") and state.get("requirements_handoff"))
     if (enabled(state) and value.get("workflow") == "build" and value.get("clarity") == "clear"
-            and then == "requirements_gather"):
+            and then == "requirements_gather" and not refresh_follow_up):
         return planner_stage
     return then
 

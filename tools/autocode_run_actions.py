@@ -155,13 +155,6 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             specific_recovery = runner.prepare_abandoned_completion_revalidation(state, run_dir, workspace)
             if not specific_recovery:
                 state['status'] = published_status
-    if (not decision_action and not specific_recovery and not any((args.retry_builder, args.retry_failed_stage,
-                                            args.retry_report, args.abandon_stage,
-                                            args.grant_recovery is not None))
-            and resolver_human.response_holds_current_frontier(state)):
-        print('AutoResolver retained the human guidance. No new execution allowance or changed cause was established; '
-              'the run remains paused without repeating the same request.')
-        return 2
     acknowledged_planning_extension = (args.resume_paused and state.get('status') == 'PAUSED_PLANNING_BUDGET'
         and bool(state.get('user_events')) and state['user_events'][-1].get('kind') == 'planning_budget_change'
         and state['user_events'][-1].get('limit') == planning.review_call_limit(state)
@@ -178,6 +171,13 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         state['status'] = marker['pause_status']
         state.pop('_authorized_bound_change', None)
         runner.write_json(state_path, state)
+    if (not decision_action and not specific_recovery and not acknowledged_bound_change
+            and not any((args.retry_builder, args.retry_failed_stage, args.retry_report,
+                         args.abandon_stage, args.grant_recovery is not None))
+            and resolver_human.response_holds_current_frontier(state)):
+        print('AutoResolver retained the human guidance. No new execution allowance or changed cause was established; '
+              'the run remains paused without repeating the same request.')
+        return 2
     default_budget_kind = {'PAUSED_ITERATION_LIMIT': 'iteration_ceiling',
                            'PAUSED_TIME_LIMIT': 'max_seconds',
                            'PAUSED_MILESTONE_TIME_LIMIT': 'milestone_max_seconds'}.get(state.get('status'))

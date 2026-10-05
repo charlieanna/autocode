@@ -1,4 +1,5 @@
 """Deterministic activity/deadline tests using raw provider events only."""
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -98,6 +99,45 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(0, self.monitor.snapshot()['active_tool_count'])
         self.now = 5
         self.assertEqual('idle', self.monitor.expired()['kind'])
+
+    def progress(self, offset, content, delta=None, identifier="part", **changes):
+        row = {"type": "autocode_progress", "version": 1, "sessionID": "session",
+               "progress": {"id": identifier, "kind": "text", "position": offset,
+                            "content_hash": hashlib.sha256(content.encode()).hexdigest(),
+                            "delta_hash": hashlib.sha256((content if delta is None else delta).encode()).hexdigest(),
+                            "nonwhite": True}}
+        row["progress"].update(changes)
+        return self.append(row)
+
+    def test_native_progress_keeps_unfinished_text_live_then_expires_when_traffic_stops(self):
+        for index in range(4):
+            self.now = index * 4
+            self.progress(index + 1, f"new native text {index}")
+            self.assertIsNone(self.monitor.expired())
+        self.assertEqual(0, self.monitor.snapshot()["active_tool_count"])
+        self.now = 17
+        self.assertEqual("idle", self.monitor.expired()["kind"])
+
+    def test_native_progress_replays_counters_and_repeated_content_are_not_activity(self):
+        self.progress(10, "Checking.")
+        self.now = 4
+        self.progress(10, "Checking.")
+        self.progress(9, "out of order")
+        self.progress(20, "Checking.")
+        self.progress(30, "Checking. Checking.", "Checking.")
+        self.progress(40, "Checking.", identifier="different-id")
+        self.now = 5
+        self.assertEqual("idle", self.monitor.expired()["kind"])
+        self.progress(50, "Checking. New finding.", "New finding.")
+        self.assertIsNone(self.monitor.expired())
+
+    def test_native_progress_rejects_blank_unknown_or_malformed_signals(self):
+        self.now = 4
+        for changes in ({"nonwhite": False}, {"kind": "heartbeat"}, {"position": True},
+                        {"position": -1}, {"content_hash": "invented"}, {"delta_hash": None}):
+            self.progress(10, "ignored", **changes)
+        self.now = 5
+        self.assertEqual("idle", self.monitor.expired()["kind"])
 
     def test_multiple_tools_use_earliest_outstanding_deadline(self):
         self.codex('started')
