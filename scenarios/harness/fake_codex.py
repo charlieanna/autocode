@@ -9,6 +9,10 @@ plumbing for a scenario; it says nothing about model quality.
 
 Configuration comes from the JSON file named by SCENARIO_FAKE_CONFIG:
 {"title", "brief", "reference", "check", "paths"}.
+
+In a conversation (``turns``) the solution is the end state of every turn. The fake
+reads which turn it serves from the handoff's task, which starts with the newest
+message (autocode_follow_up), and with ``turn_paths`` delivers only that turn's files.
 """
 from __future__ import annotations
 
@@ -25,7 +29,9 @@ CONFIG = json.loads(Path(os.environ["SCENARIO_FAKE_CONFIG"]).read_text())
 PROMPT = ""
 DATA: dict = {}
 CHECK = CONFIG["check"]
-PATHS = CONFIG["paths"]
+ALL_PATHS = CONFIG["paths"]
+PATHS = ALL_PATHS  # this turn's solution files (turn_paths), set per invocation in main()
+FOLLOW_UP = "\n\nThis follows up an earlier request in the same conversation"
 # Multi-milestone scenarios (parallel-diamond) declare their graph here; the
 # scripted plan, builds and per-milestone validation follow it, and AutoCode's
 # real orchestrator does the parallel scheduling.
@@ -41,6 +47,34 @@ SCOPED_REQUEST = {"kind": "permission",
                   "decision_needed": "May I append only '# Scoped consent: lesson note' to lessons.py?",
                   "options": [SCOPED_DENIAL, SCOPED_CONDITION],
                   "proposed_delta": "No goal, scope, criterion, behavior, filesystem, provider or spending change. Optional comment only in lessons.py within the existing approved paths."}
+
+
+def turn_number() -> int:
+    """Which turn of the conversation this stage serves: 0 for the brief, n for the n-th follow-up.
+    A report repair's packet has no task; it serves the turn of the stage it repairs, the last one seen."""
+    seen = Path(os.environ["SCENARIO_FAKE_CONFIG"]).with_name("fake-turn.json")
+    if not DATA.get("task"):
+        return json.loads(seen.read_text()) if seen.is_file() else 0
+    task = str(DATA["task"])
+    number = max((n for n, say in enumerate(CONFIG.get("turns") or [], start=1) if task.startswith(say)), default=0)
+    seen.write_text(json.dumps(number))
+    return number
+
+
+def turn_paths() -> list[str]:
+    """The solution files this turn delivers: every one, unless [fake] turn_paths splits them by turn."""
+    table = CONFIG.get("turn_paths") or []
+    if not table:
+        return ALL_PATHS
+    prefixes = tuple(table[turn_number()])
+    return [path for path in ALL_PATHS if path.startswith(prefixes)]
+
+
+def request() -> str:
+    """The request this turn serves: the brief, or the newest follow-up without the earlier turns it quotes."""
+    if not CONFIG.get("turns") or not DATA.get("task"):
+        return CONFIG["brief"]
+    return str(DATA["task"]).split(FOLLOW_UP, 1)[0]
 
 
 def renewal_proposal(later=False, done=None):
@@ -303,8 +337,8 @@ def run_verify(command: str, *, fabricated=False) -> tuple[int, str]:
 def requirements() -> list[dict]:
     """One requirement per sentence of the brief, then of the user's saved feedback, quoted verbatim, as
     AutoCode's planner rules demand."""
-    texts = [CONFIG["brief"], *(row.get("text", "") for row in DATA.get("brief_feedback") or []
-                                if row.get("actor") == "user_cli")]
+    texts = [request(), *(row.get("text", "") for row in DATA.get("brief_feedback") or []
+                          if row.get("actor") == "user_cli")]
     sentences = [part.strip() for text in texts for part in re.split(r"(?<=[.!?])\s+", text.strip()) if part.strip()]
     return [{"id": f"R{number}", "text": sentence, "source_quote": sentence}
             for number, sentence in enumerate(sentences, start=1)]
@@ -340,7 +374,7 @@ def trace() -> list[dict]:
 
 def outcome() -> str:
     """What the request asks for, in its own words (its first sentence)."""
-    first = re.split(r"(?<=[.!?])\s+", CONFIG["brief"].strip(), maxsplit=1)[0]
+    first = re.split(r"(?<=[.!?])\s+", request().strip(), maxsplit=1)[0]
     return first[:240]
 
 
@@ -450,7 +484,8 @@ def recognize(brief: str, follow_up: dict | None = None) -> dict:
         kind, signal = "build", "follow-up: act on the review's findings"
     elif has(r"\bimplement (it|this|the design)\b", r"has already been .*approved") and not has(r"do(n't| not) implement anything"):
         kind, signal = "build", "implement it / already approved"
-    elif has(r"\bdesign\b") and has(r"\breview\b", r"do(n't| not) implement", r"\bdesign how\b", r"^design\b"):
+    elif has(r"\bdesign\b") and has(r"\breview\b", r"do(n't| not) implement", r"\bdesign how\b", r"^design\b",
+                                    r"\bdesign (it|this)\b"):
         kind, signal = "design", "design + review/don't implement"
     elif has(r"\breview\b", r"look over", r"safe to merge", r"\bpr[- ]?\d+", r"\.patch\b", r"\bdiff\b"):
         kind, signal = "review", "review/patch"
@@ -462,6 +497,10 @@ def recognize(brief: str, follow_up: dict | None = None) -> dict:
         kind, signal = "build", "no other signal"
     named = re.search(r"(docs/design/[\w./-]+\.md)", brief)
     design = named.group(1) if kind == "build" and named and has(r"approved") else ""
+    # A build after a design turn implements the design that turn delivered, as the recognizer is told.
+    produced = ((follow_up or {}).get("previous_design") or {}).get("documents") or []
+    if kind == "build" and not design and len(produced) == 1:
+        design, signal = produced[0], signal + "; follow-up: build the design the previous turn produced"
     # Adaptive-planning runs also ask how clear the request is; the planning stress corpus
     # scripts the answer per case (scenarios/planning.toml), since keywords cannot judge it.
     return {"workflow": kind, "reason": f"Scripted keyword rule: {signal}", "signals": [signal],
@@ -607,9 +646,11 @@ def answer() -> dict:
     returned as note_path/note_content for the runner to write; stray solution files are applied
     like a model that edits code it was told not to, so the runner's read-only check is exercised."""
     root = Path(CONFIG["reference"])
-    notes = sorted(p for p in (root / "docs").rglob("*") if p.is_file() and p.name != "README.md") \
-        if (root / "docs").is_dir() else []
-    stray_edits("docs/")
+    notes = sorted(p for p in (root / "docs").rglob("*") if p.is_file() and p.name != "README.md"
+                   and p.relative_to(root).as_posix() in PATHS) if (root / "docs").is_dir() else []
+    # In a conversation the solution's code belongs to later turns, so it is not played as stray edits.
+    if not CONFIG.get("turns"):
+        stray_edits("docs/")
     tracked = [ref for ref in source_refs() if ref != "task"]
     note = notes[0] if notes else None
     return {"answer": "Scripted answer from the scenario solution",
@@ -667,11 +708,15 @@ def report_for(stage: str, data: dict) -> dict:
         if "PROGRESSIVE PLANNING" in PROMPT and stage in ("astra_discovery", "glm_revise", "astra_finalize"):
             planning["progressive_proposal"] = progressive_proposal()
     if stage == "requirements_gather":
+        # A follow-up's requirements are its own sentences; the earlier request's are another job's.
+        quoted = [r["text"] for r in requirements()]
+        ignored = [sentence for sentence in data.get("requirement_coverage_checklist") or []
+                   if CONFIG.get("turns") and not any(sentence in quote or quote in sentence for quote in quoted)]
         return {"summary": "Scripted requirements: one per brief sentence",
-                "intended_outcome": outcome(), "required_behaviors": [r["text"] for r in requirements()],
+                "intended_outcome": outcome(), "required_behaviors": quoted,
                 "constraints": [], "acceptance_tests": [CHECK], "source_refs": source_refs(),
                 "proposed_assumptions": [], "open_questions": [], "requirements": requirements(),
-                "ignored_statements": [], "conflicts": [], "proposed_reframes": []}
+                "ignored_statements": ignored, "conflicts": [], "proposed_reframes": []}
     # An adaptive-planning Planner drafts the complete plan, initial_task included.
     adaptive = "ADAPTIVE PLANNING" in PROMPT
     if stage == "astra_discovery":
@@ -722,9 +767,17 @@ def report_for(stage: str, data: dict) -> dict:
                 "results": [f"exit {code}"], "remaining_risks": [],
                 "evidence_refs": [evidence], "addressed_requirements": [criterion_id(row["id"])],
                 "untested_behavior": [], "recommended_checks": [row["verify"]]}
-    if stage == "terra":
+    if stage == "terra" and CONFIG.get("turn_paths"):
+        # Deliver this turn's files only, and only those the runner assigned.
+        assigned = tuple((data.get("current_task") or {}).get("affected_paths") or PATHS)
+        for rel in (path for path in PATHS if path.startswith(assigned)):
+            destination = Path.cwd() / rel
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(Path(CONFIG["reference"]) / rel, destination)
+    elif stage == "terra":
         shutil.copytree(CONFIG["reference"], Path.cwd(), dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    if stage == "terra":
         code = run_check()
         return {**common, "summary": "Applied the scenario reference solution", "changed_files": PATHS,
                 "commands_run": [CHECK], "results": [f"exit {code}"], "remaining_risks": [],
@@ -904,8 +957,9 @@ def main() -> int:
     if "CURRENT HANDOFF DATA\n" not in prompt:
         emit({"error": "no handoff data"})
         return 0
-    global DATA
+    global DATA, PATHS
     data = DATA = json.loads(prompt.split("CURRENT HANDOFF DATA\n", 1)[1])
+    PATHS = turn_paths()
     original = data.get("original") or {}
     stage = data.get("stage") or original.get("stage") or ""
     if data.get("report_repair"):
