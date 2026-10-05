@@ -254,6 +254,77 @@ class OperationalRecoveryTests(unittest.TestCase):
         self.assertEqual('PAUSED_TIMEOUT_RECOVERY', caught.exception.status)
         self.assertNotIn('recovery_review_grants', self.state['planning'])
 
+    def refundable(self):
+        """Mark the timeouts as ordinarily admitted under the refund policy, calls not yet given back."""
+        for number, origin in enumerate(self.origins):
+            origin['planning_review_charge'] = f'charge-{number}'
+        self.state['planning']['review_charges'] = [origin['planning_review_charge'] for origin in self.origins]
+
+    def test_refundable_timeouts_do_not_reserve_extra_planning_credit(self):
+        self.refundable()
+        count = len(self.state['stages'])
+        self.assertFalse(self.boundary())
+        # The silent attempts returned no review, so their calls come back before any reserve.
+        self.assertEqual(0, self.state['planning']['astra_calls'])
+        self.assertTrue(all(origin['planning_review_refunded'] for origin in self.origins))
+        self.assertNotIn('recovery_review_grants', self.state['planning'])
+        self.assertEqual(count, len(self.state['stages']), 'no resolver receipt without a grant')
+        record = self.charge()
+        self.assertIn('planning_review_charge', record)
+        self.assertNotIn('planning_recovery_grant', record)
+        self.assertEqual(1, self.state['planning']['astra_calls'])
+        self.assertNotIn('recovery_review_grants', self.state['planning'])
+
+    def test_refunded_timeout_cannot_also_fund_recovery(self):
+        # The timeouts gave their calls back; two later reviews that reported spent the allowance.
+        for origin in self.origins:
+            origin['planning_review_refunded'] = True
+        for number in (3, 4):
+            self.state['stages'].append({'stage': 'astra_challenge', 'iteration': number, 'exit_code': 0,
+                                         'output': str(self.run / f'reported-{number}.json')})
+        self.assertFalse(self.boundary())
+        self.assertNotIn('recovery_review_grants', self.state['planning'])
+        with self.assertRaises(s.Paused) as caught:
+            self.charge(number=5)
+        self.assertEqual('PAUSED_PLANNING_BUDGET', caught.exception.status)
+        self.assertEqual(2, self.state['planning']['astra_calls'])
+
+    def test_sealed_grant_keeps_its_records_and_still_fails_closed(self):
+        # A grant sealed by the old order: reserved over calls that were still refundable.
+        self.refundable()
+        with patch.object(planning, 'refund_unreported'):
+            self.assertTrue(self.boundary())
+        sealed = copy.deepcopy(self.state)
+        self.assertTrue(self.boundary())
+        self.assertEqual(sealed, self.state, 'a sealed grant is validated, never reconciled or rewritten')
+        source = self.root / 'changed.py'
+
+        def poisoned():
+            # What the old admission did next: refund under the grant and admit ordinary retries.
+            self.charge(number=3)
+            self.charge(number=4)
+            self.assertTrue(all(origin.get('planning_review_refunded') for origin in self.state['stages'][1:3]))
+
+        changes = {
+            'source': lambda: source.write_text('changed'),
+            'evidence': lambda: Path(self.origins[0]['events']).write_text('{"type":"turn.completed"}\n'),
+            'user_event': lambda: self.state.setdefault('user_events', []).append({'kind': 'feedback'}),
+            'poisoned': poisoned,
+        }
+        events = Path(self.origins[0]['events']).read_bytes()
+        for name, change in changes.items():
+            with self.subTest(change=name):
+                self.state = copy.deepcopy(sealed)
+                change()
+                with patch.object(runner, 'run_role') as launch, self.assertRaises(s.Paused) as caught:
+                    self.boundary()
+                self.assertEqual('PAUSED_RESOLVER_OPERATIONAL', caught.exception.status)
+                self.assertEqual(1, len(self.state['planning']['recovery_review_grants']))
+                self.assertFalse(self.state['planning']['recovery_review_grants'][0]['consumed'])
+                launch.assert_not_called()
+                source.unlink(missing_ok=True)
+                Path(self.origins[0]['events']).write_bytes(events)
+
     def test_failed_recovery_cannot_mint_another_credit(self):
         self.origins[1]['timed_out'] = False
         self.boundary()

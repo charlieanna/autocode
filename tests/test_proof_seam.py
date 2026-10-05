@@ -151,27 +151,30 @@ class PythonSeamProofTests(unittest.TestCase):
         self.assertTrue(any("could not import its dependency" in reason for reason in proof["failures"]), proof)
 
     def test_genuine_product_attribute_error_still_proves_a_fix(self):
-        existing = "import store\nimport unittest\nclass ReadTests(unittest.TestCase):\n" \
-                   "    def test_supplied_value_is_retained(self):\n        self.assertEqual(7, store.read(7))\n"
-        seed = {"store.py": "def read(value=None):\n    if value is not None:\n        return value\n"
-                            "    return None.missing\n", "test_store.py": existing}
-        tests = existing + "    def test_t1_rename_failure_is_raised(self):\n        self.assertEqual(1, store.read())\n"
-        fixed = "def read(value=None):\n    return 1 if value is None else value\n"
-        proof = self.prove({"store.py": fixed, "test_store.py": tests}, seed)
+        existing_source = "def stable():\n    return 9\n"
+        existing_tests = ("import unittest\nimport store\nclass Existing(unittest.TestCase):\n"
+                          "    def test_stable(self): self.assertEqual(9, store.stable())\n")
+        seed = {"store.py": existing_source + "def read():\n    return None.missing\n",
+                "test_store.py": existing_tests}
+        tests = existing_tests + "class ReadTests(unittest.TestCase):\n" \
+                "    def test_t1_rename_failure_is_raised(self):\n        self.assertEqual(1, store.read())\n"
+        proof = self.prove({"store.py": existing_source + "def read():\n    return 1\n",
+                            "test_store.py": tests}, seed)
         self.assertEqual(verify.PASS, proof["verdict"], proof)
         self.assertEqual(["test_store.ReadTests.test_t1_rename_failure_is_raised"], proof["fail_to_pass"])
-        self.assertEqual(["test_store.ReadTests.test_supplied_value_is_retained"], proof["pass_to_pass"])
+        self.assertIn("test_store.Existing.test_stable", proof["pass_to_pass"])
 
     def test_public_attribute_assertion_without_product_trace_is_still_proof(self):
-        existing = "import store\nimport unittest\nclass ReadTests(unittest.TestCase):\n" \
-                   "    def test_existing_label_is_retained(self):\n        self.assertEqual('retained', store.Value().label)\n"
-        seed = {"store.py": "class Value:\n    label = 'retained'\n", "test_store.py": existing}
-        tests = existing + "    def test_t1_rename_failure_is_raised(self):\n        self.assertEqual(1, store.Value().value)\n"
-        fixed = "class Value:\n    label = 'retained'\n    value = 1\n"
-        proof = self.prove({"store.py": fixed, "test_store.py": tests}, seed)
+        existing_tests = ("import unittest\nimport store\nclass Existing(unittest.TestCase):\n"
+                          "    def test_kind(self): self.assertEqual('value', store.Value().kind)\n")
+        seed = {"store.py": "class Value:\n    kind = 'value'\n", "test_store.py": existing_tests}
+        tests = existing_tests + "class ReadTests(unittest.TestCase):\n" \
+                "    def test_t1_rename_failure_is_raised(self):\n        self.assertEqual(1, store.Value().value)\n"
+        proof = self.prove({"store.py": "class Value:\n    kind = 'value'\n    value = 1\n",
+                            "test_store.py": tests}, seed)
         self.assertEqual(verify.PASS, proof["verdict"], proof)
         self.assertEqual(["test_store.ReadTests.test_t1_rename_failure_is_raised"], proof["fail_to_pass"])
-        self.assertEqual(["test_store.ReadTests.test_existing_label_is_retained"], proof["pass_to_pass"])
+        self.assertIn("test_store.Existing.test_kind", proof["pass_to_pass"])
 
     def test_runtime_setup_failure_cannot_borrow_another_cases_behavior_proof(self):
         # One setup-only T1 and one actual behavior test cannot satisfy T1.

@@ -1295,6 +1295,13 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
     candidate = on_candidate.get("results")
     base_receipt = (base_suite or {}).get("receipt") or {}
     base_results = base_receipt.get("results")
+    # A collection error is not an executed test. Keep comparison below so a
+    # separately observed regression still wins over incomplete preservation.
+    for label, results in (("base", base_results), ("candidate", candidate)):
+        collection = (results or {}).get("collection_errors") or []
+        if collection:
+            unverified.append(f"The {label} suite has collection errors; preservation is unproven: "
+                              + ", ".join(collection[:5]))
     if base_receipt.get("timed_out") or (base_results is not None and not base_results.get("complete")):
         unverified.append("The base suite was incomplete; preservation of its passing tests is unproven")
         return
@@ -1334,9 +1341,6 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes, *, allow_emp
                               "preservation of existing behavior is unproven")
     elif base_suite is not None and base_suite.get("health") == "broken":
         unverified.append("The base suite could not run; preservation of existing behavior is unproven")
-    if candidate is not None and candidate.get("collection_errors"):
-        unverified.append("The project suite had import or collection errors on the candidate; "
-                          "preservation of existing behavior is unproven")
     if candidate is not None and base_results is not None:
         new = sorted(set(candidate["failed"]) - set(base_results["failed"]))
         if new:
