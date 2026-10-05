@@ -109,6 +109,62 @@ class SelectedToolchainTests(unittest.TestCase):
                                         capture_output=True, text=True, timeout=20)
                 self.assertEqual(0, result.returncode, result.stderr)
 
+    def test_system_shell_negative_controls_keep_native_containment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory).resolve()
+            root = home / 'project'
+            root.mkdir()
+            source = root / 'test_failure.py'
+            contents = ('import unittest\n'
+                        'class NegativeControl(unittest.TestCase):\n'
+                        '    def test_failure(self):\n'
+                        '        self.fail("EXPECTED_NEGATIVE_CONTROL")\n')
+            source.write_text(contents)
+            outside = home / 'outside'
+            outside.write_text('private fixture')
+            subprocess.run(['/usr/bin/git', 'init', '--quiet', str(root)], check=True)
+            env = {'PATH': '/usr/bin:/bin:/usr/sbin:/sbin'}
+            commands = [shlex.join([shell, '-c', '! python3 -m unittest test_failure -v'])
+                        for shell in ('sh', 'bash')]
+            selected = toolchain.discover(root, commands, env)
+            roots = selected['read_roots']
+            developer = Path('/Library/Developer/CommandLineTools')
+            if developer.is_dir():
+                roots = [*roots, str(developer)]
+            boundary = containment.prepare(root, read_roots=roots, environment=env)
+            for command in [*selected['probes'], *commands]:
+                result = subprocess.run([boundary['shell'], '-c', command], cwd=root,
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(0, result.returncode, (command, result.stdout, result.stderr))
+                if command in commands:
+                    self.assertIn('EXPECTED_NEGATIVE_CONTROL', result.stderr)
+                    self.assertIn('FAILED (failures=1)', result.stderr)
+            for shell in ('sh', 'bash'):
+                for denied in ('cat ' + shlex.quote(str(outside)),
+                               ': > ' + shlex.quote(str(source))):
+                    command = shlex.join([shell, '-c', denied])
+                    result = subprocess.run([boundary['shell'], '-c', command], cwd=root,
+                                            capture_output=True, text=True, timeout=10)
+                    self.assertNotEqual(0, result.returncode, command)
+                    self.assertIn('Operation not permitted', result.stderr)
+            self.assertEqual(contents, source.read_text())
+            self.assertEqual('private fixture', outside.read_text())
+
+    def test_project_shell_wrappers_are_rejected_without_execution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            (root / 'bin').mkdir()
+            marker = root / 'WRAPPER_EXECUTED'
+            env = {'PATH': 'bin:/usr/bin:/bin'}
+            for shell in ('sh', 'bash'):
+                with self.subTest(shell=shell):
+                    wrapper = root / 'bin' / shell
+                    wrapper.write_text('#!/bin/sh\ntouch ' + shlex.quote(str(marker)) + '\n')
+                    wrapper.chmod(0o755)
+                    with self.assertRaisesRegex(RuntimeError, 'requires the native system shell'):
+                        toolchain.discover(root, [shell + ' -c :'], env)
+                    self.assertFalse(marker.exists())
+
     def test_readiness_does_not_execute_project_python_startup_hooks(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

@@ -53,3 +53,16 @@ unchanged base. The path fixture now resolves macOS temporary-directory aliases;
 the repair test verifies preservation of the original failed evidence through
 the current handoff behavior. Both corrected modules passed all 50 tests.
 This is not a claim that a subsequent full-suite run passed.
+
+## Integration review controls
+
+Declared negative controls may use the native `/bin/sh` or `/bin/bash`.
+Discovery rejects project/PATH shell wrappers before execution, records the
+fixed shell's loader dependencies and probes it inside containment. Actual
+local controls run the expected failing test through both shells, then require
+kernel denial of source writes and reads of an unrelated synthetic file.
+
+The final protected-copy check used a correctly bound Homebrew Python 3.14.6
+virtualenv with native interpreter symlinks. Copied virtualenv executables
+remain an unsupported discovery layout under #424; the setup must stop before
+model launch rather than widening filesystem access.

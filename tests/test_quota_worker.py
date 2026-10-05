@@ -85,10 +85,10 @@ class ParallelQuotaTests(unittest.TestCase):
         opencode = (target / "opencode")
         opencode_text = opencode.read_text().replace("xiaomi-token-plan-sgp/mimo-v2.6-pro",
                                                      "xiaomi-token-plan-sgp/mimo-v2\\nxiaomi-token-plan-sgp/mimo-v2.6-pro")
-        # A report-repair handoff carries no stage key; the stock guard compares
-        # an unset env against it (None == None) and truncates every repair.
+        # Older fixtures compare an unset env against a repair's missing stage
+        # (None == None). Correct that copy when needed; an already fixed stock
+        # guard leaves this replacement as a no-op.
         guard = 'if os.environ.get("AUTOCODE_FIXTURE_TRUNCATE_STAGE") == data.get("stage"):'
-        assert guard in opencode_text, "the copied truncate guard moved"
         opencode.write_text(opencode_text.replace(
             guard, 'if os.environ.get("AUTOCODE_FIXTURE_TRUNCATE_STAGE") and '
                    'os.environ.get("AUTOCODE_FIXTURE_TRUNCATE_STAGE") == data.get("stage"):'))

@@ -79,6 +79,15 @@ def discover(workspace, commands, environment):
             pending.append('node')
             probes.append(shlex.join([str(original), '--version']))
             continue
+        if family in ('sh', 'bash'):
+            # Approvals may use the documented shell negative-control form.
+            # Only the fixed native system shells qualify, never a PATH shim
+            # or project script with a shell's name. Probes run in containment.
+            if tool != Path('/bin') / family:
+                raise RuntimeError(f'Contained toolchain discovery requires the native system shell: {name}')
+            paths.update(macho.dependencies(tool))
+            probes.append(shlex.join([str(original), '-c', ':']))
+            continue
         if family not in ('git', 'node', 'go', 'python', 'python3') and not family.startswith('python3.'):
             raise RuntimeError(f'Contained toolchain discovery does not support {name}; no model launched')
         paths.update(macho.dependencies(tool))
