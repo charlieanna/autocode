@@ -25,6 +25,15 @@ class NoveltyPolicyTests(unittest.TestCase):
         self.incident = novelty.Incident("python -m unittest test_app", "AssertionError: 2 != 3", "C1", "M1")
         self.prior = [{"incident_ids": [self.incident.id], "action": "repair", "change_id": "old"}]
 
+    def test_instruction_keeps_the_prohibition_in_one_sentence(self):
+        # The "Never ..." clause must name its objects together, not be split by
+        # the source-novelty note (#417).
+        self.assertIn(
+            "Never weaken tests, change model pins, permissions, limits or the approved contract;",
+            novelty.INSTRUCTION)
+        self.assertLess(novelty.INSTRUCTION.index("permissions, limits or the approved contract"),
+                        novelty.INSTRUCTION.index("Automatic source novelty"))
+
     def test_only_proven_wrappers_are_removed(self):
         a = novelty.normalize("/tmp/owned-a/tests/a.py: failure at customer_deadbeef123456", [("/tmp/owned-a", "<workspace>")])
         b = novelty.normalize("/tmp/owned-b/tests/a.py: failure at customer_deadbeef123456", [("/tmp/owned-b", "<workspace>")])

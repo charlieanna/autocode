@@ -37,10 +37,11 @@ INSTRUCTION = (
     "comments, and a source hash are not progress. "
     "A runner-attested changed input may instead target input:verified_dependency_delivery with the exact "
     "before/after input descriptors from incident packets and the original failed command; this never grants new controls. "
-    "A new diagnosis also needs a specific unresolved causal question. Never weaken tests, change model pins, "
+    "A new diagnosis also needs a specific unresolved causal question. "
+    "Never weaken tests, change model pins, permissions, limits or the approved contract; "
+    "use the existing human request for product/permission decisions. "
     "Automatic source novelty is currently proved for Python and JSON; other grammars remain unproven, "
     "not defective, and need an attested changed input or an explicit scoped operator retry. "
-    "permissions, limits or the approved contract; use the existing human request for product/permission decisions. "
     "Fresh incident-relevant proof and independent acceptance are still required after any repair.")
 
 
