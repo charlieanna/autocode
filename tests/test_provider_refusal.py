@@ -304,15 +304,30 @@ class ContentFilterAtCleanExitTests(unittest.TestCase):
         self.assertEqual(("PAUSED_UNCERTAIN_STAGE", "Process exited without a report file"), (stop.status, str(stop)))
 
     def test_session_provenance_is_checked_before_the_refusal(self):
-        # A refusal from a session the run did not expect, or naming none, is not typed or answered with a model.
+        # A refusal from a session the run did not expect, or naming none, is not typed or answered with a
+        # model: not at the first stop, and not when --resume-paused reconciles the same saved attempt.
         missing = "Provider returned a missing or unexpected session ID"
+        recovered = "Recovered response belongs to an unexpected session"
         rows = [json.loads(line) for line in FINISH_ONLY.read_text().splitlines()]
-        stop, state = self.build(rows, saved_session="ses_saved_builder")
-        self.assertEqual(("PAUSED_UNCERTAIN_STAGE", missing), (stop.status, str(stop)))
-        self.assertEqual("ses_saved_builder", state["active_stage"]["expected_session"])
-        self.assertNotEqual("ses_saved_builder", rows[0]["sessionID"])
-        stop, _ = self.build([{"type": "turn.failed", "error": {"code": "content_filter", "message": "filtered"}}])
-        self.assertEqual(("PAUSED_UNCERTAIN_STAGE", missing), (stop.status, str(stop)))
+        refusal = [{"type": "turn.failed", "error": {"code": "content_filter", "message": "filtered"}}]
+        for saved, written in (("ses_saved_builder", rows), (None, refusal)):
+            with self.subTest(saved_session=saved):
+                stop, state = self.build(written, saved_session=saved)
+                self.assertEqual(("PAUSED_UNCERTAIN_STAGE", missing), (stop.status, str(stop)))
+                self.assertEqual((0, saved), (state["active_stage"]["exit_code"],
+                                              state["active_stage"]["expected_session"]))
+                thread = runner.format_correction.event_thread_id(Path(state["active_stage"]["events"]))
+                self.assertTrue(thread != saved if saved else thread is None, thread)
+                self.assertEqual("PAUSED_CONTENT_FILTER", support.failure_status(state["active_stage"]["events"]))
+                resumed = self.reconcile(state)
+                self.assertEqual(("PAUSED_UNCERTAIN_STAGE", recovered), (resumed.status, str(resumed)))
+                self.assertIn("active_stage", state)
+                self.assertEqual({"terra": saved} if saved else {}, state["sessions"])
+                # The request the resumed stop stages asks no model question.
+                human = runner.resolver_runtime.human
+                self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(runner, state, self.run, resumed))
+                self.assertEqual("PAUSED_UNCERTAIN_STAGE", state[human.PRIVATE]["origin"]["pause_status"])
+                self.assertEqual([], human.internal_questions(state))
 
     def test_other_clean_exits_without_a_completed_turn_stay_uncertain(self):
         rows = [json.loads(line) for line in FINISH_ONLY.read_text().splitlines()]
