@@ -381,8 +381,15 @@ class BuildBlackbox(unittest.TestCase):
         self.assertEqual(1,len(self.events('repair',stage='terra_report_repair')))
 
     def test_29_report_repair_cannot_invent_passing_checks(self):
-        self.seed(); self.env['BUILD_AUDIT_FAULT']='repair_lies'; self.build(2)
-        self.assertNotIn('autocode',self.state()['unit_handoffs'])
+        # The repair claims a passing run of a command the Builder never ran. The runner puts the
+        # Builder's recorded history back (#431), so the accepted report keeps the failing check
+        # and the Tester, not the repair, judges M1.
+        self.seed(); self.env['BUILD_AUDIT_FAULT']='repair_lies'; self.build(); self.candidate()
+        repairs=[row for row in self.state()['stages'] if row['stage']=='terra_report_repair']
+        self.assertEqual(1,len(repairs))
+        report=json.loads(Path(repairs[0]['output']).read_text())
+        self.assertEqual(['check exit=1'],report['results'])
+        self.assertEqual([self.spec['checks']['M1']],report['commands_run'])
 
     def test_30_33_repeated_build_does_not_redispatch_completed_wave(self):
         self.seed(); self.build(); first=self.events(); original=self.candidate()
