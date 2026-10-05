@@ -42,8 +42,11 @@ def report_for(stage, data, common, config, run_check, requirements):
             "evidence_refs": [output] if output else [], "question": ""}
         if config["fault"] == "recovery_novelty_bad_refs":
             result["recovery_change"]["evidence_refs"] = ["/not-owned/claimed-proof.json"]
-        if config["fault"] == "recovery_novelty_question":
+        if config["fault"] in ("recovery_novelty_question", "recovery_novelty_narrow"):
             result["recovery_change"]["question"] = "Does the failure come from the argument guard rather than the greeting output branch?"
+        if config["fault"] == "recovery_novelty_narrow" and stage == "astra_resolve":
+            # #423: repair only the failed blank-name criterion, not the whole failed task.
+            result["next_task"]["acceptance_criteria"] = ["C2"]
         if nonpython:
             result["recovery_change"].update(target="greet.js", before="if (args.length !== 1)",
                                             after="if (args.length !== 1 || !args[0].trim())")

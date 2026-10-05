@@ -103,7 +103,8 @@ def report_for(stage, data, common, config, run_check, requirements):
                               next_objective="Route the Validator's own open findings " + ", ".join(stranded)
                               + " to the Validator for its disposition without modifying source")
                 result["plan"] = [result["next_objective"]]
-    row = {"stage": stage, "task_id": common["task_id"], "contract_hash": common["contract_hash"],
+    row = {"stage": stage, "task_id": common["task_id"], "task_criteria": task["acceptance_criteria"],
+           "contract_hash": common["contract_hash"],
            "contract_revision": common["contract_revision"], "source_revision": data["source_revision"],
            "source_sha256": hashlib.sha256(Path("greet.py").read_bytes()).hexdigest(),
            "command": config["check"] if code is not None else None, "exit_code": code,
