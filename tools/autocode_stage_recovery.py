@@ -785,21 +785,26 @@ def retry_format_failed_report(state, run_dir, workspace, selected):
     """Explicitly request fresh evidence after a bounded report rejection."""
     pending = state.get('pending_report_repair') or {}
     original = pending.get('original') or {}
-    repair = next((row for row in reversed(state.get('stages', []))
-                   if row.get('report_only') and row.get('rejected')
-                   and row.get('original_stage') == original.get('stage')), None)
+    # A fresh attempt the failure bound stopped before any repair is retried itself, never an earlier repair.
+    repair = (original if not pending.get('latest_rejected') and report_retry.rejected_attempt(state) else
+              next((row for row in reversed(state.get('stages', []))
+                    if row.get('report_only') and row.get('rejected')
+                    and row.get('original_stage') == original.get('stage')), None))
     if (state.get('status') != 'PAUSED_REPEATED_FAILURE'
             or any(state.get(key) for key in ('active_stage', 'active_runner_check', 'uncertain_artifacts'))
             or pending.get('error') not in report_retry.RETRYABLE_ERRORS
             or original.get('stage') != 'sol'
             or not repair or selected != records.attempt_id(repair)
-            or repair.get('original_stage') != original.get('stage')
+            or (repair.get('original_stage') or repair.get('stage')) != original.get('stage')
             or repair.get('source_revision') != original.get('source_revision')
             or not repair.get('schema') or not original.get('schema')
             or not Path(repair['schema']).is_file() or not Path(original['schema']).is_file()
             or support.file_hash(repair['schema']) != support.file_hash(original['schema'])
             or not report_retry.bounded_failure(state, records.repair_limit(state))):
         raise ValueError('--retry-report must match the bounded rejected report-only attempt')
+    if stale_report_repair(state, workspace):
+        raise ValueError('The source changed after this report was rejected, so it cannot be retried; '
+                         'use --resume-paused to archive the stale repair and validate the current source afresh')
     if (support.snapshot(workspace)['revision'] != original['source_revision']
             or (state.get('goal_contract') or {}).get('hash') != pending.get('contract_hash')
             or any(not Path(p).is_file() or support.file_hash(p) != h

@@ -48,3 +48,17 @@ with 60 PASS, one existing NOT_EXERCISED and one live-only SKIPPED. Offline chec
 are not live qualification. Saved native evidence is under the ignored
 `.scenario-runs/report-retry-446/` directory; logs are not committed. These runs
 qualify the two recorded recovery routes, not all providers or all open issues.
+
+## Edge cases carried over from #474
+
+Two cases from the overlapping #474 were not covered above. Both are covered
+offline only (`tests/test_report_retry.py`), with no live evidence:
+
+- An explicit retry whose fresh Validator attempt fails the same way extends the
+  same streak, so the guard stops it before any correction or repair. Its pending
+  repair then has no rejected repair to name, so status named no retry and every
+  public retry was refused at an unchanged source. `rejected_attempt` now names
+  that fresh attempt, and `--retry-report` accepts it, never an earlier archived
+  repair.
+- `--retry-report` after a source-only edit now names `--resume-paused`, which
+  archives the stale repair, instead of a generic input-change refusal.

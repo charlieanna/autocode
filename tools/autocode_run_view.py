@@ -360,7 +360,7 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
             need["action"] = "--resume-paused"
             return need
         pending = state.get("pending_report_repair") or {}
-        rejected = pending.get("latest_rejected") or {}
+        rejected = report_retry.rejected_attempt(state) or {}
         if (status == "PAUSED_REPEATED_FAILURE"
                 and (pending.get("original") or {}).get("stage") == "sol"
                 and not any(state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts"))
