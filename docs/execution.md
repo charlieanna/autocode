@@ -641,6 +641,13 @@ escalation decision, assignment checks, fresh independent validation and the
 Completion gate. Unsupported changes remain unknown rather than being treated as
 proven progress.
 
+An attempt that automatic recovery archived because it ended without a terminal
+turn (a provider timeout, capacity or startup failure, or a denied path) returned
+no report, so relaunching it repeats no experiment; that recovery route's own
+budget bounds the relaunch. An uncertain attempt an operator abandoned, or a
+rejected report, still counts. An accepted operational diagnosis that recommends
+a retry admits one Builder attempt, as the explicit retry below does (#422).
+
 The explicit `--resume-paused --retry-failed-stage` control can authorize one
 scoped retry of a recorded hold under the existing limits. It retains previous
 attempts and evidence; ordinary resume is not that authorization. Permission,

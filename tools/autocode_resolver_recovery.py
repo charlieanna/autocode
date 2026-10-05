@@ -143,14 +143,24 @@ def _narrows(failed, scope):
     return scope == failed or (same and bool(scope["criteria"]) and set(scope["criteria"]) <= set(failed["criteria"]))
 
 
-def receipts(state):
+def _returned_nothing(row):
+    """Automatic recovery archived this stopped attempt because it ended without a terminal
+    turn (a timeout, capacity or startup failure, a denied path). It returned no report."""
+    return bool(row.get("automatic_recovery") and row.get("abandoned") and row.get("rejected"))
+
+
+def receipts(state, *, returned=False):
+    """Dispatch receipts. With ``returned``, only those of attempts that could have returned a
+    result: relaunching one that returned nothing repeats no experiment (#422), and each of those
+    recovery routes keeps its own bound. Any dispatch still spends an operator's grant."""
     rows = [*state.get("stages", [])]
     if state.get("active_stage"):
         rows.append(state["active_stage"])
     found = {}
     for row in rows:
         receipt = row.get("recovery_novelty")
-        if receipt and not row.get("dry_run") and not row.get("report_only"):
+        if (receipt and not row.get("dry_run") and not row.get("report_only")
+                and not (returned and _returned_nothing(row))):
             found[receipt["dispatch_id"]] = receipt
     return list(found.values())
 
@@ -504,12 +514,43 @@ def _builder_grant(state, packet, request, record, prior):
     return ident
 
 
+def _diagnosis_grant(state, packet, request, record):
+    """The Builder retry an accepted operational diagnosis recommended (#422).
+
+    The repeated failures it diagnosed were operational (invalid output, a timeout), so
+    there is usually no source change to propose: the diagnosis, which the Builder receives
+    in its repair plan, is the new information. As with --retry-failed-stage, novelty admits
+    one attempt that returns a result. A further one needs new evidence or an explicit retry:
+    the same failure cannot buy a second diagnosis (the Resolver's per-failure budget, or
+    novelty for an unchanged incident, refuses it before any charge), and the run's
+    diagnostic cap still applies.
+    """
+    pointer = request.get("recovery_packet")
+    recommendation = request.get("recommendation") or {}
+    if (record["stage"] != "terra" or request is not state.get("repair_plan")
+            or request.get("kind") != "operational-diagnosis" or recommendation.get("action") != "retry"
+            or not packet["current_error"].get("operational_diagnosis")):
+        return None
+    retry = next((row for entry in (state.get("failure_history") or {}).values()
+                  for row in reversed(entry.get("diagnostic_retries") or [])
+                  if row.get("recovery_packet") == pointer and row.get("recommendation") == recommendation), {})
+    # The runner's own accepted retry outcome, not only the plan that cites it.
+    accepted = retry.get("receipt") and any(
+        row.get("runner_owned") and (row.get("decision") or {}).get("action") == "retry"
+        and (row.get("receipt") or {}).get("idempotency_key") == retry["receipt"] for row in state.get("stages", []))
+    return util.digest({"diagnosis_retry": retry["receipt"], "packet": pointer}) if accepted else None
+
+
 def _explicit_grant(state, packet, request, record, prior, authorization):
     ident = _live_grant(state, packet, record, authorization)
     if ident is not None and not any(row.get("grant_id") == ident for row in prior):
         return ident, "invocation"
     ident = _builder_grant(state, packet, request, record, prior)
-    return ident, "builder" if ident is not None else None
+    if ident is not None:
+        return ident, "builder"
+    # One use is decided by novelty against attempts that returned a result.
+    ident = _diagnosis_grant(state, packet, request, record)
+    return ident, "diagnosis" if ident is not None else None
 
 
 def finish_resolution_packet(state, request, plan):
@@ -622,7 +663,7 @@ def route_known_change(runtime, state, decision, record, *, run_dir, retry_polic
     ident = request["recovery_change_id"]
     if ident is None:
         return False  # Unknown grammar/cosmetic bounds are not autonomous progress.
-    prior = [row for row in receipts(state) if row.get("action") == "repair"]
+    prior = [row for row in receipts(state, returned=True) if row.get("action") == "repair"]
     if any(novelty.decide(novelty.Incident(**incident), prior, action="repair", change_id=ident,
                          expected_check=change["expected_check"]).action != "repair" for incident in packet["incidents"]):
         return False
@@ -864,7 +905,7 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
     change = request.get("recovery_change") or packet["current_error"].get("recovery_change") or {}
     change_id = _change(packet, change)
     action = "repair" if stage == "terra" else "diagnosis"
-    considered = [row for row in prior if action != "repair" or row.get("action") == "repair"]
+    considered = [row for row in receipts(state, returned=True) if action != "repair" or row.get("action") == "repair"]
     if (action == "repair" and packet["current_error"].get("operational_diagnosis")
             and any(entry.get("count", 0) for entry in packet["failure_history"].values())):
         considered.append({"incident_ids": [novelty.Incident(**row).id for row in packet["incidents"]],

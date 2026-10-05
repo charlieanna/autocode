@@ -464,6 +464,33 @@ class RecoveryPacketTests(unittest.TestCase):
         self.assertEqual(before["stages"], restarted["stages"])
         self.assertNotIn("resolver", restarted)
 
+    def test_only_an_attempt_archived_without_a_report_leaves_its_incident_untried(self):
+        # #422: automatic recovery archives a stopped attempt that ended without a terminal
+        # turn (timeout, capacity, startup). It returned no report, so its relaunch is admitted.
+        # A timeout whose late terminal turn was reconciled, an operator-abandoned uncertain
+        # attempt and a rejected report may each carry a result, so each still holds (#254).
+        for flags, admitted in (({"timed_out": True, "automatic_recovery": True, "abandoned": True, "rejected": True}, True),
+                                ({"timed_out": True}, False), ({"abandoned": True, "rejected": True}, False),
+                                ({"rejected": True, "exit_code": 0}, False)):
+            with self.subTest(flags=flags):
+                state = copy.deepcopy(self.state)
+                first = {"stage": "astra_resolve", "output": str(self.run / "first.json"), "started_at": "first"}
+                recovery.admit_dispatch(state, first, self.root, self.run)
+                first.update(flags)
+                state["stages"].append(first)
+                relaunch = {"stage": "astra_resolve", "output": str(self.run / "relaunch.json"), "started_at": "second"}
+                if not admitted:
+                    with self.assertRaisesRegex(util.Paused, "No causal progress"):
+                        recovery.admit_dispatch(state, relaunch, self.root, self.run)
+                    continue
+                recovery.admit_dispatch(state, relaunch, self.root, self.run)
+                self.assertEqual("first_incident", relaunch["recovery_novelty"]["reason"])
+                state["stages"].append(relaunch)
+                # The relaunch returned a result, so the same experiment again needs new information.
+                with self.assertRaisesRegex(util.Paused, "No causal progress"):
+                    recovery.admit_dispatch(state, {"stage": "astra_resolve", "output": str(self.run / "third.json")},
+                                            self.root, self.run)
+
     def test_task_reassignment_and_comment_change_do_not_rename_incident(self):
         initial = novelty.Incident(**self.packet()["incidents"][0]).id
         self.state["current_task"].update(id="T9", requirements=["Different repair wording"])
@@ -878,6 +905,28 @@ class RecoveryPacketTests(unittest.TestCase):
                                                         run_dir=self.run, retry_policy=retry))
         self.assertEqual("known-correction", state["repair_plan"]["kind"])
         self.assertIn(str(raw), state["repair_plan"]["evidence_hashes"])
+
+    def test_known_correction_is_held_only_by_a_repair_that_returned_a_result(self):
+        # #422: the same change's earlier Builder dispatch, archived without a report, did not
+        # try it, so it is routed again rather than through a paid diagnosis; a returned one holds.
+        decision, record, _, paths, runtime, retry = self.known_correction(self.run)
+        runtime.goals = SimpleNamespace(record_decision=Mock())
+        runtime.dispatch = SimpleNamespace(build_stage=lambda _: "terra")
+        state, current_record = self.known_correction_prepared(decision, record, paths)
+        packet = recovery.load_packet(state["resolution_request"]["recovery_packet"], self.run)
+        recovery.validate_decision(state, decision, current_record)
+        earlier = {"stage": "terra", "role": "terra", "output": str(self.run / "earlier-repair.json"),
+                   "recovery_novelty": {"dispatch_id": "earlier-repair", "action": "repair",
+                                        "incident_ids": [novelty.Incident(**row).id for row in packet["incidents"]],
+                                        "change_id": state["resolution_request"]["recovery_change_id"]}}
+        for flags, routed in (({"timed_out": True, "automatic_recovery": True, "abandoned": True, "rejected": True}, True),
+                              ({"exit_code": 0}, False)):
+            with self.subTest(flags=flags):
+                trial, trial_record = copy.deepcopy(state), copy.deepcopy(current_record)
+                trial["stages"].append({**earlier, **flags})
+                with patch.object(recovery.processes, "recorded_worker_state", return_value={"checked": True, "alive": False}):
+                    self.assertIs(routed, recovery.route_known_change(runtime, trial, decision, trial_record,
+                                                                       run_dir=self.run, retry_policy=retry))
 
     def test_known_correction_cannot_repin_artifacts_changed_during_queue(self):
         decision, record, raw, paths, runtime, retry = self.known_correction(self.run)

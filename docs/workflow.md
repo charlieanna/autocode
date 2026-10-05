@@ -153,7 +153,10 @@ is not a count of every internal model/tool step or separately budgeted report r
 The model can recommend a bounded retry or escalation, not grant permissions, change
 approved requirements, implement a repair, or declare completion. The controller records
 the policy outcome before applying it. Escalation remains a durable pause; an admitted
-retry returns to the original owner and normal independent validation/review.
+retry returns to the original owner and normal independent validation/review. Like
+`--retry-failed-stage`, it admits one Builder attempt without a proposed source change,
+because an operational failure usually has none. Another attempt at the same unchanged
+failure needs new evidence or an explicit `--retry-failed-stage`.
 
 ## When a stage stops making progress
 
