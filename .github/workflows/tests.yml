@@ -54,13 +54,14 @@ jobs:
         # recorded reason). It fails if any non-excluded test fails, and
         # separately fails if an exclusion entry no longer matches anything
         # discovered, so a stale exclusion cannot mask real coverage.
-        # A pull request runs only the tests for the files it changes
-        # (--changed), without the slow modules in tests/suite_slow.json;
-        # master and manual runs run everything. Test modules run side by
+        # A pull request runs every test module except the slow ones in
+        # tests/suite_slow.json that it did not change (--changed --all-fast):
+        # selecting by imports missed CLI-level tests and turned master red
+        # (#232, #242, #330). Master and manual runs run everything. Test modules run side by
         # side, one per CPU.
         run: |
           if [ "${{ github.event_name }}" = pull_request ]; then
-            .venv/bin/python tools/run_suite.py --verbosity 2 --changed "origin/${{ github.base_ref }}"
+            .venv/bin/python tools/run_suite.py --verbosity 2 --changed "origin/${{ github.base_ref }}" --all-fast
           else
             .venv/bin/python tools/run_suite.py --verbosity 2
           fi
