@@ -1515,6 +1515,16 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
             "argparse, another cause": ({**self.GOOD, "diagnosis": f"{name} passes on the original code because "
                                                                     "argparse exits 2 on the malformed quantity."},
                                         "diagnosis_explains_why_they_pass_on_original_code"),
+            "argparse and move, another cause": ({**self.GOOD, "diagnosis": f"{name} passes on the original code because "
+                                                  "argparse rejects the non-integer quantity given to move with exit 2."},
+                                                 "diagnosis_explains_why_they_pass_on_original_code"),
+            "argparse choices": ({**self.GOOD, "diagnosis": f"{name} passes on the original code: the location choices "
+                                                             "are validated by argparse, which exits 2 for B2, so the "
+                                                             "store is never touched."},
+                                 "diagnosis_explains_why_they_pass_on_original_code"),
+            "a command without a store": ({**self.GOOD, "diagnosis": f"{name} passes on the original code: the move "
+                                                                      "command finds no stock.json and argparse exits 2."},
+                                          "diagnosis_explains_why_they_pass_on_original_code"),
             "unnamed retag": ({**self.GOOD, "next_objective": "Retag the refusal cases as guard: cases"},
                               "repair_does_not_weaken_tests"),
             "handler edit": ({**self.GOOD, "next_objective": "Rewrite the move handler so it refuses before argparse"},
@@ -1550,9 +1560,21 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
             "the exit status kept": {**self.GOOD, "next_objective": "Do not touch the product. Update "
                                                                     "tests/test_stock.py; stock.py should exit 2 as it "
                                                                     "already does"},
-            "argparse and the command": {**self.GOOD, "diagnosis": f"On the original code argparse rejects `stock.py "
-                                                                   f"move` with exit status 2, so {name} passes there "
-                                                                   "too."},
+            "not implemented": {**self.GOOD, "diagnosis": f"{name} also passes on the original code: move is not "
+                                                          "implemented there, so stock.py exits 2 and leaves "
+                                                          "stock.json alone."},
+            "no subparser": {**self.GOOD, "diagnosis": f"{name} also passes on the original code: the original parser "
+                                                       "has no move subparser, so parsing fails with exit code 2 and "
+                                                       "the store is untouched."},
+            "unknown verb": {**self.GOOD, "diagnosis": f"{name} passes on the original code because the CLI parser "
+                                                       "rejects the unknown `move` verb with exit code 2 before touching "
+                                                       "stock.json."},
+            "returns 2": {**self.GOOD, "diagnosis": f"{name} passes on the original code, where `move` is an unknown "
+                                                    "subcommand and main() returns 2."},
+            "SystemExit(2)": {**self.GOOD, "diagnosis": f"{name} passes on the original code, where argparse raises "
+                                                        "SystemExit(2) for the unknown `move` command."},
+            "code 2": {**self.GOOD, "diagnosis": f"{name} passes on the original code: `move` is an invalid choice "
+                                                 "there and the CLI ends with code 2."},
         }
         for label, report in right.items():
             with self.subTest(label):

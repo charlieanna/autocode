@@ -182,8 +182,9 @@ says so. Required:
 - `diagnosis_names_each_vacuous_test`: by function name or its short `test_cN`
   form, in the diagnosis or the task.
 - `diagnosis_explains_why_they_pass_on_original_code`: the diagnosis itself
-  gives a cause (the command is unknown to argparse), the exit status 2 and the
-  original code.
+  gives the cause (the command does not exist there: unknown, invalid choice,
+  not implemented, no subparser; a bare "argparse" is not enough, since argparse
+  also refuses a bad quantity), the exit status 2 and the original code.
 - `resolver_chose_bounded_test_repair`: REWORK, an `implement` task naming
   `tests/test_stock.py` (in the task or the report's `affected_paths`, which
   scope the next Builder task), no `stock.py` in `affected_paths`, and no task

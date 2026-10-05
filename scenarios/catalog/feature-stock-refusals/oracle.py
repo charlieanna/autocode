@@ -24,21 +24,23 @@ TEST_FILE = "tests/test_stock.py"
 # The word lists below are regular expressions, matched case-insensitively. They are lexical, so a live
 # attempt is read by a person before it is cited (plan D3); scenarios/test_harness.py holds the wrong
 # diagnoses they must not pass and the right ones they must not fail.
-# Why such a test passes on the original code: the command does not exist there, and argparse refuses it.
-# "argparse" or "usage error" counts only in a sentence that also names the command ("argparse exits 2 on the
-# malformed quantity" is another cause).
-_COMMAND = r"\b(?:move|remove|(?:sub)?commands?|choices?)\b"
-_SAME_SENTENCE = r"(?:[^.\n]|\.(?=\S)){0,80}?"  # a period inside "stock.py" does not end the sentence
-CAUSE = (r"invalid choice", rf"\b(?:argparse|usage error)\b{_SAME_SENTENCE}{_COMMAND}",
-         rf"{_COMMAND}{_SAME_SENTENCE}\b(?:argparse|usage error)\b",
-         r"\b(?:unknown|unrecognized|unsupported|undefined) (?:sub)?commands?\b",
+# Why such a test passes on the original code: the command does not exist there, and argparse refuses it. A
+# bare "argparse" is no cause: it also refuses a bad quantity or a missing argument ("argparse rejects the
+# non-integer quantity given to move" is another cause), so the command's absence must be said.
+CAUSE = (r"invalid choice",
+         r"\b(?:unknown|unrecognized|unsupported|undefined|invalid)\W{1,3}(?:(?:move|remove)\W{1,3})?"
+         r"(?:sub)?(?:commands?|verbs?|parsers?)\b",
          r"\bnot an? (?:valid |known |recognized )?(?:sub)?command\b", r"\bno such (?:sub)?command\b",
          r"\b(?:sub)?commands? (?:does|do|did) ?n[o']t (?:yet )?exist",
          r"\b(?:move|remove)\W{0,2} (?:(?:sub)?commands? )?(?:does|do|did) ?n[o']t (?:yet )?exist",
-         r"\bno\W{1,2}(?:move|remove)\W{0,2} (?:or \W?(?:move|remove)\W? )?(?:sub)?commands?\b")
+         r"\b(?:move|remove)\W{0,2} (?:(?:sub)?commands? )?(?:(?:is|are|was|were) not|isn't|aren't|wasn't|weren't) "
+         r"(?:yet )?(?:implemented|defined|registered)\b",
+         r"\bno\W{1,2}(?:move|remove)\W{0,2} (?:or \W?(?:move|remove)\W? )?(?:sub)?(?:commands?|parsers?)\b",
+         r"\bno (?:sub)?(?:parser|command)s? (?:for|named) \W?(?:move|remove)\b")
 # The exit status those tests assert, which argparse returns too.
 _EXIT = r"\b(?:exit(?:s|ed|ing)?|exit code|exit status|return ?code|status code|status)\W{0,3}(?:(?:with|of|is|was|equal to|code|status|to|==?)\W{0,3}){0,3}"
-STATUS = (_EXIT + r"2\b", r"\bexit(?:s|ed)? (?:non-?zero|with an error) \(?(?:code |status )?2\)?")
+STATUS = (_EXIT + r"2\b", r"\bexit(?:s|ed)? (?:non-?zero|with an error) \(?(?:code |status )?2\)?",
+          r"\breturn(?:s|ed|ing)? (?:code |status )?2\b", r"\bSystemExit\(2\)", r"\bcode\W{0,2}2\b")
 # The code those tests also pass on.
 ORIGINAL = (r"\boriginal\b", r"\bseed\b", r"\bpass[_ -]to[_ -]pass\b", r"\bpre-?change\b", r"\bbaseline\b",
             r"\b(?:on|against|at|with|in) (?:the )?base\b", r"\bbase (?:code|revision|commit|version|tree|source)\b",
