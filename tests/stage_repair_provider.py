@@ -103,6 +103,18 @@ def append_trace(row):
         stream.write(json.dumps(row) + "\n")
 
 
+# The 2026-10-05 self-build planned a ~100 KB contract. Each planning report stayed
+# under the 128 KiB report limit, but the Plan Reviewer's repair handoff carries the
+# earlier reports too, so it exceeded the 256 KiB handoff limit.
+OVERSIZED_REPORT_PADDING = 90 * 1024
+
+
+def traced(stage, repair):
+    path = Path(os.environ["STAGE_REPAIR_TRACE"])
+    rows = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    return [row for row in rows if row["stage"] == stage and row["repair"] == repair]
+
+
 def main():
     delegate = os.environ["STAGE_REPAIR_DELEGATE"]
     if sys.argv[1:] == ["login", "status"]:
@@ -146,6 +158,12 @@ def main():
             value["contract"].pop("initial_task")
         row["initial_task_path"] = ("contract.initial_task" if "initial_task" in value["contract"]
                                     else "initial_task" if "initial_task" in value else "missing")
+    elif case == "oversized" and not repair and stage in ("astra_discovery", "astra_challenge", "glm_revise"):
+        value["summary"] += " " + "x" * OVERSIZED_REPORT_PADDING
+    elif stage == "astra_finalize" and case == "oversized":
+        # Only the first final review is rejected; a repair of it would be a runner fault.
+        if not repair and not traced(stage, False):
+            value["contract"].pop("initial_task")
     elif stage == "astra_finalize" and case == "investigator":
         # A persistent empty concern response is an explicit fixture fault. The
         # Investigator is the behavior under test, and its guidance ends it.

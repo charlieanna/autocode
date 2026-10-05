@@ -105,6 +105,19 @@ content is never silently truncated to satisfy the limit. Old pending OpenCode
 checkpoints with missing report files can materialize their terminal response locally
 from intact, pinned events instead of making the model search the log.
 
+Saved repair inputs do not shrink, so a repair paused this way can never launch.
+Resume explicitly (`autocode resume`, or `--resume-paused`) to archive it in
+`report_repair_archive`, pinned evidence intact, and start a fresh attempt of the
+rejected stage, as after exhausted repairs:
+
+- A planning stage edits nothing, so it simply runs again. A fresh Plan Reviewer
+  attempt is one more plan-review call: if the allowance is spent, the run stops
+  there as at any review, and `--planning-review-call-limit N` followed by a resume
+  continues it.
+- An execution stage starts in a new provider session on the current source. If
+  that stage already failed the same way three times at an unchanged source, the
+  resume pauses as `PAUSED_REPEATED_FAILURE` until the cause changes.
+
 Repairs remain read-only, use the existing attempt limit and role/model routing, and
 cannot approve plans, rerun tests, replace original execution evidence, or convert
 unsupported observations into passing validation.
@@ -540,7 +553,8 @@ A completed response with invalid JSON or an invalid report is archived and paus
 receive the bounded automatic recovery above; other uncertain responses need inspection
 first.
 
-An execution report whose two read-only repairs are exhausted can be retried with
+An execution report whose two read-only repairs are exhausted, or whose repair
+cannot launch (`PAUSED_REPORT_REPAIR_INPUT`), can be retried with
 `--resume-paused`. If the same Validator report fails repeatedly, the failure
 guard may stop recovery earlier: the cheap serialization correction contributes
 to that guard but does not spend a full repair attempt. After correcting the

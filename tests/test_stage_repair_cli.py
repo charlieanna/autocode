@@ -219,6 +219,44 @@ class StageRepairCLI(unittest.TestCase):
         self.assertEqual(1, len(accepted))
         self.assertEqual(original["events"], accepted[0]["repair"]["applied_original_events"])
 
+    def test_oversized_finalizer_repair_resumes_as_a_fresh_review_then_awaits_approval(self):
+        # 2026-10-05 self-build: the rejected final review's repair handoff exceeded 256 KiB, and every
+        # resume retried the same unlaunchable repair. An explicit resume now starts a fresh review.
+        fixture = self.fixture_for("oversized")
+        run, state, view, trace = self.plan(fixture)
+        self.assertEqual("PAUSED_REPORT_REPAIR_INPUT", state["status"], state.get("stop_reason"))
+        self.assertIn("Complete report-repair handoff exceeds", state["stop_reason"])
+        self.assertIn("autocode resume to archive this repair", state["stop_reason"])
+        pending = state["pending_report_repair"]
+        self.assertEqual(("astra_finalize", 0), (pending["original"]["stage"], pending["attempts"]))
+        self.assertLess(Path(pending["original"]["output"]).stat().st_size, repair_support.runner.REPAIR_REPORT_BYTES)
+        self.assertEqual([False], [row["repair"] for row in trace if row["stage"] == "astra_finalize"])
+        self.assertEqual(2, state["planning"]["astra_calls"])
+
+        # The fresh review is a third plan-review call: it stops at the allowance as any review does,
+        # and AutoResolver asks for the operator's decision.
+        fixture.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
+        run, state = fixture.saved()
+        self.assertEqual(("WAITING_FOR_USER", "astra_finalize"), (state["status"], state["next_stage"]),
+                         state.get("stop_reason"))
+        self.assertIn("2/2 plan-review calls used", state["stop_reason"])
+        trace = [json.loads(line) for line in (fixture.root / "stage-repair-trace.jsonl").read_text().splitlines()]
+        self.assertEqual([False], [row["repair"] for row in trace if row["stage"] == "astra_finalize"])
+        self.assertNotIn("pending_report_repair", state)
+        archived = state["report_repair_archive"][-1]
+        self.assertEqual(pending, archived["repair"])
+        self.assertIn("cannot launch from its saved inputs", archived["reason"])
+        self.assertTrue(all(Path(path).is_file() for path in pending["pins"]))
+
+        fixture.launch(["--run-dir", str(run), "--planning-review-call-limit", "3"], 0)
+        fixture.launch(["--run-dir", str(run), "--resume-paused", "--no-chat"], 2)
+        run, state = fixture.saved()
+        view = json.loads(fixture.launch(["--run-dir", str(run), "--status"], 0).stdout)["view"]
+        trace = [json.loads(line) for line in (fixture.root / "stage-repair-trace.jsonl").read_text().splitlines()]
+        self.assert_approval_boundary(fixture, state, view, trace)
+        self.assertEqual([False, False], [row["repair"] for row in trace if row["stage"] == "astra_finalize"])
+        self.assertEqual(3, state["planning"]["astra_calls"])
+
     def test_investigator_repairs_archive_name_and_event_citation_then_runs_scratch(self):
         fixture = self.fixture_for("investigator")
         _, state, view, trace = self.plan(fixture)

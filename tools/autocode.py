@@ -57,7 +57,7 @@ try:
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)
-    from .autocode_report_source import (REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,
+    from .autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)
     from .autocode_report_findings import preserved_dispositions
     from .autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,
@@ -91,7 +91,7 @@ except ImportError:
         assert_stage_stopped, attempt_id, check_evidence_options, count_automatic_recovery, default_missing_provenance,
         normalize_human_boundary, normalize_plan_challenge_blocking, now, read_json, recovery_count,
         repair_limit, stage_completed, stage_supports_sessions, timeout_recovery_route, write_json as ordinary_write_json)
-    from autocode_report_source import (REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,
+    from autocode_report_source import (REPAIR_INPUT_ROUTE, REPAIR_REPORT_BYTES, original_report_for_repair, recovered_timeout_attempt,
         repair_report_instruction, repair_report_source, valid_truncated_report_attempt)
     from autocode_report_findings import preserved_dispositions
     from autocode_stage_recovery import (MAX_AUTOMATIC_CAPACITY_RECOVERIES, abandon_stage,
@@ -399,7 +399,8 @@ def run_role(
             write_json(base.with_suffix('.opencode.json'), json.loads(child_environment['OPENCODE_CONFIG_CONTENT']))
     if report_only and len(prompt.encode('utf-8')) > REPAIR_HANDOFF_BYTES:
         raise support.Paused('PAUSED_REPORT_REPAIR_INPUT',
-                             f'Provider-decorated repair prompt exceeds {REPAIR_HANDOFF_BYTES} bytes; no request was launched')
+                             f'Provider-decorated repair prompt exceeds {REPAIR_HANDOFF_BYTES} bytes; no request was launched.'
+                             + REPAIR_INPUT_ROUTE)
     prompt_file.write_text(prompt)
 
     record = {"role": role, "stage": stage, "iteration": iteration, "started_at": now(), "command": command,
@@ -828,7 +829,7 @@ def execute_report_repair(state, run_dir, workspace):
     if len(prompt.encode('utf-8')) > REPAIR_HANDOFF_BYTES:
         raise support.Paused('PAUSED_REPORT_REPAIR_INPUT',
                              f'Complete report-repair handoff exceeds {REPAIR_HANDOFF_BYTES} bytes; '
-                             'inspect the saved artifacts instead of launching an unbounded repair')
+                             'no unbounded repair was launched.' + REPAIR_INPUT_ROUTE)
     pending['attempts'] += 1
     state.update(phase='REPORT_REPAIR')
     write_json(run_dir / 'state.json', state)

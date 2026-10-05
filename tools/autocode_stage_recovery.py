@@ -629,7 +629,7 @@ def automatically_recover_external_directory_denial(state, run_dir, workspace, e
 
 
 def prepare_planning_retry(state, run_dir):
-    """Explicitly retry an exhausted planning report; retain rejected evidence."""
+    """Explicitly retry a planning report whose repair is spent or cannot launch; retain rejected evidence."""
     # Older runs may already have archived a repair under its internal stage
     # name. Recover only the exact abandoned attempt on an explicit resume.
     if (state.get('status') == 'PAUSED_INVALID_OUTPUT' and not state.get('active_stage')
@@ -649,9 +649,15 @@ def prepare_planning_retry(state, run_dir):
     # The caller checks unchanged repeated failures before reaching this point.
     # After the cause changes, planning needs the same explicit fresh attempt
     # path as ordinary invalid output, retaining the exhausted repair artifacts.
-    if state.get('status') not in ('PAUSED_INVALID_OUTPUT', 'PAUSED_REPEATED_FAILURE', 'PAUSED_REPORT_REPAIR_LIMIT'):
+    # A repair whose saved inputs exceed the handoff limits can never launch, so
+    # it is as spent as an exhausted one; planning stages do not edit the workspace.
+    status = state.get('status')
+    if status not in ('PAUSED_INVALID_OUTPUT', 'PAUSED_REPEATED_FAILURE', 'PAUSED_REPORT_REPAIR_LIMIT',
+                      'PAUSED_REPORT_REPAIR_INPUT'):
         return False
     pending = state.get('pending_report_repair')
+    if status == 'PAUSED_REPORT_REPAIR_INPUT' and not pending:
+        return False
     active = state.get('active_stage')
     stage = (pending or {}).get('original', {}).get('stage', state.get('next_stage'))
     if stage != state.get('next_stage') or not (stage == 'astra_discovery' or planning.is_planning(state, stage)):
@@ -670,7 +676,9 @@ def prepare_planning_retry(state, run_dir):
         state.pop('active_stage', None)
     if pending:
         state.setdefault('report_repair_archive', []).append({
-            'at': records.now(), 'reason': 'Explicit fresh planning retry after rejected output',
+            'at': records.now(), 'reason': ('Explicit fresh planning retry: the report repair cannot launch from its saved inputs'
+                                            if status == 'PAUSED_REPORT_REPAIR_INPUT'
+                                            else 'Explicit fresh planning retry after rejected output'),
             'repair': state.pop('pending_report_repair')})
     state.setdefault('reconciliation_notes', []).append({
         'at': records.now(), 'stage': stage, 'reason': 'Explicit fresh planning retry; rejected reports retained'})
@@ -680,9 +688,12 @@ def prepare_planning_retry(state, run_dir):
 
 
 def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None, *, allow_repeated=False):
-    """Allow an explicit fresh execution report after bounded repairs fail."""
-    if state.get('status') not in ('PAUSED_REPORT_REPAIR_LIMIT', 'PAUSED_INVALID_OUTPUT', 'PAUSED_REPEATED_FAILURE') or state.get('active_stage'):
+    """Allow an explicit fresh execution report after bounded repairs fail or cannot launch."""
+    if state.get('status') not in ('PAUSED_REPORT_REPAIR_LIMIT', 'PAUSED_REPORT_REPAIR_INPUT', 'PAUSED_INVALID_OUTPUT',
+                                   'PAUSED_REPEATED_FAILURE') or state.get('active_stage'):
         return False
+    # A repair whose saved inputs exceed the handoff limits can never launch: it is spent.
+    unlaunchable = state['status'] == 'PAUSED_REPORT_REPAIR_INPUT'
     pending = state.get('pending_report_repair')
     original = pending.get('original') if isinstance(pending, dict) else None
     if not isinstance(original, dict):
@@ -697,7 +708,7 @@ def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None, *, 
                 for record in state.get('stages', [])))
     if ((stage != state.get('next_stage') and not reroute_abandoned_sol) or stage == 'astra_discovery'
             or planning.is_planning(state, stage)
-            or not (pending.get('attempts') == records.repair_limit(state)
+            or not (unlaunchable or pending.get('attempts') == records.repair_limit(state)
                     or allow_repeated and report_retry.bounded_failure(state, records.repair_limit(state)))):
         return False
     repeated = failures.repeated(state, original)
@@ -710,15 +721,15 @@ def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None, *, 
         raise support.Paused('PAUSED_REPEATED_FAILURE', message)
     if reroute_abandoned_sol:
         state['next_stage'] = 'sol'
+    reason = ('Explicit fresh execution retry: the report repair cannot launch from its saved inputs'
+              if unlaunchable else 'Explicit fresh execution retry after bounded report failures')
     state.setdefault('report_repair_archive', []).append({
-        'at': records.now(), 'reason': 'Explicit fresh execution retry after bounded report failures',
-        'repair': state.pop('pending_report_repair')})
+        'at': records.now(), 'reason': reason, 'repair': state.pop('pending_report_repair')})
     role = original.get('route_role') or original.get('role')
     old = state.setdefault('sessions', {}).pop(role, None) if role else None
     if old:
         state.setdefault('session_rotations', []).append({
-            'role': role, 'old_session': old, 'at': records.now(),
-            'reason': 'Explicit fresh execution retry after bounded report failures'})
+            'role': role, 'old_session': old, 'at': records.now(), 'reason': reason})
     state.setdefault('reconciliation_notes', []).append({
         'at': records.now(), 'stage': stage, 'iteration': original.get('iteration'),
         'reason': 'Explicit fresh execution retry; rejected reports retained'})

@@ -682,15 +682,21 @@ def charge(state, stage, record=None, workspace=None):
 
 
 def _coverage(rows, concerns):
-    # A row for something that is not a concern (a question ID, say) answers nothing and is not an
-    # error; every concern still needs exactly one row.
+    """Return the rows that answer plan-review concerns: exactly one substantive row per concern.
+
+    A row for something that is not a concern (a question ID, or an empty placeholder row) answers
+    nothing. It is neither an error nor checked, and callers keep only the returned rows, so no
+    later step (unresolved decisions, progressive activation, the plan shown for approval) reads it.
+    """
     concern_ids = {c["id"] for c in concerns}
-    ids = [row["concern_id"] for row in rows if row["concern_id"] in concern_ids]
+    answers = [row for row in rows if row["concern_id"] in concern_ids]
+    ids = [row["concern_id"] for row in answers]
     if len(ids) != len(set(ids)) or set(ids) != concern_ids:
         raise ValueError("Every plan-review concern needs exactly one response/decision using its ID")
-    for row in rows:
+    for row in answers:
         if any(isinstance(value, str) and not value.strip() for value in row.values()):
             raise ValueError("Planning responses and decisions must be substantive")
+    return answers
 
 
 PROMPTS = {

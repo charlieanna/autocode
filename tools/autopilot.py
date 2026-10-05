@@ -250,6 +250,10 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
         value = {"conflict_resolutions": [], **value}
     if stage in planning_unit.V2_STAGES:
         support.validate_schema(value, planning_unit.SCHEMAS[stage])
+        answers = {"plan_revise": "responses", "plan_finalize": "decisions"}.get(stage)
+        if answers:  # the report and its handoff keep only the rows that answer a review concern
+            concerns = state["planning"]["reports"]["plan_review"]["report"]["concerns"]
+            value = {**value, answers: planning_unit._coverage(value[answers], concerns)}
         progressive_state.accept_proposal(state, value, origin=stage)
         prepared = planning_artifacts.prepare(state, stage, value, origin=stage,
                                               run_dir=run_dir, record=False)
@@ -274,14 +278,12 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
                     raise ValueError("Each concern needs a concrete change and acceptance test")
                 state["next_stage"] = "plan_revise"
             elif stage == "plan_revise":
-                planning_unit._coverage(value["responses"], reports["plan_review"]["report"]["concerns"])
                 if any(not response["evidence_refs"] for response in value["responses"]):
                     raise ValueError("Planner responses must cite investigated evidence")
                 derived = planning_graph.validate(value["contract"])
                 lifecycle.install_draft(state, value["contract"], origin="plan_revise", record=record)
                 planning["derived_graph"] = derived
             elif stage == "plan_finalize":
-                planning_unit._coverage(value["decisions"], reports["plan_review"]["report"]["concerns"])
                 unresolved = {row["concern_id"] for row in value["decisions"] if not row["resolved"]}
                 if unresolved and not value["contract"]["open_blocking_questions"]:
                     raise ValueError("Unresolved planning decisions must return as blocking questions")
@@ -360,7 +362,7 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
         planning_unit.after_challenge(state, value, record)
     elif stage == "glm_revise":
         concerns = reports["astra_challenge"]["report"]["concerns"]
-        planning_unit._coverage(value["responses"], concerns)
+        value = {**value, "responses": planning_unit._coverage(value["responses"], concerns)}
         if any(not r["evidence_refs"] for r in value["responses"]):
             raise ValueError("Planner responses must cite investigated evidence")
         _bind_plan(state, value, stage, record)
@@ -371,7 +373,7 @@ def apply_planning(state, stage, value, record, *, run_dir=None):
         state.update(status="RUNNING", phase="PLANNING", next_stage=planning_unit.after_revise(state), pending_questions=[])
     elif stage == "astra_finalize":
         concerns = reports["astra_challenge"]["report"]["concerns"]
-        planning_unit._coverage(value["decisions"], concerns)
+        value = {**value, "decisions": planning_unit._coverage(value["decisions"], concerns)}
         unresolved = {d["concern_id"] for d in value["decisions"] if not d["resolved"]}
         if unresolved and not value["contract"]["open_blocking_questions"]:
             raise ValueError("Unresolved planning decisions must return to the user as blocking questions")
