@@ -9,6 +9,7 @@ import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import autocode_doctor as doctor
 
@@ -39,12 +40,121 @@ class EngineTests(unittest.TestCase):
             checks = doctor.engine_checks(on_path("codex"), fake_runner({("codex", "login", "status"): (code, "")}))
             self.assertEqual(status, {c.name: c.status for c in checks}["engine:codex"])
 
-    def test_any_ready_engine_is_enough_unless_one_is_required(self):
-        checks = doctor.engine_checks(on_path("codex"), fake_runner({("codex", "login", "status"): (0, "")}))
-        self.assertEqual(doctor.OK, doctor.engine_verdict(checks, None).status)
-        self.assertEqual(doctor.MISSING, doctor.engine_verdict(checks, "opencode").status)
-        self.assertEqual(doctor.MISSING, doctor.engine_verdict(doctor.engine_checks(on_path(), fake_runner({})),
-                                                               None).status)
+    def test_the_default_engine_must_be_ready_and_a_ready_codex_is_named_as_the_alternative(self):
+        codex_only = doctor.engine_checks(on_path("codex"), fake_runner({("codex", "login", "status"): (0, "")}))
+        verdict = doctor.engine_verdict(codex_only, None)
+        self.assertEqual(doctor.MISSING, verdict.status)
+        self.assertIn("--engine codex", verdict.fix)
+        self.assertFalse(doctor.passed([verdict]))
+        self.assertEqual(doctor.OK, doctor.engine_verdict(codex_only, "codex").status)
+        self.assertEqual(doctor.MISSING, doctor.engine_verdict(codex_only, "opencode").status)
+        opencode_only = doctor.engine_checks(on_path("opencode"), fake_runner({("opencode", "--version"): (0, "1.18.33")}))
+        self.assertEqual(doctor.OK, doctor.engine_verdict(opencode_only, None).status)
+        nothing = doctor.engine_verdict(doctor.engine_checks(on_path(), fake_runner({})), None)
+        self.assertEqual(doctor.MISSING, nothing.status)
+        self.assertNotIn("--engine codex", nothing.fix)
+
+    def test_the_default_is_resolved_as_a_run_resolves_it(self):
+        import autocode_providers
+        runner_choice = lambda: autocode_providers.select(None, {}, default=None)  # autocode.py, no --engine codex
+        with tempfile.TemporaryDirectory() as config, patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
+            os.environ.pop("AUTOCODE_PROVIDER", None)
+            self.assertEqual(("opencode", "opencode"), (runner_choice(), doctor.default_provider()))
+            (Path(config) / "autocode").mkdir()
+            (Path(config) / "autocode" / "config.toml").write_text('default_provider = "fixturetool"\n')
+            self.assertEqual(("fixturetool", "fixturetool"), (runner_choice(), doctor.default_provider()))
+            os.environ["AUTOCODE_PROVIDER"] = "othertool"
+            self.assertEqual(("othertool", "othertool"), (runner_choice(), doctor.default_provider()))
+
+    def test_a_configured_default_provider_is_checked_and_decides_the_verdict(self):
+        class Provider:
+            def __init__(self, error=None):
+                self.error = error
+
+            def local_settings(self):
+                if self.error:
+                    raise self.error
+                return {"version": "1.0", "config_path": "/config/fixturetool.toml"}
+
+            def available_models(self, workspace=None):
+                return None
+        ready = doctor.provider_check("fixturetool", lambda name: Provider())
+        self.assertEqual(("provider:fixturetool", doctor.OK), (ready.name, ready.status))
+        self.assertEqual(doctor.OK, doctor.engine_verdict([ready], None, "fixturetool").status)
+        absent = doctor.provider_check("fixturetool", lambda name: Provider(RuntimeError("'fixture' is not on PATH")))
+        self.assertEqual(doctor.MISSING, absent.status)
+        opencode = doctor.engine_checks(on_path("opencode"), fake_runner({("opencode", "--version"): (0, "1.18.33")}))
+        self.assertEqual(doctor.MISSING, doctor.engine_verdict([*opencode, absent], None, "fixturetool").status)
+        with tempfile.TemporaryDirectory() as config, patch.dict(os.environ, {"XDG_CONFIG_HOME": config,
+                                                                              "AUTOCODE_PROVIDER": "nosuchtool"}):
+            checks = {c.name: c for c in doctor.all_checks(Path(config), None, on_path("opencode"),
+                                                           fake_runner({("opencode", "--version"): (0, "1.18.33")}))}
+        self.assertEqual(doctor.MISSING, checks["provider:nosuchtool"].status)
+        self.assertIn("nosuchtool", checks["engine"].detail)
+        self.assertEqual(doctor.MISSING, checks["engine"].status)
+        # --engine opencode runs the default provider too, so it is the one checked.
+        with tempfile.TemporaryDirectory() as config, patch.dict(os.environ, {"XDG_CONFIG_HOME": config,
+                                                                              "AUTOCODE_PROVIDER": "fixturetool"}):
+            flagged = {c.name: c for c in doctor.all_checks(
+                Path(config), "opencode", on_path("opencode"), fake_runner({("opencode", "--version"): (0, "1.18.33")}),
+                lambda name: Provider(RuntimeError("'fixture' is not on PATH")))}
+        self.assertEqual(doctor.OK, flagged["engine:opencode"].status)
+        self.assertEqual(doctor.MISSING, flagged["provider:fixturetool"].status)
+        self.assertEqual(doctor.MISSING, flagged["engine"].status)
+        self.assertFalse(doctor.passed(list(flagged.values())))
+
+    def test_a_default_provider_named_codex_is_a_provider_config_not_the_codex_engine(self):
+        codex = fake_runner({("codex", "login", "status"): (0, "")})
+        with tempfile.TemporaryDirectory() as config, patch.dict(os.environ, {"XDG_CONFIG_HOME": config,
+                                                                              "AUTOCODE_PROVIDER": "codex"}):
+            checks = {c.name: c for c in doctor.all_checks(Path(config), None, on_path("codex"), codex)}
+            codex_engine = {c.name: c for c in doctor.all_checks(Path(config), "codex", on_path("codex"), codex)}
+        self.assertEqual(doctor.OK, checks["engine:codex"].status)
+        self.assertEqual(doctor.MISSING, checks["provider:codex"].status)
+        self.assertIn("no provider config for 'codex'", checks["provider:codex"].detail)
+        self.assertEqual(doctor.MISSING, checks["engine"].status)
+        self.assertIn("pass --engine codex", checks["engine"].fix)
+        self.assertFalse(doctor.passed(list(checks.values())))
+        self.assertEqual(doctor.OK, codex_engine["engine"].status)
+        self.assertNotIn("provider:codex", codex_engine)
+
+    def test_the_default_routes_must_be_in_the_model_list(self):
+        import providers.opencode as real
+
+        def opencode(listed):
+            class Facade:
+                DEFAULT_MODELS = real.DEFAULT_MODELS
+
+                @staticmethod
+                def available_models(workspace=None):
+                    if isinstance(listed, Exception):
+                        raise listed
+                    return listed
+            return lambda name: Facade
+
+        ready = fake_runner({("opencode", "--version"): (0, "1.18.31"), ("codex", "login", "status"): (0, "")})
+        everything = set(real.DEFAULT_MODELS.values())
+        cases = (({"opencode/big-pickle"}, doctor.MISSING, doctor.MISSING),
+                 (everything, doctor.OK, doctor.OK),
+                 (RuntimeError("OpenCode model listing timed out"), doctor.WARN, doctor.OK))
+        with tempfile.TemporaryDirectory() as config, patch.dict(os.environ, {"XDG_CONFIG_HOME": config}):
+            os.environ.pop("AUTOCODE_PROVIDER", None)
+            for listed, routes, verdict in cases:
+                with self.subTest(listed=listed):
+                    checks = {c.name: c for c in doctor.all_checks(Path(config), None, on_path("opencode", "codex"),
+                                                                   ready, opencode(listed))}
+                    self.assertEqual((routes, verdict), (checks["routes"].status, checks["engine"].status))
+            codex = {c.name: c for c in doctor.all_checks(Path(config), "codex", on_path("opencode", "codex"),
+                                                          ready, opencode({"opencode/big-pickle"}))}
+        no_logins = doctor.route_check("opencode", None, opencode({"opencode/big-pickle"}))
+        self.assertIn("zai-coding-plan/glm-5.3", no_logins.detail)
+        self.assertIn("openai/gpt-6-sol", no_logins.detail)
+        for hint in ("Z.AI Coding Plan", "ChatGPT", "autocode models"):
+            self.assertIn(hint, no_logins.fix)
+        verdict = doctor.engine_verdict([*doctor.engine_checks(on_path("opencode", "codex"), ready), no_logins])
+        self.assertIn("pass --engine codex", verdict.fix)
+        self.assertNotIn("routes", codex)  # Codex's own transport has no OpenCode routes
+        self.assertEqual(doctor.OK, codex["engine"].status)
 
     def test_old_python_is_missing(self):
         self.assertEqual(doctor.MISSING, doctor.python_check((3, 10, 9)).status)
@@ -83,9 +193,36 @@ class WorkspaceTests(unittest.TestCase):
 
 
 class CliTests(unittest.TestCase):
-    def autocode(self, *args, cwd=REPO_ROOT):
+    def autocode(self, *args, cwd=REPO_ROOT, env=None):
         return subprocess.run([sys.executable, str(REPO_ROOT / "tools" / "autocode.py"), *args], cwd=cwd,
-                              capture_output=True, text=True, timeout=60, env={**os.environ, "PATH": os.defpath})
+                              capture_output=True, text=True, timeout=60,
+                              env={**os.environ, "PATH": os.defpath, **(env or {})})
+
+    def test_help_names_the_commands_handled_before_the_options(self):
+        import autocode_subcommands as sub
+        proc = self.autocode("--help")
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        listed = proc.stdout.split("Commands, typed first:", 1)[1].replace("\n", " ")
+        for word in ("--version", "doctor", "status", "resume", "docs/cli.md", *sub.SUBCOMMANDS):
+            self.assertIn(word, listed)
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root reads a mode-000 file")
+    def test_an_unreadable_config_is_reported_in_the_json(self):
+        with tempfile.TemporaryDirectory() as folder:
+            config = Path(folder) / "autocode" / "config.toml"
+            config.parent.mkdir()
+            config.write_text('default_provider = "opencode"\n')
+            config.chmod(0)
+            try:
+                proc = self.autocode("doctor", "--json", "--workspace", folder,
+                                     env={"XDG_CONFIG_HOME": folder, "AUTOCODE_PROVIDER": ""})
+            finally:
+                config.chmod(0o600)
+        self.assertEqual(1, proc.returncode, proc.stderr)
+        checks = {c["name"]: c for c in json.loads(proc.stdout)["checks"]}
+        self.assertEqual(doctor.MISSING, checks["engine"]["status"])
+        self.assertIn("Permission denied", checks["engine"]["detail"])
+        self.assertEqual(doctor.OK, checks["python"]["status"])
 
     def test_version_names_the_package_version(self):
         proc = self.autocode("--version")
@@ -100,10 +237,6 @@ class CliTests(unittest.TestCase):
         report = json.loads(proc.stdout)
         self.assertFalse(report["ok"])
         self.assertEqual(doctor.MISSING, {c["name"]: c["status"] for c in report["checks"]}["workspace"])
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class SourceCommitTests(unittest.TestCase):
@@ -132,3 +265,7 @@ class SourceCommitTests(unittest.TestCase):
             loaded.loader.exec_module(module)
             self.assertIsNone(module.source_commit())
             self.assertIn("commit unknown", module.version_line())
+
+
+if __name__ == "__main__":
+    unittest.main()

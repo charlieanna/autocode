@@ -8,7 +8,15 @@ import ctypes
 from functools import lru_cache
 import sys
 
-import psutil
+try:
+    from . import autocode_util as util
+except ImportError:
+    import autocode_util as util
+
+try:
+    import psutil
+except ImportError as missing:  # autocode.py loads this module for --version and doctor too (#67)
+    psutil = util.MissingModule("psutil", missing)
 
 
 @lru_cache(maxsize=1)
