@@ -55,6 +55,11 @@ The runner also executes explicit commands from the approved verification method
 another successful command cannot replace them. Empty Python test bodies cannot establish behavioral coverage.
 An explicit planned exit-code expectation is replayed as an assertion: a usage-error probe expected to exit 2
 must actually exit 2. Your reported checks in a PASS still need to exit 0 themselves.
+In read-only contained stages, capture commands execute in a runner-prepared copy of the current source,
+where build outputs are writable but existing source and tests remain protected. Receipts remain in the
+original task evidence directory. Use repository-relative paths for product files. Each reported check must
+include its own setup (for example build and execute in the same command): clean replay does not retain
+artifacts from earlier checks. An execution in the prepared copy is still subject to clean-source replay.
 Keep every scratch copy and test artefact inside the workspace under .autocode/ (for example .autocode/scratch/);
 the runner's changed-file measurement ignores .autocode/. Never use /tmp, mktemp or any path outside the
 workspace: the provider sandbox denies external directories and the whole attempt is lost (a live run paused

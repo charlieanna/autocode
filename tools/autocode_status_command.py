@@ -41,7 +41,8 @@ def render(runner, state, args, workspace, run_dir):
                 or inspected.get('inspected_source_revision') != current['revision']):
             completion_current = False
     public_view = runner.run_view.view(state, completion_current=completion_current,
-                                       visual_acceptance=visual_acceptance)
+                                       visual_acceptance=visual_acceptance,
+                                       stale_report_repair=runner.stale_report_repair(state, workspace) is not None)
     if inspected is not None:
         public_view['verification'] = inspected
     checkpoint = runner.milestones.summary(state)

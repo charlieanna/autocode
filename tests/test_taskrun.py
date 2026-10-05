@@ -209,7 +209,7 @@ class RunViewTests(unittest.TestCase):
         state = {"status": "PAUSED_REPEATED_FAILURE", "stop_reason": "report rejected",
                  "settings": {"report_repair": {"max_attempts": 2}},
                  "pending_report_repair": {"error": "Check is not supported by an exact executed Validator event",
-                                           "attempts": 2,
+                                           "original": {"stage": "sol"}, "attempts": 2,
                                            "latest_rejected": {"iteration": 1, "output": "/run/sol_report_repair-02.json"}}}
         self.assertEqual("001/sol_report_repair-02", run_view.needs(state)["retry_report_attempt"])
 

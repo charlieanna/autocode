@@ -136,7 +136,7 @@ still require their own actions. Recovery eligibility and token checks are uncha
 | `--pause-after-stage` | Stop at the next saved boundary. |
 | `--retry-builder M2` | With `--resume-paused`, authorize one retry of the exhausted current serial milestone or stopped parallel members. Keeps failure history, model routes and verification gates; all workers must be stopped. |
 | `--abandon-stage '001/terra-01'` | Archive a stopped attempt, keep partial edits and logs. |
-| `--retry-report ATTEMPT_ID` | With `--resume-paused`, request fresh Tester evidence after an exhausted rejected report with an exact attempt ID; saved source and evidence pins must still match. |
+| `--retry-report ATTEMPT_ID` | With `--resume-paused`, request fresh Tester evidence after report repair or repeated-failure limits stop a rejected report, using the exact attempt ID status names; saved source and evidence pins must still match. After a source edit, `--resume-paused` validates the current source instead. |
 | `--accept-transport-change` | Resume a transport-change pause after route checks. |
 | `--max-parallel-builders N` | Concurrency limit for independent milestone Builders. |
 | `--milestone-checkpoints` / `--request-milestone-checkpoints` | Enable milestone checkpoints (idle boundary / queued). |

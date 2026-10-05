@@ -34,6 +34,34 @@ def feature_state(project, criteria, milestones=1):
 
 
 class ContractCasesTests(unittest.TestCase):
+    def test_annotated_go_name_binds_only_the_declared_actual_test(self):
+        state = {"goal_contract": {"body": {"acceptance_criteria": [{
+            "id": "AC1", "criterion": "golden behavior", "verification_method":
+            "test: test_c1_golden_vectors — Go test TestC1GoldenVectors in policy_test.go"}]}}}
+        cases = test_cases.contract_cases(state)
+        actual = "policy::TestC1GoldenVectors"
+        names = [actual, "policy::TestC10GoldenVectors", "policy::TestC1GoldenVectorsExtra"]
+        self.assertEqual({"AC1": [actual]}, test_cases.match_cases(cases, names, framework="go"))
+        self.assertEqual({"AC1": []}, test_cases.match_cases(cases, names, framework="pytest"))
+        for passing, expected in (([actual], "PASS"), (names[1:], "FAIL"), ([], "FAIL")):
+            with self.subTest(passing=passing):
+                proof = {"framework": {"name": "go"}, "verdict": "PASS", "failures": [],
+                         "unverified": [], "fail_to_pass": passing}
+                regression.check_cases(proof, cases)
+                self.assertEqual(expected, proof["verdict"])
+        proof = {"framework": {"name": "go"}, "verdict": "PASS", "failures": [],
+                 "unverified": [], "fail_to_pass": [actual]}
+        regression.check_cases(proof, cases, refused={actual: "assertion does not test the behavior"})
+        self.assertEqual("FAIL", proof["verdict"])
+        self.assertIn("assertion does not test the behavior", " ".join(proof["failures"]))
+
+    def test_native_go_declaration_and_python_case_sensitive_name_are_preserved(self):
+        self.assertEqual("TestC1GoldenVectors", test_cases.declared_test_name("TestC1GoldenVectors"))
+        self.assertEqual("test_C1_vectors", test_cases.declared_test_name("test_C1_vectors — explanation"))
+        self.assertEqual({"AC1": []}, test_cases.match_cases(
+            [{"id": "AC1", "test_name": "test_C1_vectors"}], ["test_c1_vectors"], framework="pytest"))
+        self.assertIsNone(test_cases.declared_test_name("test_c1_<what it checks>"))
+
     def test_approved_test_name_can_prove_two_criteria_with_one_focused_test(self):
         criteria = [
             {"id": "AC1", "criterion": "add returns five", "verification_method": "test: test_adds_two_integers"},

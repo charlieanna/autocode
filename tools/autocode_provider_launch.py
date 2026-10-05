@@ -14,7 +14,7 @@ except ImportError:
 
 def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
              model, effort, allow_write, planning, report, schema, prompt_file,
-            sandbox, transport_args, chatgpt, provider, enforce_tool_boundary=True):
+            sandbox, transport_args, chatgpt, provider, enforce_tool_boundary=True, tool_commands=()):
     environment = agent_env.scrubbed(os.environ)
     overrides = None
     prior_session = session
@@ -27,7 +27,7 @@ def prepare(*, engine, adapter, role, route_role, workspace, run_dir, session,
             developer_tools = Path('/Library/Developer/CommandLineTools')
             if developer_tools.is_dir():
                 roots.add(developer_tools.resolve())
-            containment = {'read_roots': [str(path) for path in sorted(roots)],
+            containment = {'tool_commands': list(tool_commands), 'read_roots': [str(path) for path in sorted(roots)],
                            'protected_paths': [str(Path(run_dir).resolve()), str(runtime)]}
         try:
             command, child, overrides = adapter.launch(route_role, workspace, run_dir, session,

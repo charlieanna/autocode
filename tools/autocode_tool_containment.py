@@ -34,6 +34,15 @@ def _path(value):
     return path
 
 
+def _protected_path(value):
+    # A copied symlink itself must be protected from unlink/replace. Resolve
+    # its parent only: resolving the final link would protect a different file.
+    path = Path(value).absolute()
+    if path.parent.resolve() != path.parent:
+        raise ValueError('Symlinked parent of protected authority path')
+    return path
+
+
 def policy(workspace, scratch, *, allow_write=False, read_roots=(), protected_paths=()):
     """Return a deny-default Seatbelt profile. No model command is interpreted here."""
     root, scratch = _path(workspace), _path(scratch)
@@ -45,12 +54,21 @@ def policy(workspace, scratch, *, allow_write=False, read_roots=(), protected_pa
     if any(p == Path('/') or p == Path.home() for p in reads):
         raise ValueError("Tool containment refuses an unscoped read root")
     protected = {private, root / '.git', root / '.opencode', root / 'opencode.json',
-                 root / 'opencode.jsonc', *(_path(p) for p in protected_paths),
+                 root / 'opencode.jsonc', *(_protected_path(p) for p in protected_paths),
                  *(_path(p) for p in read_roots if _path(p).is_relative_to(root))}
     literal = lambda p: '(literal ' + json.dumps(str(p)) + ')'
     subpath = lambda p: '(subpath ' + json.dumps(str(p)) + ')'
-    lines = ['(version 1)', '(deny default)', '(allow process-exec process-fork)',
+    lines = ['(version 1)', '(deny default)',
+             # KERN_PROCARGS2 is not gated by sysctl-read. Explicitly deny
+             # cross-process inspection; npm needs its own process metadata.
+             '(deny process-info*)', '(allow process-info* (target self))',
+             '(allow process-exec process-fork)',
              '(allow signal (target same-sandbox))',
+             # Native allocators and language runtimes query page size, CPU
+             # capabilities and uname. Never grant sysctl-write or process data.
+             '(allow sysctl-read (sysctl-name-prefix "hw.") '
+             '(sysctl-name "kern.ostype" "kern.osrelease" "kern.osversion" '
+             '"kern.version" "kern.hostname" "kern.osrevision" "kern.hostid"))',
              '(allow file-read-metadata)', '(allow file-read* (literal "/"))',
              '(allow file-read* ' + ' '.join(subpath(p) for p in sorted(reads)) + ')',
              '(allow file-read* (literal "/dev/null") (literal "/dev/urandom") (literal "/dev/random"))',
@@ -77,7 +95,7 @@ def _reject_loopback_request(checks, authority):
 
 
 def prepare(workspace, *, allow_write=False, read_roots=(), protected_paths=(), environment=None,
-            loopback_checks=(), loopback_authority=None):
+            loopback_checks=(), loopback_authority=None, verification_copy=False):
     """Create a fresh runner-owned policy and shell; return only nonsecret metadata."""
     _reject_loopback_request(loopback_checks, loopback_authority)
     if sys.platform != 'darwin' or not Path('/usr/bin/sandbox-exec').is_file():
@@ -91,6 +109,16 @@ def prepare(workspace, *, allow_write=False, read_roots=(), protected_paths=(), 
     control.mkdir(mode=0o700)
     scratch = control / 'scratch'
     scratch.mkdir(mode=0o700)
+    verification = None
+    if verification_copy:
+        if allow_write:
+            raise ValueError('Writable stages must execute in the original workspace')
+        try:
+            from . import autocode_verification_copy as copies
+        except ImportError:
+            import autocode_verification_copy as copies
+        verification = copies.create(root, scratch)
+        protected_paths = [*protected_paths, *verification['protected_paths']]
     profile = control / 'policy.sb'
     profile.write_text(policy(root, scratch, allow_write=allow_write, read_roots=read_roots,
                               protected_paths=protected_paths))
@@ -98,12 +126,23 @@ def prepare(workspace, *, allow_write=False, read_roots=(), protected_paths=(), 
     # env -i separates model-client credentials and startup hooks from tool
     # authority. The authenticated OpenCode parent's environment is unchanged.
     env = environment or {}
-    safe = {'PATH': env.get('PATH', '/usr/bin:/bin:/usr/sbin:/sbin'),
+    # Keep package/config startup within the same isolated HOME authority.
+    # npm rejects a single path used for both its user and global configs.
+    npm_user, npm_global = scratch / 'npm-user.conf', scratch / 'npm-global.conf'
+    npm_user.write_text('')
+    npm_global.write_text('')
+    safe = {'GIT_CONFIG_NOSYSTEM': '1', 'GIT_CONFIG_GLOBAL': '/dev/null',
+            'GIT_OPTIONAL_LOCKS': '0', 'OPENSSL_CONF': '/dev/null',
+            'NPM_CONFIG_USERCONFIG': str(npm_user),
+            'NPM_CONFIG_GLOBALCONFIG': str(npm_global), 'PATH': env.get('PATH', '/usr/bin:/bin:/usr/sbin:/sbin'),
             'HOME': str(scratch), 'TMPDIR': str(scratch), 'TMP': str(scratch), 'TEMP': str(scratch),
             'SHELL': '/bin/bash', 'BASH_ENV': '/dev/null', 'ENV': '/dev/null',
             'PYTHONDONTWRITEBYTECODE': '1', 'PYTHONNOUSERSITE': '1', 'CI': '1',
             'LANG': 'en_US.UTF-8', 'AUTOCODE_TOOL_CONTAINMENT_ID': control.name,
             'AUTOCODE_OUTPUT_STORE': str(scratch / 'output-store')}
+    if verification:
+        safe['AUTOCODE_VERIFICATION_COPY'] = verification['manifest']
+        safe['AUTOCODE_VERIFICATION_COPY_SHA256'] = verification['sha256']
     if env.get('AUTOCODE_CAPTURE_CONTEXT'):
         context = json.loads(env['AUTOCODE_CAPTURE_CONTEXT'])
         if not isinstance(context, dict) or not all(isinstance(context.get(key), str)
@@ -121,7 +160,9 @@ def prepare(workspace, *, allow_write=False, read_roots=(), protected_paths=(), 
     if probe.returncode:
         raise RuntimeError(f'Strict native tool sandbox is unavailable (exit {probe.returncode}): '
                            + probe.stderr.strip())
-    return {'version': 1, 'platform': sys.platform, 'workspace': str(root),
+    return {**({'verification_copy': verification['manifest'],
+                 'verification_copy_sha256': verification['sha256']} if verification else {}),
+            'version': 1, 'platform': sys.platform, 'workspace': str(root),
             'shell': str(shell), 'profile': str(profile), 'scratch': str(scratch),
             'allow_write': allow_write, 'tools': ['bash']}
 
@@ -161,7 +202,7 @@ def configure(command, environment, workspace, *, allow_write, request):
     if sys.platform != 'darwin':
         raise RuntimeError('Strict native tool containment requires macOS; no provider launched')
     if not isinstance(request, dict) or set(request) - {
-            'read_roots', 'protected_paths', 'loopback_checks', 'loopback_authority'}:
+            'read_roots', 'protected_paths', 'loopback_checks', 'loopback_authority', 'tool_commands'}:
         raise ValueError('Unsupported strict tool containment request')
     _reject_loopback_request(request.get('loopback_checks', ()), request.get('loopback_authority'))
     if '--session' in command:
@@ -194,11 +235,17 @@ def configure(command, environment, workspace, *, allow_write, request):
 
     original = debug()
     permissions = shell_permissions(original.get('permission'))
+    try:
+        from . import autocode_toolchain as toolchain
+    except ImportError:
+        import autocode_toolchain as toolchain
+    tools_ready = toolchain.discover(workspace, request.get('tool_commands', ()), child)
     boundary = prepare(workspace, allow_write=allow_write, environment=child,
-                       read_roots=request.get('read_roots', ()),
+                       read_roots=[*request.get('read_roots', ()), *tools_ready['read_roots']],
                        protected_paths=request.get('protected_paths', ()),
                        loopback_checks=request.get('loopback_checks', ()),
-                       loopback_authority=request.get('loopback_authority'))
+                       loopback_authority=request.get('loopback_authority'),
+                       verification_copy=not allow_write)
     config['shell'] = boundary['shell']
     definition['permission'] = permissions
     definition.pop('tools', None)
@@ -232,7 +279,19 @@ def configure(command, environment, workspace, *, allow_write, request):
             or sentinel.read_text() != 'runner-owned sentinel\n'
             or not re.search(r'Operation not permitted|Permission denied', result.get('output', ''))):
         raise RuntimeError('The actual native bash tool did not demonstrate kernel containment')
-    proof = {'command': probe, 'tool': 'bash', 'exit': result['metadata']['exit'],
+    tool_receipts = []
+    for tool_probe in tools_ready['probes']:
+        observed = debug(['--tool', 'bash', '--params', json.dumps({
+            'command': tool_probe, 'description': 'AutoCode selected toolchain startup check (no model)',
+            'workdir': str(Path(workspace).resolve()), 'timeout': 10000})])
+        checked = observed.get('result', {})
+        if (observed.get('input', {}).get('command') != tool_probe
+                or type(checked.get('metadata', {}).get('exit')) is not int
+                or checked['metadata']['exit'] != 0):
+            raise RuntimeError('Selected toolchain failed native prelaunch check: ' + tool_probe
+                               + '; ' + str(checked.get('output', ''))[-2000:])
+        tool_receipts.append({'command': tool_probe, 'exit': 0, 'output': checked.get('output')})
+    proof = {'toolchain_checks': tool_receipts, 'command': probe, 'tool': 'bash', 'exit': result['metadata']['exit'],
              'output': result.get('output'), 'native_version': SUPPORTED_VERSION,
              'profile_sha256': hashlib.sha256(Path(boundary['profile']).read_bytes()).hexdigest(),
              'shell_sha256': hashlib.sha256(Path(boundary['shell']).read_bytes()).hexdigest()}
@@ -270,6 +329,12 @@ def verify(boundary):
                 raise ValueError('Containment authority bytes changed')
     except (KeyError, OSError, ValueError) as error:
         raise RuntimeError('Native tool containment authority changed; no provider launched') from error
+    if boundary.get('verification_copy'):
+        try:
+            from . import autocode_verification_copy as copies
+        except ImportError:
+            import autocode_verification_copy as copies
+        copies.execution(boundary['verification_copy'], boundary['verification_copy_sha256'], workspace)
     return boundary
 
 

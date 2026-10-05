@@ -42,10 +42,15 @@ def record_launch(stage):
 if data.get('report_repair'):
     record_launch(data['original']['stage'] + '_report_repair')
     # This branch only reformats a saved report; never executes the original task.
-    if data['original'].get('truncated_output'):
+    loss_cache = os.environ.get('AUTOCODE_FIXTURE_REPORT_LOSS')
+    if loss_cache and data['original'].get('stage') == 'sol':
+        result = json.loads(Path(loss_cache).read_text())
+    elif data['original'].get('truncated_output'):
         result = json.loads(data['rejected_report']['content']['partial_text'] + '}')
     else:
         result = json.loads(Path(data['original']['output']).read_text())
+    if os.environ.get('AUTOCODE_FIXTURE_INVALID_INVESTIGATOR') and data['original'].get('stage') == 'investigate_stuck':
+        result['diagnosis'] = 'Offline fixture: retain the interrupted report repair and pause.'
     if 'summary' not in result and data['original'].get('stage', '').startswith(('terra', 'astra_discovery')):
         result['summary'] = 'Repaired fixture report'
     if os.environ.get("AUTOCODE_FIXTURE_MODE") == "human-pending":

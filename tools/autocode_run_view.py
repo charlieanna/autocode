@@ -17,7 +17,7 @@ from copy import deepcopy
 try:
     from . import autocode_output_policy as output_policy, autocode_request_usage as request_usage
     from . import autocode_usage, autocode_efficiency, autocode_design_coverage as design_coverage
-    from . import autocode_contract_identity as contract_identity
+    from . import autocode_contract_identity as contract_identity, autocode_report_retry as report_retry
     from . import autocode_progressive_plan as progressive_rules
     from . import autocode_verification_view as verification_view
     from . import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
@@ -25,7 +25,7 @@ try:
 except ImportError:
     import autocode_output_policy as output_policy, autocode_request_usage as request_usage
     import autocode_usage, autocode_efficiency, autocode_design_coverage as design_coverage
-    import autocode_contract_identity as contract_identity
+    import autocode_contract_identity as contract_identity, autocode_report_retry as report_retry
     import autocode_progressive_plan as progressive_rules
     import autocode_verification_view as verification_view
     import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
@@ -38,8 +38,8 @@ CONTINUE = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER", "AWAITING_GOAL_APPROVA
 QUESTION_FIELDS = ("id", "question", "why", "options", "proposed_default")
 
 
-def view(state: dict, *, completion_current=None, visual_acceptance=None) -> dict:
-    """Caller supplies fresh completion and authenticated visual projections, never model/state claims."""
+def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_report_repair=False) -> dict:
+    """Caller supplies fresh completion, visual evidence and stale-repair projections."""
     status = state.get("status", "")
     task = state.get("current_task") or {}
     result = {
@@ -50,8 +50,8 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None) -> dic
         "schema": SCHEMA,
         "status": status,
         "done": status in COMPLETE,
-        "needs": needs(state),
-        "recovery": recovery_view.project(state, needs(state)),
+        "needs": needs(state, stale_report_repair=stale_report_repair),
+        "recovery": recovery_view.project(state, needs(state, stale_report_repair=stale_report_repair)),
         "verification": verification_view.project(state),
         "code_checkpoints": code_checkpoints.project(state),
         "phase": state.get("phase"),
@@ -262,7 +262,7 @@ def evidence(state: dict) -> dict:
     }
 
 
-def needs(state: dict) -> dict | None:
+def needs(state: dict, *, stale_report_repair=False) -> dict | None:
     """What must happen next for the run to progress, or None when it is complete.
 
     kind          what it asks for                  answered with
@@ -356,12 +356,18 @@ def needs(state: dict) -> dict | None:
             attempt = f"{active['iteration']:03d}/{Path(active['output']).stem}"
             need["abandon_stage"] = attempt
             need["action"] = f"--abandon-stage {attempt} then --resume-paused"
+        if stale_report_repair:
+            need["action"] = "--resume-paused"
+            return need
         pending = state.get("pending_report_repair") or {}
-        rejected = pending.get("latest_rejected") or {}
+        rejected = report_retry.rejected_attempt(state) or {}
         if (status == "PAUSED_REPEATED_FAILURE"
-                and pending.get("error") == "Check is not supported by an exact executed Validator event"
-                and pending.get("attempts") == (state.get("settings") or {}).get("report_repair", {}).get("max_attempts", 2)
+                and (pending.get("original") or {}).get("stage") == "sol"
+                and not any(state.get(key) for key in ("active_stage", "active_runner_check", "uncertain_artifacts"))
+                and pending.get("error") in report_retry.RETRYABLE_ERRORS
+                and report_retry.bounded_failure(state, (state.get("settings") or {}).get("report_repair", {}).get("max_attempts", 0))
                 and isinstance(rejected.get("iteration"), int) and rejected.get("output")):
             need["retry_report_attempt"] = f"{rejected['iteration']:03d}/{Path(rejected['output']).stem}"
+            need["action"] = f"--resume-paused --retry-report {need['retry_report_attempt']}"
         return need
     return {"kind": "continue"}
