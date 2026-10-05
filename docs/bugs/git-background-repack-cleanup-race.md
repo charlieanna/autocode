@@ -32,11 +32,21 @@ of 50 did, and no maintenance child started.
 
 `Project` sets `maintenance.auto=false` and `gc.auto=0` before its first commit.
 With those set, Git starts no maintenance process at all. `ProjectFixtureTests`
-checks that through `GIT_TRACE2_EVENT`, and fails if the config goes away.
-Dozens of other test modules commit in temporary repositories without this
-config. They are exposed whenever two of their loose objects share `17/`, which
-is rare for small fixtures. Set the same config in any fixture that commits and
-is then copied or deleted.
+checks that through `GIT_TRACE2_EVENT`.
+
+Dozens of other test modules committed in temporary repositories without this
+config. `tests/__init__.py` now sets the same two values for every test through
+`GIT_CONFIG_COUNT`. That outranks every config file and reaches every git
+process a test starts, AutoCode's included. `tests/test_git_maintenance.py`
+checks a commit in a fresh repository. With every git process in the suite
+traced on Git 2.55, 132 of 291 modules started maintenance 1,935 times before
+the change, and none did after. Two cases set the config in the repository
+instead. Git drops `GIT_CONFIG_COUNT` when it starts `receive-pack` for a push
+into a local repository, so `test_issue`'s bare remote sets it itself. A
+subprocess given an environment built from scratch would need it too; none in
+the suite runs git. The scenario harness tests and the dashboard tests do not
+import `tests/`; the harness turns maintenance off for its own fixtures, as
+below.
 
 The same writer broke a copy. In master run 37349094592 (2026-10-05) two
 scenario-harness tests failed in `setUp`: `shutil.copytree` of the diagnosis
