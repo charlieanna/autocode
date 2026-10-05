@@ -9,6 +9,9 @@
     <id>/reference/      overlay that makes a correct solution (optional)
     <id>/broken/<name>/  overlays that look plausible but are wrong (optional)
     <id>/hidden/         files only the oracle sees (optional)
+
+A scenario.toml may also declare a ``[hybrid]`` route (harness/hybrid.py): the stages a hybrid run scripts with
+the fake provider and its fault while every other stage runs live.
 """
 from __future__ import annotations
 
@@ -27,9 +30,12 @@ CATEGORIES = ("bugfix", "feature", "greenfield", "port", "parallel", "architectu
 # How a correct run ends: with completion, with a stop (a blocker or a question
 # the user must answer), or either.
 EXPECTED = ("complete", "stop", "any")
-KEYS = {"title", "category", "requires", "fake", "run", "turn"}
+KEYS = {"title", "category", "requires", "fake", "run", "turn", "hybrid"}
 RUN_KEYS = {"max_steps", "timeout_minutes", "expected", "known_failure", "requires_stages"}
 FAKE_KEYS = {"check", "flags", "fault", "live_investigator", "probe", "milestones", "turn_paths", "answers"}
+# [hybrid] scripted: stages whose every call the fake provider answers in a hybrid run; first_attempt: stages
+# whose first call it answers (later attempts, such as a repair Builder, are live).
+HYBRID_KEYS = {"scripted", "first_attempt"}
 # A follow-up turn is said to the same run once it completed: ``--follow-up``
 # continues only a finished run (docs/cli.md, "Waiting or finished"). A waiting,
 # paused or blocked run refuses it, so a turn after "stop" or a "needs:<kind>"
@@ -81,6 +87,9 @@ class Scenario:
     # [fake] answers: {question_id = answer} the person gives explicitly, for a question the driver
     # never answers by default (an AutoResolver stop such as a quota question, ``route-sol``).
     fake_answers: tuple[tuple[str, str], ...] = ()
+    # [hybrid]: the stages a hybrid run (run --hybrid) scripts; empty when the scenario declares no route.
+    hybrid_scripted: tuple[str, ...] = ()
+    hybrid_first_attempt: tuple[str, ...] = ()
 
     @property
     def seed(self) -> Path:
@@ -134,6 +143,15 @@ def load(scenario_id: str) -> Scenario:
     unknown = set(fake) - FAKE_KEYS
     if unknown:
         raise ValueError(f"{scenario_id}/scenario.toml: unknown [fake] keys {sorted(unknown)}")
+    hybrid = meta.get("hybrid", {})
+    unknown = set(hybrid) - HYBRID_KEYS
+    if unknown:
+        raise ValueError(f"{scenario_id}/scenario.toml: unknown [hybrid] keys {sorted(unknown)}")
+    stages = [hybrid.get(key, []) for key in sorted(HYBRID_KEYS)]
+    if hybrid and (not all(isinstance(row, list) and all(isinstance(s, str) and s for s in row) for row in stages)
+                   or not any(stages) or set(stages[0]) & set(stages[1])):
+        raise ValueError(f"{scenario_id}: [hybrid] scripted and first_attempt are lists of stage names, together "
+                         "not empty, with no stage in both")
     answers = fake.get("answers", {})
     if not isinstance(answers, dict) or not all(isinstance(value, str) and value.strip() for value in answers.values()):
         raise ValueError(f"{scenario_id}: [fake] answers maps question ids to nonempty answers")
@@ -168,7 +186,8 @@ def load(scenario_id: str) -> Scenario:
         fake_fault=fake.get("fault", ""), fake_live_calls=bool(fake.get("live_investigator", False)),
         fake_probe=fake.get("probe", ""), turns=tuple(turns), requires_stages=tuple(run.get("requires_stages", ())),
         fake_milestones=tuple(fake.get("milestones", ())),
-        fake_turn_paths=tuple(tuple(row) for row in turn_paths), fake_answers=tuple(sorted(answers.items())))
+        fake_turn_paths=tuple(tuple(row) for row in turn_paths), fake_answers=tuple(sorted(answers.items())),
+        hybrid_scripted=tuple(hybrid.get("scripted", ())), hybrid_first_attempt=tuple(hybrid.get("first_attempt", ())))
 
 
 def load_all() -> list[Scenario]:

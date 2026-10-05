@@ -24,6 +24,17 @@ category = "feature"
 check = "python3 -m unittest discover -s tests -t ."
 fault = "vacuous_refusal_tests"
 
+# Hybrid route (run --profile NAME --hybrid; harness/hybrid.py). In six live claude-tiers runs (2026-10-05) no
+# Builder wrote the vacuous tests, so the trap never fired. A hybrid run scripts the planning stages (the plan's
+# cases name the tests: "test: test_c3_..." for each reference test) and the first Builder, which delivers
+# broken/vacuous-refusal-tests (correct stock.py, refusal tests that also pass on the original code). The
+# regression proof then fails on those planned cases by construction, and every later call is live: the
+# Validator, the Completion Owner, AutoResolver and the repair Builder.
+[hybrid]
+scripted = ["recognize_workflow", "requirements_gather", "astra_discovery", "astra_challenge", "glm_revise",
+            "astra_finalize"]
+first_attempt = ["terra"]
+
 [run]
 requires_stages = ["astra_resolve"]
 timeout_minutes = 60

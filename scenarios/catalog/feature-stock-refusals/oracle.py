@@ -201,28 +201,32 @@ def diagnosis(project, run):
     saved = resolver_calls.load_state(project)
     if saved is None:
         return {"verdict": "NOT_EXERCISED", "reason": "the run saved no state", "checks": []}
-    return score(saved[0], saved[1], project=project)
+    return score(saved[0], saved[1], project=project, scripted=resolver_calls.scripted(run))
 
 
-def score(state, run_dir, *, project=None, cause=CAUSE, test_file=TEST_FILE, commands=NEW_COMMANDS):
+def score(state, run_dir, *, project=None, cause=CAUSE, test_file=TEST_FILE, commands=NEW_COMMANDS, scripted=()):
     """Score AutoResolver on one saved run. ``cause`` (regular expressions), ``test_file`` and ``commands``
     are this scenario's; passing another scenario's lets the same rules read its runs. With ``commands``
     None every planned test the failed proof lists under pass_to_pass is a trap test.
 
     Which calls count, and which is scored, is harness.resolver_calls's: the first accepted call at a trap
     revision (a report accepted after a report-only repair is scored on the repaired report), else the first
-    one saved. A call the runner never applied, or one with no saved report, cannot be scored.
+    one saved. A call the runner never applied, or one with no saved report, cannot be scored. In a hybrid
+    run a call the scripted side answered (``scripted``: the report paths it wrote) never counts.
     """
     run_dir = Path(run_dir)
     traps = trap_proofs(state, run_dir, project, commands)
     proofs = sorted((row for row in state.get("regression_proofs") or [] if isinstance(row, dict)),
                     key=lambda row: row.get("proved_at") or "")
     rows = [row for row in state.get("stages") or [] if isinstance(row, dict)]
-    found = resolver_calls.calls(state, run_dir)
+    found = resolver_calls.calls(state, run_dir, scripted)
     block = {"trap_tests": {revision[:12]: trap["tests"] for revision, trap in traps.items()},
              "trap_tests_read_from": {revision[:12]: trap["read_from"] for revision, trap in traps.items()},
              # Calls at other revisions (an unrelated REWORK): kept for a human read, never scored here.
              "other_resolver_calls": [_brief(call) for call in found if call["revision"] not in traps]}
+    if scripted:
+        block["scripted_resolver_calls"] = sum(1 for row in rows if resolver_calls.launched(row)
+                                               and resolver_calls.is_scripted(row, scripted))
     if not traps:
         return {"verdict": "NOT_EXERCISED", "checks": [], **block,
                 "reason": "no regression proof failed on a planned move/remove test that also passes on the "
@@ -231,7 +235,9 @@ def score(state, run_dir, *, project=None, cause=CAUSE, test_file=TEST_FILE, com
     if not at_trap:
         return {"verdict": "NOT_EXERCISED", "checks": [], **block,
                 "reason": "a regression proof failed on move/remove tests that pass on the original code, but "
-                          "AutoResolver never ran at that revision"}
+                          "AutoResolver never ran at that revision"
+                          + (" (scripted calls of a hybrid run do not count)" if block.get("scripted_resolver_calls")
+                             else "")}
     scorable = [call for call in at_trap if call["report"] is not None and call["applied"] and not call["pending"]]
     block["unscorable_calls"] = [{"output": call["output"], "why": call["pending"] or "no report was saved"}
                                  for call in at_trap if call not in scorable]

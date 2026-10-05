@@ -50,6 +50,31 @@ delivered workspace with the scenario's oracle. One run takes 1 to 15 minutes an
   command times out long before the batch ends.
 - Keep `--out` outside the repository (the session's scratchpad or `/tmp`). Never commit run output.
 
+### A hybrid batch
+
+A scenario with a `[hybrid]` route ([scenarios/README.md](../../scenarios/README.md#hybrid-runs), "Hybrid runs")
+runs with the stages that plant its failure scripted and every other stage on Claude. For
+`feature-stock-refusals` (#59) planning and the first Builder are scripted, so the regression proof fails on
+the vacuous refusal tests by construction; the Validator, the Completion Owner, AutoResolver and the repair
+Builder are live. Rehearse first, then run:
+
+```sh
+mkdir -p /tmp/live && printf 'feature-stock-refusals\n' > /tmp/live/hybrid.txt
+.venv/bin/python examples/claude-provider/batch.py run /tmp/live/hybrid.txt --hybrid --fake \
+  --out /tmp/live/hybrid-rehearsal --repeat 1                      # no spend: expect PASS
+.venv/bin/python examples/claude-provider/batch.py run /tmp/live/hybrid.txt --hybrid \
+  --out /tmp/live/hybrid --repeat 6 --jobs 3 --timeout-minutes 60 --i-authorize-live-model-spend
+```
+
+- Runs are labeled `claude-tiers-hybrid` (`fake-hybrid` for the rehearsal): `batch.py` counts them apart from
+  natural `claude-tiers` runs in the same `--out`, `status` shows them as `<scenario> [claude-tiers-hybrid]`,
+  and `scenarios/run.py stats --out <dir>` keeps their mode apart.
+- In `result.json`, `hybrid.calls` lists every stage call and the side that served it, and
+  `hybrid.live_stage_names` the model stages Claude ran. `diagnosis` scores only Resolver calls Claude served.
+- Scripted stages cost nothing, so `status`'s cost is the live stages' alone.
+- The installed `claude.toml` must be in `~/.config/autocode/providers/` (step 1): the hybrid tool copies its
+  roles and model list and runs its command for every live stage.
+
 ## 4. Watch it
 
 ```sh

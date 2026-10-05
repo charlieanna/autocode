@@ -7,7 +7,9 @@
 `run` starts only the runs still missing from --out: each scenario needs --repeat finished runs (a
 result.json), so after a container restart the same command picks up where the batch stopped. Runs that
 were killed mid-way leave no result.json and are started again. `--fake` runs the scripted model instead
-(no spend), to rehearse the batch. See CLOUD-SESSION.md.
+(no spend), to rehearse the batch. `--hybrid` runs each scenario's [hybrid] route: the stages it names are
+scripted, every other one is live (scenarios/README.md, "Hybrid runs"). Each mode (claude-tiers,
+claude-tiers-hybrid, fake, fake-hybrid) is counted on its own. See CLOUD-SESSION.md.
 """
 from __future__ import annotations
 
@@ -30,20 +32,31 @@ def scenarios(path: Path) -> list[str]:
     return [line for line in lines if line]
 
 
-def runs(out: Path) -> dict[str, list[Path]]:
-    """Evidence directories under --out by scenario. The harness names them <stamp>-<scenario>-<label>-<random>."""
+# The harness's modes for this batch's runs (its result.json "mode"): hybrid results are never counted, shown or
+# compared with natural ones.
+MODES = (PROFILE, f"{PROFILE}-hybrid", "fake", "fake-hybrid")
+
+
+def mode(args) -> str:
+    return ("fake" if args.fake else PROFILE) + ("-hybrid" if args.hybrid else "")
+
+
+def runs(out: Path) -> dict[tuple[str, str], list[Path]]:
+    """Evidence directories under --out by (scenario, mode). The harness names them
+    <stamp>-<scenario>-<mode>-<random>, and the random part has no dash."""
     found = collections.defaultdict(list)
     for directory in sorted(out.glob("*/")) if out.is_dir() else []:
-        name = directory.name.split("-", 1)[-1]
-        for label in (f"-{PROFILE}-", "-fake-"):
-            if label in name:
-                found[name.rsplit(label, 1)[0]].append(directory)
+        name = directory.name.split("-", 1)[-1].rsplit("-", 1)[0]
+        for label in MODES:
+            if name.endswith(f"-{label}"):
+                found[(name.removesuffix(f"-{label}"), label)].append(directory)
     return found
 
 
-def missing(ids: list[str], out: Path, repeat: int) -> list[str]:
-    """One entry per run still to start: `repeat` finished runs per scenario, minus those already finished."""
-    done = {scenario: sum((d / "result.json").is_file() for d in dirs) for scenario, dirs in runs(out).items()}
+def missing(ids: list[str], out: Path, repeat: int, label: str = PROFILE) -> list[str]:
+    """One entry per run still to start: `repeat` finished runs per scenario in this mode, minus those finished."""
+    done = {scenario: sum((d / "result.json").is_file() for d in dirs)
+            for (scenario, found), dirs in runs(out).items() if found == label}
     return [scenario for scenario in ids for _ in range(max(0, repeat - done.get(scenario, 0)))]
 
 
@@ -63,7 +76,7 @@ def cost(directory: Path) -> float:
 
 def status(out: Path) -> str:
     rows, verdicts, running, spent = [], collections.Counter(), 0, 0.0
-    for scenario, dirs in sorted(runs(out).items()):
+    for (scenario, label), dirs in sorted(runs(out).items()):
         cells = []
         for directory in dirs:
             spent += (money := cost(directory))
@@ -76,7 +89,8 @@ def status(out: Path) -> str:
             verdicts[result["verdict"]] += 1
             cells.append(f"{result['verdict']} {sum(c['ok'] for c in checks)}/{len(checks)} "
                          f"{int(result.get('wall_seconds') or 0)}s ${money:.2f}")
-        rows.append(f"{scenario:<30} " + " | ".join(cells))
+        name = scenario if label == PROFILE else f"{scenario} [{label}]"
+        rows.append(f"{name:<30} " + " | ".join(cells))
     summary = ", ".join(f"{count} {verdict}" for verdict, count in sorted(verdicts.items()))
     return "\n".join([f"finished {sum(verdicts.values())} ({summary or 'none'}), running {running}, "
                       f"cost ${spent:.2f}"] + rows)
@@ -86,7 +100,8 @@ def launch(scenario: str, args, index: int) -> int:
     command = [sys.executable, str(HERE / "trial.py"), "run", scenario, "--out", str(args.out),
                "--timeout-minutes", str(args.timeout_minutes)]
     command += ["--fake"] if args.fake else ["--profile", PROFILE, "--i-authorize-live-model-spend"]
-    log = args.out / "logs" / f"{scenario}-{index}.log"
+    command += ["--hybrid"] if args.hybrid else []
+    log = args.out / "logs" / f"{scenario}-{mode(args)}-{index}.log"
     with log.open("w") as handle:
         return subprocess.run(command, cwd=REPO, stdout=handle, stderr=subprocess.STDOUT).returncode
 
@@ -94,9 +109,9 @@ def launch(scenario: str, args, index: int) -> int:
 def run(args) -> int:
     if not args.fake and not args.i_authorize_live_model_spend:
         sys.exit("A live batch spends real money: add --i-authorize-live-model-spend (or --fake to rehearse)")
-    todo = missing(scenarios(args.list), args.out, args.repeat)
+    todo = missing(scenarios(args.list), args.out, args.repeat, mode(args))
     (args.out / "logs").mkdir(parents=True, exist_ok=True)
-    print(f"{len(todo)} run(s) to start, {args.jobs} at a time", flush=True)
+    print(f"{len(todo)} {mode(args)} run(s) to start, {args.jobs} at a time", flush=True)
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         list(pool.map(lambda item: launch(item[1], args, item[0]), enumerate(todo, start=1)))
     print(status(args.out))
@@ -113,6 +128,9 @@ def main(argv=None) -> int:
     start.add_argument("--jobs", type=int, default=4, help="runs at a time (default 4)")
     start.add_argument("--timeout-minutes", type=int, default=60, help="per run (default 60)")
     start.add_argument("--fake", action="store_true", help="scripted model, no spend")
+    start.add_argument("--hybrid", action="store_true",
+                       help="script the stages each scenario's [hybrid] route names; the rest run live (or on a "
+                            "scripted stand-in with --fake)")
     start.add_argument("--i-authorize-live-model-spend", action="store_true")
     show = commands.add_parser("status", help="summarize the runs under a directory")
     show.add_argument("out", type=Path)

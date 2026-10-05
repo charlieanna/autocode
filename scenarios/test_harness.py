@@ -6,6 +6,7 @@ PASS and a plausible wrong one is judged FALSE_COMPLETE.
 """
 import argparse
 import contextlib
+import importlib.util
 import io
 import ast
 import json
@@ -24,7 +25,8 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import run  # noqa: E402
-from harness import api_cost, baseline, build_compare, catalog, compare, oracle, plan_compare, processes, profiles, routing, stats, verdict  # noqa: E402
+from harness import (api_cost, baseline, build_compare, catalog, compare, hybrid, oracle, plan_compare,  # noqa: E402
+                     processes, profiles, routing, stats, verdict)
 from harness.driver import (Driver, DriveError, TurnNotReached, changed_between, leaves_for_person, metrics,  # noqa: E402
                            model_routes, split_by_turn, turn_state, workspace_files)
 
@@ -1225,6 +1227,176 @@ class StockRefusalsRunTests(unittest.TestCase):
                          [check["name"] for check in diagnosis["checks"] if not check["ok"]])
 
 
+def load_stage_script():
+    spec = importlib.util.spec_from_file_location("hybrid_stage", Path(hybrid.STAGE_SCRIPT))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class HybridRouteTests(unittest.TestCase):
+    """Hybrid runs (harness/hybrid.py): which side serves each call, the tool AutoCode is given, and when a
+    scenario or a live tool cannot be run that way. No AutoCode run."""
+
+    def test_a_route_scripts_every_call_of_its_scripted_stages_and_only_the_first_of_a_first_attempt_stage(self):
+        stage_script = load_stage_script()
+        route = {"scripted": ["astra_discovery"], "first_attempt": ["terra"]}
+        trace = []
+
+        def serve(stage, repair=False):
+            side = stage_script.side_for(route, stage, repair, trace)
+            trace.append({"stage": stage, "repair": repair, "side": side})
+            return side
+        self.assertEqual(["scripted", "scripted", "scripted", "scripted", "live", "live", "live", "live"],
+                         [serve("astra_discovery"), serve("astra_discovery", repair=True), serve("terra"),
+                          serve("terra", repair=True),       # a report repair goes where its stage went
+                          serve("astra_resolve"), serve("terra"), serve("terra", repair=True), serve("")])
+        self.assertEqual(("astra_resolve", True), stage_script.stage_of(
+            {"report_repair": True, "original": {"stage": "astra_resolve"}, "stage": "astra_resolve_report_repair"}))
+
+    def test_a_live_command_is_filled_as_autocode_fills_it(self):
+        stage_script = load_stage_script()
+        values = {"model": "m", "report": "/r.json", "workspace": "/w"}
+        self.assertEqual(["-o", "/r.json", "--model=m", "${HOME}", '{"k":1}', "/w"],
+                         [stage_script.fill(part, values) for part in
+                          ("-o", "{report}", "--model={model}", "${{HOME}}", '{{"k":1}}', "{workspace}")])
+
+    def test_the_hybrid_tool_config_reads_back_as_written(self):
+        import tomllib
+        config = {"name": "hybrid", "command": ["python3", "stage.py", "{report}"], "prompt": "stdin",
+                  "models": ["claude-sonnet-5-5", "a \"quoted\" é model"], "version_command": ["claude", "--version"],
+                  "roles": {"astra": {"model": "claude-opus-5-5", "effort": "medium"}},
+                  "auth": {"command": ["tool", "auth", "list"], "forbid_env": ["KEY"],
+                           "routes": [{"models": "openai/", "pattern": "openai: (\\w+)", "expect": "oauth"}]}}
+        self.assertEqual(config, tomllib.loads(hybrid.toml(config)))
+
+    def test_a_live_tool_that_cannot_be_split_by_stage_is_refused(self):
+        with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"XDG_CONFIG_HOME": home}):
+            with self.assertRaisesRegex(hybrid.Unavailable, "built-in OpenCode and Codex"):
+                hybrid.user_tool("opencode")
+            tools = Path(home) / "autocode" / "providers"
+            tools.mkdir(parents=True)
+            (tools / "kilo.toml").write_text('name = "kilo"\ncommand = ["kilo"]\noutput = "opencode_events"\n')
+            with self.assertRaisesRegex(hybrid.Unavailable, "report_file tool"):
+                hybrid.user_tool("kilo")
+
+    def test_a_scenario_without_a_route_is_skipped_and_labeled_hybrid(self):
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
+            args = argparse.Namespace(fake=True, profile=None, fake_solution="reference", out=Path(out), autocode=None,
+                                      max_steps=None, timeout_minutes=10, hybrid=True)
+            result = run.run_one(catalog.load("bugfix-trivial"), args)
+            self.assertEqual((verdict.SKIPPED, "fake-hybrid"), (result["verdict"], result["mode"]))
+            self.assertIn("no [hybrid] route", result["summary"])
+            self.assertFalse((Path(result["evidence"]) / "project").exists())
+
+    def test_a_route_names_each_stage_once(self):
+        def run_copy(table):
+            with tempfile.TemporaryDirectory() as root:
+                shutil.copytree(catalog.CATALOG / "bugfix-trivial", Path(root) / "bugfix-trivial")
+                toml = Path(root) / "bugfix-trivial" / "scenario.toml"
+                toml.write_text(toml.read_text() + "\n[hybrid]\n" + table)
+                with patch.object(catalog, "CATALOG", Path(root)):
+                    return catalog.load("bugfix-trivial")
+        loaded = run_copy('scripted = ["astra_discovery"]\nfirst_attempt = ["terra"]\n')
+        self.assertEqual((("astra_discovery",), ("terra",)), (loaded.hybrid_scripted, loaded.hybrid_first_attempt))
+        for table in ('scripted = ["terra"]\nfirst_attempt = ["terra"]\n', 'scripted = []\n', 'live = ["sol"]\n'):
+            with self.subTest(table=table), self.assertRaises(ValueError):
+                run_copy(table)
+
+
+# A registered tool standing in for a live one (HybridRunTests): it logs the environment it was given, then runs
+# the scripted provider of the run whose workspace AutoCode hands it.
+LIVE_STANDIN = """import json, os, sys
+workspace = os.path.abspath(sys.argv[1])
+root = os.path.dirname(workspace)
+with open(os.path.join(root, "live-tool.jsonl"), "a") as handle:
+    handle.write(json.dumps({"xdg": os.environ.get("XDG_CONFIG_HOME"),
+                             "model": sys.argv[sys.argv.index("--model") + 1]}) + "\\n")
+os.environ.update(SCENARIO_FAKE_CONFIG=os.path.join(root, "fake-config.json"), SCENARIO_FAKE_SIDE="live")
+os.execv(sys.executable, [sys.executable, os.path.join(root, "bin", "codex"), *sys.argv[2:]])
+"""
+
+
+class HybridRunTests(unittest.TestCase):
+    """feature-stock-refusals' hybrid route end to end (issue #59), about 25 s each, with no model: planning and
+    the first Builder are scripted by the vacuous_refusal_tests fault, every later call goes to the live side,
+    which here is the fake provider standing in. They prove the routing, the labels and that the diagnosis
+    counts only calls the live side served; nothing about how a model diagnoses."""
+
+    SCRIPTED = ["recognize_workflow", "astra_discovery", "astra_challenge", "terra"]
+    LIVE = ["sol", "astra_review", "astra_resolve", "terra", "sol", "astra_review"]
+
+    def run_hybrid(self, out, **fields):
+        args = argparse.Namespace(**{"fake": True, "profile": None, "provider": None, "fake_solution": "reference",
+                                     "out": Path(out), "autocode": None, "max_steps": None, "timeout_minutes": 10,
+                                     "hybrid": True, **fields})
+        result = run.run_one(catalog.load("feature-stock-refusals"), args)
+        evidence = Path(result["evidence"])
+        state = json.loads((evidence / "state.json").read_text())
+        proofs = [(row["source_revision"], row["verdict"]) for row in state["regression_proofs"]]
+        trace = [(row["stage"], row["side"]) for row in hybrid.calls(evidence)]
+        return result, state, proofs, trace
+
+    def assert_trap_reached_and_only_the_live_resolver_scored(self, result, state, proofs, trace, model):
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertEqual((self.SCRIPTED, self.LIVE), (result["hybrid"]["scripted_stage_names"],
+                                                      result["hybrid"]["live_stage_names"]))
+        self.assertEqual([(stage, "scripted") for stage in self.SCRIPTED] + [(stage, "live") for stage in self.LIVE],
+                         trace)
+        # The regression proof failed on the scripted Builder's source: the trap, by construction.
+        scripted_build = next(row for row in state["stages"] if row["stage"] == "terra")
+        self.assertEqual([(scripted_build["source_revision"], "FAIL"), proofs[1]], proofs)
+        self.assertEqual("PASS", proofs[1][1])
+        diagnosis = result["diagnosis"]
+        self.assertEqual((verdict.CORRECT, 1, model, 0), (diagnosis["verdict"], diagnosis["resolver_calls_on_trap"],
+                                                          diagnosis["model"], diagnosis["scripted_resolver_calls"]))
+        self.assertEqual([scripted_build["source_revision"][:12]], list(diagnosis["trap_tests"]))
+        self.assertTrue(all(row["mode"] == result["mode"] for row in stats.summarize([result])))
+
+    def test_a_rehearsal_scripts_planning_and_the_first_builder_and_scores_only_the_live_resolver(self):
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out:
+            result, state, proofs, trace = self.run_hybrid(out)
+            self.assertEqual("fake-hybrid", result["mode"])
+            self.assertIn("-feature-stock-refusals-fake-hybrid-", Path(result["evidence"]).name)
+            self.assert_trap_reached_and_only_the_live_resolver_scored(result, state, proofs, trace,
+                                                                       "standin-resolver")
+            # The scripted provider's own witness agrees with the route's trace on every call's side.
+            witness = [json.loads(line) for line in (Path(result["evidence"]) / "fake-calls.jsonl").read_text()
+                       .splitlines()]
+            self.assertEqual(trace, [(row["stage"], row["side"]) for row in witness])
+            self.assertEqual("hybrid", state["settings"]["provider"])
+
+    def test_a_live_profile_runs_its_own_tool_for_every_unscripted_call_with_its_own_environment(self):
+        with tempfile.TemporaryDirectory(prefix="scenario-test-") as out, \
+                tempfile.TemporaryDirectory(prefix="config-home-") as home:
+            tools = Path(home) / "autocode" / "providers"
+            tools.mkdir(parents=True)
+            (Path(home) / "live_standin.py").write_text(LIVE_STANDIN)
+            models = {role: f"live-{role}" for role in profiles.ROLES}
+            (tools / "livestandin.toml").write_text(hybrid.toml({
+                "name": "livestandin", "prompt": "stdin", "models": sorted(models.values()),
+                "command": [sys.executable, str(Path(home) / "live_standin.py"), "{workspace}", "exec", "--model",
+                            "{model}", "--output-schema", "{schema}", "-o", "{report}"],
+                "version_command": [sys.executable, "--version"],
+                "roles": {tool: {"model": models[role], "effort": "medium"}
+                          for tool, role in hybrid.TOOL_ROLES.items()}}))
+            profile = {"provider": "livestandin", "models": models}
+            with patch.dict(profiles.PROFILES, {"live-standin": profile}), \
+                    patch.dict(os.environ, {"XDG_CONFIG_HOME": home}):
+                result, state, proofs, trace = self.run_hybrid(out, fake=False, profile="live-standin")
+            self.assertEqual(("live-standin-hybrid", "livestandin", "livestandin"),
+                             (result["mode"], result["profile"]["provider"], result["hybrid"]["live_tool"]))
+            self.assert_trap_reached_and_only_the_live_resolver_scored(result, state, proofs, trace, "live-resolver")
+            # AutoCode ran on the hybrid tool; the live tool got exactly the unscripted calls, each with the
+            # profile's model and the environment the harness started from (XDG_CONFIG_HOME restored).
+            self.assertEqual("hybrid", state["settings"]["provider"])
+            served = [json.loads(line) for line in (Path(result["evidence"]) / "live-tool.jsonl").read_text()
+                      .splitlines()]
+            self.assertEqual([models[role] for role in ("validator", "completion", "resolver", "builder",
+                                                       "validator", "completion")], [row["model"] for row in served])
+            self.assertEqual({home}, {row["xdg"] for row in served})
+
+
 class StockRefusalsProductTests(unittest.TestCase):
     """feature-stock-refusals' product check on delivered tests: each refusal rule needs a test that fails on the
     original code; an extra valid test that argparse's own refusal also passes does not fail the product."""
@@ -1394,12 +1566,31 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
         self.stage("terra", revision=revision, report={}, changed_files=["tests/test_stock.py"])
         self.proof(revision, verdict_, pass_to_pass=[], fail_to_pass=list(flipped), failures=[])
 
-    def diagnose(self):
+    def diagnose(self, scripted=None):
         (self.run_dir / "state.json").write_text(json.dumps(self.state))
-        return verdict.diagnose(catalog.load("feature-stock-refusals"), self.project, {"model_stages": []})
+        run_ = {"model_stages": [], **({"scripted_outputs": scripted} if scripted is not None else {})}
+        return verdict.diagnose(catalog.load("feature-stock-refusals"), self.project, run_)
 
     def failing(self, block):
         return {check["name"] for check in block["checks"] if not check["ok"]}
+
+    def test_a_resolver_call_the_scripted_side_of_a_hybrid_run_answered_never_counts(self):
+        # Both calls were launched with a model name; only the run record says the first was scripted.
+        self.trap()
+        scripted = self.stage(report=self.GOOD)
+        live = self.stage(report=self.MISATTRIBUTED)
+        self.repaired()
+        natural = self.diagnose()
+        self.assertEqual((verdict.CORRECT, 2), (natural["verdict"], natural["resolver_calls_on_trap"]))
+        hybrid_ = self.diagnose(scripted=[scripted["output"]])
+        self.assertEqual((verdict.INCORRECT, 1, 1), (hybrid_["verdict"], hybrid_["resolver_calls_on_trap"],
+                                                     hybrid_["scripted_resolver_calls"]))
+        self.assertEqual([live["output"]], [call["output"] for call in hybrid_["trap_calls"]])
+        # Matched by the report path AutoCode gave the tool, whatever its suffix in the row.
+        only_scripted = self.diagnose(scripted=[scripted["output"], live["output"].removesuffix(".json") + ".jsonl"])
+        self.assertEqual(verdict.NOT_EXERCISED, only_scripted["verdict"])
+        self.assertIn("scripted calls of a hybrid run do not count", only_scripted["reason"])
+        self.assertEqual(2, only_scripted["scripted_resolver_calls"])
 
     def test_the_scored_call_is_the_first_accepted_one_and_unsaved_or_runner_calls_never_count(self):
         self.trap()
