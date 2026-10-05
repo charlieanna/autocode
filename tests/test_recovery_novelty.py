@@ -508,6 +508,54 @@ class RecoveryPacketTests(unittest.TestCase):
         self.assertNotIn("limits", self.packet()["settings"])
         self.assertEqual({"iteration_ceiling": None, "max_seconds": 0}, self.state["settings"]["limits"])
 
+    def two_criteria_failure(self):
+        """T1 owns C1 and C2 of the approved C1-C3 and fails; its recovery packet is captured."""
+        state = copy.deepcopy(self.state)
+        state["goal_contract"]["body"]["acceptance_criteria"] += [
+            {"id": "C2", "criterion": "Reject a blank name"}, {"id": "C3", "criterion": "Document usage"}]
+        state["current_task"]["acceptance_criteria"] = ["C1", "C2"]
+        state["resolution_request"] = {key: value for key, value in self.request.items() if key != "recovery_packet"}
+        record = {key: value for key, value in self.record.items() if key != "recovery_packet"}
+        recovery.prepare_resolution(state, {"summary": "Blank name accepted"}, record)
+        return state
+
+    def test_repair_admission_accepts_only_a_narrowing_of_the_failed_scope(self):
+        # #423: the Resolver's repair task may keep only the failed criterion, but
+        # it may not add one, move to another milestone, or change the contract.
+        cases = {"narrowed": ({"acceptance_criteria": ["C2"]}, {}, None),
+                 "unchanged": ({}, {}, None),
+                 "widened": ({"acceptance_criteria": ["C2", "C3"]}, {}, "changed before admission"),
+                 "other milestone": ({"milestone_id": "M2", "acceptance_criteria": ["C2"]}, {}, "changed before admission"),
+                 "joined wave": ({"milestone_ids": ["M1", "M2"], "acceptance_criteria": ["C2"]}, {}, "changed before admission"),
+                 "no criteria": ({"acceptance_criteria": []}, {}, "changed before admission"),
+                 "other contract": ({"acceptance_criteria": ["C2"]}, {"hash": "h2"}, "changed before admission"),
+                 "other job": ({"acceptance_criteria": ["C2"]}, {"task_id": "other-job"}, "changed before admission")}
+        for name, (task, contract, refused) in cases.items():
+            with self.subTest(name):
+                state = self.two_criteria_failure()
+                pointer = copy.deepcopy(state["resolution_request"]["recovery_packet"])
+                # The repair task is assigned before its admission receipt is written.
+                state["current_task"].update(id="T2", **task)
+                state["goal_contract"].update(contract)
+                plan = {"tasks": [copy.deepcopy(state["current_task"])]}
+                recovery.finish_resolution_packet(state, state.pop("resolution_request"), plan)
+                state.update(repair_plan=plan, next_stage="terra")
+                attempt = {"stage": "terra", "output": str(self.run / "repair-builder.json")}
+                if refused:
+                    with self.assertRaisesRegex(util.Paused, refused) as caught:
+                        recovery.admit_dispatch(state, attempt, self.root, self.run)
+                    self.assertEqual("PAUSED_STALE_HANDOFF", caught.exception.status)
+                    self.assertNotIn("recovery_novelty", attempt)
+                    continue
+                recovery.admit_dispatch(state, attempt, self.root, self.run)
+                self.assertEqual("repair", attempt["recovery_novelty"]["action"])
+                self.assertEqual(pointer, attempt["recovery_novelty"]["packet"])
+                # Narrowing buys no novelty: the same incident still needs a new change.
+                state["stages"].append(attempt)
+                with self.assertRaisesRegex(util.Paused, "No causal progress"):
+                    recovery.admit_dispatch(state, {"stage": "terra", "output": str(self.run / "again.json")},
+                                            self.root, self.run)
+
     def test_execution_timeout_model_and_permission_changes_still_invalidate_binding(self):
         for settings in ({"limits": {"stage_timeout_seconds": 0}}, {"allow_no_changes": True},
                          {"transport_identities": {"opencode": {"base_url": "different-endpoint"}}},
@@ -993,6 +1041,18 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         self.assertTrue(view["done"], (view.get("status"), view.get("stop_reason"), stages))
         self.assertEqual(["terra", "sol", "astra_review"] * 2 + ["astra_resolve", "terra", "sol", "astra_review"], stages)
         self.assertEqual("PASS", view["evidence"]["check_replay"]["verdict"])
+
+    def test_resolver_repair_narrowed_to_the_failed_criterion_reaches_the_builder(self):
+        # #423: the failed task owns C1 and C2; the Resolver's repair keeps only C2.
+        driver = self.driver("narrow")
+        view = driver.drive(self.scenario.brief)
+        trace = self.trace()
+        stages = [row["stage"] for row in trace]
+        self.assertTrue(view["done"], (view.get("status"), view.get("stop_reason"), stages))
+        self.assertEqual(["terra", "sol", "astra_review"] * 2 + ["astra_resolve", "terra", "sol", "astra_review"], stages)
+        # The first Builder owned both criteria; the Builder after the Resolver owned only C2.
+        self.assertEqual([["C1", "C2"], ["C2"]], [row["task_criteria"] for row in (trace[0], trace[7])])
+        self.assertTrue(all(check.ok for check in self.scenario.oracle()(self.project, self.scenario)))
 
     @unittest.skipUnless(shutil.which("node"), "JavaScript public control requires Node")
     def test_nonpython_unproven_novelty_supports_scoped_user_retries_not_a_dead_end(self):
