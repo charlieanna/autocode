@@ -540,7 +540,11 @@ to that guard but does not spend a full repair attempt. After correcting the
 cause and answering any published operational request, use the exact action
 shown by status: `--resume-paused --retry-report ATTEMPT_ID`. This requests fresh
 Validator evidence, preserving the real repair count, failure history and limits. Autocode archives the rejected reports and starts a fresh role
-session; it does not replay implementation or planning. When the source changes
+session; it does not replay implementation or planning. Each retry runs one fresh
+Validator attempt. If that attempt fails the same way, the guard stops it before
+any repair, and status names that new attempt for the next explicit retry, never an
+earlier archived one. After a source edit `--retry-report` is refused and names
+`--resume-paused`, which validates the current source instead. When the source changes
 while a run is paused (an operator edit), a queued report repair can no longer
 run: `--resume-paused` archives it, evidence intact, and starts a fresh attempt
 of the same stage, in a new provider session, on the current source. It does
