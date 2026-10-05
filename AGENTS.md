@@ -128,10 +128,12 @@ rules). It leaves out the slow end-to-end modules in `tests/suite_slow.json`
 module itself changed; `--include-slow` runs them too. Before committing a
 change to `tools/`, run `--changed` and the fake scenario runs.
 
-A pull request's CI runs `--changed`; a push to master runs every test,
-including the slow ones. A break that crosses modules, or one only a slow
-module catches, can therefore first show up on master: fix it forward
-straight away. Making a slow test fast (in-process instead of a CLI
+A pull request's CI runs `--changed --all-fast`: every test module except
+the slow ones it did not change. `--changed` alone cannot see a CLI-level
+test, which imports the harness rather than the module it drives, and that
+gap turned master red after #232, #242 and #330. A push to master runs every
+test, including the slow ones. A break only a slow module catches can
+therefore first show up on master: fix it forward straight away. Making a slow test fast (in-process instead of a CLI
 subprocess, a copied Git fixture instead of `git init`, a fake clock instead
 of a wait) and taking it off the slow list is progress. Run the full suite yourself only when you change something many
 modules share. Every module taken out of the import cycle makes `--changed`
