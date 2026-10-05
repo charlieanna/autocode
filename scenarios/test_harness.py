@@ -1510,6 +1510,8 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
                           "repair_does_not_weaken_tests"),
             "deletion": ({**self.GOOD, "next_objective": "Delete the vacuous refusal tests from tests/test_stock.py"},
                          "repair_does_not_weaken_tests"),
+            "product in affected_paths": ({**self.GOOD, "affected_paths": ["stock.py", "tests/test_stock.py"]},
+                                          "resolver_chose_bounded_test_repair"),
             "argparse, another cause": ({**self.GOOD, "diagnosis": f"{name} passes on the original code because "
                                                                     "argparse exits 2 on the malformed quantity."},
                                         "diagnosis_explains_why_they_pass_on_original_code"),
@@ -1542,6 +1544,12 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
                                                                    "relaxed and the proof weakened nothing."},
             "guard as a verb": {**self.GOOD, "next_objective": "Guard against argparse's own exit 2 by asserting the "
                                                                "stderr prefix"},
+            "test file named in affected_paths": {**self.GOOD, "affected_paths": ["tests/test_stock.py"], "next_task": {
+                "kind": "implement", "requirements": [f"In test_stock.py, make {name} assert stderr starts with "
+                                                      "'stock.py: ' and has no 'invalid choice'"]}},
+            "the exit status kept": {**self.GOOD, "next_objective": "Do not touch the product. Update "
+                                                                    "tests/test_stock.py; stock.py should exit 2 as it "
+                                                                    "already does"},
             "argparse and the command": {**self.GOOD, "diagnosis": f"On the original code argparse rejects `stock.py "
                                                                    f"move` with exit status 2, so {name} passes there "
                                                                    "too."},

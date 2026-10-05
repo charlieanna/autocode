@@ -98,6 +98,7 @@ def report_for(stage, data, common, config, run_check, requirements):
                     "tests/test_stock.py only: assert stderr starts with 'stock.py: ' and has no 'invalid choice'.")
                 result["next_task"]["requirements"] = [
                     f"In tests/test_stock.py make {name} assert the refusal comes from the command" for name in vacuous]
+                result["affected_paths"] = ["tests/test_stock.py"]  # a test repair: the Builder may touch only the tests
     row = {"stage": stage, "status": result.get("verdict", result.get("status")),
            "regression_verdict": proof.get("verdict"), "source_revision": data.get("source_revision")}
     with trace.open("a") as handle:
