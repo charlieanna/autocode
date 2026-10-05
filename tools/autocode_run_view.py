@@ -71,6 +71,10 @@ def view(state: dict) -> dict:
         "output_transport": output_policy.view(state),
         # Runner-owned assignment provenance, never a model diagnosis or completion proof.
         "direct_rework_assignments": deepcopy(state.get("direct_rework_assignments", [])),
+        # The current route model per role (settings.roles), including any model
+        # a human assigned after a quota pause (#184). Additive field.
+        "role_routes": {role: (config or {}).get("model") for role, config in
+                        sorted(((state.get("settings") or {}).get("roles") or {}).items())},
     }
     contract = state.get("goal_contract") or {}
     if isinstance(contract, dict) and isinstance(contract.get("body"), dict):

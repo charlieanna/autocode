@@ -50,6 +50,7 @@ try:
     from . import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants
     from . import autocode_recovery_accounting as recovery_accounting
     from . import autocode_progressive_state as progressive_state
+    from . import autocode_quota_pause as quota_pause
     from . import autocode_findings as findings_ledger
     from . import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
     from . import autocode_output_policy as output_policy
@@ -84,6 +85,7 @@ except ImportError:
     import autocode_budget_recovery as budget_recovery, autocode_recovery_limits as recovery_limits, autocode_recovery_grants as recovery_grants
     import autocode_recovery_accounting as recovery_accounting
     import autocode_progressive_state as progressive_state
+    import autocode_quota_pause as quota_pause
     import autocode_findings as findings_ledger
     import autocode_configure, autocode_args as cli_args, autocode_run_actions as run_actions, autocode_build_loop as build_loop, autocode_run_setup as run_setup
     import autocode_output_policy as output_policy
@@ -1271,6 +1273,11 @@ def _main_body(unit=None) -> int:
         except (support.Paused, ValueError, RuntimeError, OSError) as error:
             state.update(status=getattr(error,"status","PAUSED_INVALID_OUTPUT"), stop_reason=str(error), paused_at=now())
             state["phase"] = "PAUSED_OR_BLOCKED"
+            if isinstance(error, support.Paused) and error.status == "PAUSED_BUDGET":
+                # #184: a quota stop asks which model continues the role; the
+                # published question also keeps the exhaustion escalation below
+                # a no-op (its pending-questions guard).
+                quota_pause.handle_budget_pause(sys.modules[__name__], state, run_dir, workspace, error)
             if isinstance(error, support.Paused) and error.status != "PAUSED_JOB_FAILURE":
                 resolver_runtime.record_operational_exhaustion(sys.modules[__name__], state, run_dir, error)
             write_json(state_path, state)

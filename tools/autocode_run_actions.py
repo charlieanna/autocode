@@ -30,6 +30,7 @@ try:
     from . import autocode_planning as planning
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_progressive_state as progressive
+    from . import autocode_quota_pause as quota_pause
     from . import autocode_resolver_human as resolver_human
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_resolver_runtime as resolver_runtime
@@ -54,6 +55,7 @@ except ImportError:
     import autocode_planning as planning
     import autocode_planning_artifacts as planning_artifacts
     import autocode_progressive_state as progressive
+    import autocode_quota_pause as quota_pause
     import autocode_resolver_human as resolver_human
     import autocode_recovery_progress as recovery_progress
     import autocode_resolver_runtime as resolver_runtime
@@ -189,7 +191,10 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             and state.get('status') != 'RUNNING'
             and not acknowledged_planning_extension and not acknowledged_bound_change
             and str(state.get('status', '')).startswith('PAUSED_')
-            and not resolver_human.current(state) and not state.get(resolver_human.PRIVATE)):
+            and not resolver_human.current(state) and not state.get(resolver_human.PRIVATE)
+            # An answered quota assignment (#184) already carries the human's
+            # model decision; escalating again would block the assigned relaunch.
+            and not quota_pause.resume_ready(state, current=resolver_human.current)):
         # Unbound legacy fields are not authority and must not suppress
         # the resolver's current, evidenced escalation for this pause.
         state.pop('user_request', None)
@@ -417,6 +422,11 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
                 question, sep, response = item.partition("=")
                 if not sep:
                     raise ValueError("--answer uses QUESTION_ID=TEXT")
+                if quota_pause.handles(candidate, question):
+                    # #184: the quota question carries its own validation and
+                    # route write; it is answerable before goal approval too.
+                    quota_pause.apply_answer(runner, candidate, question, response)
+                    continue
                 request = candidate.get("user_request", {})
                 if goals.is_operational_response(request):
                     goals.resolve_permission(candidate, question, response)

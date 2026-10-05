@@ -434,6 +434,15 @@ def collect(state, workspace, run_dir, batch):
         if result.get("status") == builder_policy.SERIAL:
             deferred.append((row, deferred_worker(batch, row)))
             continue
+        if result.get("status") == "PAUSED_BUDGET":
+            # #184: surface the worker's quota stop as the parent's answerable
+            # question instead of masking it as a generic worker pause.
+            error = s.Paused("PAUSED_BUDGET",
+                             f"Builder {row['milestone_id']} stopped on a provider quota limit; "
+                             f"its run, failed attempt and partial work are retained at {directory}")
+            error.quota_worker = {"role": "terra", "milestone_id": row["milestone_id"],
+                                  "run_dir": str(directory), "workspace": row["workspace"]}
+            raise error
         if result.get("status") != "BUILT":
             raise s.Paused("PAUSED_ORCHESTRATOR_WORKER", f"Builder {row['milestone_id']}: {result.get('reason', 'paused')}; {directory}")
         child = s.read(directory / "state.json")
