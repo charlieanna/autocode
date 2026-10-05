@@ -46,6 +46,46 @@ For browser, Figma or strict test prerequisites, add
 covers worker permissions, design inputs, named collection and proof setup.
 Failed prerequisites pause before model dispatch; readiness never replaces verification.
 
+## Design an AWS solution
+
+AutoCode can turn a cloud requirement into a reviewed design document. For example:
+
+```sh
+autocode "Design AWS DLQ and DynamoDB monitoring with Slack alerts. Design only: no deployment, AWS/Slack API calls or credential access." \
+  --workspace /path/to/project --workflow design --joint-planning --no-chat
+```
+
+`--workflow design` starts with design review. A request for a new design enters
+requirements gathering and planning; an existing design can be reviewed without
+building. For a new design, the flow is:
+
+```text
+Requirements -> Planner -> Plan Reviewer -> revision/final review -> your approval
+-> Builder writes the agreed document -> Tester -> Completion Reviewer
+-> Resolver and document rework if needed
+```
+
+Provide the alert conditions, timing, destination and organizational constraints;
+the Planner should recommend technical mechanisms and distinguish facts from
+assumptions. Missing consequential information stops the run for clarification.
+Approval authorizes only the deliverables and permissions in that exact plan.
+The design workflow is not an AWS sandbox, and live model calls consume provider
+quota or incur charges; actual environment discovery and deployment need separately
+authorized access.
+
+In the DLQ/DynamoDB/Slack trial, AutoCode produced a design comparing scheduled
+DynamoDB checks with Streams-based tracking, recommended non-consuming CloudWatch
+DLQ monitoring and a Slack webhook, and documented unresolved environment inputs.
+Independent review rejected defects and requested rework. The run ultimately
+stopped at `WAITING_FOR_USER`: reliable delivery plus strict no-repeat alerts could
+not be established for an ambiguous webhook outcome. It did not report completion
+or verify AWS/Slack behavior live.
+
+This is an observed capability, not a claim of hands-off reliability. The trial
+also exposed recovery and clarification issues; current recovery regressions are
+not green. See the [trial findings and open issues](docs/bugs/2026-10-03-design-clarification-outcomes-vs-mechanisms.md)
+for evidence and current status.
+
 ## Build from a Figma design
 
 This path requires native Codex, ChatGPT login and the connected Figma plugin

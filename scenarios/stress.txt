@@ -1,0 +1,36 @@
+# Engineering stress shortlist. One catalog ID per line; comments are ignored by
+# examples/claude-provider/batch.py. Use --fake for model-free workflow rehearsal.
+# Reference runs alone are not enough: also run oracle controls and adversarial.py.
+
+# Preserve the original brief, approved design, and legitimate stop boundaries.
+greenfield-todo-cli
+implement-locked-design
+implement-design-conflict
+bugfix-not-reproducible
+review-vacuous-tests
+
+# Diagnose failures spanning retries, caches, and accounting modules.
+bugfix-duplicate-on-timeout
+bugfix-stale-prices
+bugfix-cent-drift
+
+# Transactions must conserve data, even when validation or a worker fails.
+ladder-10-atomic-schema-migration
+ladder-14-transactional-csv-import
+ladder-17-transaction-ledger
+ladder-18-durable-lease-queue
+ladder-19-transactional-outbox
+
+# Corruption, invalidation, hostile inputs, and authorization boundaries.
+ladder-20-incremental-build-graph
+ladder-21-event-replay-snapshots
+ladder-22-safe-archive-extraction
+ladder-23-tenant-authorization
+ladder-24-deployment-config-plan
+
+# Integrated and cumulative proof must survive handoffs and later changes.
+parallel-diamond
+progressive-learning-journey
+progressive-cumulative-regression
+progressive-split-learning-journey
+review-then-fix
