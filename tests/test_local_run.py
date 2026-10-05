@@ -250,7 +250,8 @@ class DockerCheckTests(unittest.TestCase):
         # Component worktrees are .autocode-components/<id>; the compose directory must not be one.
         with tempfile.TemporaryDirectory() as temp:
             work = lr.workdir(Path(temp))
-            self.assertEqual(Path(temp) / ".autocode-components" / ".local-run", work)
+            # workdir() resolves the workspace so /var and /private/var spellings match.
+            self.assertEqual((Path(temp) / ".autocode-components" / ".local-run").resolve(), work.resolve())
             architecture = Path(temp) / "architecture"
             architecture.mkdir()
             (architecture / "components.json").write_text(json.dumps([{"id": work.name}]))
