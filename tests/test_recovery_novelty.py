@@ -720,6 +720,49 @@ class RecoveryPacketTests(unittest.TestCase):
         with self.assertRaisesRegex(util.Paused, "draft hash changed"):
             recovery.diagnosis_change(stale, change, self.run)
 
+    def test_diagnosis_records_which_check_an_unproven_change_failed(self):
+        # #418: an unproven proposal is no longer a raised stale handoff, so its reason is
+        # the check it failed, named the same way in a novelty hold.
+        change = {"hypothesis": "Wrong answer return branch", "target": "app.py", "before": "return 2",
+                  "after": "return 3", "expected_check": "python -m unittest test_app", "expected_result": "exit 0",
+                  "evidence_refs": [str(self.events)], "question": ""}
+        unbounded = "not a bounded attested source change with the original discriminating check"
+        unpinned = "evidence_refs do not cite pinned originals"
+        cases = (("Return 3 instead", "not an object"), (["return 3"], "not an object"),
+                 ({"before": "return  2"}, unbounded), ({"before": "return 2", "after": "return 2"}, unbounded),
+                 ({"expected_check": "python -m unittest"}, unbounded), ({"target": "elsewhere.py"}, unbounded),
+                 ({"hypothesis": ""}, unbounded), ({"evidence_refs": []}, unpinned), ({"evidence_refs": "events"}, unpinned),
+                 ({"evidence_refs": ["/foreign/receipt"]}, unpinned), ({"evidence_refs": ["event:invented"]}, unpinned))
+        for mutation, why in cases:
+            with self.subTest(mutation=mutation):
+                proposed = {**change, **mutation} if isinstance(mutation, dict) else mutation
+                attested, unattested = recovery.diagnosis_change(self.request, proposed, self.run)
+                self.assertIsNone(attested)
+                self.assertEqual({"change": proposed, "reason": f"Recovery packet: proposed change is unproven ({why})"},
+                                 unattested)
+        # Attested bounds that prove no structural novelty are not unproven: novelty decides them.
+        cosmetic = {**change, "after": "return (2)"}
+        self.assertEqual((cosmetic, None), recovery.diagnosis_change(self.request, cosmetic, self.run))
+
+        # A changed input is attested only as the observed transition, citing its input evidence.
+        packet = self.packet()
+        old, new = '{"files": {"lib.py": "old"}}', '{"files": {"lib.py": "new"}}'
+        incident = novelty.Incident(**packet["incidents"][0]).id
+        current = {**packet, "permitted_controls": [inputs.TARGET], "inputs": {inputs.TARGET: new},
+                   "input_pins": {str(self.events): util.file_hash(self.events)},
+                   "prior_receipts": [{"incident_ids": [incident], "packet": "prior"}]}
+        prior = {**packet, "inputs": {inputs.TARGET: old}}
+        transition = {**change, "target": inputs.TARGET, "before": old, "after": new}
+        cases = ((transition, None), ({**transition, "before": "claimed old input"},
+                                      "not an attested input transition with the original discriminating check"),
+                 ({**transition, "evidence_refs": [str(self.output)]}, "changed input does not cite its attested input evidence"))
+        with patch.object(recovery, "load_packet", side_effect=lambda pointer, _: prior if pointer == "prior" else current):
+            for proposed, why in cases:
+                with self.subTest(input=proposed["before"], refs=proposed["evidence_refs"]):
+                    expected = ((proposed, None) if why is None else
+                                (None, {"change": proposed, "reason": f"Recovery packet: proposed change is unproven ({why})"}))
+                    self.assertEqual(expected, recovery.diagnosis_change(self.request, proposed, self.run))
+
     def test_specific_changed_repair_is_admitted_but_not_marked_accepted(self):
         self.request["recovery_change"] = {"hypothesis": "Wrong answer return branch", "target": "app.py",
             "before": "return 2", "after": "return 3", "expected_check": "python -m unittest test_app",
@@ -738,16 +781,85 @@ class RecoveryPacketTests(unittest.TestCase):
         self.assertNotIn("accepted", attempt["recovery_novelty"])
         self.assertEqual("FAIL", self.state["validation"]["verdict"])
 
-    def test_completion_proposal_foreign_or_empty_refs_cannot_admit_diagnosis(self):
+    def test_resolver_decision_with_an_unproven_change_buys_the_builder_no_novelty(self):
+        # #418: the Resolver's decision stands instead of a stale handoff. Its unproven proposal
+        # has no identity and reaches the Builder's plan only as advice with the check it failed,
+        # as a diagnosis's does (#422), so a repeated Builder repair holds as no progress.
+        change = {"hypothesis": "Wrong answer return branch", "target": "app.py", "before": "return 2",
+                  "after": "return 3", "expected_check": "python -m unittest test_app", "expected_result": "exit 0",
+                  "evidence_refs": [str(self.events)], "question": ""}
+        unproven = {**change, "evidence_refs": ["/foreign/receipt"]}
+        packet = self.packet()
+        for proposed, attested in ((change, True), (unproven, False)):
+            with self.subTest(attested=attested):
+                state = copy.deepcopy(self.state)
+                request = state["resolution_request"]
+                recovery.validate_decision(state, {"recovery_change": proposed}, self.record)
+                self.assertEqual((proposed, attested), (request["recovery_change"], request["recovery_change_id"] is not None))
+                plan = {"tasks": [state["current_task"]]}
+                recovery.finish_resolution_packet(state, request, plan)
+                if attested:
+                    self.assertEqual((proposed, request["recovery_change_id"]), (plan["recovery_change"], plan["recovery_change_id"]))
+                    self.assertNotIn("unattested_change", plan)
+                    continue
+                self.assertEqual({"change": unproven, "reason": "Recovery packet: proposed change is unproven "
+                                  "(evidence_refs do not cite pinned originals)"}, plan["unattested_change"])
+                self.assertFalse({"recovery_change", "recovery_change_id"} & set(plan))
+                state["repair_plan"] = plan
+                first = {"stage": "terra", "output": str(self.run / "builder.json"), "started_at": "first"}
+                recovery.admit_dispatch(state, first, self.root, self.run)
+                self.assertEqual(("repair", "first_incident", None), (first["recovery_novelty"]["action"],
+                                 first["recovery_novelty"]["reason"], first["recovery_novelty"]["change_id"]))
+                state["stages"].append(first)
+                attempt = {"stage": "terra", "output": str(self.run / "builder-again.json"), "started_at": "again"}
+                with self.assertRaisesRegex(util.Paused, "No causal progress") as caught:
+                    recovery.admit_dispatch(state, attempt, self.root, self.run)
+                self.assertEqual("PAUSED_NO_PROGRESS", caught.exception.status)
+                self.assertEqual(novelty.Incident(**packet["incidents"][0]).id, plan["novelty_hold"]["incident_id"])
+                self.assertNotIn("recovery_novelty", attempt)
+
+    def test_unproven_proposal_is_treated_as_no_proposal_not_a_stale_handoff(self):
+        # #418: an optional recovery_change that is not a bounded, attested change with pinned
+        # refs is unproven, like recovery_change=null: the first occurrence is admitted, a repeat
+        # holds as no progress and says why, and neither is a PAUSED_STALE_HANDOFF.
         change = {"hypothesis": "Wrong answer", "target": "app.py", "before": "return 2", "after": "return 3",
                   "expected_check": "python -m unittest test_app", "expected_result": "exit 0", "question": "Which branch?"}
-        for refs in ([], ["/foreign/receipt"], ["event:invented"]):
-            with self.subTest(refs=refs):
-                self.request["recovery_change"] = {**change, "evidence_refs": refs}
-                attempt = {"stage": "astra_resolve", "output": str(self.run / "not-launched.json")}
-                with self.assertRaisesRegex(util.Paused, "pinned originals"):
-                    recovery.admit_dispatch(self.state, attempt, self.root, self.run)
-                self.assertNotIn("recovery_novelty", attempt)
+        pinned = {"evidence_refs": [str(self.events)]}
+        cases = (({"evidence_refs": []}, "pinned originals"), ({"evidence_refs": ["/foreign/receipt"]}, "pinned originals"),
+                 ({"evidence_refs": ["event:invented"]}, "pinned originals"),
+                 ({**pinned, "before": "return  2"}, "not a bounded attested source change"),
+                 ({**pinned, "expected_check": "python -m unittest"}, "not a bounded attested source change"),
+                 ({**pinned, "target": "elsewhere.py"}, "not a bounded attested source change"),
+                 ("Return 3 instead", "not an object"), (["return 3"], "not an object"))
+        for bad, why in cases:
+            with self.subTest(bad=bad):
+                state = copy.deepcopy(self.state)
+                state["resolution_request"]["recovery_change"] = {**change, **bad} if isinstance(bad, dict) else bad
+                first = {"stage": "astra_resolve", "output": str(self.run / "first.json"), "started_at": "first"}
+                recovery.admit_dispatch(state, first, self.root, self.run)
+                self.assertEqual(("diagnosis", "first_incident", None), (first["recovery_novelty"]["action"],
+                                 first["recovery_novelty"]["reason"], first["recovery_novelty"]["change_id"]))
+                state["stages"].append(first)
+                again = {"stage": "astra_resolve", "output": str(self.run / "again.json"), "started_at": "again"}
+                with self.assertRaisesRegex(util.Paused, "No causal progress") as caught:
+                    recovery.admit_dispatch(state, again, self.root, self.run)
+                self.assertEqual("PAUSED_NO_PROGRESS", caught.exception.status)
+                self.assertIn("Proposed change is unproven", str(caught.exception))
+                self.assertIn(why, str(caught.exception))
+                self.assertNotIn("recovery_novelty", again)
+
+    def test_unproven_proposal_still_fails_closed_on_tampered_evidence(self):
+        # #418 does not relax load_packet: changed retained evidence is still a stale handoff.
+        self.request["recovery_change"] = {"hypothesis": "Wrong answer", "target": "app.py", "before": "return  2",
+            "after": "return 3", "expected_check": "python -m unittest test_app", "expected_result": "exit 0",
+            "question": "Which branch?", "evidence_refs": []}
+        archived = Path(self.packet()["originals"][0]["path"])
+        archived.write_text(archived.read_text().replace("{", "{ ", 1))
+        attempt = {"stage": "astra_resolve", "output": str(self.run / "not-launched.json")}
+        with self.assertRaisesRegex(util.Paused, "retained original archive changed") as caught:
+            recovery.admit_dispatch(self.state, attempt, self.root, self.run)
+        self.assertEqual("PAUSED_STALE_HANDOFF", caught.exception.status)
+        self.assertNotIn("recovery_novelty", attempt)
 
     def test_current_validator_event_alias_resolves_only_to_its_pinned_stream(self):
         change = {"hypothesis": "Wrong answer", "target": "app.py", "before": "return 2", "after": "return 3",
@@ -874,14 +986,14 @@ class RecoveryPacketTests(unittest.TestCase):
         with self.assertRaisesRegex(util.Paused, "symlink"):
             recovery.prepare_resolution(state, {"summary": "Symlinked scratch"}, copy.deepcopy(record))
 
-    def known_correction(self, evidence):
-        """A sealed Completion REWORK with an attested change, over a failed check captured in `evidence`."""
+    def known_correction(self, evidence, **mutation):
+        """A sealed Completion REWORK with an attested change (unless `mutation` breaks it), over a failed check captured in `evidence`."""
         self.state["iteration"] = 2
         self.state["settings"]["roles"] = {"terra": {"model": "builder"}, "sol": {"model": "reviewer"}}
         identity = {"task_id": "T1", "contract_hash": "h", "contract_revision": 1}
         change = {"hypothesis": "Wrong answer", "target": "app.py", "before": "return 2", "after": "return 3",
                   "expected_check": "python -m unittest test_app", "expected_result": "exit 0",
-                  "question": "", "evidence_refs": [str(self.events)]}
+                  "question": "", "evidence_refs": [str(self.events)], **mutation}
         decision = {**identity, "status": "REWORK", "user_request": {"kind": "none"},
                     "next_objective": "Return the accepted answer", "recovery_change": change,
                     "next_task": {"kind": "implement"}}
@@ -956,6 +1068,48 @@ class RecoveryPacketTests(unittest.TestCase):
                 with patch.object(recovery.processes, "recorded_worker_state", return_value={"checked": True, "alive": False}):
                     self.assertIs(routed, recovery.route_known_change(runtime, trial, decision, trial_record,
                                                                        run_dir=self.run, retry_policy=retry))
+
+    def test_unproven_known_correction_goes_to_the_resolver_not_a_stale_handoff(self):
+        # #418: routing a known correction requires an attested change. An unproven one is not
+        # routed, and is no longer a stale handoff that rejects the Completion review: the queued
+        # Resolver route stays, and its admission grants the proposal no novelty.
+        snapshot = copy.deepcopy(self.state)
+        for mutation, why in (({"evidence_refs": ["/foreign/receipt"]}, "evidence_refs do not cite pinned originals"),
+                              ({"before": "return  2"}, "not a bounded attested source change")):
+            with self.subTest(mutation=mutation):
+                self.state = copy.deepcopy(snapshot)
+                decision, record, _, paths, runtime, retry = self.known_correction(self.run / "evidence", **mutation)
+                state, current_record = self.known_correction_prepared(decision, record, paths)
+                with patch.object(recovery.processes, "recorded_worker_state", return_value={"checked": True, "alive": False}):
+                    self.assertFalse(recovery.route_known_change(runtime, state, decision, current_record,
+                                                                 run_dir=self.run, retry_policy=retry))
+                runtime.lifecycle.assign_task.assert_not_called()
+                retry.failure.assert_not_called()
+                request = state["resolution_request"]
+                self.assertEqual((decision["recovery_change"], None), (request["recovery_change"], request["recovery_change_id"]))
+                self.assertNotIn("repair_plan", state)
+                # The queued Resolver request, as queue_resolution binds it, with the finished review reconciled.
+                request.update(source_output=current_record["output"], review=copy.deepcopy(decision))
+                state.pop("active_stage")
+                first = {"stage": "astra_resolve", "output": str(self.run / "resolver.json"), "started_at": "first"}
+                recovery.admit_dispatch(state, first, self.root, self.run)
+                self.assertEqual(("diagnosis", "first_incident", None), (first["recovery_novelty"]["action"],
+                                 first["recovery_novelty"]["reason"], first["recovery_novelty"]["change_id"]))
+                state["stages"].append(first)
+                with self.assertRaisesRegex(util.Paused, "Proposed change is unproven") as caught:
+                    recovery.admit_dispatch(state, {"stage": "astra_resolve", "output": str(self.run / "again.json"),
+                                                    "started_at": "again"}, self.root, self.run)
+                self.assertEqual("PAUSED_NO_PROGRESS", caught.exception.status)
+                self.assertIn(why, str(caught.exception))
+        # A non-object proposal, outside the schema, is not routed either rather than failing on it.
+        self.state = copy.deepcopy(snapshot)
+        decision, record, _, paths, runtime, retry = self.known_correction(self.run / "evidence")
+        state, current_record = self.known_correction_prepared(decision, record, paths)
+        for proposal in ("Return 3 instead", ["return 3"]):
+            with self.subTest(proposal=proposal):
+                self.assertFalse(recovery.route_known_change(runtime, state, {**decision, "recovery_change": proposal},
+                                                             current_record, run_dir=self.run, retry_policy=retry))
+        runtime.lifecycle.assign_task.assert_not_called()
 
     def test_known_correction_cannot_repin_artifacts_changed_during_queue(self):
         decision, record, raw, paths, runtime, retry = self.known_correction(self.run)
@@ -1109,8 +1263,21 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         driver = self.driver("bad_refs")
         view = driver.drive(self.scenario.brief)
         self.assertFalse(view["done"], view.get("status"))
-        self.assertIn("pinned originals", view.get("stop_reason", ""))
-        self.assertEqual(["terra", "sol", "astra_review"] * 2, [row["stage"] for row in self.trace()])
+        # #418: the foreign refs make the proposal unproven. They used to raise while the
+        # Completion review was applied, so the review itself was rejected and archived
+        # (PAUSED_INVALID_OUTPUT). Now the review stands and novelty holds the repeat.
+        self.assertNotIn(view.get("status"), ("PAUSED_INVALID_OUTPUT", "PAUSED_STALE_HANDOFF"))
+        self.assertIn("No causal progress", view.get("stop_reason", ""))
+        self.assertIn("Proposed change is unproven (evidence_refs do not cite pinned originals)", view.get("stop_reason", ""))
+        stages = [row["stage"] for row in self.trace()]
+        self.assertEqual(["terra", "sol", "astra_review"] * 2, stages)
+        # An authorized retry buys one Resolver run. Its own unproven proposal does not reject
+        # its repair either, and buys the Builder no novelty: the same repeat still holds.
+        driver.call("authorized-retry", "--resume-paused", "--retry-failed-stage")
+        self.assertEqual(stages + ["astra_resolve"], [row["stage"] for row in self.trace()])
+        view = driver.view()
+        self.assertEqual("PAUSED_NO_PROGRESS", view.get("status"), view.get("stop_reason"))
+        self.assertIn("Proposed change is unproven (evidence_refs do not cite pinned originals)", view.get("stop_reason", ""))
 
     def test_specific_new_experiment_may_use_one_bounded_diagnosis(self):
         driver = self.driver("question")

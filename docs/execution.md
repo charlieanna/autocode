@@ -645,7 +645,15 @@ boundary checks whether an unresolved causal question remains or a concrete,
 supported change has a discriminating check. A structured `recovery_change` may
 declare that change and cite its pinned evidence; it does not grant permission,
 approve scope, create another retry allowance or establish that the repair worked.
-The absence of a proposal is `null`, not a request to buy report repair.
+The absence of a proposal is `null`, not a request to buy report repair. A
+proposal that is not a bounded change with the original discriminating check
+and pinned evidence is unproven and treated like `null`: it buys no novelty and
+is not routed as a known correction, so a repeated incident still holds, and a
+hold that weighed the proposal names the check it failed. A Resolver's repair
+plan passes an unproven proposal to the Builder only as advice, with that
+reason, as an operational diagnosis does. An unproven proposal never pauses the
+run as a stale handoff; changed retained evidence still pauses dispatch
+admission as one (#418).
 
 An unchanged incident can pause as `PAUSED_NO_PROGRESS` before another provider
 launch. A source hash, session rotation or comment-only edit alone cannot clear
