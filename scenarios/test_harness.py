@@ -1139,7 +1139,7 @@ class FakeRunTests(unittest.TestCase):
 
 
 class StockRefusalsRunTests(unittest.TestCase):
-    """feature-stock-refusals (issue #59) end to end with the scripted model (about 20 s each). Only the model
+    """feature-stock-refusals (issue #59) end to end with the scripted model (about 30 s each). Only the model
     is fake: the runner's regression proof finds the vacuous refusal tests, and the scripted Resolver writes
     its diagnosis from its handoff alone. These prove the route is reached and that the scoring can come out
     CORRECT and INCORRECT, never how well a real model diagnoses. Plan B1 (each variant fails for its own

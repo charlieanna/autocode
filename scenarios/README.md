@@ -205,9 +205,10 @@ Reported only: `review_already_named_cause` (the same word lists over the
 Completion Owner's findings and task: in the three real 2026-10-04 Resolver calls
 the review had named the cause first, so a correct diagnosis is often a
 confirmation), `resolver_added_beyond_review`, `resolver_calls_on_trap`, `model`,
-`cost_usd`, `pending`, `trap_calls` (every counted call, scored the same way),
-`unscorable_calls`, and `other_resolver_calls` (calls at other revisions, kept
-for a human read).
+`cost_usd`, `pending`, `trap_calls` (every scorable counted call at the trap,
+scored the same way), `unscorable_calls` (the other counted calls there: no
+report saved or applied), and `other_resolver_calls` (calls at other revisions,
+kept for a human read).
 
 `feature-refund-window` counts calls the same way. A call is on its planted
 failure when the source it saw fails the hidden `WindowTests` or `CapTests`, the
