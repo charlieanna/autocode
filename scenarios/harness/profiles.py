@@ -61,6 +61,25 @@ PROFILES = {
         "effort": {"requirements": "medium", "planner": "high", "reviewer": "high", "builder": "medium",
                    "validator": "high", "completion": "medium", "resolver": "high"},
     },
+    # GLM and MiMo only, through OpenCode: the live run a pull request needs (AGENTS.md).
+    # Same routes as the trial harness's 2026-09-26 glm53-mimo profile.
+    # Each checker is the other family from its producer (GLM plans, MiMo reviews the plan;
+    # MiMo builds, GLM validates and completes), as AutoCode's cross-model check requires.
+    # The Investigator and Resolver are pinned so recovery does not route to OpenAI.
+    # MiMo reasons silently for long stretches: keep --max-stage-seconds at 900 or more.
+    "glm53-mimo": {
+        "provider": "opencode",
+        "models": {
+            "requirements": "zai-coding-plan/glm-5.3", "planner": "zai-coding-plan/glm-5.3",
+            "reviewer": "xiaomi-token-plan-sgp/mimo-v2.6-pro", "builder": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+            "validator": "zai-coding-plan/glm-5.3", "completion": "zai-coding-plan/glm-5.3",
+            "resolver": "xiaomi-token-plan-sgp/mimo-v2.6-pro",
+        },
+        "effort": {"requirements": "medium", "planner": "high", "reviewer": "high", "builder": "medium",
+                   "validator": "high", "completion": "medium", "resolver": "high"},
+        "extra": ["--resolver-model", "xiaomi-token-plan-sgp/mimo-v2.6-pro", "--resolver-reasoning-effort", "high",
+                  "--investigator-model", "zai-coding-plan/glm-5.3"],
+    },
     # Every role on OpenAI via the ChatGPT login (user 2026-09-27, while the Z.AI plan
     # was out of quota). Each verifier is a different model from its producer
     # (planner astra / plan reviewer sol; builder sol / validator astra / completion

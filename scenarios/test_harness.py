@@ -914,6 +914,21 @@ class ModelProfileTests(unittest.TestCase):
                                   ("builder", "completion")):
             self.assertNotEqual(models[producer], models[checker])
 
+    def test_glm53_mimo_stays_on_glm_and_mimo_and_crosses_families(self):
+        profile = profiles.resolve("glm53-mimo")
+        flags = profiles.flags(profile)
+        self.assertEqual("opencode", flags[flags.index("--provider") + 1])
+
+        def family(model):
+            return {"zai-coding-plan": "glm", "xiaomi-token-plan-sgp": "mimo"}.get(model.split("/")[0])
+
+        for flag in (*profiles.MODEL_FLAGS.values(), "--investigator-model", "--resolver-model"):
+            self.assertIn(family(flags[flags.index(flag) + 1]), ("glm", "mimo"), flag)
+        models = profile["models"]
+        for producer, checker in (("planner", "reviewer"), ("builder", "validator"),
+                                  ("builder", "completion")):
+            self.assertNotEqual(family(models[producer]), family(models[checker]))
+
 
 class FakeSchemaTests(unittest.TestCase):
     """The scripted model answers "none" for any required field its script does not know yet."""

@@ -158,6 +158,41 @@ and a broken variant (see `scenarios/README.md`). Live-model runs need `--i-auth
 routine test run. To run scenarios live on Claude models from a Claude Code cloud session
 (setup, batches, restarts, reading results), follow `examples/claude-provider/CLOUD-SESSION.md`.
 
+## Live run before a pull request
+
+Unit tests and fake scenarios cannot show how a real model answers: the first
+fix for #195 passed its tests and still looped live, because real GLM
+Validators reported PASS where the fake said BLOCKED. So a pull request is opened
+only after a live run: AutoCode driven by real models, on the machine where the
+change was made, after `--changed` and the fake scenario runs pass. GitHub CI
+never runs live models; the pull request carries the evidence.
+
+- **Models.** GLM and MiMo through OpenCode, unless the change is about another
+  provider or route. Run a scenario with the `glm53-mimo` profile
+  (`scenarios/run.py run <scenario> --profile glm53-mimo --i-authorize-live-model-spend
+  --max-seconds 2400 --max-stage-seconds 900 --max-iterations 6`; MiMo needs
+  the longer stage limit) or `autocode` itself with the same model flags.
+- **Reach the change.** Pick the scenario or task that runs the changed code;
+  a pass that never touches it proves nothing. A path a live run cannot reach
+  on demand (a crash, a quota running out) gets a fault-injected or
+  fake-provider test instead, and the pull request says so.
+- **A failed live run is not automatically the change's fault.** Live runs
+  also stop on model variance, quota and provider errors. When the run does
+  not pass, run the same scenario on `origin/master`. If master fails the same
+  way, open the pull request with both results; if only the change fails, fix
+  it first.
+- **Exempt**, with the reason in the pull request: changes to tests, CI or
+  docs only; a fix for a red master, which should not wait; bug fixes to the
+  frozen dashboard and macOS app.
+- **Evidence in the pull request body**, because reviewers cannot open your
+  `.scenario-runs/`: the command, the model for each role, the verdict, the
+  duration, the run directory's name, and how you know the changed code ran (a
+  stage, an event or a log line). Never paste credentials or whole logs.
+
+A session that cannot run live models opens its pull request as a draft that
+says the live run is still owed; it is marked ready only after a live run on a
+local machine.
+
 ## Hygiene
 
 - Do not commit run output, logs, `.patch` files or evidence bundles. Scenario
