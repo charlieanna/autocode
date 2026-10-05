@@ -27,9 +27,10 @@ here).
 from __future__ import annotations
 
 try:
-    from . import autocode_util as util
+    from . import autocode_util as util, autocode_finding_cause as finding_cause
 except ImportError:
     import autocode_util as util
+    import autocode_finding_cause as finding_cause
 
 KEY = "validation_only_rounds"
 LIMIT = 2
@@ -155,13 +156,17 @@ def _stop(state, stalled, revision, window, count):
 
 
 def _settled_matches(state, stalled):
-    """A hint, never a closure: stalled findings with the same text or evidence as a resolved one."""
+    """A hint, never a closure: stalled findings with the same text or evidence as a resolved one.
+
+    Another part of the same split finding is not offered: it covers other criteria
+    (autocode_finding_cause.split_family), so closing this part would drop the defect for its own."""
     resolved = [row for row in state.get("findings_ledger", []) if row.get("status") == "resolved"]
     hints = []
     for row in sorted(stalled, key=lambda row: row["id"]):
         same = [other["id"] for other in resolved
-                if (row.get("finding") and other.get("finding") == row.get("finding"))
-                or (row.get("evidence") and other.get("evidence") == row.get("evidence"))]
+                if finding_cause.split_family(other) != finding_cause.split_family(row)
+                and ((row.get("finding") and other.get("finding") == row.get("finding"))
+                     or (row.get("evidence") and other.get("evidence") == row.get("evidence")))]
         if same:
             hints.append(f"{row['id']} has the same finding or evidence as resolved {', '.join(same)}; if it is the "
                          f"same problem, close it with --close-finding {row['id']} --close-reason TEXT")

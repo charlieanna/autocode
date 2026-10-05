@@ -130,6 +130,12 @@ def carry(state, current):
     milestones = {row['id']: row for row in target['body']['milestones']}
     previous = next((old for old in reversed(state.get('contract_history', []))
                      if old['revision'] == target['revision'] - 1), {})
+    # A carried milestone is not reviewed again, so an open blocking finding recorded against it
+    # (such as a part an approved revision moved there, autocode_finding_rescope) would have no
+    # reviewer left to close it.
+    held = {(row.get('scope') or {}).get('milestone_id') for row in state.get('findings_ledger') or []
+            if isinstance(row, dict) and row.get('status') == 'open' and row.get('blocking', True)
+            and isinstance(row.get('scope'), dict)}
     for row in list(state.get('milestone_progress', {}).values()):
         manifest = row.get('reuse_manifest')
         if not row.get('accepted') or row.get('contract_hash') != previous.get('hash'):
@@ -154,6 +160,8 @@ def carry(state, current):
             reason = 'Accepted validation changed'
         elif not matches(manifest, current):
             reason = 'Source footprint or retained evidence changed'
+        elif row['id'] in held:
+            reason = 'An open blocking finding is recorded against it; revalidate'
         if reason:
             outcomes.append({'milestone_id': row['id'], 'from_contract_hash': row.get('contract_hash'), 'result': 'revalidate', 'reason': reason})
         else:

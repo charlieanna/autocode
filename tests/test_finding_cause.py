@@ -34,6 +34,15 @@ class InheritResolutionTests(unittest.TestCase):
         self.assertIn("F-b", closed)
         self.assertNotIn("F-c", closed)
 
+    def test_parts_of_one_split_finding_do_not_inherit_each_others_resolution(self):
+        # #447: an approved revision split F-a's criteria over milestones; F-p and F-q are its other parts.
+        rows = self._rows()
+        rows[0]["status"] = "open"
+        rows += [{**rows[0], "id": "F-p", "split_from": "F-a"}, {**rows[0], "id": "F-q", "split_from": "F-a"}]
+        closed = finding_cause.resolve_named({"findings_ledger": rows}, ["F-p"], {"question_id": "q1", "at": "now"})
+        self.assertEqual(["F-p", "F-b"], closed)  # F-b is a separately raised duplicate
+        self.assertEqual(["open", "open"], [rows[0]["status"], rows[4]["status"]])
+
 
 if __name__ == "__main__":
     unittest.main()

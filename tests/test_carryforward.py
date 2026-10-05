@@ -6,6 +6,7 @@ from pathlib import Path
 
 from . import test_milestone_checkpoints as fixtures
 import autocode_carryforward as cf
+import autocode_findings as findings
 import autocode_goals as goals
 import autocode_goal_lifecycle as lifecycle
 import autocode_milestones as m
@@ -90,6 +91,21 @@ class CarryForwardTests(unittest.TestCase):
         (self.root / 'unrelated.txt').write_text('New M2 work')
         self.revise(lambda body: body['acceptance_criteria'][2].update(verification_method='New Unicode test'))
         self.assertEqual({'M1'}, m.accepted_ids(self.state))
+
+    def test_an_open_blocking_finding_against_an_accepted_milestone_revalidates_it(self):
+        # A carried milestone is not reviewed again, so nobody could close such a finding (#447).
+        self.start(); self.accept_fixture()
+        baseline = copy.deepcopy(self.state)
+        for blocking, result in ((True, 'revalidate'), (False, 'carried')):
+            with self.subTest(blocking=blocking):
+                self.state = copy.deepcopy(baseline)
+                findings.record_validation(self.state, {'findings': [
+                    {'severity': 'high', 'finding': 'Empty input crashes', 'evidence': 'event:check', 'blocking': blocking}]},
+                    {'output': 'sol-recheck.json'})
+                self.revise()
+                [outcome] = self.state['milestone_carry_forward'][-1]['outcomes']
+                self.assertEqual(result, outcome['result'])
+                self.assertEqual({'carried': {'M1'}, 'revalidate': set()}[result], m.accepted_ids(self.state))
 
     def test_material_contract_changes_revalidate(self):
         self.start(); self.accept_fixture()

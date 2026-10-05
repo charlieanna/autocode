@@ -129,6 +129,17 @@ class ValidationRounds(unittest.TestCase):
         self.assertIn("close it with --close-finding ID --close-reason TEXT", stop["request"]["decision_needed"])
         self.assertEqual("open", blocking[0]["status"])
 
+    def test_the_stop_does_not_offer_a_resolved_part_of_the_same_split_finding(self):
+        # #447: F-1 is the part of F-0 an approved revision moved to another milestone; it is not a duplicate.
+        state = self.state()
+        state["findings_ledger"] = [{"id": "F-0", "source": "sol", "status": "resolved",
+                                     "finding": "Stop leaves the worker running", "evidence": "event:check"}]
+        blocking = self.blocking("F-1", not_rechecked_in="v.json", finding="Stop leaves the worker running",
+                                 evidence="event:check", split_from="F-0")
+        stop = self.rounds(state, ("task-1", "v0"), ("task-2", "v1"), ("task-3", "v2"), blocking=blocking)[2]
+        self.assertEqual(["F-1"], stop["request"]["finding_ids"])
+        self.assertNotIn("as resolved F-0", stop["request"]["impact"])
+
     def test_first_validation_of_new_source_or_without_blockers_is_not_validation_only(self):
         state = self.state()
         self.assertIsNone(rounds.admit(state, [], "rev"))
