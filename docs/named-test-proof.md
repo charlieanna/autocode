@@ -4,7 +4,7 @@ A plan's `test: test_c1_example` criterion requires that named test to pass with
 the change and not before it. A `guard:` criterion must pass before and after.
 An exit code or a printed `PASS test_c1_example` is not enough to identify which
 case ran. AutoCode currently attributes tests from Python unittest/pytest, Go,
-and Node's built-in `node:test` runner.
+Node's built-in `node:test` runner, and Vitest 4.
 
 For Node, register each case as a real test, keeping its existing assertions
 and fixture helpers:
@@ -34,6 +34,17 @@ Missing or incomplete evidence stays unverified. The adapter uses the
 [documented Node TestsStream custom reporter API](https://nodejs.org/api/test.html#custom-reporters),
 including final summary events available in current Node 22 and later releases.
 
+For Vitest 4, keep the tests in their existing framework. Give each case a unique
+name, such as `test('test_c1_adds_two_numbers', ...)`, and use
+`npx --no-install vitest run tests/example.test.js`. An npm `test` script containing
+a single `vitest run` command is supported too, including `npm --prefix frontend test`.
+AutoCode attaches its owned reporter, reads a fresh structured result file, and
+excludes its internal `.autocode/` test backups. Missing or skipped cases, duplicate
+identities, interrupted reports, and unsupported versions cannot supply named
+passes. Collection and hook failures are separated from application failures.
+The reporter uses Vitest's reporting lifecycle and v4 hook-result metadata;
+qualification currently covers Vitest 4.1.6.
+
 A `node:test` case must assert the behavior itself. A case that runs another
 test runner through `child_process` (`npm test -- -t NAME`, `npx vitest`, Jest,
 Mocha or `node --test`) passes on that runner's exit code, and Vitest exits 0
@@ -44,7 +55,7 @@ runner; the proof names the file. Running the product's own CLI from a
 `node:test` case (`node cli.js add x`) is fine. The check only sees commands
 the file spells out; a wrapper is not named proof in any form.
 
-Shell pipelines, custom reporters, npm/Jest/Vitest/Mocha summaries and custom
+Shell pipelines, custom reporters, ordinary npm/Jest/Mocha summaries and custom
 assertion scripts do not currently provide named proof. A direct supported
 targeted command can accompany an existing package-script suite. If the project
 cannot use a supported runner, settle that compatibility blocker during planning;

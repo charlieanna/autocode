@@ -8,6 +8,8 @@ import unittest
 
 import autocode_protected_oracles as guard
 import autocode_verify as verify
+import autocode_protected_store as store
+from .protected_store_fixture import rewrite_archive
 from .test_verify import Project, git
 
 ORIGINAL = '''import unittest
@@ -50,11 +52,11 @@ class ProtectedLinkTests(unittest.TestCase):
         return receipt
 
     def test_complete_chain_and_non_test_target_are_retained(self):
-        retained = Path(self.record['root'])
         self.assertEqual({'test_layout.py', 'shared/bridge.py', 'shared/oracle.py'}, set(self.record['files']))
-        self.assertEqual('shared/bridge.py', os.readlink(retained / 'test_layout.py'))
-        self.assertEqual('oracle.py', os.readlink(retained / 'shared/bridge.py'))
-        self.assertEqual(ORIGINAL, (retained / 'shared/oracle.py').read_text())
+        with store.opened(self.record, self.root) as retained:
+            self.assertEqual('shared/bridge.py', os.readlink(retained / 'test_layout.py'))
+            self.assertEqual('oracle.py', os.readlink(retained / 'shared/bridge.py'))
+            self.assertEqual(ORIGINAL, (retained / 'shared/oracle.py').read_text())
         result = self.replay()
         self.assertEqual([], result['changed_tests'])
         self.assertEqual('PASS', result['verdict'])
@@ -119,18 +121,15 @@ class ProtectedLinkTests(unittest.TestCase):
         (nested / 'sample_test.go').symlink_to('../../shared/oracle.py')
         files = guard.inventory(self.root, verify.is_test_path)
         record = guard.retain(self.root, self.project.evidence, files, self.command)
-        retained = Path(record['root'])
-        self.assertEqual('../../shared/oracle.py', os.readlink(retained / 'client/v3/sample_test.go'))
-        self.assertEqual(ORIGINAL, (retained / 'client/v3/sample_test.go').read_text())
+        with store.opened(record, self.root) as retained:
+            self.assertEqual('../../shared/oracle.py', os.readlink(retained / 'client/v3/sample_test.go'))
+            self.assertEqual(ORIGINAL, (retained / 'client/v3/sample_test.go').read_text())
 
     def test_retained_target_and_link_tampering_are_rejected(self):
-        retained = Path(self.record['root'])
-        target = retained / 'shared/oracle.py'
-        target.write_text(ORIGINAL.replace('height(), 40', 'height(), 20'))
+        rewrite_archive(self.record, {'shared/oracle.py': ORIGINAL.replace('height(), 40', 'height(), 20').encode()})
         with self.assertRaisesRegex(ValueError, 'bundle changed'):
             self.replay()
-        target.write_text(ORIGINAL)
-        link = retained / 'test_layout.py'; link.unlink(); link.symlink_to('shared/oracle.py')
+        rewrite_archive(self.record, {'shared/oracle.py': ORIGINAL.encode(), 'test_layout.py': b'shared/oracle.py'})
         with self.assertRaisesRegex(ValueError, 'bundle changed'):
             self.replay()
 

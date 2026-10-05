@@ -118,7 +118,7 @@ def reason(file: str, runner: str) -> str:
     return (f"{file} runs another test runner through child_process ({runner[:120]}), so its tests pass on "
             "that runner's exit code, not on a named test (Vitest exits 0 when a -t filter matches no test), "
             "and they are not named proof: assert the behavior directly in node:test, or use a runner AutoCode "
-            "reads per test (unittest/pytest, Go, or node:test via node --test)")
+            "reads per test (unittest/pytest, Go, native Vitest, or node:test via node --test)")
 
 
 def _split(code, start):

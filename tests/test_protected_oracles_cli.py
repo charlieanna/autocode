@@ -3,6 +3,8 @@ import json
 import subprocess
 import unittest
 from pathlib import Path
+from .protected_store_fixture import retained_text
+import autocode_protected_store as store
 
 from . import test_bugfix_workflow as fixture
 
@@ -50,7 +52,7 @@ class ProtectedOracleCLI(unittest.TestCase):
             receipts = list((run / 'check-replay').glob('*/protected-tests/*/receipt.json'))
             self.assertTrue(receipts, result.stdout)
             self.assertTrue(any(json.loads(path.read_text())['original']['exit_code'] == 1 for path in receipts))
-            self.assertEqual(ORIGINAL, (Path(final['settings']['protected_tests']['root']) / 'test_layout.py').read_text())
+            self.assertEqual(ORIGINAL, retained_text(final['settings']['protected_tests'], self.project, 'test_layout.py'))
         return run, final, result
 
     def test_changed_expected_value_does_not_replace_the_original_gate(self):
@@ -99,7 +101,7 @@ class ProtectedOracleCLI(unittest.TestCase):
         self.assertEqual('TASK_COMPLETE', final['status'])
         self.assertNotEqual(binding['binding_hash'], final['settings']['protected_tests']['binding_hash'])
         self.assertEqual(before['goal_contract'], final['goal_contract'])
-        self.assertEqual(ORIGINAL, (Path(binding['root'])/'test_layout.py').read_text())
+        self.assertEqual(ORIGINAL, retained_text(binding, self.project, 'test_layout.py'))
         self.assertEqual('user_cli', [event for event in final['user_events'] if event['kind']=='protected_tests_revised'][0]['actor'])
 
     def test_existing_internal_test_link_starts_and_replays_without_flattening(self):
@@ -119,9 +121,9 @@ class ProtectedOracleCLI(unittest.TestCase):
         self.launch(['--run-dir', str(run), '--no-chat'], 0)
         final = self.saved()[1]
         self.assertEqual('TASK_COMPLETE', final['status'])
-        retained = Path(final['settings']['protected_tests']['root'])
-        self.assertTrue((retained / 'test_layout.py').is_symlink())
-        self.assertEqual(ORIGINAL, (retained / 'shared/oracle.py').read_text())
+        with store.opened(final['settings']['protected_tests'], self.project) as retained:
+            self.assertTrue((retained / 'test_layout.py').is_symlink())
+            self.assertEqual(ORIGINAL, (retained / 'shared/oracle.py').read_text())
         self.assertTrue((self.project / 'test_layout.py').is_symlink())
         self.assertEqual('PASS', final['validation']['check_replay']['protected_tests']['verdict'])
 
@@ -130,7 +132,7 @@ class ProtectedOracleCLI(unittest.TestCase):
         run, final, _ = self.execute(extra, height=40)
         self.assertEqual('TASK_COMPLETE', final['status'])
         self.assertEqual('PASS', final['validation']['check_replay']['protected_tests']['verdict'])
-        self.assertEqual(ORIGINAL, (Path(final['settings']['protected_tests']['root']) / 'test_layout.py').read_text())
+        self.assertEqual(ORIGINAL, retained_text(final['settings']['protected_tests'], self.project, 'test_layout.py'))
 
 
 if __name__ == '__main__':

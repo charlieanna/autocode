@@ -7,15 +7,15 @@ caller supplies test classification, framework discovery and scratch execution.
 from __future__ import annotations
 import copy
 from pathlib import Path
-import shutil
 import uuid
 try:
     from . import autocode_util as util
-    from . import autocode_protected_paths as paths
+    from . import autocode_protected_paths as paths, autocode_protected_store as store
     from .autocode_protected_paths import identity, path_in
 except ImportError:
     import autocode_util as util
     import autocode_protected_paths as paths
+    import autocode_protected_store as store
     from autocode_protected_paths import identity, path_in
 
 
@@ -28,11 +28,15 @@ def verify_binding(record):
         raise ValueError('Protected test binding changed; a model cannot revise the original gate')
     if record.get('inventory_path') and util.read_object(record['inventory_path']) != body(record):
         raise ValueError('Retained protected-test inventory changed')
-    for name, expected in record['files'].items():
-        if identity(path_in(record['root'], name, allow_link=record['version'] == 2)) != expected:
-            raise ValueError(f'Original protected test bundle changed: {name}')
-    if record['version'] == 2:
-        paths.verify_links(record['root'], record['files'])
+    archive = store.archive_path(record)
+    if archive is not None:
+        store.read(record, archive)
+    else:
+        for name, expected in record['files'].items():
+            if identity(path_in(record['root'], name, allow_link=record['version'] == 2)) != expected:
+                raise ValueError(f'Original protected test bundle changed: {name}')
+        if record['version'] == 2:
+            paths.verify_links(record['root'], record['files'])
     return record
 
 
@@ -41,23 +45,9 @@ def retain(workspace, run_dir, files, command):
     version = 2 if any('symlink' in value for value in files.values()) else 1
     record = {'version': version, 'files': copy.deepcopy(files), 'command': command}
     record['binding_hash'] = util.digest(body(record))
-    root = Path(run_dir) / 'protected-tests' / record['binding_hash']
+    root = Path(run_dir) / 'protected-tests' / (record['binding_hash'] + '.zip')
     record['root'] = str(root)
-    if not root.exists():
-        temporary = root.parent / ('.capture-' + uuid.uuid4().hex)
-        temporary.mkdir(parents=True)
-        try:
-            for name, expected in files.items():
-                source = path_in(workspace, name, allow_link=record['version'] == 2)
-                if identity(source) != expected:
-                    raise ValueError(f'Protected input changed during capture: {name}')
-                target = temporary / name
-                paths.copy_entry(source, target)
-            verify_binding({**record, 'root': str(temporary)})
-            temporary.rename(root)
-        finally:
-            if temporary.exists():
-                shutil.rmtree(temporary)
+    store.capture(record, workspace, root)
     inventory_path = root.parent / (record['binding_hash'] + '.json')
     if not inventory_path.exists():
         util.atomic_json(inventory_path, body(record))
@@ -109,6 +99,16 @@ def reconcile(state, settings, args, workspace, run_dir, *, is_test_path, discov
         files = inventory(workspace, is_test_path)
         command = (settings.get('regression') or {}).get('test_command') or (discover_command() if files else None)
         settings['protected_tests'] = retain(workspace, run_dir, files, command)
+    if getattr(args, 'run_dir', None) and not any(state.get(key) for key in
+            ('active_stage', 'active_runner_check')):
+        retained = [settings.get('protected_tests')]
+        for event in state.get('user_events', []):
+            if event.get('kind') == 'protected_tests_revised':
+                retained.extend((event.get('previous'), event.get('current')))
+        for record in retained:
+            if record:
+                verify_binding(record)
+                store.compact(record, run_dir)
     return settings
 
 
@@ -152,13 +152,14 @@ def replay(state, workspace, out, scratch_run, *, timeout):
         result.update(verdict='NOT_VERIFIED', error='No original suite command was available; explicit user revision required')
     else:
         result['candidate'] = scratch_run(workspace, directory / 'candidate', command=record['command'], timeout=timeout)
-        overlays = {'files': {name: str(path_in(record['root'], name))
-                              for name, value in record['files'].items() if 'symlink' not in value}}
-        links = {name: value['symlink'] for name, value in record['files'].items() if 'symlink' in value}
-        if links:
-            overlays['links'] = links
-        result['original'] = scratch_run(workspace, directory / 'original', command=record['command'], timeout=timeout,
-                                        **overlays)
+        with store.opened(record, workspace) as original_root:
+            overlays = {'files': {name: str(path_in(original_root, name))
+                                  for name, value in record['files'].items() if 'symlink' not in value}}
+            links = {name: value['symlink'] for name, value in record['files'].items() if 'symlink' in value}
+            if links:
+                overlays['links'] = links
+            result['original'] = scratch_run(workspace, directory / 'original', command=record['command'], timeout=timeout,
+                                            **overlays)
         receipts = (result['candidate'], result['original'])
         if any(row.get('exit_code') != 0 or row.get('error') or row.get('timed_out') for row in receipts):
             result['verdict'] = 'FAIL'

@@ -11,6 +11,7 @@ import unittest
 
 import autocode_protected_oracles as guard
 import autocode_verify as verify
+from .protected_store_fixture import retained_text, rewrite_archive
 from .test_protected_oracles_cli import ORIGINAL, VARIANTS
 
 class OriginalOracleTests(unittest.TestCase):
@@ -106,7 +107,7 @@ class OriginalOracleTests(unittest.TestCase):
         self.state.update(status='PAUSED_REQUESTED', next_stage='sol')
         self.configure(SimpleNamespace(run_dir=self.run, resume_paused=True, revise_protected_tests=self.proposal()))
         self.assertNotEqual(old['binding_hash'], self.binding['binding_hash'])
-        self.assertEqual(ORIGINAL, (Path(old['root']) / 'test_layout.py').read_text())
+        self.assertEqual(ORIGINAL, retained_text(old, self.project, 'test_layout.py'))
         self.assertEqual('user_cli', self.state['user_events'][0]['actor'])
         self.assertEqual(old, self.state['user_events'][0]['previous'])
         self.assertFalse(guard.ready(self.state, 'old-validation'))
@@ -130,7 +131,7 @@ class OriginalOracleTests(unittest.TestCase):
                 self.configure(SimpleNamespace(run_dir=self.run, resume_paused=True, revise_protected_tests=proposal))
 
     def test_retained_test_tampering_is_not_permission_to_rebind(self):
-        (Path(self.binding['root']) / 'test_layout.py').write_text(VARIANTS['unconditional_pass'])
+        rewrite_archive(self.binding, {'test_layout.py': VARIANTS['unconditional_pass'].encode()})
         with self.assertRaisesRegex(ValueError, 'bundle changed'):
             self.execute()
         self.assertFalse(guard.ready(self.state, 'current'))
@@ -151,7 +152,7 @@ class OriginalOracleTests(unittest.TestCase):
         self.state = {'settings': {}}
         self.configure(self.new_args)
         self.assertEqual({'test_layout.py', 'test_extra.py'}, set(self.binding['files']))
-        self.assertEqual(VARIANTS['expected_value'], (Path(self.binding['root']) / 'test_layout.py').read_text())
+        self.assertEqual(VARIANTS['expected_value'], retained_text(self.binding, self.project, 'test_layout.py'))
 
     def test_old_saved_runs_are_not_bound_after_a_builder_edit(self):
         self.state = {'settings': {}}
