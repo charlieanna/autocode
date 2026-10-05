@@ -29,7 +29,8 @@ except ImportError:
     import autocode_progressive_state as progressive_state
 
 # A verification method may name the test and then say how to run it ("test: TestFoo (go test ...)").
-_NAMED_TEST = re.compile(r"(test_[A-Za-z0-9_]+|Test[A-Za-z0-9_]+(?:/[A-Za-z0-9_]+)*)")
+# Go subtests keep hyphens and dots (Run_-_creates_..., Package.Case_Test). Stop before a parenthetical command.
+_NAMED_TEST = re.compile(r"(test_[A-Za-z0-9_]+|Test[A-Za-z0-9_]+(?:/[A-Za-z0-9_.-]+)*)")
 
 
 def _named_test(rest: str) -> str:

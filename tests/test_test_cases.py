@@ -279,6 +279,15 @@ class FeatureProofTests(unittest.TestCase):
         cases = test_cases.contract_cases(state)
         self.assertEqual("TestAgentDomainStartPendingModDelayPreFlightAutomatonESSlices", cases[0]["test_name"])
         self.assertNotIn("kind", cases[0])
+        hyphenated = ("test: TestAgentDomainStartPendingModDelayPreFlightImpl/"
+                      "Run_-_creates_missing_internal_zone_and_stages_status_4 "
+                      "(go test ./rule/preflight/ -run 'TestAgentDomainStartPendingModDelayPreFlightImpl/"
+                      "Run_-_creates_missing_internal_zone_and_stages_status_4' -v)")
+        named = test_cases.contract_cases({"goal_contract": {"body": {"acceptance_criteria": [
+            {"id": "AC3", "criterion": "creates the zone", "verification_method": hyphenated}]}}})
+        self.assertEqual(
+            "TestAgentDomainStartPendingModDelayPreFlightImpl/Run_-_creates_missing_internal_zone_and_stages_status_4",
+            named[0]["test_name"])
 
     def test_guard_only_coverage_passes_when_only_the_test_file_changes(self):
         proof = self.prove([self.GUARD], {"test_guard.py": self.OWN_FILE})
