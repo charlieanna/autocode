@@ -1025,6 +1025,11 @@ UI_TASK = (
     "design/spec.json or add other files."
 )
 
+PROGRAM_FLOW = ["List the catalog through the gateway", "Add two items to a cart",
+                "Check out and receive an order total", "The cart is empty afterwards",
+                "An empty-cart checkout is rejected with 409"]
+PROGRAM_SKELETON_CHECK = "python3 -m unittest discover -s tests -p test_skeleton.py"
+
 PROGRAM_MANIFEST = {
     "version": 1,
     "name": "order system",
@@ -1032,17 +1037,31 @@ PROGRAM_MANIFEST = {
     "shared": {
         "constraints": ["Python standard library only", "Every service is a separate process with GET /health",
                         "No deployment is executed"],
-        "end_to_end_flow": ["List the catalog through the gateway", "Add two items to a cart",
-                            "Check out and receive an order total", "The cart is empty afterwards",
-                            "An empty-cart checkout is rejected with 409"],
-        "interfaces": [{"id": "contracts", "summary": "JSON shapes Item, CartItem, Cart, Order", "paths": ["contracts/"]}],
+        "end_to_end_flow": list(PROGRAM_FLOW),
+        "interfaces": [{"id": "contracts", "summary": "JSON shapes Item, CartItem, Cart, Order", "paths": ["contracts/"],
+                        "version": 1, "producer": "contracts", "consumers": ["catalog", "cart", "checkout", "gateway"]}],
     },
+    "journeys": [{"id": "order-journey", "name": "Shop and check out through the gateway", "steps": list(PROGRAM_FLOW)}],
+    # Re-run on the integration branch after every merge, starting with the walking skeleton's.
+    "checks": [PROGRAM_SKELETON_CHECK],
     "workstreams": [
-        {"id": "contracts", "kind": "code", "owns": ["contracts/"], "depends_on": [],
-         "brief": "Write contracts/README.md and one contracts/<shape>.json per shape: Item {sku, name, "
+        # The walking skeleton: the shared contracts plus the thinnest path through every process.
+        # It owns the parent directories because every other workstream depends on it and extends it.
+        {"id": "contracts", "kind": "code", "skeleton": True,
+         "owns": ["contracts/", "services/", "gateway/", "tests/test_skeleton.py"], "depends_on": [],
+         "brief": "Walking skeleton: the shared contracts and the thinnest end-to-end path every other workstream "
+                  "extends. Write contracts/README.md and one contracts/<shape>.json per shape: Item {sku, name, "
                   "price_cents}, CartItem {sku, quantity, price_cents}, Cart {cartId, items}, Order {orderId, "
                   "cartId, total_cents}. Each JSON file declares type object and a required list of those fields. "
-                  "Documentation only; no code."},
+                  "Then create services/catalog/server.py, services/cart/server.py, services/checkout/server.py and "
+                  "gateway/server.py as separate standard-library HTTP processes started as `python3 <path> --port N` "
+                  "and already taking the program's wiring flags (checkout: --catalog-url --cart-url; gateway: "
+                  "--catalog-url --cart-url --checkout-url). Each answers GET /health with 200 {\"status\": \"ok\"}; "
+                  "the catalog answers GET /items with a JSON list of Item objects and the gateway proxies GET "
+                  "/catalog to it. Leave every other route to the workstream that owns that service. "
+                  "tests/test_skeleton.py is one discoverable unittest that starts all four processes wired together "
+                  "on free ports, checks each GET /health, lists the catalog through the gateway, and stops them; `"
+                  + PROGRAM_SKELETON_CHECK + "` runs it."},
         {"id": "catalog", "kind": "code", "owns": ["services/catalog/"], "depends_on": ["contracts"],
          "brief": "services/catalog/server.py --port N: GET /health -> 200 {status: ok}; GET /items -> 200 list of "
                   "at least three Item objects; GET /items/{sku} -> 200 Item or 404. Include unit tests in the package."},

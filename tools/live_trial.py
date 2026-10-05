@@ -362,6 +362,7 @@ def _serve_gate(state: dict, run_dir: Path, project: Path, profile: dict, step) 
 
 PROGRAM_TERMINAL = ("COMPLETE",)
 PROGRAM_PAUSES = ("WAITING", "PAUSED_", "AUTHORIZATION_REQUIRED")
+AGREEMENT_GATE = "WAITING_AGREEMENT_APPROVAL"
 
 
 def program_command(project: Path, profile: dict, manifest_path: Path, *,
@@ -378,6 +379,12 @@ def program_command(project: Path, profile: dict, manifest_path: Path, *,
     return cmd + passthrough
 
 
+def program_approve_command(project: Path, manifest_path: Path, token: str) -> list[str]:
+    """`autocode program approve` for the exact agreement token the program summary displayed."""
+    return [sys.executable, str(AUTOCODE), "program", "approve", str(manifest_path), "--workspace", str(project),
+            "--token", token]
+
+
 def drive_program(project: Path, root: Path, profile: dict, manifest: dict,
                   budget_stages: int, timeout: int, bundle: Bundle, *,
                   authorize_deployment: bool = False) -> dict:
@@ -385,6 +392,9 @@ def drive_program(project: Path, root: Path, profile: dict, manifest: dict,
 
     The program controller never approves anything; this driver serves the
     same explicit CLI gates it serves for a single run, per child run dir.
+    The program agreement is one more such gate, under the same rule
+    ``_serve_gate`` applies to plans: only the offline fixture profile approves
+    it; a live profile stops there for a person.
     """
     env = dict(os.environ, AUTOCODE_HOME=str(root / "registry"), PYTHONDONTWRITEBYTECODE="1")
     if profile["provider"] == "fixture":
@@ -412,6 +422,7 @@ def drive_program(project: Path, root: Path, profile: dict, manifest: dict,
         return proc
 
     summary: dict = {}
+    approved: set[str] = set()
     for _ in range(budget_stages):
         proc = step("program", program_command(
             project, profile, manifest_path, authorize_deployment=authorize_deployment))
@@ -423,6 +434,22 @@ def drive_program(project: Path, root: Path, profile: dict, manifest: dict,
         status = summary.get("status", "")
         if status in PROGRAM_TERMINAL:
             break
+        if status == AGREEMENT_GATE:
+            token = ((summary.get("agreement") or {}).get("pending") or {}).get("token")
+            if not token:
+                raise TrialError(f"{AGREEMENT_GATE} without agreement.pending.token")
+            if profile["provider"] != "fixture":
+                # Nothing has started; the summary's WAITING status is reported as an honest pause.
+                bundle.log("human_review_blocked", run_dir=str(Path(summary.get("state_file", root)).parent),
+                           reason=f"Program agreement approval required: inspect `autocode program show "
+                                  f"{manifest_path} --workspace {project}` and approve token {token}; "
+                                  "the live harness cannot approve.")
+                break
+            if token in approved:
+                raise TrialError(f"program agreement {token} is still pending after it was approved")
+            approved.add(token)
+            step("approve-agreement", program_approve_command(project, manifest_path, token), allow_codes=(0,))
+            continue
         served = False
         for row in summary.get("workstreams", []):
             if row.get("status") not in ("WAITING", "PAUSED") or not row.get("run_dir"):
@@ -712,7 +739,8 @@ def main(argv: list[str] | None = None) -> int:
             if len(paths) == 1:
                 saved = json.loads(paths[0].read_text())
                 state = {"status": saved.get("status"), "program": saved}
-                product = Path(saved.get("integration", {}).get("workspace", project))
+                # Nothing is created before the agreement is approved: integration may be null.
+                product = Path((saved.get("integration") or {}).get("workspace") or project)
         oracle = spec["oracle"](product)
         result = scenarios.OracleResult(scenarios.ERROR, f"{error}; {oracle.summary}", oracle.checks)
         bundle.state("final", state)

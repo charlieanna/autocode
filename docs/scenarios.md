@@ -80,6 +80,11 @@ Exit codes and verdicts follow [testing](testing.md#live-trial-results):
 `--authorize-deployment` flag is required to schedule deployment workstreams;
 `PROGRAM-01` generates descriptors as ordinary code and does not need that flag.
 
+In program mode the first gate is the program agreement (`WAITING_AGREEMENT_APPROVAL`,
+see [programs](program.md)). As with plans, only the offline fixture profile approves
+it; a live profile stops there, an `HONEST_BLOCKER`, until a person reads it with
+`autocode program show` and approves its exact token.
+
 ## When a scenario counts as reliably passing
 
 The live qualification rule (#110, as practised): a rung passes only with
@@ -130,6 +135,10 @@ comparison); `tests/test_catalogue_t12.py` records the remaining gap.
   Its `deploy` workstream is `kind: code` because it writes descriptors only; it still
   forbids running Docker or reaching external systems. Integration depends on that
   descriptor workstream so final verification includes its files. Nothing is deployed.
+  Its `contracts` workstream is the walking skeleton: the contracts plus every process
+  answering `/health` and the catalog listed through the gateway, verified by
+  `tests/test_skeleton.py` (the manifest's program check) before any other workstream
+  starts. The oracle does not score that file.
 - These oracles execute candidate Python locally; they are not a security sandbox.
   Subprocess deadlines and process-group cleanup bound ordinary hangs and clean up
   ordinary descendants, but do not contain hostile code or children that detach into

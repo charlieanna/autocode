@@ -12,6 +12,7 @@ import copy
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,7 @@ sys.path.insert(0, str(TOOLS))
 import autocode_goals as goals  # noqa: E402
 import autocode_goal_lifecycle as lifecycle
 import autocode_program as program  # noqa: E402
+import autocode_run_view as run_view  # noqa: E402
 import goal_fixtures  # noqa: E402
 import task_scenarios  # noqa: E402
 from . import test_subprocess  # noqa: E402
@@ -37,21 +39,32 @@ def git(root, *args):
     return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=True).stdout.strip()
 
 
-def manifest(*, deploy=False, integration=True):
+def manifest(*, deploy=False):
     rows = [
-        {"id": "contracts", "kind": "code", "brief": "Write the shared contracts", "owns": ["contracts/"], "depends_on": []},
+        {"id": "contracts", "kind": "code", "skeleton": True, "brief": "Write the shared contracts", "owns": ["contracts/"],
+         "depends_on": []},
         {"id": "a", "kind": "code", "brief": "Build service a", "owns": ["a/"], "depends_on": ["contracts"]},
         {"id": "b", "kind": "code", "brief": "Build service b", "owns": ["b/"], "depends_on": ["contracts"]},
+        {"id": "integration", "kind": "integration", "brief": "Validate the whole flow", "owns": ["tests/"],
+         "depends_on": ["a", "b"]},
     ]
-    if integration:
-        rows.append({"id": "integration", "kind": "integration", "brief": "Validate the whole flow", "owns": ["tests/"],
-                     "depends_on": ["a", "b"]})
     if deploy:
         rows.append({"id": "deploy", "kind": "deployment", "brief": "Write deployment descriptors", "owns": ["deploy/"],
                      "depends_on": ["integration"]})
     return {"version": 1, "name": "Demo program", "brief": "A two-service demo",
+            "journeys": [{"id": "J1", "name": "Order through both services", "steps": ["call a", "call b"]}],
             "shared": {"constraints": ["stdlib only"], "interfaces": [{"id": "contracts", "summary": "JSON shapes", "paths": ["contracts/"]}]},
             "workstreams": rows}
+
+
+def with_requirements(value):
+    """The demo program with requirements: a inherits C2, b inherits C3, the skeleton C1."""
+    value["requirements"] = [{"id": "C1", "criterion": "Contracts exist"}, {"id": "C2", "criterion": "a answers"},
+                             {"id": "C3", "criterion": "b answers"}]
+    for row, cid in zip(value["workstreams"], ("C1", "C2", "C3")):
+        row["acceptance_criteria"] = [cid]
+    value["shared"]["interfaces"][0].update(producer="contracts", consumers=["a", "b"])
+    return value
 
 
 class ManifestTests(unittest.TestCase):
@@ -96,12 +109,27 @@ class ManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must \\(transitively\\) depend on b"):
             program.validate_manifest(value)
         value = manifest(); value["workstreams"].append({"id": "x", "kind": "integration", "brief": "again", "owns": [], "depends_on": ["a"]})
-        with self.assertRaisesRegex(ValueError, "At most one integration"):
+        with self.assertRaisesRegex(ValueError, "exactly one integration"):
+            program.validate_manifest(value)
+        value = manifest(); value["workstreams"].pop()
+        with self.assertRaisesRegex(ValueError, "exactly one integration"):
+            program.validate_manifest(value)
+
+    def test_every_part_extends_the_walking_skeleton_unless_exempt_with_a_reason(self):
+        value = manifest(); value["workstreams"][2]["depends_on"] = []
+        with self.assertRaisesRegex(ValueError, "must \\(transitively\\) depend on the walking skeleton contracts"):
+            program.validate_manifest(value)
+        value = manifest(); value["workstreams"][2].update(depends_on=[], skeleton_exempt="Lesson text only; nothing runs")
+        program.validate_manifest(value)
+        value = manifest(); value["workstreams"][0].pop("skeleton")
+        with self.assertRaisesRegex(ValueError, "exactly one code workstream skeleton"):
+            program.validate_manifest(value)
+        value = manifest(); value.pop("journeys")
+        with self.assertRaisesRegex(ValueError, "needs journeys"):
             program.validate_manifest(value)
 
     def test_deployment_placement_rules(self):
-        value = manifest(deploy=True, integration=False)
-        value["workstreams"][-1]["depends_on"] = ["a", "b"]
+        value = manifest(deploy=True)
         value["workstreams"].append({"id": "c", "kind": "code", "brief": "after deploy", "owns": ["c/"], "depends_on": ["deploy"]})
         with self.assertRaisesRegex(ValueError, "cannot depend on a deployment"):
             program.validate_manifest(value)
@@ -166,14 +194,14 @@ class DeriveTests(unittest.TestCase):
     def test_unapproved_plan_cannot_become_a_program(self):
         lifecycle.install_draft(self.state, self.two_milestones(), origin="test")
         with self.assertRaisesRegex(ValueError, "approved plan"):
-            program.derive_manifest(self.state)
+            program.derive_manifest(run_view.approved_contract(self.state))
 
     def test_approved_milestones_become_workstreams_plus_integration(self):
         lifecycle.install_draft(self.state, self.two_milestones(), origin="test")
         lifecycle.human.evaluate(self.state)
         lifecycle.present(self.state)
         lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
-        value = program.derive_manifest(self.state, source_run=self.root / "run")
+        value = program.derive_manifest(run_view.approved_contract(self.state), source_run=self.root / "run")
         ids = [row["id"] for row in value["workstreams"]]
         self.assertEqual(["M1", "M2", "integration"], ids)
         by_id = {row["id"]: row for row in value["workstreams"]}
@@ -186,6 +214,10 @@ class DeriveTests(unittest.TestCase):
         self.assertEqual(self.state["goal_contract"]["hash"], value["contract"]["hash"])
         self.assertEqual(["Python standard library only"], value["shared"]["constraints"])
         self.assertEqual(str(self.root / "run"), value["source_run"])
+        # The first milestone without dependencies is the walking skeleton; the approved flow is the main journey.
+        self.assertTrue(by_id["M1"]["skeleton"])
+        self.assertEqual([{"id": "J1", "name": "Main user journey", "steps": goal_fixtures.body()["end_to_end_flow"]}],
+                         value["journeys"])
 
     def test_every_child_receives_the_complete_approved_contract(self):
         body = goal_fixtures.body(human=True)
@@ -193,7 +225,7 @@ class DeriveTests(unittest.TestCase):
         lifecycle.human.evaluate(self.state)
         lifecycle.present(self.state)
         lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
-        value = program.derive_manifest(self.state)
+        value = program.derive_manifest(run_view.approved_contract(self.state))
         self.assertEqual(body, value["contract"]["body"])
         for row in value["workstreams"]:
             text = program.compose_brief(value, row, {"workstreams": {}})
@@ -212,13 +244,13 @@ class DeriveTests(unittest.TestCase):
         lifecycle.human.evaluate(self.state)
         lifecycle.present(self.state)
         lifecycle.approve(self.state, goals.token(self.state["goal_contract"]))
-        value = program.derive_manifest(self.state)
+        value = program.derive_manifest(run_view.approved_contract(self.state))
         self.assertEqual(["integration", "integration-final"], [r["id"] for r in value["workstreams"]])
         self.assertEqual(["integration"], value["workstreams"][-1]["depends_on"])
 
 
-class ExecutionTests(unittest.TestCase):
-    """Real worktrees and merges; the child autocode process is scripted."""
+class ProgramHarness(unittest.TestCase):
+    """Real worktrees and merges; the child autocode process is scripted, including its status view."""
 
     def setUp(self):
         temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
@@ -232,49 +264,105 @@ class ExecutionTests(unittest.TestCase):
         self.launches = []
         self.child_outcome = {}  # workstream id -> run status to leave behind
         self.child_extra_files = {}  # workstream id -> {relpath: text}
+        self.child_view = {}  # workstream id -> status-view fields the child shows (approved_contract, displayed_plan)
+        self.child_checks = {}  # workstream id -> the checks its validation re-ran
+        self.journey_status = {}  # journey id -> the integration run's recorded status
+        self.feedback = []  # (workstream id, text) sent to child runs
 
     def write_manifest(self, value):
         path = self.root / "program.json"
         path.write_text(json.dumps(value))
         return path
 
+    @staticmethod
+    def is_launch(command):
+        return command[0] != "git" and "--status" not in command and "--feedback" not in command
+
+    def owned(self, wid):
+        return {"contracts": "contracts/spec.json", "a": "a/service.py", "b": "b/service.py",
+                "integration": "tests/test_flow.py", "deploy": "deploy/compose.yml"}.get(wid, f"{wid}/result.txt")
+
     def fake_run(self, command, **kwargs):
         if command[0] == "git":
             return REAL_RUN(command, **kwargs)
+        if not self.is_launch(command):
+            # The status view and plan feedback, as the task-run interface reads and writes them.
+            run = Path(command[command.index("--run-dir") + 1])
+            saved = json.loads((run / "state.json").read_text())
+            if "--feedback" in command:
+                self.feedback.append((saved["workstream"], command[command.index("--feedback") + 1]))
+                saved["status"] = "RUNNING"
+                saved.get("view", {}).pop("displayed_plan", None)
+                (run / "state.json").write_text(json.dumps(saved))
+                return subprocess.CompletedProcess(command, 0, "Saved; no agent launched by this action\n", "")
+            view = run_view.view({key: value for key, value in saved.items() if key != "view"})
+            view.update(saved.get("view", {}))
+            return subprocess.CompletedProcess(command, 0, json.dumps({"view": view}), "")
         workspace = Path(command[command.index("--workspace") + 1])
+        brief = None
         if "--run-dir" in command:
             run = Path(command[command.index("--run-dir") + 1])
             saved = json.loads((run / "state.json").read_text())
             wid = saved["workstream"]
         else:
             brief = command[2]
-            wid = brief.split()[2]
-            run = workspace / ".autocode/runs" / f"run-{wid}"
+            wid = re.search(r"PROGRAM WORKSTREAM (\S+)", brief).group(1)
+            run = workspace / ".autocode/runs" / f"run-{wid}-{len(self.launches) + 1}"
             run.mkdir(parents=True)
-        self.launches.append({"id": wid, "workspace": str(workspace), "files": sorted(
+        self.launches.append({"id": wid, "workspace": str(workspace), "brief": brief, "run_dir": str(run), "files": sorted(
             p.relative_to(workspace).as_posix() for p in workspace.rglob("*")
             if p.is_file() and not {".git", ".autocode"} & set(p.relative_to(workspace).parts)),
             "resume": "--run-dir" in command, "in_place": "--in-place" in command})
         outcome = self.child_outcome.get(wid, "TASK_COMPLETE")
+        view = copy.deepcopy(self.child_view.get(wid, {}))
         if outcome == "TASK_COMPLETE":
-            owned = {"contracts": "contracts/spec.json", "a": "a/service.py", "b": "b/service.py",
-                     "integration": "tests/test_flow.py", "deploy": "deploy/compose.yml"}[wid]
+            owned = self.owned(wid)
             target = workspace / owned; target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(f"{wid} result\n")
             for rel, text in self.child_extra_files.get(wid, {}).items():
+                (workspace / rel).parent.mkdir(parents=True, exist_ok=True)
                 (workspace / rel).write_text(text)
-        (run / "state.json").write_text(json.dumps({"status": outcome, "workstream": wid, "workspace": str(workspace)}))
+            checks = self.child_checks.get(wid, [f"test -f {owned}"])
+            view.setdefault("evidence", {
+                "acceptance": [{"id": jid, "status": status} for jid, status in
+                               ({"J1": "verified", **self.journey_status}.items() if wid == "integration" else ())],
+                "check_replay": {"verdict": "PASS", "checks": [{"command": c, "exit_code": 0} for c in checks]}})
+        (run / "state.json").write_text(json.dumps({"status": outcome, "workstream": wid, "workspace": str(workspace),
+                                                    "view": view}))
         return subprocess.CompletedProcess(command, 0 if outcome == "TASK_COMPLETE" else 2, "", "")
 
-    def run_program(self, path, *extra):
+    def approve(self, path):
+        """Approve the displayed program agreement, as the person would; return what was pending."""
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            program.cli(["run", str(path), "--workspace", str(self.project), "--dry-run"])
+        pending = json.loads(output.getvalue())["agreement"]["pending"]
+        if pending:
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, program.cli(["approve", str(path), "--workspace", str(self.project),
+                                                 "--token", pending["token"]]))
+        return pending
+
+    def run_program(self, path, *extra, approve=True):
+        if approve:
+            self.approve(path)
         output = io.StringIO()
         with patch.object(program.subprocess, "run", side_effect=self.fake_run), contextlib.redirect_stdout(output):
             code = program.cli(["run", str(path), "--workspace", str(self.project), "--max-parallel", "2", *extra])
         return code, json.loads(output.getvalue())
 
+    def child_state(self, record):
+        return Path(record["run_dir"]) / "state.json"
+
+    def set_child(self, record, **fields):
+        path = self.child_state(record)
+        path.write_text(json.dumps({**json.loads(path.read_text()), **fields}))
+
     def integration_files(self, result):
         return set(git(self.project, "ls-tree", "-r", "--name-only", result["integration_branch"]).splitlines())
 
+
+class ExecutionTests(ProgramHarness):
     def test_waves_run_in_dependency_order_and_merge_onto_the_integration_branch(self):
         path = self.write_manifest(manifest())
         code, result = self.run_program(path)
@@ -431,6 +519,7 @@ class ExecutionTests(unittest.TestCase):
 
     def test_integration_cannot_complete_with_committed_runner_metadata(self):
         path = self.write_manifest(manifest())
+        self.approve(path)
 
         def commits_metadata(command, **kwargs):
             result = self.fake_run(command, **kwargs)
@@ -497,11 +586,11 @@ class ExecutionTests(unittest.TestCase):
                 with program.STATE_LOCK:
                     active[0] -= 1
 
-        path = self.write_manifest(manifest(integration=False))
+        path = self.write_manifest(manifest())
         with patch.object(program.workspaces, "git", side_effect=slow_git):
             code, result = self.run_program(path)
         self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
-        self.assertEqual({"a", "b"}, {row["id"] for row in self.launches} - {"contracts"})
+        self.assertEqual({"a", "b", "integration"}, {row["id"] for row in self.launches} - {"contracts"})
         self.assertEqual(1, max(overlaps), f"concurrent worktree adds: {overlaps}")
 
     def test_a_child_that_returns_without_progress_is_invoked_once_per_pass(self):
@@ -518,6 +607,7 @@ class ExecutionTests(unittest.TestCase):
 
     def test_failed_child_blocks_the_program(self):
         path = self.write_manifest(manifest())
+        self.approve(path)
         with patch.object(program.subprocess, "run", side_effect=lambda command, **kw: REAL_RUN(command, **kw)
                           if command[0] == "git" else subprocess.CompletedProcess(command, 1, "", "boom")):
             output = io.StringIO()
@@ -537,11 +627,12 @@ class ExecutionTests(unittest.TestCase):
 
     def test_failed_invocation_with_checkpoint_retries_the_same_run(self):
         path = self.write_manifest(manifest())
+        self.approve(path)
         self.child_outcome["contracts"] = "RUNNING"
 
         def fail_after_checkpoint(command, **kw):
             result = self.fake_run(command, **kw)
-            if command[0] != "git":
+            if self.is_launch(command):
                 result.returncode = 1
             return result
 
@@ -580,11 +671,12 @@ class ExecutionTests(unittest.TestCase):
 
     def test_interrupted_controller_discovers_and_resumes_existing_child(self):
         path = self.write_manifest(manifest())
+        self.approve(path)
         self.child_outcome["contracts"] = "RUNNING"
         checkpoint = {}
 
         def interrupted(command, **kw):
-            if command[0] != "git":
+            if self.is_launch(command) and not checkpoint:
                 state_file = next((self.project / ".autocode/programs").glob("*/state.json"))
                 checkpoint.update(json.loads(state_file.read_text()))
                 record = checkpoint["workstreams"]["contracts"]
@@ -629,15 +721,38 @@ class ExecutionTests(unittest.TestCase):
         self.assertFalse((self.project / ".autocode").exists())
         self.assertEqual(1, len(git(self.project, "worktree", "list").splitlines()))
 
-    def test_changed_manifest_cannot_reuse_a_checkpoint(self):
+    def test_changed_workstream_graph_cannot_reuse_a_checkpoint(self):
         path = self.write_manifest(manifest())
         self.child_outcome["contracts"] = "AWAITING_GOAL_APPROVAL"
         self.run_program(path)
-        value = manifest(); value["workstreams"][1]["brief"] = "changed"
+        value = manifest(); value["workstreams"][1]["owns"] = ["a2/"]
         path.write_text(json.dumps(value))
-        with self.assertRaises(SystemExit):
-            with contextlib.redirect_stderr(io.StringIO()):
-                self.run_program(path)
+        error = io.StringIO()
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(error):
+            self.run_program(path, approve=False)
+        self.assertIn("new program", error.getvalue())
+
+    def test_nothing_starts_until_the_agreement_is_approved(self):
+        path = self.write_manifest(manifest())
+        code, result = self.run_program(path, approve=False)
+        self.assertEqual((2, "WAITING_AGREEMENT_APPROVAL"), (code, result["status"]))
+        self.assertEqual([], self.launches)
+        self.assertIsNone(result["integration_branch"])
+        self.assertEqual(1, len(git(self.project, "worktree", "list").splitlines()))
+        token = result["agreement"]["pending"]["token"]
+        self.assertRegex(token, r"^a1:[0-9a-f]{64}$")
+        shown = io.StringIO()
+        with contextlib.redirect_stdout(shown):
+            program.cli(["show", str(path), "--workspace", str(self.project)])
+        self.assertIn(token, shown.getvalue())
+        self.assertIn("J1 Order through both services", shown.getvalue())
+        self.assertIn("contracts (walking skeleton", shown.getvalue())
+        error = io.StringIO()
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(error):
+            program.cli(["approve", str(path), "--workspace", str(self.project), "--token", "a1:" + "0" * 64])
+        self.assertIn("exact token", error.getvalue())
+        code, result = self.run_program(path)
+        self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
 
 
 class CliFixtureTest(unittest.TestCase):
@@ -646,6 +761,12 @@ class CliFixtureTest(unittest.TestCase):
         path = flow.root / "program.json"
         path.write_text(json.dumps(manifest()))
         env = {**flow.env, "AUTOCODE_FIXTURE_MODE": "no-human"}
+        preview = subprocess.run([*flow.entry, "program", "run", str(path), "--workspace", str(flow.project), "--dry-run"],
+                                 cwd=flow.root, env=env, capture_output=True, text=True, timeout=30)
+        token = json.loads(preview.stdout)["agreement"]["pending"]["token"]
+        approved = subprocess.run([*flow.entry, "program", "approve", str(path), "--workspace", str(flow.project),
+                                   "--token", token], cwd=flow.root, env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(0, approved.returncode, approved.stdout + approved.stderr)
         result = subprocess.run([*flow.entry, "program", "run", str(path), "--workspace", str(flow.project),
                                  "--engine", "codex"], cwd=flow.root, env=env, capture_output=True, text=True, timeout=90)
         self.assertEqual(2, result.returncode, result.stdout + result.stderr)

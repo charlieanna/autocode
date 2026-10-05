@@ -87,6 +87,9 @@ def view(state: dict) -> dict:
                 }
         except (KeyError, TypeError, ValueError):
             pass  # Missing, stale or unsealed plans cannot supply approval authority.
+        approved = approved_contract(state)
+        if approved is not None:
+            result["approved_contract"] = approved
     design = design_coverage.projection(state)
     if design is not None:
         result["design"] = design
@@ -98,6 +101,24 @@ def view(state: dict) -> dict:
     if projection is not None:
         result["progressive"] = projection
     return result
+
+
+def approved_contract(state: dict) -> dict | None:
+    """The plan in force: the contract a person approved, as long as that approval still holds.
+
+    None while there is no approval, after a new draft revision replaces the approved one,
+    and while a blocking question is open (the runner's own approval check). A program
+    coordinating several runs reads the child's approved criteria here, never state.json.
+    """
+    contract = state.get("goal_contract") or {}
+    try:
+        if not contract_identity.approved(state):
+            return None
+        return {"revision": contract["revision"], "hash": contract["hash"], "token": contract_identity.token(contract),
+                "task_id": contract.get("task_id"), "approved_at": (contract.get("approval_event") or {}).get("at"),
+                "body": deepcopy(contract["body"])}
+    except (KeyError, TypeError, AttributeError, ValueError):
+        return None
 
 
 def progressive(state: dict) -> dict | None:

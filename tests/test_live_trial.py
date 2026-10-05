@@ -345,6 +345,8 @@ class DrivingBoundsTest(unittest.TestCase):
 class ProgramModeTest(unittest.TestCase):
     """`--mode program` drives `autocode program run` and serves each child run's gates."""
 
+    TOKEN = "a1:" + "0" * 64
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="program-mode-")
         self.addCleanup(temp.cleanup)
@@ -359,10 +361,25 @@ class ProgramModeTest(unittest.TestCase):
         self.child_run = self.root / "child-run"
         self.child_run.mkdir()
         self.calls: list[list[str]] = []
+        self.agreement_approved = False
+        # What `program run` reports once the agreement is approved, one entry per invocation.
         self.program_status = ["WAITING", "COMPLETE"]
 
     def fake_invoke(self, cmd, env, cwd, timeout):
         self.calls.append(cmd)
+        if cmd[2:4] == ["program", "approve"]:
+            if cmd[cmd.index("--token") + 1] != self.TOKEN:  # the real command refuses any other token
+                return subprocess.CompletedProcess(cmd, 2, "", "approve only the exact token")
+            self.agreement_approved = True
+            return subprocess.CompletedProcess(cmd, 0, json.dumps({"approved": self.TOKEN, "affected": ["contracts"]}), "")
+        if cmd[2:4] == ["program", "run"] and not self.agreement_approved:
+            # The real controller starts nothing, not even the integration branch, before approval.
+            summary = {"status": "WAITING_AGREEMENT_APPROVAL", "state_file": str(self.root / "state.json"),
+                       "integration_workspace": None,
+                       "agreement": {"revision": 0, "approved": False, "token": None,
+                                     "pending": {"revision": 1, "token": self.TOKEN}},
+                       "workstreams": [{"id": "contracts", "status": "PENDING", "skeleton": True}]}
+            return subprocess.CompletedProcess(cmd, 2, json.dumps(summary), "")
         if cmd[2:4] == ["program", "run"]:
             status = self.program_status.pop(0)
             child_status = "AWAITING_GOAL_APPROVAL" if status == "WAITING" else "TASK_COMPLETE"
@@ -377,6 +394,10 @@ class ProgramModeTest(unittest.TestCase):
             (self.child_run / "state.json").write_text(json.dumps({"status": "RUNNING"}))
             return subprocess.CompletedProcess(cmd, 0, "", "")
         raise AssertionError(f"unexpected command {cmd}")
+
+    def kinds(self):
+        return [" ".join(cmd[2:4]) if cmd[2] == "program" else "approve-goal" if "--approve-goal" in cmd else str(cmd)
+                for cmd in self.calls]
 
     def test_program_command_passes_profile_flags_without_authorizing_deployment(self):
         cmd = live_trial.program_command(self.project, profiles.resolve("fixture"), self.root / "program.json")
@@ -394,11 +415,12 @@ class ProgramModeTest(unittest.TestCase):
     def test_program_deadline_is_shared_across_gate_steps(self):
         bundle = mock.Mock()
         self.program_status = ["WAITING", "COMPLETE"]
-        with (mock.patch.object(live_trial.time, "monotonic", side_effect=[0, 2, 5, 8]),
+        with (mock.patch.object(live_trial.time, "monotonic", side_effect=[0, 2, 5, 8, 11, 14]),
               mock.patch.object(live_trial, "invoke", side_effect=self.fake_invoke) as invoke):
             live_trial.drive_program(self.project, self.root, profiles.resolve("fixture"),
                                      {"version": 1}, 8, 20, bundle)
-        self.assertEqual([18, 15, 12], [call.args[-1] for call in invoke.call_args_list])
+        # run, approve the agreement, run, approve the child plan, run: one shared deadline.
+        self.assertEqual([18, 15, 12, 9, 6], [call.args[-1] for call in invoke.call_args_list])
 
     def test_cli_deployment_opt_in_is_independent_of_live_spend(self):
         spec = {"title": "Fixture", "task": "fixture program", "program_manifest": {"version": 1, "name": "x"},
@@ -407,6 +429,7 @@ class ProgramModeTest(unittest.TestCase):
             for authorize in (False, True):
                 with self.subTest(profile=profile, authorize=authorize):
                     self.calls.clear()
+                    self.agreement_approved = False
                     self.program_status = ["WAITING", "COMPLETE"]
                     flags = ["--i-authorize-live-model-spend"] if profile != "fixture" else []
                     if authorize:
@@ -418,10 +441,12 @@ class ProgramModeTest(unittest.TestCase):
                                                 "--workspace", str(self.root), *flags])
                     if profile == "fixture":
                         self.assertEqual(0, code)
-                        self.assertEqual(3, len(self.calls))
+                        self.assertEqual(["program run", "program approve", "program run", "approve-goal",
+                                          "program run"], self.kinds())
                     else:
-                        # A live profile stops at goal approval: the harness never approves for a human.
-                        self.assertEqual(1, code)
+                        # A live profile stops at the program agreement, an honest pause: the harness
+                        # never approves for a human.
+                        self.assertEqual(2, code)
                         self.assertEqual([["program", "run"]], [cmd[2:4] for cmd in self.calls])
                     for cmd in self.calls:
                         is_program = cmd[2:4] == ["program", "run"]
@@ -435,13 +460,82 @@ class ProgramModeTest(unittest.TestCase):
                                            {"version": 1, "name": "x"}, 20, 60, bundle)
         self.assertEqual("COMPLETE", run["state"]["status"])
         self.assertEqual(self.integration, run["product"])
-        kinds = [c[2:4] == ["program", "run"] for c in self.calls]
-        self.assertEqual([True, False, True], kinds)
+        self.assertEqual(["program run", "program approve", "program run", "approve-goal", "program run"],
+                         self.kinds())
         self.assertTrue(all("--authorize-deployment" not in cmd for cmd in self.calls))
-        approve = self.calls[1]
+        approve = self.calls[3]
         self.assertIn("--approve-goal", approve)
         self.assertEqual(str(self.root / "wt"), approve[approve.index("--workspace") + 1])
         self.assertEqual(str(self.child_run), approve[approve.index("--run-dir") + 1])
+
+    def test_only_the_fixture_profile_approves_the_program_agreement(self):
+        # Fixture: the exact displayed token is approved for the manifest the driver wrote, then the program runs.
+        with mock.patch.object(live_trial, "invoke", side_effect=self.fake_invoke):
+            run = live_trial.drive_program(self.project, self.root, profiles.resolve("fixture"),
+                                           {"version": 1, "name": "x"}, 20, 60, Bundle("PROGRAM-TEST"))
+        self.assertEqual("COMPLETE", run["state"]["status"])
+        approve = self.calls[1]
+        self.assertEqual(["program", "approve", str(self.root / "program.json")], approve[2:5])
+        self.assertEqual(str(self.project), approve[approve.index("--workspace") + 1])
+        self.assertEqual(self.TOKEN, approve[approve.index("--token") + 1])
+        self.assertEqual(["program run", "program approve", "program run"], self.kinds()[:3])
+
+        # A live profile stops at the agreement without approving it; nothing ran, so the product is the project.
+        self.calls.clear()
+        self.agreement_approved = False
+        self.program_status = ["WAITING", "COMPLETE"]
+        bundle = Bundle("PROGRAM-TEST")
+        with mock.patch.object(live_trial, "invoke", side_effect=self.fake_invoke):
+            run = live_trial.drive_program(self.project, self.root, profiles.resolve("glm53"),
+                                           {"version": 1, "name": "x"}, 20, 60, bundle)
+        self.assertEqual(["program run"], self.kinds())
+        self.assertFalse(self.agreement_approved)
+        self.assertEqual("WAITING_AGREEMENT_APPROVAL", run["state"]["status"])
+        self.assertEqual(self.project, run["product"])
+        spec = {"oracle": lambda project: scenarios.OracleResult(scenarios.PASS, "ok", []), "oracle_name": "T"}
+        self.assertEqual(scenarios.HONEST_BLOCKER, live_trial.judge(run, spec, run["product"], bundle).status)
+
+        # A person approved the agreement: the live profile still never approves a child plan.
+        self.calls.clear()
+        self.agreement_approved = True
+        with (mock.patch.object(live_trial, "invoke", side_effect=self.fake_invoke),
+              self.assertRaises(live_trial.HumanReviewRequired)):
+            live_trial.drive_program(self.project, self.root, profiles.resolve("glm53"),
+                                     {"version": 1, "name": "x"}, 20, 60, Bundle("PROGRAM-TEST"))
+        self.assertEqual(["program run"], self.kinds())
+
+    def test_an_agreement_approval_that_does_not_take_is_not_repeated(self):
+        def ignored(cmd, env, cwd, timeout):
+            if cmd[2:4] == ["program", "approve"]:
+                self.calls.append(cmd)
+                return subprocess.CompletedProcess(cmd, 0, "{}", "")
+            return self.fake_invoke(cmd, env, cwd, timeout)
+
+        with (mock.patch.object(live_trial, "invoke", side_effect=ignored),
+              self.assertRaisesRegex(live_trial.TrialError, "still pending after it was approved")):
+            live_trial.drive_program(self.project, self.root, profiles.resolve("fixture"),
+                                     {"version": 1, "name": "x"}, 20, 60, Bundle("PROGRAM-TEST"))
+        self.assertEqual(["program run", "program approve", "program run"], self.kinds())
+
+    def test_a_harness_error_before_any_integration_branch_scores_the_project(self):
+        spec = {"title": "Fixture", "task": "fixture program", "program_manifest": {"version": 1, "name": "x"},
+                "oracle_name": "T", "oracle": lambda project: scenarios.OracleResult(scenarios.PASS, "ok", [])}
+
+        def no_summary(cmd, env, cwd, timeout):
+            # The controller saved its state (no integration branch before approval), then printed no JSON.
+            saved = self.project / ".autocode/programs/x-000000/state.json"
+            saved.parent.mkdir(parents=True, exist_ok=True)
+            saved.write_text(json.dumps({"status": "WAITING_AGREEMENT_APPROVAL", "integration": None}))
+            return subprocess.CompletedProcess(cmd, 2, "not json", "")
+
+        with (mock.patch.object(live_trial, "make_workspace", return_value=git_workspace(self.project)),
+              mock.patch.object(scenarios, "scenario", return_value=spec),
+              mock.patch.object(live_trial, "invoke", side_effect=no_summary)):
+            code = live_trial.main(["PROGRAM-01", "--mode", "program", "--workspace", str(self.root)])
+        self.assertEqual(1, code)
+        report = json.loads(next((self.root / "artifacts").glob("PROGRAM-01/*/live-trial.json")).read_text())
+        self.assertEqual(("ERROR", str(self.project), "WAITING_AGREEMENT_APPROVAL"),
+                         (report["verdict"], report["product"], report["runner_status"]))
 
     def test_a_program_stop_without_a_servable_gate_is_never_promoted(self):
         self.program_status = ["BLOCKED"]
