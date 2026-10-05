@@ -15,27 +15,8 @@ class DashboardConsumerTests(unittest.TestCase):
         self.addCleanup(flow.doCleanups)
         # This provider is a copied offline fixture. A file barrier proves input
         # reaches the inbox before releasing the active implementation stage.
-        provider = flow.root/'fixture-bin/codex'
-        source = provider.read_text()
-        needle = 'stage = data["stage"]\n'
-        self.assertIn(needle, source)
-        source = source.replace(needle, needle+'''
-if stage == "terra" and os.environ.get("AUTOCODE_CONSUMER_BARRIER"):
-    import time
-    barrier = Path(os.environ["AUTOCODE_CONSUMER_BARRIER"])
-    if barrier.exists():
-        barrier.with_suffix(".entered").write_text("stage active")
-        deadline = time.monotonic() + 15
-        while barrier.exists():
-            if time.monotonic() > deadline: raise SystemExit("fixture barrier timed out")
-            time.sleep(0.02)
-''')
-        # This test exercises reapproval and human-review transport, not no-op
-        # detection: make the fixture's post-replan implementation a real delta.
-        source = source.replace('    result = {**common, "summary": "Greeting written"',
-            '    with Path("greet.py").open("a") as fixture_output: fixture_output.write("# revision " + str(uuid.uuid4()) + "\\n")\n'
-            '    result = {**common, "summary": "Greeting written"')
-        provider.write_text(source)
+        # The exact trusted fixture includes this barrier and a post-replan delta;
+        # do not mutate the verified executable to add them at runtime.
         barrier = flow.root/'hold-terra'
         flow.env['AUTOCODE_CONSUMER_BARRIER'] = str(barrier)
         flow.launch(['Build a greeting tool','--no-chat'], 2)

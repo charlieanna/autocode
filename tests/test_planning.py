@@ -578,6 +578,7 @@ class PlanningTests(unittest.TestCase):
 
 
 class JointFlow(unittest.TestCase):
+    """Planning and session independence in the simulated, uncontained transport."""
     # Reuse fixture setup, not its full suite of single-engine tests.
     setUp = test_subprocess.SubprocessFlow.setUp
     launch = test_subprocess.SubprocessFlow.launch
@@ -588,6 +589,9 @@ class JointFlow(unittest.TestCase):
         bin_dir = self.root / "fixture-bin"
         shutil.copy2((Path(__file__).resolve().parents[1] / "tools" / ("fake_opencode.py")), bin_dir / "opencode")
         (bin_dir / "opencode").chmod(0o755)
+        if "codex" not in self.new_run_engine_args:
+            from .opencode_fixture_cli import entrypoint
+            self.entry = entrypoint(self.entry)
         self.env.update(AUTOCODE_FIXTURE_MODE=mode, CODEX_HOME=str(self.root / "codex-config"),
                         XDG_CONFIG_HOME=str(self.root / "config"))
         for key in ("OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL", "OPENCODE_CONFIG_CONTENT"):
@@ -726,6 +730,9 @@ class JointFlow(unittest.TestCase):
         self.assertNotEqual(final['sessions']['resolver'], final['sessions']['completion'])
         validations = [r for r in final["stages"] if r["stage"] == "sol"]
         self.assertEqual(["opencode", "opencode"], [r["engine"] for r in validations])
+        # Session reuse is a simulated-transport contract, not native qualification.
+        self.assertTrue(all(r.get("tool_containment") is None for r in validations))
+        self.assertTrue(all("no OS sandbox" in r["isolation"] for r in validations))
         self.assertEqual(final["sessions"]["sol"], validations[1]["expected_session"])
         self.assertNotEqual(final["sessions"]["plan_reviewer"], validations[1]["expected_session"])
         self.assertNotEqual(final["sessions"]["completion"], validations[1]["expected_session"])
@@ -834,14 +841,8 @@ class JointFlow(unittest.TestCase):
     def test_timeout_retry_can_receive_one_explicit_final_review_without_replanning(self):
         self.prepare()
         fake = self.root / "fixture-bin/opencode"
-        fake.write_text(fake.read_text().replace('with tempfile.TemporaryDirectory() as temp:', '''
-if data["stage"] == "astra_challenge":
-    marker = Path(os.environ["AUTOCODE_FIXTURE_TIMEOUT_ONCE"])
-    if not marker.exists():
-        marker.write_text("first challenge attempt")
-        import time
-        time.sleep(60)
-with tempfile.TemporaryDirectory() as temp:'''))
+        from .opencode_fixture_cli import TIMEOUT_ONCE
+        fake.write_text(fake.read_text().replace('with tempfile.TemporaryDirectory() as temp:', TIMEOUT_ONCE))
         self.env["AUTOCODE_FIXTURE_TIMEOUT_ONCE"] = str(self.root / "timeout-once")
         self.launch(["Build a greeting tool", "--no-chat", "--max-stage-seconds", "5"], 2)
         run, _ = self.saved()

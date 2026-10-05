@@ -1,10 +1,9 @@
-"""Scoped descendant discovery without macOS psutil's whole-table parent scan.
+"""Prefer scoped descendant discovery over macOS psutil's whole-table parent scan.
 
 Candidate PIDs never establish ownership: each child and parent is checked
 again through psutil, and the supervisor subsequently checks birth identities.
 macOS API: Apple xnu/libsyscall/wrappers/libproc/libproc.h and libproc.c.
 """
-import ctypes
 from functools import lru_cache
 import sys
 
@@ -21,6 +20,8 @@ except ImportError as missing:  # autocode.py loads this module for --version an
 
 @lru_cache(maxsize=1)
 def _library():
+    import ctypes
+
     library = ctypes.CDLL('/usr/lib/libproc.dylib', use_errno=True)
     function = library.proc_listchildpids
     function.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_int]
@@ -29,6 +30,8 @@ def _library():
 
 
 def _child_pids(pid):
+    import ctypes
+
     # proc_listchildpids returns a PID count, unlike proc_listpids' byte count.
     # A full buffer may be truncated; grow it instead of silently losing workers.
     size = 64
@@ -50,6 +53,11 @@ def _child_pids(pid):
 def descendants(parent):
     if sys.platform != 'darwin':
         return parent.children(recursive=True)
+    try:
+        import ctypes
+    except (ImportError, PermissionError):
+        # Some sandboxes deny ctypes' import-time OS probe, not process lookup.
+        ctypes = None
     found, seen, pending = [], {parent.pid}, [parent]
     while pending:
         node = pending.pop()
@@ -57,7 +65,9 @@ def descendants(parent):
             if not node.is_running():
                 continue
             children = []
-            for pid in _child_pids(node.pid):
+            candidates = (_child_pids(node.pid) if ctypes is not None else
+                          [child.pid for child in node.children(recursive=False)])
+            for pid in candidates:
                 if pid in seen:
                     continue
                 try:

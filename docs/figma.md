@@ -359,6 +359,9 @@ one `{id, criterion_ids, milestone_ids}` row per case. Each named milestone must
 own an implementation path for that case. The approval brief displays the mapping
 and source blockers, and an omitted case refuses plan installation and approval.
 Independent design reports retain this exact criterion mapping.
+When the visual runtime also uses a `VISUAL_CASE_CRITERIA` constraint, it must
+declare the same case-to-criterion mapping. Conflicting, repeated or malformed
+declarations refuse plan approval.
 
 Declare requested responsive targets separately as `{id, source_case_id,
 reference_case_id, viewport, constraints}`. Use a supplied case ID when an exact

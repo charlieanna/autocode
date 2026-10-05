@@ -12,12 +12,12 @@ import autocode_process as processes
 import autocode_regression as regression
 import autocode_runner_check as runner_check
 import autocode_status as status
-from tests.test_verify import Project
+from tests.test_verify import Project, REFERENCE
 
 
 class RunnerCheckTests(unittest.TestCase):
     def setUp(self):
-        self.project = Project({"test_example.py": "import unittest\n"})
+        self.project = Project()
         self.addCleanup(self.project.close)
         self.run = self.project.root / ".autocode" / "runs" / "fixture"
         self.run.mkdir(parents=True)
@@ -38,8 +38,11 @@ class RunnerCheckTests(unittest.TestCase):
         return json.loads(result.stdout)
 
     def test_status_during_baseline_and_comparison_then_clean_handoff(self):
+        self.project.write(REFERENCE)
+        self.state["settings"]["regression"] = {"python": sys.executable}
         route = copy.deepcopy(self.state["settings"])
         observed = []
+        actual_baseline, actual_verify = regression.verify.baseline, regression.verify.verify
 
         def observe(label):
             view = self.cli_status()
@@ -59,12 +62,11 @@ class RunnerCheckTests(unittest.TestCase):
 
         def baseline(*args, **kwargs):
             observe("original code")
-            return {"health": "passing"}
+            return actual_baseline(*args, **kwargs)
 
         def verify(*args, **kwargs):
             observe("candidate suite")
-            return {"verdict": "PASS", "source_revision": regression.util.snapshot(self.project.root)["revision"],
-                    "failures": [], "unverified": [], "checks": {}}
+            return actual_verify(*args, **kwargs)
 
         with patch.object(regression, "required", return_value=True), \
                 patch.object(regression.verify, "baseline", side_effect=baseline), \

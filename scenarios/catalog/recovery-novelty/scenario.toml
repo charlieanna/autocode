@@ -1,0 +1,11 @@
+title = "Repeated recovery requires a changed causal proposal and fresh acceptance"
+category = "feature"
+
+[fake]
+check = "python3 -m unittest test_greet.py"
+fault = "recovery_novelty_fix"
+
+[run]
+requires_stages = ["terra", "sol", "astra_review"]
+timeout_minutes = 5
+max_steps = 24

@@ -187,6 +187,8 @@ class ComponentDesignCliTests(unittest.TestCase):
             self.assertEqual(stopped["components"][cid]["run_dir"], info["run_dir"])
         self.assertEqual(branches, self.component_branches())
         self.assertEqual(["alpha", "beta"], completed["integration"]["integrated"])
+        self.assertIsNone(completed['components']['alpha']['view']['efficiency']['visual']['accepted_frames'])
+        self.assertIsNone(completed['components']['alpha']['view']['efficiency']['visual']['accepted_states'])
         for cid in ("alpha", "beta"):
             path = self.repo / "integration" / "components" / cid / "message.txt"
             self.assertEqual(f"from {cid}\n", path.read_text())

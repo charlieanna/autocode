@@ -7,7 +7,7 @@ from copy import deepcopy
 
 try:
     from .. import autocode_design_job as design_job, autocode_goals as goals, autocode_review_job as review_job
-    from .. import autocode_design_check_job as design_check_job, autocode_verify as verify, autocode_design_intake as design_intake
+    from .. import autocode_design_check_job as design_check_job, autocode_verify as verify, autocode_design_intake as design_intake, autocode_recovery_novelty as novelty
 except ImportError:
     import autocode_verify as verify
     import autocode_design_intake as design_intake
@@ -15,6 +15,7 @@ except ImportError:
     import autocode_design_job as design_job
     import autocode_goals as goals
     import autocode_review_job as review_job
+    import autocode_recovery_novelty as novelty
 from . import autoplanner
 from .common import ModelRequest, capped_route, execution_request
 
@@ -73,12 +74,15 @@ def prepare(state, stage, state_path, schema_dir):
             from .. import autocode_progressive_state as progressive_state
         except ImportError:
             import autocode_progressive_state as progressive_state
-        note = ""
+        schema = deepcopy(request.schema)
+        schema["properties"]["recovery_change"] = deepcopy(novelty.CHANGE_SCHEMA)
+        request = replace(request, schema=schema)
+        note = novelty.INSTRUCTION
         if progressive_state.enabled(state):
             schema = deepcopy(request.schema)
             schema["properties"]["progressive_checkpoint"] = {"type": "boolean"}
             request = replace(request, schema=schema)
-            note = ("PROGRESSIVE SLICE CHECKPOINT: Set progressive_checkpoint=true with status CONTINUE "
+            note += ("PROGRESSIVE SLICE CHECKPOINT: Set progressive_checkpoint=true with status CONTINUE "
                     "and next_task.kind=none only when the active slice's entire cumulative required-check "
                     "set has independently replayed passing evidence on the current source. This requests "
                     "the runner's slice checkpoint, not product acceptance. Do not invent a task to advance. "

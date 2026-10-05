@@ -4,6 +4,7 @@ No separate acceptance authority or run-state writes. The goal lifecycle checks
 this mapping before installing/approving a plan; report coverage checks it again.
 """
 from __future__ import annotations
+import json
 
 try:
     from . import autocode_design_manifest as manifest, autocode_util as util
@@ -55,6 +56,32 @@ def _ownership(row, body):
     return [path for identity in row["milestone_ids"] for path in milestones[identity].get("affected_paths", [])]
 
 
+def _validate_visual_declaration(body, coverage):
+    """Keep the visual-runtime declaration bound to the same approved case mapping."""
+    marker = "VISUAL_CASE_CRITERIA="
+    rows = [row[len(marker):] for row in body.get("constraints", [])
+            if isinstance(row, str) and row.startswith(marker)]
+    if not rows:
+        return
+    if len(rows) != 1:
+        raise ValueError("Design coverage needs exactly one visual case declaration when supplied")
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Visual case declaration repeats a case: " + key)
+            result[key] = value
+        return result
+    declared = json.loads(rows[0], object_pairs_hook=unique)
+    expected = {row["id"]: row["criterion_ids"] for row in coverage["cases"]}
+    if (not isinstance(declared, dict) or set(declared) != set(expected)
+            or any(not isinstance(mapped, list)
+                   or not all(isinstance(cid, str) for cid in mapped)
+                   or len(mapped) != len(set(mapped)) or set(mapped) != set(expected[identity])
+                   for identity, mapped in declared.items())):
+        raise ValueError("Visual case declaration conflicts with structured design coverage")
+
+
 def validate(record, body, *, ready=False):
     if not record or record["body"]["version"] != 2:
         return
@@ -76,6 +103,7 @@ def validate(record, body, *, ready=False):
         if not all(any(manifest.inventory.path_intersects(path, owned) for owned in paths)
                    for path in cases[row["id"]]["implementation_paths"]):
             raise ValueError(f"Design case has no milestone owning its implementation paths: {row['id']}")
+    _validate_visual_declaration(body, coverage)
     targets = {target["id"]: target for target in record["body"].get("responsive_targets", [])
                if not target["reference_case_id"]}
     derived_ids = [row["target_id"] for row in coverage["responsive_derivations"]]

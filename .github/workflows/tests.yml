@@ -42,7 +42,10 @@ jobs:
           agent-browser install --with-deps
 
       - name: Install package and runtime dependencies
-        run: python3 -m pip install -e '.[visual]'
+        # Evidence-bound reuse requires an isolated, source-bound editable install.
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -e '.[visual]'
 
       - name: Run the suite gate
         # tools/run_suite.py wraps the same discovery as
@@ -58,9 +61,9 @@ jobs:
         # side, one per CPU.
         run: |
           if [ "${{ github.event_name }}" = pull_request ]; then
-            python3 tools/run_suite.py --verbosity 2 --changed "origin/${{ github.base_ref }}" --all-fast
+            .venv/bin/python tools/run_suite.py --verbosity 2 --changed "origin/${{ github.base_ref }}" --all-fast
           else
-            python3 tools/run_suite.py --verbosity 2
+            .venv/bin/python tools/run_suite.py --verbosity 2
           fi
         env:
           PYTHONDONTWRITEBYTECODE: "1"
@@ -69,14 +72,14 @@ jobs:
         # scenarios/ is outside tests/: its catalog checks and scripted end-to-end runs
         # (scenarios/README.md) would otherwise never run in CI. Each test runs in its own
         # interpreter, one per CPU at a time; run serially it took about 3.5 minutes.
-        run: python3 tools/run_suite.py --scenario-harness --verbosity 2
+        run: .venv/bin/python tools/run_suite.py --scenario-harness --verbosity 2
         env:
           PYTHONDONTWRITEBYTECODE: "1"
 
       - name: Run the dashboard suite
         # tools/dashboard/tests is outside tests/, so run_suite.py never
         # discovers it; run it here so it can't drift unnoticed again (#94).
-        run: python3 -m unittest discover -s tools/dashboard/tests -p 'test_*.py' -v
+        run: .venv/bin/python -m unittest discover -s tools/dashboard/tests -p 'test_*.py' -v
         env:
           PYTHONDONTWRITEBYTECODE: "1"
 
@@ -84,7 +87,7 @@ jobs:
         # Read-only messages and exact-message confirmation must remain safe
         # with a pending question, after reload, and at narrow viewports.
         run: |
-          python3 - <<'PYTHON'
+          .venv/bin/python - <<'PYTHON'
           import json, os, sys, tempfile
           from pathlib import Path
           from tests.browser_suite_process import run

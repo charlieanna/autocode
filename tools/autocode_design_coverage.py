@@ -177,7 +177,7 @@ def projection(state):
               "reference_changes": [{key:copy.deepcopy(row.get(key)) for key in ("at","reason","previous_hash","current_hash","coverage_change","previous_references","current_references")}
                                     for row in state.get("design_input_changes",[])],
               "reusable_case_results": reusable_results(state)}
-    if record["body"]["version"] == 2:
+    if record["body"].get("version") == 2:
         try:
             manifest.verify(record)
             result["inventory"] = manifest.inventory.catalog(record["body"], record["root"])

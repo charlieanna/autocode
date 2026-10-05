@@ -478,6 +478,25 @@ class DesignManifestTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 design_plan.validate(record, broken, ready=True)
         self.assertIn("FILEB.3.4.default", "\n".join(design_plan.render(record, plan)))
+        # Both declarations are approved contract data; a second valid CID must
+        # not silently assign a source case to a different visual criterion.
+        plan["acceptance_criteria"].append({"id": "AC2"})
+        plan["milestones"][0]["acceptance_criteria"].append("AC2")
+        mapping = {case["id"]: ["AC1"] for case in body["cases"]}
+        declaration = "VISUAL_CASE_CRITERIA=" + json.dumps(mapping)
+        plan["constraints"] = [declaration]
+        design_plan.validate(record, plan, ready=True)
+        wrong = copy.deepcopy(mapping)
+        first = body["cases"][0]["id"]
+        wrong[first] = ["AC2"]
+        duplicate = json.dumps(mapping).replace("{", "{" + json.dumps(first) + ': ["AC2"], ', 1)
+        for rows in (["VISUAL_CASE_CRITERIA=" + json.dumps(wrong)],
+                     [declaration, declaration], ["VISUAL_CASE_CRITERIA=" + duplicate],
+                     ["VISUAL_CASE_CRITERIA={"]):
+            broken = copy.deepcopy(plan)
+            broken["constraints"] = rows
+            with self.subTest(visual_declaration=rows), self.assertRaises(ValueError):
+                design_plan.validate(record, broken, ready=True)
         body['cases'][0]['implementation_paths'].append('styles/home.css')
         path.write_text(json.dumps(body))
         record = manifest.load(path)

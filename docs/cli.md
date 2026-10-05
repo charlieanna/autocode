@@ -10,7 +10,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | Command | What it does |
 | --- | --- |
 | `autocode "Your rough idea"` | The normal entry point. Runs the full plan → approve → build → validate → complete loop (or stops at the next required checkpoint). |
-| `autocode resume` | Continue the unfinished run of this project or task worktree (see [Which run a command acts on](#which-run-a-command-acts-on)). Never starts a new task. Plain `autocode` with no task does the same. |
+| `autocode resume` | Continue the unfinished run of this project or task worktree (see [Which run a command acts on](#which-run-a-command-acts-on)). Never starts a new task. On a paused run it also acknowledges the pause, as `--resume-paused` does, so the run goes on: no new budget or recovery allowance, though the per-cycle report-repair and resolver attempt counts restart. A design conflict (`PAUSED_DESIGN_CONFLICT`) is only shown until you edit the design and pass `--resume-paused`. Its companions (`--retry-failed-stage`, `--grant-recovery N`, ...) need no `--resume-paused` after it. Plain `autocode` with no task relaunches a running run the same way but only shows a pause. |
 | `autocode status` | The same as `autocode --status`: read-only status of that run. Both words are commands wherever they stand among the options; a task whose whole text is `resume` or `status` goes after `--` (`autocode -- status`). |
 | `autopilot` | Deterministic workflow controller. Same loop as `autocode`, and the controller behind the dashboard and macOS app. |
 | `autoplanner` | Planning only. Stops before any Builder starts. |

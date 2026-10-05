@@ -148,6 +148,13 @@ class RuntimeBlockTests(unittest.TestCase):
             ("env backtick value", {**SERVICE, "env": {"N": "`x`"}}, "store", "env N must not contain a backtick"),
             ("env newline value", {**SERVICE, "env": {"N": "a\nb"}}, "store", "env N must be a single line"),
             ("env paragraph separator", {**SERVICE, "env": {"N": "a\u2029b"}}, "store", "env N must be a single line"),
+            # json.loads gives a lone surrogate for "\ud800"; no file can carry it as UTF-8 and Compose refuses its escape.
+            ("env lone surrogate", {**SERVICE, "env": {"N": json.loads('"a\\ud800"')}}, "store",
+             "env N must not contain a lone surrogate"),
+            ("start lone low surrogate", {**GATEWAY, "start": "echo \udc80"}, "gateway",
+             "start must not contain a lone surrogate"),
+            ("worker health lone surrogate", {**WORKER, "health": ["sh", "-c", "\udbff"]}, "mailer",
+             "health[2] must not contain a lone surrogate"),
             ("env dependency port", {**GATEWAY, "runtime_depends_on": ["db"], "env": {"DB_PORT": "1"}}, "gateway",
              "env name DB_PORT is reserved: it carries the address of the runtime dependency db"),
             ("env 33 entries", {**SERVICE, "env": {f"V{i}": "x" for i in range(33)}}, "store",
@@ -410,6 +417,222 @@ class BriefTests(unittest.TestCase):
                 self.assertIn("listen on 0.0.0.0", str(caught.exception))
                 report["ignored_statements"] = [service]
                 goals.check_requirement_handoff({"task": brief}, report)
+
+
+NOTES_SMOKE = {"version": 1, "steps": [
+    {"name": "create a note through the gateway", "service": "gateway", "method": "POST", "path": "/notes",
+     "body": {"text": "hello"}, "expect_status": 201, "expect_json": {"text": "hello"}, "capture": {"note_id": "id"}},
+    {"name": "read it back through the gateway", "service": "gateway", "method": "GET",
+     "path": "/notes/{{note_id}}", "expect_status": 200, "expect_json": {"text": "hello"}},
+    {"name": "the store holds it", "service": "store", "method": "GET", "path": "/notes/{{note_id}}",
+     "expect_status": 200, "expect_json": {"text": "hello"}}]}
+
+
+def step(**overrides):
+    return {"service": "gateway", "method": "GET", "path": "/health", "expect_status": 200, **overrides}
+
+
+class SmokeTests(unittest.TestCase):
+    """ARCHITECTURE/smoke.json: the declarative end-to-end check of the combined system."""
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(prefix="component-smoke-")
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+
+    def load_text(self, text):
+        (self.root / "smoke.json").write_text(text)
+        return runtime.load_smoke(self.root)
+
+    def load_document(self, document):
+        return self.load_text(json.dumps(document))
+
+    def test_the_notes_check_loads_with_its_captures(self):
+        smoke = self.load_document(NOTES_SMOKE)
+        self.assertEqual(self.root / "smoke.json", smoke.path)
+        create, read, held = smoke.steps
+        self.assertEqual(("create a note through the gateway", "gateway", "POST", "/notes", 201),
+                         (create.name, create.service, create.method, create.path, create.expect_status))
+        self.assertEqual(({"text": "hello"}, True, {"text": "hello"}, True, (("note_id", "id"),)),
+                         (create.body, create.has_body, create.expect_json, create.has_expect_json, create.capture))
+        self.assertEqual((None, False, ()), (read.body, read.has_body, read.capture))
+        self.assertEqual("/notes/{{note_id}}", held.path)
+        runtime.check_smoke(smoke, runtimes(store=SERVICE, gateway=GATEWAY))
+
+    def test_defaults_and_explicit_nulls(self):
+        smoke = self.load_document({"version": 1, "steps": [
+            step(), step(method="POST", path="/echo", body=None, expect_json=None, expect_status=204)]})
+        first, second = smoke.steps
+        self.assertEqual(("step 1", False, False, ()), (first.name, first.has_body, first.has_expect_json,
+                                                        first.capture))
+        self.assertEqual(("step 2", True, None, True, None), (second.name, second.has_body, second.body,
+                                                              second.has_expect_json, second.expect_json))
+
+    def test_refused_files_name_the_step_and_the_key(self):
+        many = [step(name=f"s{index}") for index in range(31)]
+        cases = [
+            ("not JSON", "{", "is not valid JSON"),
+            ("duplicate key", '{"version": 1, "version": 1, "steps": []}', "the key 'version' appears twice"),
+            ("NaN", '{"version": 1, "steps": [{"expect_status": NaN}]}', "NaN is not a JSON value"),
+            ("1e999 in a body", '{"version": 1, "steps": [{"body": {"a": 1e999}}]}',
+             "the number 1e999 is too large to send as JSON"),
+            ("-1e999 in expect_json", '{"version": 1, "steps": [{"expect_json": [-1e999]}]}',
+             "the number -1e999 is too large to send as JSON"),
+            ("not an object", [NOTES_SMOKE], "smoke.json must be a JSON object"),
+            ("unknown top-level key", {**NOTES_SMOKE, "stpes": []}, "unknown key 'stpes' (did you mean 'steps'?)"),
+            ("version 2", {**NOTES_SMOKE, "version": 2}, "version must be 1 (found 2)"),
+            ("version true", {**NOTES_SMOKE, "version": True}, "version must be 1 (found True)"),
+            ("version 1.0", {**NOTES_SMOKE, "version": 1.0}, "version must be 1 (found 1.0)"),
+            ("no version", {"steps": NOTES_SMOKE["steps"]}, "version must be 1 (found None)"),
+            ("no steps", {"version": 1}, "steps must be a list of 1 to 30 steps"),
+            ("empty steps", {"version": 1, "steps": []}, "steps must be a list of 1 to 30 steps (found 0 steps)"),
+            ("31 steps", {"version": 1, "steps": many}, "(found 31 steps)"),
+            ("step not an object", {"version": 1, "steps": ["GET /health"]}, "step 1 must be a JSON object"),
+            ("unknown step key", {"version": 1, "steps": [step(expct_status=200)]},
+             "smoke.json step 1: unknown key 'expct_status' (did you mean 'expect_status'?)"),
+            ("unknown key names the step", {"version": 1, "steps": [step(name="probe", header="x")]},
+             "smoke.json step 1 (probe): unknown key 'header'"),
+            ("no service", {"version": 1, "steps": [{"method": "GET", "path": "/", "expect_status": 200}]},
+             "step 1 needs service"),
+            ("service not a string", {"version": 1, "steps": [step(service=["gateway"])]},
+             "service must be the id of a component of kind service"),
+            ("no method", {"version": 1, "steps": [{"service": "gateway", "path": "/", "expect_status": 200}]},
+             "step 1 needs method"),
+            ("method TRACE", {"version": 1, "steps": [step(method="TRACE")]},
+             "method must be one of GET, POST, PUT, PATCH, DELETE (found 'TRACE')"),
+            ("method lower case", {"version": 1, "steps": [step(method="get")]}, "method must be one of"),
+            ("body on GET", {"version": 1, "steps": [step(body={"a": 1})]},
+             "step 1 is a GET request, which sends no body"),
+            ("body on DELETE", {"version": 1, "steps": [step(method="DELETE", body=None)]},
+             "is a DELETE request, which sends no body"),
+            ("no expect_status", {"version": 1, "steps": [{"service": "gateway", "method": "GET", "path": "/"}]},
+             "step 1 needs expect_status"),
+            ("bool status", {"version": 1, "steps": [step(expect_status=True)]},
+             "expect_status must be an integer HTTP status from 100 to 599 (found True)"),
+            ("status 99", {"version": 1, "steps": [step(expect_status=99)]}, "expect_status must be an integer"),
+            ("status 600", {"version": 1, "steps": [step(expect_status=600)]}, "expect_status must be an integer"),
+            ("status '200'", {"version": 1, "steps": [step(expect_status="200")]}, "expect_status must be an integer"),
+            ("path without /", {"version": 1, "steps": [step(path="health")]}, "path must start with '/'"),
+            ("path not a string", {"version": 1, "steps": [step(path=None)]}, "path must start with '/'"),
+            ("path with ://", {"version": 1, "steps": [step(path="/x?next=http://evil")]},
+             "path must be a path on the step's service, with no '://' or '@'"),
+            ("path with @", {"version": 1, "steps": [step(path="/@evil")]}, "with no '://' or '@'"),
+            ("path with a space", {"version": 1, "steps": [step(path="/notes /1")]}, "printable ASCII with no spaces"),
+            ("path with a tab", {"version": 1, "steps": [step(path="/notes\t1")]}, "printable ASCII with no spaces"),
+            ("path with a control character", {"version": 1, "steps": [step(path="/notes\x7f")]},
+             "printable ASCII with no spaces"),
+            ("path not ASCII", {"version": 1, "steps": [step(path="/café")]}, "printable ASCII with no spaces"),
+            ("path too long", {"version": 1, "steps": [step(path="/" + "a" * 300)]}, "at most 300 characters"),
+            ("variable used before it is captured", {"version": 1, "steps": [
+                step(path="/notes/{{note_id}}"), step(method="POST", path="/notes", capture={"note_id": "id"})]},
+             "step 1 path uses {{note_id}}, but no earlier step captures note_id"),
+            ("variable used in the step that captures it", {"version": 1, "steps": [
+                step(method="POST", path="/notes/{{note_id}}", capture={"note_id": "id"})]},
+             "no earlier step captures note_id"),
+            ("variable in a body before capture", {"version": 1, "steps": [
+                step(method="POST", body={"ids": ["{{note_id}}"]})]},
+             "step 1 body uses {{note_id}}, but no earlier step captures note_id"),
+            ("malformed placeholder", {"version": 1, "steps": [
+                step(method="POST", capture={"note_id": "id"}), step(path="/notes/{{Note_id}}")]},
+             "'{{' may only open a captured variable such as {{note_id}}"),
+            ("unclosed placeholder in a body", {"version": 1, "steps": [step(method="POST", body="{{note_id")]},
+             "'{{' may only open a captured variable"),
+            ("placeholder in expect_json", {"version": 1, "steps": [
+                step(method="POST", capture={"note_id": "id"}), step(expect_json={"id": "{{note_id}}"})]},
+             "step 2 expect_json must not contain '{{' (found '{{note_id}}'): captured values are filled in only "
+             "in the path and in string values of the body"),
+            ("uncaptured placeholder in expect_json", {"version": 1, "steps": [
+                step(expect_json=[{"ids": ["{{nope}}"]}])]}, "step 1 expect_json must not contain '{{'"),
+            ("placeholder in an expect_json key", {"version": 1, "steps": [step(expect_json={"{{x": 1})]},
+             "step 1 expect_json must not contain '{{' (found '{{x')"),
+            ("placeholder in a body key", {"version": 1, "steps": [
+                step(method="POST", capture={"note_id": "id"}), step(method="POST", body={"{{note_id}}": "x"})]},
+             "step 2 body key must not contain '{{' (found '{{note_id}}')"),
+            ("malformed placeholder in a nested body key", {"version": 1, "steps": [
+                step(method="POST", body={"a": [{"{{nope": 2}]})]}, "step 1 body key must not contain '{{'"),
+            ("placeholder in a name", {"version": 1, "steps": [
+                step(method="POST", capture={"note_id": "id"}), step(name="read {{note_id}}")]},
+             "step 2 name must not contain '{{'"),
+            ("capture not an object", {"version": 1, "steps": [step(capture=["id"])]},
+             "capture must be a JSON object of variable names"),
+            ("capture variable upper case", {"version": 1, "steps": [step(capture={"Note": "id"})]},
+             "capture variable 'Note' must be lower case"),
+            ("capture key empty", {"version": 1, "steps": [step(capture={"note_id": ""})]},
+             "capture note_id must name a top-level key of the JSON response"),
+            ("capture key not a string", {"version": 1, "steps": [step(capture={"note_id": 1})]},
+             "capture note_id must name a top-level key"),
+            ("captured twice", {"version": 1, "steps": [step(capture={"note_id": "id"}),
+                                                       step(capture={"note_id": "id"})]},
+             "step 2 captures note_id, which step 1 already captures"),
+            ("duplicate names", {"version": 1, "steps": [step(name="probe"), step(name="probe")]},
+             "steps 1 and 2 are both named 'probe'"),
+            ("a name that repeats a default", {"version": 1, "steps": [step(), step(name="step 1")]},
+             "steps 1 and 2 are both named 'step 1'"),
+            ("empty name", {"version": 1, "steps": [step(name="")]}, "name must be a string of 1 to 80 printable"),
+            ("long name", {"version": 1, "steps": [step(name="n" * 81)]}, "name must be a string of 1 to 80"),
+            ("name with a line break", {"version": 1, "steps": [step(name="a\nb")]}, "name must be a string"),
+        ]
+        for name, document, message in cases:
+            with self.subTest(name):
+                with self.assertRaises(ValueError) as caught:
+                    self.load_text(document if isinstance(document, str) else json.dumps(document))
+                self.assertIn(message, str(caught.exception))
+
+    def test_a_missing_file_is_refused_by_path(self):
+        with self.assertRaises(ValueError) as caught:
+            runtime.load_smoke(self.root)
+        self.assertIn(f"missing {self.root / 'smoke.json'}", str(caught.exception))
+
+    def test_each_step_must_address_a_service(self):
+        smoke = self.load_document({"version": 1, "steps": [step(name="probe", service="target")]})
+        cases = [
+            ("unknown", runtimes(gateway=GATEWAY, store=SERVICE),
+             "smoke.json step 1 (probe) service 'target' is not a component that declares a runtime block"),
+            ("no block", runtimes(target=None), "service 'target' declares no runtime block"),
+            ("library", runtimes(target={"kind": "library"}), "'target' is a library, which is never started"),
+            ("worker", runtimes(target=WORKER), "'target' is a worker, which has no HTTP port"),
+            ("database", runtimes(target=DATABASE), "'target' is a database, whose port is never published"),
+        ]
+        for name, blocks, message in cases:
+            with self.subTest(name):
+                with self.assertRaises(ValueError) as caught:
+                    runtime.check_smoke(smoke, blocks)
+                self.assertIn(message, str(caught.exception))
+        runtime.check_smoke(smoke, runtimes(target=SERVICE))
+
+    def test_render_step_fills_in_captured_values(self):
+        smoke = self.load_document({"version": 1, "steps": [
+            step(method="POST", path="/notes", capture={"note_id": "id", "owner": "owner"}),
+            step(method="PUT", path="/notes/{{note_id}}?owner={{owner}}",
+                 body={"id": "{{note_id}}", "label": "note {{note_id}} of {{owner}}", "tags": ["{{owner}}", 1],
+                       "nested": {"same": "{{note_id}}"}, "count": 2, "none": None}),
+            step(path="/notes/{{note_id}}")]})
+        _, put, get = smoke.steps
+        path, body = runtime.render_step(put, {"note_id": 42, "owner": "a b/c&d"})
+        self.assertEqual("/notes/42?owner=a%20b%2Fc%26d", path)
+        self.assertEqual({"id": 42, "label": "note 42 of a b/c&d", "tags": ["a b/c&d", 1], "nested": {"same": 42},
+                          "count": 2, "none": None}, body)
+        self.assertEqual("{{note_id}}", put.body["id"], "the step itself is never changed")
+        self.assertEqual(("/notes/caf%C3%A9", None), runtime.render_step(get, {"note_id": "café"}))
+        self.assertEqual(("/notes", None), runtime.render_step(smoke.steps[0], {}))
+        for captured, message in (({}, "{{note_id}} was not captured"),
+                                  ({"note_id": True}, "must be a string or an integer (found True)"),
+                                  ({"note_id": 1.5}, "must be a string or an integer")):
+            with self.subTest(message):
+                with self.assertRaises(ValueError) as caught:
+                    runtime.render_step(get, captured)
+                self.assertIn(message, str(caught.exception))
+
+    def test_smoke_json_is_not_part_of_the_saved_build_identity(self):
+        rows = notes_rows()
+        rows[0]["runtime"] = SERVICE
+        rows[1]["runtime"] = GATEWAY
+        directory = write_architecture(self.root / "notes", rows)
+        before = mc.Architecture.load(directory).fingerprint()
+        (directory / "smoke.json").write_text(json.dumps(NOTES_SMOKE))
+        self.assertEqual(before, mc.Architecture.load(directory).fingerprint())
+        (directory / "smoke.json").write_text(json.dumps({**NOTES_SMOKE, "steps": NOTES_SMOKE["steps"][:1]}))
+        self.assertEqual(before, mc.Architecture.load(directory).fingerprint())
 
 
 class CliRefusalTests(unittest.TestCase):
