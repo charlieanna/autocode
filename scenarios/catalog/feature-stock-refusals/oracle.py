@@ -23,15 +23,19 @@ from harness.oracle import (Check, hidden_tests, non_stdlib_imports, python_test
 NEW_COMMANDS = {"move", "remove"}
 TEST_FILE = "tests/test_stock.py"
 # The brief's refusal rules, each with the words a delivered refusal test's name uses for it. A refusal test is
-# one whose name says it refuses (REFUSAL_WORDS) or whose body compares a returncode with 2.
+# one whose name says it refuses (REFUSAL_WORDS) or whose body compares a returncode with 2. An entry with a
+# space is a phrase: those words, in that order, in the name ("too many").
 RULES = {
     "quantity not a positive integer": {"quantity", "quantities", "qty", "zero", "negative", "positive",
                                         "nonpositive", "integer", "int", "numeric", "number", "fraction",
                                         "fractional", "decimal", "float"},
     "FROM equal to TO": {"same", "equal", "equals", "identical", "itself"},
+    # A live run (2026-10-05) named these tests test_ac5_move_refuses_shortage_and_malformed_store and
+    # test_ac4_remove_refuses_bad_qty_and_shortage: "shortage" and its kin say this rule too.
     "more than held": {"more", "overdraw", "overdraws", "overdrawn", "overdraft", "insufficient", "exceed",
                        "exceeds", "exceeding", "excess", "held", "hand", "holding", "none", "nothing", "empty",
-                       "unknown", "missing", "absent", "short", "enough", "available"},
+                       "unknown", "missing", "absent", "short", "enough", "available", "shortage", "shortages",
+                       "shortfall", "lack", "lacks", "lacking", "over", "beyond", "too many"},
     "malformed stock.json": {"malformed", "corrupt", "corrupted", "garbage", "bad", "broken", "unparsable",
                              "unparseable", "unreadable", "json"},
 }
@@ -157,14 +161,15 @@ def new_command_tests(project, seed):
 def refusal_rules(function):
     """The RULES a refusal test is about, by its name's words; a body that writes a store that is not JSON is
     about the malformed store, and one that moves to the location it moves from about FROM equal to TO."""
-    words = set(_words(function.name))
+    sequence = _words(function.name)
+    words = set(sequence)
     body = [node for node in ast.walk(function) if isinstance(node, ast.Compare | ast.Call)]
     refusal = bool(words & REFUSAL_WORDS) or any(
         any(isinstance(n, ast.Attribute) and n.attr == "returncode" for n in ast.walk(node))
         and any(isinstance(n, ast.Constant) and n.value == 2 for n in ast.walk(node)) for node in body)
     if not refusal:
         return set()
-    rules = {rule for rule, vocabulary in RULES.items() if words & vocabulary}
+    rules = {rule for rule, vocabulary in RULES.items() if any(_says(sequence, entry) for entry in vocabulary)}
     for call in (node for node in body if isinstance(node, ast.Call)):
         strings = [arg.value for arg in call.args if isinstance(arg, ast.Constant) and isinstance(arg.value, str)]
         name = call.func.attr if isinstance(call.func, ast.Attribute) else getattr(call.func, "id", "")
@@ -173,6 +178,12 @@ def refusal_rules(function):
         if "move" in strings and len(strings) >= 2 and strings[-1] == strings[-2]:
             rules.add("FROM equal to TO")
     return rules
+
+
+def _says(words, entry):
+    """Does a name's word list say a RULES entry: the word, or a phrase's words in a row."""
+    want = entry.split()
+    return any(words[i:i + len(want)] == want for i in range(len(words) - len(want) + 1))
 
 
 def _is_json(text):

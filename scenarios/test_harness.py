@@ -1238,14 +1238,44 @@ class StockRefusalsProductTests(unittest.TestCase):
         self.assertEqual(self.store_bytes(), before)
 """
 
-    def evaluate(self, edit):
+    def evaluate(self, edit, solution="reference"):
         from harness.project import materialize
         scenario = catalog.load("feature-stock-refusals")
         with tempfile.TemporaryDirectory() as root:
-            project = materialize(scenario.seed, Path(root) / "p", scenario.dir / "reference")
+            project = materialize(scenario.seed, Path(root) / "p", scenario.dir / solution)
             tests = project / "tests" / "test_stock.py"
             tests.write_text(edit(tests.read_text()))
             return {check.name: check for check in verdict.evaluate(scenario, project).checks}
+
+    # The names a live run (2026-10-05, 8soi9a5s) gave its shortage tests; the oracle scored that correct
+    # product 5/6 because "shortage" was not a word for "more than held".
+    LIVE_SHORTAGE_NAMES = {"test_c3_move_more_than_on_hand_is_refused": "test_ac5_move_refuses_shortage_and_malformed_store",
+                           "test_c7_remove_more_than_on_hand_is_refused": "test_ac4_remove_refuses_bad_qty_and_shortage"}
+
+    def rename_shortage_tests(self, text):
+        for old, new in self.LIVE_SHORTAGE_NAMES.items():
+            text = text.replace(f"def {old}(", f"def {new}(")
+        return text
+
+    def test_shortage_tests_named_as_a_live_run_named_them_cover_more_than_held(self):
+        checks = self.evaluate(self.rename_shortage_tests)
+        self.assertTrue(all(check.ok for check in checks.values()), checks)
+        oracle = catalog.load("feature-stock-refusals")._oracle_module()
+        for name in self.LIVE_SHORTAGE_NAMES.values():
+            function = ast.parse(f"def {name}(self):\n    pass\n").body[0]
+            self.assertIn("more than held", oracle.refusal_rules(function), name)
+        # A phrase counts only as a phrase: "too many" in a row, not "too" and "many" apart.
+        phrase = ast.parse("def test_move_refuses_too_many(self):\n    pass\n").body[0]
+        apart = ast.parse("def test_move_refuses_many_units_too(self):\n    pass\n").body[0]
+        self.assertEqual({"more than held"}, oracle.refusal_rules(phrase))
+        self.assertEqual(set(), oracle.refusal_rules(apart))
+
+    def test_shortage_tests_that_pass_on_the_original_code_still_fail_the_product(self):
+        check = self.evaluate(self.rename_shortage_tests, "broken/vacuous-refusal-tests")[
+            "new_command_tests_fail_on_original_code"]
+        self.assertFalse(check.ok)
+        for name in self.LIVE_SHORTAGE_NAMES.values():
+            self.assertIn(name, check.detail)
 
     def test_an_extra_test_that_passes_on_the_original_code_is_reported_not_failed(self):
         checks = self.evaluate(lambda text: text.replace("\n\nif __name__", self.USAGE_TEST + "\n\nif __name__"))
