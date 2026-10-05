@@ -228,6 +228,31 @@ There is no fallback list, configuration table or automatic switch: a quota stop
 always your decision. Capacity errors retry the same model, rate limits pause as
 before, and authentication failures never ask for a model.
 
+### When the stopped role is a workflow job
+
+A workflow job (the Code Reviewer, Designer, Design Reviewer, Analyst, bug-fix
+Investigator or Design inventory) that stops on quota pauses differently: its attempt is set aside at
+once and the job takes one exact retry, bound to the run's configuration
+(`PAUSED_JOB_FAILURE`, `needs.kind` `retry_job`; see [CLI](cli.md#waiting-or-finished)).
+The stop names the job, the model and the provider's words, and the status view's
+`needs.route` carries the same model question. You answer it with the job's retry
+token instead of a resolver token, then retry with the new token it issues:
+
+```sh
+autocode --run-dir RUN --answer route-sol=gpt-6-luna --job-retry-token TOKEN
+autocode --run-dir RUN --resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN
+```
+
+The answer applies the same checks and records the same `route_assignment`. The old
+token stops working, so the job never runs again on the model that stopped without
+your saying so. `--abandon-stage` and a `--sol-model` flag are refused at this stop
+(the flag would make the exact retry stale). The Architect (Designer, Design
+Reviewer), Analyst and Investigator routes have no flag at all: the answer is the only
+way to move them. After a quota stop the shown token also retries the job unchanged,
+once the quota resets. The stuck-stage Investigator (`investigate_stuck`) is the
+exception: its route is rebuilt for every investigation, so its stop keeps only the
+exact retry (`--investigator-model` pins the model of the next investigation).
+
 ## When a provider's content filter refuses a response
 
 A provider whose content filter refuses a stage's response (OpenCode's
@@ -270,5 +295,11 @@ automatic timeout recovery may set it aside.
 stop is open (or one a run paused on before a finish-only refusal was typed), the role's
 model flag alone (`--terra-model`) is refused and names only the other route:
 `--abandon-stage ATTEMPT`, then `--resume-paused --terra-model MODEL`.
+
+A refused workflow job pauses for its exact retry, as a quota stop of a job does
+([above](#when-the-stopped-role-is-a-workflow-job)): name another model with
+`--answer route-ROLE=MODEL --job-retry-token TOKEN`, then retry with the new token.
+That answer refuses the model that was refused. The job's own retry token still
+replays the refused model if you retry without naming one.
 
 See also: [Providers](providers.md) · [Workflow](workflow.md) · [CLI](cli.md)

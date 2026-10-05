@@ -231,6 +231,8 @@ def _asked(needs):
         return "plan review budget used up"
     if kind == "resume":
         return "inspect the pause, then resume"
+    if kind == "retry_job" and needs.get("route"):
+        return f"name another model for the {needs['route'].get('job') or 'job'}, then retry it"
     if kind == "retry_job":
         return "inspect the failed job, then retry"
     if kind == "dependency":

@@ -95,6 +95,25 @@ def _explanation(status, role):
     return f'{role or "The task"} stopped before starting another step. Inspect the saved reason before continuing.'
 
 
+def _job_model_stop(state, role):
+    """What happened to a workflow job its provider refused or ran out of quota on (#463), or None."""
+    if state.get('status') not in ('PAUSED_JOB_FAILURE', 'PAUSED_STAGE_ABANDONED'):
+        return None
+    failure = _dict(state.get('job_failure'))
+    route = _dict(failure.get('route'))
+    job = route.get('job') or role or 'job'
+    model = route.get('stopped_model') or 'its model'
+    if failure.get('pause_status') == 'PAUSED_CONTENT_FILTER':
+        return (f"The provider's content filter refused the {job}'s response on {model}. The same model is likely "
+                "to refuse it again" + ("; name another model for this job, then retry it with the new token."
+                                        if route else "."))
+    if failure.get('pause_status') == 'PAUSED_BUDGET':
+        return (f"The {job}'s provider reported its quota, usage limit or credits used up on {model}. "
+                + ("Name another model for this job, or retry it unchanged once the quota resets."
+                   if route else "Retry it once the quota resets."))
+    return None
+
+
 def _action(kind, label, effect, **fields):
     return {'id': kind + (':' + ','.join(fields['milestone_ids']) if fields.get('milestone_ids') else ''), 'kind': kind, 'label': label, 'effect': effect, **fields}
 
@@ -159,7 +178,7 @@ def project(state, need=None):
     result = {'version': 1, 'token': token(state), 'status': status, 'cause': cause, 'role': role,
               'title': 'Stopped at your request' if terminal else 'Review checkpoint' if decision else 'Task paused',
               'category': 'stopped' if terminal else 'request' if decision else 'recovery',
-              'what_happened': 'The current step finished and saved. This conversation will launch no more stages.' if terminal else _explanation(cause, role),
+              'what_happened': 'The current step finished and saved. This conversation will launch no more stages.' if terminal else (_job_model_stop(state, role) or _explanation(cause, role)),
               'retained': f'{finished} finished attempt(s) remain in the history. Saved plan, messages and recorded evidence remain available; partial work still needs verification.',
               'saved_reason': state.get('stop_reason'),
               'context': {'role': role, 'task': _dict(state.get('current_task')),

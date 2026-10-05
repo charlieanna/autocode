@@ -10,6 +10,12 @@ launch rules, as advice, never as a default. The answer is a model
 for the same engine; it must pass the same format and cross-model rules a launch
 applies. Applying it is a recorded ``route_assignment`` in ``user_events``.
 
+A workflow job (autocode_jobs.STAGES) stopped this way pauses under autocode_job_failure with
+one exact retry bound to the run's configuration (#463). Its question is kept on that failure,
+not published: it is answered with ``--answer route-<role>=MODEL --job-retry-token TOKEN``
+(autocode_job_route), which issues a new exact-retry token for the named model. The Architect,
+Analyst and Investigator routes have no --<role>-model flag, so only that answer routes them.
+
 Pure functions over the saved state. This module imports nothing from the runner:
 the provider-error classifier (``failure_status``) and the cross-model rule
 (``cross_check``) arrive as arguments, so the status view can read it too.
@@ -35,6 +41,14 @@ _STOPPED = {QUOTA_STATUS: "stopped on quota", REFUSAL_STATUS: "its provider's co
 KIND = "route_assignment"
 # Roles a person can route by flag on resume (autocode_args: --<role>-model).
 ROLES = ("astra", "terra", "sol", "completion", "glm", "requirements", "resolver", "plan_reviewer")
+# Workflow-job routes a person can route only by answering the job's model question (#463): no
+# flag sets them, so advice never names one. The stuck-stage Investigator's route
+# (stuck_investigator) is not routable: investigate_stuck rebuilds it on every launch and releases
+# it afterwards, so a model saved on it would not stick. Its stop keeps only the exact retry
+# (--investigator-model pins the model of a later investigation).
+JOB_ROLES = ("architect", "analyst", "investigator")
+ROUTABLE = ROLES + JOB_ROLES
+_JOB_PAUSES = ("PAUSED_JOB_FAILURE", "PAUSED_STAGE_ABANDONED")  # autocode_job_failure.PAUSES
 _OPENCODE_MODEL = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,120}")
 
 
@@ -91,35 +105,58 @@ def _launched_model(record: dict) -> str | None:
 def _routable(state: dict, record: dict) -> str | None:
     role = record.get("route_role") or record.get("role")
     configured = ((state.get("settings") or {}).get("roles") or {})
-    if role in ROLES and isinstance(configured.get(role), dict) and not state.get("parent_run"):
+    if role in ROUTABLE and isinstance(configured.get(role), dict) and not state.get("parent_run"):
         return role
     return None
+
+
+def _job_row(state: dict) -> dict | None:
+    """The archived attempt of a workflow job paused on quota or a refusal (autocode_job_failure), or None."""
+    failure = state.get("job_failure") or {}
+    if state.get("status") not in _JOB_PAUSES or failure.get("pause_status") not in STATUSES:
+        return None
+    return next((row for row in reversed(state.get("stages") or [])
+                 if isinstance(row, dict) and not row.get("runner_owned") and row.get("stage") == failure.get("stage")
+                 and _attempt_id(row) == failure.get("attempt_id")), None)
 
 
 def stopped_attempt(state: dict, *, failure_status) -> dict | None:
     """The attempt a quota or content-filter stop left for one routable role, or None.
 
-    Either the uncertain ``active_stage`` (``active`` True), or the attempt a person
-    already set aside with --abandon-stage while nothing has run since.
+    The one lookup for that stop. ``kind`` says which attempt it is, checked in this order:
+
+    - ``stage``: the uncertain ``active_stage`` (``active`` True);
+    - ``job``: a workflow job's attempt autocode_job_failure already set aside, with one exact
+      retry bound to the run's configuration (#463). Its model is named with --answer and the
+      job retry token, never with --abandon-stage or a --<role>-model flag;
+    - ``abandoned``: the attempt a person set aside with --abandon-stage while nothing has run since.
     """
     active = state.get("active_stage") or {}
-    record, is_active = (active, True) if active else (None, False)
-    if record is None:
+    job = None if active else _job_row(state)
+    if active:
+        record, kind = active, "stage"
+    elif job is not None:
+        record, kind = job, "job"
+    else:
         latest = next((row for row in reversed(state.get("stages") or [])
-                       if isinstance(row, dict) and not row.get("runner_owned")), None)
+                       if isinstance(row, dict) and not row.get("runner_owned") and not row.get("worker_attempt")),
+                      None)
         if not latest or not latest.get("abandoned"):
             return None
-        record = latest
+        record, kind = latest, "abandoned"
     events = record.get("events")
     role = _routable(state, record)
-    try:
-        status = failure_status(events) if events and Path(events).is_file() else None
-    except (OSError, ValueError, TypeError):
-        status = None
+    if kind == "job":
+        status = state["job_failure"]["pause_status"]  # classified when the job stopped
+    else:
+        try:
+            status = failure_status(events) if events and Path(events).is_file() else None
+        except (OSError, ValueError, TypeError):
+            status = None
     if not role or status not in STATUSES:
         return None
     return {"role": role, "stage": record.get("original_stage") or record.get("stage"),
-            "attempt_id": _attempt_id(record), "events": events, "active": is_active,
+            "attempt_id": _attempt_id(record), "events": events, "active": kind == "stage", "kind": kind,
             "model": _launched_model(record), "pause_status": status}
 
 
@@ -192,15 +229,28 @@ def candidates(state: dict, role: str, refused_model, *, cross_check, configured
     return passing, refused
 
 
-def advice(asked: dict, attempt_id: str | None, *, answerable: bool = True) -> str:
+def advice(asked: dict, attempt_id: str | None, *, kind: str = "stage", answerable: bool = True) -> str:
     """The commands the CLI accepts at this stop. Never names one it refuses (#288/#301).
+
+    At a workflow job's stop (``kind`` "job") the attempt is already set aside and the job takes
+    one exact retry, so neither --abandon-stage nor a --<role>-model flag is accepted there: the
+    answer carries the job retry token and issues a new one for the retry. A route without a
+    flag (JOB_ROLES) is named only by an answer.
 
     ``answerable`` is False when the current request does not ask this model question
     (``answers_route``): --answer is refused there, so only setting the attempt aside is named.
     """
     role = asked["route_role"]
+    if kind == "job":
+        text = (f"To continue on another model, answer --answer {asked['id']}=MODEL --job-retry-token TOKEN, "
+                "then retry the job with the new token: --resume-paused --retry-failed-stage "
+                "--job-retry-token NEW_TOKEN")
+        if asked.get("cause", "quota") == "quota":
+            text += ("; or, once the quota resets, retry it unchanged with --resume-paused --retry-failed-stage "
+                     "--job-retry-token TOKEN")
+        return text + "." + (" " + asked["recommendation"] if asked.get("recommendation") else "")
     steps = [f"answer --answer {asked['id']}=MODEL --resolver-token TOKEN, then --resume-paused"] if answerable else []
-    if attempt_id:
+    if attempt_id and role in ROLES:
         steps.append(("" if answerable else "set the attempt aside with ")
                      + f"--abandon-stage {attempt_id}, then --resume-paused {flag(role)} MODEL")
     return ("To continue on another model, " + "; or ".join(steps) + "."
@@ -214,7 +264,7 @@ def option(asked: dict) -> str:
 def asked_route(questions, question_id: str) -> dict | None:
     """The published model question ``question_id``, or None when the request asks no such thing."""
     return next((q for q in questions or () if isinstance(q, dict) and q.get("id") == question_id
-                 and q.get("category") == CATEGORY and q.get("route_role") in ROLES
+                 and q.get("category") == CATEGORY and q.get("route_role") in ROUTABLE
                  and question_id == PREFIX + q["route_role"]), None)
 
 
@@ -327,7 +377,9 @@ def resume_refusal(state: dict, previous: dict, selected: dict, *, failure_statu
     While the stopped attempt is still uncertain the model is named with --answer, or
     the attempt is set aside first (--abandon-stage, in the same or an earlier invocation).
     Saving the flag alone would change the route under an unresolved attempt and leave the
-    question asking for the model just named.
+    question asking for the model just named. At a workflow job's stop the flag is never saved:
+    it would make the job's exact retry stale and record nothing; the job's answer names the
+    model and issues a new retry token (#463).
 
     ``questions`` and ``origin`` are the current published request's. The saved events can
     classify as a quota or refusal stop while that request was published as another stop (a
@@ -335,16 +387,24 @@ def resume_refusal(state: dict, previous: dict, selected: dict, *, failure_statu
     no model question and refuses --answer, so only --abandon-stage is offered then.
     """
     changed = _changed_role(state, previous, selected, failure_status)
-    if not changed or not changed[0]["active"] or (abandoning and abandoning == changed[0]["attempt_id"]):
+    if not changed:
         return None
     attempt, role = changed[0], changed[0]["role"]
-    answerable = answers_route(questions, origin, role)
-    if not answerable and not attempt["attempt_id"]:
-        return None  # no command this request accepts names the model first
-    asked = {"id": PREFIX + role, "route_role": role}
+    job = roles.screen_name(attempt.get("stage") or role, state)
+    asked = {"id": PREFIX + role, "route_role": role,
+             "cause": "content_filter" if attempt.get("pause_status") == REFUSAL_STATUS else "quota"}
     stopped = _STOPPED.get(attempt.get("pause_status"), _STOPPED[QUOTA_STATUS])
-    return (f"The {roles.screen_name(attempt.get('stage') or role, state)} attempt that {stopped} is still "
-            f"uncertain; {flag(role)} is not saved. " + advice(asked, attempt["attempt_id"], answerable=answerable))
+    unsaved = flag(role) if role in ROLES else "the model change"
+    if attempt["kind"] == "job":
+        return (f"The {job} attempt that {stopped} was set aside for one exact retry bound to its "
+                f"configuration; {unsaved} is not saved. " + advice(asked, attempt["attempt_id"], kind="job"))
+    if not attempt["active"] or (abandoning and abandoning == attempt["attempt_id"]):
+        return None
+    answerable = answers_route(questions, origin, role)
+    if not answerable and not (attempt["attempt_id"] and role in ROLES):
+        return None  # no command this request accepts names the model first
+    return (f"The {job} attempt that {stopped} is still uncertain; {unsaved} is not saved. "
+            + advice(asked, attempt["attempt_id"], answerable=answerable))
 
 
 def record_resume_change(state: dict, previous: dict, selected: dict, *, failure_status, at: str,
@@ -354,7 +414,7 @@ def record_resume_change(state: dict, previous: dict, selected: dict, *, failure
     A model a launch refuses (wrong format, a cross-model clash) is not recorded: it never runs.
     """
     changed = _changed_role(state, previous, selected, failure_status)
-    if not changed:
+    if not changed or changed[0]["kind"] == "job":  # a job's model is named by its answer (resume_refusal)
         return []
     attempt, before, after = changed
     role = attempt["role"]

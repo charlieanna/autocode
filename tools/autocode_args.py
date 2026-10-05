@@ -191,7 +191,8 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument('--resolver-response', choices=('provide_information', 'leave_paused'),
                         help='Respond to AutoResolver without authorizing execution or increasing limits')
     parser.add_argument('--resolver-message', default='', help='Corrective information for AutoResolver')
-    parser.add_argument("--job-retry-token", help="Exact retry_job token for a stopped workflow job; requires --resume-paused --retry-failed-stage")
+    parser.add_argument("--job-retry-token", help="Exact retry_job token for a stopped workflow job; requires --resume-paused --retry-failed-stage, "
+                        "or --answer route-ROLE=MODEL to name the model of a job stopped on quota or a content-filter refusal")
     parser.add_argument("--retry-failed-stage", action="store_true",
                         help="Authorize one fresh attempt for the recorded unchanged repeated failure after inspecting it; requires --resume-paused")
     parser.add_argument("--diagnose-failed-stage", action="store_true",
@@ -318,9 +319,14 @@ def parse(unit, argv, default_models):
         _requires_resume(parser, args, "--accept-transport-change")
     if args.retry_report:
         _requires_resume(parser, args, "--retry-report")
-    if args.job_retry_token and not (args.retry_failed_stage and args.resume_paused and args.run_dir):
-        parser.error("--job-retry-token requires --run-dir --resume-paused --retry-failed-stage" if not args.run_dir
-                     else "--job-retry-token requires --resume-paused --retry-failed-stage")
+    # The token also binds a stopped job's model answer to the stop a person inspected (#463).
+    names_job_model = (bool(args.answer) and all(item.startswith("route-") for item in args.answer)
+                       and not (args.resume_paused or args.retry_failed_stage))
+    if args.job_retry_token and not args.run_dir:
+        parser.error("--job-retry-token requires --run-dir --resume-paused --retry-failed-stage")
+    if args.job_retry_token and not names_job_model and not (args.retry_failed_stage and args.resume_paused):
+        parser.error("--job-retry-token requires --resume-paused --retry-failed-stage, "
+                     "or --answer route-ROLE=MODEL alone to name a stopped job's model")
     if args.retry_failed_stage:
         _requires_resume(parser, args, "--retry-failed-stage")
     if args.diagnose_failed_stage:

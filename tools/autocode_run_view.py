@@ -262,6 +262,16 @@ def evidence(state: dict) -> dict:
     }
 
 
+def _route(question: dict) -> dict:
+    """``needs.route``: a role's model question after a quota stop or a content-filter refusal (#184, #463)."""
+    route = {"question_id": question["id"], "role": question["route_role"], "job": question.get("job"),
+             "current_model": question.get("current_model"), "engine": question.get("engine"),
+             "cause": question.get("cause", "quota"), "stopped_model": question.get("stopped_model")}
+    if "candidates" in question:
+        route["candidates"] = list(question["candidates"])
+    return route
+
+
 def needs(state: dict, *, stale_report_repair=False) -> dict | None:
     """What must happen next for the run to progress, or None when it is complete.
 
@@ -275,6 +285,10 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
     resume        a person to inspect a pause       --resume-paused, after resolving stop_reason;
                                                      when `abandon_stage` is set, --abandon-stage
                                                      ATTEMPT first (the attempt is uncertain)
+    retry_job     a person to inspect a stopped job  --resume-paused --retry-failed-stage --job-retry-token
+                                                     TOKEN; with `route` set (quota or a content-filter
+                                                     refusal), --answer route-ROLE=MODEL --job-retry-token
+                                                     TOKEN first names another model and issues a new token
     recover_source missing original identity       inspect archive and source before a new run
     continue      nothing; relaunch to proceed      the same command with --run-dir
     """
@@ -284,7 +298,7 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
     failure = state.get('job_failure') or {}
     if status in ('PAUSED_JOB_FAILURE', 'PAUSED_STAGE_ABANDONED') and failure:
         known_source = bool(failure.get('source_identity'))
-        return {'kind': 'retry_job' if known_source else 'recover_source',
+        need = {'kind': 'retry_job' if known_source else 'recover_source',
                 'reason': failure['reason'], 'stage': failure['stage'],
                 'attempt_id': failure['attempt_id'], 'job_retry_token': failure['job_retry_token'],
                 'archive': failure['archive'], 'source_identity': failure['source_identity'],
@@ -297,6 +311,12 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                                   'Exact retry is unavailable because this attempt has no saved original source identity. '
                                   'Inspect the archived attempt and current changes before starting a new run. '
                                   'The current checkout cannot establish the missing original identity.')}
+        # A job stopped on quota or by its provider's content filter (#463) keeps its model question on
+        # the failure: --answer route-ROLE=MODEL --job-retry-token TOKEN names another model and issues a
+        # new token for the exact retry. Same shape as the answer need's ``route``.
+        if known_source and isinstance(failure.get('route'), dict):
+            need['route'] = _route(failure['route'])
+        return need
     if status == "WAITING_FOR_DEPENDENCY":
         return {"kind": "dependency", "reason": state.get("stop_reason"),
                 "producer_run": (state.get("dependency_wait") or {}).get("producer_run")}
@@ -337,11 +357,7 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
         route = next((q for q in questions if q.get("category") == quota_route.CATEGORY
                       and quota_route.asked_route(questions, q.get("id"))), None)
         if route:
-            answer["route"] = {"question_id": route["id"], "role": route["route_role"], "job": route.get("job"),
-                               "current_model": route.get("current_model"), "engine": route.get("engine"),
-                               "cause": route.get("cause", "quota"), "stopped_model": route.get("stopped_model")}
-            if "candidates" in route:
-                answer["route"]["candidates"] = list(route["candidates"])
+            answer["route"] = _route(route)
         return answer
     if status == "AWAITING_GOAL_APPROVAL":
         # The approval token is saved when the CLI displays the plan; until then, relaunch to display it.
