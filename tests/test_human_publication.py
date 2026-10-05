@@ -10,6 +10,7 @@ import sys
 import unittest
 from unittest.mock import Mock, patch
 
+import autocode_args
 import autocode as runner, autocode_resolver_human as human, autocode_support as support
 import autocode_run_actions as run_actions
 from . import test_resolver_human, test_subprocess
@@ -21,6 +22,37 @@ class HumanPublicationTests(unittest.TestCase):
     queue_question = test_resolver_human.ResolverHumanTests.queue_question
     request = test_resolver_human.ResolverHumanTests.request
     publish_operational = test_resolver_human.ResolverHumanTests.publish_operational
+
+    def test_resume_companions_recognize_only_a_current_operational_pause(self):
+        run = Path(self.state['run_dir'])
+        self.assertTrue(runner.resolver_runtime.record_operational_exhaustion(
+            runner, self.state, run, support.Paused('PAUSED_TIMEOUT_RECOVERY', 'Recovery exhausted')))
+        runner.write_json(run / 'state.json', self.state)
+        self.assertEqual('WAITING_FOR_USER', self.state['status'])
+        argv = ['resume', '--run-dir', str(run)]
+        before = (run / 'state.json').read_bytes()
+        for flags in (['--grant-recovery', '1'], ['--retry-failed-stage'], ['--retry-builder', 'M2'],
+                      ['--retry-report', '001/sol-01'], ['--diagnose-failed-stage'],
+                      ['--accept-transport-change'], ['--expected-recovery-token', 'inspected'],
+                      ['--max-seconds', '60']):
+            with self.subTest(flags=flags):
+                args, _ = autocode_args.parse(None, [*argv, *flags], runner.DEFAULT_ROLE_MODELS)
+                self.assertTrue(args.resume_paused)
+        for flags in ([], ['--status'], ['--feedback', 'smaller']):
+            with self.subTest(flags=flags):
+                args, _ = autocode_args.parse(None, [*argv, *flags], runner.DEFAULT_ROLE_MODELS)
+                self.assertFalse(args.resume_paused)
+        self.assertEqual(before, (run / 'state.json').read_bytes(), 'parsing must not change the receipt')
+
+        self.state['active_seconds'] += 1
+        support.atomic_json(run / 'state.json', self.state)
+        args, _ = autocode_args.parse(None, [*argv, '--max-seconds', '60'], runner.DEFAULT_ROLE_MODELS)
+        self.assertFalse(args.resume_paused, 'a stale operational request cannot authorize the shortcut')
+        self.queue_question()
+        runner.write_json(run / 'state.json', self.state)
+        self.assertEqual('clarification', human.current(self.state)['scope'])
+        args, _ = autocode_args.parse(None, [*argv, '--max-seconds', '60'], runner.DEFAULT_ROLE_MODELS)
+        self.assertFalse(args.resume_paused, 'a valid ordinary question is not an operational pause')
 
     def test_recovery_grant_validates_published_request_before_resume_epoch_changes(self):
         import autocode_args
@@ -281,9 +313,23 @@ class HumanResponseCLITests(unittest.TestCase):
     def test_grant_recovery_requires_a_timeout_exhausted_pause(self):
         run, stopped = self.stopped_operational_checkpoint()
         before = (run / 'state.json').read_bytes()
-        result = self.launch(['--run-dir', str(run), '--resume-paused', '--grant-recovery', '1', '--no-chat'], 2)
-        self.assertIn('requires a run paused for exhausted timeout recovery', result.stderr)
-        self.assertEqual(before, (run / 'state.json').read_bytes())
+        for resume in ('--resume-paused', 'resume'):
+            with self.subTest(resume=resume):
+                result = self.launch([resume, '--run-dir', str(run), '--grant-recovery', '1', '--no-chat'], 2)
+                self.assertIn('requires a run paused for exhausted timeout recovery', result.stderr)
+                self.assertEqual(before, (run / 'state.json').read_bytes())
+
+    def test_resume_word_grants_recovery_for_a_published_timeout_pause(self):
+        run, paused = self.timeout_exhausted_checkpoint()
+        self.assertEqual('WAITING_FOR_USER', paused['status'])
+        probe = self.root / 'resume-recovery-launches.jsonl'
+        self.env['AUTOCODE_REGISTRY_LAUNCH_PROBE'] = str(probe)
+        held = self.launch(['resume', '--run-dir', str(run), '--no-chat'], 2)
+        self.assertNotIn('Recovery grant recorded', held.stdout)
+        self.assertFalse(probe.exists(), 'bare resume cannot grant recovery credit')
+        result = self.launch(['resume', '--run-dir', str(run), '--grant-recovery', '1', '--no-chat'], 2)
+        self.assertIn('Recovery grant recorded: 1', result.stdout)
+        self.assertTrue(probe.exists(), 'the authorized recovery must reach the provider')
 
     def test_grant_accepts_corrected_timeouts_in_the_same_cli_invocation(self):
         run, exhausted = self.timeout_exhausted_checkpoint()

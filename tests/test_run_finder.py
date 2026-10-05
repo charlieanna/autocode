@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import shlex
 import sys
 import tempfile
 import unittest
@@ -567,6 +568,13 @@ class CommandLine(Fixture):
             with self.subTest(argv=argv):
                 self.assertIn("nothing to resume", self.parse_error(*argv))
 
+    def test_resume_does_not_acknowledge_an_unverified_operational_request(self):
+        self.run_in(self.project, status="WAITING_FOR_USER",
+                    resolver_human_request={"scope": "operational_exhaustion"})
+        self.assertFalse(self.parse("resume")[0].resume_paused)
+        self.assertIn("--grant-recovery requires --resume-paused",
+                      self.parse_error("resume", "--grant-recovery", "1"))
+
     def test_the_notice_names_the_run_on_one_stderr_line_that_is_never_read_as_a_rejection(self):
         run = self.run_in(self.project)
         _, notice = self.parse("--status")
@@ -656,6 +664,28 @@ class CommandLine(Fixture):
         for run in runs:
             self.assertIn(f"autocode --run-dir {run} --answer 'Q1=CLI only'", message)
         self.assertNotIn("--workspace", message.split("unfinished AutoCode runs", 1)[1])
+
+    def test_ambiguous_resume_suggestions_preserve_the_command_and_companions(self):
+        runs = {self.run_in(self.project, name=name, status="PAUSED_TIMEOUT_RECOVERY")
+                for name in ("first paused run", "second paused run")}
+        for argv in (["resume"], ["--no-chat", "resume"], ["resume", "--retry-failed-stage"],
+                     ["resume", "--grant-recovery", "2"], ["resume", "--unit", "autoplanner"],
+                     ["resume", "--status"], ["resume", "--feedback", "resume"]):
+            with self.subTest(argv=argv):
+                message = self.parse_error(*argv)
+                commands = [shlex.split(line.strip())[1:] for line in message.splitlines()
+                            if line.strip().startswith("autocode --run-dir ")]
+                self.assertEqual(2, len(commands))
+                chosen = []
+                for command in commands:
+                    args, _ = self.parse(*command)
+                    chosen.append(args.run_dir)
+                    self.assertEqual(not any(flag in argv for flag in ("--status", "--feedback")),
+                                     args.resume_paused)
+                    self.assertEqual("--retry-failed-stage" in argv, args.retry_failed_stage)
+                    self.assertEqual(2 if "--grant-recovery" in argv else None, args.grant_recovery)
+                    self.assertEqual("autoplanner" if "--unit" in argv else None, args.unit)
+                self.assertEqual(runs, set(chosen))
 
 
 class InProcessCli(Fixture):
