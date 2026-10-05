@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "boltons-indexedset-update",
+      "project": "Boltons",
+      "repository": "https://github.com/mahmoud/boltons.git",
+      "issue_ref": "mahmoud/boltons#474",
+      "source": "https://github.com/mahmoud/boltons/pull/474",
+      "base_commit": "e00c10a809525027b8167fbb7ac233cfc25a01f5",
+      "reference_commit": "a180020c760b532e8889f161d97d05647adfee8c",
+      "split": "development",
+      "checks": ["lists", "tuples", "iterators", "tuple_members", "empty_and_single"]
+    },
+    {
+      "id": "humanize-intcomma-large",
+      "project": "Humanize",
+      "repository": "https://github.com/python-humanize/humanize.git",
+      "issue_ref": "python-humanize/humanize#392",
+      "source": "https://github.com/python-humanize/humanize/pull/392",
+      "base_commit": "14965a74953eb5119859975e7c452a04b481cdae",
+      "reference_commit": "984526c02448110a8392dde3f5e26096dfd7c729",
+      "split": "regression",
+      "checks": ["large_positive", "large_negative", "ordinary_inputs", "nonfinite"]
+    },
+    {
+      "id": "more-itertools-custom-exceptions",
+      "project": "More Itertools",
+      "repository": "https://github.com/more-itertools/more-itertools.git",
+      "issue_ref": "more-itertools/more-itertools#1279",
+      "source": "https://github.com/more-itertools/more-itertools/pull/1279",
+      "base_commit": "4ebeea3e569388911a0bec740092f3cf996d79f3",
+      "reference_commit": "b2f3aff7633057d234ec9186c18a53f4df306d08",
+      "split": "holdout",
+      "checks": ["one_empty_custom", "one_many_custom", "only_many_custom", "one_no_repr", "only_no_repr", "ordinary_inputs"]
+    }
+  ]
+}
