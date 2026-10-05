@@ -556,10 +556,11 @@ def per_test_results(framework, receipt, xml_path, *, tree=None) -> dict | None:
                 setup_errors[test] = reason
         passed -= failed
         # "setUpClass (m.C) ... skipped" or ERROR (also setUpModule, tearDown*) is outside "Ran N": a
-        # skipped fixture names no test (its tests are absent from N); an error is one more failure.
+        # skipped fixture names no test (its tests are absent from N); an error is one more failure, but
+        # never a test: "Ran 0" with only fixture errors stays zero tests, so it proves nothing.
         fixtures = {test for test in skipped | failed if test.rpartition("::")[2] in UNITTEST_FIXTURES}
         skipped -= fixtures
-        total += len(fixtures & failed)
+        total += len(fixtures & failed) if total else 0
         collection = {test for test in failed if COLLECTION_ERROR.search(test)}
         complete = len(passed) + len(skipped) + len(failed) >= total
     results = {"passed": sorted(passed), "failed": sorted(failed), "skipped": sorted(skipped),

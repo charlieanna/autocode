@@ -1064,6 +1064,7 @@ class VerifyCase(unittest.TestCase):
             "setUpClass skip": ("class Skipped(unittest.TestCase):\n    @classmethod\n    def setUpClass(cls):\n"
                                 "        raise unittest.SkipTest('needs a service')\n    def test_a(self): pass\n",
                                 0, [], "passing"),
+            "setUpModule skip in another module": ("", 0, [], "passing"),
             "setUpClass skip, class cleanup error": (
                 "class Skipped(unittest.TestCase):\n    @classmethod\n    def setUpClass(cls):\n"
                 "        cls.addClassCleanup(int, 'x')\n        raise unittest.SkipTest('needs a service')\n"
@@ -1074,9 +1075,13 @@ class VerifyCase(unittest.TestCase):
             "tearDownModule error": ("def tearDownModule():\n    raise RuntimeError('down')\n",
                                      1, ["test_x::tearDownModule"], "failing_tests"),
         }
+        beside = {"setUpModule skip in another module": "import unittest\ndef setUpModule():\n"
+                  "    raise unittest.SkipTest('needs a service')\n"
+                  "class Db(unittest.TestCase):\n    def test_a(self): pass\n"}
         for name, (extra, exit_code, failed, health) in cases.items():
             with self.subTest(name):
-                project.write({"test_x.py": "import unittest\n" + extra + classes})
+                project.write({"test_x.py": "import unittest\n" + extra + classes,
+                               "test_y.py": beside.get(name, "")})
                 result = verify.scratch_run(project.root, project.evidence / name.replace(" ", "-"),
                                             command=command)
                 self.assertEqual((exit_code, ""), (result["exit_code"], result["error"]), result)
@@ -1085,11 +1090,17 @@ class VerifyCase(unittest.TestCase):
                 self.assertTrue(schedule.complete_results(result), result)
                 self.assertEqual(health, verify.suite_health(result))
         # Fixtures never stand in for tests: zero tests, or a missing test line, stays incomplete.
-        project.write({"test_x.py": "import unittest\ndef setUpModule():\n    raise unittest.SkipTest('no')\n"
-                                    + classes})
-        result = verify.scratch_run(project.root, project.evidence / "module-skip", command=command)
-        self.assertIn("zero tests", result["error"])
-        self.assertEqual("broken", verify.suite_health(result))
+        zero = {"module skip": ("def setUpModule():\n    raise unittest.SkipTest('no')\n" + classes, 0,
+                                "Test command reported zero tests or incomplete per-test results"),
+                "only a setUpClass error": (cases["setUpClass error"][0], 1, "")}
+        for name, (source, exit_code, error) in zero.items():
+            with self.subTest(name):
+                project.write({"test_x.py": "import unittest\n" + source})
+                result = verify.scratch_run(project.root, project.evidence / name.replace(" ", "-"), command=command)
+                self.assertEqual((exit_code, error, 0), (result["exit_code"], result["error"],
+                                                         result["results"]["total"]), result)
+                self.assertFalse(schedule.complete_results(result))
+                self.assertEqual("broken", verify.suite_health(result))
         log = project.evidence / "truncated.log"
         log.write_text("setUpClass (m.S) ... skipped 'x'\ntest_a (m.C.test_a) ... ok\n"
                        "tearDownClass (m.C) ... ERROR\n\nRan 2 tests in 0.1s\n\nFAILED (errors=1, skipped=1)\n")
@@ -1099,6 +1110,28 @@ class VerifyCase(unittest.TestCase):
                          (results["passed"], results["failed"], results["skipped"], results["total"],
                           results["complete"]))
         self.assertFalse(schedule.complete_results({"results": results}))
+
+    def test_a_suite_of_only_fixture_errors_never_proves_existing_behavior_kept(self):
+        """Review of #416: "Ran 0 tests" and one setUpModule ERROR on base and candidate is not a PASS."""
+        project = self.project({"calc.py": "def add(a, b):\n    return a - b\n",
+                                "test_db.py": "import unittest\ndef setUpModule():\n"
+                                              "    raise RuntimeError('database is not reachable')\n"
+                                              "class Db(unittest.TestCase):\n    def test_query(self): pass\n"})
+        project.write({"calc.py": "def add(a, b):\n    return a + b\n",
+                       "test_calc.py": "import unittest\nfrom calc import add\nclass Add(unittest.TestCase):\n"
+                                       "    def test_add(self):\n        self.assertEqual(3, add(1, 2))\n"})
+        framework = verify.detect_framework(project.root)
+        suite = f"{sys.executable} -m unittest -v test_db"
+        base_suite = verify.baseline(project.root, project.base, project.evidence, framework=framework,
+                                     suite_command=suite, timeout=120)
+        result = verify.verify(project.root, project.base, project.evidence, framework=framework,
+                               base_suite=base_suite, suite_command=suite, timeout=120)
+        self.assertEqual((verify.UNVERIFIED, ["The project suite reported zero tests or incomplete per-test results"]),
+                         (result["verdict"], result["unverified"]), result)
+        self.assertEqual(["test_calc.Add.test_add"], result["fail_to_pass"], result)
+        self.assertEqual(("broken", ["test_db::setUpModule"], 0),
+                         (base_suite["health"], base_suite["receipt"]["results"]["failed"],
+                          base_suite["receipt"]["results"]["total"]))
 
     def test_pytest_failure_then_teardown_error_is_one_complete_failed_test(self):
         """pytest's JUnit XML reports a failing test whose teardown errors as two testcases of one id."""
