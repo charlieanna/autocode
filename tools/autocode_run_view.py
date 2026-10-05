@@ -289,6 +289,8 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                                                      TOKEN; with `route` set (quota or a content-filter
                                                      refusal), --answer route-ROLE=MODEL --job-retry-token
                                                      TOKEN first names another model and issues a new token
+                                                     (after a refusal, `action` is that answer until a
+                                                     model is named)
     recover_source missing original identity       inspect archive and source before a new run
     continue      nothing; relaunch to proceed      the same command with --run-dir
     """
@@ -316,6 +318,12 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
         # new token for the exact retry. Same shape as the answer need's ``route``.
         if known_source and isinstance(failure.get('route'), dict):
             need['route'] = _route(failure['route'])
+            # Until a person names another model (job_failure.route_assignment), the exact retry of a
+            # refused job would replay the refused model: the next step is the answer. job_retry_token
+            # stays, since the CLI still accepts it. A quota stop keeps the retry (the quota resets).
+            if (need['route']['cause'] == 'content_filter'
+                    and not isinstance(failure.get('route_assignment'), dict)):
+                need['action'] = f"--answer {need['route']['question_id']}=MODEL --job-retry-token TOKEN"
         return need
     if status == "WAITING_FOR_DEPENDENCY":
         return {"kind": "dependency", "reason": state.get("stop_reason"),

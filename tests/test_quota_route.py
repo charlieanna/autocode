@@ -348,13 +348,21 @@ class QuotaRouteTests(unittest.TestCase):
                                                      failure_status=support.failure_status,
                                                      abandoning="001/validator-01"))
 
-    def test_the_retry_job_need_carries_the_jobs_model_question(self):
-        state = self.job_state()
+    def routed_job(self, error=REFUSED, pause_status="PAUSED_CONTENT_FILTER"):
+        """A job stop as job_failure.recover saves it, its model question on the failure."""
+        state = self.job_state(error, pause_status=pause_status)
         state["job_failure"].update(reason="r", archive="a", source_identity="s", write_diagnosis={}, unrestored=[],
                                     route=quota_route.question(state, self.stopped(state)))
+        return state
+
+    def test_the_retry_job_need_carries_the_jobs_model_question(self):
+        state = self.routed_job()
         view = run_view.view(state)
-        self.assertEqual(("retry_job", "--resume-paused --retry-failed-stage --job-retry-token TOKEN"),
-                         (view["needs"]["kind"], view["needs"]["action"]))
+        # The exact retry would replay the refused model: the next step names another one, and the card
+        # offers no retry until a person has. The token stays on the need (the CLI still accepts it).
+        self.assertEqual(("retry_job", "--answer route-sol=MODEL --job-retry-token TOKEN", "jr:t"),
+                         (view["needs"]["kind"], view["needs"]["action"], view["needs"]["job_retry_token"]))
+        self.assertEqual(["inspect", "feedback"], [row["kind"] for row in view["recovery"]["actions"]])
         self.assertEqual({"question_id": "route-sol", "role": "sol", "job": "Code Reviewer",
                           "current_model": "gpt-5.6-sol", "engine": "codex", "cause": "content_filter",
                           "stopped_model": "gpt-5.6-sol"}, view["needs"]["route"])
@@ -362,6 +370,31 @@ class QuotaRouteTests(unittest.TestCase):
                       view["recovery"]["what_happened"])
         del state["job_failure"]["route"]
         self.assertNotIn("route", run_view.view(state)["needs"])
+
+    def test_a_stopped_job_offers_its_exact_retry_after_a_model_is_named_or_a_quota_stop(self):
+        retry = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
+
+        def offered(state):
+            view = run_view.view(state)
+            return (view["needs"]["action"],
+                    [(row["kind"], row.get("job_retry_token")) for row in view["recovery"]["actions"]])
+
+        # Once a person named another model, the retry with the new token is the way on.
+        named = self.routed_job()
+        named["job_failure"].update(job_retry_token="jr:new", route_assignment={"role": "sol", "to": "gpt-6-luna"})
+        self.assertEqual((retry, [("inspect", None), ("retry_job", "jr:new"), ("feedback", None)]), offered(named))
+        # After a quota stop, the unchanged retry once the quota resets is one too.
+        quota = self.routed_job(QUOTA, "PAUSED_BUDGET")
+        self.assertEqual((retry, [("inspect", None), ("retry_job", "jr:t"), ("feedback", None)]), offered(quota))
+        # A refusal with no model question (the stuck-stage Investigator) keeps only its exact retry.
+        unrouted = self.routed_job()
+        del unrouted["job_failure"]["route"]
+        self.assertEqual((retry, [("inspect", None), ("retry_job", "jr:t"), ("feedback", None)]), offered(unrouted))
+        # Set aside by a person (PAUSED_STAGE_ABANDONED), a refusal still offers no retry and no resume.
+        abandoned = self.routed_job()
+        abandoned["status"] = "PAUSED_STAGE_ABANDONED"
+        self.assertEqual(("--answer route-sol=MODEL --job-retry-token TOKEN", [("inspect", None), ("feedback", None)]),
+                         offered(abandoned))
 
 
 if __name__ == "__main__":

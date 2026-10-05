@@ -441,9 +441,16 @@ the CLI refuses a `--ROLE-model` change for the stopped role at this stop (it wo
 make the exact retry stale), unless it puts back the model the retry is bound to.
 The answer carries no other setting: given with a limit or another role's model it
 is refused and nothing is saved, and the CLI refuses it next to
-`--resume-paused --retry-failed-stage` (the retry needs the new token). Once a model
+`--resume-paused --retry-failed-stage` (the retry needs the new token). After a
+refusal, until a model is named, the need's `action` is that answer
+(`--answer route-ROLE=MODEL --job-retry-token TOKEN`) and the recovery card offers
+no `retry_job` action, since the exact retry would replay the refused model; the
+CLI still accepts the shown token. A quota stop keeps the retry in both, for once
+the quota resets. Once a model
 is named, `progress.needs_you` and the recovery card's `what_happened` ask only for
-the retry on it. The Architect, Analyst
+the retry on it, and `action` and the card's `retry_job` carry that retry. The
+same holds when the job's uncertain attempt was set aside with `--abandon-stage`:
+the reason keeps the refusal or quota, the model and the provider's words. The Architect, Analyst
 and Investigator routes have no flag; only this answer moves them (an
 `--investigator-model` in the options pins the stuck-stage Investigator and is left
 as it is).

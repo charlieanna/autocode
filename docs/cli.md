@@ -253,7 +253,9 @@ the job's model question. `--job-retry-token` is accepted without `--resume-paus
 `--answer route-ROLE=MODEL --job-retry-token TOKEN` checks the model the way a launch
 would, records a `route_assignment` and issues a new token for the new model. The
 old token stops working, and the exact retry with the new token is the only way on:
-`--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN`. The Architect,
+`--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN`. After a refusal,
+until a model is named, the status view's `needs.action` is that answer and the
+recovery card offers no retry, since the exact retry would replay the refused model. The Architect,
 Analyst and Investigator have no `--ROLE-model` flag, so this answer is how they
 move. The answer changes only that model: given with a limit or another role's
 model, with or without its token, it is refused and nothing is saved. It issues a

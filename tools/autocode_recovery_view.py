@@ -129,6 +129,17 @@ def _job_model_stop(state, role):
     return None
 
 
+def _awaits_model(state, need):
+    """A workflow job its provider's content filter refused, with no other model named yet (#463).
+
+    Its exact retry would replay the refused model, so the card offers it only once a person named
+    another model (``route_assignment``, retried with the new token). A quota stop keeps it (the
+    quota resets), and so does a refusal with no model question (the exact retry is its only way on).
+    """
+    return (_dict(need.get('route')).get('cause') == 'content_filter'
+            and not isinstance(_dict(state.get('job_failure')).get('route_assignment'), dict))
+
+
 def _action(kind, label, effect, **fields):
     return {'id': kind + (':' + ','.join(fields['milestone_ids']) if fields.get('milestone_ids') else ''), 'kind': kind, 'label': label, 'effect': effect, **fields}
 
@@ -223,7 +234,8 @@ def project(state, need=None):
     if attempt is not None and (uncertain or prescribed):
         actions.append(_action('abandon', 'Recover saved work', 'Reconcile this exact interrupted attempt and keep its partial work. Resume is a separate action.', attempt_id=attempt))
     elif need.get('kind') == 'retry_job' and need.get('job_retry_token'):
-        actions.append(_action('retry_job', 'Retry the inspected step', 'Allow one fresh attempt at this recorded failure. Existing scope, model settings and verification gates still apply.', job_retry_token=need['job_retry_token']))
+        if not _awaits_model(state, need):
+            actions.append(_action('retry_job', 'Retry the inspected step', 'Allow one fresh attempt at this recorded failure. Existing scope, model settings and verification gates still apply.', job_retry_token=need['job_retry_token']))
     elif (members := _builder_members(state, cause)):
         actions.append(_action('retry_builder', 'Retry the stopped Builder', 'Grant one attempt for the listed task after inspection, preserving failure history and model pins. This does not approve a different plan.', milestone_ids=members))
     elif need.get('action') == '--resume-paused' and state.get('pending_report_repair'):

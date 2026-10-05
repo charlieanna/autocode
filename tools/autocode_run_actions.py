@@ -368,7 +368,7 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
         return 2
     if args.abandon_stage is not None:
         try:
-            runner.abandon_stage(state, run_dir, workspace, args.abandon_stage)
+            runner.abandon_stage(state, run_dir, workspace, args.abandon_stage, launch=runner)
         except ValueError as error:
             print(f"Input rejected: {error}", file=sys.stderr)
             return 2

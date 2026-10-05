@@ -99,8 +99,8 @@ def _route_reason(failure):
 def _question(runtime, state, attempt):
     """The stopped job's model question (quota_route.question) with the runtime's launch rules, when it has them.
 
-    ``runtime`` is sometimes autocode_run_records, without the cross-model rule or the provider:
-    the question then lists no candidates.
+    ``runtime`` is the runner, or anything with its ``dispatch`` and ``opencode``. Without them
+    (a pure caller) the question lists no candidates.
     """
     return quota_route.question(
         state, attempt,
@@ -126,7 +126,14 @@ def _reasked(runtime, state, failure):
     return route
 
 
-def recover(runtime, state, run_dir, workspace, error=None, *, abandoned=False):
+def recover(runtime, state, run_dir, workspace, error=None, *, abandoned=False, launch=None):
+    """Pause a stopped workflow job for one exact retry; False when the active stage is not one.
+
+    ``launch`` carries the launch rules (``dispatch``, ``opencode``) a job stopped on its model
+    lists its question's candidates with; it defaults to ``runtime``. A person setting the attempt
+    aside (``abandoned``, autocode_stage_recovery.abandon_stage) passes the run records as
+    ``runtime`` and the runner as ``launch``, so that stop is the one a direct stop makes.
+    """
     record = state.get('active_stage') or {}
     stage = owner(record)
     if getattr(error, 'status', None) in ('PAUSED_PROCESS_CLEANUP', 'PAUSED_WORKSPACE_BUSY'):
@@ -142,7 +149,11 @@ def recover(runtime, state, run_dir, workspace, error=None, *, abandoned=False):
     kind, reason = _reason(runtime, record, error)
     original_attempt = runtime.attempt_id(record)
     if abandoned:
-        reason = f'Operator abandoned {roles.screen_name(stage)} attempt {original_attempt}; inspect its retained work before an explicit fresh retry.'
+        note = (f'Operator abandoned {roles.screen_name(stage)} attempt {original_attempt}; '
+                'inspect its retained work before an explicit fresh retry.')
+        # A cause read from the attempt (a refusal or quota with its model and the provider's words,
+        # a limit) stays first. The generic exit fallback has no error to name on this path.
+        reason = note if kind == 'exit' else reason + ('' if reason.endswith('.') else '.') + ' ' + note
     restoration = source.restore(workspace, record)
     if restoration['unrestored']:
         reason += '; unrestored source: ' + ', '.join(restoration['unrestored'])
@@ -178,7 +189,7 @@ def recover(runtime, state, run_dir, workspace, error=None, *, abandoned=False):
     attempt = ('pause_status' in failure
                and quota_route.stopped_attempt(state, failure_status=runtime.support.failure_status))
     if attempt and attempt['kind'] == 'job':
-        failure['route'] = _question(runtime, state, attempt)
+        failure['route'] = _question(launch or runtime, state, attempt)
         failure['reason'] = state['stop_reason'] = (
             reason + ('' if reason.endswith('.') else '.') + ' '
             + quota_route.advice(failure['route'], original_attempt, kind='job'))

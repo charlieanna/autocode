@@ -305,7 +305,9 @@ model flag alone (`--terra-model`) is refused and names only the other route:
 A refused workflow job pauses for its exact retry, as a quota stop of a job does
 ([above](#when-the-stopped-role-is-a-workflow-job)): name another model with
 `--answer route-ROLE=MODEL --job-retry-token TOKEN`, then retry with the new token.
-That answer refuses the model that was refused. The job's own retry token still
-replays the refused model if you retry without naming one.
+That answer refuses the model that was refused. Until you name one, the status
+view's `needs.action` is that answer and the recovery card offers no retry. The
+job's own retry token still replays the refused model if you retry without naming
+one.
 
 See also: [Providers](providers.md) · [Workflow](workflow.md) · [CLI](cli.md)

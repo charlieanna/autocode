@@ -104,11 +104,14 @@ class JobModelRouteTests(JobHarness):
         self.assertNotIn('--abandon-stage', need['reason'])
         self.assertNotRegex(need['reason'], MODEL_FLAG)
         self.assertNotIn(need['job_retry_token'], need['reason'], 'tokens stay placeholders in prose')
+        # The exact retry would replay the refused model: the next step the need and the card name is another
+        # model, and no card action retries until one is named.
+        self.assertEqual('--answer route-sol=MODEL --job-retry-token TOKEN', need['action'])
         view = run.status()
         recovery = view['recovery']
         self.assertIn('content filter refused the Code Reviewer', recovery['what_happened'])
         self.assertIn('name another model for this job', recovery['what_happened'])
-        self.assertEqual(['inspect', 'retry_job', 'feedback'], [action['kind'] for action in recovery['actions']])
+        self.assertEqual(['inspect', 'feedback'], [action['kind'] for action in recovery['actions']])
         self.assertEqual('name another model for the Code Reviewer, then retry it', view['progress']['needs_you'])
         old = need['job_retry_token']
         self.rejected(run, '--answer', 'route-sol=gpt-6-luna', message='--job-retry-token TOKEN')
@@ -134,6 +137,9 @@ class JobModelRouteTests(JobHarness):
                       view['recovery']['what_happened'])
         self.assertNotIn('name another model', view['recovery']['what_happened'])
         self.assertEqual('retry the Code Reviewer on gpt-6-luna', view['progress']['needs_you'])
+        self.assertEqual('--resume-paused --retry-failed-stage --job-retry-token TOKEN', view['needs']['action'])
+        self.assertEqual([('inspect', None), ('retry_job', need['job_retry_token']), ('feedback', None)],
+                         [(action['kind'], action.get('job_retry_token')) for action in view['recovery']['actions']])
         # A second answer never routes back to the refused model, with the new token either.
         self.rejected(run, '--answer', 'route-sol=gpt-6-sol', '--job-retry-token', need['job_retry_token'],
                       message='refused gpt-6-sol')
@@ -172,7 +178,11 @@ class JobModelRouteTests(JobHarness):
                       '(subscription usage limit reached)', need['reason'])
         self.assertIn('once the quota resets, retry it unchanged with --resume-paused --retry-failed-stage '
                       '--job-retry-token TOKEN', need['reason'])
-        self.assertIn('quota', run.status()['recovery']['what_happened'])
+        # A retry once the quota resets is a way on too: the need and the card keep it beside the answer.
+        self.assertEqual('--resume-paused --retry-failed-stage --job-retry-token TOKEN', need['action'])
+        recovery = run.status()['recovery']
+        self.assertIn('quota', recovery['what_happened'])
+        self.assertEqual(['inspect', 'retry_job', 'feedback'], [action['kind'] for action in recovery['actions']])
         view = run.assign_model('sol', 'gpt-6-luna')
         self.assertEqual('PAUSED_BUDGET', view['route_assignments'][0]['pause_status'])
         view = run.retry_job(self.stopped(run)['job_retry_token'])
@@ -224,8 +234,21 @@ class JobModelRouteTests(JobHarness):
         proc = self.cli(run, '--abandon-stage', attempt)
         self.assertEqual(0, proc.returncode, proc.stderr)
         view = run.status()
+        need = view['needs']
         self.assertEqual(('PAUSED_STAGE_ABANDONED', 'retry_job', 'route-sol'),
-                         (view['status'], view['needs']['kind'], view['needs']['route']['question_id']))
+                         (view['status'], need['kind'], need['route']['question_id']))
+        # Set aside by a person, the stop is the one a direct refusal makes: the runner's launch rules list the
+        # configured models that would pass, and the reason keeps the refusal, the model and the provider's words.
+        self.assertTrue(need['route']['candidates'], 'the run configures another model that passes the launch rules')
+        self.assertNotIn('gpt-6-sol', need['route']['candidates'])
+        self.assertIn("Code Reviewer: the provider's content filter refused the response on gpt-6-sol "
+                      "(ContentFilterError: The response was blocked by the content filter)", need['reason'])
+        self.assertIn(f'Operator abandoned Code Reviewer attempt {attempt}', need['reason'])
+        self.assertIn('--answer route-sol=MODEL --job-retry-token TOKEN', need['reason'])
+        self.assertIn(need['route']['candidates'][0], need['reason'])
+        self.assertEqual(need['reason'], view['stop_reason'])
+        self.assertEqual('--answer route-sol=MODEL --job-retry-token TOKEN', need['action'])
+        self.assertEqual(['inspect', 'feedback'], [action['kind'] for action in view['recovery']['actions']])
         run.assign_model('sol', 'gpt-6-luna')
         view = run.retry_job(run.status()['needs']['job_retry_token'])
         self.assertTrue(view['done'], view)
