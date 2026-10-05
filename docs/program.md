@@ -22,7 +22,7 @@ workstream without explicit authorization.
  autocode program derive -> program.json  (one workstream per approved milestone + integration)
      |                      you review or edit it
      v
- autocode program run   ->  integration branch  autocode/program-<name>/integration
+ autocode program run   ->  integration branch  autocode/program-<key>/integration
                              wave 1: workstreams with no dependencies, one worktree each
                              merge --no-ff on completion
                              wave 2: dependents branch from the merged integration head
@@ -105,8 +105,10 @@ autocode program run program.json --workspace /path/to/project --max-parallel 2
 Each invocation does one pass:
 
 1. Creates the integration branch and worktree on first use (from the project's
-   committed `HEAD`, under `.autocode/worktrees/program-<name>-integration`).
-2. Refreshes every launched workstream from its child run's saved `state.json`.
+   committed `HEAD`, under `.autocode/worktrees/program-<key>-integration`). `<key>` is
+   the program name as a slug plus a short hash of it.
+2. Refreshes every launched workstream from its child run's status view
+   (`autocode --status`, read through the [task-run interface](task-run.md)).
 3. Checks each completed non-integration workstream's delivered changes against `owns`,
    including committed changes, deletions, rename source/destination paths and new files.
    Only then commits and merges (`--no-ff`). Out-of-scope changes pause without merging.
@@ -114,13 +116,18 @@ Each invocation does one pass:
 4. Starts every workstream whose dependencies are all merged, up to `--max-parallel`
    at once, each in a fresh worktree branched from the current integration head.
    Child runs are ordinary `autocode <brief> --in-place --no-chat` runs; `--engine`
-   and any unrecognized flags are passed through to them.
+   and any unrecognized flags are passed through to them when they start. A resumed
+   child keeps its saved settings. Each child is invoked at most once per pass.
 5. Prints a JSON summary and exits `0` only when every workstream is merged.
 
 A child run pauses at its own human gates. The summary lists each waiting run
-directory; answer or approve there with the normal CLI, then rerun `program run`. A
-run you have acted on (its saved status is back to `RUNNING`) is resumed by the
-program; a run still at a gate or at any `PAUSED_*` status is left alone.
+directory with what the child needs (`needs`: its `kind`; for a plan approval, the
+`token` to approve; for a question, its `request_kind`, `resolver_scope`,
+`resolver_request_id` and each question's `id` and text, never an answer token) and
+its one-line `progress`; answer or approve there with the
+normal CLI, then rerun `program run`. A run you have acted on (its status is back to
+`RUNNING`) is resumed by the program; a run still at a gate or at any `PAUSED_*`
+status is left alone.
 
 An operational failure requires an explicit retry after inspecting its logs:
 
@@ -129,11 +136,14 @@ autocode program run program.json --workspace /path/to/project --retry-workstrea
 ```
 
 The retry reuses the worktree and existing child checkpoint, if one was created. It
-does not approve a plan or resume a child-level pause. The controller persists the
-worktree and pre-launch run-directory list before invoking a child, allowing a later
-invocation to discover that child's saved checkpoint after a controller interruption.
-An interruption without a child checkpoint is marked failed and requires the same
-explicit retry. Missing or ambiguous checkpoints are refused rather than replaced.
+does not approve a plan or resume a child-level pause. The controller saves the
+worktree, and the runs already in it, before starting a child; after a controller
+interruption, a later invocation reattaches to the one child run created in that
+worktree since. A run that was already there, such as your own run in the integration
+worktree, is never adopted. An interruption without a child checkpoint is marked
+failed and requires the same explicit retry. A checkpoint whose status cannot be read
+(including one whose worktree was removed), or a worktree holding several new runs,
+is refused rather than replaced.
 
 | Program status | Meaning | Your next action |
 | --- | --- | --- |
@@ -147,12 +157,13 @@ explicit retry. Missing or ambiguous checkpoints are refused rather than replace
 | `COMPLETE` | Every workstream merged on the integration branch | Review the branch and merge it into your default branch yourself |
 
 `autocode program status program.json --workspace ...` prints the same summary without
-launching anything. A saved program's manifest is frozen: editing `program.json`
-after the first run is refused; start a new program name instead.
+launching anything: it reads each unfinished child's status view and saves nothing. A
+saved program's manifest is frozen: editing `program.json` after the first run is
+refused; start a new program name instead.
 
 ## What each child sees
 
-The composed brief (saved under `.autocode/programs/<name>/<workstream>/brief.md`)
+The composed brief (saved under `.autocode/programs/<key>/<workstream>/brief.md`)
 contains the program outcome, shared constraints, permission boundaries, technical
 approach and end-to-end flow, the shared interfaces, the prerequisite workstreams
 already merged on its branch, the workstream's own objective and acceptance criteria,
@@ -174,8 +185,9 @@ because those repairs make its worktree dirty. Its approved scope still applies.
 - No deployment without `--authorize-deployment`, and even then the deployment
   workstream is a normal reviewed run that must not reach external systems unless its
   own approved plan says so.
-- The program controller reads only saved child state. An exit code, elapsed time or a
-  Builder's report never marks a workstream complete.
+- The child's status view (`autocode --status`, via `autocode_taskrun`) is the only
+  source of a workstream's status; the program never reads a child's `state.json`. An
+  exit code, elapsed time or a Builder's report never marks a workstream complete.
 - Evidence stays per run: each child run's validation and completion records remain
   in its own run directory; the integration workstream is where the whole flow is
   independently validated on the merged code.
@@ -183,12 +195,13 @@ because those repairs make its worktree dirty. Its approved scope still applies.
   re-evaluates readiness after each batch finishes. There is no program-wide budget,
   cancellation/eviction API or automatic worktree cleanup in this version.
 
-Testing: `python3 -m unittest tests.test_program` covers manifest rules, derivation
-from an approved contract, wave order, worktree bases, merges, conflict pause and
-manual resolution, ownership enforcement, tracked integration repairs, contract
-propagation, explicit retries, interrupted checkpoint recovery, deployment gates on
-start/resume, and a real CLI first wave
-with the fake Codex provider. The `PROGRAM-01` scenario in [scenarios](scenarios.md)
-provides the end-to-end oracle for a live trial (`--mode program`).
+Testing: `.venv/bin/python -m unittest tests.test_program tests.test_program_children`
+covers manifest rules, derivation from an approved contract, wave order, worktree
+bases, merges, conflict pause and manual resolution, ownership enforcement, tracked
+integration repairs, contract propagation, explicit retries, interrupted checkpoint
+recovery, deployment gates on start/resume, the mapping from a child's status view to
+the workstream status, and a real CLI first wave with the fake Codex provider. The
+`PROGRAM-01` scenario in [scenarios](scenarios.md) provides the end-to-end oracle for a
+live trial (`--mode program`).
 
 See also: [Task lanes](task-lanes.md) · [Execution](execution.md) · [Workflow](workflow.md)
