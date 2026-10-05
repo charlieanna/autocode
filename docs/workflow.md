@@ -280,7 +280,9 @@ a new answer or feedback returns it to be proposed and reviewed again. Approval 
 while any obligation is open. `--delegate-all` and `--reject-assumption` act only on the
 revision you were shown, so both take its token with `--review-token`.
 Reviewer concerns have stable IDs; every concern requires a Planner response and a reviewer decision,
-including a concrete acceptance test. The final displayed brief includes the technical
+including a concrete acceptance test. A row whose ID names no concern (a question ID, or an empty
+placeholder) answers nothing: it is not checked, and the saved report keeps only the concern rows.
+The final displayed brief includes the technical
 approach, milestones, and **first bounded implementation task**, all covered by its
 revision/hash. Approval dispatches that task directly, without a third Plan Reviewer
 call. The separate Completion Reviewer's later decisions use the normal execution budget.

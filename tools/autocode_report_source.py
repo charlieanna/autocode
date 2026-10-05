@@ -14,6 +14,10 @@ except ImportError:
     from autocode_util import read as read_json
 
 REPAIR_REPORT_BYTES = 128 * 1024
+# Saved repair inputs never shrink, so a repair refused for them cannot launch on a later resume;
+# an explicit resume archives it and starts a fresh attempt of the stage (autocode_stage_recovery).
+REPAIR_INPUT_ROUTE = (' Resume with autocode resume to archive this repair (evidence retained) '
+                      'and start a fresh attempt of the stage.')
 
 
 def original_report_for_repair(original):
@@ -58,7 +62,8 @@ def repair_report_source(record):
                                           response_path=response)
         except RuntimeError:
             if not response.is_file():
-                raise support.Paused('PAUSED_REPORT_REPAIR_INPUT', 'No completed response is available for report repair')
+                raise support.Paused('PAUSED_REPORT_REPAIR_INPUT',
+                                     'No completed response is available for report repair.' + REPAIR_INPUT_ROUTE)
         else:
             _write_json(output, value)
         record['response_text'] = str(response)
@@ -66,10 +71,10 @@ def repair_report_source(record):
     if not path.is_file() or path.stat().st_size > REPAIR_REPORT_BYTES:
         raise support.Paused('PAUSED_REPORT_REPAIR_INPUT',
                              f'Repair report is missing or exceeds {REPAIR_REPORT_BYTES} bytes: {path}; '
-                             'inspect the saved artifact instead of truncating or reconstructing it')
+                             'inspect the saved artifact instead of truncating or reconstructing it.' + REPAIR_INPUT_ROUTE)
     text = path.read_text()
     if not text.strip():
-        raise support.Paused('PAUSED_REPORT_REPAIR_INPUT', f'Repair report is empty: {path}')
+        raise support.Paused('PAUSED_REPORT_REPAIR_INPUT', f'Repair report is empty: {path}.' + REPAIR_INPUT_ROUTE)
     try:
         content, format_ = json.loads(text), 'json'
     except ValueError:
