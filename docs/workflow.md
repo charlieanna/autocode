@@ -570,7 +570,39 @@ ID cannot be requested again. Answers do not approve the task. The approval toke
 must exactly match the current displayed contract revision. At the approval stop the brief
 says which plan revision (`r3`) waits and that approving it authorizes implementation,
 explains the token as a SHA-256 lock on that exact plan (any revision changes it), and ends
-with the limits in effect and the exact `--approve-goal` and `--feedback` commands. Approval saves
+with the limits in effect and the exact `--approve-goal` and `--feedback` commands. The full
+brief can run to hundreds of lines, so just above the limits it summarizes the decision, quoting
+the plan: its outcome and milestones, every permission boundary, the first three scope
+exclusions, each acceptance criterion with how it is checked (and whether it also needs your
+review), and what passing proves for this job. The last screen reads:
+
+```text
+Before you approve r3 (a summary of the plan above):
+What it will do:
+  Provide a deterministic greeting CLI
+Built in 1 milestone: M1.
+What it may change:
+  - May edit only: greet.py, test_greeting.py
+Out of scope:
+  - Web service
+Done when:
+  [C1] `greet.py Ada` prints exactly "Hello, Ada" and exits 0
+    Checked by: test: test_c1_greets_ada
+What passing proves:
+  - An independent check of the final source must pass every criterion above, and the runner itself re-runs that check's commands in a clean copy: each must exit 0.
+  - The runner also runs the test each of these criteria names: C1 (test:) must pass with the change and not without it. No test that passed before may fail now.
+  - Not proven: behavior no criterion describes, or inputs no check exercises.
+
+Limits in effect: 12 h of active time for the run, 1 h per stage, no iteration ceiling, one Builder at a time.
+To approve this plan: autocode --run-dir RUN --approve-goal r3:<hash>
+To change it instead: autocode --run-dir RUN --feedback 'WHAT TO CHANGE' (the revised plan gets a new token)
+
+State: AWAITING_GOAL_APPROVAL / AWAITING_GOAL_APPROVAL
+```
+
+In a bug fix the second proof line says the runner checks that a new or changed test fails on
+the original code and passes with the fix; when no criterion is marked `test:` or `guard:` (or
+in a design job) it says that nothing shows a check would fail without the change. Approval saves
 `READY_TO_EXECUTE`; the next ordinary invocation begins execution. User-input commands
 never launch an agent. This command-per-turn interface also works from scripts and
 other frontends; no continuously attached terminal is required.
