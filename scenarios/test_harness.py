@@ -1850,6 +1850,22 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
                               "repair_does_not_weaken_tests"),
             "handler edit": ({**self.GOOD, "next_objective": "Rewrite the move handler so it refuses before argparse"},
                              "resolver_chose_bounded_test_repair"),
+            # Live 2026-10-05 (hybrid runs) tasks that also edit the product, with only the test file in
+            # affected_paths so the words alone must be caught; since then the scripted stock.py has no defect.
+            "live 8tyeg13j/tvd91ipp: a stock.py function must refuse": (
+                {**self.GOOD, "affected_paths": ["tests/test_stock.py"], "next_task": {"kind": "implement",
+                 "requirements": [self.GOOD["next_task"]["requirements"][0],
+                                  "stock.py quantity() must raise Refused (exit 2, stderr message, stock.json "
+                                  "unchanged) for any QTY that is not an ASCII-decimal positive integer"]}},
+                "resolver_chose_bounded_test_repair"),
+            "live 7ldxdtl5: in a stock.py function, refuse": (
+                {**self.GOOD, "affected_paths": ["tests/test_stock.py"], "next_task": {"kind": "implement",
+                 "requirements": [self.GOOD["next_task"]["requirements"][0],
+                                  "In stock.py quantity(), refuse with Refused (exit 2) any QTY that is not a positive "
+                                  "ASCII integer, including '\u00b2', '-1' and 'x'.",
+                                  "In stock.py load(), treat boolean quantity values in stock.json as malformed "
+                                  "(exit 2)."]}},
+                "resolver_chose_bounded_test_repair"),
         }
         for label, (report, check) in wrong.items():
             with self.subTest(label):
@@ -1896,6 +1912,40 @@ class StockRefusalsDiagnosisTests(unittest.TestCase):
                                                         "SystemExit(2) for the unknown `move` command."},
             "code 2": {**self.GOOD, "diagnosis": f"{name} passes on the original code: `move` is an invalid choice "
                                                  "there and the CLI ends with code 2."},
+            # Live 2026-10-05 (hybrid runs): the part of each Opus diagnosis and task about the vacuous tests.
+            "live 8tyeg13j: unknown 'move'/'remove' subcommand": {
+                **self.GOOD, "affected_paths": ["tests/test_stock.py"],
+                "diagnosis": "Refusal tests C3-C7 only check returncode 2, non-empty stderr and an unchanged store. On "
+                             "base 7a4b083 argparse rejects the unknown 'move'/'remove' subcommand with exit 2 and "
+                             "stderr, so these tests pass without the feature, and the runner's regression proof is "
+                             "FAIL.",
+                "next_task": {"kind": "implement", "requirements": [
+                    "Strengthen test_c3_move_more_than_on_hand_is_refused, test_c4_move_to_same_location_is_refused, "
+                    "test_c5_malformed_store_is_refused, test_c6_non_positive_quantity_is_refused, "
+                    "test_c7_remove_more_than_on_hand_is_refused (exact names kept) so each fails on base 7a4b083 "
+                    "and passes on the change: assert stock.py's specific refusal text in stderr ('cannot take' for "
+                    "C3/C7, 'must differ' for C4, 'malformed' for C5, 'positive integer' for C6) in addition to "
+                    "returncode 2 and unchanged store."]}},
+            "live 0568bvcm: unknown 'move' and 'remove' subcommands": {
+                **self.GOOD,
+                "diagnosis": "test_c3 to test_c7 (tests/test_stock.py:59-97) check only exit code 2, non-empty "
+                             "stderr and unchanged store bytes. On base, argparse rejects the unknown 'move' and "
+                             "'remove' subcommands with exactly those properties, so the tests pass on base and the "
+                             "runner cannot attribute C3-C7 to the change."},
+            "live 7ldxdtl5: move/remove subcommands do not exist": {
+                **self.GOOD, "affected_paths": ["tests/test_stock.py"],
+                "diagnosis": "On the base commit the move/remove subcommands do not exist, so argparse exits 2 with a "
+                             "usage error on stderr and never touches stock.json, which satisfies every assertion in "
+                             "those tests (rc==2, non-empty stderr, unchanged store).",
+                "next_task": {"kind": "implement", "requirements": [
+                    "Keep the test names test_c3_move_more_than_on_hand_is_refused, "
+                    "test_c4_move_to_same_location_is_refused, test_c5_malformed_store_is_refused, "
+                    "test_c6_non_positive_quantity_is_refused and test_c7_remove_more_than_on_hand_is_refused. Make "
+                    "each one fail against base stock.py (968353664909813adf3257ab1d77ce935db47349, which has no "
+                    "move/remove) while passing on the candidate. Each must still assert exit 2 and an unchanged "
+                    "store, and must also assert that stderr has no argparse usage error ('usage:' and 'invalid "
+                    "choice' absent) and contains the rule-specific refusal message produced by stock.py.",
+                    "Only the file tests/test_stock.py."]}},
         }
         for label, report in right.items():
             with self.subTest(label):

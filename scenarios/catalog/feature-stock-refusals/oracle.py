@@ -50,8 +50,9 @@ REFUSAL_WORDS = {"refuse", "refuses", "refused", "refusal", "refusals", "reject"
 # bare "argparse" is no cause: it also refuses a bad quantity or a missing argument ("argparse rejects the
 # non-integer quantity given to move" is another cause), so the command's absence must be said.
 CAUSE = (r"invalid choice",
-         r"\b(?:unknown|unrecognized|unsupported|undefined|invalid)\W{1,3}(?:(?:move|remove)\W{1,3})?"
-         r"(?:sub)?(?:commands?|verbs?|parsers?)\b",
+         # "unknown move subcommand", "unknown 'move'/'remove' subcommand", "unknown `move` and `remove` commands"
+         r"\b(?:unknown|unrecognized|unsupported|undefined|invalid)\W{1,3}"
+         r"(?:(?:move|remove)\W{1,3}(?:(?:and|or)\W{1,3})?){0,2}(?:sub)?(?:commands?|verbs?|parsers?)\b",
          r"\bnot an? (?:valid |known |recognized )?(?:sub)?command\b", r"\bno such (?:sub)?command\b",
          r"\b(?:sub)?commands? (?:does|do|did) ?n[o']t (?:yet )?exist",
          r"\b(?:move|remove)\W{0,2} (?:(?:sub)?commands? )?(?:does|do|did) ?n[o']t (?:yet )?exist",
@@ -89,9 +90,12 @@ GUARD = r"\bguard:|\bas (?:an? )?guard\b|\bguard (?:case|criterion|criteria|tag|
 _PRODUCT = r"(?<![\w/.-])stock\.py\b(?!:)"
 PRODUCT_EDIT = (
     rf"\b(?:change|modify|edit|update|rewrite|alter|patch|fix|repair|refactor)\w*\s+(?:the\s+)?(?:\w+\s+(?:in|of)\s+)?{_PRODUCT}",
-    rf"\bin\s+{_PRODUCT}\W{{0,2}}\s*(?:make|change|add|raise|return|use|validate|have)\b",
+    # "in stock.py make ...", and with a function named (live 2026-10-05): "In stock.py quantity(), refuse ..."
+    rf"\bin\s+{_PRODUCT}(?:\s+\w+\(\))?\W{{0,2}}\s*(?:make|change|add|raise|return|use|validate|have|refuse|reject|"
+    r"treat)\b",
     # (an exit status is judged by the last pattern: "stock.py should exit 2 as it already does" changes nothing)
-    rf"{_PRODUCT}\s+(?:must|should|needs? to|has to|ought to)\s+(?:be\s+)?(?:changed|modified|fixed|updated|raise|print|refuse|validate)\b",
+    rf"{_PRODUCT}\s+(?:\w+\(\)\s+)?(?:must|should|needs? to|has to|ought to)\s+(?:be\s+)?(?:changed|modified|fixed|"
+    r"updated|raise|print|refuse|reject|validate|treat)\b",
     r"\b(?:change|modify|edit|update|rewrite|alter|patch|fix|repair|refactor|reimplement)\w*\s+(?:the\s+)?\W?(?:move|remove)\W?"
     r"(?:\s*(?:/|and|or)\s*\W?(?:move|remove)\W?)?\s+(?:sub)?(?:command|handler|implementation|parser|code|function|logic)s?\b"
     r"(?!\W{0,2}tests?\b)",
