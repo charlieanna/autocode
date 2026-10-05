@@ -49,6 +49,31 @@ reviews are satisfied, and the dashboard reflects the saved result. Missing evid
 stays unverified. Claims of dependable project completion require these live trials;
 passing fixture tests alone does not establish model effectiveness.
 
+On Claude models (2026-10-05, master d5484d81, profile `claude-tiers`, three runs of each case;
+details in docs/bugs/2026-10-05-report-repair-rewrites-history-and-stale-handoff-drops-the-fix.md):
+8 of 9 runs passed and none completed falsely, the same shape as the 2026-10-04 sweep and now on
+current master. Feature and bug fix 3 of 3; to-do 2 of 3. Every deliverable was correct: the oracles
+read 5/5, 6/6 and 10/10 on all nine runs, including the one that stopped. The two fixes since the
+last sweep held — no report cited an `event:` ID (it had hit 8 of 9 runs before), and no planner
+draft dropped a literal the brief writes in backticks.
+
+| Case | Scenario | Runs | Verdicts | Oracle | Wall time | Cost |
+| --- | --- | --- | --- | --- | --- | --- |
+| Small new application | greenfield-todo-cli | 3 | 2 PASS, 1 HONEST_BLOCKER | 10/10 each | 285–907 s | $10.12 |
+| Feature in an existing project | feature-timesheet-by-project | 3 | 3 PASS | 6/6 each | 339–619 s | $10.03 |
+| Bug fix | bugfix-iso-weeks | 3 | 3 PASS | 5/5 each | 260–452 s | $6.93 |
+
+$27.07 in all, matching the 2026-10-04 sweep's $26.84. The one stop is a new boundary, recorded in the note above: a Builder report cited a
+directory where a capture receipt belongs, the report repairs fixed that ref but also rewrote
+execution history they are told to copy exactly, and each repair was rejected for it. The Investigator
+diagnosed this correctly and wrote a repair that would have passed; its recovery packet was then
+refused at admission (`PAUSED_STALE_HANDOFF`) before it could run. Six of nine runs needed at least
+one report repair, so that loop is common. Suggested there: restore the history fields from the
+original report mechanically and let a repair change only its evidence refs, summary and
+recommended_checks. This is the third sweep in a row whose failure sits at a handoff that asks a
+model to transcribe or preserve something exactly, with no independent check that it did — the same
+class as the brief-to-criteria transcription, which is still the one handoff with no mechanical guard.
+
 On Claude models (2026-10-04, master e8366ad, profile `claude-tiers`, three runs of each case;
 details in docs/bugs/2026-10-04-claude-reliability-cases.md): 8 of 9 runs passed and none completed
 falsely. The feature and bug-fix cases passed 3 of 3. The to-do case passed 2 of 3: one run stopped
