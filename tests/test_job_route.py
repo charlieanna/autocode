@@ -466,6 +466,30 @@ def unrouted_stop(stage='investigate_stuck', *, kind='content_filter', pause_sta
 class JobWithoutModelQuestionTests(unittest.TestCase):
     """A job stop about its model that keeps only the exact retry names its real cause (pure)."""
 
+    def test_a_quota_or_refusal_from_an_unexpected_session_asks_no_model(self):
+        # When the runner itself stopped on a session it did not expect (#464), the job's stop names that,
+        # not a quota stop or a refusal, so recover stores no pause_status and asks no model question.
+        import autocode_support as support
+        import types
+        runtime = types.SimpleNamespace(support=support)
+        with tempfile.TemporaryDirectory() as temp:
+            for name, row, routed in (
+                    ("quota", {"type": "error", "error": {"message": "subscription usage limit reached"}}, "quota"),
+                    ("filter", {"type": "turn.failed", "error": {"code": "content_filter", "message": "x"}},
+                     "content_filter")):
+                with self.subTest(name):
+                    events = Path(temp) / f"{name}.jsonl"
+                    events.write_text(json.dumps(row) + "\n")
+                    record = {"stage": "review_change", "events": str(events), "exit_code": 0,
+                              "launch_route": {"model": "gpt-6-sol"}}
+                    untrusted = support.Paused("PAUSED_UNCERTAIN_STAGE", "Provider returned a missing or unexpected session ID")
+                    kind, reason = job_failure._reason(runtime, record, untrusted)
+                    self.assertEqual("exit", kind)
+                    self.assertIn("unexpected session", reason)
+                    typed = support.Paused(job_failure._ROUTE_STOPS[routed], "typed")
+                    self.assertEqual(routed, job_failure._reason(runtime, record, typed)[0])
+
+
     def answer(self, state, host=None):
         args = argparse.Namespace(answer=['route-investigator=gpt-6-nova'], delegate=[], delegate_all=False,
                                   job_retry_token='jr:t', resume_paused=False)
