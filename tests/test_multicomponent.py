@@ -7,7 +7,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,6 +18,7 @@ import autocode_multicomponent as mc
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HERE = Path(__file__).resolve().parents[1] / "tools"  # its fixtures stay beside the runtime
 FAKE_PROVIDER = HERE / "fixtures" / "multicomponent_fake.py"
+FAKE_DOCKER = HERE / "fixtures" / "fake_docker.py"
 FIXTURE_OPTIONS = ("--engine", "codex", "--joint-planning", "--astra-model", "gpt-6-astra",
                    "--terra-model", "gpt-5.6-terra", "--sol-model", "gpt-5.6-sol", "--completion-model",
                    "gpt-6-astra", "--glm-model", "gpt-5.6-sol", "--plan-reviewer-model", "gpt-6-astra")
@@ -355,6 +358,81 @@ class CliTests(BuildAndIntegrateTests):
         self.assertEqual("FROM python:3.12-slim\n", (target / "components" / "alpha" / "Dockerfile").read_text())
         self.assertEqual("print('alpha')\n", (target / "components" / "alpha" / "server.py").read_text())
         self.assertEqual("from beta\n", (target / "components" / "beta" / "message.txt").read_text())
+
+    def test_cli_runs_the_integrated_system_locally(self):
+        # The whole --run-local path without Docker: a fake `docker` on PATH records each
+        # command and publishes alpha on the port of a local HTTP server standing in for
+        # its container. A second invocation, against a server that now answers wrongly,
+        # fails the smoke check, prints alpha's logs and still tears down.
+        architecture = self.repo / "architecture"
+        (architecture / "components.json").write_text(json.dumps([
+            {**component("alpha"), "runtime": {"kind": "service", "port": 8001, "start": "python3 server.py",
+                                               "health": "/health"}},
+            {**component("beta"), "runtime": {"kind": "worker", "start": "python3 work.py",
+                                              "runtime_depends_on": ["alpha"]}}]))
+        (architecture / "smoke.json").write_text(json.dumps({"version": 1, "steps": [
+            {"name": "greet", "service": "alpha", "method": "GET", "path": "/greeting", "expect_status": 200,
+             "expect_json": {"text": "hello"}}]}))
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-q", "-m", "runtime blocks and smoke check")
+        self.write_manifest()
+        shutil.copy2(FAKE_DOCKER, self.root / "bin" / "docker")
+        (self.root / "bin" / "docker").chmod(0o755)
+
+        class Alpha(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                body = json.dumps({"text": self.server.greeting}).encode()
+                self.send_response(200 if self.path in ("/health", "/greeting") else 404)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Alpha)
+        server.greeting = "hello"
+        threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        log = self.root / "docker.jsonl"
+        self.env.update(FAKE_DOCKER_LOG=str(log), FAKE_DOCKER_PORTS=json.dumps({"alpha": server.server_port}))
+        args = ("architecture", "--workspace", str(self.repo), "--auto-approve", "--integrate", "integration",
+                "--run-local", "--options", " ".join(FIXTURE_OPTIONS))
+
+        proc = self.run_cli(*args)
+        self.assertEqual(0, proc.returncode, proc.stderr[-1500:])
+        summary = json.loads(proc.stdout)
+        self.assertEqual(["alpha", "beta"], summary["integration"]["integrated"])
+        local = summary["local_run"]
+        self.assertEqual("passed", local["status"], local["detail"])
+        self.assertEqual([["alpha"], ["beta"]], local["layers"])
+        self.assertEqual([("greet", True, 200)], [(s["name"], s["ok"], s["status"]) for s in local["steps"]])
+        self.assertTrue(local["torn_down"])
+        compose = Path(local["compose_file"])
+        self.assertEqual(self.repo / ".autocode-components" / "local-run" / local["project"], compose.parent)
+        self.assertIn(str(self.repo / "integration" / "components" / "alpha"), compose.read_text())
+        prefix = ["compose", "-p", local["project"], "-f", str(compose)]
+        calls = [json.loads(line) for line in log.read_text().splitlines()]
+        self.assertEqual([["compose", "version"], ["version", "--format", "{{.Server.Version}}"]], calls[:2])
+        self.assertEqual([prefix + ["up", "-d", "--build", "--no-deps", "alpha"],
+                          prefix + ["up", "-d", "--build", "--no-deps", "beta"],
+                          prefix + ["down", "-v", "--remove-orphans"]],
+                         [call for call in calls if call[5:6] in (["up"], ["down"])])
+        status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=self.repo / "integration",
+                                capture_output=True, text=True, check=True).stdout
+        self.assertEqual(["components/"], sorted({line[3:].split("/")[0] + "/" for line in status.splitlines()}))
+
+        server.greeting = "goodbye"
+        log.unlink()
+        proc = self.run_cli(*args)
+        self.assertEqual(1, proc.returncode, proc.stderr[-1500:])
+        local = json.loads(proc.stdout)["local_run"]
+        self.assertEqual(("failed", "alpha", "greet"), (local["status"], local["failed_component"],
+                                                        local["failed_step"]))
+        self.assertIn("does not match expect_json", local["detail"])
+        self.assertIn("fake log line from alpha", proc.stderr)
+        self.assertEqual(["down", "-v", "--remove-orphans"], json.loads(log.read_text().splitlines()[-1])[5:])
 
     def test_cli_refuses_a_cycle_before_starting_any_component(self):
         (self.repo / "architecture" / "components.json").write_text(json.dumps(
