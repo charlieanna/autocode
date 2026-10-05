@@ -13,6 +13,7 @@ from pathlib import Path
 import autocode_github as github
 import autocode_issue as issue_cli
 from autocode_taskrun import TaskRun
+from tests import GIT_TEST_CONFIG
 from tests.test_taskrun import BRIEF, FIXTURE_OPTIONS  # the offline fixture provider's greeting task
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
@@ -185,6 +186,10 @@ class IssueCliTests(unittest.TestCase):
         root = Path(temp.name)
         self.remote = root / "acme" / "widgets.git"
         subprocess.run(["git", "init", "-q", "--bare", str(self.remote)], check=True)
+        # `pr --open` pushes here. Git starts the push's receive-pack without GIT_CONFIG_COUNT,
+        # so tests/__init__.py's setting does not reach this repository.
+        for key, value in GIT_TEST_CONFIG.items():
+            subprocess.run(["git", "-C", str(self.remote), "config", key, value], check=True)
         self.project = root / "project"
         self.project.mkdir()
         self.git("init", "-q", "-b", "main")
