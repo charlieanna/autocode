@@ -453,6 +453,16 @@ class ProgramModeTest(unittest.TestCase):
                         self.assertEqual(authorize and is_program, "--authorize-deployment" in cmd)
                         self.assertNotIn("--i-authorize-live-model-spend", cmd)
 
+    def test_a_program_pass_reruns_while_a_child_waits_only_for_its_next_invocation(self):
+        advances = live_trial._program_advances
+        self.assertTrue(advances({"status": "RUNNING", "workstreams": []}))
+        # e.g. after the program's own feedback on a plan that dropped an inherited requirement
+        self.assertTrue(advances({"status": "WAITING", "workstreams": [{"status": "WAITING", "run_status": "RUNNING"}]}))
+        self.assertFalse(advances({"status": "WAITING", "workstreams": [
+            {"status": "WAITING", "run_status": "AWAITING_GOAL_APPROVAL"}]}))
+        self.assertFalse(advances({"status": "WAITING_CHANGE_REQUEST", "workstreams": [
+            {"status": "WAITING", "run_status": "RUNNING", "blocked_reason": "change request CR-1 is open"}]}))
+
     def test_gates_are_served_per_child_and_the_product_is_the_integration_worktree(self):
         bundle = Bundle("PROGRAM-TEST")
         with mock.patch.object(live_trial, "invoke", side_effect=self.fake_invoke):

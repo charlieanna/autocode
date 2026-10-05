@@ -236,7 +236,7 @@ class DeriveTests(unittest.TestCase):
             self.assertIn(json.dumps(body, indent=2), text)
             self.assertIn('"human_review": true', text)
             self.assertIn("CLI regression tests", text)
-            self.assertIn("Parent approval does not approve this child plan", text)
+            self.assertIn("Approving the parent approves neither this child plan", text)
             self.assertIn("Execute greeting and invalid-input regression checks", text)
         value["contract"]["body"]["scope_exclusions"].append("Other")
         self.assertEqual(body, self.state["goal_contract"]["body"])
@@ -333,7 +333,8 @@ class ProgramHarness(unittest.TestCase):
         self.launches.append({"id": wid, "workspace": str(workspace), "brief": brief, "run_dir": str(run), "files": sorted(
             p.relative_to(workspace).as_posix() for p in workspace.rglob("*")
             if p.is_file() and not {".git", ".autocode"} & set(p.relative_to(workspace).parts)),
-            "resume": "--run-dir" in command, "in_place": "--in-place" in command})
+            "resume": "--run-dir" in command, "in_place": "--in-place" in command,
+            "workflow": command[command.index("--workflow") + 1] if "--workflow" in command else None})
         outcome = self.child_outcome.get(wid, "TASK_COMPLETE")
         view = copy.deepcopy(self.child_view.get(wid, {}))
         if outcome == "TASK_COMPLETE":

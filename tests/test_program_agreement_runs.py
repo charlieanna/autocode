@@ -11,7 +11,9 @@ import contextlib
 import copy
 import io
 import json
+import subprocess
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from .test_program import ProgramHarness, git, manifest, program, with_requirements
@@ -38,6 +40,8 @@ class AgreementTests(ProgramHarness):
             self.assertEqual(pin, record["merged_under"], wid)
         self.assertEqual(1, result["agreement"]["revision"])
         self.assertTrue(all(row["in_place"] and not row["resume"] for row in self.launches))
+        # A workstream is a build job by construction; its brief never decides the workflow.
+        self.assertEqual({"build"}, {row["workflow"] for row in self.launches})
         brief = self.launches_of("a")[0]["brief"]
         self.assertIn("Program agreement revision 1, approved by the user.", brief)
         self.assertIn("with exactly this id (C2)", brief)
@@ -61,6 +65,9 @@ class AgreementTests(ProgramHarness):
         record = self.records(result)["a"]
         self.assertEqual(1, record["plan_rejections"])
         self.assertNotEqual("MERGED", record["status"])
+        # The record shows the child after the feedback, not the plan it rejected.
+        self.assertEqual(("WAITING", "RUNNING"), (record["status"], record["run_status"]))
+        self.assertNotEqual("r1:draft", (record.get("needs") or {}).get("token"))
         # The child re-plans (feedback made it continuable); the new plan keeps C2 and is approved.
         self.child_outcome["a"] = "TASK_COMPLETE"
         self.child_view["a"] = {"approved_contract": {"token": "r2:kept", "body": {"acceptance_criteria": [{"id": "C2"}]}}}
@@ -87,6 +94,20 @@ class AgreementTests(ProgramHarness):
         self.assertEqual(first["workspace"], second["workspace"])
         self.assertNotEqual(first["run_dir"], second["run_dir"])
         self.assertIn("RE-CHECK", second["brief"])
+
+    def test_a_child_that_refuses_the_programs_feedback_pauses_for_a_person(self):
+        path = self.write_manifest(with_requirements(manifest()))
+        self.child_outcome["a"] = "AWAITING_GOAL_APPROVAL"
+        self.child_view["a"] = {"displayed_plan": {"token": "r1:draft", "acceptance_criteria": [{"id": "X1"}]}}
+        self.fake_feedback = lambda command: subprocess.CompletedProcess(
+            command, 2, "", "Input rejected: Brief feedback needs nonempty text at a conversation checkpoint\n")
+        code, result = self.run_program(path)
+        self.assertEqual((2, "PAUSED_INHERITANCE"), (code, result["status"]))
+        check = self.records(result)["a"]["plan_check"]
+        self.assertEqual((["C2"], True), (check["dropped"], check["exhausted"]))
+        self.assertIn("Input rejected", check["feedback_error"])
+        saved = json.loads(Path(result["state_file"]).read_text())["workstreams"]["a"]
+        self.assertEqual(1, saved["plan_rejections"])  # the pass saved what it counted
 
     def test_repeated_dropping_plans_pause_for_a_person(self):
         path = self.write_manifest(with_requirements(manifest()))
@@ -191,6 +212,11 @@ class AgreementTests(ProgramHarness):
         for wid in ("a", "b", "integration"):
             self.assertEqual(2, records[wid]["pin"]["revision"], wid)
         self.assertIn("version 2", self.launches_of("b")[1]["brief"])
+        # a was waiting on a plan built over version 1 of the contracts, which were re-checked too:
+        # its fresh run starts from the integration head that holds the re-checked contracts.
+        first, recheck = self.launches_of("a")[0], self.launches_of("a")[-1]
+        self.assertNotEqual(first["workspace"], recheck["workspace"])
+        self.assertEqual(first["workspace"], records["a"]["retired_runs"][0]["workspace"])
 
     def test_a_delivered_interface_is_never_changed_in_place(self):
         value = with_requirements(manifest())
@@ -257,8 +283,30 @@ class AgreementTests(ProgramHarness):
         self.journey_status = {"J1": "unverified"}
         code, result = self.run_program(path)
         self.assertEqual((2, "PAUSED_JOURNEY_UNVERIFIED"), (code, result["status"]))
-        self.assertEqual("failed", result["journeys"][0]["status"])
+        self.assertIn("without verifying user journey(s) J1", result["next"])
+        record = self.records(result)["integration"]
+        self.assertEqual("COMPLETE", record["status"])  # not merged, so a follow-up can still reach it
+        self.assertEqual("pending", result["journeys"][0]["status"])
         self.assertNotIn("final_check", result)
+        # A person follows up the final check's run; once it verifies the journey the program completes.
+        state = Path(record["run_dir"]) / "state.json"
+        state.write_text(json.dumps({**json.loads(state.read_text()), "status": "RUNNING"}))
+        self.journey_status = {"J1": "verified"}
+        code, result = self.run_program(path)
+        self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
+        self.assertTrue(self.launches_of("integration")[-1]["resume"])
+        self.assertEqual(["J1 Order through both services"], result["final_check"]["journeys"])
+
+
+class VerificationReceiptTests(unittest.TestCase):
+    def test_receipt_directories_keep_counting_past_the_kept_history(self):
+        state = {"integration": {"workspace": "/nowhere"}, "workstreams": {}, "verifications": [{}] * 50}
+        manifest = {"workstreams": []}
+        with patch.object(program, "integration_head", return_value="abc"):
+            first = program.verify_integration(manifest, state, Path("/tmp/program"), "a", 5)
+            second = program.verify_integration(manifest, state, Path("/tmp/program"), "b", 5)
+        self.assertEqual(("051-a", "052-b"), (Path(first["receipts"]).name, Path(second["receipts"]).name))
+        self.assertEqual(50, len(state["verifications"]))
 
 
 if __name__ == "__main__":

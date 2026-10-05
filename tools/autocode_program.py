@@ -452,7 +452,8 @@ def compose_brief(manifest, workstream, state):
         lines += ["Approved parent contract (complete context, not authorization to expand this workstream):",
                   json.dumps(body, indent=2),
                   "Preserve its requirements, exclusions, permission boundaries and human_review obligations "
-                  "in your child plan. Parent approval does not approve this child plan or satisfy human review.", ""]
+                  "in your child plan. Approving the parent approves neither this child plan nor any human_review "
+                  "obligation in it.", ""]
     if shared.get("interfaces"):
         lines.append("Shared interfaces (read-only unless this workstream produces them):")
         for row in shared["interfaces"]:
@@ -529,31 +530,51 @@ def refresh(record):
     return children.refresh(record)
 
 
-def abandon(record, reason, *, merged=False):
-    """Retire a workstream's child run: its plan's approval no longer counts. A fresh run will start."""
+def abandon(record, reason, *, new_worktree=False):
+    """Retire a workstream's child run: its plan's approval no longer counts. A fresh run will start.
+
+    With ``new_worktree`` the fresh run starts from the current integration head in a new worktree;
+    otherwise it plans in the same worktree. The retired run and its worktree stay on disk.
+    """
     entry = {"at": util.now(), "reason": reason, **{key: record[key] for key in
-             ("run_dir", "run_status", "merged_commit", "branch", "pin") if record.get(key)}}
+             ("run_dir", "run_status", "merged_commit", "workspace", "branch", "pin") if record.get(key)}}
     record.setdefault("retired_runs", []).append(entry)
     children.detach(record)
     for key in ("finished_at", "conflict", "plan_check", "integration_check", "error", "merged_commit", "merged_at",
                 "merge_note", "checks", "journeys", "verification", "pin", "blocked_reason"):
         record.pop(key, None)
-    if merged:  # its branch is merged; a re-check starts from the current integration head
+    if new_worktree:
         for key in ("workspace", "branch", "base_commit"):
             record.pop(key, None)
     record.update(status="STALE", stale_reason=reason)
 
 
+def _upstream(manifest, wid):
+    """Every workstream ``wid`` depends on, directly or transitively."""
+    edges = {row["id"]: row["depends_on"] for row in manifest["workstreams"]}
+    found, todo = set(), list(edges.get(wid, []))
+    while todo:
+        dep = todo.pop()
+        if dep not in found:
+            found.add(dep)
+            todo += edges.get(dep, [])
+    return found
+
+
 def mark_stale(manifest, state):
     """Workstreams built from a part of the agreement that a later approved revision changed."""
     revision = state["agreement"]["revision"]
-    for wid, record in state["workstreams"].items():
-        pin = record.get("pin")
-        if not pin or record["status"] in ("PENDING", "STALE") or pin["scope"] == agreement.scope_digest(manifest, wid):
-            continue
+    records = state["workstreams"]
+    stale = [wid for wid, record in records.items() if record.get("pin") and record["status"] not in ("PENDING", "STALE")
+             and record["pin"]["scope"] != agreement.scope_digest(manifest, wid)]
+    rechecked = set(stale) | {wid for wid, record in records.items() if record["status"] == "STALE"}
+    for wid in stale:
+        record = records[wid]
         reason = (f"agreement revision {revision} changed what workstream {wid} is built from "
-                  f"(it was built under revision {pin['revision']})")
-        abandon(record, reason, merged=record["status"] == "MERGED")
+                  f"(it was built under revision {record['pin']['revision']})")
+        # A merged workstream, or one built on a workstream that is re-checked too, restarts from the
+        # integration head that will hold the re-checked result; otherwise it keeps its worktree.
+        abandon(record, reason, new_worktree=record["status"] == "MERGED" or bool(_upstream(manifest, wid) & rechecked))
         if wid == agreement.skeleton(manifest):
             state["skeleton"] = None
         note(state, "workstream_stale", workstream=wid, revision=revision)
@@ -587,12 +608,16 @@ def inspect(manifest, state, wid, record, view):
                     "requirement it inherited.")
             if rejections <= MAX_PLAN_REJECTIONS:
                 if approved:
-                    abandon(record, "its approved plan dropped inherited requirement(s) " + ", ".join(missing),
-                            merged=False)
+                    abandon(record, "its approved plan dropped inherited requirement(s) " + ", ".join(missing))
                     return
-                children.feedback(record, text)
-                record["status"] = "WAITING"
-                record["run_status"] = "RUNNING"
+                try:
+                    children.apply_view(record, children.feedback(record, text))
+                except taskrun.TaskRunError as error:
+                    # The child refused the program's feedback: a person decides, and the rejection stays counted.
+                    record["plan_check"].update(exhausted=True, feedback_error=str(error)[-500:])
+                    note(state, "plan_feedback_refused", workstream=wid, error=str(error)[-500:])
+                    return
+                record["status"] = "WAITING"  # the child re-plans when the program next advances it
                 return
         if approved and not missing:
             record["approved_plan"] = {"token": approved["token"], **(record.get("pin") or {})}
@@ -655,8 +680,9 @@ def launch(project, program_dir, manifest, workstream, record, state, options):
     if record.get("run_dir"):
         return children.advance(record, log_dir=artifact, lock=STATE_LOCK)
     # Engine and pass-through flags configure the new run once; resuming it uses its saved settings.
+    # A workstream is an ordinary build job by construction, never left to the recognizer to route.
     engine = workstream.get("engine") or options.get("engine")
-    start_options = [*(["--engine", engine] if engine else []), *options.get("passthrough", [])]
+    start_options = ["--workflow", "build", *(["--engine", engine] if engine else []), *options.get("passthrough", [])]
     return children.start(record, workspace, brief, start_options, log_dir=artifact, lock=STATE_LOCK)
 
 
@@ -726,7 +752,8 @@ def cumulative_checks(manifest, state, wid):
 def verify_integration(manifest, state, program_dir, wid, timeout):
     """Re-run the cumulative checks in a clean copy of the integration branch; return the receipt."""
     commands = cumulative_checks(manifest, state, wid)
-    out = program_dir / "verify" / f"{len(state['verifications']) + 1:03d}-{wid}"
+    number = state["verification_count"] = state.get("verification_count", len(state["verifications"])) + 1
+    out = program_dir / "verify" / f"{number:03d}-{wid}"
     rows = []
     for number, command in enumerate(commands, 1):
         receipt = verify_runner.scratch_run(Path(state["integration"]["workspace"]), out / f"check-{number:02d}",
@@ -803,6 +830,14 @@ def integrate(manifest, state, workstream, record, program_dir, options):
         raise util.Paused("PAUSED_INTEGRATION_DIRTY", "Restore the integration worktree to its recorded branch before merging")
     title = workstream["brief"].strip().splitlines()[0][:72]
     if workstream["kind"] == "integration":
+        unverified = unverified_journeys(manifest, record)
+        if unverified:
+            # Nothing is committed or merged: a follow-up reopens the run, and its next completion is checked again.
+            raise util.Paused("PAUSED_JOURNEY_UNVERIFIED", (
+                f"The final check {workstream['id']} completed without verifying user journey(s) "
+                + ", ".join(unverified) + f", so it was not merged. Follow up its run (autocode --workspace "
+                f"{record.get('workspace')} --run-dir {record.get('run_dir')} --follow-up \"Verify journey ...\"), "
+                "then rerun the program"))
         base = record.get("base_commit", state["integration"]["base_commit"])
         if workspaces.git(integration, "diff", "--name-only", base, "HEAD", "--", ".autocode"):
             raise util.Paused("PAUSED_METADATA", "Integration committed runner metadata; remove that metadata diff before resuming")
@@ -956,6 +991,14 @@ def ready(manifest, state, *, authorize_deployment):
     return rows, blocked
 
 
+def unverified_journeys(manifest, record):
+    """The journey ids the integration workstream's completed run did not verify, in agreement order."""
+    found = {row["id"]: row for row in record.get("journeys") or []}
+    return [row["id"] for row in agreement.journeys(manifest)
+            if not (found.get(row["id"], {}).get("status") in PASSED
+                    or found.get(row["id"], {}).get("validator_status") == "PASS")]
+
+
 def journey_report(manifest, state):
     """The final product check, by journey name: verified only by the merged integration workstream's run."""
     integration = next(row["id"] for row in manifest["workstreams"] if row["kind"] == "integration")
@@ -964,8 +1007,7 @@ def journey_report(manifest, state):
     report = []
     for row in agreement.journeys(manifest):
         result = found.get(row["id"], {})
-        verified = record["status"] == "MERGED" and (result.get("status") in PASSED
-                                                     or result.get("validator_status") == "PASS")
+        verified = record["status"] == "MERGED" and row["id"] not in unverified_journeys(manifest, record)
         report.append({"id": row["id"], "name": row["name"], "steps": row["steps"],
                        "status": "verified" if verified else "failed" if record["status"] == "MERGED" else "pending",
                        "verified_by": integration, "run_dir": record.get("run_dir"),
@@ -984,8 +1026,8 @@ NEXT = {
     "PAUSED_MERGE_CONFLICT": "Resolve the recorded conflict in the integration worktree, commit, then rerun.",
     "PAUSED_INHERITANCE": ("A workstream's plan still drops an inherited requirement after the automatic rejections: "
                            "give its run feedback yourself, or revise the agreement, then rerun."),
-    "PAUSED_JOURNEY_UNVERIFIED": ("The integration workstream merged without verifying every user journey; follow up its "
-                                  "run so each journey is verified, then rerun."),
+    "PAUSED_JOURNEY_UNVERIFIED": ("The final check completed without verifying every user journey and was not merged; "
+                                  "follow up its run so each journey is verified, then rerun."),
     "BLOCKED": "Inspect the failed workstream's logs, then rerun with --retry-workstream ID. Child gates remain enforced.",
     "AUTHORIZATION_REQUIRED": "Rerun with --authorize-deployment to start the deployment workstream(s).",
     "WAITING": "Answer questions or approve plans in the listed run directories, then rerun.",

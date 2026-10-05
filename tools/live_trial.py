@@ -460,9 +460,10 @@ def drive_program(project: Path, root: Path, profile: dict, manifest: dict,
                 continue
             if _serve_gate(state, run_dir, Path(row["workspace"]), profile, step):
                 served = True
-        if not served:
-            # No gate this driver may serve: an honest stop, a blocked worker, or a run at
-            # a pause that needs a person. Never poke it with a blind resume loop.
+        if not served and not _program_advances(summary):
+            # No gate this driver may serve and nothing the program itself will advance: an honest
+            # stop, a blocked worker, or a run at a pause that needs a person. Never poke it with a
+            # blind resume loop.
             break
     else:
         raise TrialError("program did not finish within the stage budget")
@@ -471,6 +472,15 @@ def drive_program(project: Path, root: Path, profile: dict, manifest: dict,
     state = {"status": final_status, "program": summary}
     return {"state": state, "steps": steps, "run_dir": Path(summary.get("state_file", root)).parent,
             "product": Path(summary["integration_workspace"]) if summary.get("integration_workspace") else project}
+
+
+def _program_advances(summary: dict) -> bool:
+    """Whether another `program run` pass moves something: the program says RUNNING, or a child that
+    was answered, approved or sent the program's own feedback waits only for its next invocation."""
+    if summary.get("status") == "RUNNING":
+        return True
+    return any(row.get("status") in ("WAITING", "PAUSED", "RUNNING") and row.get("run_status") == "RUNNING"
+               and not row.get("blocked_reason") for row in summary.get("workstreams", []))
 
 
 def classify_program_status(status: str) -> str:
