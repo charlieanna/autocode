@@ -182,11 +182,11 @@ class StartupDeadlineTests(unittest.TestCase):
         events.touch()
         for origin, hint, expected in (
                 ('runner_default', CHANGE_IDLE_LIMIT,
-                 '(5 seconds, runner default; change it with --resume-paused --max-idle-seconds N)'),
+                 '(5 seconds, runner default; change it with autocode resume --max-idle-seconds N)'),
                 ('user_explicit', JOB_IDLE_LIMIT,
                  '(5 seconds, set explicitly; an exact job retry runs under the same limit; '
                  'a different limit needs a new run)'),
-                (None, CHANGE_IDLE_LIMIT, '(5 seconds; change it with --resume-paused --max-idle-seconds N)')):
+                (None, CHANGE_IDLE_LIMIT, '(5 seconds; change it with autocode resume --max-idle-seconds N)')):
             with self.subTest(origin=origin, hint=hint):
                 def monitor_for(clock):
                     return ActivityMonitor(events, idle_seconds=5, tool_seconds=0, clock=clock,

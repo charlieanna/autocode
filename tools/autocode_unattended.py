@@ -1,9 +1,11 @@
 """Run AutoCode for an unattended caller, such as another coding agent.
 
-The caller can start a run, continue one, or read its status. It can never
-make a decision that belongs to the operator: answering or delegating
-questions, approving a plan, accepting completion, resuming a pause,
-retrying or diagnosing a failed stage, or submitting feedback. AutoCode's
+The caller can start a run, continue one that is not paused (a bare relaunch,
+never ``autocode resume``, which acknowledges a pause), or read its status. It
+can never make a decision that belongs to the operator: answering or delegating
+questions, approving a plan, accepting completion, closing a finding, answering
+AutoResolver, resuming a pause, retrying or diagnosing a failed stage, or
+submitting feedback. AutoCode's
 own deterministic controller still decides every transition; this wrapper
 only refuses those flags, runs AutoCode once with no terminal input, and
 prints the saved status when it stops.
@@ -21,6 +23,8 @@ RUN/activity.jsonl.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -36,6 +40,7 @@ OPERATOR_FLAGS = (
     "--accept-completion", "--review-token", "--resume-paused", "--retry-failed-stage",
     "--diagnose-failed-stage", "--retry-builder", "--retry-report", "--abandon-stage",
     "--accept-transport-change", "--planning-review-call-limit", "--migrate-only",
+    "--close-finding", "--close-reason", "--resolver-response",
     "--chat",
 )
 # Subcommands that submit interventions or run other flows.
@@ -55,6 +60,10 @@ def refused(argv: list[str]) -> str | None:
     """Return why argv is refused, or None when it is allowed."""
     if argv and argv[0] in OPERATOR_SUBCOMMANDS:
         return f"the '{argv[0]}' subcommand is operator-only"
+    if _resume_word(argv):
+        # On a paused run `autocode resume` stands for --resume-paused (autocode_args), with its companions.
+        return ("'autocode resume' acknowledges a pause, an operator decision; run autocode directly to "
+                "make it, or relaunch without the word to continue a run that is not paused")
     for arg in argv:
         if arg == "--":
             break
@@ -69,6 +78,23 @@ def refused(argv: list[str]) -> str | None:
             if flag.startswith(name):
                 return f"{flag} is an operator decision; run autocode directly to make it"
     return None
+
+
+def _resume_word(argv: list[str]) -> bool:
+    """Whether autocode reads argv as `autocode resume`; not task text or an option's value (--workspace resume)."""
+    words = argv[:argv.index("--")] if "--" in argv else argv
+    if "resume" not in words:
+        return False
+    try:
+        from . import autocode_args
+    except ImportError:
+        import autocode_args
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return autocode_args.is_resume_command(argv)
+    except SystemExit:
+        # autocode refuses this argv anyway; refuse the word rather than guess.
+        return True
 
 
 def autocode_command() -> list[str]:

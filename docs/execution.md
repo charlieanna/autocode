@@ -402,7 +402,7 @@ timestamp. A saved observation does not prove a recorded worker is still alive.
 `longest_idle_seconds` is the longest quiet period that ended with new activity or
 a tool start (the open one is `idle_seconds`), so earlier silences can be compared
 with the limit before changing it. An inactivity stop names its limit, whether that
-is the runner default or was set explicitly, and how to change it (`--resume-paused
+is the runner default or was set explicitly, and how to change it (`autocode resume
 --max-idle-seconds N`). Once the automatic recovery allowance is spent, the new
 limit is saved but no provider launches until `--grant-recovery N` is also given.
 Routes of a model family that reasons in long silent blocks run under a higher default:

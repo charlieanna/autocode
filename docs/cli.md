@@ -10,7 +10,7 @@ is in [Models](models.md); provider setup is in [Providers](providers.md).
 | Command | What it does |
 | --- | --- |
 | `autocode "Your rough idea"` | The normal entry point. Runs the full plan → approve → build → validate → complete loop (or stops at the next required checkpoint). |
-| `autocode resume` | Continue the unfinished run of this project or task worktree (see [Which run a command acts on](#which-run-a-command-acts-on)). Never starts a new task. On a paused run it also acknowledges the pause, as `--resume-paused` does, so the run goes on: no new budget or recovery allowance, though the per-cycle report-repair and resolver attempt counts restart. A design conflict (`PAUSED_DESIGN_CONFLICT`) is only shown until you edit the design and pass `--resume-paused`. Its companions (`--retry-failed-stage`, `--grant-recovery N`, ...) need no `--resume-paused` after it. Plain `autocode` with no task relaunches a running run the same way but only shows a pause. |
+| `autocode resume` | Continue the unfinished run of this project or task worktree (see [Which run a command acts on](#which-run-a-command-acts-on)). Never starts a new task. On a paused or blocked run (`PAUSED_*`, `BLOCKED_*`, `*_REWORK_REQUIRED`, `RESOLVER_PENDING`) it also acknowledges the stop, as `--resume-paused` does, so the run goes on: no new budget or recovery allowance, though the per-cycle report-repair and resolver attempt counts restart. A design conflict (`PAUSED_DESIGN_CONFLICT`) is only shown until you edit the design and pass `--resume-paused`. Its companions (`--retry-failed-stage`, `--grant-recovery N`, ...) need no `--resume-paused` after it. Plain `autocode` with no task relaunches a running run the same way but only shows a stop. |
 | `autocode status` | The same as `autocode --status`: read-only status of that run. Both words are commands wherever they stand among the options; a task whose whole text is `resume` or `status` goes after `--` (`autocode -- status`). |
 | `autopilot` | Deterministic workflow controller. Same loop as `autocode`, and the controller behind the dashboard and macOS app. |
 | `autoplanner` | Planning only. Stops before any Builder starts. |
@@ -105,7 +105,7 @@ requirements as usual.
 | --- | --- | --- | --- |
 | finished | `done` is true, `needs` is null | `--follow-up TEXT` | `follow_up(text)` |
 | waiting for you | `needs.kind` is `answer`, `approve_plan`, `review` or `planning_budget` | `--answer`/`--delegate` with `--resolver-token`, `--approve-goal`, `--approve-review`, `--feedback` | `answer`, `approve_plan`, `approve_review`, `feedback` |
-| stopped | `needs.kind` is `resume` | `--resume-paused`, once the cause in `stop_reason` is resolved | `resume_paused()` |
+| stopped | `needs.kind` is `resume` | `autocode resume`, once the cause in `stop_reason` is resolved (`--resume-paused` after editing the design at `PAUSED_DESIGN_CONFLICT`) | `resume_paused()` |
 | stopped in a workflow job (Reviewer, Architect, Analyst, Investigator) | `needs.kind` is `retry_job`, or `recover_source` for an attempt with no saved source identity | `--resume-paused --retry-failed-stage --job-retry-token TOKEN` after inspecting `needs.archive`; for `recover_source`, a new run ([Task-run interface](task-run.md#failed-workflow-jobs)) | `retry_job(token)` |
 | waiting on another run | `needs.kind` is `dependency` | `--receive-dependency MANIFEST` once that run delivers | `receive_dependency(manifest)` |
 
@@ -129,7 +129,7 @@ still require their own actions. Recovery eligibility and token checks are uncha
 
 | Flag | Meaning |
 | --- | --- |
-| `--resume-paused` | Acknowledge an operational pause and continue. Does not approve a draft, and does not restore a spent recovery allowance. |
+| `--resume-paused` | Acknowledge an operational pause and continue. Does not approve a draft, and does not restore a spent recovery allowance. `autocode resume` implies it at `PAUSED_*` (not `PAUSED_DESIGN_CONFLICT`), `BLOCKED_*`, `*_REWORK_REQUIRED` and `RESOLVER_PENDING`, never with a user action or `--resolver-response`; with a recovery companion, also at a verified operational pause published as `WAITING_FOR_USER`. |
 | `--diagnose-failed-stage` | With `--resume-paused`, request bounded read-only diagnosis of a recorded repeated Builder report failure. Alternative to `--retry-failed-stage`; not a permission or budget override. |
 | `--grant-recovery N` | With `--resume-paused`, authorize N more automatic timeout recoveries for a run paused at `PAUSED_TIMEOUT_RECOVERY` after its cause was fixed. Audited as a `recovery_grant` user event; recovery history is retained. |
 | `--planning-review-call-limit N` | At a reconciled planning-budget pause, save a total allowance for the current cycle. `0` disables the cap for this and future cycles while preserving usage history; it can also be saved at a requested pause or after abandoning a stopped stage. No model launch or approval; resume separately. |
@@ -197,10 +197,12 @@ deferred until the UI runner supports checkpoint recovery; use `autocode ui` sep
 for another agent without letting that agent make the operator's decisions. It takes
 AutoCode's own arguments but refuses every decision or recovery flag (`--answer`,
 `--delegate*`, `--approve-*`, `--resume-paused`, `--retry-*`, `--feedback`, `--follow-up`,
-`--accept-completion`, …, including abbreviations) and the `intervention`, `tasks`,
-`ui`, `program`, `registry`, `capture` and `compare-baseline` subcommands. It forces `--no-chat`
-with no stdin, and when AutoCode stops it prints `--status` and tells the caller to
-report and stop. Exit codes are AutoCode's.
+`--accept-completion`, `--close-finding`, `--close-reason`, `--resolver-response`, …, including
+abbreviations), the command word `resume` (on a paused or blocked run it stands for
+`--resume-paused`; a bare relaunch still continues a run that is not paused)
+and the `intervention`, `tasks`, `ui`, `program`, `registry`, `capture` and `compare-baseline`
+subcommands. It forces `--no-chat` with no stdin, and when AutoCode stops it prints
+`--status` and tells the caller to report and stop. Exit codes are AutoCode's.
 
 When a run completes, the wrapper prints the command to analyze it:
 `autocode-unattended --analyze --run-dir RUN [--out DIR]`. That launches no stage; it

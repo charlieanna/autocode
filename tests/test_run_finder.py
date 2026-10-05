@@ -448,6 +448,14 @@ class WhichRunIsChosen(Fixture):
         self.assertEqual(f"Continue with: autocode --run-dir {mine} --unit autoplanner (or autocode --unit "
                          "autoplanner from its project while it is the only unfinished run there)", hint,
                          "an action under a unit continues that unit, not every unit")
+        for status in ("PAUSED_PLANNING_BUDGET", "PAUSED_INVALID_OUTPUT", "BLOCKED_HUMAN", "RESOLVER_PENDING"):
+            with self.subTest(status=status):
+                self.assertEqual(f"Continue with: autocode --run-dir {mine} resume (or autocode resume from its "
+                                 "project while it is the only unfinished run there)",
+                                 finder.continue_hint(mine, {**state, "status": status}),
+                                 "plain autocode only shows a pause")
+        self.assertIn("--unit autoplanner resume (or autocode --unit autoplanner resume from",
+                      finder.continue_hint(mine, {**state, "status": "PAUSED_PLANNING_BUDGET"}, "autoplanner"))
         hint = finder.continue_hint(mine, {**state, "status": "TASK_COMPLETE"})
         self.assertIn(f"It has finished (TASK_COMPLETE); show it with: autocode --run-dir {mine} --status", hint)
         self.assertIn(f'autocode --run-dir {mine} --follow-up "TEXT"', hint)
@@ -568,10 +576,29 @@ class CommandLine(Fixture):
                      ["resume", "--abandon-stage", "001/terra-01"]):
             with self.subTest(argv=argv):
                 self.assertFalse(self.parse(*argv)[0].resume_paused, "only the resume command acknowledges")
-        for status in ("WAITING_FOR_USER", "RUNNING", "PAUSED_DESIGN_CONFLICT"):
+        for status in ("RESOLVER_PENDING", "BLOCKED_HUMAN", "PLAN_REWORK_REQUIRED"):
+            with self.subTest(status=status):
+                # A plain relaunch only shows these too; --resume-paused continues them (#412).
+                other = self.run_in(tree, status=status)
+                for argv in (["resume"], ["resume", "--retry-failed-stage"], ["resume", "--max-seconds", "0"]):
+                    self.assertTrue(self.parse(*argv, "--run-dir", str(other))[0].resume_paused)
+                for argv in ([], ["resume", "--feedback", "smaller"],
+                             ["resume", "--resolver-response", "leave_paused", "--resolver-request", "R",
+                              "--resolver-token", "T"]):
+                    self.assertFalse(self.parse(*argv, "--run-dir", str(other))[0].resume_paused,
+                                     "never with a user action or a resolver response")
+        for status in ("WAITING_FOR_USER", "RUNNING", "PAUSED_DESIGN_CONFLICT", "BLOCKED", "WAITING_FOR_DEPENDENCY"):
             with self.subTest(status=status):
                 other = self.run_in(tree, status=status)
                 self.assertFalse(self.parse("resume", "--run-dir", str(other))[0].resume_paused, "nothing to acknowledge")
+
+    def test_the_hint_after_a_user_action_at_a_pause_is_a_command_that_acknowledges_it(self):
+        run = self.worktree_run(status="PAUSED_PLANNING_BUDGET")[1]
+        hint = finder.continue_hint(run, json.loads((run / "state.json").read_text()))
+        command = shlex.split(hint.removeprefix("Continue with: ").split(" (or ")[0])
+        self.assertEqual("autocode", command[0])
+        args, _ = self.parse(*command[1:], cwd=self.root)
+        self.assertEqual((run, True), (args.run_dir, args.resume_paused))
 
     def test_resume_refuses_when_every_run_has_finished(self):
         self.run_in(self.project, status="TASK_COMPLETE")
