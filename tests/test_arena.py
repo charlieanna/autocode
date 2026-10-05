@@ -190,6 +190,7 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual("FALSE_COMPLETE", policy.verdict("TASK_COMPLETE", [{"ok": False}]))
         self.assertEqual("ERROR", policy.verdict("TASK_COMPLETE", [], "oracle crash"))
         self.assertEqual("STOPPED", policy.verdict("AWAITING_GOAL_APPROVAL", [{"ok": False}]))
+        self.assertEqual("STOPPED", policy.verdict("WAITING_FOR_USER", [{"ok": False}]))
 
     def population(self):
         cases = [{"id": "r", "sha256": "r", "split": "regression"},

@@ -10,7 +10,7 @@ def verdict(status: str, checks: list[dict], error: str | None = None) -> str:
     if complete:
         return "PASS" if passed else "FALSE_COMPLETE"
     # A pause is an observation, not proof that stopping was the right decision.
-    return "STOPPED" if status.startswith(("PAUSED", "AWAITING")) else "FAIL"
+    return "STOPPED" if status == "WAITING_FOR_USER" or status.startswith(("PAUSED", "AWAITING")) else "FAIL"
 
 
 def summarize(rows: list[dict]) -> dict:
