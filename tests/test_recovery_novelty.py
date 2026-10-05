@@ -10,6 +10,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
+import uuid
 
 import autocode_recovery_novelty as novelty
 import autocode_recovery_inputs as inputs
@@ -714,7 +715,63 @@ class RecoveryPacketTests(unittest.TestCase):
             recovery.admit_dispatch(self.state, attempt, self.root, self.run)
         self.assertNotIn("recovery_novelty", attempt)
 
-    def test_known_correction_cannot_repin_artifacts_changed_during_queue(self):
+    def scratch(self, control=None):
+        """Where tool containment tells a contained stage to capture (#419)."""
+        return self.root / ".autocode" / (control or "tool-containment-" + uuid.uuid4().hex) / "scratch"
+
+    def contained_capture(self, scratch, *, recorded=None):
+        """Pin a failed check's receipt and log captured in `scratch`; record `recorded` as the Validator's scratch."""
+        scratch.mkdir(parents=True)
+        raw = scratch / "evidence-check.log"
+        raw.write_text("AssertionError: 2 != 3\n")
+        receipt = scratch / "evidence-check.json"
+        receipt.write_text(json.dumps({"full_output": str(raw)}))
+        state = copy.deepcopy(self.state)
+        if recorded:
+            state["stages"][-1]["tool_containment"] = {"version": 1, "scratch": str(recorded)}
+        state["resolution_request"] = {"source_revision": "s1", "source_output": str(self.output), "evidence_hashes": {
+            str(path): util.file_hash(path) for path in (self.output, self.events, receipt, raw)}}
+        return state, receipt, raw
+
+    def test_contained_validator_scratch_capture_is_archived_as_this_runs_evidence(self):
+        scratch = self.scratch()
+        state, receipt, raw = self.contained_capture(scratch, recorded=scratch)
+        record = {key: value for key, value in self.record.items() if key != "recovery_packet"}
+        recovery.prepare_resolution(state, {"summary": "Wrong answer"}, record)
+        packet = recovery.load_packet(state["resolution_request"]["recovery_packet"], self.run)
+        self.assertLessEqual({str(receipt), str(raw)}, {row["original_path"] for row in packet["originals"]})
+
+    def test_containment_scratch_is_owned_only_through_this_runs_own_launch_record(self):
+        record = {key: value for key, value in self.record.items() if key != "recovery_packet"}
+        scratch = self.scratch()
+        state, _, _ = self.contained_capture(scratch, recorded=scratch)
+        recovery.prepare_resolution(state, {"summary": "Recorded scratch"}, copy.deepcopy(record))
+        sibling, misnamed, control = self.scratch(), self.scratch("tool-containment-" + "g" * 32), self.scratch().parent
+        foreign = self.root / ".autocode" / "runs" / "foreign" / ("tool-containment-" + "a" * 32) / "scratch"
+        cases = {"unrecorded": (self.scratch(), None),
+                 "beside the recorded scratch": (sibling.with_name("scratch-copy"), sibling),
+                 "not a runner-made name": (misnamed, misnamed),
+                 "the control directory, not its scratch": (control, control),
+                 "inside another run": (foreign, foreign)}
+        for label, (evidence, recorded) in cases.items():
+            with self.subTest(label=label):
+                state, _, _ = self.contained_capture(evidence, recorded=recorded)
+                with self.assertRaisesRegex(util.Paused, "another run"):
+                    recovery.prepare_resolution(state, {"summary": label}, copy.deepcopy(record))
+                self.assertNotIn("recovery_packet", state["resolution_request"])
+        scratch = self.scratch()
+        elsewhere = self.run / "elsewhere"
+        state, _, _ = self.contained_capture(elsewhere, recorded=scratch)
+        scratch.parent.mkdir()
+        scratch.symlink_to(elsewhere)
+        state["resolution_request"]["evidence_hashes"] = {
+            str(scratch / Path(path).name) if Path(path).parent == elsewhere else path: digest
+            for path, digest in state["resolution_request"]["evidence_hashes"].items()}
+        with self.assertRaisesRegex(util.Paused, "symlink"):
+            recovery.prepare_resolution(state, {"summary": "Symlinked scratch"}, copy.deepcopy(record))
+
+    def known_correction(self, evidence):
+        """A sealed Completion REWORK with an attested change, over a failed check captured in `evidence`."""
         self.state["iteration"] = 2
         self.state["settings"]["roles"] = {"terra": {"model": "builder"}, "sol": {"model": "reviewer"}}
         identity = {"task_id": "T1", "contract_hash": "h", "contract_revision": 1}
@@ -737,9 +794,10 @@ class RecoveryPacketTests(unittest.TestCase):
         self.validator.write_text(json.dumps(report))
         rework.capture(record, decision)
         rework.capture(accepted, report)
-        raw = self.run / "executed-check.log"
+        evidence.mkdir(parents=True, exist_ok=True)
+        raw = evidence / "executed-check.log"
         raw.write_text("AssertionError: 2 != 3\n")
-        receipt = self.run / "executed-check.receipt.json"
+        receipt = evidence / "executed-check.receipt.json"
         receipt.write_text(json.dumps({"full_output": str(raw)}))
         self.state["validation"] = {**report, "source_revision": "s1", "reviewer_role": "sol", "output": str(self.validator),
             "evidence_hashes": {str(path): util.file_hash(path) for path in (self.events, raw, receipt)}}
@@ -747,8 +805,35 @@ class RecoveryPacketTests(unittest.TestCase):
         runtime = SimpleNamespace(lifecycle=SimpleNamespace(assign_task=Mock()), support=SimpleNamespace(
             snapshot=util.snapshot, verify_checks=Mock()), check_evidence_options=lambda _: {})
         retry = SimpleNamespace(enabled=lambda _: True, failure=Mock(return_value="retry"))
-        immutable = copy.deepcopy(record["rework_evidence"])
         paths = [self.output, completion_events, reported, self.validator, self.events, raw, receipt]
+        return decision, record, raw, paths, runtime, retry
+
+    def known_correction_prepared(self, decision, record, paths):
+        state, current_record = copy.deepcopy(self.state), copy.deepcopy(record)
+        state["resolution_request"] = {"source_revision": "s1", "evidence_hashes": {
+            str(path): util.file_hash(path) for path in paths}}
+        current_record.update(finished_at="2026-10-03T00:00:00Z", processes=[{"pid": 123, "birth_identity": 42}])
+        state["active_stage"] = copy.deepcopy(current_record)
+        recovery.prepare_resolution(state, decision, current_record)
+        return state, current_record
+
+    def test_known_correction_accepts_a_failed_check_its_contained_validator_captured(self):
+        # Under tool containment the Validator's prompt says to capture into its own scratch (#419).
+        scratch = self.scratch()
+        decision, record, raw, paths, runtime, retry = self.known_correction(scratch)
+        self.state["stages"][-1]["tool_containment"] = {"version": 1, "scratch": str(scratch)}
+        state, current_record = self.known_correction_prepared(decision, record, paths)
+        runtime.goals = SimpleNamespace(record_decision=Mock())
+        runtime.dispatch = SimpleNamespace(build_stage=lambda _: "terra")
+        with patch.object(recovery.processes, "recorded_worker_state", return_value={"checked": True, "alive": False}):
+            self.assertTrue(recovery.route_known_change(runtime, state, decision, current_record,
+                                                        run_dir=self.run, retry_policy=retry))
+        self.assertEqual("known-correction", state["repair_plan"]["kind"])
+        self.assertIn(str(raw), state["repair_plan"]["evidence_hashes"])
+
+    def test_known_correction_cannot_repin_artifacts_changed_during_queue(self):
+        decision, record, raw, paths, runtime, retry = self.known_correction(self.run)
+        immutable = copy.deepcopy(record["rework_evidence"])
         saved = {path: path.read_bytes() for path in paths}
         for changed in paths:
             with self.subTest(changed=changed.name):
@@ -781,13 +866,7 @@ class RecoveryPacketTests(unittest.TestCase):
                 missing.write_bytes(saved[missing])
 
         def prepared():
-            state, current_record = copy.deepcopy(self.state), copy.deepcopy(record)
-            state["resolution_request"] = {"source_revision": "s1", "evidence_hashes": {
-                str(path): util.file_hash(path) for path in paths}}
-            current_record.update(finished_at="2026-10-03T00:00:00Z", processes=[{"pid": 123, "birth_identity": 42}])
-            state["active_stage"] = copy.deepcopy(current_record)
-            recovery.prepare_resolution(state, decision, current_record)
-            return state, current_record
+            return self.known_correction_prepared(decision, record, paths)
 
         for worker in ({"checked": True, "alive": True}, {"checked": False, "alive": None}):
             state, current_record = prepared()

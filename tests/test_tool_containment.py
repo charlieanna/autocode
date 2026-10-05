@@ -98,6 +98,25 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             containment._reject_loopback_request(command, None)
 
+    def test_recorded_scratch_is_only_the_layout_prepare_creates_in_this_workspace(self):
+        # A contained stage captures evidence in its scratch; the launch record says whose it is (#419).
+        private = Path('/workspace/.autocode')
+        control = 'tool-containment-' + 'a' * 32
+        genuine = private / control / 'scratch'
+        lookalikes = [private / ('tool-containment-' + 'A' * 32) / 'scratch',
+                      private / ('tool-containment-' + 'a' * 31) / 'scratch',
+                      private / ('tool-containment-' + 'a' * 32 + '0') / 'scratch',
+                      private / ('tool-containment-' + 'a' * 32 + '/../' + control) / 'scratch',
+                      private / control, private / control / 'scratch-copy', private / control / 'scratch' / 'nested',
+                      private / 'runs' / 'other' / control / 'scratch', Path('/elsewhere/.autocode') / control / 'scratch',
+                      Path('workspace/.autocode') / control / 'scratch']
+        records = [{'stage': 'terra'}, {'stage': 'sol', 'tool_containment': {'scratch': str(genuine)}},
+                   {'stage': 'sol', 'tool_containment': {'scratch': str(genuine)}},
+                   *({'stage': 'sol', 'tool_containment': {'scratch': str(path)}} for path in lookalikes),
+                   {'tool_containment': None}, {'tool_containment': {'scratch': 7}}, {'tool_containment': 'x'}, 'x']
+        self.assertEqual((genuine,), containment.recorded_scratch(records, '/workspace'))
+        self.assertEqual((), containment.recorded_scratch(records, '/other'))
+
 
 @unittest.skipUnless(sys.platform == 'darwin' and Path('/usr/bin/sandbox-exec').is_file(),
                      'requires real macOS Seatbelt enforcement')

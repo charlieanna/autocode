@@ -381,15 +381,103 @@ class BuildBlackbox(unittest.TestCase):
         self.assertEqual(1,len(self.events('repair',stage='terra_report_repair')))
 
     def test_29_report_repair_cannot_invent_passing_checks(self):
-        # The repair claims a passing run of a command the Builder never ran. The runner puts the
-        # Builder's recorded history back (#431), so the accepted report keeps the failing check
-        # and the Tester, not the repair, judges M1.
-        self.seed(); self.env['BUILD_AUDIT_FAULT']='repair_lies'; self.build(); self.candidate()
-        repairs=[row for row in self.state()['stages'] if row['stage']=='terra_report_repair']
-        self.assertEqual(1,len(repairs))
-        report=json.loads(Path(repairs[0]['output']).read_text())
-        self.assertEqual(['check exit=1'],report['results'])
-        self.assertEqual([self.spec['checks']['M1']],report['commands_run'])
+        # #431 restores original execution history instead of rejecting a usable
+        # format repair. The candidate still needs an independent Tester: a repair
+        # may fix summary shape, but cannot turn the original failed check into PASS.
+        self.spec = independent()
+        (self.root / 'plan.json').write_text(json.dumps(self.spec, indent=2))
+        # Record the actual malicious repair draft in this test-owned fixture log.
+        # Install it before any CLI launch so provider identity stays unchanged.
+        # This changes logging only; the checked-in provider and its behavior stay
+        # unchanged, and the unique anchor refuses a silently different fixture.
+        provider = self.root / 'bin/codex'
+        provider_source = provider.read_text()
+        anchor = "        record('repair')\n"
+        self.assertEqual(1, provider_source.count(anchor))
+        provider.write_text(provider_source.replace(anchor,
+            "        record('repair', results=result.get('results'), commands_run=result.get('commands_run'))\n", 1))
+        self.invoke('autoplanner', [self.spec['contract']['intended_outcome'],
+            '--engine', 'codex', '--in-place', '--terra-model', 'gpt-6-luna',
+            '--terra-reasoning-effort', 'medium', '--sol-model', 'gpt-5.6-sol',
+            '--sol-reasoning-effort', 'high', '--completion-model', 'gpt-5.6-sol',
+            '--completion-reasoning-effort', 'medium', '--max-parallel-builders', '3', '--no-chat'], 2)
+        self.run = next((self.project / '.autocode/runs').iterdir())
+        identity = ['--run-dir', str(self.run)]
+        status = json.loads(self.invoke('autocode', [*identity, '--status', '--inspect-evidence']).stdout)
+        approved_token = status['contract_token']
+        self.invoke('autoplanner', [*identity, '--approve-goal', approved_token, '--no-chat'])
+
+        self.env['BUILD_AUDIT_FAULT'] = 'repair_lies'
+        self.invoke('autocode_build', [*identity, '--no-chat'])
+        status = json.loads(self.invoke('autocode', [*identity, '--status', '--inspect-evidence']).stdout)
+        self.assertEqual(approved_token, status['contract_token'])
+        self.assertEqual('sol', status['next_stage'])
+        self.assertNotEqual('TASK_COMPLETE', status['status'])
+        self.assertFalse(status['view']['done'])
+        inspected = status['view']['verification']
+        self.assertEqual('not_recorded', inspected['freshness'])
+        self.assertIsNone(inspected['report_token'])
+        self.assertEqual({'C1', 'C2', 'C3'}, {row['id'] for row in inspected['coverage']})
+        self.assertTrue(all(row['state'] == 'unchecked' for row in inspected['coverage']))
+        self.assertNotIn('autoreview', status['unit_handoffs'])
+        self.assertFalse(self.events(stage='sol'))
+        self.assertEqual(3, len(self.events()))
+        repairs = self.events('repair', stage='terra_report_repair')
+        self.assertEqual(1, len(repairs))
+        self.assertEqual(['All tests passed; exit code 0'], repairs[0]['results'])
+        self.assertEqual(['python3 -c "raise SystemExit(0)"'], repairs[0]['commands_run'])
+
+        candidate_path = Path(status['unit_handoffs']['autocode']['path'])
+        self.assertTrue(candidate_path.resolve().is_relative_to(self.project))
+        candidate = json.loads(candidate_path.read_text())
+        self.assertIsInstance(candidate, dict)
+        self.assertEqual('build-candidate', candidate['kind'])
+        self.assertEqual(status['current_task']['id'], candidate['task_id'])
+        reports = []
+        for name in candidate['implementation']['builder_reports']:
+            result_path = Path(name)
+            self.assertTrue(result_path.resolve().is_relative_to(self.project))
+            result = json.loads(result_path.read_text())
+            self.assertIsInstance(result, dict)
+            self.assertEqual('BUILT', result['status'])
+            report_path = Path(result['report'])
+            self.assertTrue(report_path.resolve().is_relative_to(self.project))
+            report = json.loads(report_path.read_text())
+            self.assertIsInstance(report, dict)
+            reports.append((report_path, report))
+        self.assertEqual(3, len(reports))
+        m1 = [(path, value) for path, value in reports
+              if value['commands_run'] == [self.spec['checks']['M1']]]
+        self.assertEqual(1, len(m1))
+        repaired_path, repaired = m1[0]
+        self.assertEqual(['check exit=1'], repaired['results'])
+        self.assertEqual('Reformatted preserved builder report', repaired['summary'])
+
+        # A rejected first Builder report is retained under its archive stem;
+        # the accepted format repair stays in the same owning iteration. Read
+        # only that original report, never checkpoints or schemas.
+        self.assertEqual('builder-report-repair-01.json', repaired_path.name)
+        original_paths = list(repaired_path.parent.glob('archived-builder-01-*/builder-01.json'))
+        self.assertEqual(1, len(original_paths))
+        original_path = original_paths[0]
+        self.assertTrue(original_path.resolve().is_relative_to(self.project))
+        original = json.loads(original_path.read_text())
+        self.assertIsInstance(original, dict)
+        self.assertNotIn('summary', original)
+        self.assertEqual(original['task_id'], repaired['task_id'])
+        self.assertEqual(['check exit=1'], original['results'])
+        self.assertEqual(original['commands_run'], repaired['commands_run'])
+        self.assertEqual(original['contract_hash'], repaired['contract_hash'])
+
+        def executed(path):
+            return [event['item'] for event in map(json.loads, path.read_text().splitlines())
+                    if event.get('type') == 'item.completed'
+                    and event.get('item', {}).get('type') == 'command_execution']
+        self.assertEqual([(self.spec['checks']['M1'], 1)],
+                         [(item['command'], item['exit_code'])
+                          for item in executed(original_path.with_suffix('.jsonl'))])
+        self.assertEqual([], executed(repaired_path.with_suffix('.jsonl')),
+                         'format repair must not execute a replacement passing command')
 
     def test_30_33_repeated_build_does_not_redispatch_completed_wave(self):
         self.seed(); self.build(); first=self.events(); original=self.candidate()

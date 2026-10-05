@@ -9,6 +9,10 @@ import contextlib
 import hashlib
 import io
 import json
+import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 import tempfile
 import unittest
@@ -23,6 +27,7 @@ import autocode_visual_evidence as evidence
 import autocode_visual_runtime as visual
 import autocode
 import autocode_status_command
+import autocode_taskrun as taskrun
 import goal_fixtures
 from tests.visual_capture_fixtures import make_capture, png
 
@@ -81,6 +86,7 @@ class VisualRuntimeTests(unittest.TestCase):
         self.proof = self.run / 'qualified-config.json'
         self.proof.write_text('{"test_only":true}')
         self.limits = {'width': 2, 'height': 1, 'pixels': 2, 'bytes': 4096}
+        self.request_limit = visual.delivery.SESSION_MAX_REQUESTS
 
     def snapshot(self):
         value = {'head': 'fixture-parent-snapshot', 'files': {'greet.py': util.file_hash(self.root / 'greet.py')}}
@@ -96,7 +102,13 @@ class VisualRuntimeTests(unittest.TestCase):
         # TEST ONLY. Production must recheck actual native qualification evidence.
         self.assertEqual(self.command, kwargs['command'][:len(self.command)])
         self.assertEqual('fixture-unchanged-never-written', kwargs['env']['SOME_AUTH_ENV'])
-        return {'evidence_hashes': {str(self.proof): util.file_hash(self.proof)}, 'image_limits': self.limits}
+        environment = dict(kwargs['env'])
+        audit = json.loads(environment['AUTOCODE_IMAGE_AUDIT'])
+        self.assertNotIn('max_requests', audit)
+        audit['max_requests'] = self.request_limit
+        environment['AUTOCODE_IMAGE_AUDIT'] = json.dumps(audit)
+        return {'evidence_hashes': {str(self.proof): util.file_hash(self.proof)}, 'image_limits': self.limits,
+                'environment': environment}
 
     def prepare(self, **options):
         options = {'launch_authority': self.qualified_config, 'current_snapshot': self.snapshot(), **options}
@@ -106,12 +118,12 @@ class VisualRuntimeTests(unittest.TestCase):
     def test_authorized_environment_is_used_and_bound_without_persisting_secrets(self):
         def qualified(**kwargs):
             result = self.qualified_config(**kwargs)
-            result['environment'] = {**kwargs['env'], 'HOME': str(self.run / 'qualified-home')}
+            result['environment'] = {**result['environment'], 'HOME': str(self.run / 'qualified-home')}
             return result
         context, command, environment, _ = self.prepare(launch_authority=qualified)
         self.assertEqual('READY', context['status'])
         self.assertEqual(str(self.run / 'qualified-home'), environment['HOME'])
-        self.assertEqual(1, context['audit_options']['max_requests'])
+        self.assertEqual(visual.delivery.SESSION_MAX_REQUESTS, context['audit_options']['max_requests'])
         self.assertEqual('autocode_sol', context['audit_options']['reviewer']['agent'])
         self.assertNotIn('fixture-unchanged-never-written', Path(context['launch_manifest']).read_text())
         visual.verify_prelaunch(context, self.state, run_dir=self.run, current_snapshot=self.snapshot(),
@@ -120,6 +132,23 @@ class VisualRuntimeTests(unittest.TestCase):
             visual.verify_prelaunch(context, self.state, run_dir=self.run, current_snapshot=self.snapshot(),
                                     command=command, env={**environment, 'HOME': '/unapproved'})
 
+    def test_authority_supplies_its_approved_session_cap_without_runtime_escalation(self):
+        for cap in (1, 4, visual.delivery.SESSION_MAX_REQUESTS):
+            with self.subTest(cap=cap):
+                self.request_limit = cap
+                context, command, environment, _ = self.prepare()
+                self.assertEqual('READY', context['status'], context)
+                self.assertEqual(cap, context['audit_options']['max_requests'])
+                visual.verify_prelaunch(context, self.state, run_dir=self.run, current_snapshot=self.snapshot(),
+                                        command=command, env=environment)
+        for cap in (None, False, 0, visual.delivery.SESSION_MAX_REQUESTS + 1):
+            with self.subTest(cap=cap):
+                self.request_limit = cap
+                context, command, environment, prompt = self.prepare()
+                self.assertEqual('NOT_READY', context['status'], context)
+                self.assertEqual((self.command, self.env, 'Validate the implementation'), (command, environment, prompt))
+                self.assertIn('approved bounded session request cap', context['reason'])
+
     def test_qualified_child_executable_is_rechecked_before_launch(self):
         executable = self.run / 'qualified-opencode'
         executable.write_text('qualified executable bytes')
@@ -127,7 +156,7 @@ class VisualRuntimeTests(unittest.TestCase):
             result = self.qualified_config(**kwargs)
             result['child_identity'] = {'executable': str(executable), 'executable_sha256': util.file_hash(executable),
                                        'command_sha256': util.digest(kwargs['command']),
-                                       'environment_sha256': util.digest(kwargs['env'])}
+                                       'environment_sha256': util.digest(result['environment'])}
             return result
         context, command, env, _ = self.prepare(launch_authority=qualified)
         with patch.object(visual.shutil, 'which', return_value=str(executable)):
@@ -592,6 +621,143 @@ class VisualRuntimeTests(unittest.TestCase):
                     visual.accept_review(None, self.state, {'stage': 'sol'}, run_dir=self.run,
                                          current_snapshot=self.snapshot(), accepted_validation={})
 
+    def test_not_ready_functional_review_never_requires_or_mints_visual_acceptance(self):
+        original = deepcopy(self.state)
+        for missing in ('captures', 'mapping', 'authority'):
+            with self.subTest(missing=missing):
+                self.state = deepcopy(original)
+                if missing == 'captures':
+                    with patch.object(visual.evidence, 'context', return_value=None):
+                        context, command, env, prompt = self.prepare()
+                elif missing == 'mapping':
+                    self.state['goal_contract']['body']['constraints'] = ['VISUAL_REVIEW_PROFILE={}']
+                    self.approve()
+                    context, command, env, prompt = self.prepare()
+                else:
+                    context, command, env, prompt = self.prepare(launch_authority=None)
+                self.assertEqual('NOT_READY', context['status'])
+                self.assertEqual((self.command, self.env, 'Validate the implementation'), (command, env, prompt))
+                before = deepcopy(self.state)
+                with patch.object(visual.delivery, 'verify') as delivery:
+                    self.assertIsNone(visual.accept_review(None, self.state,
+                        {'stage': 'sol', 'visual_runtime': context}, run_dir=self.run,
+                        current_snapshot=self.snapshot(), accepted_validation={'verdict': 'PASS'}))
+                delivery.assert_not_called()
+                self.assertEqual(before, self.state)
+                self.assertFalse(visual.completion_allowed(self.state, current_snapshot=self.snapshot()))
+                with self.assertRaises(util.Paused):
+                    visual.require_completion(self.state, current_snapshot=self.snapshot())
+
+    def test_functional_failures_keep_rework_without_requiring_visual_delivery(self):
+        self.review(statuses=('NOT_VERIFIED', 'NOT_VERIFIED'))
+        Path(self.record['visual_runtime']['audit_path']).unlink()
+        for verdict in ('FAIL', 'BLOCKED'):
+            with self.subTest(verdict=verdict):
+                self.report['verdict'] = verdict
+                self.save_report()
+                self.record.pop('rework_evidence')
+                reports.capture(self.record, self.report)
+                validation = {**self.validation, **self.report,
+                    'evidence_hashes': {self.record['events']: util.file_hash(self.record['events'])}}
+                before = deepcopy(self.state)
+                with patch.object(visual.delivery, 'verify') as delivery:
+                    self.assertIsNone(visual.accept_review(None, self.state, self.record,
+                        run_dir=self.run, current_snapshot=self.snapshot(), accepted_validation=validation))
+                delivery.assert_not_called()
+                self.assertEqual(before, self.state)
+                self.assertFalse(visual.completion_allowed(self.state, current_snapshot=self.snapshot()))
+
+    @contextlib.contextmanager
+    def functional_launcher(self, *, before_admission=None):
+        # The real common launcher and reference/capture policies are exercised.
+        # Only provider/containment dependencies are stubbed; no client is run.
+        self.state.update(iteration=1, sessions={}, next_stage='sol', version=2)
+        self.state['settings'].update(transport_identity={'fixture': True})
+        schema = self.run / 'functional-schema.json'
+        util.atomic_json(schema, {'type': 'object', 'required': [], 'properties': {}})
+        shutil.rmtree(self.root / '.autocode' / 'captures')
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.object(autocode.provider_launch, 'prepare',
+                return_value=(self.command, deepcopy(self.env), {}, {})))
+            stack.enter_context(patch.object(autocode.provider_launch, 'verify_containment', side_effect=before_admission))
+            stack.enter_context(patch.object(autocode.task_preflight, 'guard'))
+            stack.enter_context(patch.object(autocode.output_policy, 'environment', return_value={}))
+            stack.enter_context(patch.object(autocode.opencode, 'transport_drift', return_value=None))
+            stack.enter_context(patch.object(autocode.opencode, 'local_settings', return_value={}))
+            stack.enter_context(patch.object(autocode.support, 'snapshot', return_value=self.snapshot()))
+            stack.enter_context(patch.object(autocode.readonly_events, 'prepare_opencode_snapshots'))
+            popen = stack.enter_context(patch.object(autocode.subprocess, 'Popen',
+                side_effect=RuntimeError('functional request admitted')))
+            yield schema, popen
+
+    def test_common_launcher_runs_functional_validator_when_visual_captures_are_missing(self):
+        with self.functional_launcher() as (schema, popen):
+            with self.assertRaisesRegex(RuntimeError, 'functional request admitted'):
+                autocode.run_role(state=self.state, workspace=self.root, run_dir=self.run, role='sol', sandbox='read-only',
+                    schema=schema, prompt='Functional validation only', model='openai/reviewer', allow_write=False, dry_run=False)
+            popen.assert_called_once()
+            self.assertEqual(self.command, popen.call_args.args[0])
+            self.assertEqual(self.env, popen.call_args.kwargs['env'])
+        self.assertFalse(visual.completion_allowed(self.state, current_snapshot=self.snapshot()))
+
+    def test_common_launcher_runs_functional_validator_when_visual_mapping_is_missing(self):
+        constraints = self.state['goal_contract']['body']['constraints']
+        constraints[:] = [row for row in constraints if not row.startswith('VISUAL_CASE_CRITERIA=')]
+        constraints.append('VISUAL_REVIEW_PROFILE={}')
+        self.approve()
+        with self.functional_launcher() as (schema, popen):
+            with self.assertRaisesRegex(RuntimeError, 'functional request admitted'):
+                autocode.run_role(state=self.state, workspace=self.root, run_dir=self.run, role='sol', sandbox='read-only',
+                    schema=schema, prompt='Functional validation only', model='openai/reviewer', allow_write=False, dry_run=False)
+            popen.assert_called_once()
+            self.assertEqual(self.command, popen.call_args.args[0])
+            self.assertEqual(self.env, popen.call_args.kwargs['env'])
+        self.assertFalse(visual.completion_allowed(self.state, current_snapshot=self.snapshot()))
+
+    def test_common_launcher_refuses_invalid_retained_references_before_preparation(self):
+        record = deepcopy(self.state['settings']['design_manifest'])
+        reference = Path(record['root']) / record['body']['cases'][0]['artifacts']['screenshot']['path']
+        original = reference.read_bytes()
+        alias = self.root / '.autocode' / 'reference-alias'
+        alias.symlink_to(Path(record['root']), target_is_directory=True)
+        changes = {
+            'malformed record': lambda: self.state['settings'].update(design_manifest=['not a record']),
+            'missing body': lambda: self.state['settings']['design_manifest'].pop('body'),
+            'invalid schema': lambda: self.state['settings']['design_manifest']['body'].update(cases=[]),
+            'changed identity': lambda: self.state['settings']['design_manifest'].update(manifest_hash='0' * 64),
+            'changed reference': lambda: reference.write_bytes(b'changed reference'),
+            'missing reference': lambda: reference.unlink(),
+            'external root': lambda: self.state['settings']['design_manifest'].update(root=str(self.root.parent)),
+            'symlinked root': lambda: self.state['settings']['design_manifest'].update(root=str(alias)),
+        }
+        self.state.update(iteration=1, sessions={}, next_stage='sol')
+        for label, change in changes.items():
+            with self.subTest(label=label):
+                self.state['settings']['design_manifest'] = deepcopy(record)
+                reference.write_bytes(original)
+                change()
+                with patch.object(autocode.provider_launch, 'prepare') as prepare, \
+                        patch.object(autocode.subprocess, 'Popen') as popen, self.assertRaises(util.Paused) as caught:
+                    autocode.run_role(state=self.state, workspace=self.root, run_dir=self.run, role='sol', sandbox='read-only',
+                        schema=self.run / 'unused-schema.json', prompt='Retained reference integrity',
+                        model='openai/reviewer', allow_write=False, dry_run=False)
+                self.assertEqual('PAUSED_VISUAL_EVIDENCE', caught.exception.status)
+                prepare.assert_not_called()
+                popen.assert_not_called()
+
+    def test_common_launcher_rechecks_not_ready_reference_immediately_before_popen(self):
+        manifest = self.state['settings']['design_manifest']
+        reference = Path(manifest['root']) / manifest['body']['cases'][0]['artifacts']['screenshot']['path']
+        def change_after_preparation(worker):
+            reference.write_bytes(b'changed after provider preparation')
+        with self.functional_launcher(before_admission=change_after_preparation) as (schema, popen):
+            with self.assertRaises(util.Paused) as caught:
+                autocode.run_role(state=self.state, workspace=self.root, run_dir=self.run, role='sol', sandbox='read-only',
+                    schema=schema, prompt='Retained reference integrity', model='openai/reviewer', allow_write=False, dry_run=False)
+            self.assertEqual('PAUSED_VISUAL_EVIDENCE', caught.exception.status)
+            self.assertIn('changed design reference', str(caught.exception))
+            popen.assert_not_called()
+
     def test_common_launcher_holds_missing_manifest_before_provider_preparation(self):
         self.state['settings'].pop('design_manifest')
         self.state.update(iteration=1, sessions={}, next_stage='sol')
@@ -616,3 +782,144 @@ class VisualRuntimeTests(unittest.TestCase):
         status = json.loads(output.getvalue())
         self.assertFalse(status['completion_current'])
         self.assertEqual(0, status['view']['efficiency']['delivery']['verified_deliveries'])
+
+
+class VisualRuntimeCliTests(unittest.TestCase):
+    """Real TaskRun flow through exact hashed fake clients; no image authority.
+
+    The existing explicit OpenCode fixture bootstrap simulates containment only
+    for these pinned script copies. It cannot select an actual model client and
+    is never installed or activated by production environment settings.
+    """
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix='visual-runtime-cli-')
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.project = self.root / 'project'
+        self.project.mkdir()
+        subprocess.run(['git', 'init', '-q', str(self.project)], check=True)
+        subprocess.run(['git', '-C', str(self.project), '-c', 'user.name=Fixture', '-c',
+                        'user.email=fixture@example.test', 'commit', '-q', '--allow-empty', '-m', 'fixture'], check=True)
+        repository = getattr(self, 'repository', Path(__file__).resolve().parents[1])
+        binary = self.root / 'fixture-bin'
+        binary.mkdir()
+        for name, source in (('opencode', 'fake_opencode.py'), ('codex', 'fake_codex.py'),
+                             ('goal_fixtures.py', 'goal_fixtures.py')):
+            shutil.copy2(repository / 'tools' / source, binary / name)
+        variant = binary / 'codex'
+        source = variant.read_text()
+        marker = 'Path(sys.argv[sys.argv.index("-o") + 1]).write_text(json.dumps(result))'
+        before, separator, after = source.rpartition(marker)
+        self.assertTrue(separator)
+        hook = r"""
+design = data.get('design_manifest')
+if design:
+    design_body = design.get('body') or json.loads(Path(design['full_manifest']).read_text())
+    cases = design_body['cases']
+    if 'contract' in result:
+        mapping = {case['id']: ['C2' if mode == 'milestones' and index == 1 else 'C1']
+                   for index, case in enumerate(cases)}
+        declaration = 'VISUAL_CASE_CRITERIA=' + json.dumps(mapping, sort_keys=True)
+        result['contract']['constraints'] = [row for row in result['contract']['constraints']
+            if not row.startswith('VISUAL_CASE_CRITERIA=')] + [declaration]
+    if stage in ('sol', 'astra_checkpoint'):
+        result['design_manifest_hash'] = design['manifest_hash']
+        result['design_results'] = [dict(id=case['id'], status='NOT_VERIFIED',
+            criterion_ids=['C2' if mode == 'milestones' and index == 1 else 'C1'],
+            candidate_ref='', comparison_ref='', capture_ref='', capture_sha256='')
+            for index, case in enumerate(cases)]
+"""
+        variant.write_text(before + hook + marker + after)
+        for name in ('opencode', 'codex'):
+            (binary / name).chmod(0o755)
+        hashes = {name: util.file_hash(binary / name) for name in ('opencode', 'codex', 'goal_fixtures.py')}
+        bootstrap = self.root / 'offline-visual-cli.py'
+        bootstrap.write_text('''import os
+from pathlib import Path
+import hashlib
+import shutil
+import sys
+sys.path.insert(0, ''' + repr(str(repository)) + ''')
+from tests import opencode_fixture_cli as fixture
+EXPECTED = ''' + repr(hashes) + '''
+def exact_fixture(executable="opencode", *, env=None):
+    environment = os.environ if env is None else env
+    selected = shutil.which(str(executable), path=environment.get("PATH", ""))
+    if not selected:
+        raise RuntimeError("Missing exact offline fixture")
+    selected = Path(selected).resolve()
+    for name, expected in EXPECTED.items():
+        path = selected if name == "opencode" else selected.with_name(name)
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+            raise RuntimeError("Offline visual bootstrap refuses unknown client bytes: " + name)
+    return selected
+fixture.checked_fixture = exact_fixture
+fixture.main()
+''')
+        self.command = (sys.executable, str(bootstrap), str(repository / 'tools' / 'autocode.py'))
+        self.options = ('--engine', 'opencode', '--joint-planning', '--max-parallel-builders', '1')
+        self.probe = self.root / 'launches.jsonl'
+        self.env = {**os.environ, 'PATH': str(binary) + os.pathsep + os.environ['PATH'],
+                    'AUTOCODE_HOME': str(self.root / 'registry'), 'XDG_CONFIG_HOME': str(self.root / 'config'),
+                    'CODEX_HOME': str(self.root / 'codex-config'), 'PYTHONDONTWRITEBYTECODE': '1',
+                    'AUTOCODE_REGISTRY_LAUNCH_PROBE': str(self.probe)}
+        for name in ('AUTOCODE_PROVIDER', 'OPENAI_API_KEY', 'CODEX_API_KEY', 'OPENAI_BASE_URL', 'OPENCODE_CONFIG_CONTENT'):
+            self.env.pop(name, None)
+        exports = self.root / 'exports'
+        exports.mkdir()
+        png(exports / 'reference.png', 2, 1)
+        (exports / 'context.json').write_text('{"offline_fixture":true}')
+        artifacts = {kind: {'path': name, 'sha256': util.file_hash(exports / name)}
+                     for kind, name in (('screenshot', 'reference.png'), ('design_context', 'context.json'))}
+        cases = [{'id': name, 'file_key': 'Fixture', 'node_id': '1:2', 'state': name, 'route': '/' + name,
+                  'implementation_paths': ['greet.py'], 'viewport': {'width': 2, 'height': 1, 'device_scale_factor': 1},
+                  'export_scale': 1, 'artifacts': deepcopy(artifacts)} for name in ('empty', 'filled')]
+        self.manifest = exports / 'manifest.json'
+        self.manifest.write_text(json.dumps({'version': 1, 'files': [{'key': 'Fixture', 'nodes': ['1:2']}], 'cases': cases}))
+
+    def approved_run(self, mode):
+        self.env['AUTOCODE_FIXTURE_MODE'] = mode
+        run = taskrun.TaskRun.start(self.project, 'Build a greeting tool', command=self.command,
+            options=self.options, start_options=('--figma-manifest', str(self.manifest)), env=self.env, timeout=120)
+        view = run.status()
+        self.assertEqual('answer', view['needs']['kind'], view)
+        run.answer('Q1', 'CLI')
+        view = run.advance_until_input()
+        self.assertEqual('approve_plan', view['needs']['kind'], view)
+        run.approve_plan(view['needs']['token'])
+        return run
+
+    def launched_stages(self):
+        return [json.loads(line)['stage'] for line in self.probe.read_text().splitlines()]
+
+    def test_public_taskrun_advances_functional_milestones_but_refuses_unverified_visual_completion(self):
+        run = self.approved_run('milestones')
+        view = run.advance_until_input()
+        self.assertFalse(view['done'], view)
+        stages = self.launched_stages()
+        self.assertGreaterEqual(stages.count('sol'), 2, (stages, view['status'], view['stop_reason']))
+        self.assertGreaterEqual(stages.count('terra'), 2, stages)
+        self.assertIn('astra_review', stages)
+        self.assertTrue((self.project / 'bye.py').is_file(), view)
+        self.assertEqual(['empty', 'filled'], view['design']['not_passing'])
+        self.assertIsNone(view['design']['current_visual_acceptance'])
+        self.assertEqual(0, view['efficiency']['delivery']['verified_deliveries'])
+        self.assertIn('Current independent image-delivery and visual-acceptance evidence is required', view['stop_reason'])
+
+    def test_public_taskrun_routes_functional_failure_through_rework_before_visual_completion(self):
+        run = self.approved_run('rework')
+        view = run.advance_until_input()
+        self.assertFalse(view['done'], view)
+        stages = self.launched_stages()
+        self.assertGreaterEqual(stages.count('sol'), 2, (stages, view['status'], view['stop_reason']))
+        self.assertGreaterEqual(stages.count('terra'), 2, stages)
+        validations = [json.loads(path.read_text()) for path in sorted(run.run_dir.glob('iterations/*/validator-*.json'))
+                       if path.name.endswith('.json') and not path.name.endswith(('.before.json', '.after.json', '.schema.json', '.tools.json'))]
+        failed = [report for report in validations if report.get('verdict') == 'FAIL']
+        self.assertTrue(failed, validations)
+        self.assertTrue(any('Empty names are accepted' in finding['finding'] for report in failed for finding in report['findings']))
+        self.assertTrue(any(report.get('verdict') == 'PASS' for report in validations), validations)
+        self.assertIn('Current independent image-delivery and visual-acceptance evidence is required', view['stop_reason'])
+        self.assertEqual(['empty', 'filled'], view['design']['not_passing'])
+        self.assertIsNone(view['design']['current_visual_acceptance'])
+        self.assertEqual(0, view['efficiency']['delivery']['verified_deliveries'])

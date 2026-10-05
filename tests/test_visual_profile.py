@@ -13,7 +13,9 @@ import autocode_contract_identity as contract
 import autocode_tool_containment as containment
 import autocode_util as util
 import autocode_visual_profile as profile
-from tests.visual_capture_fixtures import png
+import autocode_visual_runtime as visual
+import goal_fixtures
+from tests.visual_capture_fixtures import make_capture, png
 
 
 class VisualProfileTests(unittest.TestCase):
@@ -163,6 +165,58 @@ class VisualProfileTests(unittest.TestCase):
         proof = json.loads((self.directory / 'profile.json').read_bytes())
         self.assertFalse(proof['globally_wider_permissions'])
         self.assertEqual('NOT_VERIFIED', proof['visual_acceptance'])
+
+    def test_real_saved_profile_caps_are_preserved_by_runtime_preparation(self):
+        # Structural owned-file authority only: no SDK process, provider call,
+        # native containment receipt or visual acceptance is fabricated.
+        (self.root / 'greet.py').write_text('print("operator supplied source")\n')
+        snapshot_body = {'head': 'owned-profile-fixture',
+                         'files': {'greet.py': util.file_hash(self.root / 'greet.py')}}
+        snapshot = {**snapshot_body, 'revision': util.digest(snapshot_body)}
+        exports = self.root / '.autocode' / 'design-inputs' / 'owned'
+        exports.mkdir(parents=True)
+        png(exports / 'reference.png', 2, 1)
+        (exports / 'context.json').write_text('{"owned_fixture":true}')
+        case = {'id': 'one', 'file_key': 'Fixture', 'node_id': '1:2', 'state': 'ready',
+                'route': '/one', 'implementation_paths': ['greet.py'],
+                'viewport': {'width': 2, 'height': 1, 'device_scale_factor': 1}, 'export_scale': 1,
+                'artifacts': {kind: {'path': name, 'sha256': util.file_hash(exports / name)}
+                              for kind, name in (('screenshot', 'reference.png'),
+                                                 ('design_context', 'context.json'))}}
+        manifest = {'version': 1, 'files': [{'key': 'Fixture', 'nodes': ['1:2']}], 'cases': [case]}
+        body = goal_fixtures.body()
+        initial = {'kind': 'validate', 'objective': 'Validate supplied source', 'affected_paths': ['greet.py'],
+                   'milestone_id': 'M1', 'requirements': body['required_behaviors'],
+                   'acceptance_criteria': ['C1'], 'validation_plan': ['Inspect supplied rendered state']}
+        body['initial_task'] = initial
+        self.state['goal_contract']['body'] = body
+        self.state.update(current_task={**deepcopy(initial), 'id': 'T1', 'criterion_ids': ['C1']},
+                          acceptance_criteria=deepcopy(body['acceptance_criteria']), stages=[])
+        self.state['settings']['design_manifest'] = {'root': str(exports), 'body': manifest,
+                                                    'manifest_hash': util.digest(manifest)}
+        with patch.object(util, 'snapshot', return_value=snapshot):
+            make_capture(self.root, util.digest(manifest), case)
+            for cap in (1, profile.MAX_REQUESTS):
+                with self.subTest(saved_cap=cap):
+                    self.declaration['max_requests'] = cap
+                    self.approve(constraints=[profile.MARKER + json.dumps(self.declaration),
+                                             'VISUAL_CASE_CRITERIA={"one":["C1"]}'])
+                    before = deepcopy((self.state, self.worker))
+                    context, command, environment, _ = visual.prepare(
+                        self.state, 'sol', self.root, self.run, self.run / ('validator-' + str(cap)),
+                        self.base, self.worker['environment'], 'Inspect the supplied source',
+                        current_snapshot=snapshot,
+                        launch_authority=profile.authority(self.state, self.worker, self.root, self.run))
+                    self.assertEqual('READY', context['status'], context)
+                    self.assertEqual(before, (self.state, self.worker))
+                    self.assertEqual(cap, context['audit_options']['max_requests'])
+                    self.assertEqual(cap, json.loads(environment['AUTOCODE_IMAGE_AUDIT'])['max_requests'])
+                    self.assertEqual(self.permissions,
+                        json.loads(environment['OPENCODE_CONFIG_CONTENT'])['agent']['autocode_sol']['permission'])
+                    visual.verify_prelaunch(context, self.state, run_dir=self.run, current_snapshot=snapshot,
+                                            command=command, env=environment)
+                    self.assertFalse(visual.completion_allowed(self.state, current_snapshot=snapshot))
+                    self.assertFalse(Path(context['audit_path']).exists())
 
     def test_profile_requires_unique_strict_json_and_operator_approval(self):
         for constraints in ([], [profile.MARKER + '{}'] * 2,
