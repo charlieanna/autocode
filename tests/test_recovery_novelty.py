@@ -682,16 +682,38 @@ class RecoveryPacketTests(unittest.TestCase):
         self.assertNotIn("accepted", attempt["recovery_novelty"])
         self.assertEqual("FAIL", self.state["validation"]["verdict"])
 
-    def test_completion_proposal_foreign_or_empty_refs_cannot_admit_diagnosis(self):
+    def test_unproven_proposal_is_treated_as_no_proposal_not_a_stale_handoff(self):
         change = {"hypothesis": "Wrong answer", "target": "app.py", "before": "return 2", "after": "return 3",
                   "expected_check": "python -m unittest test_app", "expected_result": "exit 0", "question": "Which branch?"}
-        for refs in ([], ["/foreign/receipt"], ["event:invented"]):
-            with self.subTest(refs=refs):
-                self.request["recovery_change"] = {**change, "evidence_refs": refs}
-                attempt = {"stage": "astra_resolve", "output": str(self.run / "not-launched.json")}
-                with self.assertRaisesRegex(util.Paused, "pinned originals"):
-                    recovery.admit_dispatch(self.state, attempt, self.root, self.run)
-                self.assertNotIn("recovery_novelty", attempt)
+        for bad in ({"evidence_refs": []}, {"evidence_refs": ["/foreign/receipt"]}, {"evidence_refs": ["event:invented"]},
+                    {"evidence_refs": [str(self.events)], "before": "return  2"},
+                    {"evidence_refs": [str(self.events)], "expected_check": "python -m unittest"}):
+            with self.subTest(bad=bad):
+                state = copy.deepcopy(self.state)
+                state["resolution_request"]["recovery_change"] = {**change, **bad}
+                first = {"stage": "astra_resolve", "output": str(self.run / "first.json"), "started_at": "first"}
+                recovery.admit_dispatch(state, first, self.root, self.run)
+                self.assertEqual(("first_incident", None),
+                                 (first["recovery_novelty"]["reason"], first["recovery_novelty"]["change_id"]))
+                state["stages"].append(first)
+                again = {"stage": "astra_resolve", "output": str(self.run / "again.json"), "started_at": "again"}
+                with self.assertRaisesRegex(util.Paused, "Proposed change is unproven") as caught:
+                    recovery.admit_dispatch(state, again, self.root, self.run)
+                self.assertEqual("PAUSED_NO_PROGRESS", caught.exception.status)
+                self.assertNotIn("recovery_novelty", again)
+
+    def test_timed_out_attempt_does_not_hold_its_own_relaunch(self):
+        first = {"stage": "astra_resolve", "output": str(self.run / "timed-out.json"), "started_at": "first"}
+        recovery.admit_dispatch(self.state, first, self.root, self.run)
+        self.state["stages"].append({**first, "timed_out": True, "abandoned": True, "automatic_recovery": True})
+        relaunch = {"stage": "astra_resolve", "output": str(self.run / "relaunch.json"), "started_at": "second"}
+        recovery.admit_dispatch(self.state, relaunch, self.root, self.run)
+        self.assertEqual("first_incident", relaunch["recovery_novelty"]["reason"])
+        # A completed attempt still holds the next unchanged one.
+        self.state["stages"].append(relaunch)
+        with self.assertRaisesRegex(util.Paused, "No causal progress"):
+            recovery.admit_dispatch(self.state, {"stage": "astra_resolve", "output": str(self.run / "third.json"),
+                                                 "started_at": "third"}, self.root, self.run)
 
     def test_current_validator_event_alias_resolves_only_to_its_pinned_stream(self):
         change = {"hypothesis": "Wrong answer", "target": "app.py", "before": "return 2", "after": "return 3",
@@ -1031,7 +1053,9 @@ class RecoveryNoveltyCLI(unittest.TestCase):
         driver = self.driver("bad_refs")
         view = driver.drive(self.scenario.brief)
         self.assertFalse(view["done"], view.get("status"))
-        self.assertIn("pinned originals", view.get("stop_reason", ""))
+        # The foreign refs make the proposal unproven, not a stale handoff.
+        self.assertIn("No causal progress", view.get("stop_reason", ""))
+        self.assertIn("Proposed change is unproven", view.get("stop_reason", ""))
         self.assertEqual(["terra", "sol", "astra_review"] * 2, [row["stage"] for row in self.trace()])
 
     def test_specific_new_experiment_may_use_one_bounded_diagnosis(self):

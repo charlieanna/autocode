@@ -335,14 +335,20 @@ def load_packet(pointer, run):
 
 
 def _change(packet, change):
-    if not change:
+    """Identity of an attested proposal, or None when it proves nothing.
+
+    recovery_change is optional model advice. A proposal that is not a bounded,
+    attested change with pinned refs is unproven, exactly like
+    recovery_change=null: it buys no novelty, but it never pauses the run.
+    Tampered retained evidence still fails closed in load_packet.
+    """
+    if not change or not isinstance(change, dict):
         return None
-    if not isinstance(change, dict):
-        _stale("proposed change is not an object")
     operations = {row["operation"] for row in packet["incidents"]}
     allowed = set(packet["sources"]) - set(packet["protected_tests"].get("files", {}))
     ident = None
-    if change.get("target") in packet.get("permitted_controls", []):
+    is_input = change.get("target") in packet.get("permitted_controls", [])
+    if is_input:
         incident_ids = {novelty.Incident(**row).id for row in packet["incidents"]}
         for prior in reversed(packet["prior_receipts"]):
             if incident_ids.intersection(prior.get("incident_ids", [])) and prior.get("packet"):
@@ -354,13 +360,12 @@ def _change(packet, change):
     else:
         ident = novelty.change_identity(change, sources=packet["sources"], allowed_paths=allowed,
                                         operations=operations, wrappers=packet["wrappers"])
-    if not ident and not novelty.bounded_change(change, sources=packet["sources"], allowed_paths=allowed,
-                                                operations=operations, wrappers=packet["wrappers"]):
-        _stale("proposed change is not a bounded attested source change with the original discriminating check")
+    if ident is None:
+        return None
     refs = change.get("evidence_refs", [])
     available = {row["original_path"] for row in packet["originals"]}
     if not isinstance(refs, list) or not refs or not all(isinstance(ref, str) for ref in refs):
-        _stale("proposed change must cite pinned originals")
+        return None
     validation = packet.get("validation") or {}
     event_refs = {row.get("evidence_ref") for row in validation.get("checks", [])}
     streams = {row["events"] for row in packet["prior_attempts"] if row.get("stage") == "sol" and row.get("events")
@@ -368,9 +373,9 @@ def _change(packet, change):
     resolved_refs = {next(iter(streams)) if ref.startswith("event:") and ref in event_refs and len(streams) == 1
                      else ref for ref in refs}
     if not resolved_refs <= available:
-        _stale("proposed change must cite pinned originals")
-    if change.get("target") in packet.get("permitted_controls", []) and not resolved_refs.intersection(packet["input_pins"]):
-        _stale("changed input must cite its attested input evidence")
+        return None
+    if is_input and not resolved_refs.intersection(packet["input_pins"]):
+        return None
     return ident
 
 
@@ -855,6 +860,14 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
     if stage == "astra_resolve":
         _exhausted_builder(state, request, packet)
     prior = receipts(state)
+    # An attempt that timed out or was interrupted before any report ran no
+    # experiment; it must not be the "same experiment" that holds its own
+    # relaunch. Timeout recovery and the diagnostic call cap still bound it.
+    # A one-use grant stays spent even if its attempt produced nothing.
+    unfinished = {row["recovery_novelty"]["dispatch_id"] for row in state.get("stages", [])
+                  if row.get("recovery_novelty") and row.get("abandoned")
+                  and (row.get("timed_out") or row.get("interrupted") or row.get("startup_recovery"))
+                  and not row["recovery_novelty"].get("grant_id")}
     dispatch_id = util.digest({"output": record.get("output"), "started_at": record.get("started_at"),
                                "packet": pointer, "stage": stage})
     if record.get("recovery_novelty"):
@@ -862,13 +875,14 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
             _stale("saved dispatch receipt changed")
         return
     change = request.get("recovery_change") or packet["current_error"].get("recovery_change") or {}
+    if not isinstance(change, dict):
+        change = {}
     change_id = _change(packet, change)
     action = "repair" if stage == "terra" else "diagnosis"
-    considered = [row for row in prior if action != "repair" or row.get("action") == "repair"]
-    if (action == "repair" and packet["current_error"].get("operational_diagnosis")
-            and any(entry.get("count", 0) for entry in packet["failure_history"].values())):
-        considered.append({"incident_ids": [novelty.Incident(**row).id for row in packet["incidents"]],
-                           "action": "repair", "change_id": None})
+    # An accepted operational diagnosis's retry admits the Builder once per
+    # incident: its own repair receipt then holds any further unchanged retry.
+    considered = [row for row in prior if row["dispatch_id"] not in unfinished
+                  and (action != "repair" or row.get("action") == "repair")]
     grant, grant_kind = _explicit_grant(state, packet, request, record, prior, retry_authorization)
     decisions = []
     for raw in packet["incidents"]:
@@ -885,7 +899,8 @@ def admit_dispatch(state, record, workspace, run_dir, *, retry_authorization=Non
             reason = (f"Incident {incident.id[:12]} ({incident.operation}): {decision.reason}. Exact packet: {pointer['path']}. "
                       "After inspection, --resume-paused --retry-failed-stage authorizes one attempt under existing limits")
             if change and change_id is None:
-                reason += ". Proposed source novelty is unproven (unsupported grammar or unchanged structure), not accepted as a new experiment"
+                reason += (". Proposed change is unproven (unsupported grammar, unchanged structure, inexact bounds or check, "
+                           "or unpinned evidence refs), not accepted as a new experiment")
             request["novelty_hold"] = {"binding": bound, "scope": _scope(state), "stage": stage,
                                        "incident_id": incident.id, "reason": reason}
             efficiency.record_observation(state, event_id="recovery-hold:" + util.digest({"packet": pointer, "incident": incident.id}),
