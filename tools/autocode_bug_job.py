@@ -43,12 +43,12 @@ from pathlib import Path
 try:
     from . import autocode_stage_access as stage_access, autocode_stray_writes as stray_writes
     from . import autocode_workflows as workflows
-    from .autocode_test_cases import case_text, case_test_name, match_cases, run_probes  # noqa: F401 (used by callers)
+    from .autocode_test_cases import case_text, case_test_name, diagnosis_cases, match_cases, run_probes  # noqa: F401 (used by callers)
 except ImportError:
     import autocode_stage_access as stage_access
     import autocode_stray_writes as stray_writes
     import autocode_workflows as workflows
-    from autocode_test_cases import case_text, case_test_name, match_cases, run_probes  # noqa: F401
+    from autocode_test_cases import case_text, case_test_name, diagnosis_cases, match_cases, run_probes  # noqa: F401
 
 STAGE = workflows.INVESTIGATE_STAGE
 NOTES_PREFIX, = stage_access.job_writes(STAGE)
@@ -287,8 +287,7 @@ def large_correction(state: dict) -> dict | None:
 
 def test_cases(state: dict) -> list[dict]:
     """The reproduced bug's English test cases, or [] (bugs planned without an investigation, older runs)."""
-    found = state.get("investigation") or {}
-    return list(found.get("test_cases") or []) if found.get("outcome") == "reproduced" else []
+    return diagnosis_cases(state)
 
 
 # A small, reproduced bug skips requirements gathering and plan review: the runner turns

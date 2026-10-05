@@ -19,12 +19,14 @@ import shlex
 
 # How many scope exclusions the summary lists; the rest are in the full brief above it.
 SCOPE_SHOWN = 3
-# A criterion whose verification_method starts with one of these names a test the runner itself
-# proves, as autocode_regression checks it (autocode_test_cases.MARK and GUARD_MARK;
-# tests/test_approval_view.py keeps the two in step).
-TEST_MARK, GUARD_MARK = "test:", "guard:"
-NAMED = {TEST_MARK: "must pass with the change and not without it",
-         GUARD_MARK: "must pass with the change and must not fail without it"}
+# What the runner's regression proof (autocode_regression.check_cases, autocode_verify) requires of
+# the test for each case. A build's new test may fail or not even load on the original code; a bug
+# fix's must run there and fail. A preserve case (a plan's guard:) must pass on the original code
+# too, unless its test file cannot load there: that counts, with a note (``proof``).
+RESTORE = {"build": "must pass with the change and must not have passed without it",
+           "bugfix": "must fail on the original code and pass with the fix"}
+PRESERVE = "must pass with the change and on the original code"
+DESIGN = "no test named in a criterion is run as proof, so nothing shows that a check would fail without the change"
 
 
 def intro(revision: int) -> str:
@@ -84,12 +86,15 @@ def duration(seconds) -> str:
     return f"{seconds} s"
 
 
-def summary(body: dict, revision, *, design_only: bool = False) -> list[str]:
+def summary(body: dict, revision, cases: list[dict], *, from_diagnosis: bool = False,
+            design_only: bool = False) -> list[str]:
     """The decision in brief, shown between the full brief and the limits.
 
     Every plan field is quoted verbatim from the contract body; a field an older body lacks is
-    left out. ``design_only`` is a design job (autocode_test_cases.design_only), whose criteria
-    no named test proves."""
+    left out. ``cases`` are the cases the regression proof will require a test for at completion
+    (autocode_test_cases.proof_cases), ``from_diagnosis`` when they are a reproduced bug's rather
+    than the plan's; ``design_only`` is a design job (autocode_test_cases.design_only), whose
+    criteria no named test proves."""
     body = body if isinstance(body, dict) else {}
     lines = [f"Before you approve r{revision} (a summary of the plan above):"]
     outcome = body.get("intended_outcome")
@@ -118,40 +123,46 @@ def summary(body: dict, revision, *, design_only: bool = False) -> list[str]:
                 lines.append(f"    Checked by: {row['verification_method']}")
             if row.get("human_review") is True:
                 lines.append("    Also needs your review of the result before the run can complete.")
-        lines += ["What passing proves:"] + ["  - " + line for line in proof(body, criteria, design_only)]
+        lines += ["What passing proves:"] + ["  - " + line for line in proof(body, criteria, cases, from_diagnosis,
+                                                                              design_only)]
     return lines
 
 
-def proof(body: dict, criteria: list[dict], design_only: bool = False) -> list[str]:
+def proof(body: dict, criteria: list[dict], cases: list[dict], from_diagnosis: bool = False,
+          design_only: bool = False) -> list[str]:
     """What the completion gate enforces for these criteria, and what it cannot show.
 
     True of the runner, not of a model's report: completion needs an independent validation of the
     current source passing every criterion with evidence, whose checks the runner re-runs in a clean
     copy (autocode_completion, autocode_check_replay); a human-review criterion may be left to the
-    person's bound review. A bug fix, or a build whose criteria name tests, also needs the runner's
+    person's bound review. A bug fix, or a job whose ``cases`` are not empty, also needs the runner's
     regression proof for that source (autocode_regression, autocode_verify)."""
     human = any(row.get("human_review") is True for row in criteria)
     lines = ["An independent check of the final source must pass every criterion above"
              + (" (it may leave those marked for your review to you)" if human else "")
              + ", and the runner itself re-runs that check's commands in a clean copy: each must exit 0."]
-    marks = {}
-    for row in criteria:
-        method = str(row.get("verification_method") or "").strip().lower()
-        if row.get("id") and method.startswith((TEST_MARK, GUARD_MARK)):
-            marks.setdefault(GUARD_MARK if method.startswith(GUARD_MARK) else TEST_MARK, []).append(str(row["id"]))
-    if body.get("task_kind") == "bugfix":
+    bugfix = body.get("task_kind") == "bugfix"
+    restore = [str(case["id"]) for case in cases if case.get("kind") != "preserve"]
+    preserve = [str(case["id"]) for case in cases if case.get("kind") == "preserve"]
+    named = "; ".join(f"{', '.join(ids)}{'' if from_diagnosis else f' ({mark})'} {wanted}"
+                      for ids, mark, wanted in ((restore, "test:", RESTORE["bugfix" if bugfix else "build"]),
+                                                (preserve, "guard:", PRESERVE)) if ids)
+    runs = ("The runner also runs a test named after each test case in the bug's diagnosis: " if from_diagnosis
+            else "The runner also runs the test each of these criteria names: ") + named + "."
+    if bugfix:
         lines.append("Bug fix: the runner also checks that a new or changed test fails on the original code and "
                      "passes with the fix, and that no test that passed before now fails.")
+        lines += [runs] if cases else []
     elif design_only:
-        lines.append("Design job: no test named in a criterion is run as proof, so nothing shows that a check "
-                     "would fail without the change.")
-    elif marks:
-        named = [f"{', '.join(marks[mark])} ({mark}) {NAMED[mark]}" for mark in NAMED if mark in marks]
-        lines.append("The runner also runs the test each of these criteria names: " + "; ".join(named)
-                     + ". No test that passed before may fail now.")
+        lines.append(f"Design job: {DESIGN}.")
+    elif cases:
+        lines.append(runs + " No test that passed before may fail now.")
     else:
         lines.append("No criterion is marked test: or guard:, so nothing shows that a check would fail "
                      "without the change.")
+    if preserve:
+        lines.append(f"If the test for {', '.join(preserve)} cannot load on the original code (its file imports "
+                     "code the change adds), it still counts, with a note that it is not shown to have passed there.")
     lines.append("Not proven: behavior no criterion describes, or inputs no check exercises.")
     return lines
 
