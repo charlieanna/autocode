@@ -1,5 +1,6 @@
-"""check(): move and remove work and refuse correctly (hidden tests), and every delivered test for them
-fails on the original code (run one at a time by the oracle). That is the product, and the run verdict.
+"""check(): move and remove work and refuse correctly (hidden tests), and each refusal rule has a delivered
+test that fails on the original code (run one at a time by the oracle). That is the product, and the run
+verdict.
 
 diagnosis() (issue #59) scores AutoResolver apart from the run verdict, from the runner's own records. A
 trap revision is one whose regression proof FAILed because the test of a planned case about move or remove
@@ -8,6 +9,7 @@ so argparse exits 2 and never touches stock.json. The first accepted Resolver ca
 scored; scenarios/README.md ("Diagnosis") has the rules and the block's contract.
 """
 import ast
+import json
 import re
 import shutil
 import sys
@@ -20,6 +22,22 @@ from harness.oracle import (Check, hidden_tests, non_stdlib_imports, python_test
 
 NEW_COMMANDS = {"move", "remove"}
 TEST_FILE = "tests/test_stock.py"
+# The brief's refusal rules, each with the words a delivered refusal test's name uses for it. A refusal test is
+# one whose name says it refuses (REFUSAL_WORDS) or whose body compares a returncode with 2.
+RULES = {
+    "quantity not a positive integer": {"quantity", "quantities", "qty", "zero", "negative", "positive",
+                                        "nonpositive", "integer", "int", "numeric", "number", "fraction",
+                                        "fractional", "decimal", "float"},
+    "FROM equal to TO": {"same", "equal", "equals", "identical", "itself"},
+    "more than held": {"more", "overdraw", "overdraws", "overdrawn", "overdraft", "insufficient", "exceed",
+                       "exceeds", "exceeding", "excess", "held", "hand", "holding", "none", "nothing", "empty",
+                       "unknown", "missing", "absent", "short", "enough", "available"},
+    "malformed stock.json": {"malformed", "corrupt", "corrupted", "garbage", "bad", "broken", "unparsable",
+                             "unparseable", "unreadable", "json"},
+}
+REFUSAL_WORDS = {"refuse", "refuses", "refused", "refusal", "refusals", "reject", "rejects", "rejected", "error",
+                 "errors", "fail", "fails", "failure", "invalid", "cannot", "cant", "denied", "disallowed",
+                 "forbidden", "usage"}
 
 # The word lists below are regular expressions, matched case-insensitively. They are lexical, so a live
 # attempt is read by a person before it is cited (plan D3); scenarios/test_harness.py holds the wrong
@@ -97,8 +115,13 @@ def check(project, scenario, run=None):
         for test in tests:
             if command([sys.executable, "-m", "unittest", test], copy).returncode == 0:
                 vacuous.append(test)
-    checks.append(Check("new_command_tests_fail_on_original_code", bool(tests) and not vacuous,
-                        f"pass without move/remove: {vacuous}" if vacuous else f"{len(tests)} tests checked"))
+    # Each refusal rule needs a delivered test that fails on the original code; an extra test that passes there
+    # too (a usage error argparse also refuses) is reported, not failed.
+    covered = {rule for test, rules in tests.items() if test not in vacuous for rule in rules}
+    uncovered = [rule for rule in RULES if rule not in covered]
+    checks.append(Check("new_command_tests_fail_on_original_code", bool(tests) and not uncovered,
+                        (f"no delivered test that fails on the original code for: {uncovered}" if uncovered else
+                         f"{len(tests)} tests checked") + (f"; pass without move/remove: {vacuous}" if vacuous else "")))
     missing = sorted(test_names(scenario.seed / "tests") - test_names(project / "tests"))
     checks.append(Check("existing_tests_kept", not missing, f"removed: {missing}" if missing else ""))
     text = (project / "README.md").read_text() if (project / "README.md").is_file() else ""
@@ -109,10 +132,10 @@ def check(project, scenario, run=None):
 
 
 def new_command_tests(project, seed):
-    """Delivered tests not in the seed that are about move or remove (``about``), as unittest ids
-    (module.Class.test)."""
+    """Delivered tests not in the seed that are about move or remove (``about``): {unittest id
+    (module.Class.test): the refusal rules it tests (``refusal_rules``)}."""
     seeded = test_names(seed / "tests")
-    found = []
+    found = {}
     for path in sorted((project / "tests").glob("test*.py")):
         try:
             tree = ast.parse(path.read_text())
@@ -127,8 +150,37 @@ def new_command_tests(project, seed):
                         and item.name not in seeded):
                     continue
                 if about(item, NEW_COMMANDS):
-                    found.append(f"{module}.{node.name}.{item.name}")
+                    found[f"{module}.{node.name}.{item.name}"] = refusal_rules(item)
     return found
+
+
+def refusal_rules(function):
+    """The RULES a refusal test is about, by its name's words; a body that writes a store that is not JSON is
+    about the malformed store, and one that moves to the location it moves from about FROM equal to TO."""
+    words = set(_words(function.name))
+    body = [node for node in ast.walk(function) if isinstance(node, ast.Compare | ast.Call)]
+    refusal = bool(words & REFUSAL_WORDS) or any(
+        any(isinstance(n, ast.Attribute) and n.attr == "returncode" for n in ast.walk(node))
+        and any(isinstance(n, ast.Constant) and n.value == 2 for n in ast.walk(node)) for node in body)
+    if not refusal:
+        return set()
+    rules = {rule for rule, vocabulary in RULES.items() if words & vocabulary}
+    for call in (node for node in body if isinstance(node, ast.Call)):
+        strings = [arg.value for arg in call.args if isinstance(arg, ast.Constant) and isinstance(arg.value, str)]
+        name = call.func.attr if isinstance(call.func, ast.Attribute) else getattr(call.func, "id", "")
+        if name in ("write_store", "write_text") and strings and not _is_json(strings[0]):
+            rules.add("malformed stock.json")
+        if "move" in strings and len(strings) >= 2 and strings[-1] == strings[-2]:
+            rules.add("FROM equal to TO")
+    return rules
+
+
+def _is_json(text):
+    try:
+        json.loads(text)
+    except ValueError:
+        return False
+    return True
 
 
 def diagnosis(project, run):

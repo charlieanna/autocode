@@ -1198,6 +1198,45 @@ class StockRefusalsRunTests(unittest.TestCase):
                          [check["name"] for check in diagnosis["checks"] if not check["ok"]])
 
 
+class StockRefusalsProductTests(unittest.TestCase):
+    """feature-stock-refusals' product check on delivered tests: each refusal rule needs a test that fails on the
+    original code; an extra valid test that argparse's own refusal also passes does not fail the product."""
+
+    USAGE_TEST = """
+    def test_move_with_missing_arguments_is_a_usage_error(self):
+        self.write_store({"A1": {"bolt": 1}})
+        before = self.store_bytes()
+        result = self.run_cli("move", "bolt", "1")
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(self.store_bytes(), before)
+"""
+
+    def evaluate(self, edit):
+        from harness.project import materialize
+        scenario = catalog.load("feature-stock-refusals")
+        with tempfile.TemporaryDirectory() as root:
+            project = materialize(scenario.seed, Path(root) / "p", scenario.dir / "reference")
+            tests = project / "tests" / "test_stock.py"
+            tests.write_text(edit(tests.read_text()))
+            return {check.name: check for check in verdict.evaluate(scenario, project).checks}
+
+    def test_an_extra_test_that_passes_on_the_original_code_is_reported_not_failed(self):
+        checks = self.evaluate(lambda text: text.replace("\n\nif __name__", self.USAGE_TEST + "\n\nif __name__"))
+        self.assertTrue(all(check.ok for check in checks.values()), checks)
+        self.assertIn("test_move_with_missing_arguments_is_a_usage_error",
+                      checks["new_command_tests_fail_on_original_code"].detail)
+
+    def test_a_rule_whose_only_test_passes_on_the_original_code_fails(self):
+        def vacuous_same_location(text):
+            start = text.index("def test_c4_")
+            end = text.index("self.assert_refused(result, before)", start)
+            return (text[:end] + "self.assertEqual(result.returncode, 2)\n        "
+                    "self.assertEqual(self.store_bytes(), before)" + text[end + len("self.assert_refused(result, before)"):])
+        check = self.evaluate(vacuous_same_location)["new_command_tests_fail_on_original_code"]
+        self.assertFalse(check.ok)
+        self.assertIn("FROM equal to TO", check.detail)
+
+
 # A planned case whose test passes on the original code but is not about move or remove (a receive case the
 # Planner tagged test: instead of guard:), and a move case planned with an exact test name.
 EXTRA_STOCK_TESTS = """from tests.test_stock import StockCase
