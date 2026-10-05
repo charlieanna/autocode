@@ -9,6 +9,7 @@ import unittest
 
 from . import test_subprocess
 import autocode_check_replay as check_replay
+import autocode_failure_retry as failure_retry
 import autocode_verify as verify
 import autocode_util as util
 
@@ -398,7 +399,10 @@ class CliTests(unittest.TestCase):
         self.launch(["Build greeting", "--chat"], 2, answers="CLI\nyes\n")
         _, state = self.saved()
         self.assertNotEqual("TASK_COMPLETE", state["status"])
-        self.assertIn(state["status"], ("PAUSED_INVALID_OUTPUT", "PAUSED_REPEATED_FAILURE"))
+        # #254: the original and both repairs fail identically, so the run holds for repeated failure; once
+        # AutoResolver publishes its request, the saved status is the request's and the pause is its origin's.
+        self.assertEqual("PAUSED_REPEATED_FAILURE",
+                         failure_retry.stop_cause(state, state.get("resolver_human_request")))
         self.assertIn("`test -f .autocode/validator-only` was reported as exit 0", state["stop_reason"])
         self.assertIn("exited 1", state["stop_reason"])
         self.assertIsNone((state.get("validation") or {}).get("check_replay"),

@@ -6,6 +6,12 @@ its most recent consecutive attempts at that source failed the same way: the
 same error text (see ``signature``) and the same kind of saved output. Distinct
 problems that share an exception class, such as missing responses to different
 concerns, are new information and never add up to a repeated-failure pause.
+
+"The same error text" ignores what differs only per attempt (``normalize``, #254):
+run-owned attempt artifacts and check-replay receipt directories, mkdtemp and pytest
+temp names, UUIDs, timestamps, elapsed durations and long hex digests. Commands,
+exit codes, test ids, line numbers, concern and finding ids, repository paths
+(inside a replay's scratch/tree too) and other paths outside the run are kept.
 """
 from __future__ import annotations
 
@@ -42,16 +48,67 @@ def _owner(row):
     return row.get("original_stage") or row.get("stage")
 
 
-def signature(stage_record, error, probe):
+# Run-owned names that differ per attempt, below a run root (autocode_artifacts.stage_base,
+# autocode_run_records.archive_rejected_stage, autocode_check_replay.replay). Everything after a
+# replay's scratch/tree/ is repository-relative (autocode_verify.scratch_run) and stays verbatim.
+_ARCHIVED = re.compile(r"archived-[^/\s]+-[0-9a-f]{6}(?![0-9a-f])")
+_RUN_OWNED = (
+    (re.compile(r"<run>/iterations/\d+/(archived-<attempt>/)?[^/\s]+"), r"<run>/iterations/<n>/\1<attempt>"),
+    (re.compile(r"<run>/check-replay/[^/\s]+-[0-9a-f]{32}(?![0-9a-f])"), "<run>/check-replay/<receipt>"),
+    (re.compile(r"/check-\d+/"), "/check-<n>/"),
+)
+# Temp names, matched by their exact shapes only: /tmp/a.log and /tmp/b.log stay distinct.
+_TEMP = (
+    (re.compile(r"(?<=/)tmp[a-z0-9_]{8}(?![A-Za-z0-9_])"), "tmp<rand>"),
+    (re.compile(r"pytest-of-[^/\s]+/pytest-\d+"), "pytest-of-<user>/pytest-<n>"),
+    (re.compile(r"/(?:private/)?var/folders/[^/\s]+/[^/\s]+/T/"), "<tmp>/"),
+)
+_UUID = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
+_TIME = re.compile(r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?(?![\d:])")
+_DURATION = re.compile(r"(?<![\w.])(?:\d+\.\d+ ?(?:seconds|secs|sec|ms|s)|\d+ ?ms)\b")
+_HEX = re.compile(r"\b[0-9a-f]{12,}\b")
+
+
+def run_roots(output, run_dir=None):
+    """The run directories an attempt's error text can name: the parent of the nearest ``iterations``
+    ancestor of its output (<run>/iterations/NNN/<stem>), as recorded and resolved, and ``run_dir``."""
+    roots = []
+    if output:
+        path = Path(output)
+        for candidate in (path, path.resolve()):
+            parent = next((p.parent for p in candidate.parents if p.name == "iterations"), None)
+            if parent is not None and str(parent) not in ("", ".", "/"):
+                roots.append(str(parent))
+    if run_dir:
+        roots += [str(Path(run_dir)), str(Path(run_dir).resolve())]
+    return tuple(dict.fromkeys(roots))
+
+
+def normalize(text, *, roots=()):
+    """``text`` without what differs only per attempt (see the module docstring)."""
+    text = str(text)
+    for root in sorted({str(r) for r in roots if r and str(r) not in (".", "/")}, key=len, reverse=True):
+        text = re.sub(re.escape(root) + r"(?![\w-])", "<run>", text)
+    text = _ARCHIVED.sub("archived-<attempt>", text)
+    for pattern, replacement in (*_RUN_OWNED, *_TEMP):
+        text = pattern.sub(replacement, text)
+    text = _UUID.sub("<uuid>", text)
+    text = _TIME.sub("<time>", text)
+    text = _DURATION.sub("<duration>", text)
+    return " ".join(_HEX.sub("<hex>", text).split())
+
+
+def signature(stage_record, error, probe, roots=()):
     """What a stalled attempt repeats: its error text and the kind of output it saved.
 
-    Only per-attempt noise is normalized (this attempt's artifact paths, long hex
-    digests, whitespace). Identifiers such as concern IDs are kept.
+    Only per-attempt noise is normalized: this attempt's own artifact paths, then ``normalize``
+    over the run roots (``run_roots`` of its output, plus ``roots``). Identifiers such as concern
+    IDs are kept.
     """
     text = str(error)
     if stage_record.get("output"):
         text = text.replace(str(Path(stage_record["output"]).with_suffix("")), "<attempt>")
-    text = " ".join(re.sub(r"\b[0-9a-f]{12,}\b", "<hex>", text).split())
+    text = normalize(text, roots=(*run_roots(stage_record.get("output")), *roots))
     kinds = {label: {k: v for k, v in row.items() if k != "bytes"} for label, row in probe.items()}
     return util.digest({"error_class": getattr(error, "status", None) or type(error).__name__,
                            "error": text, "output": kinds})
@@ -114,7 +171,7 @@ def record(state, stage_record, error, at):
         "failure_attempt", f"{stage_record['iteration']}:{stage_record['stage']}:{stage_record['output']}")
     if attempt not in entry["attempts"]:
         probe = _probe(stage_record)
-        mark = signature(stage_record, error, probe)
+        mark = signature(stage_record, error, probe, run_roots(None, state.get("run_dir")))
         continues = (entry.get("signature") == mark and entry.get("streak", 0) > 0
                      and not _interrupted(state, stage_record, entry))
         entry["attempts"].append(attempt)

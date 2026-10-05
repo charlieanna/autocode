@@ -270,8 +270,10 @@ else:
                  if mode == 'milestones' and data['current_task']['milestone_id'] == 'M2' else "")
               + "sys.exit(0 if ok else 1)\n")
     command = shlex.join([sys.executable, "-c", script])
-    if os.environ.get("AUTOCODE_FIXTURE_UNREPRODUCIBLE_CHECK"):
+    if (os.environ.get("AUTOCODE_FIXTURE_UNREPRODUCIBLE_CHECK")
+            and not (data.get("recovery_context") or {}).get("human_information")):
         # Passes only in the Validator's own session: it reads a file the Validator made outside the source.
+        # Corrective information an operator sent (--resolver-response provide_information) corrects it.
         Path(".autocode/validator-only").write_text("set up by the Validator\n")
         command = "test -f .autocode/validator-only"
     if not os.environ.get("AUTOCODE_FIXTURE_NO_CHECK_EVENT"):

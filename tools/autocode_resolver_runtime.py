@@ -399,10 +399,10 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
     maximum = int(getattr(runner, 'MAX_AUTOMATIC_RECOVERIES', 3) or 3)
     # Advice and grant eligibility share one check (#288): never name a command
     # the CLI will refuse at this stop. The same holds for the one fresh attempt
-    # past a held external_directory denial (#301).
-    allow_retry = failure_retry.target(
-        state, cause=error.status, maximum=maximum,
-        revision=lambda: support.snapshot(Path(state['workspace']))['revision']) is not None
+    # past a held external_directory denial (#301) or a stalled failure (#254).
+    allow_retry = failure_retry.retryable(
+        state, cause=error.status, maximum=maximum, published=state.get(human.PUBLIC),
+        revision=lambda: support.snapshot(Path(state['workspace']))['revision'])
     allow_grant = recovery_grants.eligible(
         state, current_request=human.current, count=count, maximum=maximum,
         issued={'scope': 'operational_exhaustion', 'request_id': None}, cause=error.status)

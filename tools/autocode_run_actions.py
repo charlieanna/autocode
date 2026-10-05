@@ -32,6 +32,7 @@ try:
     from . import autocode_planning_artifacts as planning_artifacts
     from . import autocode_progressive_state as progressive
     from . import autocode_resolver_human as resolver_human
+    from . import autocode_recovery_limits as recovery_limits
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_run_finder as run_finder
@@ -57,6 +58,7 @@ except ImportError:
     import autocode_planning_artifacts as planning_artifacts
     import autocode_progressive_state as progressive
     import autocode_resolver_human as resolver_human
+    import autocode_recovery_limits as recovery_limits
     import autocode_recovery_progress as recovery_progress
     import autocode_resolver_runtime as resolver_runtime
     import autocode_run_finder as run_finder
@@ -177,8 +179,13 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             and not any((args.retry_builder, args.retry_failed_stage, args.retry_report,
                          args.abandon_stage, args.grant_recovery is not None))
             and resolver_human.response_holds_current_frontier(state)):
+        published = state.get(resolver_human.PUBLIC)
+        retry = failure_retry.retryable(  # #254: name the flag only where it is accepted
+            state, cause=failure_retry.stop_cause(state, published), published=published,
+            maximum=runner.MAX_AUTOMATIC_RECOVERIES, revision=lambda: support.snapshot(workspace)['revision'])
         print('AutoResolver retained the human guidance. No new execution allowance or changed cause was established; '
-              'the run remains paused without repeating the same request.')
+              'the run remains paused without repeating the same request.'
+              + (' ' + recovery_limits.advice(allow_grant=False, allow_retry=True) if retry else ''))
         return 2
     default_budget_kind = {'PAUSED_ITERATION_LIMIT': 'iteration_ceiling',
                            'PAUSED_TIME_LIMIT': 'max_seconds',

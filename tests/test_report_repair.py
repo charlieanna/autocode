@@ -922,6 +922,24 @@ class RepairTests(unittest.TestCase):
         runner.repeated_failure_resume_guard(self.state, self.root)
         self.assertTrue(runner.prepare_exhausted_execution_report_retry(self.state, self.run, self.root))
 
+    def test_a_stalled_incidents_repair_never_dispatches_even_with_attempts_given_back(self):
+        # #254: a --chat resume at a published hold reaches reset_report_repair_for_resume, which gives the
+        # spent repair its attempts back, and the resolver boundary does not evaluate there (nor, as in this
+        # fixture, for an older run); the repair must still not run for an unchanged stalled failure.
+        self.queue()
+        self.state['pending_report_repair']['attempts'] = 1
+        with self.assertRaises(runner.ReportRepairQueued):
+            self.reject_repair(6, ValueError('Missing summary'))
+        self.state['pending_report_repair']['attempts'] = 2
+        with self.assertRaises(support.Paused):
+            self.reject_repair(7, ValueError('Missing summary'))
+        runner.reset_report_repair_for_resume(self.state)
+        self.assertEqual(0, self.state['pending_report_repair']['attempts'])
+        with patch.object(runner, 'run_role') as launch, self.assertRaises(support.Paused) as held:
+            runner.execute_report_repair(self.state, self.run, self.root)
+        self.assertEqual('PAUSED_REPEATED_FAILURE', held.exception.status)
+        launch.assert_not_called()
+
     def test_failure_identity_deduplicates_attempt_and_separates_error_classes(self):
         self.queue()
         entry = next(iter(self.state['failure_history'].values()))

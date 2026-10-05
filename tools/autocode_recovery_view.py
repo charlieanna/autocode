@@ -130,16 +130,20 @@ def _parallel_members(state):
 
 def _failures(state):
     mode = _dict(_dict(state.get('settings')).get('workflow')).get('mode')
+    authorized = [row.get('failure_key') for row in _rows(state.get('failure_retry_authorizations'))]
     groups = []
     for key, entry in _dict(state.get('failure_history')).items():
         entry = _dict(entry)
         identity = _dict(entry.get('identity'))
         if not entry.get('count'):
             continue
+        # streak: identical failures in a row (an entry saved before streaks existed reports its count);
+        # authorized_retries: --retry-failed-stage authorizations for this failure (#254).
         groups.append({'id': key, 'role': role_name(identity.get('stage'), mode),
                        'count': entry['count'], 'source_revision': identity.get('artifact_hash'),
                        'last_reason': entry.get('last_error'), 'last_seen': entry.get('last_seen'),
-                       'attempts': list(entry.get('attempts') or [])})
+                       'attempts': list(entry.get('attempts') or []),
+                       'streak': entry.get('streak', entry['count']), 'authorized_retries': authorized.count(key)})
     groups.sort(key=lambda row: str(row.get('last_seen') or ''), reverse=True)
     return groups
 

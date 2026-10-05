@@ -2,16 +2,21 @@
 
 Two stops accept it:
 
-- an unchanged repeated failure (autocode.repeated_failure_resume_guard consumes the authorization
-  in the same invocation);
+- a stalled repeated failure (``stalled_target``, #254): the same failure at least three times in a
+  row at one source (autocode_failures.stalled), raw or behind its published operational request.
+  The incident's spent report repair, if any, is archived with its pins and the role's session
+  rotated, because a stalled incident is never repaired again (autocode.reject_completed_stage). At
+  the unchanged source autocode.repeated_failure_resume_guard consumes the authorization in the same
+  invocation; after an operator edit the attempt simply runs on the edited source, where its failure
+  is a new identity with its normal repairs (this closes the #302 dead end for stalled failures).
 - a held OpenCode external_directory denial (#301): the same denial again after one workspace-only
   retry, or the denial ceiling (autocode_permission_recovery), status ``PAUSED_REPEATED_FAILURE``.
   Corrective information alone never lifts it, by design: information is not authority.
 
-``target`` is the one eligibility check for the denial hold. Its stop names the flag
-(autocode_resolver_runtime) only where autocode_stage_recovery.authorize_failure_retry accepts it
-and the launch guard (autocode_recovery_limits.stop_reason) then admits the attempt, as
-autocode_recovery_grants does for ``--grant-recovery`` (#288).
+``target`` (the denial hold) and ``stalled_target`` (the stalled failure) are the one eligibility
+checks. A stop names the flag (autocode_resolver_runtime, autocode_run_actions) only where
+autocode_stage_recovery.authorize_failure_retry accepts it and the launch guard then admits the
+attempt, as autocode_recovery_grants does for ``--grant-recovery`` (#288).
 
 The saved row never lifts a hold by itself. ``record`` writes it once the flag is accepted
 (autocode_stage_recovery.authorize_failure_retry); autocode_run_actions.handle ``arm``s it for this
@@ -32,7 +37,8 @@ State written only here:
 - failure_retry_authorizations: rows {at, actor, kind ('repeated_failure' | 'permission_hold'), stage,
   attempt_id, events and source_revision (the stopped attempt), failure_key, identity, count (its
   failure-history entry, or None), incident_id (the denial, or None), launched_attempt, launched_at}.
-  Read by ``target``, ``lifts`` and autocode_stuck_job.operator_retried.
+  Read by ``target``, ``lifts``, autocode_stuck_job.operator_retried and the status view's
+  failure_groups[].authorized_retries (autocode_recovery_view).
 - user_events: one ``failure_retry_authorized`` event per row, with the same scope and binding.
 """
 from __future__ import annotations
@@ -42,10 +48,12 @@ from pathlib import PurePath
 import subprocess
 
 try:
+    from . import autocode_failures as failures
     from . import autocode_permission_recovery as permission_recovery
     from . import autocode_recovery_accounting as accounting
     from .autocode_util import digest
 except ImportError:
+    import autocode_failures as failures
     import autocode_permission_recovery as permission_recovery
     import autocode_recovery_accounting as accounting
     from autocode_util import digest
@@ -135,6 +143,57 @@ def target(state, *, cause, revision, published=None, maximum=accounting.MAX_AUT
     if accounting.exhausted(state, accounting.recorded(state), maximum):
         return None
     return held
+
+
+def stalled_target(state, *, cause, revision, published=None):
+    """(record, entry, changed) for the stalled failure one authorized fresh attempt may retry.
+
+    Raises ValueError with the refusal. ``record`` is the latest failed attempt and ``entry`` its
+    stalled failure-history entry; a report repair still pending must be that incident's own (it is
+    spent: a stalled incident is never repaired again). The current source may differ from the
+    failure's: an edit is new evidence (#302). ``revision`` is read only to report that as
+    ``changed`` (None when unreadable); it never refuses.
+    """
+    reconcile = 'Reconcile the active attempt or pending report repair before authorizing a retry'
+    if cause != HOLD_STATUS:
+        raise ValueError('--retry-failed-stage requires a run paused for repeated failure')
+    if any(state.get(key) for key in UNRECONCILED if key != 'pending_report_repair'):
+        raise ValueError(reconcile)
+    questions = state.get('pending_questions') or []
+    if questions and not (_operational_request(state, published) and questions == published.get('questions')):
+        raise ValueError('Answer the pending questions before authorizing a retry')
+    record = next((row for row in reversed(state.get('stages') or []) if row.get('failure_key')), None)
+    pending = state.get('pending_report_repair')
+    if pending and not (record and isinstance(pending, dict)
+                        and (pending.get('original') or {}).get('failure_key') == record['failure_key']):
+        raise ValueError(reconcile)
+    entry = failures.repeated(state, record) if record else None
+    if not entry:
+        raise ValueError('No unchanged repeated failure to authorize; fix the cause, then resume')
+    identity = entry['identity']
+    if ((state.get('failure_history') or {}).get(record['failure_key']) is not entry
+            or failures.key(identity) != record['failure_key']
+            or identity['artifact_hash'] != record.get('source_revision')
+            or identity['stage'] != (record.get('original_stage') or record.get('stage'))
+            or identity['stage'] != state.get('next_stage')):
+        raise ValueError('Retry authorization requires the exact recorded source, stage and failure identity')
+    try:
+        changed = revision() != record['source_revision']
+    except (OSError, RuntimeError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        changed = None
+    return record, entry, changed
+
+
+def retryable(state, *, cause, revision, published=None, maximum=accounting.MAX_AUTOMATIC_RECOVERIES):
+    """Whether authorize_failure_retry accepts --retry-failed-stage at this stop (``target`` or
+    ``stalled_target``); the one check behind every place that advertises the flag."""
+    if target(state, cause=cause, revision=revision, published=published, maximum=maximum) is not None:
+        return True
+    try:
+        stalled_target(state, cause=cause, revision=revision, published=published)
+    except ValueError:
+        return False
+    return True
 
 
 def record(state, kind, stopped, *, now, failure_key=None, identity=None, count=None):

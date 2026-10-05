@@ -665,6 +665,17 @@ def prepare_planning_retry(state, run_dir):
     return True
 
 
+def _archive_spent_repair(state, original, reason):
+    """Archive (never delete) the pending report repair and rotate the role's session that judged it."""
+    state.setdefault('report_repair_archive', []).append({
+        'at': records.now(), 'reason': reason, 'repair': state.pop('pending_report_repair')})
+    role = original.get('route_role') or original.get('role')
+    old = state.setdefault('sessions', {}).pop(role, None) if role else None
+    if old:
+        state.setdefault('session_rotations', []).append(
+            {'role': role, 'old_session': old, 'at': records.now(), 'reason': reason})
+
+
 def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None, *, allow_repeated=False):
     """Allow an explicit fresh execution report after bounded repairs fail."""
     if state.get('status') not in ('PAUSED_REPORT_REPAIR_LIMIT', 'PAUSED_INVALID_OUTPUT', 'PAUSED_REPEATED_FAILURE') or state.get('active_stage'):
@@ -695,15 +706,7 @@ def prepare_exhausted_execution_report_retry(state, run_dir, workspace=None, *, 
         raise support.Paused('PAUSED_REPEATED_FAILURE', message)
     if reroute_abandoned_sol:
         state['next_stage'] = 'sol'
-    state.setdefault('report_repair_archive', []).append({
-        'at': records.now(), 'reason': 'Explicit fresh execution retry after exhausted report repairs',
-        'repair': state.pop('pending_report_repair')})
-    role = original.get('route_role') or original.get('role')
-    old = state.setdefault('sessions', {}).pop(role, None) if role else None
-    if old:
-        state.setdefault('session_rotations', []).append({
-            'role': role, 'old_session': old, 'at': records.now(),
-            'reason': 'Explicit fresh execution retry after exhausted report repairs'})
+    _archive_spent_repair(state, original, 'Explicit fresh execution retry after exhausted report repairs')
     state.setdefault('reconciliation_notes', []).append({
         'at': records.now(), 'stage': stage, 'iteration': original.get('iteration'),
         'reason': 'Explicit fresh execution retry; rejected reports retained'})
@@ -752,14 +755,7 @@ def archive_stale_report_repair(state, run_dir, workspace):
     stage = original['stage']
     message = (f"Discarded stale {stage} report repair from source {checked[:12]}; the workspace is now at "
                f"{revision[:12]}. A fresh {stage} attempt runs on the current source.")
-    reason = 'Source changed while paused; the repair no longer applies'
-    state.setdefault('report_repair_archive', []).append({
-        'at': records.now(), 'reason': reason, 'repair': state.pop('pending_report_repair')})
-    role = original.get('route_role') or original.get('role')
-    old = state.setdefault('sessions', {}).pop(role, None) if role else None
-    if old:
-        state.setdefault('session_rotations', []).append(
-            {'role': role, 'old_session': old, 'at': records.now(), 'reason': reason})
+    _archive_spent_repair(state, original, 'Source changed while paused; the repair no longer applies')
     state.setdefault('reconciliation_notes', []).append({
         'at': records.now(), 'stage': stage, 'iteration': original.get('iteration'), 'reason': message})
     records.write_json(Path(run_dir) / 'state.json', state)
@@ -862,19 +858,22 @@ def prepare_abandoned_completion_revalidation(state, run_dir, workspace):
 
 
 def authorize_failure_retry(state, run_dir, workspace):
-    """Authorize one fresh attempt for an inspected, unchanged repeated failure or held denial.
+    """Authorize one fresh attempt for an inspected, stalled repeated failure or held denial.
 
     The saved row (autocode_failure_retry.record) is the audit record and is
     reused if this is re-issued before its attempt launches; loading the
     checkpoint never grants an attempt. The returned authorization is consumed
     in this invocation: by repeated_failure_resume_guard, and for a held
     external_directory denial (#301) by the launch guard once the caller arms
-    it after all of the command's other validation has passed.
+    it after all of the command's other validation has passed. A stalled
+    failure's spent report repair is archived here (#254); after a source edit
+    the attempt runs on the edited source (#302). A refusal changes nothing.
     """
     published = state.get(resolver_human.PUBLIC)
-    held = failure_retry.target(
-        state, cause=failure_retry.stop_cause(state, published), published=published,
-        revision=lambda: support.snapshot(workspace)['revision'])
+    cause = failure_retry.stop_cause(state, published)
+    def revision():
+        return support.snapshot(workspace)['revision']
+    held = failure_retry.target(state, cause=cause, published=published, revision=revision)
     if held:
         # The latest failed record, which repeated_failure_resume_guard checks once its history is
         # stalled, when it is the stopped attempt itself.
@@ -890,31 +889,19 @@ def authorize_failure_retry(state, run_dir, workspace):
         resolver_human.supersede_operational(state, 'Operator explicitly authorized one fresh attempt')
         records.write_json(run_dir / 'state.json', state)
         return authorization
-    issued = resolver_human.current(state)
-    issued_cause = (state.get('resolver', {}).get('human_escalations', {}).get(issued['request_id'], {})
-                    .get('identity', {}).get('proposal', {}).get('origin', {}).get('pause_status')) if issued else None
-    if (state.get('status') != 'PAUSED_REPEATED_FAILURE'
-            and not (issued and issued['scope'] == 'operational_exhaustion' and issued_cause == 'PAUSED_REPEATED_FAILURE')):
-        raise ValueError('--retry-failed-stage requires a run paused for repeated failure')
-    if any(state.get(key) for key in ('active_stage', 'uncertain_artifacts', 'pending_report_repair')):
-        raise ValueError('Reconcile the active attempt or pending report repair before authorizing a retry')
-    record = next(
-        (row for row in reversed(state.get('stages', [])) if row.get('failure_key')), None)
-    repeated = failures.repeated(state, record) if record else None
-    if not repeated:
-        raise ValueError('No unchanged repeated failure to authorize; fix the cause, then resume')
-    selected = record.get('failure_key')
-    revision = support.snapshot(workspace)['revision']
-    identity = repeated['identity']
-    if ((state.get('failure_history') or {}).get(selected) is not repeated
-            or failures.key(identity) != selected
-            or identity['artifact_hash'] != revision or record.get('source_revision') != revision
-            or identity['stage'] != (record.get('original_stage') or record.get('stage'))
-            or identity['stage'] != state.get('next_stage')):
-        raise ValueError('Retry authorization requires the exact current source, stage and failure identity')
-    stopped = {'attempt_id': records.attempt_id(record), 'events': record.get('events'), 'source_revision': revision}
-    authorization = failure_retry.record(state, failure_retry.REPEATED_FAILURE, stopped, now=records.now(),
-                                         failure_key=selected, identity=identity, count=repeated['count'])
+    record, repeated, changed = failure_retry.stalled_target(state, cause=cause, published=published, revision=revision)
     resolver_human.supersede_operational(state, 'Operator explicitly authorized one scoped failure retry')
+    pending = state.get('pending_report_repair')
+    if pending:
+        _archive_spent_repair(state, pending['original'], 'Explicit authorized retry of a stalled failure')
+        state.setdefault('reconciliation_notes', []).append({
+            'at': records.now(), 'stage': pending['original'].get('stage'), 'iteration': pending['original'].get('iteration'),
+            'reason': 'Explicit authorized retry of a stalled failure; rejected reports retained'
+                      + ('; the source changed since the failure' if changed else '')})
+    stopped = {'attempt_id': records.attempt_id(record), 'events': record.get('events'),
+               'source_revision': record['source_revision']}
+    authorization = failure_retry.record(state, failure_retry.REPEATED_FAILURE, stopped, now=records.now(),
+                                         failure_key=record['failure_key'], identity=repeated['identity'],
+                                         count=repeated['count'])
     records.write_json(run_dir / 'state.json', state)
     return authorization

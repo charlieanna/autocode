@@ -159,7 +159,7 @@ read-only `investigate_stuck` stage (`tools/autocode_stuck_job.py`) instead of s
 
 | Pause | After the Investigator |
 | --- | --- |
-| `PAUSED_REPEATED_FAILURE`, `PAUSED_INVALID_OUTPUT` | retry runs the stage once more; its failure history stays, so the same failure again extends the run of identical failures and a different one starts a new run (a spent report repair is archived) |
+| `PAUSED_REPEATED_FAILURE`, `PAUSED_INVALID_OUTPUT` | retry runs the stage once more; its failure history stays, so the same failure again extends the run of identical failures (once stalled, it pauses at once, with no report repair) and a different one starts a new run (a spent report repair is archived) |
 | `PAUSED_PLANNING_BUDGET` | retry grants one more review round (two calls from the challenge, one from the final review) |
 | `PAUSED_NO_PROGRESS` | retry allows one more implementation batch |
 | `PAUSED_COMPLETION_REVIEW` | retry asks the Completion Reviewer once more |
@@ -167,8 +167,23 @@ read-only `investigate_stuck` stage (`tools/autocode_stuck_job.py`) instead of s
 
 A rejected report pauses as `PAUSED_REPEATED_FAILURE` only after three consecutive attempts of
 the stage, at the same source, failed with the same error and left the same kind of output
-(`tools/autocode_failures.py`). Different problems that happen to share an exception type,
-such as missing responses to different concerns, pause as `PAUSED_INVALID_OUTPUT`.
+(`tools/autocode_failures.py`). "The same error" ignores what differs only from one attempt to
+the next: attempt artifact paths and check-replay receipt directories under the run, mkdtemp and
+pytest temp names, UUIDs, timestamps, elapsed durations ("Ran 3 tests in 0.004s") and long hex
+digests. Commands, exit codes, test ids, line numbers, concern ids and repository paths, including
+those inside a replay's scratch tree, still tell failures apart. Different problems that happen to
+share an exception type, such as missing responses to different concerns, pause as
+`PAUSED_INVALID_OUTPUT`.
+
+A stalled failure (#254) gets no further report repair, even when repair attempts remain, and
+nothing runs it again on its own: a plain resume, a chat resume and a restart all hold.
+`--resume-paused --retry-failed-stage` authorizes exactly one fresh attempt; the failure's spent
+report repair is archived with its evidence and the role's session rotated. Nothing is reset, so
+the same failure again holds at once, with no repair and no second Investigator, and each further
+attempt needs the flag again. The flag is also accepted after you edit the source to fix the
+cause: the attempt runs on the edited source, where a failure is new and gets its normal repairs.
+Corrective information sent first with `--resolver-response provide_information` reaches that
+attempt.
 
 The Investigator runs at high effort on a model different from the stuck stage's: Claude Opus
 5.5 (`kilo/anthropic/claude-opus-5.5`) in `kilocode` runs; otherwise GPT-6 Sol, or GLM 5.3 when

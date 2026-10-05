@@ -44,5 +44,20 @@ open in #288/#301. `tests/test_paused_source_edit.py` builds this state
 #301 settled that decision for one hold at an unchanged source: a held
 external_directory denial advertises `--resume-paused --retry-failed-stage`,
 one fresh attempt (`autocode_failure_retry`); `--resume-paused` still holds.
-This source-edit case stays open: the queued repair and the moved source keep it
-out of that path.
+
+## Closed for stalled failures (#254)
+
+The case above is closed when the failure has stalled, which is now how an
+exhausted rejection ends: three identical rejections in a row pause the run, and
+per-attempt noise such as check-replay receipt paths no longer makes them differ
+(`docs/bugs/2026-10-05-replay-rejection-cycle.md`). `--resume-paused
+--retry-failed-stage` is accepted there with or without a source edit. It
+withdraws the request, archives the spent repair with its pins, rotates the
+role's session and starts one fresh attempt; after an edit that attempt runs on
+the edited source. `--resume-paused` alone still holds, and whether an edit is
+relevant to the failure is not checked yet.
+(`test_retry_failed_stage_moves_a_stalled_hold_whose_source_was_edited`.)
+
+A published hold whose failure has not stalled (for example one seeded by hand,
+as `exhausted_report_repair_published_after_a_source_edit` does by default)
+keeps the old behavior.

@@ -63,6 +63,14 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
         return self.publish(stopped, 'PAUSED_RESOLVER_OPERATIONAL',
                             'AutoResolver exhausted its recorded operational recoveries')
 
+    def stalled_rejection_checkpoint(self):
+        """#254: the Validator's replayed check fails the same way after both report repairs."""
+        self.env.update(AUTOCODE_FIXTURE_MODE='no-human', AUTOCODE_FIXTURE_UNREPRODUCIBLE_CHECK='1')
+        self.launch(['Build greeting', '--chat'], 2, answers='CLI\nyes\n')
+        self.run, _ = self.saved()
+        self.launch(['--run-dir', str(self.run), '--no-chat'], 2)  # publishes AutoResolver's request
+        return self.saved()[1]
+
     def advertised_commands(self, state):
         published = human.current(state)
         surfaces = [state.get('stop_reason') or '']
@@ -124,6 +132,22 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
                 continue  # answered through the request's own options, not a bare CLI retry
             with self.subTest(flag=flag):
                 self.assertNotIn('requires', self.describe_rejection(flag))
+
+    def test_stalled_rejection_advertises_only_accepted_actions_and_the_retry_moves_the_run(self):
+        state = self.stalled_rejection_checkpoint()
+        self.assertEqual('PAUSED_REPEATED_FAILURE', self.paused_for(state))
+        flags, published = self.advertised_commands(state)
+        self.assertIsNotNone(published)
+        self.assertIn('--retry-failed-stage', flags)
+        self.assertNotIn('--grant-recovery', flags)
+        for flag in sorted(flags - {'--resolver-response', '--retry-failed-stage'}):
+            with self.subTest(flag=flag):
+                self.assertNotIn('requires', self.describe_rejection(flag))
+        code, launched, after = self.resume('--retry-failed-stage')
+        self.assertTrue(launched, 'the advertised retry must move the run')
+        self.assertEqual(['sol'], [row['stage'] for row in after['stages'][len(state['stages']):]
+                                   if not row.get('runner_owned')], 'exactly one fresh attempt')
+        self.assertEqual('PAUSED_REPEATED_FAILURE', self.paused_for(after))
 
     def resume(self, *flags):
         """Run --resume-paused with ``flags``; return (exit code, whether a provider launched, saved state)."""

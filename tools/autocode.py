@@ -256,6 +256,8 @@ def reset_report_repair_for_resume(state):
 
 
 REPAIR_HANDOFF_BYTES = 256 * 1024
+STALLED = ("Consecutive attempts at this source failed with the same error; "
+           "inspect the saved output probe and fix the cause before retrying.")
 
 
 def reject_completed_stage(state, run_dir, record, error):
@@ -270,7 +272,8 @@ def reject_completed_stage(state, run_dir, record, error):
                 and not record.get('timed_out') and not record.get('interrupted')
                 and stage_completed(state, record))
     pending = state.get('pending_report_repair')
-    if eligible and repair_limit(state) and (not pending or record.get('report_only')):
+    held = bool(failure and failures.stalled(failure))  # #254: a stalled incident gets no further repair
+    if eligible and repair_limit(state) and (record.get('report_only') if pending else not held):
         if not pending:
             pending = {'original': copy.deepcopy(record), 'attempts': 0,
                        'contract_hash': (state.get('goal_contract') or {}).get('hash'),
@@ -283,7 +286,7 @@ def reject_completed_stage(state, run_dir, record, error):
             if record.get(key) and Path(record[key]).is_file():
                 pending['pins'].setdefault(record[key], support.file_hash(record[key]))
         pending['error'] = str(error)
-        if pending['attempts'] < repair_limit(state):
+        if pending['attempts'] < repair_limit(state) and not held:
             state.update(status='RUNNING', phase='REPORT_REPAIR')
             state.pop('stop_reason', None)
             write_json(run_dir / 'state.json', state)
@@ -292,11 +295,9 @@ def reject_completed_stage(state, run_dir, record, error):
             raise ReportRepairQueued()
     escalation.advance(state, record.get("route_role", record["role"]),
                        trigger="rejected_output", detail=error)
-    repeated = bool(failure and failures.stalled(failure))
     message = (f"Completed {record['stage']} output was rejected ({error}); attempt archived. "
-               + ("Consecutive attempts at this source failed with the same error; inspect the saved output probe and fix the cause before retrying."
-                  if repeated else "Resume explicitly with --resume-paused to retry with a fresh request."))
-    status = "PAUSED_REPEATED_FAILURE" if repeated else "PAUSED_INVALID_OUTPUT"
+               + (STALLED if held else "Resume explicitly with --resume-paused to retry with a fresh request."))
+    status = "PAUSED_REPEATED_FAILURE" if held else "PAUSED_INVALID_OUTPUT"
     state.update(status=status, phase="PAUSED_OR_BLOCKED", stop_reason=message, paused_at=now())
     write_json(run_dir / "state.json", state)
     for artifact in originals:
@@ -670,6 +671,9 @@ def execute_report_repair(state, run_dir, workspace):
             or any(not Path(p).is_file() or support.file_hash(p) != h for p, h in pending['pins'].items())):
         raise support.Paused('PAUSED_STALE_VALIDATION', 'Saved report-repair inputs changed; do not retry')
     resolver_runtime.boundary(sys.modules[__name__], state, run_dir, workspace)
+    if failures.stalled((state.get('failure_history') or {}).get(original.get('failure_key')) or {}):
+        # #254: also where the boundary does not evaluate (a published request, before approval).
+        raise support.Paused('PAUSED_REPEATED_FAILURE', STALLED)
     if format_correction.execute(sys.modules[__name__], state, run_dir, workspace):
         return
     original_source = repair_report_source(original)

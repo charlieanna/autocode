@@ -158,12 +158,15 @@ class PausedSourceEditTests(unittest.TestCase):
         self.assertNotIn("sol", self.state["sessions"])
         self.assertEqual("sol-session", self.state["session_rotations"][-1]["old_session"])
 
-    def exhausted_report_repair_published_after_a_source_edit(self):
+    def exhausted_report_repair_published_after_a_source_edit(self, *, stalled=False):
         """The repair's attempts ran out at the same error (reject_completed_stage keeps the repair and pauses
         for repeated failure), the operator edited the source, and a plain invocation published AutoResolver's
-        operational request."""
+        operational request. ``stalled`` records the three identical rejections in the failure history."""
         pending = self.queue_validator_report_repair()
         pending["attempts"] = self.state["pending_report_repair"]["attempts"] = 2
+        if stalled:
+            entry = self.state["failure_history"][pending["original"]["failure_key"]]
+            entry.update(count=3, streak=3, attempts=[*entry["attempts"], "2:sol_report_repair:1", "2:sol_report_repair:2"])
         self.state.update(status="PAUSED_REPEATED_FAILURE", phase="PAUSED_OR_BLOCKED",
                           stop_reason="Completed sol output was rejected (Missing summary); attempt archived. "
                                       "Consecutive attempts at this source failed with the same error.")
@@ -192,6 +195,37 @@ class PausedSourceEditTests(unittest.TestCase):
         self.assertEqual(pending["original"], self.state["pending_report_repair"]["original"])
         self.assertNotIn("report_repair_archive", self.state)
         self.assertEqual("sol-session", self.state["sessions"]["sol"])
+
+    def test_retry_failed_stage_moves_a_stalled_hold_whose_source_was_edited(self):
+        # #254 closes the open case above for a stalled failure: the edit is new evidence, and the one flag
+        # the hold advertises withdraws the request, archives the spent repair and starts one fresh attempt.
+        self.approve()
+        lifecycle.assign_task(self.state, self.decision(), s.snapshot(self.root))
+        pending, request = self.exhausted_report_repair_published_after_a_source_edit(stalled=True)
+        self.assertIn("--retry-failed-stage", request["request"]["decision_needed"])
+        calls = []
+
+        def run_role(**kwargs):
+            state = kwargs["state"]
+            calls.append((state["next_stage"], bool(kwargs.get("report_only"))))
+            # What the real run_role does as it admits the attempt (saved with the attempt).
+            runner.failure_retry.launched(state, {"stage": state["next_stage"], "iteration": 3,
+                                                  "output": str(self.run / "iterations/003/validator-01.json"),
+                                                  "started_at": s.now()})
+            raise s.Paused("PAUSED_TEST_LAUNCH", "Offline stage admission verified")
+
+        self.assertEqual(2, self.invoke("--resume-paused", "--retry-failed-stage", "--no-chat", role=run_role))
+        self.assertIn("Failure retry authorized for the recorded repeated failure", self.stdout)
+        self.assertEqual([("sol", False)], calls)
+        escalation = self.state["resolver"]["human_escalations"][request["request_id"]]
+        self.assertEqual("superseded", escalation["status"])
+        self.assertEqual(pending, self.state["report_repair_archive"][-1]["repair"])
+        self.assertTrue(all(Path(path).is_file() for path in pending["pins"]))
+        self.assertNotIn("sol", self.state["sessions"])
+        self.assertEqual("sol-session", self.state["session_rotations"][-1]["old_session"])
+        row, = self.state["failure_retry_authorizations"]
+        self.assertEqual(("repeated_failure", "003/validator-01"), (row["kind"], row["launched_attempt"]))
+        self.assertEqual(pending["original"]["source_revision"], row["source_revision"])
 
     def test_resume_of_an_interrupted_stale_report_repair_starts_the_stage_afresh(self):
         self.approve()

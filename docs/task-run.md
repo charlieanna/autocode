@@ -113,7 +113,10 @@ after a person inspects the new route and the saved run reports
 ## Exact stopped-run recovery
 
 The additive `view.recovery` projection describes a saved pause: what happened,
-what is retained, recorded failure groups and specific next actions. Its `token`
+what is retained, recorded failure groups and specific next actions. Each failure
+group gives its `count`, its `streak` (identical failures in a row; a group saved
+before streaks existed reports its count) and `authorized_retries` (the
+`--retry-failed-stage` authorizations for it). Its `token`
 binds the run, task, scope, settings, attempts and failure history. It does not
 grant approval, increase limits or confirm that a human request is authorized.
 Current AutoResolver request and approval gates remain authoritative. Running

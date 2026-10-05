@@ -184,6 +184,23 @@ class RecoveryViewTests(unittest.TestCase):
         self.assertIsNone(result['failure_groups'][0]['last_reason'])
         self.assertIn('retry_failed_stage', [row['kind'] for row in result['actions']])
 
+    def test_failure_groups_show_the_streak_and_the_authorized_retries(self):
+        # #254: additive fields; an entry saved before streaks existed reports its count.
+        state = self.state('PAUSED_REPEATED_FAILURE', failure_history={
+            'a': {'identity': {'stage': 'sol', 'artifact_hash': 'r'}, 'count': 4, 'streak': 4,
+                  'attempts': ['1', '2', '3', '4'], 'last_seen': '2026-10-02'},
+            'b': {'identity': {'stage': 'sol', 'artifact_hash': 'r'}, 'count': 2, 'streak': 0,
+                  'attempts': ['5', '6'], 'last_seen': '2026-10-01'},
+            'legacy': {'identity': {'stage': 'terra', 'artifact_hash': 'q'}, 'count': 3,
+                       'attempts': ['7', '8', '9'], 'last_seen': '2026-09-30'}},
+            failure_retry_authorizations=[{'kind': 'repeated_failure', 'failure_key': 'a'},
+                                          {'kind': 'repeated_failure', 'failure_key': 'a'},
+                                          {'kind': 'permission_hold', 'failure_key': None}])
+        groups = {row['id']: row for row in self.card(state)['failure_groups']}
+        self.assertEqual({'a': (4, 4, 2), 'b': (2, 0, 0), 'legacy': (3, 3, 0)},
+                         {key: (row['count'], row['streak'], row['authorized_retries']) for key, row in groups.items()})
+        self.assertEqual(['1', '2', '3', '4'], groups['a']['attempts'], 'existing fields are unchanged')
+
     def test_parallel_retry_targets_only_failed_members_and_never_a_running_batch(self):
         state = self.state('PAUSED_ORCHESTRATOR_WORKER', next_stage='orchestrator', orchestration_batch={
             'status': 'BUILDING', 'contract_hash': 'approved', 'workers': [
