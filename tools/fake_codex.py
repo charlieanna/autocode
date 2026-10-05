@@ -83,8 +83,24 @@ NO_PROPOSAL = {"version": 0, "needed_because": "", "shared_decisions": [], "outs
 if os.environ.get("AUTOCODE_FIXTURE_SESSION_DRIFT"):
     session = str(uuid.uuid4())
 print(json.dumps({"type": "thread.started", "thread_id": session}))
-if os.environ.get("AUTOCODE_FIXTURE_QUOTA_STAGE") == stage:
-    print(json.dumps({"type": "error", "error": {"message": "subscription usage limit reached"}}))
+# A quota stop for one stage. Optional narrowing for model-fallback tests: only on one
+# model (QUOTA_MODEL), only once (QUOTA_ONCE names a marker file created when it fires),
+# with other failure text (FAILURE_TEXT). LAUNCH_TRACE records every non-repair launch.
+launch_model = sys.argv[sys.argv.index("--model") + 1] if "--model" in sys.argv[:-1] else None
+quota_once = os.environ.get("AUTOCODE_FIXTURE_QUOTA_ONCE")
+quota_stop = (os.environ.get("AUTOCODE_FIXTURE_QUOTA_STAGE") == stage
+              and os.environ.get("AUTOCODE_FIXTURE_QUOTA_MODEL", launch_model) == launch_model
+              and not (quota_once and Path(quota_once).exists()))
+if os.environ.get("AUTOCODE_FIXTURE_LAUNCH_TRACE"):
+    with Path(os.environ["AUTOCODE_FIXTURE_LAUNCH_TRACE"]).open("a") as trace:
+        trace.write(json.dumps({"stage": stage, "milestone": (data.get("current_task") or {}).get("milestone_id"),
+                                "model": launch_model, "resumed": "resume" in sys.argv,
+                                "outcome": "quota" if quota_stop else "started"}) + "\n")
+if quota_stop:
+    if quota_once:
+        Path(quota_once).touch()
+    message = os.environ.get("AUTOCODE_FIXTURE_FAILURE_TEXT") or "subscription usage limit reached"
+    print(json.dumps({"type": "error", "error": {"message": message}}))
     raise SystemExit(3)
 
 
