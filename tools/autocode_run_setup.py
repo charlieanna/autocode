@@ -61,6 +61,14 @@ except ImportError:
 # that comes with one leaves that request for the action to check.
 OTHER_RECOVERY = ('retry_failed_stage', 'retry_report', 'retry_builder', 'abandon_stage', 'diagnose_failed_stage',
                   'resolver_response')  # and --grant-recovery
+# Pauses a resume acknowledges when it reasserts a bound that admits the used amount, even one
+# already saved: (pause status, settings limit, explicit flag, used counter, superseded reason).
+REASSERTABLE_BOUNDS = (
+    ('PAUSED_TIME_LIMIT', 'max_seconds', 'max_seconds', 'active_seconds',
+     'Operator explicitly resumed with an available active-time limit'),
+    ('PAUSED_NO_PROGRESS', 'no_progress_batches', 'no_progress_limit', 'no_progress_batches',
+     'Operator explicitly resumed with a no-progress limit above the retained count'),
+)
 
 
 def resolve(runner, args, parser):
@@ -229,23 +237,24 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
                 if resolver_human.supersede_operational(state,
                         'User delegated this finite harness limit to bounded AutoResolver recovery'):
                     state['_authorized_bound_change'] = {'pause_status': pause_status, 'at': runner.now()}
-    # A response can consume the request before a time-limit change is applied.
-    # Reasserting that saved limit is also explicit authority, but only with headroom.
-    time_limit = settings.get('limits', {}).get('max_seconds')
-    if (args.resume_paused and 'max_seconds' in args._explicit_budget_flags
-            and time_limit is not None
-            and (time_limit == 0 or state.get('active_seconds', 0) < time_limit)):
+    # A response can consume the request before a bound change is applied, and a plain resume
+    # after saving the change asks again under the unchanged settings. Reasserting that saved
+    # bound is also explicit authority, but only with headroom (0 removes the bound).
+    for pause, limit_key, flag, used_key, reason in REASSERTABLE_BOUNDS:
+        limit = settings.get('limits', {}).get(limit_key)
+        if not (args.resume_paused and flag in args._explicit_budget_flags and limit is not None
+                and (limit == 0 or state.get(used_key, 0) < limit)):
+            continue
         published = resolver_human.current(state)
         entry = state.get('resolver', {}).get('human_escalations', {}).get(
             published['request_id'], {}) if published else {}
         origin = entry.get('identity', {}).get('proposal', {}).get('origin', {})
-        time_pause = (published and published['scope'] == 'operational_exhaustion'
-                      and origin.get('pause_status') == 'PAUSED_TIME_LIMIT')
+        live_pause = (published and published['scope'] == 'operational_exhaustion'
+                      and origin.get('pause_status') == pause)
         consumed_pause = (not state.get(resolver_human.PUBLIC) and not state.get(resolver_human.PRIVATE)
-                          and state.get('status') == 'PAUSED_TIME_LIMIT')
-        if ((time_pause and resolver_human.supersede_operational(state,
-                'Operator explicitly resumed with an available active-time limit')) or consumed_pause):
-            state['_authorized_bound_change'] = {'pause_status': 'PAUSED_TIME_LIMIT', 'at': runner.now()}
+                          and state.get('status') == pause)
+        if (live_pause and resolver_human.supersede_operational(state, reason)) or consumed_pause:
+            state['_authorized_bound_change'] = {'pause_status': pause, 'at': runner.now()}
     if state.get("settings") and settings != state["settings"]:
         # A --<role>-model change under a quota-stopped, still uncertain attempt is refused (#184).
         refusal = quota_route.resume_refusal(state, state["settings"], settings, failure_status=support.failure_status,

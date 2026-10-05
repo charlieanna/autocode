@@ -514,6 +514,13 @@ Inspect the saved cause and adjust limits as needed; explicit `--resume-paused`
 acknowledges `PAUSED_TIMEOUT_RECOVERY` and resets recovery counters while retaining
 history. Setting `--no-progress-limit 0` disables the unchanged-batch limit, but
 never disables the three-recovery safety ceiling.
+A run held at `PAUSED_NO_PROGRESS` keeps its count. `--resume-paused
+--no-progress-limit N` acknowledges that pause when N is above the count, or `0`;
+an N at or below the count holds without launching the Builder. Information alone
+(`--resolver-response provide_information`) never acknowledges it. Reasserting an
+already saved N on resume also acknowledges it, for example after a response
+consumed the request. The flag never acknowledges another cause's pause, such as
+the active-time limit.
 A terminal response, live worker or requested pause remains paused for inspection.
 Other uncertain provider requests still require explicit reconciliation.
 `--resume-paused` acknowledges operational pauses only. Saved limits persist unless you
