@@ -1256,6 +1256,15 @@ def _judge_suite(on_candidate, base_suite, fail, unverified, notes):
     candidate = on_candidate.get("results")
     base_receipt = (base_suite or {}).get("receipt") or {}
     base_results = base_receipt.get("results")
+    # A collection error is not an executed test. Keep comparison below so a
+    # separately observed regression still wins over incomplete preservation.
+    for label, results in (("base", base_results), ("candidate", candidate)):
+        collection = (results or {}).get("collection_errors") or []
+        if collection:
+            unverified.append(f"The {label} suite has collection errors; preservation is unproven: "
+                              + ", ".join(collection[:5]))
+    if base_results is not None and not base_results.get("passed"):
+        unverified.append("The base suite has no passing tests; preservation of existing behavior is unproven")
     if base_receipt.get("timed_out") or (base_results is not None and not base_results.get("complete")):
         unverified.append("The base suite was incomplete; preservation of its passing tests is unproven")
         return
