@@ -18,12 +18,14 @@ try:
     from . import autocode_carryforward as carryforward
     from . import autocode_review_gate as review_gate
     from . import autocode_progressive_state as progressive
+    from . import autocode_milestone_replan as replan
 except ImportError:
     import autocode_util as s
     from autocode_milestone_scope import fresh_validation, key, scope  # noqa: F401 (re-exported)
     import autocode_carryforward as carryforward
     import autocode_review_gate as review_gate
     import autocode_progressive_state as progressive
+    import autocode_milestone_replan as replan
 
 
 DEFAULTS = {"enabled": True, "max_seconds": 5400, "stalled_reviews": 3, "max_replans": 1}
@@ -362,10 +364,11 @@ def before_assignment(state, decision, current):
         raise ValueError("A saved milestone cannot silently expand its criteria")
     if spec['kind'] == 'implement':
         check_budget(state)
-    if row.get("needs_replan") and settings(state)["stalled_reviews"]:
-        max_replans = settings(state)["max_replans"]
-        if max_replans is not None and max_replans > 0 and row["replans"] >= max_replans:
-            raise s.Paused("PAUSED_MILESTONE_STALLED", "Milestone still fails after bounded replanning; inspect the saved failing evidence")
+    # The Completion Owner's prompt states this same gate: autocode_milestone_replan.constraint.
+    gate = replan.pending(row, settings(state))
+    if gate == replan.EXHAUSTED:
+        raise s.Paused("PAUSED_MILESTONE_STALLED", "Milestone still fails after bounded replanning; inspect the saved failing evidence")
+    if gate == replan.REQUIRED:
         proposed = {**spec, "objective": decision["next_objective"], "affected_paths": decision["affected_paths"]}
         if (decision["status"] != "REWORK" or not decision.get("evidence")
                 or approach(proposed) == row.get("last_approach")):
