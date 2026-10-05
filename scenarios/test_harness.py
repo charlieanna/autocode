@@ -1134,15 +1134,18 @@ class StockRefusalsRunTests(unittest.TestCase):
                           "resolver_chose_bounded_test_repair"},
                          {check["name"] for check in result["diagnosis"]["checks"] if not check["ok"]})
 
-    def test_tests_that_never_discriminate_stop_honestly_after_repeated_resolver_calls(self):
+    def test_tests_that_never_discriminate_stop_honestly_and_the_repair_is_scored_incorrect(self):
+        # The Builder keeps the vacuous tests. Since the efficiency controls (d535913) the runner holds the
+        # second review of the same incident without causal progress for a person (RESOLVER_PENDING) instead
+        # of three Resolver calls ending at PAUSED_BUILDER_RETRY_LIMIT, as plan B4 recorded on e2eadf0.
         result, state, proofs = self.run_fake("broken/vacuous-refusal-tests")
         self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
-        self.assertEqual("PAUSED_BUILDER_RETRY_LIMIT", result["runner_status"])
-        self.assertEqual(3, result["metrics"]["model_stage_names"].count("astra_resolve"))
-        self.assertEqual(["retry", "escalate", "pause"], [row["action"] for row in state["builder_retry_decisions"]])
+        self.assertEqual("RESOLVER_PENDING", result["runner_status"])
+        self.assertEqual(1, result["metrics"]["model_stage_names"].count("astra_resolve"))
+        self.assertEqual(["retry"], [row["action"] for row in state["builder_retry_decisions"]])
         self.assertEqual({"FAIL"}, set(proofs))
         diagnosis = result["diagnosis"]
-        self.assertEqual((verdict.INCORRECT, 3), (diagnosis["verdict"], diagnosis["resolver_calls_on_trap"]))
+        self.assertEqual((verdict.INCORRECT, 1), (diagnosis["verdict"], diagnosis["resolver_calls_on_trap"]))
         self.assertEqual(["repair_made_the_tests_discriminate"],
                          [check["name"] for check in diagnosis["checks"] if not check["ok"]])
 
