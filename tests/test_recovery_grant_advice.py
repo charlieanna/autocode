@@ -69,25 +69,76 @@ class AdviceMatchesEligibility(unittest.TestCase):
         self.assertNotIn('--grant-recovery', text)
         # #448: information alone never admits a no-progress pause; the advice names its bound.
         held = {'no_progress_batches': 3, 'settings': {'limits': {'no_progress_batches': 3}}}
-        text = limits.advice(allow_grant=False, pause_status='PAUSED_NO_PROGRESS', state=held)
+        text = limits.advice(allow_grant=False, pause_status='PAUSED_NO_PROGRESS', state=held,
+                             cause=limits.NO_PROGRESS_CAUSE)
         self.assertIn('autocode resume --no-progress-limit N', text)
         self.assertNotIn('--resolver-response', text)
         self.assertNotIn('--grant-recovery', text)
         self.assertNotIn('--max-seconds', text)
 
-    def test_no_progress_bound_advice_is_only_for_a_count_at_its_limit(self):
-        """Other holds share PAUSED_NO_PROGRESS (a recovery novelty hold names --retry-failed-stage)."""
+    @staticmethod
+    def escalation(minute, discovered, pause_status='PAUSED_NO_PROGRESS', status='consumed'):
+        return {'status': status, 'issued_at': f'2026-10-05T10:{minute:02d}:00+00:00', 'identity': {'proposal': {
+            'scope': 'operational_exhaustion', 'origin': {'pause_status': pause_status},
+            'request': {'discovered': discovered}}}}
+
+    def test_no_progress_bound_advice_is_for_a_pause_the_limit_caused(self):
+        """Other holds share PAUSED_NO_PROGRESS (a recovery novelty hold names --retry-failed-stage).
+
+        The cause, not the count, decides (#448): a limit saved above the count after the pause still
+        needs acknowledging, and a novelty hold at or above the limit is not the limit's.
+        """
         import autocode_run_view as run_view
-        for count, limit, bound in ((3, 3, True), (5, 3, True), (1, 3, False), (3, 0, False), (3, 4, False)):
+        bound = limits.NO_PROGRESS_CAUSE + '. AutoResolver could not resolve no_progress.'
+        novelty = 'Incident 0123 (check): no new information. --resume-paused --retry-failed-stage authorizes one attempt'
+        note = 'AutoResolver received the human response; no execution, approval or additional allowance was authorized.'
+        # Saved state sorts the ledger by request id; only issued_at orders the requests.
+        republished = {'resolver': {'human_escalations': {
+            'a-again': self.escalation(30, note),
+            'b-plan': {'status': 'consumed', 'issued_at': '2026-10-05T09:00:00+00:00',
+                       'identity': {'proposal': {'scope': 'goal_approval'}}},
+            'c-first': self.escalation(10, limits.NO_PROGRESS_CAUSE)}}}
+        for name, count, limit, extra, holds, saved in (
+                ('at the limit', 3, 3, {'stop_reason': bound}, True, None),
+                ('above the limit', 5, 3, {'stop_reason': bound}, True, None),
+                ('raise saved after the pause', 3, 4, {'stop_reason': bound}, True, 4),
+                ('cap removed after the pause', 3, 0, {'stop_reason': bound}, True, None),
+                ('a response, a saved raise, a republished request and another response', 3, 4,
+                 {'stop_reason': note, **republished}, True, 4),
+                ('novelty hold at the limit', 3, 3, {'stop_reason': novelty}, False, None),
+                ('novelty hold after a response', 5, 3, {'stop_reason': note, 'resolver': {'human_escalations': {
+                    'a-earlier': self.escalation(5, limits.NO_PROGRESS_CAUSE),
+                    'b-hold': self.escalation(20, novelty)}}}, False, None),
+                ('owned workers', 5, 3, {'stop_reason': 'Reconcile owned active or uncertain workers before '
+                                                         'recovery; do not restart them'}, False, None),
+                ('another pause before the response', 3, 4, {'stop_reason': note, 'resolver': {'human_escalations': {
+                    'a-first': self.escalation(10, limits.NO_PROGRESS_CAUSE),
+                    'b-again': self.escalation(30, note),
+                    'c-time': self.escalation(20, 'Saved active-time limit reached', 'PAUSED_TIME_LIMIT')}}},
+                 False, None),
+                ('no recorded reason', 3, 3, {}, False, None)):
             state = {'status': 'PAUSED_NO_PROGRESS', 'no_progress_batches': count,
-                     'settings': {'limits': {'no_progress_batches': limit}}}
-            with self.subTest(count=count, limit=limit):
-                self.assertEqual(bound, limits.no_progress_bound_holds(state))
+                     'settings': {'limits': {'no_progress_batches': limit}}, **extra}
+            with self.subTest(name):
+                self.assertEqual(holds, limits.no_progress_bound_holds(state))
                 text = limits.advice(allow_grant=False, pause_status='PAUSED_NO_PROGRESS', state=state)
-                self.assertEqual(bound, '--no-progress-limit' in text, text)
+                self.assertEqual(holds, '--no-progress-limit' in text, text)
+                self.assertEqual(not holds, '--resolver-response' in text, text)
+                if holds:
+                    self.assertIn(f'above the retained count of {count} unchanged', text)
+                    # Offered only where reasserting it is accepted: a saved limit that admits the count.
+                    self.assertEqual(saved is not None, 'Reasserting the saved limit' in text, text)
+                    if saved is not None:
+                        self.assertIn(f'saved limit, {saved},', text)
                 need = run_view.needs(state)
                 self.assertEqual('resume', need['kind'])
-                self.assertEqual('--resume-paused --no-progress-limit N' if bound else None, need.get('action'))
+                self.assertEqual('--resume-paused --no-progress-limit N' if holds else None, need.get('action'))
+                self.assertEqual(count if holds else None, need.get('no_progress_batches'))
+        # While a request is being published, its error is the cause; an AutoResolver note is not.
+        state = {'no_progress_batches': 3, 'settings': {'limits': {'no_progress_batches': 3}}}
+        self.assertTrue(limits.no_progress_bound_holds(state, limits.NO_PROGRESS_CAUSE))
+        self.assertFalse(limits.no_progress_bound_holds(state, novelty))
+        self.assertTrue(limits.no_progress_bound_holds({**state, 'stop_reason': note, **republished}, note))
 
     def test_published_exhaustion_advertises_exactly_what_grant_accepts(self):
         class Runner:
@@ -112,11 +163,13 @@ class AdviceMatchesEligibility(unittest.TestCase):
                 }
                 run = __import__('pathlib').Path('/tmp/issue-288-advice-run')
                 run.mkdir(exist_ok=True)
+                # The build loop's own reason, which no_progress_bound_holds attributes to the limit.
+                reason = limits.NO_PROGRESS_CAUSE if pause_status == 'PAUSED_NO_PROGRESS' else 'budget spent'
                 with patch.object(resolver_runtime, '_operational_receipt',
                                   return_value='receipt-1'), \
                      patch.object(resolver_runtime.human, 'queue') as queue:
                     self.assertTrue(resolver_runtime.record_operational_exhaustion(
-                        Runner, state, run, support.Paused(pause_status, 'budget spent')))
+                        Runner, state, run, support.Paused(pause_status, reason)))
                 request = queue.call_args.kwargs['request']
                 decision = request['decision_needed']
                 if expect_grant:
@@ -127,7 +180,9 @@ class AdviceMatchesEligibility(unittest.TestCase):
                              'PAUSED_NO_PROGRESS': '--no-progress-limit'}[pause_status]
                     self.assertIn(bound, decision)
                     self.assertNotIn('--resolver-response', decision)
-                self.assertTrue(state['stop_reason'].startswith('budget spent.'), state['stop_reason'])
+                self.assertEqual(pause_status == 'PAUSED_NO_PROGRESS',
+                                 'Acknowledge the pause with autocode resume --no-progress-limit N' in request['options'])
+                self.assertTrue(state['stop_reason'].startswith(reason + '.'), state['stop_reason'])
                 self.assertTrue(state['stop_reason'].endswith(decision), state['stop_reason'])
                 # Whatever we just advertised, grant() agrees at this stop.
                 published = {'request_id': 'req-later', 'scope': 'operational_exhaustion'}

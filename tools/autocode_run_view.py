@@ -286,9 +286,10 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                                                      when `abandon_stage` is set, --abandon-stage
                                                      ATTEMPT first (the attempt is uncertain);
                                                      `action`, when set, is the one command that
-                                                     continues (PAUSED_NO_PROGRESS at its unchanged-
-                                                     batch limit: --resume-paused --no-progress-limit
-                                                     N, N above the retained count, or 0)
+                                                     continues (a PAUSED_NO_PROGRESS its unchanged-
+                                                     batch limit caused: --resume-paused --no-progress-
+                                                     limit N, N above `no_progress_batches`, the
+                                                     retained count, or 0)
     retry_job     a person to inspect a stopped job  --resume-paused --retry-failed-stage --job-retry-token
                                                      TOKEN; with `route` set (quota or a content-filter
                                                      refusal), --answer route-ROLE=MODEL --job-retry-token
@@ -402,5 +403,6 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
             # A plain resume holds here, also after a consumed response; only a bound
             # that admits the retained count acknowledges it (#448).
             need["action"] = "--resume-paused --no-progress-limit N"
+            need["no_progress_batches"] = state.get("no_progress_batches", 0)
         return need
     return {"kind": "continue"}

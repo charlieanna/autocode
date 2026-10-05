@@ -513,8 +513,10 @@ their existing approval gates.
 For a timed-out provider stage with no terminal response, Autocode confirms its
 tracked workers are gone, archives the incomplete request and preserves its partial
 edits/logs, clears the uncertain role session, and continues from a fresh recovery
-checkpoint. It never replays that timed-out request. Each automatic recovery consumes
-the existing no-progress budget. Consecutive timeouts without an accepted stage also
+checkpoint. It never replays that timed-out request. An automatic recovery of a
+Builder stage also counts as an unchanged implementation batch; recoveries of
+planning and review stages do not, and unchanged batches never spend the recovery
+ceiling below. Consecutive timeouts without an accepted stage also
 pause at that configured limit for every role, including the Plan Reviewer and Tester.
 A successful stage resets the consecutive-timeout counter. A separate ceiling of
 three automatic recoveries covers timeouts and provider-capacity failures. External-directory
@@ -533,11 +535,14 @@ an N at or below the count holds without launching the Builder. Information alon
 (`--resolver-response provide_information`) never acknowledges it. Reasserting an
 already saved N on resume also acknowledges it, for example after a response
 consumed the request. The flag never acknowledges another cause's pause, such as
-the active-time limit. While the count is at its limit, the pause's published
-request and `stop_reason` name this command. After a response consumes the request,
-the status view's `needs.action` is `--resume-paused --no-progress-limit N`. Other
-holds that pause as `PAUSED_NO_PROGRESS`, such as a recovery novelty hold, name
-their own action instead.
+the active-time limit. When the limit caused the pause, its published request and
+`stop_reason` name this command and the retained count. They also name the saved
+limit when reasserting it is accepted, for example a limit raised in its own invocation
+before a plain resume asked again. After a response consumes the request, the status
+view's resume need has `action` `--resume-paused --no-progress-limit N` and the
+retained count in `no_progress_batches`. Other holds that pause as
+`PAUSED_NO_PROGRESS`, such as a recovery novelty hold or owned workers to reconcile,
+name their own action instead.
 A terminal response, live worker or requested pause remains paused for inspection.
 Other uncertain provider requests still require explicit reconciliation.
 `--resume-paused` acknowledges operational pauses only. Saved limits persist unless you

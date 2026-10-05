@@ -10,6 +10,7 @@ launch one, and a no-progress bound never acknowledges another cause's request.
 The held run has the shape of the 2026-10-03 AWS design trial: three planning
 timeout recoveries counted as no-progress batches after the plan was approved, and
 AutoResolver already evaluating the blocker (docs/bugs/2026-10-05-no-progress-bound-reassertion.md).
+Two tests instead reach the count with no automatic recovery recorded at all.
 """
 import copy
 import json
@@ -75,7 +76,12 @@ class NoProgressBoundTests(unittest.TestCase):
         return self.saved()[1]
 
     def assert_admitted_without_new_allowance(self, held, limit=4):
-        """The Builder is next; the count, approval and recovery history are those of the hold."""
+        """The Builder is next and runs; the count, approval and recovery history are those of the hold.
+
+        `--unit autoplanner` stops at the Builder handoff whether or not the bound admits the
+        count, so only the next launch shows that it does: the task completes under the held
+        approval and recovery history, with no grant.
+        """
         _, resumed = self.saved()
         view = self.view()
         self.assertEqual(('RUNNING', 'terra'), (view['status'], view['next_stage']))
@@ -83,10 +89,17 @@ class NoProgressBoundTests(unittest.TestCase):
         self.assertEqual(3, resumed['no_progress_batches'])
         self.assertEqual(limit, resumed['settings']['limits']['no_progress_batches'])
         self.assertEqual(held['goal_contract'], resumed['goal_contract'])
-        self.assertEqual(held['automatic_timeout_recoveries'], resumed['automatic_timeout_recoveries'])
-        self.assertEqual(held['automatic_recoveries_since_resume'], resumed['automatic_recoveries_since_resume'])
+        for key in ('automatic_timeout_recoveries', 'automatic_recoveries_since_resume'):
+            self.assertEqual(held.get(key), resumed.get(key), key)
         self.assertFalse(resumed.get('recovery_grants'))
         self.assertFalse((self.project / 'greet.py').exists())
+        self.launch(self.args, 0)
+        _, finished = self.saved()
+        self.assertEqual('TASK_COMPLETE', finished['status'])
+        self.assertTrue((self.project / 'greet.py').is_file())
+        self.assertEqual(held['goal_contract'], finished['goal_contract'])
+        self.assertEqual(held.get('automatic_timeout_recoveries'), finished.get('automatic_timeout_recoveries'))
+        self.assertFalse(finished.get('recovery_grants'))
         return resumed
 
     def resume_with_bound_and_build(self, limit):
@@ -94,12 +107,14 @@ class NoProgressBoundTests(unittest.TestCase):
         self.launch([*self.args, '--resume-paused', '--no-progress-limit', str(limit), '--unit', 'autoplanner'], 0)
         resumed = self.assert_admitted_without_new_allowance(held, limit)
         self.assertEqual('superseded', resumed['resolver']['human_escalations'][request['request_id']]['status'])
-        self.launch(self.args, 0)
-        _, finished = self.saved()
-        self.assertEqual('TASK_COMPLETE', finished['status'])
-        self.assertTrue((self.project / 'greet.py').is_file())
-        self.assertEqual(held['goal_contract'], finished['goal_contract'])
-        self.assertEqual(held['automatic_timeout_recoveries'], finished['automatic_timeout_recoveries'])
+
+    def hold_without_a_recovery(self, *options):
+        """The unchanged-batch count at 3 with no automatic recovery recorded since the run began."""
+        state = self.stop_before_builder(*options)
+        self.assertNotIn('automatic_recoveries_since_resume', state)
+        self.assertFalse(state.get('automatic_timeout_recoveries'))
+        state['no_progress_batches'] = 3
+        return state
 
     def test_raising_the_bound_on_resume_retires_the_request_and_builds(self):
         self.resume_with_bound_and_build(4)
@@ -147,6 +162,10 @@ class NoProgressBoundTests(unittest.TestCase):
         again = human.current(republished)
         self.assertNotEqual(request['request_id'], again['request_id'])
         self.assertEqual('PAUSED_NO_PROGRESS', self.origin(republished, again)['pause_status'])
+        # #448: the limit still caused this pause, so the republished advice names it.
+        decision = republished['user_request']['decision_needed']
+        self.assertIn('autocode resume --no-progress-limit N', decision)
+        self.assertNotIn('--resolver-response', decision)
         self.assertFalse((self.project / 'greet.py').exists())
         self.launch([*self.args, '--resume-paused', '--no-progress-limit', str(limit), '--unit', 'autoplanner'], 0)
         resumed = self.assert_admitted_without_new_allowance(held, limit)
@@ -171,9 +190,13 @@ class NoProgressBoundTests(unittest.TestCase):
         self.assertEqual('operational_exhaustion', view['needs']['resolver_scope'])
         for text in (held['user_request']['decision_needed'], view['needs']['questions'][0]['question'],
                      view['stop_reason']):
-            self.assertIn('autocode resume --no-progress-limit N', text)
+            self.assertIn('autocode resume --no-progress-limit N with N above the retained count of 3 ', text)
             self.assertNotIn('--resolver-response', text)
             self.assertNotIn('--grant-recovery', text)
+            # The saved limit is the count, so reasserting it is refused; the advice does not offer it.
+            self.assertNotIn('saved limit', text)
+        self.assertIn('Acknowledge the pause with autocode resume --no-progress-limit N',
+                      view['needs']['questions'][0]['options'])
         self.launch(['resume', *self.args, '--no-progress-limit', '4', '--unit', 'autoplanner'], 0)
         resumed = self.assert_admitted_without_new_allowance(held)
         self.assertEqual('superseded', resumed['resolver']['human_escalations'][request['request_id']]['status'])
@@ -181,17 +204,66 @@ class NoProgressBoundTests(unittest.TestCase):
     def test_after_an_informational_response_the_view_names_the_command_that_admits(self):
         """#448: once a response consumed the request, its advice is gone and a plain resume holds.
 
-        The status view's resume need carries the one command that continues; running it,
-        with N above the retained count, reaches the Builder.
+        The status view's resume need carries the one command that continues and the retained
+        count its N must exceed; running it reaches the Builder.
         """
         held, request = self.hold()
         answered = self.inform(request)
         need = self.view()['needs']
-        self.assertEqual(('resume', '--resume-paused --no-progress-limit N'), (need['kind'], need.get('action')))
-        action = need['action'].replace(' N', ' 4').split()
+        self.assertEqual(('resume', '--resume-paused --no-progress-limit N', 3),
+                         (need['kind'], need.get('action'), need.get('no_progress_batches')))
+        action = need['action'].replace(' N', f" {need['no_progress_batches'] + 1}").split()
         self.launch([*self.args, *action, '--unit', 'autoplanner'], 0)
         resumed = self.assert_admitted_without_new_allowance(held)
         self.assertEqual(answered['resolver']['human_responses'], resumed['resolver']['human_responses'])
+
+    def test_the_trial_checkpoint_names_the_command_that_admits(self):
+        """#448's retained checkpoint: a request republished at limit 4/count 3 after consumed guidance.
+
+        The guidance was consumed, limit 4 saved in its own invocation, and a plain resume asked
+        again. The limit still caused the pause though the count is now below it, so the request
+        and, once answered, the status view name the bound; reasserting the saved 4 admits.
+        """
+        held, request = self.hold()
+        self.inform(request)
+        self.launch([*self.args, '--no-progress-limit', '4'], 2)
+        self.launch([*self.args, '--resume-paused'], 2)
+        _, republished = self.saved()
+        again = human.current(republished)
+        decision = republished['user_request']['decision_needed']
+        self.assertIn('autocode resume --no-progress-limit N with N above the retained count of 3 ', decision)
+        self.assertIn('Reasserting the saved limit, 4, also acknowledges it.', decision)
+        self.assertNotIn('--resolver-response', decision)
+        self.inform(again)
+        need = self.view()['needs']
+        self.assertEqual(('resume', '--resume-paused --no-progress-limit N', 3),
+                         (need['kind'], need.get('action'), need.get('no_progress_batches')))
+        self.launch([*self.args, *need['action'].replace(' N', ' 4').split(), '--unit', 'autoplanner'], 0)
+        self.assert_admitted_without_new_allowance(held)
+
+    def test_unchanged_batches_alone_pause_for_no_progress_not_for_recoveries(self):
+        """#448: with no automatic recovery recorded, the count was also read as spent recoveries.
+
+        The run paused as PAUSED_TIMEOUT_RECOVERY and asked for --grant-recovery, a real grant,
+        before the no-progress pause and its advice could even appear.
+        """
+        held, request = self.hold_at('PAUSED_NO_PROGRESS', self.hold_without_a_recovery())
+        decision = held['user_request']['decision_needed']
+        self.assertIn('autocode resume --no-progress-limit N', decision)
+        self.assertNotIn('--grant-recovery', decision)
+        self.launch(['resume', *self.args, '--no-progress-limit', '4', '--unit', 'autoplanner'], 0)
+        self.assert_admitted_without_new_allowance(held)
+
+    def test_unchanged_batches_below_an_explicit_limit_spend_no_recoveries(self):
+        """#448: below the operator's limit of 5, three unchanged batches stopped the run as recovery-exhausted."""
+        state = self.hold_without_a_recovery('--no-progress-limit', '5')
+        support.atomic_json(self.run / 'state.json', state)
+        self.launch([*self.args, '--resume-paused'], 0)
+        _, finished = self.saved()
+        self.assertEqual('TASK_COMPLETE', finished['status'])
+        self.assertTrue((self.project / 'greet.py').is_file())
+        self.assertFalse(finished.get('recovery_grants'))
+        self.assertNotIn('automatic_recoveries_since_resume', finished)
 
     def test_a_bound_that_does_not_admit_the_count_never_launches_the_builder(self):
         held, _ = self.hold()

@@ -62,7 +62,10 @@ which is correct.
   (`autocode_recovery_limits.advice`). `autocode_run_actions.next_command`, added
   for #301, is not called.
 - On that timeout-recovery path, changing the bounded limits also invalidated
-  the published request, leaving `RESOLVER_PENDING`. Tracked in #448.
+  the published request, leaving `RESOLVER_PENDING`. Not reproduced on
+  2026-10-05 (#448): the change retires the request, and a plain resume asks again
+  with `--grant-recovery` advice that continues
+  (`2026-10-05-no-progress-bound-reassertion.md`).
 - Raising `--no-progress-limit` did not retire the published no-progress request.
   Fixed: `autocode --resume-paused --no-progress-limit N` resumes in one command
   (#334), also after a `provide_information` answer (#378), and a limit raised in
@@ -76,7 +79,9 @@ which is correct.
   [#482](https://github.com/charlieanna/autocode/pull/482).
 - The pause's advice (`recovery_limits.INFORM_ADVICE`) said to answer and then
   `--resume-paused`, which holds, so following it led into the sequence above.
-  Fixed (#448): the no-progress pause's advice names `autocode resume
-  --no-progress-limit N`. After a consumed response, the status view's
-  `needs.action` names the same command
+  Fixed (#448): when the limit caused the pause, its advice names `autocode resume
+  --no-progress-limit N` and the retained count, also for the trial's republished
+  limit 4/count 3 request. After a consumed response, the status view's
+  `needs.action` names the same command. Unchanged batches in a run that never
+  recovered also no longer spend the recovery ceiling
   (`2026-10-05-no-progress-bound-reassertion.md`).
