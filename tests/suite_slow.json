@@ -3,7 +3,7 @@
   "tests.test_planning": "78 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_scenario_oracles": "67 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_build_recovery_blackbox": "55 s in CI (Ubuntu, one module at a time), 2026-09-29",
-  "tests.test_multicomponent": "45 s in CI (Ubuntu, one module at a time), 2026-09-29",
+  "tests.test_multicomponent": "104 s in CI (Ubuntu, 4 modules at a time), 2026-10-04",
   "tests.test_component_design": "50 s locally (macOS); real CLI approval/resume, integration and design-drift cases, 2026-10-01",
   "tests.test_subprocess": "45 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_builder_policy": "37 s in CI (Ubuntu, one module at a time), 2026-09-29",
@@ -18,5 +18,9 @@
   "tests.test_bugfix_workflow": "17 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_verify": "14 s in CI (Ubuntu, one module at a time), 2026-09-29",
   "tests.test_assignment_scenarios": "13 s in CI (Ubuntu, one module at a time), 2026-09-29",
-  "tests.test_dashboard_consumer": "13 s in CI (Ubuntu, one module at a time), 2026-09-29"
+  "tests.test_dashboard_consumer": "13 s in CI (Ubuntu, one module at a time), 2026-09-29",
+  "tests.test_catalogue_t12": "347 s in CI (Ubuntu, 4 modules at a time), 2026-10-04; drives the dashboard suites in a real browser",
+  "tests.test_rework_cli": "194 s in CI (Ubuntu, 4 modules at a time), 2026-10-04",
+  "tests.test_protected_oracles_cli": "88 s in CI (Ubuntu, 4 modules at a time), 2026-10-04",
+  "tests.test_verification_config": "74 s in CI (Ubuntu, 4 modules at a time), 2026-10-04"
 }
