@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import copy
 import sys
+from pathlib import Path
 
 try:
     from . import autocode_job_failure as job_failure, autocode_design_revision as design_revision, autocode_design_intake as design_intake
@@ -34,6 +35,7 @@ try:
     from . import autocode_recovery_progress as recovery_progress
     from . import autocode_resolver_runtime as resolver_runtime
     from . import autocode_run_finder as run_finder
+    from . import autocode_run_records as records
     from . import autocode_stop as stop
     from . import autocode_support as support
     from . import autocode_workflows as workflows
@@ -58,6 +60,7 @@ except ImportError:
     import autocode_recovery_progress as recovery_progress
     import autocode_resolver_runtime as resolver_runtime
     import autocode_run_finder as run_finder
+    import autocode_run_records as records
     import autocode_stop as stop
     import autocode_support as support
     import autocode_workflows as workflows
@@ -76,6 +79,101 @@ def explicit_recovery_requested(args):
                 getattr(args, 'diagnose_failed_stage', False),
                 getattr(args, 'grant_recovery', None) is not None,
                 bool(budget_flags)))
+
+
+PAUSE_BUDGET_KIND = {
+    'PAUSED_TIME_LIMIT': 'max_seconds',
+    'PAUSED_ITERATION_LIMIT': 'iteration_ceiling',
+    'PAUSED_MILESTONE_TIME_LIMIT': 'milestone_max_seconds',
+    'PAUSED_MILESTONE_BUDGET': 'milestone_max_seconds',
+    'PAUSED_NO_PROGRESS': 'no_progress_batches',
+}
+BUDGET_FLAGS = {
+    'max_seconds': ('max_seconds',),
+    'iteration_ceiling': ('max_iterations', 'legacy_iteration_ceiling', 'unlimited_iterations'),
+    'milestone_max_seconds': ('max_milestone_seconds',),
+    'no_progress_batches': ('no_progress_limit',),
+}
+
+
+def _explicit_budget_change(args, origin):
+    """True when this invocation explicitly resets the bound the request exhausted."""
+    kind = (origin.get('budget') or {}).get('kind') or PAUSE_BUDGET_KIND.get(origin.get('pause_status'))
+    explicit = getattr(args, '_explicit_budget_flags', None) or set()
+    return any(flag in explicit for flag in BUDGET_FLAGS.get(kind, ()))
+
+
+def next_command(state, issued, run_dir, workspace):
+    """One concrete operator command for the pause class holding this run.
+
+    --grant-recovery is named only for PAUSED_TIMEOUT_RECOVERY: the CLI rejects
+    it for every other pause class, so suggesting it anywhere else is a dead end
+    (#301).
+    """
+    origin = {}
+    if issued:
+        entry = state.get('resolver', {}).get('human_escalations', {}).get(issued.get('request_id'), {})
+        origin = entry.get('identity', {}).get('proposal', {}).get('origin', {}) or {}
+    pause = origin.get('pause_status') or state.get('status')
+    where = f'--workspace {workspace} --run-dir {run_dir}'
+    if pause == 'PAUSED_TIMEOUT_RECOVERY':
+        return f'Next command: autocode --resume-paused --grant-recovery N {where}'
+    budget_flag = {'PAUSED_TIME_LIMIT': '--max-seconds',
+                   'PAUSED_ITERATION_LIMIT': '--max-iterations',
+                   'PAUSED_MILESTONE_TIME_LIMIT': '--max-milestone-seconds',
+                   'PAUSED_MILESTONE_BUDGET': '--max-milestone-seconds',
+                   'PAUSED_NO_PROGRESS': '--no-progress-limit'}.get(pause)
+    if budget_flag:
+        return f'Next command: autocode --resume-paused {budget_flag} N {where}'
+    if pause == 'PAUSED_BUILDER_RETRY_LIMIT':
+        milestone = (state.get('current_task') or {}).get('milestone_id') or 'MILESTONE_ID'
+        return f'Next command: autocode --resume-paused --retry-builder {milestone} {where}'
+    if pause == 'PAUSED_REPEATED_FAILURE':
+        return f'Next command: autocode --resume-paused --retry-failed-stage {where}'
+    if issued:
+        return (f'Next command: autocode --resolver-request {issued["request_id"]} '
+                f'--resolver-token {issued["request_token"]} --resolver-response provide_information '
+                f'--resolver-message \'WHAT CHANGED\' {where}')
+    return f'Next command: autocode --resume-paused {where}'
+
+
+def stale_result(state, result, revision):
+    """True when a recovered result is bound to another contract, task or tree (#302)."""
+    contract = state.get('goal_contract') or {}
+    task = state.get('current_task') or {}
+    return ((result.get('contract_revision') is not None
+             and result.get('contract_revision') != contract.get('revision'))
+            or (result.get('contract_hash') and contract.get('hash')
+                and result.get('contract_hash') != contract.get('hash'))
+            or (result.get('task_id') and task.get('id') and result.get('task_id') != task.get('id'))
+            or (result.get('source_revision') and result.get('source_revision') != revision))
+
+
+def discard_stale_recovered(state, run_dir, record):
+    """Set aside stale recovered values and schedule one fresh attempt (#302)."""
+    stage = record.get('original_stage') or str(record.get('stage', '')).removesuffix('_report_repair')
+    originals = records.archive_rejected_stage(state, run_dir, record,
+        'Recovered result is bound to another contract, task or source revision; stale values discarded')
+    state.setdefault('sessions', {}).pop(record.get('route_role', record.get('role')), None)
+    state.update(status='RUNNING',
+                 phase='PLANNING' if planning.is_planning(state, stage) else 'EXECUTING', next_stage=stage)
+    state.pop('stop_reason', None)
+    for artifact in originals:
+        Path(artifact).unlink(missing_ok=True)
+    records.write_json(run_dir / 'state.json', state)
+
+
+def revalidate_on_resume(state, workspace):
+    """A validation older than the workspace cannot support completion (#302)."""
+    validation = state.get('validation') or {}
+    revision = validation.get('source_revision')
+    if not revision or revision == support.snapshot(workspace)['revision']:
+        return False
+    state.setdefault('validation_archive', []).append({
+        'reason': 'Validation is non-current: the workspace revision changed after it ran',
+        'validation': state.pop('validation')})
+    state.update(next_stage=workflows.review_stage(state))
+    return True
 
 
 def handle(runner, args, parser, state, state_path, run_dir, workspace):

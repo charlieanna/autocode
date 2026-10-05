@@ -17,6 +17,7 @@ try:
     from .autocode_trace_coverage import coverage_errors
     from . import autocode_brief_literals as brief_literals
     from . import autocode_util as s, autocode_workflows as workflows, autocode_adaptive_planning as adaptive
+    from . import autocode_finding_cause as finding_cause
 except ImportError:
     from autocode_contract_revision import (PLANNER_ORIGINS, PROTECTED_LISTS as _PROTECTED_LISTS,
                                            revision_guard, saved_user_basis as _saved_user_basis)
@@ -24,6 +25,7 @@ except ImportError:
     from autocode_trace_coverage import coverage_errors
     import autocode_brief_literals as brief_literals
     import autocode_util as s, autocode_workflows as workflows, autocode_adaptive_planning as adaptive
+    import autocode_finding_cause as finding_cause
 
 # The state keys under which a Resolver proposal waits for the user and the request shown to them.
 # autocode_resolver_human owns those records and re-exports these as PRIVATE and PUBLIC; they are
@@ -796,6 +798,7 @@ def resolve_permission(state, question_id, text):
              "request": copy.deepcopy(request),
              "contract_token": token(state["goal_contract"])}
     state.setdefault("user_events", []).append(event)
+    finding_cause.resolve_named(state, (q.get("payload") or {}).get("finding_ids") or [], event)
     state.setdefault("answers", {})[question_id] = event
     state["pending_questions"] = [row for row in state["pending_questions"] if row["id"] != question_id]
     state.pop("user_request", None)
