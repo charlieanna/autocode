@@ -67,10 +67,27 @@ class AdviceMatchesEligibility(unittest.TestCase):
         text = limits.advice(allow_grant=False, pause_status='PAUSED_TIME_LIMIT')
         self.assertIn('--max-seconds', text)
         self.assertNotIn('--grant-recovery', text)
-        text = limits.advice(allow_grant=False, pause_status='PAUSED_NO_PROGRESS')
-        self.assertIn('--resolver-response', text)
+        # #448: information alone never admits a no-progress pause; the advice names its bound.
+        held = {'no_progress_batches': 3, 'settings': {'limits': {'no_progress_batches': 3}}}
+        text = limits.advice(allow_grant=False, pause_status='PAUSED_NO_PROGRESS', state=held)
+        self.assertIn('autocode resume --no-progress-limit N', text)
+        self.assertNotIn('--resolver-response', text)
         self.assertNotIn('--grant-recovery', text)
         self.assertNotIn('--max-seconds', text)
+
+    def test_no_progress_bound_advice_is_only_for_a_count_at_its_limit(self):
+        """Other holds share PAUSED_NO_PROGRESS (a recovery novelty hold names --retry-failed-stage)."""
+        import autocode_run_view as run_view
+        for count, limit, bound in ((3, 3, True), (5, 3, True), (1, 3, False), (3, 0, False), (3, 4, False)):
+            state = {'status': 'PAUSED_NO_PROGRESS', 'no_progress_batches': count,
+                     'settings': {'limits': {'no_progress_batches': limit}}}
+            with self.subTest(count=count, limit=limit):
+                self.assertEqual(bound, limits.no_progress_bound_holds(state))
+                text = limits.advice(allow_grant=False, pause_status='PAUSED_NO_PROGRESS', state=state)
+                self.assertEqual(bound, '--no-progress-limit' in text, text)
+                need = run_view.needs(state)
+                self.assertEqual('resume', need['kind'])
+                self.assertEqual('--resume-paused --no-progress-limit N' if bound else None, need.get('action'))
 
     def test_published_exhaustion_advertises_exactly_what_grant_accepts(self):
         class Runner:
@@ -88,8 +105,8 @@ class AdviceMatchesEligibility(unittest.TestCase):
             with self.subTest(pause_status=pause_status, count=count):
                 state = {
                     'status': pause_status, 'workspace': '/tmp/unused-workspace',
-                    'next_stage': 'terra', 'settings': {'limits': {}},
-                    'automatic_recoveries_since_resume': count,
+                    'next_stage': 'terra', 'settings': {'limits': {'no_progress_batches': 3}},
+                    'no_progress_batches': 3, 'automatic_recoveries_since_resume': count,
                     'automatic_timeout_recoveries': [], 'automatic_capacity_recoveries': [],
                     'automatic_permission_recoveries': [], 'stages': [],
                 }
@@ -106,10 +123,10 @@ class AdviceMatchesEligibility(unittest.TestCase):
                     self.assertIn('--grant-recovery', decision)
                 else:
                     self.assertNotIn('--grant-recovery', decision)
-                    if pause_status == 'PAUSED_TIME_LIMIT':
-                        self.assertIn('--max-seconds', decision)
-                    else:
-                        self.assertIn('--resolver-response', decision)
+                    bound = {'PAUSED_TIME_LIMIT': '--max-seconds',
+                             'PAUSED_NO_PROGRESS': '--no-progress-limit'}[pause_status]
+                    self.assertIn(bound, decision)
+                    self.assertNotIn('--resolver-response', decision)
                 self.assertTrue(state['stop_reason'].startswith('budget spent.'), state['stop_reason'])
                 self.assertTrue(state['stop_reason'].endswith(decision), state['stop_reason'])
                 # Whatever we just advertised, grant() agrees at this stop.

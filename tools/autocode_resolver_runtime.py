@@ -425,7 +425,7 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
         attempt = (f"{active['iteration']:03d}/{Path(active['output']).stem}"
                    if active.get('output') and isinstance(active.get('iteration'), int) else None)
         decision += ' ' + recovery_limits.advice(allow_grant=False, pause_status=error.status,
-                                                 attempt=attempt)
+                                                 attempt=attempt, state=state)
         if attempt:
             options.append(f'Abandon the uncertain attempt with --abandon-stage {attempt}')
     # A quota or content-filter stop of one routable role asks the person to name a model (#184); never a default.

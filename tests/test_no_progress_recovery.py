@@ -159,6 +159,40 @@ class NoProgressBoundTests(unittest.TestCase):
     def test_reasserting_a_disabled_bound_after_a_plain_resume_asked_again_admits(self):
         self.reassert_after_a_plain_resume_asked_again(0)
 
+    def test_the_published_advice_is_the_command_that_admits_the_builder(self):
+        """#448: the advice said to send information and then resume, and that resume holds.
+
+        The request, its question in the status view and the stop reason name the bound
+        instead; following them literally, in the documented `autocode resume` form, reaches
+        the Builder.
+        """
+        held, request = self.hold()
+        view = self.view()
+        self.assertEqual('operational_exhaustion', view['needs']['resolver_scope'])
+        for text in (held['user_request']['decision_needed'], view['needs']['questions'][0]['question'],
+                     view['stop_reason']):
+            self.assertIn('autocode resume --no-progress-limit N', text)
+            self.assertNotIn('--resolver-response', text)
+            self.assertNotIn('--grant-recovery', text)
+        self.launch(['resume', *self.args, '--no-progress-limit', '4', '--unit', 'autoplanner'], 0)
+        resumed = self.assert_admitted_without_new_allowance(held)
+        self.assertEqual('superseded', resumed['resolver']['human_escalations'][request['request_id']]['status'])
+
+    def test_after_an_informational_response_the_view_names_the_command_that_admits(self):
+        """#448: once a response consumed the request, its advice is gone and a plain resume holds.
+
+        The status view's resume need carries the one command that continues; running it,
+        with N above the retained count, reaches the Builder.
+        """
+        held, request = self.hold()
+        answered = self.inform(request)
+        need = self.view()['needs']
+        self.assertEqual(('resume', '--resume-paused --no-progress-limit N'), (need['kind'], need.get('action')))
+        action = need['action'].replace(' N', ' 4').split()
+        self.launch([*self.args, *action, '--unit', 'autoplanner'], 0)
+        resumed = self.assert_admitted_without_new_allowance(held)
+        self.assertEqual(answered['resolver']['human_responses'], resumed['resolver']['human_responses'])
+
     def test_a_bound_that_does_not_admit_the_count_never_launches_the_builder(self):
         held, _ = self.hold()
         for limit, count in ((3, 3), (4, 4), (4, 5), (2, 3)):

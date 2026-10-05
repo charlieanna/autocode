@@ -29,6 +29,13 @@ BOUND_ADVICE = {
     'PAUSED_MILESTONE_TIME_LIMIT': (
         "After fixing the cause, raise the bound and continue in the same command with "
         "autocode resume --max-milestone-seconds N (a different N supersedes this request)."),
+    # #448: information alone never admits this pause, so the advice must not end in a plain
+    # resume. Named only while the count holds the run (no_progress_bound_holds).
+    'PAUSED_NO_PROGRESS': (
+        "To acknowledge this no-progress pause, use autocode resume --no-progress-limit N "
+        "with N above the retained count of unchanged implementation batches, or 0 for no cap. "
+        "You may reassert an already saved limit; information alone or unrelated settings do not "
+        "acknowledge this pause."),
 }
 
 
@@ -36,10 +43,26 @@ def abandon_advice(attempt: str) -> str:
     return ABANDON_THEN_RESUME.format(attempt=attempt)
 
 
-def advice(*, allow_grant, pause_status=None, attempt=None):
-    """The recovery-exhaustion next step. Never names a command the CLI will refuse."""
+def no_progress_bound_holds(state) -> bool:
+    """True when the unchanged-batch count has reached its saved limit (0 disables the limit).
+
+    Other holds share PAUSED_NO_PROGRESS (a recovery novelty hold, owned workers to reconcile)
+    and name their own action, so only this one is advised to raise --no-progress-limit.
+    """
+    limit = ((state.get("settings") or {}).get("limits") or {}).get("no_progress_batches", 3)
+    count = state.get("no_progress_batches", 0)
+    return isinstance(limit, int) and isinstance(count, int) and 0 < limit <= count
+
+
+def advice(*, allow_grant, pause_status=None, attempt=None, state=None):
+    """The recovery-exhaustion next step. Never names a command the CLI will refuse.
+
+    ``state`` is required for a PAUSED_NO_PROGRESS stop to name its bound (no_progress_bound_holds).
+    """
     if allow_grant:
         return GRANT_ADVICE
+    if pause_status == 'PAUSED_NO_PROGRESS' and not no_progress_bound_holds(state or {}):
+        pause_status = None
     if pause_status in BOUND_ADVICE:
         text = BOUND_ADVICE[pause_status]
         return text if not attempt else f"{text} {abandon_advice(attempt)}"

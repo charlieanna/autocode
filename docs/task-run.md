@@ -347,7 +347,7 @@ run is waiting for:
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `recover_source` | an attempt without a saved original source identity | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |
 | `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint`; `route` after quota or a content-filter refusal | Exact retry after restoring original source; with `route`, name another model first |
-| `resume` | a person to inspect a pause and resolve its cause | `reason` | Resume a pause, once resolved |
+| `resume` | a person to inspect a pause and resolve its cause | `reason`; `action` when one command continues, such as `--resume-paused --no-progress-limit N` (N above the retained count, or `0`) at a `PAUSED_NO_PROGRESS` whose unchanged-batch count reached its limit | Resume a pause, once resolved |
 | `continue` | nothing; the run can simply proceed | | Continue |
 
 A `resolver_scope` of `operational_exhaustion` or `blocker` means Resolver

@@ -533,7 +533,11 @@ an N at or below the count holds without launching the Builder. Information alon
 (`--resolver-response provide_information`) never acknowledges it. Reasserting an
 already saved N on resume also acknowledges it, for example after a response
 consumed the request. The flag never acknowledges another cause's pause, such as
-the active-time limit.
+the active-time limit. While the count is at its limit, the pause's published
+request and `stop_reason` name this command. After a response consumes the request,
+the status view's `needs.action` is `--resume-paused --no-progress-limit N`. Other
+holds that pause as `PAUSED_NO_PROGRESS`, such as a recovery novelty hold, name
+their own action instead.
 A terminal response, live worker or requested pause remains paused for inspection.
 Other uncertain provider requests still require explicit reconciliation.
 `--resume-paused` acknowledges operational pauses only. Saved limits persist unless you

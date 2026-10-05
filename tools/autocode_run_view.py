@@ -21,7 +21,7 @@ try:
     from . import autocode_progressive_plan as progressive_rules
     from . import autocode_verification_view as verification_view
     from . import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
-    from . import autocode_quota_route as quota_route
+    from . import autocode_quota_route as quota_route, autocode_recovery_limits as recovery_limits
 except ImportError:
     import autocode_output_policy as output_policy, autocode_request_usage as request_usage
     import autocode_usage, autocode_efficiency, autocode_design_coverage as design_coverage
@@ -29,7 +29,7 @@ except ImportError:
     import autocode_progressive_plan as progressive_rules
     import autocode_verification_view as verification_view
     import autocode_recovery_view as recovery_view, autocode_code_checkpoints as code_checkpoints
-    import autocode_quota_route as quota_route
+    import autocode_quota_route as quota_route, autocode_recovery_limits as recovery_limits
 
 SCHEMA = 2
 COMPLETE = ("TASK_COMPLETE", "COMPLETE")
@@ -284,7 +284,11 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
     planning_budget  more planning review calls     --feedback TEXT or --planning-review-call-limit N
     resume        a person to inspect a pause       --resume-paused, after resolving stop_reason;
                                                      when `abandon_stage` is set, --abandon-stage
-                                                     ATTEMPT first (the attempt is uncertain)
+                                                     ATTEMPT first (the attempt is uncertain);
+                                                     `action`, when set, is the one command that
+                                                     continues (PAUSED_NO_PROGRESS at its unchanged-
+                                                     batch limit: --resume-paused --no-progress-limit
+                                                     N, N above the retained count, or 0)
     retry_job     a person to inspect a stopped job  --resume-paused --retry-failed-stage --job-retry-token
                                                      TOKEN; with `route` set (quota or a content-filter
                                                      refusal), --answer route-ROLE=MODEL --job-retry-token
@@ -393,5 +397,10 @@ def needs(state: dict, *, stale_report_repair=False) -> dict | None:
                 and isinstance(rejected.get("iteration"), int) and rejected.get("output")):
             need["retry_report_attempt"] = f"{rejected['iteration']:03d}/{Path(rejected['output']).stem}"
             need["action"] = f"--resume-paused --retry-report {need['retry_report_attempt']}"
+        if (status == "PAUSED_NO_PROGRESS" and "action" not in need
+                and recovery_limits.no_progress_bound_holds(state)):
+            # A plain resume holds here, also after a consumed response; only a bound
+            # that admits the retained count acknowledges it (#448).
+            need["action"] = "--resume-paused --no-progress-limit N"
         return need
     return {"kind": "continue"}

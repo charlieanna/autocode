@@ -38,12 +38,35 @@ no-progress request, or acknowledges one a response consumed, before resume
 bookkeeping runs. The retained count, plan approval and timeout-recovery history
 are unchanged, and a bound that does not admit the count never launches the Builder.
 
+## The advice named a command that holds
+
+Fixed 2026-10-05 (#448). The no-progress pause had no entry in
+`recovery_limits.BOUND_ADVICE`. Its request, the status view's question and
+`stop_reason` therefore all ended in the generic `INFORM_ADVICE`: send corrective
+information, then `autocode resume`. Information alone never admits this pause, so
+that resume exits 2 with "AutoResolver retained the human guidance". Once the
+response had consumed the request, the view's `resume` need named no command at
+all. The pause now has its own advice: `autocode resume --no-progress-limit N`,
+with N above the retained count, or `0`. After a consumed response, the view's
+`needs.action` is `--resume-paused --no-progress-limit N`. The regressions are in
+`tests/test_no_progress_recovery.py`.
+
+Both apply only while the count has reached its saved limit
+(`recovery_limits.no_progress_bound_holds`). Other holds publish the same
+`PAUSED_NO_PROGRESS`, such as a recovery novelty hold (#422), which names
+`--retry-failed-stage` in its own reason, or owned workers waiting to be
+reconciled. Raising the bound does not address those holds, so their advice is
+unchanged. One counter-caused shape still gets the generic advice: a limit raised
+in a separate invocation, followed by a plain resume that publishes the request
+again. Its count is then below the saved limit, the same as the other holds.
+Reasserting that saved limit on resume admits it, as described above.
+
+`run_actions.next_command` (#301) also names `--no-progress-limit`, but nothing
+calls it. It is left as it was. The advice the CLI publishes comes from
+`recovery_limits.advice`.
+
 ## Not changed
 
-- The no-progress advice still names `--resolver-response`
-  (`recovery_limits.INFORM_ADVICE`, pinned by `tests/test_recovery_grant_advice.py`),
-  while `run_actions.next_command` names `--no-progress-limit`. Information alone
-  never admits this pause, so the advice leads operators into the sequence above.
 - Any other explicit-recovery resume that leaves a live operational request in place
   may reach the same legacy-blocker reconciliation once resume bookkeeping changes
   the binding. Only the no-progress case was reproduced.

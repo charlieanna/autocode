@@ -57,9 +57,10 @@ which is correct.
   batches and stopped the run before its first Builder. Fixed by #306
   (`autocode_recovery_progress`; see
   `2026-10-03-recovery-grants-and-planning-progress.md`).
-- The CLI suggested `--grant-recovery` for a pause that rejects it. Since #301 the
-  pause names one working command per pause class
-  (`autocode_run_actions.next_command`).
+- The CLI suggested `--grant-recovery` for a pause that rejects it. Since #288 the
+  published advice names the grant only where the CLI accepts it
+  (`autocode_recovery_limits.advice`). `autocode_run_actions.next_command`, added
+  for #301, is not called.
 - On that timeout-recovery path, changing the bounded limits also invalidated
   the published request, leaving `RESOLVER_PENDING`. Tracked in #448.
 - Raising `--no-progress-limit` did not retire the published no-progress request.
@@ -73,6 +74,9 @@ which is correct.
   acknowledged by reasserting it on resume. Reasserting it then crashed with
   "Role result belongs to another implementation task"; fixed by
   [#482](https://github.com/charlieanna/autocode/pull/482).
-- Still open (#448): the pause's advice (`recovery_limits.INFORM_ADVICE`) says
-  to answer and then `--resume-paused`, while `run_actions.next_command` names
-  `--no-progress-limit`. Following the advice leads into the sequence above.
+- The pause's advice (`recovery_limits.INFORM_ADVICE`) said to answer and then
+  `--resume-paused`, which holds, so following it led into the sequence above.
+  Fixed (#448): the no-progress pause's advice names `autocode resume
+  --no-progress-limit N`. After a consumed response, the status view's
+  `needs.action` names the same command
+  (`2026-10-05-no-progress-bound-reassertion.md`).
