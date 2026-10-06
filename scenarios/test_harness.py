@@ -1729,7 +1729,7 @@ class FakeRunTests(unittest.TestCase):
         self.assertEqual("COMPLETE", result["runner_status"])
         checks = {check["name"]: check["ok"] for check in result["checks"]}
         for name in ("skeleton_verified_first", "nothing_started_before_the_skeleton", "cumulative_checks_rerun",
-                     "journey_verified_by_name[J1]", "change_request_accepted[store]",
+                     "journey_verified_by_name[capture-and-find]", "change_request_accepted[store]",
                      "change_rechecked_producer_and_consumers[store]", "every_workstream_a_merged_reviewed_run"):
             self.assertTrue(checks.get(name), name)
         program = result["program"]

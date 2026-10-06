@@ -5,7 +5,7 @@ category = "program"
 # exact token, then `program run` until the program completes. Each workstream is an ordinary
 # AutoCode run in its own worktree, linked to the agreement. The walking skeleton S is merged
 # and verified first; T and U then run in parallel and every merge re-runs the cumulative
-# checks; the integration workstream delivers tests/test_journey.py and verifies journey J1 by
+# checks; the integration workstream delivers tests/test_journey.py and verifies journey capture-and-find by
 # name. Once S has merged, T raises a change request on the store interface; the person
 # publishes version 2, so S (merged) and T and U (waiting for plan approval) lose their
 # approval and are planned, approved and checked again. S's files already conform, so its
@@ -31,7 +31,8 @@ max_parallel = 2
 interfaces = [{ id = "store", summary = "notes/store.py: load() returns the notes as {id, text}; add(text) appends one and returns it", paths = ["notes/store.py"], version = 1, producer = "S", consumers = ["T", "U"] }]
 
 [[program.revise.journeys]]
-id = "J1"
+# A planner names its own requirement ids (a live one used J1 and J2), and journey ids must differ from them.
+id = "capture-and-find"
 name = "Capture and find a note"
 steps = ["Add notes with python3 -m notes add TEXT", "List them with python3 -m notes list",
          "Find one with python3 -m notes search WORDS, ignoring case", "Export them with python3 -m notes export"]

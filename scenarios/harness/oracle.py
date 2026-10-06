@@ -234,7 +234,7 @@ def run_checks(run: dict | None, *, workflow: str, no_build: bool = False, no_re
     return checks
 
 
-def program_checks(run: dict | None, scenario, *, journeys: tuple[str, ...] = ("J1",)) -> list[Check]:
+def program_checks(run: dict | None, scenario, *, journeys: tuple[str, ...] | None = None) -> list[Check]:
     """Checks on how a program ran (scenarios/README.md, "Programs"), from the record harness/program_driver.py
     passes to oracles; None in ``check`` mode, and then there is nothing to judge.
 
@@ -243,6 +243,7 @@ def program_checks(run: dict | None, scenario, *, journeys: tuple[str, ...] = ("
     was created, the agreement tokens the person was ``shown`` and ``approved``, the agreement's
     ``interfaces``, the ``changes`` the scenario scripted (``[[program.change]]``), and ``workstream_ids``:
     which derived workstream each scenario workstream id stands for (the same id under the scripted model).
+    ``journeys`` defaults to the journeys the scenario's ``[program] revise`` names, else derive's J1.
     """
     if run is None:
         return []
@@ -303,6 +304,9 @@ def program_checks(run: dict | None, scenario, *, journeys: tuple[str, ...] = ("
     checks.append(Check("cumulative_checks_rerun", len(verifications) > 1 and not dropped,
                         "; ".join(dropped) or f"{len(verifications)} verifications"))
     found = {row.get("id"): row for row in program.get("journeys") or []}
+    if journeys is None:
+        named = (getattr(scenario, "program_revise", None) or {}).get("journeys") or []
+        journeys = tuple(row["id"] for row in named if isinstance(row, dict) and row.get("id")) or ("J1",)
     integration = next((wid for wid, row in rows.items() if row.get("kind") == "integration"), None)
     for jid in journeys:
         row = found.get(jid) or {}
