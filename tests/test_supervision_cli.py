@@ -9,6 +9,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -107,10 +108,10 @@ print(json.dumps({'type': 'turn.completed', 'usage': {'input_tokens': 1, 'output
 if os.environ.get('AUTOCODE_FIXTURE_SUPERVISION_HOLD_TERM'):
     import signal
     def _hold(signum, frame):
-        # Report the controller's stop, then outlast it until its SIGKILL.
+        # Report the controller's stop, then end once the test has acted on it.
         _socket.sendall(b'T')
-        while True:
-            signal.pause()
+        _socket.recv(1)
+        os._exit(128 + signum)
     signal.signal(signal.SIGTERM, _hold)
 _socket.sendall(str(os.getpid()).encode() + b'\\n')
 _socket.recv(1)
@@ -196,17 +197,18 @@ raise SystemExit(0)
                     os.killpg(child.pid, signal.SIGKILL)
                 elif kind == 'hup':
                     os.kill(child.pid, signal.SIGHUP)
-                elif kind == 'second-hup':
+                elif kind == 'later-hups':
                     os.kill(child.pid, signal.SIGHUP)
                     self.assertEqual(b'T', connection.recv(1), 'The controller stops its provider on a hangup')
                     # A closed terminal's second SIGHUP (the shell's) lands while it does.
                     os.kill(child.pid, signal.SIGHUP)
-                    while connection.recv(1) == b'T':  # until the controller's SIGKILL ends it
-                        pass
+                    connection.sendall(b'A')
                 else:
                     os.close(master)
                     master = None
                 self.assertEqual(b'', connection.recv(1), 'Provider must stop after owner/session loss')
+            if kind == 'later-hups':
+                self.hang_up_while_the_pause_is_saved(child)
             child.wait(timeout=12)
             self.assertIsNone(self.sentinel.poll(), 'Unrelated process must remain alive')
             original = (self.run / 'state.json').read_bytes()
@@ -215,7 +217,7 @@ raise SystemExit(0)
             public = json.loads(status.stdout)
             self.assertEqual(original, (self.run / 'state.json').read_bytes(), 'Status must stay read-only')
             self.assertFalse(public['view']['liveness']['provider']['alive'])
-            if kind == 'second-hup':
+            if kind == 'later-hups':
                 self.assertEqual((2, 'PAUSED_INTERRUPTED'), (child.returncode, public['status']))
                 self.assertIsNotNone(public['active_stage']['exit_code'],
                                      'The controller collects its provider before the interrupt propagates')
@@ -245,10 +247,22 @@ raise SystemExit(0)
     def test_hangup_retains_interruption_and_stops_provider(self):
         self.fault('hup')
 
-    def test_second_hangup_during_cleanup_leaves_the_cleanup_to_the_controller(self):
-        # A second raise skipped the controller's cleanup, misreported the pause or hung it (#454).
+    def hang_up_while_the_pause_is_saved(self, child):
+        """Send one more SIGHUP once the stage's record is final, before the CLI has exited."""
+        deadline = time.monotonic() + 12
+        while child.poll() is None and time.monotonic() < deadline:
+            if 'exit_code' in json.loads((self.run / 'state.json').read_text()).get('active_stage', {}):
+                os.kill(child.pid, signal.SIGHUP)
+                return
+            time.sleep(.001)
+
+    def test_later_hangups_leave_the_cleanup_and_the_pause_to_the_controller(self):
+        # A closed terminal sends SIGHUP twice (the kernel and the shell). Raised again while the
+        # controller stopped its provider, it cut that cleanup short; once the stage's own handler
+        # scope had closed, it killed the controller before the pause was saved (#454). The
+        # one-interrupt latch inside that scope is covered in test_process.
         self.env['AUTOCODE_FIXTURE_SUPERVISION_HOLD_TERM'] = '1'
-        self.fault('second-hup')
+        self.fault('later-hups')
 
     def test_controlling_pty_close_stops_provider(self):
         self.fault('pty')

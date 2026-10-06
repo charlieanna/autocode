@@ -1322,7 +1322,8 @@ def main(unit=None) -> int:
     saved_opencode = opencode
     saved_argv = sys.argv
     try:
-        with supervision_cli.guard(saved_argv[1:]) as argv:
+        # An interrupted stage's later signals stay absorbed until its pause is saved (#454).
+        with processes.interrupts_held(), supervision_cli.guard(saved_argv[1:]) as argv:
             sys.argv = [saved_argv[0], *argv]
             return _main_body(unit)
     finally:

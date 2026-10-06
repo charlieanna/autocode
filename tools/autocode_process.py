@@ -325,6 +325,27 @@ class ProcessTree:
 
 # A stage's cleanup defers every signal interruption_handler turns into an interrupt.
 INTERRUPTS = tuple(getattr(signal, name) for name in ('SIGINT', 'SIGTERM', 'SIGHUP') if hasattr(signal, name))
+# For each open interrupts_held scope, the dispositions an interrupted stage replaced.
+_held = []
+
+
+@contextmanager
+def interrupts_held():
+    """Keep an interrupted stage's later signals absorbed until this scope ends.
+
+    The stage's handler scope closes before its caller saves the pause and the CLI
+    exits. A second signal there escaped as a bare KeyboardInterrupt or killed the
+    controller by default, often leaving the run RUNNING (#454). Wrap one CLI
+    invocation in it; the dispositions return when it ends.
+    """
+    held = {}
+    _held.append(held)
+    try:
+        yield
+    finally:
+        _held.pop()
+        for sig, handler in held.items():
+            signal.signal(sig, handler)
 
 
 @contextmanager
@@ -334,32 +355,38 @@ def interruption_handler():
     Only the first raises. A closed terminal sends SIGHUP twice (the kernel and the
     shell) and people press Ctrl-C again; a second raise while the first unwound
     skipped cleanup, misreported the pause or hung the controller in a leaked
-    threading lock (#454).
+    threading lock (#454). Inside interrupts_held, later signals stay absorbed
+    after this scope too, until the held scope ends.
     """
+    held = _held[-1] if _held else None
+
+    def before(sig):  # the disposition before a stage of this invocation was interrupted
+        return (held or {}).get(sig, signal.getsignal(sig))
     signals = [signal.SIGTERM]
     # A terminal hangup follows the same retained interrupt path. Respect nohup
     # and callers that explicitly inherited SIGHUP ignored.
-    if hasattr(signal, 'SIGHUP') and signal.getsignal(signal.SIGHUP) != signal.SIG_IGN:
+    if hasattr(signal, 'SIGHUP') and before(signal.SIGHUP) != signal.SIG_IGN:
         signals.append(signal.SIGHUP)
     # Likewise leave an ignored (background job) or caller-installed SIGINT alone.
-    if signal.getsignal(signal.SIGINT) is signal.default_int_handler:
+    if before(signal.SIGINT) is signal.default_int_handler:
         signals.append(signal.SIGINT)
     raised = []
 
     def interrupt(signum, frame):
         if raised:
             return  # the first interrupt's cleanup is under way
-        name = signal.Signals(signum).name
-        raised.append(name)
-        error = KeyboardInterrupt(name)
-        error.signal = name
-        raise error
+        raised.append(signum)
+        raise KeyboardInterrupt(signal.Signals(signum).name)
     previous = {sig: signal.signal(sig, interrupt) for sig in signals}
     try:
         yield
     finally:
-        for sig, handler in previous.items():
-            signal.signal(sig, handler)
+        if raised and held is not None:
+            for sig, handler in previous.items():
+                held.setdefault(sig, handler)  # this scope's handler goes on absorbing
+        else:
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
 
 
 def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkpoint=None,

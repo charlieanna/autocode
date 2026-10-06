@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
@@ -47,6 +48,35 @@ class DetachedOutputTest(unittest.TestCase):
                 with contextlib.suppress(BrokenPipeError):
                     disconnected.close()
             self.assertEqual("finished", marker.read_text())
+
+
+class InterruptedInvocationTest(unittest.TestCase):
+    def test_a_stage_interrupt_is_held_until_the_invocation_returns(self):
+        # The stage's handler scope closes before its pause is saved and the CLI exits. A second
+        # Ctrl-C or hangup there escaped as a bare KeyboardInterrupt or killed the controller,
+        # leaving the run RUNNING (#454).
+        reached = []
+        def original(signum, frame):
+            reached.append(signal.Signals(signum).name)
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            self.addCleanup(signal.signal, sig, signal.signal(sig, original))
+        self.addCleanup(signal.signal, signal.SIGINT, signal.signal(signal.SIGINT, signal.default_int_handler))
+
+        def interrupted_stage(unit=None):
+            with self.assertRaises(KeyboardInterrupt), runner.processes.interruption_handler():
+                signal.raise_signal(signal.SIGHUP)
+            for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+                try:
+                    signal.raise_signal(sig)  # while the pause is saved
+                except KeyboardInterrupt:
+                    reached.append("SIGINT")
+            return 2
+
+        with patch.object(runner, "_main_body", side_effect=interrupted_stage):
+            self.assertEqual(2, runner.main())
+        self.assertEqual([], reached)
+        self.assertEqual([original, original, signal.default_int_handler],
+                         [signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)])
 
 
 class RetrofitTest(unittest.TestCase):

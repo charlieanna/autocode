@@ -804,7 +804,7 @@ time.sleep(30)
             processes.wait_for_stage(child, 5, checkpoint)
         self.assertTrue(landed)
         self.assertIsNotNone(child.poll(), 'the provider is stopped before the interrupt propagates')
-        self.assertEqual('SIGHUP', getattr(caught.exception, 'signal', None))
+        self.assertEqual('SIGHUP', str(caught.exception))
 
     def test_only_the_first_signal_interrupts(self):
         for sig in (signal.SIGTERM, signal.SIGHUP):
@@ -821,8 +821,33 @@ time.sleep(30)
                 except KeyboardInterrupt:
                     again.append(signal.Signals(sig).name)
         self.assertEqual([], again, 'a second signal must not interrupt the first one\'s cleanup')
-        self.assertEqual('SIGINT', getattr(caught.exception, 'signal', None))
-        self.assertIs(signal.default_int_handler, signal.getsignal(signal.SIGINT))
+        self.assertEqual('SIGINT', str(caught.exception))
+        self.assertIs(signal.default_int_handler, signal.getsignal(signal.SIGINT), 'nothing holds it past the scope')
+
+    def test_an_interrupted_stage_absorbs_later_signals_until_its_invocation_ends(self):
+        # The stage's scope closes before its caller saves the pause and the CLI exits. A second
+        # signal there escaped as a bare KeyboardInterrupt or killed the controller, leaving the
+        # run RUNNING (#454). A later stage of the same invocation can still be interrupted.
+        reached = []
+        def original(signum, frame):
+            reached.append(signal.Signals(signum).name)
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            self.addCleanup(signal.signal, sig, signal.signal(sig, original))
+        self.addCleanup(signal.signal, signal.SIGINT, signal.signal(signal.SIGINT, signal.default_int_handler))
+        with processes.interrupts_held():
+            with self.assertRaises(KeyboardInterrupt), processes.interruption_handler():
+                signal.raise_signal(signal.SIGHUP)
+            for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+                try:
+                    signal.raise_signal(sig)  # while the pause is saved
+                except KeyboardInterrupt:
+                    reached.append('SIGINT')
+            with self.assertRaises(KeyboardInterrupt) as caught, processes.interruption_handler():
+                signal.raise_signal(signal.SIGINT)
+            self.assertEqual('SIGINT', str(caught.exception))
+        self.assertEqual([], reached)
+        self.assertEqual([original, original, signal.default_int_handler],
+                         [signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT)])
 
     def test_ignored_or_replaced_sigint_is_left_alone(self):
         # A background job inherits SIGINT ignored; a caller may install its own handler.
