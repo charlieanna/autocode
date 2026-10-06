@@ -25,13 +25,13 @@ import uuid
 
 try:
     from . import autocode_input_preflight as inputs, autocode_util as util
-    from . import autocode_verify as verify
+    from . import autocode_verify as verify, autocode_launch_inputs as launch_inputs
     from . import autocode_runner_check as runner_check
     from . import autocode_preflight_contract as contract, autocode_preflight_worker as workers
     from . import autocode_preflight_design as design
 except ImportError:
     import autocode_input_preflight as inputs, autocode_util as util
-    import autocode_verify as verify
+    import autocode_verify as verify, autocode_launch_inputs as launch_inputs
     import autocode_runner_check as runner_check
     import autocode_preflight_contract as contract, autocode_preflight_worker as workers
     import autocode_preflight_design as design
@@ -198,7 +198,11 @@ def guard(state, workspace, run_dir, *, worker=None, persist=lambda _path, _stat
     directory = Path(run_dir) / "preflight" / uuid.uuid4().hex
     binding, identity = None, None
     try:
+        ignored = launch_inputs.supply(state, workspace, run_dir)
+        if ignored and ignored.unverified:
+            raise ValueError("; ".join(ignored.unverified))
         binding, identity = _binding(state, workspace, config, checks, worker)
+        binding = util.digest([binding, ignored.identity if ignored else None])
         if (previous.get("status") == "READY" and previous.get("phase") == phase
                 and previous.get("binding") == binding and all(row["reuse"] for row in checks)):
             path = Path(previous["receipt"])
@@ -211,7 +215,7 @@ def guard(state, workspace, run_dir, *, worker=None, persist=lambda _path, _stat
             (body['version'] == 2 and (state['settings'].get('figma_file') or state['settings'].get('design_manifest'))))
         tree = directory / "scratch" / "candidate" if needs_copy else None
         if tree:
-            verify.make_tree(workspace, source_before["head"], tree, workspace, changes, dependencies_from=workspace)
+            verify.make_tree(workspace, source_before["head"], tree, workspace, changes, dependencies_from=state.get("project_workspace") or workspace, ignored_inputs=ignored)
         try:
             inventory = inputs.check_inputs(workspace, tree, body["inputs"]) if tree else {'errors': []}
             errors.extend(inventory["errors"])
@@ -280,7 +284,10 @@ def guard(state, workspace, run_dir, *, worker=None, persist=lambda _path, _stat
                 verify.remove_tree(workspace, tree)
         if source_scope.snapshot(workspace, state)["revision"] != source_before["revision"]:
             errors.append("Prerequisite command changed source files; preserve the changes and inspect the command before resuming")
-        if not errors and _binding(state, workspace, config, checks, worker)[0] != binding:
+        after_ignored = launch_inputs.supply(state, workspace, run_dir)
+        if after_ignored and after_ignored.unverified:
+            errors.extend(after_ignored.unverified)
+        if not errors and util.digest([_binding(state, workspace, config, checks, worker)[0], after_ignored.identity if after_ignored else None]) != binding:
             errors.append("Prerequisite runtime or configuration changed during checks; inspect it and resume for a fresh check")
     except (OSError, ValueError, TypeError, KeyError, RuntimeError, subprocess.SubprocessError) as error:
         errors.append(f"Prerequisite setup: {error}; correct the declared input/runtime and resume this run")
