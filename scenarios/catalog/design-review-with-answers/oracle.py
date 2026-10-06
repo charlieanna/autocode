@@ -105,9 +105,14 @@ def report_checks(report):
                  and len(trail) == 3 and all(key in (row.get("blocking") or []) for row in trail)]
     checks.append(Check("migration_gap_blocking_every_revision", bool(migration),
                         f"blocking per revision: {[row.get('blocking') for row in trail]}"))
-    dlq = [key for key, concern in concerns.items() if area_of(concern) == "dlq" and concern.get("severity") == "advisory"]
-    checks.append(Check("dlq_advisory_raised", bool(dlq),
-                        f"concerns: {[(key, area_of(c), c.get('severity')) for key, c in concerns.items()]}"))
+    # Raised, and never blocking: a stopped partition pages at once and loses nothing for 30 days, so what is
+    # left is that nobody has written down what "dealt with" means.
+    dlq = [key for key, concern in concerns.items() if area_of(concern) == "dlq"]
+    blocked = sorted(key for key in dlq if concerns[key].get("severity") == "blocking"
+                     or any(key in (row.get("blocking") or []) for row in trail))
+    checks.append(Check("dlq_advisory_raised", bool(dlq) and not blocked,
+                        f"blocking on the DLQ: {blocked}; concerns: "
+                        f"{[(key, area_of(c), c.get('severity')) for key, c in concerns.items()]}"))
     ever = set().union(*(set(row.get("blocking") or []) for row in trail))
     invented = sorted(key for key in ever if key in concerns and area_of(concerns[key]) in INVENTED)
     checks.append(Check("no_invented_blockers", not invented,

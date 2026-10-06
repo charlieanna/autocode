@@ -3,7 +3,7 @@
   "summary": "Ordering is settled per registry; the migration still has no way back.",
   "satisfied": [
     "Throughput: 12 partitions at about 1,000 events/s each give 12,000/s against the 5,000/s peak, and the busiest partition (verisign's 450/s plus its share of about 1,400 other registries, about 380/s) stays under 1,000/s.",
-    "Replay: 7-day retention on registry-events lets a consumer re-read after a fix.",
+    "Replay: 30-day retention on registry-events lets a consumer re-read after a fix.",
     "Independent consumers: one consumer group per service, so billing, notifications and audit read at their own pace.",
     "Redelivery: billing and notifications skip a redelivered event by event_id (events/billing.py, events/notifications.py), so at-least-once delivery charges and notifies once."
   ],
@@ -22,8 +22,8 @@
       "id": "C2",
       "area": "operations",
       "severity": "advisory",
-      "summary": "registry-events.dlq has no owner: nobody is named to deal with an event there, so the partition it stopped stays stopped.",
-      "evidence": "Design, Failures: after 5 retries the consumer copies the event to the DLQ and stops consuming that partition until the event 'has been dealt with'; no owner or procedure is given.",
+      "summary": "registry-events.dlq has no runbook: nothing says what 'dealt with' means for an event there, or who decides how the stopped partition resumes.",
+      "evidence": "Design, Failures: the consumer copies an event that fails validation to the DLQ and stops consuming that partition until the event 'has been dealt with'; on-call is paged, but no procedure is given.",
       "status": "open",
       "resolution": ""
     },

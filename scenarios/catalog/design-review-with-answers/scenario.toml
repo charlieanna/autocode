@@ -20,7 +20,10 @@ category = "conversation"
 # not say how the producer keeps a key's order through retries. Both are now
 # settled in the seed. It also blocked on ordering before any answer while asking
 # about it; the Architect's prompt now keeps such a concern advisory until the
-# user answers. Each turn follows a completed review: a design review
+# user answers. Three later live runs blocked on the DLQ, rightly: a partition
+# could stay stopped past the topic's 7-day retention, unalerted, and lose
+# renewals. A stopped partition now pages at once and retention is 30 days, so
+# only "dealt with" is left undefined, an advisory gap. Each turn follows a completed review: a design review
 # never waits for its questions, and the reply is a --follow-up.
 
 [fake]

@@ -6,7 +6,10 @@ Status: proposed. Author: platform team.
 
 - **Throughput.** 5,000 events/s at peak. The single Postgres-table consumer
   manages about 800/s today.
-- **Replay.** A consumer can re-read the last 7 days of events after a bug fix.
+- **Replay.** A consumer can re-read the last 30 days of events after a bug fix.
+  Billing and notifications skip event_ids they have already handled, so a
+  replay redoes only events they never processed; a wrong charge is corrected
+  with the billing admin tools, not by replay.
 - **Independent consumers.** Billing, notifications and audit each read the
   same stream at their own pace without slowing each other down.
 
@@ -29,12 +32,15 @@ rebalance is skipped. A crash between sending a notification and recording it
 can send that notification twice; notifications are informational, and a rare
 duplicate is accepted. Audit records every delivery, duplicates included.
 
-**Failures.** A consumer retries a failing event in place, with backoff, up to
-5 times. After that it copies the event to `registry-events.dlq` and stops
-consuming that partition: it never skips past an event. Consumption of the
-partition resumes once the event in the DLQ has been dealt with.
+**Failures.** A consumer retries a transient failure (a database or network
+error) in place, with backoff, until it succeeds. An event it cannot process at
+all (it fails validation 5 times) is copied to `registry-events.dlq`, and the
+consumer stops consuming that partition: it never skips past an event. A
+stopped partition pages the platform on-call engineer at once. Consumption of
+the partition resumes once the event in the DLQ has been dealt with.
 
-**Retention.** 7 days on `registry-events`, 30 days on `registry-events.dlq`.
+**Retention.** 30 days on `registry-events` and on `registry-events.dlq`, so a
+stopped partition loses nothing for a month.
 
 **Sizing.** Each partition's consumer handles about 1,000 events/s, so 12
 partitions give 12,000/s against the 5,000/s peak. Keys spread evenly: there
