@@ -26,6 +26,7 @@ def render(runner, state, args, workspace, run_dir):
                  and not worker_state.get("alive") and not active_finished)
     check = state.get("active_runner_check")
     check_workers = runner.processes.recorded_worker_state(check) if check else None
+    check_liveness = runner.supervision.observe(check["supervision"]) if check and check.get("supervision") else None
     stale_check = bool(check and not active and state.get("status") == "RUNNING"
                        and check_workers.get("checked") and not check_workers.get("alive"))
     strict_visual = runner.visual_runtime.requested(state)
@@ -49,6 +50,7 @@ def render(runner, state, args, workspace, run_dir):
             completion_current = False
     public_view = runner.run_view.view(state, completion_current=completion_current,
                                        visual_acceptance=visual_acceptance, liveness=liveness,
+                                       runner_check_liveness=check_liveness,
                                        stale_report_repair=runner.stale_report_repair(state, workspace) is not None)
     if inspected is not None:
         public_view['verification'] = inspected
@@ -59,6 +61,13 @@ def render(runner, state, args, workspace, run_dir):
             supervision_state.get(key, {}).get('checked') and supervision_state[key].get('alive') is False
             for key in ('owner', 'keeper'))
     stale = stale or bool(active and state.get('status') == 'RUNNING' and lost_supervisor)
+    check_supervision_state = (public_view.get('runner_check') or {}).get('liveness', {})
+    lost_check_supervisor = check_supervision_state.get('kind') in ('unsupervised', 'interrupted')
+    if check and check.get('supervision') and check_supervision_state.get('kind') != 'stopped':
+        lost_check_supervisor = lost_check_supervisor or any(
+            check_supervision_state.get(key, {}).get('checked') and check_supervision_state[key].get('alive') is False
+            for key in ('owner', 'keeper'))
+    stale_check = stale_check or bool(check and state.get('status') == 'RUNNING' and lost_check_supervisor)
     checkpoint = runner.milestones.summary(state)
     stage = (active or {}).get("stage") or state.get("next_stage")
     next_action = (f"AutoResolver must reconcile retained attempt {runner.attempt_id(active)} before any provider call"
@@ -84,8 +93,8 @@ def render(runner, state, args, workspace, run_dir):
               f"{active.get('stage')} attempt has no current supervised result. "
               "AutoResolver must reconcile the retained attempt before any further provider call.", file=sys.stderr)
     if stale_check:
-        print("STALE CHECKPOINT: the runner executing the regression check is gone. "
-              "Inspect the retained test output before resuming the run.", file=sys.stderr)
+        print("STALE CHECKPOINT: the retained runner check has no current supervised result. "
+              "Inspect its command ownership receipt and output before resuming the run.", file=sys.stderr)
     print(json.dumps({"run_dir":str(run_dir), "workspace":str(workspace), "project_workspace":state.get("project_workspace", str(workspace)), "task_branch":state.get("task_branch"), "status":state["status"], "iteration":state["iteration"],
                       "stale":stale or stale_check,
                       "next_action": next_action,

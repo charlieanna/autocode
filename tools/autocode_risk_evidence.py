@@ -17,10 +17,12 @@ import uuid
 try:
     from . import autocode_risk_obligations as obligations, autocode_risk_protocols as protocols
     from . import autocode_util as util
+    from . import autocode_command_receipt as command_receipt
 except ImportError:
     import autocode_risk_obligations as obligations
     import autocode_risk_protocols as protocols
     import autocode_util as util
+    import autocode_command_receipt as command_receipt
 
 PASS, FAIL = 'PASS', 'FAIL'
 _HASH = re.compile(r'[0-9a-f]{64}\Z')
@@ -52,6 +54,8 @@ def _pinned_bytes(path, expected):
 def evidence_pins(result):
     pins = {row['output']: row['output_sha256'] for row in (result or {}).get('checks', [])
             if row.get('output') and row.get('output_sha256')}
+    for row in (result or {}).get('checks', []):
+        pins.update(command_receipt.pins(row))
     if (result or {}).get('summary') and result.get('summary_sha256'):
         pins[result['summary']] = result['summary_sha256']
     return pins
@@ -90,8 +94,9 @@ def replay(state, workspace, out, scratch_run, *, timeout, source_revision,
             receipt = scratch_run(workspace, directory / f'case-{index:02d}', command=command, timeout=remaining)
             row.update(exit_code=receipt.get('exit_code'), timed_out=bool(receipt.get('timed_out')),
                        error=receipt.get('error') or '', output=receipt.get('output'),
-                       output_sha256=receipt.get('output_sha256'))
-            if row['error'] or row['timed_out'] or type(row['exit_code']) is not int or row['exit_code'] != 0:
+                       output_sha256=receipt.get('output_sha256'), **command_receipt.project(receipt))
+            if (row['error'] or row['timed_out'] or type(row['exit_code']) is not int or row['exit_code'] != 0
+                    or not command_receipt.completed(row)):
                 reason = row['error'] or 'Mandatory lifecycle observation failed or timed out'
                 # Full pinned supervisor output can explain a rejection. It can
                 # never turn a nonzero/timed-out execution into accepted proof.
@@ -149,7 +154,9 @@ def ready(state, current_revision):
             return False
         outputs = set()
         for row, case, command in zip(checks, cases, commands):
-            if (not isinstance(row, dict) or set(row) != _CHECK_KEYS
+            if (not isinstance(row, dict)
+                    or set(row) not in (_CHECK_KEYS, _CHECK_KEYS | set(command_receipt.OWNERSHIP_FIELDS))
+                    or not command_receipt.completed(row)
                     or row['observation_hash'] != case['hash'] or row['command'] != command
                     or row['command_sha256'] != hashlib.sha256(command.encode()).hexdigest()
                     or type(row['exit_code']) is not int or row['exit_code'] != 0

@@ -40,16 +40,20 @@ CONTINUE = ("RUNNING", "DISCOVERING", "WAITING_FOR_USER", "AWAITING_GOAL_APPROVA
 QUESTION_FIELDS = ("id", "question", "why", "options", "proposed_default")
 
 
-def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_report_repair=False, liveness=None) -> dict:
+def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_report_repair=False, liveness=None,
+         runner_check_liveness=None) -> dict:
     """Caller supplies fresh completion, evidence, repair and supervision inspections."""
     status = state.get("status", "")
     task = state.get("current_task") or {}
     active = state.get("active_stage")
     supervision = active.get("supervision") if isinstance(active, dict) else None
+    check = state.get("active_runner_check")
+    check_supervision = check.get("supervision") if isinstance(check, dict) else None
     result = {
-        "runner_check": {key: state["active_runner_check"].get(key) for key in
-                         ("stage", "summary", "started_at", "updated_at", "command", "output")}
-                        if state.get("active_runner_check") else None,
+        "runner_check": {**{key: deepcopy(check.get(key)) for key in
+                            ("stage", "summary", "started_at", "updated_at", "command", "output", "supervision")},
+                         "liveness": liveness_policy.classify(check_supervision, runner_check_liveness)}
+                        if check else None,
         "dependency": state.get("dependency_wait"),
         "schema": SCHEMA,
         "status": status,
