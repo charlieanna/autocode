@@ -73,6 +73,31 @@ so the live stall remains possible for them ("run `x`; it must exit non-zero", "
 with status 2", "assert exit 2, the second returns 0"). The Planner guidance makes the parseable
 form the expected one; it does not enforce it.
 
+**Live run 13 met that limit through a repair task.** The Resolver's repair task for the skeleton
+added a validation plan step: "run `python3 -m notes add`, `python3 -m notes bogus`, ... Check that
+each exits 2". The Resolver had never been given the Planner's rule. Each command was replayed as an
+approved-plan check that must exit 0. The rejection said each "was reported as exit 0", though the
+Validator never reported them, so two Validator report repairs failed the same way before the
+Investigator found the cause. The run then paused at `PAUSED_INVALID_OUTPUT`
+(`20261006T232815Z-program-notes-cli-claude-tiers-t3_lgtl4`).
+
+The parser is unchanged, for the reasons above. Two fixes were made:
+
+- **One rule, given to both plan authors.** `autocode_verification_plan.EXPECTED_FAILURE_RULE`
+  states the rule, and the Resolver's prompt now carries it next to its validation_plan retests.
+- **The rejection names the plan.** For a check the runner added from the approved verification
+  methods or the task's validation plan, the replay rejection says the check is required by the plan
+  and that the Validator did not report it. It says a Validator report cannot change it, that the
+  plan's author (the Resolver, for a repair task) must reword the step, and it quotes the rule. A
+  failing check the Validator itself reported keeps the old message.
+
+Tests:
+
+- `tests/test_check_replay.py`
+  (`test_a_planned_command_that_must_fail_is_named_as_the_plans_and_the_rule_says_how`) covers both
+  messages.
+- `tests/test_resolver_runtime.py` (`ResolverPromptTests`) checks the rule in the Resolver's prompt.
+
 Tests in `tests/test_verification_plan.py`: the live S4 method verbatim; the forms that are wrapped;
 each rule leaving the commands bare without raising (no run verb, another gap, a literal after the
 commands, a status count or value that does not fit, text not introduced by a separator, a clause

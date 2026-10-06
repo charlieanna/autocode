@@ -14,10 +14,11 @@ try:
     from .. import autocode_goal_lifecycle as lifecycle
     from .. import autocode_bug_questions as bug_questions, autocode_resolver_human as human
     from .. import autocode_discuss_job as discuss_job, autocode_stuck_job as stuck_job, autocode_failures as failures
-    from .. import autocode_providers, autocode_verify as verify
+    from .. import autocode_providers, autocode_verify as verify, autocode_verification_plan as verification_plan
     from .. import autocode_investigation_workspace as investigation_workspace, autocode_recovery_novelty as novelty, autocode_resolver_recovery as resolver_recovery
 except ImportError:
     import autocode_verify as verify
+    import autocode_verification_plan as verification_plan
     import autocode_util as util
     import autocode_source_scope as source_scope
     import autocode_goals as goals
@@ -226,6 +227,7 @@ def prepare(state, stage, state_path, schema_dir):
               'is a Builder or Validator proposal, not accepted independent validation. Do not promote '
               'its checks, criterion statuses, or claims into accepted review evidence. Return a nonempty diagnosis '
               'and one bounded REWORK next_task with defect evidence and concrete validation_plan retests. '
+              + verification_plan.EXPECTED_FAILURE_RULE + ' '
               'Use kind=implement for a source correction, or kind=validate when the remaining defect is '
               'missing or invalid independent verification of unchanged work. A validate task dispatches '
               'the Validator; it neither authorizes source edits nor accepts prior evidence as current. '

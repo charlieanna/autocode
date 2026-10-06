@@ -236,11 +236,18 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
             what = "has no complete owned-command evidence"
         else:
             what = f"exited {row['exit_code']}"
+        planned = row.get("evidence_ref") in ("approved-plan", "approved-repeat")
         raise ValueError(
-            f"Check `{row['command']}` was reported as exit {row['reported_exit_code']}, but when the runner re-ran it "
-            f"from the repository root in a clean copy of the current source it {what}"
+            (f"Check `{row['command']}` is required by the approved verification methods or the current task's "
+             "validation plan (the Validator did not report it) and must exit 0, but when the runner ran it "
+             if planned else
+             f"Check `{row['command']}` was reported as exit {row['reported_exit_code']}, but when the runner re-ran it ")
+            + f"from the repository root in a clean copy of the current source it {what}"
             + (f"; its output ended: {row['tail'].strip()[-300:]}" if row["tail"].strip() else "")
-            + f". Receipt: {out / 'replay.json'}. Cite only checks that pass from the repository root in a clean "
-            "checkout of this source; a check that needs a server or other setup must start and stop it itself."
+            + f". Receipt: {out / 'replay.json'}. "
+            + ("A Validator report cannot change it: if the command must fail, the plan's author (the Resolver, for "
+               "a repair task) must reword that step. " + verification_plan.EXPECTED_FAILURE_RULE if planned else
+               "Cite only checks that pass from the repository root in a clean checkout of this source; a check "
+               "that needs a server or other setup must start and stop it itself.")
             + (RUN_FILES_HINT if ".autocode" in row["command"] else ""))
     return result

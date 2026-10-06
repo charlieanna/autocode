@@ -1405,3 +1405,20 @@ class OperationalDiagnosisUnitTests(unittest.TestCase):
         record = {'source_revision': self.state['diagnosis_request']['source_revision'], 'changed_files': []}
         diagnosis_unit.validate_diagnosis(self.state, {'diagnosis': 'Looked at the logs',
             'recommendation': {'action': 'retry', 'rationale': 'Add the missing summary field'}}, record, self.root)
+
+
+class ResolverPromptTests(unittest.TestCase):
+    def test_the_resolver_is_told_how_a_validation_plan_names_a_command_that_must_fail(self):
+        # A live repair task's validation plan named usage errors in backticks; each replayed as a check that
+        # must exit 0, and the run paused (2026-10-06). The Resolver writes those plans.
+        from units import autoresolver
+        from units.common import ModelRequest
+        import autocode_verification_plan as verification_plan
+        state = {'workspace': '/ws', 'settings': {'roles': {'astra': {'engine': 'codex'}}},
+                 'resolution_request': {'source_revision': 'r'}}
+        upstream = ModelRequest('astra', 'astra_review', 'Review it.\nCURRENT HANDOFF DATA\n{}', {},
+                                {'properties': {'status': {'enum': ['COMPLETE']}}, 'required': []}, False)
+        with patch.object(autoresolver, 'guard'), \
+                patch.object(autoresolver, 'execution_request', return_value=upstream):
+            request = autoresolver.prepare(state, 'astra_resolve', '/run/state.json', None)
+        self.assertIn(verification_plan.EXPECTED_FAILURE_RULE, request.prompt.split('CURRENT HANDOFF DATA\n', 1)[0])

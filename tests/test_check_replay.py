@@ -71,6 +71,30 @@ class ReplayTests(unittest.TestCase):
                     self.assertIn(word, message)
                 self.assertIn("clean checkout", message)
 
+    def test_a_planned_command_that_must_fail_is_named_as_the_plans_and_the_rule_says_how(self):
+        # A live repair task's validation plan named usage errors in backticks and said "check that each exits 2":
+        # the replay asked the Validator to cite passing checks three times, and the run paused (2026-10-06).
+        step = ("With NOTES_FILE set, run `python3 -m notes add` and `python3 -m notes bogus`. Check that each "
+                "exits 2 with empty stdout.")
+        state = {"current_task": {"validation_plan": ["python3 -m unittest", step]}}
+        def run(workspace, out, *, command, timeout):
+            return receipt(2 if "notes" in command else 0, tail="Usage: notes <command> [args]")
+        with self.assertRaises(ValueError) as rejected:
+            check_replay.replay([{"command": "python3 -m unittest", "exit_code": 0, "evidence_ref": "event:a"}],
+                                "/ws", self.run_dir, self.record, run, approved_state=state)
+        message = str(rejected.exception)
+        self.assertIn("Check `python3 -m notes add` is required by the approved verification methods or the current "
+                      "task's validation plan (the Validator did not report it)", message)
+        self.assertIn("the plan's author (the Resolver, for a repair task) must reword that step", message)
+        self.assertIn(check_replay.verification_plan.EXPECTED_FAILURE_RULE, message)
+        self.assertNotIn("was reported as exit", message)
+        # A failing check the Validator reported keeps its own message.
+        with self.assertRaises(ValueError) as reported:
+            check_replay.replay([{"command": "python3 -m notes add", "exit_code": 0, "evidence_ref": "event:b"}],
+                                "/ws", self.run_dir, self.record, run)
+        self.assertIn("was reported as exit 0", str(reported.exception))
+        self.assertNotIn(check_replay.verification_plan.EXPECTED_FAILURE_RULE, str(reported.exception))
+
     def test_an_unrelated_success_does_not_replace_the_approved_command(self):
         calls = []
         state = {"current_task": {"validation_plan": ["python3 -m unittest test_greet.py"]}}
