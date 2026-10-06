@@ -12,30 +12,42 @@
 
 A scenario.toml may also declare a ``[hybrid]`` route (harness/hybrid.py): the stages a hybrid run scripts with
 the fake provider and its fault while every other stage runs live.
+
+A ``program`` scenario (category "program") is driven through ``autocode program`` by harness/program_driver.py
+instead of as one run; its ``[program]`` table holds what the person does along the way (README, "Programs").
 """
 from __future__ import annotations
 
 import importlib.util
 import shutil
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+
+from .project import overlay_paths
 
 CATALOG = Path(__file__).resolve().parent.parent / "catalog"
 # The kind of engineering job. The first eight change or create code; the next
 # four are read-only jobs whose deliverable is a report (README, "Workflows");
-# a conversation moves one run between several of them, turn by turn.
+# a conversation moves one run between several of them, turn by turn; a program
+# splits one request into workstreams, each its own run (README, "Programs").
 CATEGORIES = ("bugfix", "feature", "greenfield", "port", "parallel", "architecture", "figma", "system",
-              "review", "design", "discuss", "investigate", "conversation")
+              "review", "design", "discuss", "investigate", "conversation", "program")
 # How a correct run ends: with completion, with a stop (a blocker or a question
 # the user must answer), or either.
 EXPECTED = ("complete", "stop", "any")
-KEYS = {"title", "category", "requires", "fake", "run", "turn", "hybrid"}
+KEYS = {"title", "category", "requires", "fake", "run", "turn", "hybrid", "program"}
 RUN_KEYS = {"max_steps", "timeout_minutes", "expected", "known_failure", "requires_stages"}
 FAKE_KEYS = {"check", "flags", "fault", "live_investigator", "probe", "milestones", "turn_paths", "answers"}
 # [hybrid] scripted: stages whose every call the fake provider answers in a hybrid run; first_attempt: stages
 # whose first call it answers (later attempts, such as a repair Builder, are live).
 HYBRID_KEYS = {"scripted", "first_attempt"}
+# [program] max_parallel: `program run --max-parallel`; revise: the person's own edits, merged into the derived
+# manifest before they first approve it (tables merge, anything else replaces); change: [[program.change]] steps.
+PROGRAM_KEYS = {"max_parallel", "revise", "change"}
+# A change request the person raises once ``after`` ("merged:<workstream>") holds, then decides: reject it with a
+# resolution, or accept it by publishing the interface anew (publish holds the new fields, version included).
+CHANGE_KEYS = {"after", "interface", "by", "reason", "decide", "resolution", "publish"}
 # A follow-up turn is said to the same run once it completed: ``--follow-up``
 # continues only a finished run (docs/cli.md, "Waiting or finished"). A waiting,
 # paused or blocked run refuses it, so a turn after "stop" or a "needs:<kind>"
@@ -90,6 +102,11 @@ class Scenario:
     # [hybrid]: the stages a hybrid run (run --hybrid) scripts; empty when the scenario declares no route.
     hybrid_scripted: tuple[str, ...] = ()
     hybrid_first_attempt: tuple[str, ...] = ()
+    # [program] (category "program" only): the program run's parallelism, the person's edits to the derived
+    # manifest, and the change requests they raise and decide.
+    program_max_parallel: int = 2
+    program_revise: dict = field(default_factory=dict)
+    program_changes: tuple[dict, ...] = ()
 
     @property
     def seed(self) -> Path:
@@ -177,6 +194,7 @@ def load(scenario_id: str) -> Scenario:
     if turn_paths and (any(i != j and says[j].startswith(says[i]) for i in range(len(says)) for j in range(len(says)))
                        or any(brief.startswith(say) for say in says)):
         raise ValueError(f"{scenario_id}: with [fake] turn_paths no turn's message may begin another's or the brief")
+    program = _program(scenario_id, meta, fake, root)
     return Scenario(
         id=scenario_id, dir=root, title=meta["title"], category=meta["category"],
         brief=brief, requires=tuple(meta.get("requires", ())),
@@ -187,7 +205,60 @@ def load(scenario_id: str) -> Scenario:
         fake_probe=fake.get("probe", ""), turns=tuple(turns), requires_stages=tuple(run.get("requires_stages", ())),
         fake_milestones=tuple(fake.get("milestones", ())),
         fake_turn_paths=tuple(tuple(row) for row in turn_paths), fake_answers=tuple(sorted(answers.items())),
-        hybrid_scripted=tuple(hybrid.get("scripted", ())), hybrid_first_attempt=tuple(hybrid.get("first_attempt", ())))
+        hybrid_scripted=tuple(hybrid.get("scripted", ())), hybrid_first_attempt=tuple(hybrid.get("first_attempt", ())),
+        program_max_parallel=program.get("max_parallel", 2), program_revise=program.get("revise", {}),
+        program_changes=tuple(program.get("change", ())))
+
+
+def _program(scenario_id: str, meta: dict, fake: dict, root: Path) -> dict:
+    """The validated [program] table ({} for any other category).
+
+    The scripted model plans a program from [fake] milestones and each workstream delivers its milestone's
+    paths, so the paths must be disjoint, and the reference must hold a file no milestone owns: the
+    integration workstream's own delivery (a run that changes nothing stops for want of progress)."""
+    program = meta.get("program", {})
+    if meta["category"] != "program":
+        if program:
+            raise ValueError(f"{scenario_id}: a [program] table needs category = \"program\"")
+        return {}
+    unknown = set(program) - PROGRAM_KEYS
+    if unknown:
+        raise ValueError(f"{scenario_id}/scenario.toml: unknown [program] keys {sorted(unknown)}")
+    if type(program.get("max_parallel", 2)) is not int or program.get("max_parallel", 2) < 1:
+        raise ValueError(f"{scenario_id}: [program] max_parallel is a positive integer")
+    if not isinstance(program.get("revise", {}), dict):
+        raise ValueError(f"{scenario_id}: [program] revise is a table merged into the derived manifest")
+    milestones = fake.get("milestones") or []
+    ids = [row.get("id") for row in milestones]
+    owned = [path for row in milestones for path in row.get("paths", [])]
+    if not milestones or len(owned) != len(set(owned)):
+        raise ValueError(f"{scenario_id}: a program scenario needs [fake] milestones whose paths are disjoint")
+    reference = root / "reference"
+    if reference.is_dir() and not set(overlay_paths(reference)) - set(owned):
+        raise ValueError(f"{scenario_id}: the reference needs a file no milestone owns, which the integration "
+                         "workstream delivers")
+    for number, step in enumerate(program.get("change", []), start=1):
+        where = f"{scenario_id}: [[program.change]] {number}"
+        if not isinstance(step, dict) or set(step) - CHANGE_KEYS:
+            raise ValueError(f"{where} takes only {sorted(CHANGE_KEYS)}")
+        after = str(step.get("after", ""))
+        if not after.startswith("merged:") or after.removeprefix("merged:") not in ids:
+            raise ValueError(f"{where}: after is \"merged:<milestone id>\", one of {ids}")
+        if not all(isinstance(step.get(key), str) and step[key].strip() for key in ("interface", "by", "reason")):
+            raise ValueError(f"{where} needs a nonempty interface, by and reason")
+        if step["by"] not in ids:
+            raise ValueError(f"{where}: by names the workstream that found the problem, one of {ids}")
+        if step.get("decide") == "reject":
+            if not (isinstance(step.get("resolution"), str) and step["resolution"].strip()) or "publish" in step:
+                raise ValueError(f"{where}: a rejection needs a resolution and publishes nothing")
+        elif step.get("decide") == "accept":
+            publish = step.get("publish")
+            if (not isinstance(publish, dict) or type(publish.get("version")) is not int or publish["version"] < 2
+                    or "resolution" in step):
+                raise ValueError(f"{where}: an acceptance publishes the interface anew: publish = {{version = N, ...}}")
+        else:
+            raise ValueError(f"{where}: decide is \"accept\" or \"reject\"")
+    return program
 
 
 def load_all() -> list[Scenario]:

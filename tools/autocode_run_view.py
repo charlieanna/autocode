@@ -115,8 +115,10 @@ def view(state: dict, *, completion_current=None, visual_acceptance=None, stale_
 
 
 def approved_contract(state: dict) -> dict | None:
-    """The plan in force: the contract a person approved, as long as that approval still holds.
+    """The plan in force: the approved contract, as long as that approval still holds.
 
+    Approved by the user, or, for a bug fix's small correction, under the workflow policy
+    the user agreed to (autocode_workflows.POLICY_ORIGINS); the view does not say which.
     None while there is no approval, after a new draft revision replaces the approved one,
     and while a blocking question is open (the runner's own approval check). A program
     coordinating several runs reads the child's approved criteria here, never state.json.

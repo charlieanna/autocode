@@ -434,6 +434,114 @@ the brief (`catalog.load` refuses it). `discuss-then-design-then-build` is the
 example: a discussion's note, then a design that follows it, then "Build it."
 implementing that design (AutoCode checks it first as an approved design).
 
+## Programs
+
+A request too large for one run is a program (issues #22 and #23, `autocode
+program`, docs/program.md): one approved plan becomes an agreement, each
+milestone a workstream run in its own Git worktree, merged onto one integration
+branch. A scenario with `category = "program"` is driven that way by
+`harness/program_driver.py`, through the CLI only:
+
+1. `autocode program plan BRIEF --workspace PROJECT FLAGS` starts an ordinary
+   planning run (`--unit autoplanner`). The driver answers its questions and
+   approves its plan, then stops: the approved plan run is never relaunched.
+2. `program derive --run-dir RUN --output program.json --name ID` writes the
+   manifest. `[program] revise` is laid over it: the person's own edit before
+   approving (tables merge, anything else replaces), such as an interface with
+   a producer and consumers, or the journeys' names.
+3. `program show` prints the agreement (saved as `agreement.txt`), and `program
+   approve --token TOKEN` approves the exact token it displayed.
+4. `program run program.json --workspace PROJECT --max-parallel N FLAGS`, again
+   and again. Every pass carries the full child flags: they configure only the
+   workstream runs that pass starts. After each pass the driver approves a new
+   agreement revision (by the token `program show` displays, once), raises a
+   `[[program.change]]` request whose `after = "merged:<id>"` has come, decides
+   it once the program holds for it, and serves each waiting workstream's gate
+   from that run's own status view: plan approval, a question with its proposed
+   default, human review, planning budget. A pass whose rows still have a run at
+   `RUNNING` (the program's own feedback reached it) is followed by another; a
+   pass that changes nothing twice is an `ERROR`.
+
+The driver never relaunches, resumes or follows up a workstream's run (the
+program advances each run once per pass), never answers a question only a
+person may answer, never authorizes deployment and never retries a failed
+workstream: the program is judged where it stopped.
+
+```toml
+[program]
+max_parallel = 2                               # program run --max-parallel (default 2)
+
+[program.revise.shared]                        # merged into the derived manifest before the first approval
+interfaces = [{ id = "store", summary = "...", paths = ["notes/store.py"], version = 1, producer = "S", consumers = ["T", "U"] }]
+
+[[program.change]]                             # optional, repeatable
+after = "merged:S"                             # raised once workstream S has merged
+interface = "store"
+by = "T"                                       # the workstream that found the problem
+reason = "..."
+decide = "accept"                              # publish the interface anew; the driver approves that revision
+publish = { version = 2, summary = "..." }     # or decide = "reject" with resolution = "..." (resolve-change --reject)
+```
+
+**Where the product lives.** The program merges onto its integration branch,
+never the project's own branch, so the oracle judges the integration worktree
+(`result.json` `product`); in `check` mode it gets the seed with an overlay, as
+always. `oracle.changed_since_seed` compares a worktree with the seed commit,
+since `git status` is clean where the product was committed.
+`oracle.program_checks(run, scenario)` judges how the program went from the
+run record: the agreement approved by the exact shown token, every workstream a
+merged run with its own approved plan, the walking skeleton verified first and
+nothing else started before that, every merge re-running the checks of all
+merged before it, each journey verified by name by the integration
+workstream, and each scripted change request accepted or rejected (for an
+acceptance: exactly the producer and consumers retired and re-checked under the
+new revision). The run record holds the program's final summary (`program
+status`), its verifications, every workstream run (retired ones too) with its
+stages, the plan run in a single run's shape (`plan`), the agreement tokens,
+interfaces and changes, and every model stage of the plan and workstream runs,
+which `[run] requires_stages` counts.
+
+**Verdicts.** `COMPLETE` is judged like a completed run (`PASS` or
+`FALSE_COMPLETE`); `PAUSED_*` stops (an integration check, the skeleton
+unverified, a conflict, ownership, an interface change, inheritance, a journey
+unverified) and the program-only stops `WAITING`, `WAITING_AGREEMENT_APPROVAL`,
+`WAITING_CHANGE_REQUEST` and `AUTHORIZATION_REQUIRED` are `HONEST_BLOCKER`;
+`BLOCKED` (a workstream run failed) and `RUNNING` are `ERROR`. A program that
+did not complete names each unmerged workstream's status and its run's status
+and progress. A scripted change request whose moment never came is
+`NOT_EXERCISED`. Single runs are judged as before (`verdict.judge_program` is
+used for programs only). `compare`, `build-compare` and `--hybrid` skip program
+scenarios.
+
+**The scripted model.** Child runs inherit the fake on `PATH`. The fake reads a
+workstream's brief (`PROGRAM WORKSTREAM <id> (<kind>)`, and the ids on its
+`Inherited requirements` line) and plans that workstream alone: a code
+workstream its own `[fake] milestones` row with no dependencies, under the ids
+it inherits; the integration workstream every requirement and journey it
+inherits, verified by `[fake] check`, delivering the solution files no milestone
+owns. A code workstream whose files already match the solution (a re-check after
+an agreement revision) plans a validate-only task. It remembers each worktree's
+workstream beside its configuration, never in the worktree, for report repairs,
+whose packets carry no task. `tests/test_program.py` (`ScenarioFakeBriefTests`)
+runs the fake on real `compose_brief` output, so a brief reworded out from
+under it fails there. `catalog.load` requires a program scenario's milestone
+paths to be disjoint and its reference to hold a file no milestone owns (the
+integration workstream's delivery; a run that changes nothing stops for want of
+progress), and every `broken/<name>/` must be a complete overlay for the same
+reason. The seed should ignore `__pycache__/`: a workstream may change only
+the paths it owns.
+
+```sh
+$PY scenarios/run.py run program-notes-cli --fake                                   # PASS, about 30 s
+$PY scenarios/run.py run program-notes-cli --fake --fake-solution broken/search-shadows-list   # HONEST_BLOCKER
+$PY scenarios/run.py run program-notes-cli --fake --fake-solution broken/case-sensitive-search # FALSE_COMPLETE
+```
+
+A fake program run takes about 30 s and some 20 CLI calls (plan, derive, show,
+approve, about eight `program run` passes, a change request, a revision and a
+plan approval per workstream run), roughly four times a typical fake scenario.
+A live run spends about one run per workstream run, the plan included.
+
 ## Comparing with a plain agent
 
 AutoCode adds stages so that its results can be trusted. `compare` measures
@@ -538,6 +646,7 @@ $PY scenarios/run.py plan-compare --rebuild .scenario-runs/<dir>   # re-render a
 | `investigate-two-caches` | investigate | Explain two caches: scope, TTL and users must match the code; consequence of removing one named; nothing changed. |
 | `review-then-fix` | conversation | Review `pr-184.patch`, then "Fix them." in the same run: the PR lands with both regressions fixed and a test that catches each (the oracle swaps back one unfixed file at a time), the advisory finding is left alone, and the fix turn asks no requirements questions. |
 | `discuss-then-design-then-build` | conversation | Issue #185, three jobs in one run: `discuss-cache-choice`, then "Shared it is; design it.", then "Build it.". Each turn changes only its own report or code; the design follows the decision (shared directory, atomic writes) outside its rejected options; the build checks that design first (`check_design`), implements the modules and signatures it names, and passes hidden tests in which separate worker processes share one cache directory. The design and build turns each have their plan approved. |
+| `program-notes-cli` | program | Issues #22 and #23 through `autocode program`: plan, derive, show, approve, run. Each workstream is an ordinary build run in its own worktree, linked to the agreement. The walking skeleton S (add and list) is merged and verified first; search (T) and export (U) run in parallel, each merge re-running the cumulative checks; the integration workstream delivers the journey test and verifies J1 by name. Once S merges, T raises a change request on the store interface; the person publishes version 2 and approves that revision, so S, T and U lose their approval and are planned, approved and checked again (S's re-check only validates). `broken/search-shadows-list` breaks the skeleton's journey and is undone by the cumulative checks (`PAUSED_INTEGRATION_CHECK`); `broken/case-sensitive-search` completes and only the hidden journey test catches it. See [Programs](#programs). |
 
 Planned next: Figma design → implementation, and multi-service systems started
 with `docker compose` and checked end to end.
@@ -628,6 +737,8 @@ catalog/<id>/
                           the run completes, since a follow-up continues only a finished run)
                     [fake] turn_paths = [["docs/"], ["app/"]] (a conversation: which solution paths each
                           turn delivers, the brief first; one list per turn)
+                    [program] max_parallel, revise, [[program.change]] (category "program" only: driven
+                          through `autocode program`; see "Programs")
   brief.md          the request, exactly as a user would type it (plain text, no headings)
   seed/             the starting project, committed before the run (omit for an empty repo)
   oracle.py         def check(project, scenario, run=None) -> list[Check]

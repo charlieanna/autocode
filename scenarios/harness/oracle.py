@@ -121,6 +121,20 @@ def changed_paths(project: Path) -> list[str]:
     return sorted(path for path in paths if not path.startswith(".autocode/") and "__pycache__" not in path)
 
 
+def changed_since_seed(project: Path) -> list[str]:
+    """Paths that differ from the seed commit (the repository's first), committed or not.
+
+    ``changed_paths`` reads ``git status``, which is clean where the product was committed, as on a
+    program's integration branch; this compares the working tree with the seed itself."""
+    root = run(["git", "rev-list", "--max-parents=0", "HEAD"], project).stdout.split()
+    if not root:
+        return changed_paths(project)
+    diff = run(["git", "diff", "--name-only", "--no-renames", root[-1], "--"], project).stdout.splitlines()
+    new = run(["git", "ls-files", "--others", "--exclude-standard"], project).stdout.splitlines()
+    return sorted({path for path in [*diff, *new] if path and not path.startswith(".autocode/")
+                   and "__pycache__" not in path})
+
+
 def only_changed_under(project: Path, *allowed: str) -> Check:
     """A read-only job may leave only its report behind. ``allowed`` are path prefixes."""
     stray = [path for path in changed_paths(project) if not path.startswith(allowed)]
@@ -217,6 +231,82 @@ def run_checks(run: dict | None, *, workflow: str, no_build: bool = False, no_re
         model = run.get("model_stages")
         count = len(model) if model is not None else len([stage for stage in stages if stage != "orchestrator"])
         checks.append(Check("stage_budget", count <= max_model_stages, f"{count} model stages, allowed {max_model_stages}"))
+    return checks
+
+
+def program_checks(run: dict | None, scenario, *, journeys: tuple[str, ...] = ("J1",)) -> list[Check]:
+    """Checks on how a program ran (scenarios/README.md, "Programs"), from the record harness/program_driver.py
+    passes to oracles; None in ``check`` mode, and then there is nothing to judge.
+
+    The record holds the program's final ``program`` summary (`autocode program status`), its integration
+    ``verifications`` in order, the ``children`` runs of every workstream (retired ones too) with when each
+    was created, the agreement tokens the person was ``shown`` and ``approved``, the agreement's
+    ``interfaces``, and the ``changes`` the scenario scripted (``[[program.change]]``).
+    """
+    if run is None:
+        return []
+    program = run.get("program") or {}
+    rows = {row["id"]: row for row in program.get("workstreams") or []}
+    checks = []
+    tokens = run.get("agreement") or {}
+    approved, shown = tokens.get("approved") or [], tokens.get("shown") or []
+    unshown = [token for token in approved if token not in shown]
+    checks.append(Check("agreement_approved_by_shown_token", bool(approved) and not unshown,
+                        f"approved {approved}; never shown: {unshown}" if unshown else f"approved {approved}"))
+    # #22: every workstream is an ordinary run, its own plan approved, built from the approved agreement.
+    loose = sorted(wid for wid, row in rows.items()
+                   if row.get("status") != "MERGED" or row.get("run_status") != "TASK_COMPLETE"
+                   or not row.get("approved_plan") or not row.get("merged_under"))
+    checks.append(Check("every_workstream_a_merged_reviewed_run", bool(rows) and not loose,
+                        f"not merged as an approved, completed run: {loose}" if loose else ""))
+    # #23: the walking skeleton is verified on the integration branch before any other workstream starts.
+    skeleton = next((wid for wid, row in rows.items() if row.get("skeleton")), None)
+    verifications = run.get("verifications") or []
+    first = verifications[0] if verifications else {}
+    checks.append(Check("skeleton_verified_first", bool(skeleton) and first.get("workstream") == skeleton
+                        and first.get("verdict") == "PASS",
+                        f"first verification: {first.get('workstream')} {first.get('verdict')}"))
+    early = sorted(f"{wid} at {child.get('created_at')}" for wid, runs in (run.get("children") or {}).items()
+                   if wid != skeleton for child in runs
+                   if not first.get("at") or str(child.get("created_at") or "") < first["at"])
+    checks.append(Check("nothing_started_before_the_skeleton", bool(first) and not early,
+                        f"started before the skeleton was verified at {first.get('at')}: {early}" if early else ""))
+    # Every merge re-runs the checks of everything merged before it, the skeleton's first.
+    dropped, passed = [], set()
+    for row in verifications:
+        commands = set(row.get("commands") or [])
+        if not passed <= commands:
+            dropped.append(f"{row.get('workstream')} left out {sorted(passed - commands)}")
+        if row.get("verdict") == "PASS":
+            passed = commands
+    checks.append(Check("cumulative_checks_rerun", len(verifications) > 1 and not dropped,
+                        "; ".join(dropped) or f"{len(verifications)} verifications"))
+    found = {row.get("id"): row for row in program.get("journeys") or []}
+    integration = next((wid for wid, row in rows.items() if row.get("kind") == "integration"), None)
+    for jid in journeys:
+        row = found.get(jid) or {}
+        checks.append(Check(f"journey_verified_by_name[{jid}]", row.get("status") == "verified"
+                            and row.get("verified_by") == integration,
+                            f"{row.get('status')!r} by {row.get('verified_by')!r}"))
+    requests = program.get("change_requests") or []
+    interfaces = {row.get("id"): row for row in run.get("interfaces") or []}
+    for step in getattr(scenario, "program_changes", ()) or ():
+        request = next((row for row in requests if row.get("interface") == step["interface"]
+                        and row.get("by") == step["by"]), {})
+        wanted = "accepted" if step["decide"] == "accept" else "rejected"
+        checks.append(Check(f"change_request_{wanted}[{step['interface']}]", request.get("status") == wanted,
+                            f"{request.get('id')}: {request.get('status')!r}"))
+        if step["decide"] == "accept":
+            # Exactly the producer and the consumers lose their approval and are checked again.
+            interface = interfaces.get(step["interface"]) or {}
+            expected = {interface.get("producer"), *interface.get("consumers", [])} - {None}
+            retired = {wid for wid, row in rows.items() if row.get("retired_runs")}
+            rechecked = {wid for wid in expected if (rows.get(wid, {}).get("merged_under") or {}).get("revision")
+                         == (program.get("agreement") or {}).get("revision")}
+            checks.append(Check(f"change_rechecked_producer_and_consumers[{step['interface']}]",
+                                bool(expected) and retired == expected and rechecked == expected,
+                                f"retired {sorted(retired)}, re-checked under the latest revision {sorted(rechecked)}, "
+                                f"wanted {sorted(expected)}"))
     return checks
 
 

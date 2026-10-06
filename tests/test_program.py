@@ -879,6 +879,70 @@ class ExecutionTests(ProgramHarness):
         self.assertEqual((0, "COMPLETE"), (code, result["status"]), result)
 
 
+class ScenarioFakeBriefTests(unittest.TestCase):
+    """The scenario harness's scripted model reads compose_brief's text (scenarios/ may not import tools/).
+
+    It is run here as the script the harness puts on PATH, on handoffs carrying a real workstream brief, so
+    a rewording of the brief that the fake no longer reads fails here, not as a stalled scenario run."""
+    FAKE = Path(__file__).resolve().parents[1] / "scenarios" / "harness" / "fake_codex.py"
+    FILES = {"contracts/shapes.json": "{}\n", "a/service.py": "A = 1\n", "b/service.py": "B = 1\n",
+             "tests/test_journey.py": "# journey\n"}
+
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name)
+        reference = self.root / "reference"
+        for name, text in self.FILES.items():
+            (reference / name).parent.mkdir(parents=True, exist_ok=True)
+            (reference / name).write_text(text)
+        self.manifest = program.validate_manifest(with_requirements(manifest()))
+        state = program.new_state(self.root / "program.json", self.manifest, self.root, "key")
+        state["agreement"]["revision"] = 1
+        self.briefs = {row["id"]: program.compose_brief(self.manifest, row, state) for row in self.manifest["workstreams"]}
+        milestones = [{"id": row["id"], "depends_on": row["depends_on"], "objective": row["brief"], "verify": "true",
+                       "paths": [name for name in self.FILES if name.startswith(row["owns"][0] + "/")]}
+                      for row in self.manifest["workstreams"] if row["kind"] == "code"]
+        self.config = self.root / "fake-config.json"
+        self.config.write_text(json.dumps({"title": "Demo", "brief": self.manifest["brief"], "reference": str(reference),
+                                           "check": "true", "paths": sorted(self.FILES), "milestones": milestones}))
+
+    def report(self, stage, wid, worktree):
+        worktree.mkdir(exist_ok=True)
+        data = {"stage": stage, "task": self.briefs[wid], "goal_contract": {"revision": 0, "hash": ""}}
+        out = self.root / f"{stage}-{wid}.json"
+        result = subprocess.run([sys.executable, str(self.FAKE), "exec", "-o", str(out)],
+                                input="PROMPT\nCURRENT HANDOFF DATA\n" + json.dumps(data), capture_output=True,
+                                text=True, cwd=worktree, timeout=60,
+                                env={**os.environ, "SCENARIO_FAKE_CONFIG": str(self.config), "PYTHONDONTWRITEBYTECODE": "1"})
+        self.assertEqual(0, result.returncode, result.stderr)
+        return json.loads(out.read_text())
+
+    def test_each_workstream_is_built_planned_alone_under_its_inherited_ids(self):
+        for row in self.manifest["workstreams"]:
+            wid = row["id"]
+            with self.subTest(workstream=wid):
+                worktree = self.root / f"worktree-{wid}"
+                self.assertEqual("build", self.report("recognize_workflow", wid, worktree)["workflow"])
+                plan = self.report("astra_finalize", wid, worktree)["contract"]
+                self.assertEqual([], program.agreement.dropped(self.manifest, wid, plan["acceptance_criteria"]))
+                self.assertEqual(program.agreement.inherited(self.manifest, wid),
+                                 [criterion["id"] for criterion in plan["acceptance_criteria"]])
+                if row["kind"] == "code":
+                    self.assertEqual([wid], [milestone["id"] for milestone in plan["milestones"]])
+                    self.assertEqual([], plan["milestones"][0]["depends_on"])
+                    paths = plan["initial_task"]["affected_paths"]
+                    self.assertTrue(paths)
+                    self.assertTrue(all(any(path == own or path.startswith(own + "/") for own in row["owns"])
+                                        for path in paths), paths)
+                    self.assertEqual("implement", plan["initial_task"]["kind"])
+
+    def test_a_re_check_whose_files_already_conform_plans_validation_only(self):
+        worktree = self.root / "worktree-a"
+        (worktree / "a").mkdir(parents=True)
+        (worktree / "a" / "service.py").write_text(self.FILES["a/service.py"])
+        self.assertEqual("validate", self.report("astra_finalize", "a", worktree)["contract"]["initial_task"]["kind"])
+
+
 class CliFixtureTest(unittest.TestCase):
     def test_first_wave_starts_real_isolated_runs_and_stops_at_the_human_gate(self):
         flow = test_subprocess.SubprocessFlow(); flow.setUp(); self.addCleanup(flow.doCleanups)
