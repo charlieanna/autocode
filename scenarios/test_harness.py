@@ -514,6 +514,21 @@ class HarnessAttemptTests(unittest.TestCase):
                              ("runs", "passes", "streak", "interrupted", "usage_unknown", "median_model_minutes")))
             self.assertFalse((root / "result.json").exists())  # Reading stats never finalizes or resumes.
 
+    def test_a_long_run_s_usage_rows_never_outgrow_the_attempt_record(self):
+        # A three-turn build reported 40 attempt rows (150 KB) and stopped its harness mid-run.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "attempt"
+            self.admission(root)
+            row = {"stage": "terra", "tokens": {"input_tokens": {"known": 1, "total": 1}}, "note": "x" * 4000}
+            usage = {"cost_usd": {"reported": 9.3, "complete": True},
+                     "accounting": {"schema": 1, "attempts": [row] * 200, "issues": ["late"] * 50,
+                                    "tokens": {"output_tokens": {"known": 7, "total": 7}}, "complete": True}}
+            attempts.observe(root, {"status": "BUILDER_RUNNING", "usage": usage})
+            saved = attempts.read(root / "attempt.json")["usage_snapshot"]
+            self.assertEqual({"schema": 1, "attempts_rows": 200, "issues_rows": 50, "complete": True,
+                              "tokens": {"output_tokens": {"known": 7, "total": 7}}}, saved["accounting"])
+            self.assertEqual(usage["cost_usd"], saved["cost_usd"])
+
     def test_live_owner_is_pending_and_reused_birth_is_dead(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
