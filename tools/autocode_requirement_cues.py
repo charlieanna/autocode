@@ -50,11 +50,23 @@ def _without_label_headings(text):
     return "\n".join(out)
 
 
+def _outside_fences(text):
+    """The text between fenced blocks, piece by piece."""
+    pieces, start = [], 0
+    for match in FENCE.finditer(text):
+        pieces.append(text[start:match.start()])
+        start = match.end()
+    return [*pieces, text[start:]]
+
+
 def cue_sentences(text):
     """Sentences carrying a requirement cue; heading labels and fenced blocks are never obligations."""
     # A program workstream's brief quotes the whole parent plan as a fenced JSON block; a live skeleton's
     # Requirements were rejected three times for not quoting other workstreams' notes from it (2026-10-06).
-    parts = re.split(r"(?<=[.!?])\s+", _without_label_headings(FENCE.sub("\n", str(text or ""))).strip())
+    # A block also ends the sentence before it: joined to the text after it, that sentence appeared nowhere
+    # in the brief, so no verbatim quote could cover it.
+    parts = [part for piece in _outside_fences(str(text or ""))
+             for part in re.split(r"(?<=[.!?])\s+", _without_label_headings(piece).strip())]
     return [part.strip() for part in parts if part.strip() and CUE.search(part)]
 
 

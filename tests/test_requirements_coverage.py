@@ -1,6 +1,7 @@
 """Exact requirement quotes, formatting-aware coverage, and guarded retries."""
 import copy
 import json
+import re
 from pathlib import Path
 import tempfile
 import subprocess
@@ -113,6 +114,20 @@ class HeadingCueTests(unittest.TestCase):
             goals.check_requirement_handoff({'task': task}, self.report('Notes must be numbered from 1.'))
         # A sentence inside the block stays quotable.
         self.assertIn(task, goals.source_texts({'task': task}))
+
+    def test_a_fenced_block_ends_the_sentence_before_it(self):
+        # A program brief's parent plan follows a label with no stop and is followed by an instruction; joined,
+        # they made a sentence found nowhere in the brief, which no verbatim quote could cover (2026-10-06).
+        task = ('Paths you own: only notes/store.py\n\nApproved parent contract (read only):\n```json\n'
+                '{"note": "M4 must only test the journey."}\n```\nKeep its exclusions; never merge branches.')
+        sentences = goals.cue_sentences(task)
+        self.assertEqual(['Paths you own: only notes/store.py\n\nApproved parent contract (read only):',
+                          'Keep its exclusions; never merge branches.'], sentences)
+        self.assertTrue(all(sentence in task for sentence in sentences), sentences)
+        goals.check_requirement_handoff({'task': task}, self.report(*sentences))
+        # A quote that runs into the block, as a report splitting the brief on its own stops writes, still covers.
+        raw = re.split(r'(?<=[.!?])\s+', task)
+        goals.check_requirement_handoff({'task': task}, self.report(raw[0], raw[-1]))
 
     def test_delegated_answer_is_quotable_but_never_owed(self):
         state = {'task': 'Add receipts.',
