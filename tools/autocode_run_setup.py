@@ -20,6 +20,7 @@ from pathlib import Path
 
 try:
     from . import autocode_figma as figma, autocode_design_manifest as design_manifest
+    from . import autocode_containment_policy as containment_policy
     from . import autocode_task_preflight as task_preflight
     from . import autocode_goals as goals, autocode_protected_oracles as protected_oracles
     from . import autocode_goal_lifecycle as lifecycle
@@ -40,6 +41,7 @@ try:
     from . import autocode_workflows as workflows
 except ImportError:
     import autocode_figma as figma, autocode_design_manifest as design_manifest
+    import autocode_containment_policy as containment_policy
     import autocode_task_preflight as task_preflight
     import autocode_goals as goals, autocode_protected_oracles as protected_oracles
     import autocode_goal_lifecycle as lifecycle
@@ -201,6 +203,11 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
     # Preserve only this locked invocation's pre-change settings for grant validation.
     args._recovery_grant_settings = copy.deepcopy(state.get("settings"))
     settings = runner.configure(args, state)
+    # Before any stage: refuse a run whose built-in OpenCode stages cannot be kernel-contained, or save
+    # the explicit --allow-uncontained-tools opt-out (#413).
+    containment_policy.configure(state, settings, allow=bool(getattr(args, "allow_uncontained_tools", False)),
+                                 configured_tool=getattr(runner.opencode, "CONFIGURED", False),
+                                 workspace=workspace, now=runner.now)
     settings = protected_oracles.reconcile(state, settings, args, workspace, run_dir,
         is_test_path=verify.is_test_path,
         discover_command=lambda: (verify.detect_framework(workspace,

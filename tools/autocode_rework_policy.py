@@ -272,8 +272,9 @@ def route(runtime, state, decision, record, queue, retry_policy, *, run_dir):
         ('task_id', task.get('id')), ('contract_hash', state['goal_contract']['hash']),
         ('contract_revision', state['goal_contract']['revision']), ('source_revision', record.get('source_revision'))))
     pins = validation.get('evidence_hashes') or {}
-    # A contained stage captures in the scratch its own launch recorded; another run's is not in these records.
-    rule = {'settings': state.get('settings'), 'scratch': containment.recorded_scratch(state.get('stages', []), workspace)}
+    # Pins are re-verified only through a sealed accepted Validator: only its own launch made the
+    # containment scratch it may cite, as at acceptance (require_owned). Another stage's or run's is not.
+    rule = {'settings': state.get('settings'), 'scratch': containment.recorded_scratch([accepted or {}], workspace)}
     if report is not None and current_validation:
         for path, digest in pins.items():
             _require(_hash(_owned(path, workspace, root, **rule)) == digest,

@@ -375,8 +375,8 @@ def run_role(
         run_dir=run_dir, session=session, model=model, effort=effort, allow_write=allow_write,
         planning=joint_stage or report_only, report=output, schema=schema, prompt_file=prompt_file,
         sandbox=sandbox, transport_args=transport_args, chatgpt=planning.enabled(state), provider=route.get('provider'), enforce_tool_boundary=not dry_run,
-        source_paths=source_scope.paths(state),
-        tool_commands=verification_plan.launch_commands(state, progressive_context=progressive_state.context(state))
+        source_paths=source_scope.paths(state), settings=state["settings"],  # the launcher applies the saved #413 opt-out
+        tool_commands=(lambda: verification_plan.launch_commands(state, progressive_context=progressive_state.context(state)))
         if engine == "opencode" and not dry_run and not (joint_stage or report_only) else ())
     session = worker_context.get('provider_session', session)
     child_options = {"start_new_session": True, "env": child_environment}
@@ -429,10 +429,7 @@ def run_role(
     if joint_stage:
         record["planning"] = True
     if engine == "opencode" and not configured_tool:
-        record.update(permission_config=str(base.with_suffix(".opencode.json")),
-                      isolation="Kernel-constrained native shell; other tools disabled" if worker_context.get('tool_containment') else "OpenCode tool permissions and workspace snapshot checks; no OS sandbox")
-        record['tool_containment'] = worker_context.get('tool_containment')
-        record['output_token_cap'] = worker_context.get('output_token_cap')
+        record.update(permission_config=str(base.with_suffix(".opencode.json")), **provider_launch.stage_record(worker_context))
     elif engine == "opencode":
         record.update(provider=opencode.NAME,
                       isolation="Config-tool sandbox flag and workspace snapshot checks")

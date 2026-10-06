@@ -797,6 +797,8 @@ old requests. Real requirements questions, permission changes, plan approval and
 declared artifact acceptance remain human decisions. External service failures
 cannot be guaranteed resolvable; automatic recovery is bounded rather than infinite.
 
+## Native tool containment
+
 The Plan Reviewer and Tester use the read-only sandbox with the Codex engine; the Builder uses workspace-write.
 Built-in OpenCode execution launches in this checkout additionally require the
 qualified macOS Seatbelt shell boundary on OpenCode 1.18.33. Each launch uses a
@@ -805,6 +807,31 @@ model tools. Nonwriter stages may write only to their fresh stage scratch area;
 the Builder may also write application files, but not runner state, evidence,
 configuration or runtime authority. Failed conformance or changed boundary files
 pause as `PAUSED_TOOL_CONTAINMENT` before the provider is launched.
+
+A new run, and every resume, first checks that this boundary can exist here: macOS,
+`/usr/bin/sandbox-exec`, and `opencode --version` exactly 1.18.33. This check runs no
+conformance; each launch still does. Elsewhere (Linux, or another OpenCode version)
+the run is refused before any stage, planning included, spends anything, and the
+message names the reason. Two ways on:
+
+- Use the qualified setup.
+- Add `--allow-uncontained-tools` to the new run or to the resume. The Builder,
+  Validator, Completion Reviewer, Resolver, Investigator and workflow-job stages
+  then launch with OpenCode's own permission checks and the workspace snapshot
+  checks only, with no kernel containment and no boundary prompt. The choice is
+  saved with the run (it is not repeated on later resumes) and recorded as an
+  `uncontained_tools_accepted` user event with the time and reason. Each such stage record says
+  `uncontained_tools: true`, and the status view says `tool_containment:
+  "uncontained_user_accepted"`. Only that flag sets it: no environment variable,
+  model output or dashboard default.
+
+If the boundary was available at setup but fails at a launch (for example OpenCode
+was upgraded mid-run), the run still pauses as `PAUSED_TOOL_CONTAINMENT`; that
+message names `--allow-uncontained-tools` as the explicit way to continue. Native
+Codex runs, configured providers and `--dry-run` previews are not checked, except a
+Codex run whose stuck-stage Investigator is pinned to an OpenCode model
+(`--investigator-model provider/model`): that stage runs on built-in OpenCode, so
+the run is checked and accepts the flag like an OpenCode run.
 
 Tool networking remains denied, including ephemeral loopback HTTP tests. The
 tested Seatbelt `localhost` rule also permits non-loopback addresses belonging to
