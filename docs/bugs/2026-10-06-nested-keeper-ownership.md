@@ -62,6 +62,33 @@ NOT_EXERCISED and one SKIPPED, with every CLI exit and source-pin check passing.
 Ten completed serial results were retained; an intentionally interrupted
 attempt remained ungraded, with no owned or scoped survivors. The remaining
 52 entries ran through two isolated CLI workers with unchanged limits.
-Fresh live-model qualification is still owed; no live result is claimed here.
-This does not establish the spontaneous CI trigger or close every ownership
-concern in #454.
+
+After merging master 19f6f270 as 9a31a8e8, the unchanged runtime passed
+56 affected tests in six modules, six explicit command/verification ownership
+tests, the nine-check wire control, and three supplemental fake scenarios
+(bugfix-trivial, completion-rework-direct and parallel-diamond). Their 24
+outer receipts discharged cleanly; all 517 recorded native identities were
+gone, with no unknown liveness. The first affected attempt encountered socket
+and process-inspection EPERM under the restricted execution substrate; that
+failure is retained separately from the identical native-access passing run.
+
+Fresh native OpenCode 1.18.33 qualification on 9a31a8e8 reached TASK_COMPLETE
+in one iteration using Sol medium for Requirements, Planner and Builder,
+Astra high for Plan Reviewer and Tester, and Astra medium for Completion.
+The disposable greeting bugfix used the public TaskRun interface through the
+production enclosing CLI lifeline. All six unfiltered native streams finished;
+every provider and stage keeper appeared in its enclosing ownership receipt.
+The runner proved four fail-to-pass and two pass-to-pass named cases. Public
+evidence inspection marked all ten criteria current; the independent eight-case
+functional oracle passed. Protected files, model routes and original limits
+(1800 active seconds, 360 per stage, 120 idle/tool seconds, four iterations)
+remained unchanged. Active time was 415.315 seconds. The strict terminal audit
+found all 465 recorded native identities gone, without unknown liveness.
+
+Evidence is retained in .scenario-runs/verification-454/openai-after-r2 and
+ignored local validation logs; it is not committed. The earlier r1 completed
+planning only before the master merge and remains partial evidence. A retained
+empty-input aborted Builder tool event recovered without a report or scope
+failure. Controlled process faults establish the crash-ordering repair; the
+live campaign establishes ordinary native-provider integration. Neither
+establishes the spontaneous CI trigger or closes every concern in #454.
