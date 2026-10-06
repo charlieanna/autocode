@@ -1037,8 +1037,8 @@ def suite_health(receipt) -> str:
 
 def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regression_command=None,
            reported=None, base_suite=None, timeout=DEFAULT_TIMEOUT, dependencies_from=None,
-           allow_no_test=False, new_behavior=False, preserve_only=False, base_patch=None,
-           source_paths=(), test_only_allowed=False) -> dict:
+           allow_no_test=False, new_behavior=False, preserve_only=False, base_patch=None, source_paths=(),
+           test_only_allowed=False) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
