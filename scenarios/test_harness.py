@@ -660,13 +660,35 @@ print(json.dumps({{'verdict':result['verdict']}}),flush=True)
                 call = attempts.read(call_path)
                 self.assertEqual(cli.pid, call["cli"]["pid"])
                 self.assertEqual("running", call["phase"])
+                # The keeper discovers the provider tree by sampling, and owner-loss
+                # cleanup stops only what its receipt has recorded. Wait for that
+                # discovery before faulting: killing at the provider's first words
+                # races the keeper's first sample window, and the unrecorded
+                # SIGTERM-immune provider then outlives every escalation (CI ubuntu
+                # failed 3 of 8 runs on 2026-10-06; deterministic in a container).
+                deadline = time.monotonic() + 10
+                while True:
+                    recorded = attempts.read(call["receipt"])
+                    if any(row["pid"] == event["provider"] for row in recorded.get("processes", ())):
+                        break
+                    if time.monotonic() > deadline:
+                        self.fail(f"Keeper never recorded the provider process: {recorded}")
+                    time.sleep(.02)
                 if target == "harness":
                     harness.kill()
                 else:
                     cli.kill()
                 output, errors = harness.communicate(timeout=15)
                 processes.psutil.wait_procs(owned, timeout=12)
-                self.assertFalse([process.pid for process in owned if self.live(process)], errors)
+                survivors = []
+                for process in owned:
+                    if self.live(process):
+                        try:
+                            survivors.append(f"pid={process.pid} ppid={process.ppid()} status={process.status()}"
+                                             f" cmdline={process.cmdline()}")
+                        except processes.psutil.Error as error:
+                            survivors.append(f"pid={process.pid} inspect failed: {error}")
+                self.assertFalse(survivors, (errors or "") + "; survivors: " + "; ".join(survivors))
                 self.assertFalse(self.live(provider_process))
                 self.assertTrue(self.live(sentinel_birth), "An unrelated sentinel was signalled")
                 if target == "harness":
