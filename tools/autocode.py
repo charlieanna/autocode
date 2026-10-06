@@ -957,8 +957,10 @@ def reconcile_active(state, run_dir, workspace):
     record = state.get("active_stage")
     if not record:
         return
-    independent = supervision.receipt(record['supervision']) if record.get('supervision') else None
-    held = supervision_recovery.hold(record, independent, attempt=attempt_id(record))
+    held = None
+    if record.get('supervision'):
+        independent = supervision.receipt(record['supervision'])
+        held = supervision_recovery.hold(record, independent, attempt=attempt_id(record))
     if held:
         if held['timed_out']:
             record['timed_out'] = True
