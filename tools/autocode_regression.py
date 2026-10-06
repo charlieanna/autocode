@@ -115,7 +115,12 @@ def _test_only_exception(state):
 
 
 def preserve_only(state):
-    """Coverage of existing behavior: every due case is a guard, or the user granted that exception."""
+    """Coverage of existing behavior: every due case is a guard, or the user granted that exception.
+
+    A contract of plain ``test:`` cases can still be a coverage build when its diff turns out
+    to be tests alone; that diff-dependent rule is applied where the diff is known (_prove,
+    passing verify's ``test_only_allowed``, #510).
+    """
     if goals.task_kind(state) == "bugfix":
         return False
     due = cases(state)
@@ -318,8 +323,12 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
         progress("Comparing regression tests and checking the full candidate suite", command=suite, output=out)
         coverage = preserve_only(state)
         due = cases(state)
-        if coverage and any(case.get("kind") != "preserve" for case in due):
-            due = [{**case, "kind": "preserve"} for case in due]
+        # A non-bugfix contract whose due cases are all test criteria may be a coverage
+        # or characterization build: the product already implements the behavior and the
+        # approved diff is tests alone. verify() decides that from the diff (#510); its
+        # cases are then judged like guards, so a test that does not pass on the
+        # original code still blocks the proof as mis-tagged.
+        test_only = goals.task_kind(state) != "bugfix" and bool(due)
         regression_command = options.get("regression_command")
         if coverage and not regression_command:
             regression_command = options.get("test_command")
@@ -328,11 +337,15 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
                                reported=None, base_suite=base_suite, dependencies_from=dependencies,
                                timeout=suite_timeout(state),
                                new_behavior=goals.task_kind(state) != "bugfix",
-                               preserve_only=coverage, base_patch=base_patch, source_paths=source_scope.paths(state))
+                               preserve_only=coverage, test_only_allowed=test_only, base_patch=base_patch,
+                               source_paths=source_scope.paths(state))
         path = out / "verification.json"
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
         if operator:
             proof["review_reasons"] = [*(proof.get("review_reasons") or []), operator_patch.review_reason(operator)]
+        if ((coverage or (test_only and not result.get("source_files")))
+                and any(case.get("kind") != "preserve" for case in due)):
+            due = [{**case, "kind": "preserve"} for case in due]
         named = [test for key in ("fail_to_pass", "pass_to_pass", "not_run_on_base") for test in proof.get(key) or []]
         check_cases(proof, due, wrapped_runner.refusals(workspace, named) if due else {})
         proof["checks"] = {label: {"command": receipt["command"], "exit_code": receipt["exit_code"],
