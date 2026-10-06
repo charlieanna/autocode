@@ -323,7 +323,7 @@ class ProcessTree:
             self.signal(list(frozen.values()), signal.SIGCONT)
 
 
-# A stage's cleanup ignores every signal interruption_handler turns into an interrupt.
+# A stage's cleanup defers every signal interruption_handler turns into an interrupt.
 INTERRUPTS = tuple(getattr(signal, name) for name in ('SIGINT', 'SIGTERM', 'SIGHUP') if hasattr(signal, name))
 
 
@@ -532,8 +532,11 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
         publish_activity(force=True)
     finally:
         # Interruption or a failed save must not let the process worker escape
-        # this call. Callbacks stay serialized on the controller thread.
-        handlers = {sig: signal.signal(sig, signal.SIG_IGN) for sig in INTERRUPTS}
+        # this call. Callbacks stay serialized on the controller thread. A signal
+        # meanwhile is deferred, not ignored: ignoring lost the hangup that came
+        # as a provider ended, and the run went on (#454).
+        deferred = []
+        handlers = {sig: signal.signal(sig, lambda signum, frame: deferred.append(signum)) for sig in INTERRUPTS}
         try:
             receipts.cancel.set()
             if receipts.started:
@@ -561,4 +564,10 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
                 signal.signal(sig, handler)
     if watchdog_errors:
         raise ProcessError("Activity supervision failed; tracked workers have been stopped") from watchdog_errors[0]
-    return child.wait(timeout=1), watchdog_fired.is_set()
+    result = child.wait(timeout=1), watchdog_fired.is_set()
+    # Only now, with the provider collected, does a deferred signal reach the caller's
+    # own handler (the stage's interrupt, or an ignore under nohup). Behind an error
+    # already propagating it is dropped: that error ends the stage.
+    for sig in dict.fromkeys(deferred):
+        signal.raise_signal(sig)
+    return result

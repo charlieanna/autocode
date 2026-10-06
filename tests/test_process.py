@@ -794,8 +794,8 @@ time.sleep(30)
             os.kill(os.getpid(), signal.SIGHUP)
         install, landed = signal.signal, []
         def second_signal_lands_in_cleanup(sig, handler):
-            # Where the real race landed: the second handler runs as cleanup starts ignoring signals.
-            if handler is signal.SIG_IGN and not landed:
+            # Where the real race landed: the second handler runs as cleanup takes the signals over.
+            if not landed:
                 landed.append(sig)
                 signal.getsignal(signal.SIGTERM)(signal.SIGTERM, None)
             return install(sig, handler)
@@ -837,27 +837,39 @@ time.sleep(30)
                 finally:
                     signal.signal(signal.SIGINT, previous)
 
-    def test_cleanup_ignores_a_hangup_as_it_ignores_sigint_and_sigterm(self):
-        # The hangup that raised inside cleanup, most often while it joined the process
-        # worker, cut it short and left the provider to its keeper (#454).
+    def signal_during_cleanup(self, sig, joined):
+        """Stop a provider that exited on its own while sig arrives as its process worker is joined."""
+        join = processes.process_receipts.ReceiptWorker.join
+        child = subprocess.Popen([sys.executable, '-c', 'pass'], start_new_session=True)
+        self.addCleanup(lambda: child.poll() is None and (child.kill(), child.wait()))
+        def signalled_join(worker):
+            os.kill(os.getpid(), sig)
+            join(worker)
+            joined.append(child.poll())
+        with patch.object(processes.process_receipts.ReceiptWorker, 'join', signalled_join):
+            return processes.wait_for_stage(child, 5, lambda rows: None)
+
+    def test_a_signal_during_cleanup_interrupts_once_the_cleanup_finished(self):
+        # A hangup as the provider ends raised inside the cleanup, most often while it joined the
+        # process worker, and cut it short; ignored instead, it was lost and the run went on (#454).
         for sig in (signal.SIGTERM, signal.SIGHUP):
             self.addCleanup(signal.signal, sig, signal.signal(sig, signal.SIG_DFL))
         self.addCleanup(signal.signal, signal.SIGINT, signal.signal(signal.SIGINT, signal.default_int_handler))
-        join = processes.process_receipts.ReceiptWorker.join
         for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
             with self.subTest(signal=signal.Signals(sig).name):
-                child = subprocess.Popen([sys.executable, '-c', 'pass'], start_new_session=True)
-                self.addCleanup(lambda child=child: child.poll() is None and (child.kill(), child.wait()))
-                def signalled_join(worker, sig=sig):
-                    os.kill(os.getpid(), sig)
-                    return join(worker)
-                try:
-                    with processes.interruption_handler(), \
-                            patch.object(processes.process_receipts.ReceiptWorker, 'join', signalled_join):
-                        result = processes.wait_for_stage(child, 5, lambda rows: None)
-                except KeyboardInterrupt:
-                    self.fail('a signal during cleanup interrupted it')
-                self.assertEqual((0, False), result)
+                joined = []
+                with processes.interruption_handler(), self.assertRaises(KeyboardInterrupt) as caught:
+                    self.signal_during_cleanup(sig, joined)
+                self.assertEqual(signal.Signals(sig).name, str(caught.exception))
+                self.assertEqual([0], joined, 'the provider is collected before the interrupt propagates')
+
+    def test_a_deferred_signal_keeps_the_callers_own_disposition(self):
+        # Deferred, not turned into an interrupt: under nohup the hangup stays ignored.
+        self.addCleanup(signal.signal, signal.SIGHUP, signal.signal(signal.SIGHUP, signal.SIG_IGN))
+        joined = []
+        with processes.interruption_handler():
+            self.assertEqual((0, False), self.signal_during_cleanup(signal.SIGHUP, joined))
+        self.assertEqual([0], joined)
 
 
 if __name__ == '__main__':
