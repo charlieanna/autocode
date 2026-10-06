@@ -110,10 +110,31 @@ def _routable(state: dict, record: dict) -> str | None:
     return None
 
 
+def job_pause_current(state: dict) -> bool:
+    """True when ``job_failure`` is the pause the run is in now.
+
+    A later non-job ``--abandon-stage`` can leave the old failure in place and
+    write its own recovery record (#567). That pause is not this job. A failure
+    with no recovery record is still current: older job pauses, and callers that
+    only set ``job_failure``, keep the exact retry.
+    """
+    failure = state.get("job_failure") or {}
+    if not failure or state.get("status") not in _JOB_PAUSES:
+        return False
+    recovery = state.get("recovery_context") or {}
+    if not recovery:
+        return True
+    if recovery.get("kind") == "job_failure":
+        return (recovery.get("attempt_id") == failure.get("attempt_id")
+                and (not recovery.get("stage") or recovery.get("stage") == failure.get("stage")))
+    later = recovery.get("attempt_id")
+    return not later or later == failure.get("attempt_id")
+
+
 def _job_row(state: dict) -> dict | None:
     """The archived attempt of a workflow job paused on quota or a refusal (autocode_job_failure), or None."""
     failure = state.get("job_failure") or {}
-    if state.get("status") not in _JOB_PAUSES or failure.get("pause_status") not in STATUSES:
+    if not job_pause_current(state) or failure.get("pause_status") not in STATUSES:
         return None
     return next((row for row in reversed(state.get("stages") or [])
                  if isinstance(row, dict) and not row.get("runner_owned") and row.get("stage") == failure.get("stage")
