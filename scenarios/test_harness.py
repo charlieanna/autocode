@@ -1073,7 +1073,7 @@ class ProgramCLI:
         return {"status": status, "done": status == "TASK_COMPLETE", "needs": needs, "next_stage": "astra_plan",
                 "iteration": 0, "phase": "PLANNING", "workflow": "build", **extra}
 
-    def __call__(self, command, *, env, cwd, timeout):
+    def __call__(self, command, *, env, cwd, timeout, lifeline=None):
         args = list(command[1:])
         self.calls.append(args)
         out, code = self.answer(args)
