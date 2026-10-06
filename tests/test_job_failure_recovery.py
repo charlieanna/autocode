@@ -260,7 +260,9 @@ class JobFailureTaskRunTests(JobHarness):
     def test_a_content_filter_finish_at_a_clean_exit_names_the_refusal(self):
         self.env['JOB_REPLAY']=str(HERE/'tools'/'fixtures'/'opencode-content-filter-finish-run.jsonl')
         need=self.paused(self.start('filtered'))
-        self.assertEqual("Code Reviewer: the provider's content filter refused the response on gpt-6-sol",need['reason'])
+        # The refusal is named first; #520 then adds the route-sol answer that continues on another model.
+        self.assertTrue(need['reason'].startswith("Code Reviewer: the provider's content filter refused the response on gpt-6-sol"),need['reason'])
+        self.assertIn('--answer route-sol=MODEL',need['reason'])
 
     def test_t7_successful_read_only_review_completion_preserved(self):
         run=self.start('success');view=run.status();self.assertTrue(view['done'],view);self.assertIsNone(view['needs'])
