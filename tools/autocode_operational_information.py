@@ -104,7 +104,7 @@ def schedule(state, event, entry, frontier):
     resolver = state['resolver']
     reviews = resolver.setdefault(KEY, {})
     if event['request_id'] in reviews:
-        return reviews[event['request_id']]
+        return None
     receipt_id = (proposal.get('evidence') or {}).get('resolver_receipt_id')
     receipt, pins = _receipt_pins(resolver, receipt_id)
     reviews[event['request_id']] = record = {
@@ -165,12 +165,19 @@ def _attempt(active):
     return None
 
 
-def _parallel_members(state):
-    batch = state.get('orchestration_batch') or {}
-    members = [row.get('milestone_id') for row in batch.get('workers') or [] if isinstance(row, dict)
-               and isinstance(row.get('milestone_id'), str)
-               and str(row.get('status', '')).startswith(('PAUSED_', 'FAILED', 'BLOCKED', 'INTERRUPTED'))]
-    return ','.join(members) or 'MILESTONE_ID'
+def _operator_flags(state, cause):
+    """The control named for an operator-only stop, only where the CLI accepts it (#288)."""
+    if cause == 'PAUSED_ORCHESTRATOR_WORKER':
+        batch = state.get('orchestration_batch') or {}
+        members = [row['milestone_id'] for row in batch.get('workers') or [] if isinstance(row, dict)
+                   and isinstance(row.get('milestone_id'), str)
+                   and str(row.get('status', '')).startswith(('PAUSED_', 'FAILED', 'BLOCKED', 'INTERRUPTED'))]
+        usable = state.get('next_stage') == 'orchestrator' and batch.get('status') == 'BUILDING'
+        return ' '.join(['--resume-paused', *('--retry-builder ' + mid for mid in members)]) if usable and members else None
+    if cause == 'PAUSED_REPEATED_FAILURE' and any(
+            state.get(key) for key in ('pending_report_repair', 'active_runner_check')):
+        return None  # --retry-failed-stage refuses until the pending repair is reconciled.
+    return resume_flags(state, cause)
 
 
 def _decide(runner, state, run_dir, workspace, cause):
@@ -184,9 +191,7 @@ def _decide(runner, state, run_dir, workspace, cause):
     if state.get('uncertain_artifacts'):
         return 'hold', 'a partial stage remains unreconciled: ' + str(state['uncertain_artifacts']), None, None
     if cause in OPERATOR_ONLY:
-        flags = ('--resume-paused --retry-builder ' + _parallel_members(state)
-                 if cause == 'PAUSED_ORCHESTRATOR_WORKER' else resume_flags(state, cause))
-        return 'hold', OPERATOR_ONLY[cause], flags, None
+        return 'hold', OPERATOR_ONLY[cause], _operator_flags(state, cause), None
     probe = copy.deepcopy(state)
     try:
         if cause == 'PAUSED_PLANNING_BUDGET':
@@ -205,7 +210,7 @@ def _decide(runner, state, run_dir, workspace, cause):
         if error.status == 'PAUSED_TIMEOUT_RECOVERY':
             return 'hold', str(error), resume_flags(state, error.status), error.status
         return 'hold', str(error), None, None
-    except (KeyError, TypeError, ValueError) as error:
+    except (KeyError, TypeError, ValueError, AttributeError, StopIteration, OSError, RuntimeError) as error:
         return 'hold', f'its admission checks cannot be evaluated: {error}', None, None
     return 'continue', None, None, None
 
