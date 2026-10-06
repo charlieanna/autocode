@@ -798,6 +798,7 @@ time.sleep(30)
         # A terminal close delivers SIGHUP twice (the kernel and the shell), and people press
         # Ctrl-C again. Raising a second time while the first interrupt unwinds skipped this
         # cleanup, or left a lock held so the controller hung ignoring signals (#454).
+        self.addCleanup(signal.signal, signal.SIGHUP, signal.signal(signal.SIGHUP, signal.SIG_DFL))
         child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], start_new_session=True)
         self.addCleanup(lambda: child.poll() is None and (child.kill(), child.wait()))
         def checkpoint(rows):
@@ -817,11 +818,14 @@ time.sleep(30)
         self.assertEqual('SIGHUP', caught.exception.signal)
 
     def test_only_the_first_signal_interrupts(self):
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            self.addCleanup(signal.signal, sig, signal.signal(sig, signal.SIG_DFL))
+        self.addCleanup(signal.signal, signal.SIGINT, signal.signal(signal.SIGINT, signal.default_int_handler))
         again = []
         with processes.interruption_handler():
             with self.assertRaises(KeyboardInterrupt) as caught:
                 os.kill(os.getpid(), signal.SIGINT)
-                signal.getsignal(signal.SIGINT)  # a call: the handler runs by now
+                time.sleep(15)  # ends as soon as the handler raises
             for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
                 try:
                     signal.getsignal(sig)(sig, None)  # absorbed while the first interrupt is handled
