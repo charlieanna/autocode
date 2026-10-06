@@ -484,9 +484,14 @@ def compose_brief(manifest, workstream, state):
     if state.get("agreement", {}).get("revision"):
         lines.append(f"Program agreement revision {state['agreement']['revision']}, approved by the user.")
     lines.append("")
+    # The whole product's flow and deliverables are context: a live skeleton's Validator read the program flow as
+    # its own, found search and export unbuilt, and left its end-to-end result unverified (2026-10-06).
     for key, label in (("constraints", "Shared constraints"), ("permission_boundaries", "Permission boundaries"),
-                       ("technical_approach", "Shared technical approach"), ("end_to_end_flow", "Program end-to-end flow"),
-                       ("deliverables", "Program deliverables")):
+                       ("technical_approach", "Shared technical approach"),
+                       ("end_to_end_flow", "The whole product's end-to-end flow (context: later workstreams build the "
+                                           "rest; this workstream's own flow is the part its objective delivers)"),
+                       ("deliverables", "The whole product's deliverables (context: this workstream delivers only "
+                                        "what its objective and ownership name)")):
         if shared.get(key):
             lines += [label + ":"] + [f"- {item}" for item in shared[key]] + [""]
     body = manifest.get("contract", {}).get("body")
@@ -521,8 +526,9 @@ def compose_brief(manifest, workstream, state):
         lines += ["This workstream is the walking skeleton: the thinnest version that works from start to finish "
                   "across every layer, walking the user journey(s) below. It is merged and verified on the "
                   "integration branch before any other workstream starts, and every other workstream extends it. "
-                  "Leave runnable checks (tests) that prove the journey end to end: they are re-run after every "
-                  "later merge."]
+                  "Its own end-to-end flow is the part of each journey its objective covers: later workstreams add "
+                  "the other steps, and the final check verifies each whole journey. Leave runnable checks (tests) "
+                  "that prove its part end to end: they are re-run after every later merge."]
         lines += _journey_lines(manifest) + [""]
     elif agreement.needs_skeleton(manifest, workstream["id"]):
         base = agreement.skeleton(manifest)

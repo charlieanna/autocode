@@ -592,8 +592,9 @@ The composed brief contains, in order:
 - `PROGRAM WORKSTREAM <id> (<kind>)` and the program name; for a re-check, the
   `RE-CHECK:` line with the stale reason;
 - the program outcome and the approved agreement revision;
-- the shared constraints, permission boundaries, technical approach, end-to-end flow
-  and deliverables;
+- the shared constraints, permission boundaries and technical approach, and the whole
+  product's end-to-end flow and deliverables, labelled as context: later workstreams build
+  the rest, and a workstream's own flow is the part its objective delivers;
 - for a derived manifest, the complete parent contract, with the instruction to
   preserve its requirements, exclusions, permission boundaries and human-review
   obligations; approving the parent approves neither the child plan nor any
@@ -603,8 +604,10 @@ The composed brief contains, in order:
 - the workstreams already merged on the integration branch when the brief is composed
   (every merged workstream, not only its prerequisites), each with its brief's first
   line;
-- for the skeleton, that it is built and verified first and must leave runnable checks,
-  with each journey's steps (and what a simulated journey does not prove); for every
+- for the skeleton, that it is built and verified first and must leave runnable checks
+  for its own part of each journey (later workstreams add the other steps, and the final
+  check verifies each whole journey), with each journey's steps (and what a simulated
+  journey does not prove); for every
   other workstream except a `skeleton_exempt` one, that it extends the verified
   skeleton;
 - for every code workstream, that its checks are re-run after every later merge, so they

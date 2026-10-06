@@ -59,6 +59,8 @@ class AgreementTests(ProgramHarness):
         self.assertIn("Program agreement revision 1, approved by the user.", brief)
         self.assertIn("with exactly this id (C2)", brief)
         self.assertIn("check only what the finished product keeps", brief)
+        skeleton = self.launches_of("contracts")[0]["brief"]
+        self.assertIn("Its own end-to-end flow is the part of each journey its objective covers", skeleton)
         self.assertNotIn("check only what the finished product keeps", self.launches_of("integration")[0]["brief"])
         integration_brief = self.launches_of("integration")[0]["brief"]
         self.assertIn("with exactly this id (C1, C2, C3, J1)", integration_brief)

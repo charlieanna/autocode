@@ -261,6 +261,9 @@ class DeriveTests(unittest.TestCase):
             self.assertIn("human_review: true", text)  # the workstream's own criterion line
             self.assertIn("CLI regression tests", text)
             self.assertIn("Approving the parent approves neither this child plan", text)
+            # The approved flow is the whole product's, context for each workstream rather than its own to verify.
+            self.assertIn("The whole product's end-to-end flow (context: later workstreams build the rest; this "
+                          "workstream's own flow is the part its objective delivers):\n- Run the CLI with a name", text)
             self.assertIn("Execute greeting and invalid-input regression checks", text)
         value["contract"]["body"]["scope_exclusions"].append("Other")
         self.assertEqual(body, self.state["goal_contract"]["body"])
