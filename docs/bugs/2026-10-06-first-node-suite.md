@@ -28,5 +28,27 @@ retained; this reproduction does not itself qualify the fix.
 Real Node regression tests cover first-suite success, import-time new-module
 failure, a broken candidate, an unknown existing source, bug-fix mode and
 preservation-only mode. Both success cases fail against unmodified upstream;
-the rejection controls pass on both versions. Fresh live qualification of the
-final change is still required before opening its PR.
+the rejection controls pass on both versions. Fresh live qualification on runtime commit e3bd5799 completed in one iteration
+with TASK_COMPLETE after 448.99 active seconds. The fresh fixture used the same
+brief, native OpenCode 1.18.33 binary, Sol/Astra routes and 1800/360/120/120-second
+run/stage/idle/tool caps as the before run. No extra retry or budget was added.
+The first runner proof was PASS and recorded the documentation-only preservation
+note. Four candidate cases passed; their module was absent on base, retained as
+not-run-on-base evidence under the existing new-behavior policy.
+
+The independent Node oracle passed and its file hashes still matched at
+completion. Public `--status --inspect-evidence` confirmed current evidence and
+completion. All six native streams reached EOF without dropped events, and no
+owned workers remained. The first audit's assumptions about an uninspected
+status view, the fixture's pre-existing virtualenv link and runner-owned Git
+exclude rules were corrected explicitly; both audits remain retained.
+
+After run: `20261005-230713-create-the-first-node-js-implementation-in-this--8a0d7414`.
+The earlier run stopped waiting for permission after 1261.74 active seconds;
+its second Validator also encountered the distinct #424 rework sandbox failure.
+That request was not answered, and that failure was not retried or erased.
+
+Validation: 310 changed-file tests, 90 slower proof/CLI tests, and the catalog
+with 60 PASS, one existing NOT_EXERCISED and one live-Investigator SKIPPED.
+Earlier scratch Go failures remain recorded; the cases passed on both upstream
+and candidate, and the final complete proof-module run passed.
