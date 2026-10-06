@@ -25,8 +25,13 @@ consumes it once (``reevaluate``), with zero provider calls:
   source, approval) before any provider launches.
 
 State: ``resolver.information_reviews`` maps a request ID to its record; this module is its only
-writer. autocode_run_actions acts on ``reevaluate``; the status view reads ``projection``.
-Imports only autocode_util; the runner is passed in, as autocode_run_actions does.
+writer. autocode_run_actions acts on ``reevaluate`` and ``retired``; the status view reads
+``projection``. Imports autocode_util and autocode_quota_route. The runner is passed in, as
+autocode_run_actions does, so these runtime dependencies are not import edges: runner.write_json,
+runner.support.Paused, runner.interventions.admission, runner.timeout_recovery_guard,
+runner.planning.review_call_limit, runner.resolver_runtime.operational_boundary and
+runner.resolver_human (current, response_holds_current_frontier and its frontier helpers
+_binding and _evidence_valid, which this module must match exactly).
 """
 from __future__ import annotations
 
@@ -252,7 +257,8 @@ def _message(record, action, reason, flags, after, run_dir, workspace):
     if action == 'continue':
         return (f"AutoResolver re-evaluated the information sent for request {rid}: no exhausted bound or "
                 f"operator-only control holds this {record['cause']} pause, so the run continues through the "
-                "normal admission checks (limits, permissions, transport, source and approval still apply).")
+                "normal admission checks (limits, permissions, transport, source and approval still apply). "
+                "A stop found there, such as a parallel member that still needs a model, is a new request.")
     text = (f"AutoResolver re-evaluated the information sent for request {rid}: {reason.rstrip('.')}. "
             "Information cannot raise a bound, reset a count or authorize another attempt, so the run stays "
             "paused and no provider launched.")

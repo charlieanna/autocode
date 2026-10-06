@@ -18,9 +18,11 @@ must not bypass an operational pause). The missing piece was a transition from
 `tools/autocode_operational_information.py` owns one record per answered
 `operational_exhaustion` request (`resolver.information_reviews`).
 `provide_information` schedules it, bound to the request ID and token, the
-response, the pause status, the frontier binding (source revision, settings and
-transport identity, task, contract, recovery accounting, interventions) and
-the request's evidence receipt. The next explicit resume at that pause without
+response, the pause status, the frontier binding (source revision, saved
+settings with the saved transport identity, task, contract, recovery
+accounting, interventions) and the request's evidence receipt. A live
+transport change is not part of that binding: the transport check stops an
+admitted continuation before any launch. The next explicit resume at that pause without
 another recovery flag consumes it once, with no provider call. A plain
 relaunch only reports that it is pending, and a run that left the pause
 through an explicit control (a grant, a raised bound, an abandoned attempt)
@@ -38,26 +40,38 @@ never evaluates it:
   names the exact command (`--grant-recovery N` for a spent recovery allowance,
   the bound flag for a reached limit, `--retry-failed-stage`, `--retry-builder`,
   `--abandon-stage ATTEMPT`, `--planning-review-call-limit N`), and only where
-  the CLI accepts it. AutoResolver also runs the automatic-recovery guard
+  the CLI accepts it. After a content-filter refusal the resume that follows
+  `--abandon-stage` names a model change (`--sol-model MODEL`), never the
+  refused model again. AutoResolver also runs the automatic-recovery guard
   itself: a spent allowance behind another stop is held as
   `PAUSED_TIMEOUT_RECOVERY`, the status that guard would have set, so the named
   grant is accepted. Later invocations repeat the decision; nothing is
   evaluated or asked again.
-- `admitted`: the stop's cause lies outside the run (an allow-list: provider
-  capacity, rate limit, quota or refusal, a busy workspace, an unproven
-  recovery, a planning stop with reserved recovery left) and no bound or
-  operator-only control holds it. The run takes the
-  ordinary resume path; every admission check (limits, permissions,
-  transport, source, approval, interventions) still runs before a launch. A
-  runner event marks the frontier as new, so a stop found next is a new
-  request, never the answered one.
+- `admitted`: the stop's cause lies outside the run (an allow-list in
+  `INFORMATION_CAUSES`: provider capacity, rate limit, quota or refusal, an
+  uncertain provider or stage, a busy workspace, a Resolver stop
+  (`PAUSED_RESOLVER_OPERATIONAL`, `PAUSED_RESOLVER`), a planning stop with
+  reserved recovery left) and no bound
+  or operator-only control holds it. The run takes the ordinary resume path;
+  every admission check (limits, permissions, transport, source, approval,
+  interventions) still runs before a launch. A runner event marks the frontier
+  as new, so a stop found next is a new request, never the answered one. A
+  quota-stopped or refused parallel Builder member is such a stop: it still
+  needs a model only a person can name, so its route question is asked again;
+  holding instead would leave no request to answer.
+
+A repeated resume never evaluates a response twice. The decision record is
+written before the state that refers to it, so a resume killed between the two
+evaluates again, without a provider call; the record the saved state names is
+the decision that took effect.
 
 Information never raises a limit, resets a count or clears history. An
-admitted continuation takes the ordinary resume path but, unlike an operator's
-own explicit resume, does not renew the per-incident AutoResolver attempts or
-the pending report-repair attempts. The status
+admitted continuation takes the ordinary resume path but does not renew the
+per-incident AutoResolver attempts or the pending report-repair attempts that
+an explicit resume at other pauses renews. The status
 view gains `information_review`, and `needs.action` names a held decision's
-control. `leave_paused`, requirements answers, plan approval,
+control; a review the run left behind unevaluated reads `superseded`.
+`leave_paused`, requirements answers, plan approval,
 `--retry-failed-stage` and `--grant-recovery` are unchanged.
 
 ## Still open
@@ -76,3 +90,6 @@ control. `leave_paused`, requirements answers, plan approval,
   pause while the request stands (`--retry-report` and `--retry-failed-stage`
   need `PAUSED_REPEATED_FAILURE`). Before this fix the information admitted a
   fresh Builder there, archiving the spent repair and rotating its session.
+- Other holds without a command: `PAUSED_MILESTONE_STALLED`,
+  `PAUSED_MILESTONE_REPLAN` and any stop not on either list name no control,
+  only that the cause must change first.
