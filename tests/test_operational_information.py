@@ -122,16 +122,29 @@ class OperationalInformationCLITests(unittest.TestCase):
         self.assertEqual([], self.evaluations())
 
     def test_information_bound_to_altered_evidence_launches_nothing(self):
-        self.inform(self.issue_checkpoint(), 'The temporary directory is valid')
+        answered = self.issue_checkpoint()
+        self.inform(answered, 'The temporary directory is valid')
         for receipt in (self.run / 'resolver').glob('*.json'):
             receipt.write_text(receipt.read_text() + '\n')
         code, launched, output = self.resume()
         self.assertEqual((2, False), (code, launched), output)
         self.assertIn('evidence changed', output)
-        self.assertEqual('stale', self.status()['information_review']['status'])
+        # Only the records changed, not the run: holding on the answered request would be #486
+        # again, so AutoResolver asks again for this frontier, launching nothing.
+        view = self.status()
+        self.assertEqual('answer', view['needs']['kind'], view['needs'])
+        self.assertNotEqual(answered['needs']['resolver_request_id'], view['needs']['resolver_request_id'])
+        self.assertIn("the request's recorded evidence changed", view['stop_reason'])
+        self.assertEqual('stale', self.saved()[1]['resolver']['information_reviews'][
+            answered['needs']['resolver_request_id']]['status'])
         code, launched, output = self.resume()
         self.assertEqual((2, False), (code, launched), output)
+        self.assertEqual(view['needs'], self.status()['needs'])
         self.assertEqual([], self.evaluations())
+        # The fresh request takes information like any other and schedules its own one evaluation.
+        self.inform(view, 'The temporary directory is valid')
+        review = self.status()['information_review']
+        self.assertEqual((view['needs']['resolver_request_id'], 'pending'), (review['request_id'], review['status']))
 
     def assert_held_for_a_grant_once(self, checkpoint):
         self.inform(checkpoint, 'The provider was slow; it is healthy again')

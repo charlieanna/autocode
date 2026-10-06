@@ -27,8 +27,10 @@ through an explicit control (a grant, a raised bound, an abandoned attempt)
 never evaluates it:
 
 - `stale`: something it is bound to changed, or the records were altered. It is
-  retired and the existing fail-closed path runs (hold, or a fresh request for
-  the changed run).
+  retired and AutoResolver asks a fresh request for the current run, launching
+  nothing. That includes a run whose frontier is unchanged because only the
+  request's records or evidence changed; holding on the consumed request there
+  was this bug again.
 - `held`: the stop needs a control information cannot supply (a spent
   recovery allowance, a reached bound, a repeated failure, a Builder retry
   limit, a stopped parallel member, a stalled milestone, spent report-only

@@ -307,6 +307,18 @@ def handle(runner, args, parser, state, state_path, run_dir, workspace):
             and not any((args.retry_builder, args.retry_failed_stage, args.retry_report,
                          args.abandon_stage, args.grant_recovery is not None))
             and resolver_human.response_holds_current_frontier(state)):
+        retired = operational_information.retired(state)
+        if retired:
+            # Retired with the run still at the answered frontier (only its records or evidence
+            # changed): holding on the consumed request is #486 again. Ask again; launch nothing.
+            state.pop('user_request', None)
+            state['pending_questions'] = []
+            if resolver_runtime.record_operational_exhaustion(runner, state, run_dir,
+                                                              support.Paused(state['status'], retired)):
+                runner.write_json(state_path, state)
+                if resolver_human.current(state):
+                    print(lifecycle.render(state))
+                    return 2
         print('AutoResolver retained the human guidance. No new execution allowance or changed cause was established; '
               'the run remains paused without repeating the same request.')
         return 2

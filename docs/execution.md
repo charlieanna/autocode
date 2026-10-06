@@ -799,8 +799,8 @@ task, the contract, the recovery accounting and the request's evidence pins. The
 next `autocode resume` (or `--resume-paused` without another recovery flag)
 consumes it, without a provider call:
 
-- If anything it is bound to changed, it is retired as stale and the run stays
-  paused; Resolver asks again for the changed run when it needs to.
+- If anything it is bound to changed, it is retired as stale, the run stays
+  paused and Resolver asks a fresh request for the current run.
 - If the stop needs an operator control that information cannot supply (a spent
   automatic-recovery allowance, a reached time, iteration, milestone or
   no-progress bound, a repeated failure, a Builder retry limit, a stopped

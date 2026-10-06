@@ -11,10 +11,10 @@ explicit continuation (``--resume-paused`` or ``autocode resume`` with no other 
 consumes it once (``reevaluate``), with zero provider calls:
 
 - stale: the request/response chain, the pause status, the evidence pins or the frontier the
-  response was bound to (autocode_resolver_human._binding: source revision, settings including
-  the transport identity, task, contract, accounting, interventions) no longer match. The
-  record is retired and the existing fail-closed path holds or asks again for the current
-  frontier.
+  response was bound to (autocode_resolver_human._binding: source revision, saved settings
+  including the saved transport identity, task, contract, accounting, interventions) no longer
+  match. The record is retired and AutoResolver asks again for the current frontier
+  (``retired``); nothing launches.
 - hold: the stop needs authority information cannot supply (an exhausted bound or automatic
   recovery allowance, a repeated failure, an unreconciled attempt). The run stays paused, its
   stop_reason names the exact command, and later invocations repeat that decision without
@@ -308,8 +308,7 @@ def reevaluate(runner, state, run_dir, workspace, *, resume):
     if problem:
         record.update(status='stale', retired_at=util.now(), retired_reason=problem)
         runner.write_json(state_path, state)
-        return Outcome('stale', f"AutoResolver did not re-evaluate the information sent for request "
-                       f"{str(record.get('request_id'))[:12]}: {problem}. No provider launched for it.")
+        return Outcome('stale', retired(state) + ' No provider launched for it.')
     try:
         with runner.interventions.admission(run_dir):
             candidate = copy.deepcopy(state)
@@ -346,6 +345,19 @@ def reevaluate(runner, state, run_dir, workspace, *, resume):
     state.clear()
     state.update(candidate)
     return Outcome(action, message)
+
+
+def retired(state):
+    """Why the current review was retired as stale, or None.
+
+    autocode_run_actions asks again when the run still holds the answered frontier (only the records or
+    evidence the answer was bound to changed): holding on that consumed request would be #486 again.
+    """
+    record = _current_record(state)
+    if record is None or record.get('status') != 'stale':
+        return None
+    return (f"AutoResolver did not re-evaluate the information sent for request "
+            f"{str(record.get('request_id'))[:12]}: {record.get('retired_reason')}.")
 
 
 def projection(state):
