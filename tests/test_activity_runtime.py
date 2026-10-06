@@ -316,6 +316,33 @@ class ActivityRuntimeTests(unittest.TestCase):
         self.assertEqual('PAUSED_INTERRUPTED', error.status)
         self.assertEqual((0, True), (active['exit_code'], active['interrupted']))
 
+    def test_a_first_signal_between_the_launch_and_the_wait_pauses_as_interrupted(self):
+        # The provider is running and the wait has not begun: its "started" line can block on a
+        # stalled stdout. Here the signal lands as the activity monitor is built.
+        class Child:
+            pid = 987654321
+            returncode = None
+
+            def __init__(child, command, **kwargs):
+                pass
+
+            def poll(child):
+                return child.returncode
+
+        @contextlib.contextmanager
+        def launch(*args, **kwargs):
+            with launcher(Child)(*args, **kwargs) as child:
+                yield child
+            child.returncode = -9  # the keeper stopped the provider the wait never reached
+
+        def monitor(*args, **kwargs):
+            raise KeyboardInterrupt('SIGHUP')
+        with patch.object(runner, 'ActivityMonitor', monitor):
+            error, active = self.interrupted_builder(launch)
+        self.assertEqual('PAUSED_INTERRUPTED', error.status)
+        self.assertEqual((-9, True), (active['exit_code'], active['interrupted']),
+                         'the exit code is collected once the keeper is discharged')
+
     def test_resume_with_max_idle_seconds_applies_to_the_next_launch(self):
         self.start_task()
         self.state['settings']['limits']['idle_timeout_seconds'] = 300

@@ -457,7 +457,7 @@ def run_role(
     record["context"] = state.pop("pending_context_metrics", {})
     job_source.capture(workspace, base, record, before)
     started = time.monotonic()
-    timed_out = False
+    timed_out, activity = False, None
     interrupted = False
     cleanup_error = None
     worker_path = run_dir / "active-processes.json"
@@ -511,33 +511,32 @@ def run_role(
                 raise  # before admission finished, nothing of this stage was saved
             raise support.Paused("PAUSED_INTERRUPTED", f"Provider launch interrupted by {str(error) or 'a signal'}; "
                                  "inspect saved artifacts before reconciliation") from error
-        print(f"{autocode_status.role_name(stage, state)}: started; model={model or 'default'}; log={events}", flush=True)
-        activity = ActivityMonitor(events, idle_seconds=idle_limit, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
-                                   idle_origin=idle_origin,
-                                   idle_hint=JOB_IDLE_LIMIT if stage in jobs.STAGES else CHANGE_IDLE_LIMIT)
-        activity_label = None
-        last_activity_print = 0
-        def activity_checkpoint(snapshot):
-            nonlocal activity_label, last_activity_print
-            record["activity"] = {**snapshot, "observed_at": now(),
-                                  "elapsed_seconds": round(time.monotonic() - started, 1),
-                                  "stage_limit_seconds": stage_timeout}
-            write_json(run_dir / "state.json", state)
-            label = (snapshot.get("activity"), snapshot.get("detail"))
-            current = time.monotonic()
-            if label != activity_label or current - last_activity_print >= 60:
-                stop = snapshot.get("timeout_reason") or (snapshot.get("detail") if snapshot.get("activity") == "stalled" else None)
-                print(f"{autocode_status.role_name(stage, state)}: {snapshot.get('activity', 'waiting_for_provider')}; model={model or 'default'}; "
-                      f"elapsed={record['activity']['elapsed_seconds']:g}s; "
-                      f"idle={snapshot.get('idle_seconds', 0):g}s/{idle_limit or 'off'}; "
-                      f"tool={snapshot.get('tool_elapsed_seconds', 0) or 0:g}s/{tool_timeout or 'off'}; "
-                      f"stage_limit={stage_timeout or 'off'}" + (f"; {stop}" if stop else ""), flush=True)
-                activity_label, last_activity_print = label, current
-        def checkpoint(owned):
-            record["processes"] = owned
-            write_json(worker_path, {"run_dir": str(run_dir), "pid": child.pid, "processes": owned})
-            write_json(run_dir / "state.json", state)
-        try:
+        try:  # from here the stage's one interrupt is a pause with its provider collected (#454)
+            print(f"{autocode_status.role_name(stage, state)}: started; model={model or 'default'}; log={events}", flush=True)
+            activity = ActivityMonitor(events, idle_seconds=idle_limit, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
+                                       idle_origin=idle_origin,
+                                       idle_hint=JOB_IDLE_LIMIT if stage in jobs.STAGES else CHANGE_IDLE_LIMIT)
+            activity_label, last_activity_print = None, 0
+            def activity_checkpoint(snapshot):
+                nonlocal activity_label, last_activity_print
+                record["activity"] = {**snapshot, "observed_at": now(),
+                                      "elapsed_seconds": round(time.monotonic() - started, 1),
+                                      "stage_limit_seconds": stage_timeout}
+                write_json(run_dir / "state.json", state)
+                label = (snapshot.get("activity"), snapshot.get("detail"))
+                current = time.monotonic()
+                if label != activity_label or current - last_activity_print >= 60:
+                    stop = snapshot.get("timeout_reason") or (snapshot.get("detail") if snapshot.get("activity") == "stalled" else None)
+                    print(f"{autocode_status.role_name(stage, state)}: {snapshot.get('activity', 'waiting_for_provider')}; model={model or 'default'}; "
+                          f"elapsed={record['activity']['elapsed_seconds']:g}s; "
+                          f"idle={snapshot.get('idle_seconds', 0):g}s/{idle_limit or 'off'}; "
+                          f"tool={snapshot.get('tool_elapsed_seconds', 0) or 0:g}s/{tool_timeout or 'off'}; "
+                          f"stage_limit={stage_timeout or 'off'}" + (f"; {stop}" if stop else ""), flush=True)
+                    activity_label, last_activity_print = label, current
+            def checkpoint(owned):
+                record["processes"] = owned
+                write_json(worker_path, {"run_dir": str(run_dir), "pid": child.pid, "processes": owned})
+                write_json(run_dir / "state.json", state)
             exit_code, timed_out = processes.wait_for_stage(
                 child, stage_timeout, checkpoint, activity=activity, activity_checkpoint=activity_checkpoint,
                 startup_grace=min(5, tool_timeout or 5))
@@ -567,6 +566,7 @@ def run_role(
         if interrupted:
             record['interrupted'] = True
             worker_path.unlink(missing_ok=True)  # wait_for_stage cleaned up before propagating the interrupt
+            exit_code = child.poll() if exit_code is None else exit_code  # one the wait never reached: its keeper stopped it
     record.update(finished_at=now(), exit_code=exit_code, duration_seconds=time.monotonic() - started,
                   metrics=support.event_metrics(events), timed_out=timed_out)
     if timed_out:
