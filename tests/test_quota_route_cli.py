@@ -29,8 +29,8 @@ class QuotaRouteCliTests(unittest.TestCase):
     saved = test_subprocess.SubprocessFlow.saved
     new_run_engine_args = ('--engine', 'codex')
 
-    def quota_stop(self, *flags, model='gpt-5.6-sol'):
-        self.env.update(AUTOCODE_FIXTURE_MODE='no-human', AUTOCODE_FIXTURE_QUOTA_STAGE='sol',
+    def quota_stop(self, *flags, model='gpt-5.6-sol', stage='sol'):
+        self.env.update(AUTOCODE_FIXTURE_MODE='no-human', AUTOCODE_FIXTURE_QUOTA_STAGE=stage,
                         AUTOCODE_FIXTURE_QUOTA_MODEL=model)
         self.launch(['Build greeting', '--chat', *flags], 2, answers='CLI\nyes\n')
         self.run_dir, state = self.saved()
@@ -206,6 +206,23 @@ class QuotaRouteCliTests(unittest.TestCase):
         result = self.launch([*self.args, '--answer', questions[0] + '=retry please'], 2)
         self.assertIn('Use --resolver-response for this operational request', result.stderr)
         self.assertEqual('gpt-5.6-sol', self.saved()[1]['settings']['roles']['sol']['model'])
+
+    def test_a_used_up_plan_sent_as_a_429_asks_for_a_model(self):
+        # Z.AI's used-up plan as OpenCode reported it live (2026-10-05): an HTTP 429 that never says
+        # "quota". It paused as a rate limit and the Completion Reviewer's model was never asked for.
+        self.env['AUTOCODE_FIXTURE_QUOTA_ERROR'] = json.dumps({'name': 'APIError', 'data': {
+            'message': 'Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-10-09 10:51:41',
+            'statusCode': 429, 'isRetryable': True}})
+        paused = self.quota_stop(stage='astra_review')
+        self.assertIn('--answer route-completion=MODEL', paused['stop_reason'])
+        need = self.view()['needs']
+        self.assertEqual(('route-completion', 'Completion Reviewer', 'quota', 'gpt-5.6-sol'),
+                         tuple(need['route'][key] for key in ('question_id', 'job', 'cause', 'stopped_model')))
+        self.assertEqual(['route-completion'], [question['id'] for question in need['questions']])
+        self.launch([*self.args, '--answer', 'route-completion=' + OTHER_MODEL], 0)
+        [assignment] = self.view()['route_assignments']
+        self.assertEqual(('completion', 'gpt-5.6-sol', OTHER_MODEL, 'PAUSED_BUDGET'),
+                         tuple(assignment[key] for key in ('role', 'from', 'to', 'pause_status')))
 
     def test_a_content_filter_refusal_names_the_model_and_continues_on_another(self):
         # The same Tester stop, refused by the provider's content filter on gpt-5.6-sol only.
