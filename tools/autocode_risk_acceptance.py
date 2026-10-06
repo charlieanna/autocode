@@ -19,7 +19,11 @@ PROTOCOLS = frozenset({'lease_queue_lifecycle_v1', 'transactional_outbox_lifecyc
 _HASH = re.compile(r'[0-9a-f]{64}\Z')
 _IDENTIFIER = re.compile(r'[A-Za-z][A-Za-z0-9_]*\Z')
 _MODULE = re.compile(r'[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*\Z')
-_CONSTRUCTOR = re.compile(r'\b(?P<name>[A-Z][A-Za-z0-9_]*)\s*\(\s*path\s*\)')
+# One storage-location argument, however it is named (#451: `LeaseQueue(db_path)` must not escape
+# the protocol); the worker always passes the database path positionally. Other one-argument calls
+# such as `ValueError(message)` are not constructors and never split a declaration.
+_CONSTRUCTOR = re.compile(r'\b(?P<name>[A-Z][A-Za-z0-9_]*)\s*\(\s*(?P<argument>[a-z_]*'
+                          r'(?:path|file|db|database|location|dsn|uri|url|dir|directory|sqlite)[a-z0-9_]*)\s*\)')
 _IMPORT = re.compile(r'\bfrom\s+(?P<module>[A-Za-z][A-Za-z0-9_.]*)\s+import\s+'
                      r'(?P<name>[A-Za-z][A-Za-z0-9_]*)(?:\s+as\s+(?P<alias>[A-Za-z][A-Za-z0-9_]*))?')
 _METHODS = {
@@ -120,6 +124,11 @@ def _has(text, pattern):
     return bool(re.search(pattern, text, re.I))
 
 
+def _clause(text, *patterns):
+    """Every pattern in one clause, in any order: word-order paraphrases keep one stated fact (#451)."""
+    return any(all(_has(clause, pattern) for pattern in patterns) for clause in re.split(r'[.;\n]', text))
+
+
 def _facts(text, protocol):
     """Finite positive syntax; missing semantics never become guessed expectations."""
     if protocol == 'lease_queue_lifecycle_v1':
@@ -134,7 +143,8 @@ def _facts(text, protocol):
                 and _has(text, r'ValueError.{0,80}?conflict.{0,80}?after\s+completion'),
             'claim_fields': _has(text, r'dict\s+with\s+id\s*,\s*payload\s*,\s*token\s*,\s*deadline'),
             'earliest_unfinished': _has(text, r'earliest(?:-enqueued)?\s+unfinished\s+job'),
-            'fresh_opaque_token': _has(text, r'token.{0,60}?fresh.{0,60}?opaque.{0,60}?every\s+claim'),
+            'fresh_opaque_token': _clause(text, r'\btokens?\b', r'\b(?:fresh|new|unique)\b',
+                                          r'\b(?:opaque|unguessable|random)\b', r'\b(?:every|each)\s+claim\b'),
             'exact_deadline': _has(text, r'including\s+exactly\s+at\s+its\s+deadline'),
             'unexpired_ack': _has(text, r'ack\s*\([^)]*\).{0,100}?True\s+only.{0,60}?current\s+unexpired\s+lease')
                 and _has(text, r'otherwise\s+False\s+with\s+no\s+effect'),
@@ -163,6 +173,48 @@ def _facts(text, protocol):
         'durable_reopen': _has(text, r'Reopening\s+a\s+store\s+preserves\s+orders\s+and\s+events'),
         'at_least_once_scope': _has(text, r'do\s+not\s+claim\s+exactly(?:-|\s)once\s+delivery'),
     }
+
+
+_FACT_WORDS = {
+    'sqlite_storage': 'SQLite storage', 'enqueue_api': 'enqueue(id, payload)', 'claim_api': 'claim(now, lease_seconds)',
+    'ack_api': 'ack(id, token, now)', 'nack_api': 'nack(id, token, now)', 'pending_api': 'pending()',
+    'enqueue_idempotency': 'enqueue returns True once, False for an identical replay, and raises ValueError for a '
+                           'conflicting payload even after completion',
+    'claim_fields': 'claim returns a dict with id, payload, token, deadline',
+    'earliest_unfinished': 'claim takes the earliest unfinished job',
+    'fresh_opaque_token': 'the token is fresh and opaque on every claim',
+    'exact_deadline': 'an expired lease is reclaimable including exactly at its deadline',
+    'unexpired_ack': 'ack returns True only for the current unexpired lease, otherwise False with no effect',
+    'nack_release': 'nack releases a current unexpired lease',
+    'pending_unfinished': 'pending() counts unfinished jobs',
+    'old_token_fencing': 'old tokens must never complete a reassigned job',
+    'durable_restart': 'the queue is durable and survives restart',
+    'injected_time': 'now is a caller-injected nonnegative integer and lease_seconds a positive integer',
+    'create_order_api': 'create_order(order_id, amount, key)', 'orders_api': 'orders()',
+    'pending_api_outbox': 'pending(limit)', 'publish_api': 'publish(sink, limit)',
+    'create_idempotency': 'create_order returns True on a new order and False for an identical idempotent replay',
+    'atomic_durable_event': 'create_order atomically commits exactly one durable event together with the order',
+    'positive_amount': 'amount is a positive integer',
+    'orders_shape': 'orders() returns a dict of order IDs to amounts',
+    'pending_order_fields': 'pending returns events in commit order with event_id (stable opaque string), order_id, amount',
+    'positive_limit': 'limit must be a positive integer',
+    'ack_after_callback': 'publish acknowledges only after each successful callback',
+    'stable_retry_event_id': 'a retry must use the same event_id',
+    'durable_reopen': 'reopening a store preserves orders and events',
+    'at_least_once_scope': 'do not claim exactly-once delivery',
+}
+
+
+def unsupported_reason(declaration):
+    """Why a recognized lifecycle API cannot be proven, and how a person can fix it (#451)."""
+    missing = [_FACT_WORDS.get('pending_api_outbox' if key == 'pending_api' and declaration['protocol'] != 'lease_queue_lifecycle_v1'
+                               else key, key) for key in declaration['missing']]
+    family = ('durable lease queue' if declaration['protocol'] == 'lease_queue_lifecycle_v1'
+              else 'transactional outbox')
+    return (f"The source-declared lifecycle API is unsupported: {declaration['constructor']}(...) reads as a {family}, "
+            f"but the request does not state: {'; '.join(missing)} ({', '.join(declaration['missing'])}). The runner "
+            "proves process-recovery promises only from what a person stated, so it cannot check this one. Restate the "
+            f"API with those facts in feedback that says it changes {declaration['constructor']}, or remove the promise.")
 
 
 def _constructor_import(text, constructor):
@@ -275,14 +327,16 @@ def bind(sources, proposals, *, public_targets, inactive=()):
     if not isinstance(proposals, list) or len(proposals) > 256:
         raise ValueError('Risk proposals need a bounded independent Reviewer list')
     selected = [_proposal(row) for row in proposals]
+    unsupported = [row for row in active.values() if not row['supported']]
+    if unsupported:
+        # Before the observation count: with or without a Reviewer row, the stop names the missing facts.
+        raise ValueError(unsupported_reason(unsupported[0]))
     ids = [row['declaration_id'] for row in selected]
     if len(ids) != len(set(ids)) or set(ids) != set(active):
         raise ValueError('Every original lifecycle risk declaration requires exactly one independent observation')
     observations = []
     for proposal in sorted(selected, key=lambda row: row['declaration_id']):
         declaration = active[proposal['declaration_id']]
-        if not declaration['supported']:
-            raise ValueError('The source-declared lifecycle API is unsupported: ' + ', '.join(declaration['missing']))
         if proposal['module'] not in declaration['allowed_modules']:
             raise ValueError('Risk target module is absent from the authenticated original public inventory or source import')
         observations.append(_observation(declaration, proposal))

@@ -1,6 +1,7 @@
 """Public completion requires current runner-owned process-recovery observations."""
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -29,8 +30,11 @@ class RiskCliTests(unittest.TestCase):
     def details(view):
         return {key: view.get(key) for key in ("status", "next_stage", "needs", "stop_reason")}
 
-    def start(self, scenario_id, *, planning=(), solution="reference", env=None):
+    def start(self, scenario_id, *, planning=(), solution="reference", env=None, reword=()):
         scenario = catalog.load(scenario_id)
+        for old, new in reword:  # a held-out paraphrase of the brief, told to AutoCode and the scripted planner alike
+            self.assertIn(old, scenario.brief)
+            scenario = dataclasses.replace(scenario, brief=scenario.brief.replace(old, new))
         project = without_maintenance(materialize(scenario.seed, self.root / "project"))
         flags, provider_env = fake_setup(scenario, self.root, scenario.dir / solution)
         environment = {**provider_env, "AUTOCODE_HOME": str(self.root / "registry"),
@@ -135,6 +139,70 @@ class RiskCliTests(unittest.TestCase):
     def test_exception_only_outbox_rollback_cannot_complete_after_restart(self):
         self.mutant_restart("ladder-19-transactional-outbox", "broken/ack-with-exception-rollback",
                             "Hard-kill lost the unacknowledged event", 3)
+
+    def test_failed_lifecycle_observation_reaches_the_builder_and_its_correction_completes(self):
+        # #451: the runner's failing observation is a finding the repair loop acts on, not a report
+        # repair. The scripted reviewers rework it and the second build applies the honest reference.
+        scenario = catalog.load("ladder-18-durable-lease-queue")
+        scenario, run, view = self.start("ladder-18-durable-lease-queue", solution="broken/process-local-tokens",
+                                         planning=("--no-adaptive-planning",),
+                                         env={"SCENARIO_FAKE_REWORK_SOLUTION": str(scenario.dir / "reference")})
+        self.assertEqual("TASK_COMPLETE", view["status"], self.details(view))
+        self.assertTrue(verdict.evaluate(scenario, run.workspace).passed)
+        state = json.loads((run.run_dir / "state.json").read_text())
+        builders = [row for row in state["stages"] if row.get("stage") == "terra" and not row.get("rejected")]
+        self.assertGreaterEqual(len(builders), 2, [row.get("stage") for row in state["stages"]])
+        runner = [row for row in state["findings_ledger"] if row["source"] == "runner"]
+        self.assertEqual(1, len(runner), state["findings_ledger"])
+        self.assertIn("Restart reused a lease token", runner[0]["finding"])
+        self.assertEqual("resolved", runner[0]["status"])
+        # The correction task the second Builder ran was assigned this finding.
+        self.assertEqual(builders[-1]["task_id"], runner[0]["assigned_task"], runner[0])
+        self.assertNotEqual(builders[0]["task_id"], builders[-1]["task_id"])
+        handoffs = [path.read_text() for path in run.run_dir.rglob("*") if path.is_file()
+                    and path.suffix in (".md", ".txt", ".json") and "actionable_findings" in path.read_text(errors="ignore")]
+        self.assertTrue(any("Restart reused a lease token" in text for text in handoffs))
+        self.assertFalse(any(row.get("stage") == "sol" and row.get("report_only") for row in state["stages"]))
+        receipt = view["evidence"]["check_replay"]["risk_acceptance"]
+        self.assertEqual("PASS", receipt["verdict"])
+        self.assertEqual(1, view["efficiency"]["delivery"]["verified_deliveries"])
+
+    def test_reworded_constructor_still_proves_lifecycle_and_an_uncorrected_mutant_stops_on_it(self):
+        # #451: with LeaseQueue(db_path) the token mutant used to reach TASK_COMPLETE with no lifecycle
+        # record. The scripted Builder reapplies the same mutant for the rework, so the finding stays open.
+        scenario, run, view = self.start("ladder-18-durable-lease-queue", solution="broken/process-local-tokens",
+                                         planning=("--no-adaptive-planning",),
+                                         reword=[("LeaseQueue(path)", "LeaseQueue(db_path)")])
+        self.assertNotEqual("TASK_COMPLETE", view["status"], self.details(view))
+        self.assertFalse(verdict.evaluate(scenario, run.workspace).passed)
+        state = json.loads((run.run_dir / "state.json").read_text())
+        observation = state["goal_contract"]["body"]["risk_acceptance"]["manifest"]["observations"][0]
+        self.assertEqual(("LeaseQueue", "LeaseQueue"), (observation["declaration"]["constructor"],
+                                                        observation["target"]["class_name"]))
+        runner = [row for row in view["evidence"]["findings"] if row["source"] == "runner"]
+        self.assertEqual(["open"], [row["status"] for row in runner], view["evidence"]["findings"])
+        self.assertIn("Restart reused a lease token", runner[0]["finding"])
+        self.assertEqual(0, view["efficiency"]["delivery"]["verified_deliveries"])
+
+    def test_held_out_paraphrase_of_the_honest_queue_brief_completes_with_proof(self):
+        # #451: rewording one promise used to mark the declaration unsupported, so the plan could
+        # never be approved and the honest reference never ran.
+        scenario, run, view = self.start("ladder-18-durable-lease-queue", planning=("--no-adaptive-planning",),
+                                         reword=[("LeaseQueue(path)", "LeaseQueue(db_path)"),
+                                                 ("token is fresh and opaque on every claim",
+                                                  "every claim issues a new unguessable token")])
+        self.assert_reference(scenario, run, view, "lease_queue_lifecycle_v1")
+        claims = view["evidence"]["unverified_risk_claims"]
+        self.assertEqual(["concurrency"], [row["kind"] for row in claims], claims)
+
+    def test_unsupported_lifecycle_wording_stops_before_builder_naming_the_missing_fact(self):
+        scenario, run, view = self.start("ladder-18-durable-lease-queue", planning=("--no-adaptive-planning",),
+                                         reword=[("token is fresh and opaque on every claim",
+                                                  "tokens identify claims")])
+        self.assertFalse(view["done"], self.details(view))
+        self.assertIn("does not state: the token is fresh and opaque on every claim", json.dumps(self.details(view)))
+        self.assertEqual((scenario.seed / "leasequeue/__init__.py").read_bytes(),
+                         (run.workspace / "leasequeue/__init__.py").read_bytes())
 
     def test_omitted_lifecycle_observation_stops_before_builder(self):
         scenario, run, view = self.start("ladder-18-durable-lease-queue",

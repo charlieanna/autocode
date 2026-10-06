@@ -19,6 +19,31 @@ _ROLES = {
     'lease_queue_lifecycle_v1': {'enqueue', 'claim', 'ack', 'nack', 'pending'},
     'transactional_outbox_lifecycle_v1': {'create_order', 'orders', 'pending', 'publish'},
 }
+# What each fixed protocol does, in words, for a repair to reproduce (autocode_risk_findings).
+# It restates the programs below; it is never executed or parsed.
+DESCRIPTIONS = {
+    'lease_queue_lifecycle_v1': (
+        'Three fresh Python interpreters open the class on one database file in turn. 1 holder: '
+        "enqueue('risk-job-a', 'risk-payload-a') and ('risk-job-b', 'risk-payload-b') return True, True; "
+        'claim(11, 7) returns risk-job-a with deadline 18; pending() is 2; then the process is killed '
+        "with SIGKILL. 2 reclaim: claim(18, 7) returns risk-job-a again with a different token and "
+        "deadline 25; ack and nack with the killed holder's token at now=18 both return False; pending() "
+        "is 2; replaying the enqueue returns False and a conflicting payload raises ValueError. 3 finish: "
+        'ack with the current token at now=19 returns True, then False; pending() is 1; claim(19, 7) '
+        "returns risk-job-b with deadline 26 and its ack at now=20 is True; pending() is 0; both enqueue "
+        'replays return False and a conflict raises ValueError.'),
+    'transactional_outbox_lifecycle_v1': (
+        'Three fresh Python interpreters open the class on one database file in turn. 1 seed: '
+        "create_order for ('risk-order-a', 37, 'risk-key-a'), ('risk-order-b', 59, 'risk-key-b') and "
+        "('risk-order-c', 83, 'risk-key-c') returns True each; an identical replay returns False and a "
+        'conflicting amount for the same key raises ValueError; orders() and pending(3) show three events. '
+        '2 publisher: publish(sink, 3); the sink records each event in an fsynced journal; the process is '
+        'killed with SIGKILL inside the second callback, after the sink accepted the event. 3 recover: '
+        'before any publish, pending(3) must still hold the second and third events with the same event_id '
+        'values and orders() is unchanged; publish(sink, 1), publish(sink, 2) and publish(sink, 1) '
+        'acknowledge 1, 1 and 0 events, so the sink sees the interrupted event again (at-least-once) and '
+        'then the third; pending(3) ends empty and order replays return False.'),
+}
 
 
 def _digest(value):

@@ -1,6 +1,7 @@
 import copy
 import hashlib
 import unittest
+from pathlib import Path
 
 import autocode_risk_acceptance as risk
 
@@ -117,6 +118,62 @@ class RiskAcceptanceTests(unittest.TestCase):
         self.assertIn('fresh_opaque_token', declarations[0]['missing'])
         with self.assertRaisesRegex(ValueError, 'unsupported'):
             risk.bind([source(changed)], [proposal(declarations[0])], public_targets=TARGETS)
+
+    def test_an_unsupported_declaration_names_the_missing_facts_with_or_without_a_reviewer_row(self):
+        # #451: a reworded brief used to stop on "requires exactly one independent observation"
+        # when the Reviewer left the unsupported row out, which named neither the gap nor the fix.
+        changed = QUEUE.replace('token is fresh and opaque on every claim', 'tokens identify claims')
+        declaration = risk.inventory([source(changed)], TARGETS)[0]
+        self.assertEqual(['fresh_opaque_token'], declaration['missing'])
+        for rows in ([], [proposal(declaration)]):
+            with self.subTest(rows=len(rows)), self.assertRaisesRegex(
+                    ValueError, r'unsupported: LeaseQueue\(\.\.\.\).*does not state: the token is fresh and opaque '
+                                r'on every claim \(fresh_opaque_token\).*feedback that says it changes LeaseQueue'):
+                risk.bind([source(changed)], rows, public_targets=TARGETS)
+
+    def test_held_out_paraphrases_of_the_catalog_briefs_keep_the_same_proof(self):
+        # #451: renaming LeaseQueue(path) to LeaseQueue(db_path) let the token mutant complete with no
+        # lifecycle proof. These rewordings never appear in a catalog brief; each must keep the same
+        # supported declaration, so the same fixed protocol runs.
+        catalog = Path(__file__).resolve().parents[1] / 'scenarios' / 'catalog'
+        queue = (catalog / 'ladder-18-durable-lease-queue' / 'brief.md').read_text()
+        outbox = (catalog / 'ladder-19-transactional-outbox' / 'brief.md').read_text()
+        cases = {
+            'queue db_path': (queue, [('LeaseQueue(path)', 'LeaseQueue(db_path)')]),
+            'queue database': (queue, [('LeaseQueue(path)', 'LeaseQueue( database )')]),
+            'queue token wording': (queue, [('token is fresh and opaque on every claim',
+                                             'every claim issues a new unguessable token')]),
+            'queue both': (queue, [('LeaseQueue(path)', 'LeaseQueue(filename)'),
+                                   ('token is fresh and opaque on every claim',
+                                    'each claim returns a unique random token')]),
+            'outbox sqlite_path': (outbox, [('Store(path)', 'Store(sqlite_path)')]),
+        }
+        for label, (brief, replacements) in cases.items():
+            with self.subTest(label):
+                original = risk.inventory([source(brief)], TARGETS)
+                text = brief
+                for old, new in replacements:
+                    self.assertIn(old, text)
+                    text = text.replace(old, new)
+                reworded = risk.inventory([source(text)], TARGETS)
+                self.assertEqual(1, len(original))
+                self.assertEqual(1, len(reworded))
+                self.assertTrue(reworded[0]['supported'], reworded[0]['missing'])
+                for key in ('protocol', 'class_name', 'constructor', 'methods', 'promises', 'allowed_modules'):
+                    self.assertEqual(original[0][key], reworded[0][key], key)
+                manifest = risk.bind([source(text)], [proposal(reworded[0])], public_targets=TARGETS)
+                self.assertEqual(original[0]['class_name'], manifest['observations'][0]['target']['class_name'])
+
+    def test_a_capitalized_call_without_a_lifecycle_family_declares_nothing(self):
+        for text in ('Path(root_dir) holds durable files that survive restart. Include tests.',
+                     'Build Counter(items) with durable restart semantics and a claim on correctness.'):
+            self.assertEqual(risk.inventory([source(text)], TARGETS), [])
+        # An exception call inside the API description neither declares nor truncates the queue.
+        text = QUEUE.replace('raises ValueError for a conflicting payload',
+                             'raises ValueError(message) for a conflicting payload')
+        rows = risk.inventory([source(text)], TARGETS)
+        self.assertEqual([('LeaseQueue', True, text)], [(row['class_name'], row['supported'], row['source_quote'])
+                                                        for row in rows])
 
     def test_module_binding_requires_original_target_and_human_import(self):
         text = 'from leasequeue import LeaseQueue\n' + QUEUE

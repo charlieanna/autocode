@@ -373,6 +373,55 @@ This replaces trust in the Tester's own session with a run the runner owns.
 It does not judge whether the checks test the right thing: that is still the
 Tester's and the Completion Reviewer's job.
 
+### Process-recovery proof for declared lifecycle APIs
+
+Exception tests are not process-death tests: a queue whose token counter lives in
+one process, or an outbox that restores a pending event only when a callback
+raises, passes its own tests and still loses work when a worker is killed. When a
+person's request declares one of two Python APIs, the runner runs its own fixed
+lifecycle observation of it (#451, `tools/autocode_risk_*.py`):
+
+- **What triggers it.** Only a person's words (the task, answers, feedback): a
+  constructor with one storage argument (`LeaseQueue(path)`, `Store(db_path)`)
+  followed by a lease-queue API (`enqueue`, `claim`, `ack`, `nack`, `pending`)
+  with durability or old-token wording, or a transactional-outbox API
+  (`create_order`, `orders`, `pending`, `publish`) with outbox or reopening
+  wording. Generic durability, concurrency, security or performance wording adds
+  no observation. The runner also needs every fact the protocol checks to be
+  stated (signatures, return values, the token and deadline rules, at-least-once
+  delivery). If one is missing the plan cannot be approved: the refusal names each
+  missing fact and asks for a restatement in feedback that says it changes that
+  API, because the runner never guesses an expected value.
+- **Binding.** The independent Plan Reviewer selects only the declaration, its
+  criteria and the original public module; the runner records it in
+  `goal_contract.body.risk_acceptance` with the public modules captured before the
+  Builder runs.
+- **What it does.** Three fresh interpreters on one database. The queue holder is
+  killed with SIGKILL after it claims; a new interpreter at the exact deadline must
+  get a new token, and the dead holder's token must not ack or nack; a third
+  finishes both jobs. The outbox publisher is killed inside a sink callback after
+  the sink durably accepted the event; a new interpreter must still see that event
+  pending under the same `event_id` and redeliver it (at least once, never claimed
+  exactly once). At most four owned workers, 30 seconds within the replay
+  allowance, bounded output; every worker is reaped.
+- **When.** With the Tester's PASS, in the same clean replay, limited to the
+  current task's criteria; a whole-product claim runs every observation. Completion
+  needs a current, pinned PASS (`evidence.check_replay.risk_acceptance`).
+- **When it fails.** That is a product defect, not a bad report, so the Tester's
+  report stands and the replay's verdict is `FAIL`. The runner opens a blocking
+  finding with source `runner` (`tools/autocode_risk_findings.py`) naming the
+  violated promise, what the protocol did and the pinned transcript. The
+  completion gate refuses while it is open; the Completion Reviewer and Resolver
+  see it in `open_findings`; a correction task assigns it to the Builder, whose
+  handoff lists it in `actionable_findings`. No report closes it: the runner does,
+  when its own observation passes on a later source. A repair that changes nothing
+  stops at the ordinary no-progress limit with the finding still open.
+
+Contention is not observed: both protocols run one worker at a time. The status
+view lists every durability or concurrency sentence in the request that no runner
+protocol proves under `evidence.unverified_risk_claims`
+(`tools/autocode_risk_disclosure.py`), so a PASS is never read as proof of them.
+
 For a human-review criterion, inspect the displayed validation and the actual artifact,
 then record your decision in chat or using the displayed artifact-specific token:
 
@@ -482,7 +531,10 @@ blocking) gets a stable ID derived from the reviewer and the finding text, the
 report that raised it, the task assigned to fix it, and the report that resolved
 it. Only the reviewer who raised a finding can close it, by submitting a newer
 report that no longer lists it; a finding reported again after a fix keeps its ID
-and counts the repeat. With milestone checkpoints, each finding also records the
+and counts the repeat. The runner raises findings of its own (source `runner`)
+when its lifecycle observation fails, and only the runner closes them, when that
+observation passes (see [Process-recovery proof](#process-recovery-proof-for-declared-lifecycle-apis)).
+With milestone checkpoints, each finding also records the
 milestone criteria it was raised under, and a report closes it only if that report
 reviewed all of those criteria. A validation of different work, or a report-only
 repair that reformats an earlier report, leaves the finding open and marks it as

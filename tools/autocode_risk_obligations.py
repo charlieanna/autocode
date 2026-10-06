@@ -88,9 +88,9 @@ def _amendments(state, changes, public_targets):
                 or order.get(old['source_id'], -1) >= order[source['id']]):
             raise ValueError('A risk observation replacement needs an actual human amendment to that exact public API')
         text = source['text']
-        invocation = old['constructor'] + '(path)'
+        invocation = re.search(r'\b' + re.escape(old['constructor']) + r'\s*\(\s*[a-z_][a-z0-9_]*\s*\)', text)  # any argument name
         if (not re.search(r'\b(?:replace|instead|change|revise)\b', text, re.I)
-                or not (old['source_quote'] in text or invocation in text or old['class_name'] in text)):
+                or not (old['source_quote'] in text or invocation or old['class_name'] in text)):
             raise ValueError('The saved human source does not explicitly replace this original lifecycle obligation')
         seen.add(old['id'])
         inactive.append(old['id'])

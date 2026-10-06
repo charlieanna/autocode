@@ -35,12 +35,19 @@ def rejection(state) -> str:
                     + "; ".join(inventory_blockers))
         missing = ", ".join(design_coverage.gaps(state)) or "changed or unbound design evidence"
         return f"{REFUSED}. Design coverage needs fresh independent evidence for: {missing}."
-    if not brief_evidence.ready(state, (state.get("validation") or {}).get("source_revision")):
-        return f"{REFUSED}. Original-brief output observations need fresh, intact runner proof for every declared format."
-    if not risk_evidence.ready(state, (state.get("validation") or {}).get("source_revision")):
-        return f"{REFUSED}. Source-declared lifecycle promises need fresh, intact runner process-recovery proof."
-    results = {row["id"]: row.get("status") for row in (state.get("validation") or {}).get("criterion_results", [])}
+    validation = state.get("validation") or {}
+    results = {row["id"]: row.get("status") for row in validation.get("criterion_results", [])}
     gaps = [row["id"] for row in state.get("acceptance_criteria", []) if results.get(row["id"]) != "PASS"]
+    # A failed validation never ran the runner's observations (#451): name its failed criteria first.
+    if not (gaps and validation.get("verdict") != "PASS"):
+        if not brief_evidence.ready(state, validation.get("source_revision")):
+            return f"{REFUSED}. Original-brief output observations need fresh, intact runner proof for every declared format."
+        if not risk_evidence.ready(state, validation.get("source_revision")):
+            reason = risk_evidence.failure_reason(state)
+            if reason:
+                return (f"{REFUSED}. The runner's process-recovery observation failed on this source: {reason}. "
+                        "The product needs correcting (REWORK), not another report.")
+            return f"{REFUSED}. Source-declared lifecycle promises need fresh, intact runner process-recovery proof."
     if not gaps:
         return REFUSED
     return (f"{REFUSED}. The latest validation has no passing result for {', '.join(gaps)}; completion needs one "

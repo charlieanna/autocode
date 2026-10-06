@@ -24,11 +24,11 @@ try:
     from .units import autoplanner as planning_unit, common as units_common
     from . import autocode_regression as regression, autocode_verify as verify, autocode_launch_inputs as launch_inputs, autocode_check_replay as check_replay, autocode_check_refs as check_refs
     from . import autocode_validation_rounds as validation_rounds, autocode_result_application as result_application
-    from . import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    from . import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations, autocode_risk_findings as risk_findings
 except ImportError:
     import autocode_regression as regression, autocode_verify as verify, autocode_launch_inputs as launch_inputs, autocode_check_replay as check_replay, autocode_check_refs as check_refs
     import autocode_validation_rounds as validation_rounds, autocode_result_application as result_application
-    import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
+    import autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations, autocode_risk_findings as risk_findings
     import autocode_support as support, autocode_completion as completion_gate, autocode_jobs as jobs
     import autocode_stuck_job as stuck, autocode_goals as goals, autocode_goal_lifecycle as lifecycle
     import autocode_planning_artifacts as planning_artifacts, autocode_planning_graph as planning_graph
@@ -583,7 +583,8 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
                                                    all_brief_observations=human_pending or brief_obligations.whole_product_claim(
                                                        state, value, progressive_context=replay_context),
                                                    all_risk_observations=human_pending or brief_obligations.whole_product_claim(
-                                                       state, value, progressive_context=replay_context))
+                                                       state, value, progressive_context=replay_context),
+                                                   keep_lifecycle_failure=stage == "sol")
                                   if value["verdict"] == "PASS" or human_pending or progressive_pass else None)
     efficiency.observe_replay(state, validation["check_replay"], attempt_id=record.get("events") or record["output"])
     validation["evidence_hashes"].update(check_replay.evidence_pins(validation["check_replay"]))
@@ -608,6 +609,8 @@ def apply_review_result(runtime, state, stage, value, record, workspace, run_dir
     else:
         state.update(validation=validation, unresolved_findings=value["findings"], next_stage="astra_review")
     findings_ledger.record_validation(state, value, record)
+    if stage == "sol":
+        risk_findings.reconcile(state, validation["check_replay"], record, saved=not correction_open)
     milestones.observe_validation(state, source_scope.snapshot(workspace, state, base_snapshot=support.snapshot))
     if modern:
         state["human_reviews"] = {}
@@ -850,7 +853,8 @@ def _apply_result(runtime, state, stage, value, record, workspace, run_dir):
                                                   product_findings=findings_ledger.blocking_entries(state))
             if modern and findings_ledger.blocking_entries(state):
                 raise support.Paused("PAUSED_COMPLETION_GATE", "Completion rejected: the findings ledger still lists "
-                                     "open blocking findings; resolve or retract each one with evidence")
+                                     "open blocking findings; resolve or retract each one with evidence: "
+                                     + risk_findings.blocking_summary(state))
             if modern and goals.missing_human_reviews(state):
                 raise support.Paused("PAUSED_COMPLETION_GATE", "Artifact review requires current passing independent evidence first")
             if not completion_gate.completion_ready(state, value, current):

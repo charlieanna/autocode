@@ -952,6 +952,36 @@ def risk_observations(data: dict) -> list[dict]:
     return result
 
 
+def runner_findings(data: dict) -> list[dict]:
+    """Open blocking findings the runner raised from its own failed lifecycle observation (#451).
+
+    The scripted Completion Reviewer and Resolver answer one with REWORK, as a reviewer reading it
+    would. SCENARIO_FAKE_REWORK_SOLUTION names a solution the Builder applies for that rework (for
+    example the honest reference after a mutant); without it the Builder reapplies the same files."""
+    return [row for row in data.get("open_findings") or [] if row.get("source") == "runner" and row.get("blocking")]
+
+
+def runner_rework(stage: str, data: dict, common: dict) -> dict:
+    task = data.get("current_task") or {}
+    approved = ((data.get("goal_contract") or {}).get("body") or {}).get("acceptance_criteria") or []
+    first = runner_findings(data)[0]
+    objective = "Correct the product so the runner's failed lifecycle observation passes: " + first["finding"][:300]
+    report = {**common, "status": "REWORK",
+              "acceptance_criteria": [{"id": row["id"], "criterion": row["criterion"], "status": "unverified",
+                                       "evidence": first["id"]} for row in approved],
+              "evidence": [first["id"]], "next_objective": objective, "blocker": "",
+              "plan": ["Reproduce the runner's observation", "Repair the implementation", "Rerun the checks"],
+              "affected_paths": list(task.get("affected_paths") or PATHS), "findings": [],
+              "finding_dispositions": [], "agreed_limitations": [],
+              "next_task": {"kind": "implement", "milestone_id": task.get("milestone_id", ""),
+                            "requirements": [requirements()[0]["text"]],
+                            "acceptance_criteria": list(task.get("acceptance_criteria") or [row["id"] for row in approved]),
+                            "validation_plan": [CHECK], "findings": []}}
+    if stage == "astra_resolve":
+        report["diagnosis"] = "The runner's lifecycle observation failed: " + first["finding"][:400]
+    return report
+
+
 def report_for(stage: str, data: dict) -> dict:
     if stage == 'requirements':
         requirements_body = contract()
@@ -1099,7 +1129,8 @@ def report_for(stage: str, data: dict) -> dict:
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(Path(CONFIG["reference"]) / rel, destination)
     elif stage == "terra":
-        shutil.copytree(CONFIG["reference"], Path.cwd(), dirs_exist_ok=True,
+        rework = os.environ.get("SCENARIO_FAKE_REWORK_SOLUTION") if runner_findings(data) else None
+        shutil.copytree(rework or CONFIG["reference"], Path.cwd(), dirs_exist_ok=True,
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     if stage == "terra":
         code = run_check()
@@ -1206,6 +1237,8 @@ def report_for(stage: str, data: dict) -> dict:
             report["next_task"] = {"kind": "none", "milestone_id": "", "requirements": [],
                                    "acceptance_criteria": [], "validation_plan": [], "findings": []}
         return report
+    if stage in ("astra_review", "astra_resolve") and runner_findings(data):
+        return runner_rework(stage, data, common)
     if stage in ("astra_review", "astra_plan", "astra_resolve"):
         # Echo the approved contract's criteria: the runner rejects a report that restates them
         # differently. A contract the fake did not plan (a bug-fix correction) has its own C1.

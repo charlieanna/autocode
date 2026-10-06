@@ -36,7 +36,8 @@ except ImportError:
     import autocode_review_gate as review_gate
     import autocode_report_findings as report_findings
 
-SOURCES = ("sol", "astra")
+# "runner": a failed runner lifecycle observation; only autocode_risk_findings opens or closes one.
+SOURCES = ("sol", "astra", "runner")
 SEVERITIES = ("critical", "high", "medium", "low")
 DISPOSITIONS = ("resolved", "retracted")
 

@@ -50,7 +50,8 @@ class RunViewTests(unittest.TestCase):
     def test_evidence_is_empty_before_planning(self):
         self.assertEqual({"outcome": None, "base_commit": None, "acceptance": [],
                           "validator_source_revision": None, "findings": [],
-                          "regression_proof": None, "test_cases": [], "check_replay": None},
+                          "regression_proof": None, "test_cases": [], "check_replay": None,
+                          "unverified_risk_claims": []},
                           run_view.evidence({"status": "RUNNING"}))
 
     def test_displayed_plan_preserves_structured_approval_fields_without_parsing_text(self):
@@ -210,7 +211,8 @@ class RunViewTests(unittest.TestCase):
                           {"id": "AC3", "criterion": "Ships it", "status": None, "evidence": None,
                            "validator_status": "NOT_VERIFIED", "human_reviewed": False}],
                          evidence["acceptance"])
-        self.assertEqual([{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo"}],
+        # source names who raised it (sol, astra or runner); this legacy row has none.
+        self.assertEqual([{"id": "F1", "status": "resolved", "severity": "minor", "finding": "Typo", "source": None}],
                          evidence["findings"])
         self.assertEqual({"verdict": "PASS", "fail_to_pass": ["test_dates"], "failures": [], "unverified": [],
                           "commands": {"suite": "pytest"}, "source_revision": "r9", "case_tests": None},
