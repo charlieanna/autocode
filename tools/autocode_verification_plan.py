@@ -13,10 +13,10 @@ import shlex
 
 try:
     from . import autocode_verification_expectations as expectations
-    from . import autocode_verification_schedule as schedule
+    from . import autocode_verification_schedule as schedule, autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
 except ImportError:
     import autocode_verification_expectations as expectations
-    import autocode_verification_schedule as schedule
+    import autocode_verification_schedule as schedule, autocode_brief_obligations as brief_obligations, autocode_risk_obligations as risk_obligations
 
 # Plain text (no backticks) is a command only when all of it is one: prose after a command makes the whole
 # method prose, left to the Validator. Live bugfix-trivial runs (Claude models, 2026-09-30) approved
@@ -151,7 +151,15 @@ def obligations(state, *, progressive_context=None):
         check["environment"] = "runner_clean_copy"
     recipe_complete = bool(checks) and all(check["commands"] and all(
         row["collector"] for row in check["collection_recipe"]) for check in checks)
-    return {"contract_hash": contract.get("hash"), "checks": checks,
+    original_brief = {"supported_syntax": "Explicit Python CLI one-per-line output format with successful exit",
+                      "inventory": brief_obligations.inventory(state),
+                      "protected_manifest": body.get(brief_obligations.KEY),
+                      "scope": "Current criterion slice during build; every observation on the current source before completion"}
+    lifecycle_risks = {"supported_protocols": "Source-declared Python lease fencing and transactional outbox recovery",
+                       "inventory": risk_obligations.inventory(state), "protected_manifest": body.get(risk_obligations.KEY),
+                       "scope": "Only disclosed API lifecycle promises; current slice then whole-product clean replay"}
+    return {"contract_hash": contract.get("hash"), "checks": checks, "original_brief": original_brief,
+            "lifecycle_risks": lifecycle_risks,
             "required_commands": approved_commands({**state, "current_task": task}, progressive_context=progressive_context),
             "required_commands_scope": "current_task",
             "phases": ["builder_feedback", "runner_regression", "independent_clean_replay",

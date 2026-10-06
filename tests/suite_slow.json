@@ -25,5 +25,7 @@
   "tests.test_verification_config": "74 s in CI (Ubuntu, 4 modules at a time), 2026-10-04",
   "tests.test_report_retry": "48 s locally (macOS, changed-file gate), 2026-10-05; public CLI recovery and rejection controls",
   "tests.test_lease_queue_oracle": "11.3 s in CI (Ubuntu, 4 modules at a time), 2026-10-05; #462's process-recovery controls spawn fresh interpreters",
-  "tests.test_no_progress_recovery": "216 s locally (macOS, one module at a time) for five tests, 550 s for eight on a loaded machine; each drives the real CLI through plan, hold and resume, 2026-10-05"
+  "tests.test_no_progress_recovery": "216 s locally (macOS, one module at a time) for five tests, 550 s for eight on a loaded machine; each drives the real CLI through plan, hold and resume, 2026-10-05",
+  "tests.test_brief_cli": "Public CLI original-brief controls: planning, approved build, tamper/source restart, both planning flows and negative reference; 2026-10-05",
+  "tests.test_risk_cli": "Public CLI lifecycle proof: independent hard-death references and self-consistent mutants, replay pins and restart; 2026-10-05"
 }

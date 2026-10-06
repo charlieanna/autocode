@@ -2421,9 +2421,10 @@ class AdaptiveCompletionTests(unittest.TestCase):
                 self.assertNotEqual(verdict.PASS, result["verdict"], result["summary"])
                 self.assertFalse(result["oracle_passed"])
 
-    def test_missing_literal_brackets_is_false_completion_despite_passing_delivered_tests(self):
+    def test_missing_literal_brackets_is_blocked_despite_passing_delivered_tests(self):
         result = self.run_fake("greenfield-todo-cli", solution="broken/unbracketed-status")
-        self.assertEqual(verdict.FALSE_COMPLETE, result["verdict"], result["summary"])
+        self.assertEqual(verdict.HONEST_BLOCKER, result["verdict"], result["summary"])
+        self.assertNotIn(result["runner_status"], verdict.COMPLETE_STATUSES)
         self.assertEqual({"add_then_list", "complete_marks_done", "ids_stable_across_restarts"},
                          {check["name"] for check in result["checks"] if not check["ok"]})
 

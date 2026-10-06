@@ -100,6 +100,7 @@ All commands take `--workspace WORKSPACE`; commands on an existing run add
 | Answer | `autocode --answer QUESTION_ID=TEXT --resolver-token TOKEN` (`--answer` repeatable) | 0 saved, 2 rejected |
 | Respond to an operational Resolver request | `autocode --resolver-request ID --resolver-token TOKEN --resolver-response provide_information --resolver-message TEXT` | 0 saved, 2 rejected |
 | Name the model a role stopped on quota or a content-filter refusal continues on | `autocode --answer route-ROLE=MODEL --resolver-token TOKEN`, then resume the pause | 0 saved, 2 rejected |
+| Name the model a stopped workflow job continues on (`retry_job` with `route`) | `autocode --answer route-ROLE=MODEL --job-retry-token TOKEN`, then retry the job with the new token | 0 saved, 2 rejected |
 | Approve the plan | `autocode --approve-goal TOKEN` | 0 saved, 2 rejected |
 | Approve a review | `autocode --approve-review CRITERION --review-token TOKEN` | 0 saved, 2 rejected |
 | Plan feedback | `autocode --feedback TEXT` | 0 saved, 2 rejected |
@@ -130,7 +131,10 @@ model question of a quota stop or a content-filter refusal (`needs.route`, see [
 `TaskRun.assign_model(role, model)` answers `route-ROLE` with a model a person
 named, updates a `--ROLE-model` in the client's `options`, and leaves the run
 paused for `resume_paused()`. A refused model raises and leaves the run paused
-with the question open.
+with the question open. At a stopped workflow job (`retry_job` with `route`, see
+[Failed workflow jobs](#failed-workflow-jobs)) the same call answers with the job's
+`job_retry_token` instead of a resolver token and leaves the run paused for
+`retry_job()` with the new token.
 Each answer consumes the Resolver request whose token it carries, and the
 questions still open come back under a new `resolver_token`, so a token read
 before an earlier answer is rejected. Without `resolver_token`,
@@ -348,7 +352,7 @@ run is waiting for:
 | `review` | a person to accept specific acceptance criteria | `criteria`, `token`, `question` | Approve a review, per criterion |
 | `planning_budget` | more plan-review calls | `reason` | Plan feedback, or `--planning-review-call-limit N` |
 | `recover_source` | an attempt without a saved original source identity | retained retry metadata, `recovery_hint`; `action` is null | Inspect the archive and current changes before a new run |
-| `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint` | Exact retry after restoring original source |
+| `retry_job` | inspection of a stopped workflow job | `job_retry_token`, `archive`, `write_diagnosis`, `recovery_hint`; `route` after quota or a content-filter refusal | Exact retry after restoring original source; with `route`, name another model first |
 | `resume` | a person to inspect a pause and resolve its cause | `reason` | Resume a pause, once resolved |
 | `continue` | nothing; the run can simply proceed | | Continue |
 
@@ -362,7 +366,9 @@ need also carries `route`: `question_id` (`route-ROLE`), `role`, `job`, `current
 `engine`, `cause` (`quota` or `content_filter`), `stopped_model` and, for a refusal,
 `candidates` (configured models that would pass the launch rules; advice only). Its
 question has no default and is never delegable; only a model a person names
-answers it (`--answer route-ROLE=MODEL`), and the run then needs a resume.
+answers it (`--answer route-ROLE=MODEL`), and the run then needs a resume. A
+stopped workflow job carries the same `route`, with the same fields, on its
+`retry_job` need ([Failed workflow jobs](#failed-workflow-jobs)).
 
 Approving a plan or a review is a real user decision. Automated callers should
 do it only when a person has delegated that decision to them, as the scenario
@@ -423,6 +429,37 @@ saved source, route and limits. The CLI equivalent is
 `--resume-paused --retry-failed-stage --job-retry-token TOKEN`. A plain resume
 keeps the pause. Stale source/configuration, a token for a different attempt,
 or unresolved restoration is rejected before any model request.
+
+A job stopped by its provider's content filter or on quota also carries
+`needs.route` (the shape of the `answer` need's `route`: `question_id`, `role`,
+`job`, `current_model`, `engine`, `cause`, `stopped_model`, and `candidates` for a
+refusal). The same model is likely to refuse again, so before retrying, a person
+can name another model: `run.assign_model(role, model)` answers
+`--answer route-ROLE=MODEL --job-retry-token TOKEN` with the view's token. A model the
+launch would refuse, or the refused model itself, raises and changes nothing. An
+accepted model is saved as a `route_assignment` and the need comes back with a new
+`job_retry_token`; the old one is rejected. Its `route` is asked again against the new
+configuration: `current_model` is the named model, and `candidates` never lists it
+(answering it again is refused). Then call
+`run.retry_job(view["needs"]["job_retry_token"])`. `assign_model` updates a
+`--ROLE-model` in the client's options, so the retry never passes the old model back;
+the CLI refuses a `--ROLE-model` change for the stopped role at this stop (it would
+make the exact retry stale), unless it puts back the model the retry is bound to.
+The answer carries no other setting: given with a limit or another role's model it
+is refused and nothing is saved, and the CLI refuses it next to
+`--resume-paused --retry-failed-stage` (the retry needs the new token). After a
+refusal, until a model is named, the need's `action` is that answer
+(`--answer route-ROLE=MODEL --job-retry-token TOKEN`) and the recovery card offers
+no `retry_job` action, since the exact retry would replay the refused model; the
+CLI still accepts the shown token. A quota stop keeps the retry in both, for once
+the quota resets. Once a model
+is named, `progress.needs_you` and the recovery card's `what_happened` ask only for
+the retry on it, and `action` and the card's `retry_job` carry that retry. The
+same holds when the job's uncertain attempt was set aside with `--abandon-stage`:
+the reason keeps the refusal or quota, the model and the provider's words. The Architect, Analyst
+and Investigator routes have no flag; only this answer moves them (an
+`--investigator-model` in the options pins the stuck-stage Investigator and is left
+as it is).
 
 A missing or corrupt capture file does not prevent retry if the current source
 exactly matches the identity saved before the attempt, including file modes and

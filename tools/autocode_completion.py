@@ -10,11 +10,11 @@ from pathlib import Path
 try:
     from .autocode_util import Paused, criteria_definition, file_hash
     from .autocode_progressive_completion import ready as progressive_ready
-    from . import autocode_design_coverage as design_coverage, autocode_protected_oracles as protected_oracles
+    from . import autocode_design_coverage as design_coverage, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence, autocode_risk_evidence as risk_evidence
 except ImportError:
     from autocode_util import Paused, criteria_definition, file_hash
     from autocode_progressive_completion import ready as progressive_ready
-    import autocode_design_coverage as design_coverage, autocode_protected_oracles as protected_oracles
+    import autocode_design_coverage as design_coverage, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence, autocode_risk_evidence as risk_evidence
 
 REFUSED = "Completion rejected: missing, stale, failed or unverified independent evidence"
 
@@ -33,6 +33,10 @@ def rejection(state) -> str:
                     + "; ".join(inventory_blockers))
         missing = ", ".join(design_coverage.gaps(state)) or "changed or unbound design evidence"
         return f"{REFUSED}. Design coverage needs fresh independent evidence for: {missing}."
+    if not brief_evidence.ready(state, (state.get("validation") or {}).get("source_revision")):
+        return f"{REFUSED}. Original-brief output observations need fresh, intact runner proof for every declared format."
+    if not risk_evidence.ready(state, (state.get("validation") or {}).get("source_revision")):
+        return f"{REFUSED}. Source-declared lifecycle promises need fresh, intact runner process-recovery proof."
     results = {row["id"]: row.get("status") for row in (state.get("validation") or {}).get("criterion_results", [])}
     gaps = [row["id"] for row in state.get("acceptance_criteria", []) if results.get(row["id"]) != "PASS"]
     if not gaps:
@@ -67,6 +71,10 @@ def completion_ready(state, decision, current, *, require_human_reviews=True, re
     # The final-audit self-check probe passes require_independent=False and must
     # not demand design_results from the builder's self-assessment.
     if require_independent and not protected_oracles.ready(state, current.get("revision")):
+        return False
+    if require_independent and not brief_evidence.ready(state, current.get("revision")):
+        return False
+    if require_independent and not risk_evidence.ready(state, current.get("revision")):
         return False
     if require_independent and not design_coverage.ready(state):
         return False

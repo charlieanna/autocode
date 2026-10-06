@@ -31,6 +31,7 @@ try:
     from . import autocode_registry as registry
     from . import autocode_regression as regression, autocode_verify as verify
     from . import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
+    from . import autocode_job_route as job_route
     from . import autocode_retired_token_budget as retired_token_budget
     from . import autocode_status_command as status_command
     from . import autocode_recovery_view as recovery_view
@@ -50,6 +51,7 @@ except ImportError:
     import autocode_registry as registry
     import autocode_regression as regression, autocode_verify as verify
     import autocode_resolver_human as resolver_human, autocode_quota_route as quota_route
+    import autocode_job_route as job_route
     import autocode_retired_token_budget as retired_token_budget
     import autocode_status_command as status_command
     import autocode_recovery_view as recovery_view
@@ -264,6 +266,8 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
         refusal = quota_route.resume_refusal(state, state["settings"], settings, failure_status=support.failure_status,
                                              abandoning=args.abandon_stage, origin=origin,
                                              questions=published.get('questions') if entry.get('status') == 'pending' else None)
+        # A stopped job's model answer changes only that model; nothing else is saved with it (#463).
+        refusal = refusal or job_route.settings_refusal(args, state, settings)
         if refusal:
             parser.error(refusal)
         paused_for = origin.get('pause_status')

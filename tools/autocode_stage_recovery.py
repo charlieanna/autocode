@@ -95,13 +95,17 @@ def _stopped_on_route(record):
         return False
 
 
-def abandon_stage(state, run_dir, workspace, selected):
-    """Explicitly discard an uncertain response, retaining its edits and evidence."""
+def abandon_stage(state, run_dir, workspace, selected, *, launch=None):
+    """Explicitly discard an uncertain response, retaining its edits and evidence.
+
+    ``launch`` is the runner: a workflow job set aside here that stopped on its model lists the
+    configured models its launch rules (``dispatch``, ``opencode``) let it take (#463).
+    """
     record = state.get("active_stage")
     if not record or selected != records.attempt_id(record):
         raise ValueError("--abandon-stage must match the active attempt_id shown by --status")
     records.assert_stage_stopped(record)
-    if job_failure.recover(records, state, run_dir, workspace, abandoned=True):
+    if job_failure.recover(records, state, run_dir, workspace, abandoned=True, launch=launch):
         return
     record["metrics"] = support.event_metrics(record["events"])
     records.account_stage(state, record)

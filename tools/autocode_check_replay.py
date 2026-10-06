@@ -29,11 +29,11 @@ import uuid
 
 try:
     from . import autocode_verification_plan as verification_plan, autocode_test_quality as test_quality
-    from . import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles
+    from . import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence, autocode_risk_evidence as risk_evidence
     from . import autocode_util as util, autocode_verification_schedule as schedule
 except ImportError:
     import autocode_verification_plan as verification_plan, autocode_test_quality as test_quality
-    import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles
+    import autocode_acceptance_policy as acceptance_policy, autocode_protected_oracles as protected_oracles, autocode_brief_evidence as brief_evidence, autocode_risk_evidence as risk_evidence
     import autocode_util as util, autocode_verification_schedule as schedule
 
 PASS, FAIL = "PASS", "FAIL"
@@ -83,11 +83,13 @@ def evidence_pins(result):
         receipt = row.get("scheduling") or {}
         if receipt.get("receipt") and receipt.get("receipt_sha256"):
             pins[receipt["receipt"]] = receipt["receipt_sha256"]
+    pins.update(brief_evidence.evidence_pins((result or {}).get("brief_acceptance")))
+    pins.update(risk_evidence.evidence_pins((result or {}).get("risk_acceptance")))
     return pins
 
 
 def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_SECONDS, approved_state=None,
-            required_commands=None, progressive_context=None, execution_identity=None) -> dict:
+            required_commands=None, progressive_context=None, execution_identity=None, all_brief_observations=False, all_risk_observations=False) -> dict:
     """Re-run each distinct check command; return the result or raise ValueError on the first that fails."""
     schedule.guard(Path(run_dir) / "check-replay" / "obligations")
     # Report stems repeat across iterations, repairs and retries of one attempt.
@@ -168,9 +170,15 @@ def replay(checks, workspace, run_dir, record, scratch_run, *, timeout=TIMEOUT_S
                              "error": receipt.get("error") or "", "tail": (receipt.get("tail") or "")[-TAIL_CHARS:]}
         rows.append({**seen[key], "reported_exit_code": check.get("exit_code"),
                      "evidence_ref": check.get("evidence_ref")})
+    brief = brief_evidence.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout,
+                                  source_revision=record.get("source_revision"), progressive_context=progressive_context,
+                                  all_observations=all_brief_observations)
+    risk = risk_evidence.replay(approved_state or {}, workspace, out, scratch_run, timeout=timeout,
+                               source_revision=record.get("source_revision"), progressive_context=progressive_context,
+                               all_observations=all_risk_observations)
     failed = [row for row in rows if row["error"] or row["timed_out"] or row["exit_code"] != 0]
     result = {"verdict": FAIL if failed else PASS, "checks": rows, "source_revision": record.get("source_revision"),
-              "protected_tests": protected, "timeout_seconds": timeout, "replayed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+              "protected_tests": protected, "brief_acceptance": brief, "risk_acceptance": risk, "timeout_seconds": timeout, "replayed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
     decisions = [row for row in seen.values() if row.get("scheduling")]
     result["scheduling"] = {
         "executed_count": sum(row["scheduling"]["action"] == "execute" for row in decisions),

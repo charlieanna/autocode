@@ -14,6 +14,17 @@ import autocode_support as support
 QUOTA = {"type": "error", "error": {"message": "subscription usage limit reached"}}
 CAPACITY = {"type": "error", "error": {"message": "Selected model is at capacity"}}
 RATE = {"type": "turn.failed", "error": {"message": "rate limit reached (429)"}}
+REFUSED = {"type": "error", "error": {"name": "ContentFilterError", "message": "blocked by the content filter"}}
+
+# Z.AI's used-up plan, as OpenCode 1.18.33 reported it live on 2026-10-05: an HTTP 429 that never says "quota".
+PLAN_LIMIT = {"type": "error", "error": {"name": "APIError", "data": {
+    "message": "Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-10-09 10:51:41",
+    "statusCode": 429, "isRetryable": True}}}
+
+
+def api_error(message, status=429):
+    return {"type": "error", "error": {"name": "APIError", "data": {
+        "message": message, "statusCode": status, "isRetryable": True}}}
 
 
 class QuotaRouteTests(unittest.TestCase):
@@ -67,6 +78,34 @@ class QuotaRouteTests(unittest.TestCase):
         for error in (CAPACITY, RATE, {"type": "error", "error": {"message": "401 unauthorized"}}):
             with self.subTest(error=error["error"]["message"]):
                 self.assertIsNone(self.stopped(self.state(error)))
+
+    def test_a_used_up_plan_sent_as_a_429_asks_for_the_completion_route(self):
+        state = self.state(PLAN_LIMIT, stage="astra_review", role="astra")
+        state["active_stage"]["route_role"] = "completion"
+        self.assertEqual("PAUSED_BUDGET", support.failure_status(state["active_stage"]["events"]))
+        asked = quota_route.question(state, self.stopped(state))
+        self.assertEqual("route-completion", asked["id"])
+        self.assertTrue(asked["question"].startswith("Completion Reviewer's quota is exhausted"))
+        # OpenCode's own events carry the session, so they go through its event normalization too.
+        for error in ({**PLAN_LIMIT, "sessionID": "ses_limit"}, api_error("Weekly limit reached, resets Oct 9"),
+                      api_error("Monthly limit exhausted"),
+                      api_error("The number of calls has reached the daily limit of your plan"),
+                      api_error("Your limit will reset at 2026-10-09 10:51:41")):
+            with self.subTest(error=error):
+                self.assertEqual("PAUSED_BUDGET", support.failure_status(self.state(error)["active_stage"]["events"]))
+
+    def test_an_ordinary_429_rate_limit_stays_a_rate_limit_and_asks_nothing(self):
+        for message in ("Rate limit reached for gpt-5.6-sol on tokens per min (TPM): Limit 30000, Used 29500, "
+                        "Requested 1200. Please try again in 1.4s.",
+                        "This request would exceed the rate limit for your organization of 50,000 input tokens "
+                        "per minute.",
+                        "High concurrency usage of this API, please reduce concurrency",
+                        "Rate limit exhausted; retry after 20s",
+                        "Your rate limit will reset at 2026-10-05 10:51:42"):
+            with self.subTest(message=message):
+                state = self.state(api_error(message))
+                self.assertEqual("PAUSED_RATE_LIMIT", support.failure_status(state["active_stage"]["events"]))
+                self.assertIsNone(self.stopped(state))
 
     def test_a_worker_run_or_an_unrouted_role_asks_nothing(self):
         worker = {**self.state(), "parent_run": "/parent"}
@@ -181,6 +220,181 @@ class QuotaRouteTests(unittest.TestCase):
         self.assertEqual("", view["needs"]["questions"][0]["proposed_default"])
         quota_route.assign(state, "sol", "gpt-6-luna", at="t", via="answer")
         self.assertEqual("gpt-6-luna", run_view.view(state)["route_assignments"][0]["to"])
+
+    def job_state(self, error=REFUSED, *, stage="review_change", role="sol", route_role=None,
+                  pause_status="PAUSED_CONTENT_FILTER", status="PAUSED_JOB_FAILURE"):
+        """A workflow job's attempt autocode_job_failure set aside: an archived row, no active_stage (#463)."""
+        state = self.state(error, stage=stage, role=role)
+        record = dict(state.pop("active_stage"), rejected=True, abandoned=False)
+        if route_role:
+            record["route_role"] = route_role
+            state["settings"]["roles"][route_role] = {"model": "gpt-6-astra"}
+        state.update(status=status, stages=[record, {"stage": "resolver", "runner_owned": True}],
+                     job_failure={"stage": stage, "attempt_id": "001/validator-01", "job_retry_token": "jr:t",
+                                  "pause_status": pause_status})
+        return state
+
+    def test_a_stopped_job_is_the_job_attempt_and_its_model_is_named_with_its_retry_token(self):
+        state = self.job_state()
+        attempt = self.stopped(state)
+        self.assertEqual({"kind": "job", "active": False, "role": "sol", "stage": "review_change",
+                          "attempt_id": "001/validator-01", "pause_status": "PAUSED_CONTENT_FILTER"},
+                         {key: attempt[key] for key in ("kind", "active", "role", "stage", "attempt_id", "pause_status")})
+        asked = quota_route.question(state, attempt)
+        self.assertEqual(("route-sol", "Code Reviewer", "content_filter"), (asked["id"], asked["job"], asked["cause"]))
+        advice = quota_route.advice(asked, attempt["attempt_id"], kind="job")
+        self.assertIn("--answer route-sol=MODEL --job-retry-token TOKEN, then retry the job with the new token: "
+                      "--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN", advice)
+        for refused in ("--abandon-stage", "--sol-model", "--resolver-token", "quota resets"):
+            self.assertNotIn(refused, advice)
+        quota = self.job_state(QUOTA, pause_status="PAUSED_BUDGET")
+        asked = quota_route.question(quota, self.stopped(quota))
+        self.assertIn("once the quota resets, retry it unchanged with --resume-paused --retry-failed-stage "
+                      "--job-retry-token TOKEN", quota_route.advice(asked, "001/validator-01", kind="job"))
+
+    def test_the_active_stage_comes_first_and_only_a_routed_job_pause_is_a_job_stop(self):
+        state = self.job_state()
+        state["active_stage"] = dict(state["stages"][0], stage="sol")
+        self.assertEqual("stage", self.stopped(state)["kind"])
+        failure = self.job_state()["job_failure"]
+        for change in ({"status": "RUNNING"}, {"job_failure": {**failure, "pause_status": None}},
+                       {"job_failure": {**failure, "attempt_id": "001/validator-02"}}):
+            with self.subTest(change=change):
+                self.assertIsNone(self.stopped({**self.job_state(), **change}))
+        abandoned = self.job_state(status="PAUSED_STAGE_ABANDONED")
+        abandoned["stages"][0]["abandoned"] = True
+        self.assertEqual("job", self.stopped(abandoned)["kind"])
+        # A copied parallel-worker row is not the run's own abandoned attempt.
+        plain = self.state()
+        record = dict(plain.pop("active_stage"), abandoned=True)
+        plain["stages"] = [record, {"stage": "terra", "role": "terra", "worker_attempt": "w", "events": record["events"]}]
+        self.assertEqual("abandoned", self.stopped(plain)["kind"])
+
+    def test_a_job_route_without_a_flag_is_routable_but_never_named_by_a_flag(self):
+        state = self.job_state(stage="investigate_bug", role="astra", route_role="investigator")
+        attempt = self.stopped(state)
+        self.assertEqual(("job", "investigator"), (attempt["kind"], attempt["role"]))
+        asked = quota_route.question(state, attempt)
+        self.assertEqual(("route-investigator", "Investigator"), (asked["id"], asked["job"]))
+        self.assertIs(asked, quota_route.asked_route([asked], "route-investigator"))
+        for kind in ("job", "stage"):
+            self.assertNotRegex(quota_route.advice(asked, "001/validator-01", kind=kind), r"--[a-z-]+-model")
+        # investigate_stuck rebuilds and releases its route on every launch: a model saved there would not stick.
+        self.assertIsNone(self.stopped(self.job_state(stage="investigate_stuck", role="astra",
+                                                      route_role="stuck_investigator")))
+
+    def test_a_model_flag_at_a_stopped_job_is_refused_and_never_recorded(self):
+        state = self.job_state()
+        previous = state["settings"]
+        changed = json.loads(json.dumps(previous))
+        changed["roles"]["sol"]["model"] = "gpt-6-luna"
+        for abandoning in (None, "001/validator-01"):
+            refusal = quota_route.resume_refusal(state, previous, changed, failure_status=support.failure_status,
+                                                 abandoning=abandoning)
+            self.assertIn("The Code Reviewer attempt that its provider's content filter refused was set aside for one "
+                          "exact retry bound to its configuration; --sol-model is not saved.", refusal)
+            self.assertIn("--answer route-sol=MODEL --job-retry-token TOKEN", refusal)
+            self.assertNotIn("--abandon-stage", refusal)
+        self.assertEqual([], quota_route.record_resume_change(state, previous, changed,
+                                                              failure_status=support.failure_status, at="t"))
+        other = json.loads(json.dumps(previous))
+        other["roles"]["terra"]["model"] = "gpt-6-nova"  # not the stopped job's route: the exact retry decides
+        self.assertIsNone(quota_route.resume_refusal(state, previous, other, failure_status=support.failure_status,
+                                                     abandoning=None))
+
+    def test_a_flag_that_puts_back_the_bound_model_is_saved_and_never_recorded(self):
+        # A route moved off the model the exact retry is bound to (a flag saved before #463) can be put back.
+        state = self.job_state()
+        state["job_failure"]["configuration"] = {"roles": {"sol": {"model": "gpt-5.6-sol"}}}
+        drifted = json.loads(json.dumps(state["settings"]))
+        drifted["roles"]["sol"]["model"] = "gpt-6-luna"
+        attempt = self.stopped({**state, "settings": drifted})
+        self.assertEqual((True, "gpt-5.6-sol"), (attempt["workflow_job"], attempt["bound_model"]))
+        back = json.loads(json.dumps(drifted))
+        back["roles"]["sol"]["model"] = "gpt-5.6-sol"
+        self.assertIsNone(quota_route.resume_refusal(state, drifted, back, failure_status=support.failure_status,
+                                                     abandoning=None))
+        self.assertEqual([], quota_route.record_resume_change(state, drifted, back,
+                                                              failure_status=support.failure_status, at="t"))
+        other = json.loads(json.dumps(drifted))
+        other["roles"]["sol"]["model"] = "gpt-6-nova"
+        self.assertIn("--sol-model is not saved", quota_route.resume_refusal(
+            state, drifted, other, failure_status=support.failure_status, abandoning=None))
+
+    def test_a_model_flag_while_a_workflow_job_is_uncertain_is_refused_even_when_setting_it_aside(self):
+        state = self.state(REFUSED, stage="review_change")
+        state["active_stage"]["job_configuration"] = {"roles": {"sol": {"model": "gpt-5.6-sol"}}}  # admit saved it
+        attempt = self.stopped(state)
+        self.assertEqual(("stage", True, "gpt-5.6-sol"), (attempt["kind"], attempt["workflow_job"], attempt["bound_model"]))
+        previous = state["settings"]
+        changed = json.loads(json.dumps(previous))
+        changed["roles"]["sol"]["model"] = "gpt-6-luna"
+        for abandoning in (None, "001/validator-01"):
+            with self.subTest(abandoning=abandoning):
+                refusal = quota_route.resume_refusal(state, previous, changed, failure_status=support.failure_status,
+                                                     abandoning=abandoning)
+                self.assertIn("The Code Reviewer attempt that its provider's content filter refused is a workflow job: "
+                              "setting it aside keeps one exact retry bound to the configuration it ran under, so "
+                              "--sol-model is not saved. Set it aside first with --abandon-stage 001/validator-01 alone.",
+                              refusal)
+                self.assertIn("--answer route-sol=MODEL --job-retry-token TOKEN", refusal)
+                self.assertNotRegex(refusal, r"--resume-paused --sol-model|--resolver-token")
+        self.assertEqual([], quota_route.record_resume_change(state, previous, changed,
+                                                              failure_status=support.failure_status, at="t"))
+        # A build stage keeps its rule: set aside in the same invocation, the flag is saved and recorded.
+        build = self.state(REFUSED)
+        self.assertFalse(self.stopped(build)["workflow_job"])
+        self.assertIsNone(quota_route.resume_refusal(build, build["settings"], changed,
+                                                     failure_status=support.failure_status,
+                                                     abandoning="001/validator-01"))
+
+    def routed_job(self, error=REFUSED, pause_status="PAUSED_CONTENT_FILTER"):
+        """A job stop as job_failure.recover saves it, its model question on the failure."""
+        state = self.job_state(error, pause_status=pause_status)
+        state["job_failure"].update(reason="r", archive="a", source_identity="s", write_diagnosis={}, unrestored=[],
+                                    route=quota_route.question(state, self.stopped(state)))
+        return state
+
+    def test_the_retry_job_need_carries_the_jobs_model_question(self):
+        state = self.routed_job()
+        view = run_view.view(state)
+        # The exact retry would replay the refused model: the next step names another one, and the card
+        # offers no retry until a person has. The token stays on the need (the CLI still accepts it).
+        self.assertEqual(("retry_job", "--answer route-sol=MODEL --job-retry-token TOKEN", "jr:t"),
+                         (view["needs"]["kind"], view["needs"]["action"], view["needs"]["job_retry_token"]))
+        self.assertEqual(["inspect", "feedback"], [row["kind"] for row in view["recovery"]["actions"]])
+        self.assertEqual({"question_id": "route-sol", "role": "sol", "job": "Code Reviewer",
+                          "current_model": "gpt-5.6-sol", "engine": "codex", "cause": "content_filter",
+                          "stopped_model": "gpt-5.6-sol"}, view["needs"]["route"])
+        self.assertIn("content filter refused the Code Reviewer's response on gpt-5.6-sol",
+                      view["recovery"]["what_happened"])
+        del state["job_failure"]["route"]
+        self.assertNotIn("route", run_view.view(state)["needs"])
+
+    def test_a_stopped_job_offers_its_exact_retry_after_a_model_is_named_or_a_quota_stop(self):
+        retry = "--resume-paused --retry-failed-stage --job-retry-token TOKEN"
+
+        def offered(state):
+            view = run_view.view(state)
+            return (view["needs"]["action"],
+                    [(row["kind"], row.get("job_retry_token")) for row in view["recovery"]["actions"]])
+
+        # Once a person named another model, the retry with the new token is the way on.
+        named = self.routed_job()
+        named["job_failure"].update(job_retry_token="jr:new", route_assignment={"role": "sol", "to": "gpt-6-luna"})
+        self.assertEqual((retry, [("inspect", None), ("retry_job", "jr:new"), ("feedback", None)]), offered(named))
+        # After a quota stop, the unchanged retry once the quota resets is one too.
+        quota = self.routed_job(QUOTA, "PAUSED_BUDGET")
+        self.assertEqual((retry, [("inspect", None), ("retry_job", "jr:t"), ("feedback", None)]), offered(quota))
+        # A refusal with no model question (the stuck-stage Investigator) keeps only its exact retry.
+        unrouted = self.routed_job()
+        del unrouted["job_failure"]["route"]
+        self.assertEqual((retry, [("inspect", None), ("retry_job", "jr:t"), ("feedback", None)]), offered(unrouted))
+        # Set aside by a person (PAUSED_STAGE_ABANDONED), a refusal still offers no retry and no resume.
+        abandoned = self.routed_job()
+        abandoned["status"] = "PAUSED_STAGE_ABANDONED"
+        self.assertEqual(("--answer route-sol=MODEL --job-retry-token TOKEN", [("inspect", None), ("feedback", None)]),
+                         offered(abandoned))
 
 
 if __name__ == "__main__":
