@@ -13,8 +13,9 @@ so a change between issue and answer makes the request stale and the answer is r
 and only a grant validated against its request lowers the count.
 
 The state keys:
-- automatic_recoveries_since_resume: int, recoveries spent since the run last resumed. A run saved
-  before the key existed counts the larger of its two older counters instead.
+- automatic_recoveries_since_resume: int, recoveries spent since the run last resumed. Without the
+  key (a run saved before it existed, or one that has spent nothing) the run counts the larger of its
+  two older counters instead, but never more no_progress_batches than the timeout recoveries it recorded.
 - consecutive_timeout_recoveries: int, timeout recoveries since the last saved stage
   (autocode_stage_recovery increments it).
 - recovery_grants: list of {at, actor, amount, request_id, previous_count, remaining_count}.
@@ -33,8 +34,11 @@ MAX_AUTOMATIC_RECOVERIES = 3
 
 def spent(state: dict) -> int:
     """The recoveries spent since the run last resumed. Writes nothing."""
-    return state.get("automatic_recoveries_since_resume",
-                     max(state.get("consecutive_timeout_recoveries", 0), state.get("no_progress_batches", 0)))
+    if "automatic_recoveries_since_resume" in state:
+        return state["automatic_recoveries_since_resume"]
+    # Builder batches without source changes also raise no_progress_batches; they spend no recovery (#511).
+    recorded = len(state.get("automatic_timeout_recoveries") or [])
+    return max(state.get("consecutive_timeout_recoveries", 0), min(state.get("no_progress_batches", 0), recorded))
 
 
 def count(state: dict) -> None:

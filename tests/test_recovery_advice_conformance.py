@@ -125,6 +125,23 @@ class RecoveryAdviceConformanceTests(unittest.TestCase):
             with self.subTest(flag=flag):
                 self.assertNotIn('requires', self.describe_rejection(flag))
 
+    def test_unchanged_builder_batches_are_not_an_exhausted_recovery_budget(self):
+        # #511: three Builder batches without source changes and no automatic recovery. The resume used to
+        # stop as "Automatic recovery budget exhausted ... after 0 recorded operational recoveries" and
+        # offer --grant-recovery; it must run the next stage instead.
+        self.run, stopped = self.base_checkpoint()
+        stopped.update(no_progress_batches=3)
+        stopped.pop('automatic_recoveries_since_resume', None)
+        runner.write_json(self.run / 'state.json', stopped)
+        self.launch(['--run-dir', str(self.run), '--resume-paused', '--no-chat'], 2)
+        _, state = self.saved()
+        self.assertGreater(len(state['stages']), len(stopped['stages']), 'the next stage must run')
+        # The fixture's Completion Reviewer quota stops it again: an honest stop that names no spent recovery.
+        self.assertEqual('PAUSED_BUDGET', self.paused_for(state))
+        self.assertNotIn('Automatic recovery budget exhausted', state['stop_reason'])
+        self.assertIn('no automatic operational recovery ran', state['stop_reason'])
+        self.assertNotIn('--grant-recovery', self.advertised_commands(state)[0])
+
     def resume(self, *flags):
         """Run --resume-paused with ``flags``; return (exit code, whether a provider launched, saved state)."""
         probe = self.root / f'launch-{len(list(self.root.glob("launch-*")))}.jsonl'

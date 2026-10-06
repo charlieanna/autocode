@@ -7,8 +7,17 @@ import autocode_recovery_accounting as accounting
 
 class SpentTests(unittest.TestCase):
     def test_a_run_saved_before_the_aggregate_counter_counts_its_larger_older_counter(self):
-        self.assertEqual(2, accounting.spent({"consecutive_timeout_recoveries": 1, "no_progress_batches": 2}))
+        self.assertEqual(2, accounting.spent({"consecutive_timeout_recoveries": 1, "no_progress_batches": 2,
+                                              "automatic_timeout_recoveries": [{}, {}]}))
         self.assertEqual(0, accounting.spent({}))
+
+    def test_builder_batches_without_source_changes_spend_no_recovery(self):
+        # #511: three unchanged Builder batches are not an exhausted recovery budget.
+        self.assertEqual(0, accounting.spent({"no_progress_batches": 3}))
+        # A permission retry never spends the budget either, though a Builder's raises no_progress_batches.
+        self.assertEqual(0, accounting.spent({"no_progress_batches": 3, "automatic_permission_recoveries": [{}] * 3}))
+        self.assertEqual(1, accounting.spent({"consecutive_timeout_recoveries": 1, "no_progress_batches": 3}))
+        self.assertEqual(2, accounting.spent({"no_progress_batches": 3, "automatic_timeout_recoveries": [{}, {}]}))
 
     def test_reading_writes_nothing(self):
         # An issued request binds these keys' raw values: a default written on read would make it stale.

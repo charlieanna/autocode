@@ -412,8 +412,11 @@ def record_operational_exhaustion(runner, state, run_dir, error, *, request=None
         'recovery_calls_used': state.get('planning', {}).get('recovery_review_calls_used', 0)})
     attempts = sum(len(state.get(name, [])) for name in ('automatic_timeout_recoveries', 'automatic_capacity_recoveries',
                                                        'automatic_permission_recoveries')) + sum(bool(r.get('startup_recovery')) for r in state.get('stages', []))
-    decision = (f'AutoResolver could not resolve {category} after {attempts} recorded operational recoveries. '
-                'Provide corrective information or leave the run paused.')
+    # Never "after 0 recoveries" (#511): with none recorded, say none ran.
+    decision = (f'AutoResolver could not resolve {category} after {attempts} recorded operational '
+                f'recover{"y" if attempts == 1 else "ies"}. ' if attempts else
+                f'AutoResolver could not resolve {category}; no automatic operational recovery ran. '
+                ) + 'Provide corrective information or leave the run paused.'
     options = ['Provide corrective information', 'Leave paused']
     count = (runner.recovery_count(state) if callable(getattr(runner, 'recovery_count', None))
              else attempts)

@@ -1,8 +1,11 @@
 """Issue #288: stop advice never names --grant-recovery unless the CLI will accept it."""
 import copy
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+import autocode_recovery_accounting as accounting
 import autocode_recovery_grants as grants
 import autocode_recovery_limits as limits
 import autocode_resolver_runtime as resolver_runtime
@@ -112,6 +115,9 @@ class AdviceMatchesEligibility(unittest.TestCase):
                         self.assertIn('--resolver-response', decision)
                 self.assertTrue(state['stop_reason'].startswith('budget spent.'), state['stop_reason'])
                 self.assertTrue(state['stop_reason'].endswith(decision), state['stop_reason'])
+                # #511: none of these runs recorded a recovery, so none is claimed.
+                self.assertIn('no automatic operational recovery ran', decision)
+                self.assertNotIn('recorded operational', decision)
                 # Whatever we just advertised, grant() agrees at this stop.
                 published = {'request_id': 'req-later', 'scope': 'operational_exhaustion'}
                 cause = pause_status
@@ -119,6 +125,35 @@ class AdviceMatchesEligibility(unittest.TestCase):
                     expect_grant,
                     grants.eligible(state, current_request=lambda s: published, count=count,
                                     maximum=3, issued=published, cause=cause))
+
+
+    def test_unchanged_builder_batches_are_not_a_spent_budget_to_grant(self):
+        # #511: three Builder batches without source changes and no recovery: no grant, and the
+        # request says no recovery ran rather than "after 0 recorded operational recoveries".
+        class Runner:
+            MAX_AUTOMATIC_RECOVERIES = 3
+            recovery_count = staticmethod(accounting.spent)
+
+        state = {'status': 'PAUSED_BUILDER_RETRY_LIMIT', 'workspace': '/tmp/unused-workspace',
+                 'next_stage': 'terra', 'settings': {'limits': {}}, 'no_progress_batches': 3, 'stages': []}
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        run = Path(temp.name)
+        with patch.object(resolver_runtime, '_operational_receipt', return_value='receipt-1'), \
+             patch.object(resolver_runtime.human, 'queue') as queue:
+            self.assertTrue(resolver_runtime.record_operational_exhaustion(
+                Runner, state, run,
+                support.Paused('PAUSED_BUILDER_RETRY_LIMIT', 'Builder retry allowance used for M1')))
+        decision = queue.call_args.kwargs['request']['decision_needed']
+        self.assertNotIn('--grant-recovery', decision)
+        self.assertIn('no automatic operational recovery ran', decision)
+        state['automatic_timeout_recoveries'] = [{}]
+        with patch.object(resolver_runtime, '_operational_receipt', return_value='receipt-2'), \
+             patch.object(resolver_runtime.human, 'queue') as queue:
+            resolver_runtime.record_operational_exhaustion(
+                Runner, state, run,
+                support.Paused('PAUSED_BUILDER_RETRY_LIMIT', 'Builder retry allowance used for M1'))
+        self.assertIn('after 1 recorded operational recovery.', queue.call_args.kwargs['request']['decision_needed'])
 
 
 class GrantStillAudited(unittest.TestCase):
