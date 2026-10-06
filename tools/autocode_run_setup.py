@@ -228,6 +228,9 @@ def load_locked(runner, args, parser, state, state_path, run_dir, workspace):
                 state['workflow']['then'] = planning.entry_stage(state)
             else:
                 state['next_stage'] = planning.entry_stage(state)
+        # Uncommitted files are original code for an in-place proof (#540). Resumed runs keep
+        # the snapshot from creation; capturing again would treat the Builder's edits as original.
+        regression.remember_launch_files(state, workspace, run_dir)
         runner.write_json(state_path, state)
     try:
         registry.register_run(workspace, run_dir, state)

@@ -28,6 +28,7 @@ try:
 except ImportError:
     import autocode_source_snapshot as source_snapshot
 
+import hashlib
 import json
 import os
 import re
@@ -112,13 +113,17 @@ def _git(cwd, *args, check=True):
     return result.stdout
 
 
-def _document_only_base(workspace, base):
+def _document_only_base(workspace, base, extra_paths=()):
     """Only an empty pinned tree or a regular non-executable root README.md.
 
     Source/test filename conventions cannot establish absence of existing
     behavior. Keep this positive documentation inventory deliberately narrow:
     unknown files, executable documents, links and submodules need preservation.
+    ``extra_paths`` are files the checkout already held (an in-place run's
+    uncommitted tree): any of them other than README.md is existing code.
     """
+    if any(path != "README.md" for path in extra_paths):
+        return False
     for entry in _git(workspace, "ls-tree", "-r", "-z", base).split("\0"):
         if not entry:
             continue
@@ -156,6 +161,128 @@ def changed_files(workspace, base, *, source_paths=()) -> dict[str, str]:
     return {path: status for path, status in sorted(changes.items()) if not _ignored(path)}
 
 
+def _safe_relative(path: str) -> bool:
+    pure = PurePosixPath(path)
+    return bool(path) and not pure.is_absolute() and ".." not in pure.parts
+
+
+def _worktree_token(path: Path):
+    """A content id for a regular file or symlink, or None when the path is absent."""
+    if path.is_symlink():
+        return "symlink:" + os.readlink(path)
+    if path.is_file():
+        return "file:" + util.file_hash(path)
+    return None
+
+
+def _committed_token(workspace, base, path):
+    listed = _git(workspace, "ls-tree", base, "--", path, check=False)
+    if not listed.strip():
+        return None
+    mode = listed.split()[0]
+    if mode not in ("100644", "100755", "120000"):
+        return None
+    raw = subprocess.run(["git", "-C", str(workspace), "show", f"{base}:{path}"], capture_output=True)
+    if raw.returncode:
+        return None
+    if mode == "120000":
+        return "symlink:" + raw.stdout.decode()
+    return "file:" + hashlib.sha256(raw.stdout).hexdigest()
+
+
+def _original_text(workspace, base, path, launch):
+    """File text at the start of the run: the launch snapshot when it has one, else ``base``."""
+    if launch:
+        root, files = launch
+        kind = files.get(path)
+        if kind == "deleted":
+            return ""
+        if kind in ("added", "modified"):
+            return _read(Path(root) / path)
+    return _git(workspace, "show", f"{base}:{path}", check=False)
+
+
+def capture_launch_overlay(workspace, destination) -> dict:
+    """Copy the checkout's uncommitted files. Does not change HEAD, the index, or the working tree.
+
+    The returned record is ``{"root": <directory name>, "files": {path: added|modified|deleted}}``.
+    Added and modified bytes live under ``destination``. Ignored files are left out. A later
+    proof treats this snapshot as the original code (#540).
+    """
+    destination = Path(destination)
+    if destination.exists():
+        raise FileExistsError(f"launch snapshot already exists: {destination}")
+    files: dict[str, str] = {}
+    head = subprocess.run(["git", "-C", str(workspace), "rev-parse", "--verify", "HEAD"],
+                          capture_output=True, text=True)
+    if head.returncode == 0:
+        tokens = _git(workspace, "diff", "--name-status", "-z", "--no-renames", "HEAD", "--").split("\0")
+        for status, path in zip(tokens[0::2], tokens[1::2]):
+            if path and _safe_relative(path) and not _ignored(path):
+                files[path] = {"A": "added", "D": "deleted"}.get(status[:1], "modified")
+    for path in _git(workspace, "ls-files", "--others", "--exclude-standard", "-z").split("\0"):
+        if path and _safe_relative(path) and not _ignored(path):
+            files[path] = "added"
+    destination.mkdir(parents=True)
+    try:
+        for path, kind in list(files.items()):
+            if kind == "deleted":
+                continue
+            source = Path(workspace) / path
+            if not (source.is_symlink() or source.is_file()):
+                del files[path]
+                continue
+            target = destination / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if source.is_symlink():
+                target.symlink_to(os.readlink(source))
+            else:
+                shutil.copy2(source, target)
+    except BaseException:
+        shutil.rmtree(destination)
+        raise
+    return {"root": destination.name, "files": dict(sorted(files.items()))}
+
+
+def launch_digest(launch):
+    """Stable id of a launch snapshot, or None when the proof is not using one."""
+    if not launch:
+        return None
+    root, files = launch
+    rows = []
+    for path, status in sorted(files.items()):
+        if status == "deleted":
+            rows.append([path, "deleted"])
+        else:
+            rows.append([path, status, _worktree_token(Path(root) / path)])
+    return util.digest(rows)
+
+
+def changes_since(workspace, base, launch=None, *, source_paths=()):
+    """Paths the run changed. With a launch snapshot, files already present at start are the base."""
+    if not launch or not launch[1]:
+        return changed_files(workspace, base, source_paths=source_paths)
+    root, recorded = launch
+    current = changed_files(workspace, base, source_paths=source_paths)
+    changes = {}
+    for path in sorted(set(current) | set(recorded)):
+        if not _safe_relative(path) or _ignored(path):
+            continue
+        if path in recorded and recorded[path] == "deleted":
+            before = None
+        elif path in recorded:
+            before = _worktree_token(Path(root) / path)
+        else:
+            before = _committed_token(workspace, base, path)
+        after = _worktree_token(Path(workspace) / path)
+        if before == after:
+            if before is None and path in current and path not in recorded:
+                changes[path] = current[path]
+            continue
+        changes[path] = "deleted" if after is None else "added" if before is None else "modified"
+    return changes
+
+
 BINARY_LINES = 1000  # a binary change is never "tiny"
 
 
@@ -186,14 +313,14 @@ def diff_stats(workspace, base, changes) -> dict:
             "binary_files": sorted(binary), "non_code_files": sorted(p for p in changes if not is_code_path(p))}
 
 
-def removed_python_tests(workspace, base, changes) -> list[str]:
+def removed_python_tests(workspace, base, changes, launch=None) -> list[str]:
     """Names of ``def test*`` functions deleted from modified Python test files."""
     removed = []
     pattern = re.compile(r"^\s*(?:async\s+)?def\s+(test\w*)\s*\(", re.M)
     for path, status in changes.items():
         if not (path.endswith(".py") and is_test_path(path)) or status == "added":
             continue
-        before = set(pattern.findall(_git(workspace, "show", f"{base}:{path}", check=False)))
+        before = set(pattern.findall(_original_text(workspace, base, path, launch)))
         after_file = Path(workspace) / path
         after = set(pattern.findall(after_file.read_text(errors="replace"))) if after_file.is_file() else set()
         removed += [f"{path}::{name}" for name in sorted(before - after)]
@@ -616,11 +743,40 @@ def _clear(path):
         shutil.rmtree(path)
 
 
-def make_tree(repo, base, destination, overlay_root, changes, *, dependencies_from=None, patch=None):
+def _apply_overlay(destination, overlay_root, changes, *, require_sources=False):
+    """Copy ``changes`` from ``overlay_root`` onto a checked-out tree. Deletions first."""
+    ordered = sorted(changes.items(), key=lambda item: item[1] != "deleted")
+    for path, status in ordered:
+        target = destination / path
+        if status == "deleted":
+            if target.is_symlink() or target.is_file():
+                target.unlink()
+            continue
+        source = Path(overlay_root) / path
+        if require_sources and not (source.is_symlink() or source.is_file()):
+            raise ValueError(f"The record of files present when the run started is missing {path}")
+        for parent in reversed(target.relative_to(destination).parents[:-1]):
+            if (destination / parent).is_symlink() or (destination / parent).is_file():
+                (destination / parent).unlink()  # a file that became a directory
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _clear(target)  # includes a directory that became a file
+        if source.is_symlink():
+            target.symlink_to(os.readlink(source))
+        elif source.is_file():
+            shutil.copy2(source, target)
+
+
+def make_tree(repo, base, destination, overlay_root, changes, *, dependencies_from=None, patch=None,
+              launch=None):
     """A detached worktree of ``base`` with ``changes`` copied from ``overlay_root``.
 
     ``patch`` (a patch file) is applied to ``base`` before the changes are copied in: the
-    base a review follow-up is proven against is the change the review judged."""
+    base a review follow-up is proven against is the change the review judged.
+
+    ``launch`` is ``(root, files)`` for files the checkout already held when an in-place run
+    started. They are applied after the patch and before ``changes``, so the proof's original
+    code includes them and ``changes`` is only what the run itself did.
+    """
     destination = Path(destination)
     if destination.exists():
         remove_tree(repo, destination)
@@ -632,23 +788,9 @@ def make_tree(repo, base, destination, overlay_root, changes, *, dependencies_fr
                                      capture_output=True, text=True)
             if applied.returncode:
                 raise ValueError(f"git apply {patch} failed: {(applied.stderr or applied.stdout).strip()[-300:]}")
-        ordered = sorted(changes.items(), key=lambda item: item[1] != "deleted")  # deletions first
-        for path, status in ordered:
-            target = destination / path
-            if status == "deleted":
-                if target.is_symlink() or target.is_file():
-                    target.unlink()
-                continue
-            source = Path(overlay_root) / path
-            for parent in reversed(target.relative_to(destination).parents[:-1]):
-                if (destination / parent).is_symlink() or (destination / parent).is_file():
-                    (destination / parent).unlink()  # a file that became a directory
-            target.parent.mkdir(parents=True, exist_ok=True)
-            _clear(target)  # includes a directory that became a file
-            if source.is_symlink():
-                target.symlink_to(os.readlink(source))
-            elif source.is_file():
-                shutil.copy2(source, target)
+        if launch:
+            _apply_overlay(destination, launch[0], launch[1], require_sources=True)
+        _apply_overlay(destination, overlay_root, changes)
         link_dependencies(dependencies_from, destination)
         copy_vendored_dependencies(dependencies_from, destination)
         copy_generated_sources(dependencies_from, destination)
@@ -977,11 +1119,15 @@ def scratch_run(workspace, run_dir, *, patch=None, tests=(), command=None, timeo
 
 
 def baseline(workspace, base, run_dir, *, framework, suite_command, timeout=DEFAULT_TIMEOUT,
-             dependencies_from=None, base_patch=None) -> dict:
-    """Run the suite once on the pristine base revision, with ``base_patch`` applied (cached by the caller)."""
+             dependencies_from=None, base_patch=None, launch=None) -> dict:
+    """Run the suite once on the pristine base revision, with ``base_patch`` applied (cached by the caller).
+
+    ``launch`` restores files the checkout held when an in-place run started, so the base suite
+    runs those tests instead of the committed tree alone.
+    """
     evidence = Path(run_dir) / "baseline"
     tree = make_tree(workspace, base, Path(run_dir) / "scratch" / "baseline", workspace, {},
-                     dependencies_from=dependencies_from, patch=base_patch)
+                     dependencies_from=dependencies_from, patch=base_patch, launch=launch)
     try:
         receipt = run_suite(framework, suite_command, tree, evidence, "suite-on-base", timeout=timeout)
     finally:
@@ -1012,7 +1158,7 @@ def suite_health(receipt) -> str:
 def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regression_command=None,
            reported=None, base_suite=None, timeout=DEFAULT_TIMEOUT, dependencies_from=None,
            allow_no_test=False, new_behavior=False, preserve_only=False, base_patch=None, source_paths=(),
-           test_only_allowed=False) -> dict:
+           test_only_allowed=False, launch=None) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
@@ -1036,7 +1182,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     workspace, run_dir = Path(workspace), Path(run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     before = source_snapshot.snapshot(workspace, paths=source_paths)["revision"]
-    changes = changed_files(workspace, base, source_paths=source_paths)
+    changes = changes_since(workspace, base, launch, source_paths=source_paths)
     tests = [p for p in changes if is_test_path(p)]
     sources = [p for p in changes if not is_test_path(p)]
     preserve = preserve_only or (test_only_allowed and not sources)
@@ -1055,7 +1201,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     deleted = [p for p in tests if changes[p] == "deleted"]
     if deleted:
         fail.append("Existing test files were deleted: " + ", ".join(deleted))
-    removed = removed_python_tests(workspace, base, changes)
+    removed = removed_python_tests(workspace, base, changes, launch)
     if removed:
         fail.append("Existing tests were removed: " + ", ".join(removed[:20]))
     runnable_tests = [p for p in tests if changes[p] != "deleted"]
@@ -1072,11 +1218,11 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     try:
         if changes and (commands["regression"] or commands["suite"]):
             trees["candidate"] = make_tree(workspace, base, run_dir / "scratch" / "candidate", workspace, changes,
-                                           dependencies_from=dependencies_from)
+                                           dependencies_from=dependencies_from, launch=launch)
         if trees and runnable_tests and (sources or preserve):
             trees["base_with_tests"] = make_tree(workspace, base, run_dir / "scratch" / "base-with-tests",
                                                  workspace, test_changes, dependencies_from=dependencies_from,
-                                                 patch=base_patch)
+                                                 patch=base_patch, launch=launch)
         # Regression proof: identical tests, base source versus candidate source.
         if trees and runnable_tests and commands["regression"]:
             on_candidate = run_suite(framework, commands["regression"], trees["candidate"], run_dir,
@@ -1090,8 +1236,9 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
             _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, review_reasons,
                               new_behavior=new_behavior, preserve_only=preserve, known_failures=lambda: _pre_existing(
                                   framework, commands, changes, runnable_tests, workspace, base, run_dir, checks,
-                                  timeout=timeout, dependencies_from=dependencies_from, base_patch=base_patch),
-                              seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt))
+                                  timeout=timeout, dependencies_from=dependencies_from, base_patch=base_patch,
+                                  launch=launch),
+                              seam_names=lambda receipt: _seam_names(workspace, base, changes, receipt, launch))
         elif "base_with_tests" in trees and commands["suite"]:
             # No targeted command: the whole suite proves the flip when base was green.
             if base_suite is None or base_suite["health"] != "passing":
@@ -1119,7 +1266,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
             # behavior: empty collection can hide a filtered existing program.
             allow_empty_base = bool(new_behavior and not preserve and not base_patch
                                     and comparable and comparable.get("base") == base
-                                    and _document_only_base(workspace, base))
+                                    and _document_only_base(workspace, base, () if not launch else launch[1]))
             _judge_suite(on_candidate, comparable, fail, unverified, notes,
                          allow_empty_base=allow_empty_base)
         elif sources or preserve:
@@ -1277,7 +1424,7 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         unverified.append("The regression tests timed out on base; no complete fail-to-pass proof exists")
 
 
-def _seam_names(workspace, base, changes, receipt):
+def _seam_names(workspace, base, changes, receipt, launch=None):
     """Names the unfixed run reports missing that the candidate's source change adds and its tests use."""
     added, test_words = set(), set()
     for path, status in changes.items():
@@ -1288,13 +1435,13 @@ def _seam_names(workspace, base, changes, receipt):
         if is_test_path(path):
             test_words |= proof_seam.words(after)
         else:
-            before = "" if status == "added" else _git(workspace, "show", f"{base}:{path}", check=False)
+            before = "" if status == "added" else _original_text(workspace, base, path, launch)
             added |= proof_seam.added_names(path, before, after)
     return proof_seam.used(_read(receipt.get("output") or ""), added, test_words)
 
 
 def _pre_existing(framework, commands, changes, runnable_tests, workspace, base, run_dir, checks, *,
-                  timeout, dependencies_from, base_patch=None):
+                  timeout, dependencies_from, base_patch=None, launch=None):
     """Failures of the changed test files' base versions on the pristine base, by test id."""
     if not framework or not framework.per_test or not str(commands["regression_source"]).startswith("derived"):
         return None
@@ -1303,7 +1450,7 @@ def _pre_existing(framework, commands, changes, runnable_tests, workspace, base,
     if not command:
         return set()
     tree = make_tree(workspace, base, Path(run_dir) / "scratch" / "base", workspace, {},
-                     dependencies_from=dependencies_from, patch=base_patch)
+                     dependencies_from=dependencies_from, patch=base_patch, launch=launch)
     try:
         receipt = run_suite(framework, command, tree, run_dir, "regression-files-on-base", timeout=timeout)
     finally:

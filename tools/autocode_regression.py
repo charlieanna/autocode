@@ -165,6 +165,30 @@ def head(workspace):
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+def remember_launch_files(state, workspace, run_dir):
+    """Record uncommitted files when an in-place run is created.
+
+    Worktree runs start from a clean checkout (``project_workspace`` is set) and skip this.
+    Read by ``launch_overlay``. Does not change HEAD, the index, or the working tree.
+    The state key is ``launch_overlay``: ``{"root": "launch-overlay", "files": {path: status}}``.
+    """
+    if state.get("project_workspace") or "launch_overlay" in state:
+        return
+    state["launch_overlay"] = verify.capture_launch_overlay(workspace, Path(run_dir) / "launch-overlay")
+
+
+def launch_overlay(state, run_dir):
+    """``(snapshot_dir, files)`` for an in-place run that recorded its starting tree, else None."""
+    record = state.get("launch_overlay")
+    if not isinstance(record, dict) or state.get("project_workspace"):
+        return None
+    files = record.get("files")
+    if not isinstance(files, dict):
+        return None
+    root = Path(run_dir) / str(record.get("root") or "launch-overlay")
+    return root, {str(path): str(status) for path, status in files.items()}
+
+
 def settings(state):
     return state.get("settings", {}).get("regression") or {}
 
@@ -203,10 +227,12 @@ def reviewed_patch(state, workspace):
 def _baseline(state, workspace, run_dir, base, framework, suite, dependencies, base_patch=None, progress=None):
     cached = state.get("regression_baseline") or {}
     patch = str(base_patch) if base_patch else None
+    launch = launch_overlay(state, run_dir)
     binding = {"base": base, "command": suite,
                "framework": framework.to_dict() if framework else None,
                "base_patch": schedule.tree_identity(base_patch) if base_patch else None,
                "timeout": suite_timeout(state),
+               "launch": verify.launch_digest(launch),
                "runtime": verify.baseline_identity(workspace, command=suite, dependencies_from=dependencies)}
     if cached.get("binding") == binding and binding["runtime"].get("reuse_supported"):
         try:
@@ -225,7 +251,7 @@ def _baseline(state, workspace, run_dir, base, framework, suite, dependencies, b
                  output=directory / "baseline" / "suite-on-base.log")
     result = verify.baseline(workspace, base, directory, framework=framework,
                              suite_command=suite, dependencies_from=dependencies, timeout=suite_timeout(state),
-                             base_patch=base_patch)
+                             base_patch=base_patch, launch=launch)
     path = directory / "baseline.json"
     util.atomic_json(path, result)
     state["regression_baseline"] = {"base": base, "command": suite, "path": str(path), "health": result["health"],
@@ -248,6 +274,7 @@ def prove(state, workspace, run_dir):
               or options.get("python") or verify.python_for(state.get("project_workspace") or workspace))
     framework = framework or verify.detect_framework(workspace, python=python)
     base = base_commit(state, workspace)
+    launch = launch_overlay(state, run_dir)
     operator = operator_patch.pinned(state)
     # Stored only in regression_proof; prove reads it before reusing evidence.
     # A repaired test environment must invalidate a prior failure (or PASS)
@@ -263,6 +290,7 @@ def prove(state, workspace, run_dir):
                                                dependencies_from=state.get("project_workspace"), source_paths=source_scope.paths(state)) if base else
                     {"source_revision": current, "reuse_supported": False},
         "base": base,
+        "launch": verify.launch_digest(launch),
         "base_patch": schedule.tree_identity(reviewed_patch(state, workspace)) if reviewed_patch(state, workspace) else None,
         "operator_base_patch": {"pin": operator, "file": schedule.tree_identity(operator["path"])} if operator else None,
         "contract_identity": util.digest(state.get("goal_contract")), "cases_identity": util.digest(cases(state)),
@@ -338,7 +366,8 @@ def _prove(state, workspace, run_dir, current, scope, progress, framework, execu
                                timeout=suite_timeout(state),
                                new_behavior=goals.task_kind(state) != "bugfix",
                                preserve_only=coverage, test_only_allowed=test_only, base_patch=base_patch,
-                               source_paths=source_scope.paths(state))
+                               source_paths=source_scope.paths(state),
+                               launch=launch_overlay(state, run_dir))
         path = out / "verification.json"
         proof = {key: result.get(key) for key in SUMMARY_KEYS}
         if operator:
