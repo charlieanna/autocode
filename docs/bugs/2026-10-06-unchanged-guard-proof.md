@@ -28,15 +28,18 @@ already treats as coverage.
 
 - **Suite run.** The suite runs on the candidate tree (the unchanged source, when nothing changed),
   and its result is judged against the base suite as before.
-- **Proof lists.** `_held_guards` needs complete per-test results on both runs. It records three
-  lists:
+- **Proof lists.** `_suite_guards` (first `_held_guards`) needs complete per-test results on both
+  runs. It records three lists:
   - `fail_to_pass` as empty;
   - `pass_to_pass` as the tests that passed on base and on the candidate;
   - `failed_on_candidate` as the candidate's failures.
 - **Case checks.** `autocode_regression.check_cases` then needs each guard's named test in
-  `pass_to_pass`, as it does for a guard on a changed source. It also fails a guard when any test
-  named after it is in `failed_on_candidate`. That covers one failing variant of a parametrized
-  test, which the suite comparison only notes when it already failed on base.
+  `pass_to_pass`, as it does for a guard on a changed source. It also fails a guard when a variant
+  of a test matched to it is in `failed_on_candidate`: the same function in the same file or
+  module, run with other parameters, as a Go subtest, or by another class (a mixin). The suite
+  comparison only notes such a failure when it already failed on base. A failing test that only
+  shares the name, elsewhere, does not count
+  ([final check note](2026-10-06-final-check-proof-base.md)).
 - **Ignored test files.** A guard cannot rest on git-ignored test files that `make_tree` copies into
   both trees: when there are any, the proof is `UNVERIFIED`.
 

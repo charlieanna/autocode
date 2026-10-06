@@ -374,17 +374,33 @@ def milestone_task(milestone_id: str) -> dict:
             "contract_hash": (DATA.get("goal_contract") or {}).get("hash", "")}
 
 
+def first_test(paths: list[str]) -> str | None:
+    """The first test function in the solution's version of the Python test files among ``paths``."""
+    for path in paths:
+        source = Path(CONFIG["reference"]) / path
+        if Path(path).name.startswith("test_") and path.endswith(".py") and source.is_file():
+            found = re.search(r"^\s+def (test_\w+)\(", source.read_text(), re.M)
+            if found:
+                return found.group(1)
+    return None
+
+
 def verification_method(row: dict) -> str:
     """A milestone's check; a re-checked workstream whose files already conform guards its criteria with a
     test it already has, as a live Planner marked a skeleton's re-check (2026-10-06), so the runner's
     regression proof runs on an unchanged source."""
-    if milestone_task(row["id"])["kind"] == "validate":
-        for path in row["paths"]:
-            if Path(path).name.startswith("test_") and path.endswith(".py"):
-                found = re.search(r"^\s+def (test_\w+)\(", (Path(CONFIG["reference"]) / path).read_text(), re.M)
-                if found:
-                    return "guard: " + found.group(1)
-    return row["verify"]
+    test = first_test(row["paths"]) if milestone_task(row["id"])["kind"] == "validate" else None
+    return "guard: " + test if test else row["verify"]
+
+
+def integration_method(cid: str) -> str:
+    """The final check's mark for an inherited id, as its brief asks: the merged product already delivers it,
+    so it is a guard naming a test a merged workstream has (C_<id>), or the journey test the final check adds
+    without changing the product; the runner's regression proof then runs against the integration head."""
+    rows = {criterion_id(row["id"]): row for row in CONFIG.get("milestones") or []}
+    owned = [path for path in ALL_PATHS if not any(path in row["paths"] for row in rows.values())]
+    test = first_test(rows[cid]["paths"] if cid in rows else owned)
+    return "guard: " + test if test else CHECK
 
 
 def done_milestones(data: dict) -> set:
@@ -540,7 +556,8 @@ def contract(final: bool = False) -> dict:
         # scenario's check is the merged product's whole check.
         ids = WORKSTREAM["inherited"] or ["C1"]
         body["acceptance_criteria"] = [{"id": cid, "criterion": f"{cid} holds on the merged product",
-                                        "verification_method": CHECK, "human_review": False} for cid in ids]
+                                        "verification_method": integration_method(cid), "human_review": False}
+                                       for cid in ids]
         body["milestones"][0]["acceptance_criteria"] = ids
     if (DATA.get("bug_diagnosis") or {}).get("root_cause"):
         body["task_kind"] = "bugfix"  # planned from a bug diagnosis

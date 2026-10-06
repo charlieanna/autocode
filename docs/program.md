@@ -570,6 +570,18 @@ journey and every requirement a workstream other than a deployment workstream li
 journey's steps; for a simulated journey, the brief asks its evidence to say what the
 journey does not prove.
 
+Each new run of the final check is proven against the integration head it starts from:
+before it starts, the program writes that head as the `base_commit` of the integration
+worktree's `.autocode/task-workspace.json`, which the run reads once
+([bug note](bugs/2026-10-06-final-check-proof-base.md)). The program's own delivery checks
+keep the head the first run on its current record started from (a revision that retires the
+final check with a new worktree record, after an upstream re-check or once it merged, renews
+it), so after a retire in place they still cover commits made on the branch since. Since the
+merged product already delivers the
+criteria the final check inherits, its brief asks the plan to mark those `guard:`, naming
+the tests the merged workstreams already have, and `test:` only for an integration defect
+it repairs ([named test proof](named-test-proof.md)).
+
 When its run completes, the program reads each journey's result from the run's status
 view (`evidence.acceptance`, by journey id). If any journey is not verified, the final
 check is not committed or merged: the program pauses at `PAUSED_JOURNEY_UNVERIFIED` and
@@ -596,7 +608,10 @@ that statement from the agreement; it does not check what the child's evidence s
 The composed brief contains, in order:
 
 - `PROGRAM WORKSTREAM <id> (<kind>)` and the program name; for a re-check, the
-  `RE-CHECK:` line with the stale reason;
+  `RE-CHECK:` line with the stale reason, which asks for a validation-only task where the
+  files already conform and, when the run starts in a fresh worktree from the integration
+  head, for `guard:` marks on criteria the branch already satisfies (a run retired in place
+  is proven against its worktree's original commit, without its earlier work);
 - the program outcome and the approved agreement revision;
 - the shared constraints, permission boundaries and technical approach, and the whole
   product's end-to-end flow and deliverables, labelled as context: later workstreams build
@@ -623,7 +638,9 @@ The composed brief contains, in order:
   definitions when the agreement has requirements;
 - for the final check, each user journey's steps (and what a simulated journey does not
   prove);
-- the inherited requirement ids it must keep;
+- the inherited requirement ids it must keep; for the final check, that the merged
+  product already delivers them, so its plan marks them `guard:` and `test:` only for an
+  integration defect it repairs;
 - the exact paths it owns and the paths owned by others (the final check's
   cross-component repair exception instead), and that it must not deploy or reach
   external systems (deployment: only with permission in its own approved plan) and must

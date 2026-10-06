@@ -546,10 +546,14 @@ inherits, verified by `[fake] check`, delivering the solution files no milestone
 owns. A code workstream whose files already match the solution (a re-check after
 an agreement revision) plans a validate-only task, and marks its criteria
 `guard:` with a test the workstream already has, as a live Planner did, so the
-runner's regression proof runs on an unchanged source. That is the fake's choice, not
-the product's: a re-check planned as an implementation of a workstream that
+runner's regression proof runs on an unchanged source. That is the fake's choice, not the
+product's: a re-check planned as an implementation of a workstream that
 already conforms stalls the program, since its Builder has nothing to change
 ([docs/bugs/2026-10-06-program-recheck-implement-stall.md](../docs/bugs/2026-10-06-program-recheck-implement-stall.md)).
+The integration workstream marks each inherited id `guard:` as its brief asks, naming a
+merged workstream's test (or its own journey test) when the solution has one, else the
+scenario check, so its proof runs against the integration head and matches guards in files
+it leaves alone.
 The fake remembers each worktree's workstream beside its configuration, never
 in the worktree, for report repairs, whose packets carry no task.
 `tests/test_program.py` (`ScenarioFakeBriefTests`) runs the fake on real

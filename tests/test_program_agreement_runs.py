@@ -206,10 +206,70 @@ class AgreementTests(ProgramHarness):
         self.assertFalse(recheck["resume"])
         self.assertIn("RE-CHECK: agreement revision 2 changed", recheck["brief"])
         self.assertIn("plan a validation-only task (kind validate)", recheck["brief"])
+        # A fresh worktree from the integration head holds the earlier merge, so its proof base does too.
+        self.assertIn("Mark a criterion the code on this branch already satisfies guard:", recheck["brief"])
         self.assertIn("a answers within 100 ms", recheck["brief"])
         # A merged workstream is re-checked from the current integration head in a fresh worktree.
         self.assertNotEqual(self.launches_of("a")[0]["workspace"], recheck["workspace"])
         self.assertIn("b/service.py", recheck["files"])
+
+    def run_recording_final_check_bases(self, path):
+        """Run the program; return (code, result, [(base the new final-check run reads, worktree HEAD)])."""
+        self.approve(path)
+        seen = []
+
+        def recording(command, **kwargs):
+            if self.is_launch(command) and "--run-dir" not in command and "PROGRAM WORKSTREAM integration " in command[2]:
+                workspace = Path(command[command.index("--workspace") + 1])
+                meta = json.loads((workspace / ".autocode/task-workspace.json").read_text())
+                seen.append((meta["base_commit"], git(workspace, "rev-parse", "HEAD")))
+            return self.fake_run(command, **kwargs)
+
+        output = io.StringIO()
+        with self.scripted_invocations(recording), contextlib.redirect_stdout(output):
+            code = program.cli(["run", str(path), "--workspace", str(self.project), "--max-parallel", "2"])
+        return code, json.loads(output.getvalue()), seen
+
+    # A new run takes its regression-proof base from its worktree's task-workspace.json. The shared integration
+    # worktree was made from the seed, and a live final check proved the merged product against it (2026-10-06).
+    def test_each_new_final_check_run_starts_from_the_integration_head(self):
+        value = with_requirements(manifest())
+        path = self.write_manifest(value)
+        self.child_outcome["integration"] = "AWAITING_GOAL_APPROVAL"
+        code, result, seen = self.run_recording_final_check_bases(path)
+        self.assertEqual(1, len(seen), seen)
+        first_base, first_head = seen[0]
+        self.assertEqual(first_head, first_base)
+        self.assertNotEqual(self.head, first_base)  # every code workstream is merged on top of the seed
+        record = self.records(result)["integration"]
+        self.assertEqual(first_base, record["base_commit"])
+        self.assertIn("Proof marks: every code workstream is merged on this branch", self.launches_of("integration")[0]["brief"])
+        # Re-checking an upstream workstream retires the final check; its next run starts from the head after the
+        # re-check merges.
+        value["requirements"][1]["criterion"] = "a answers within 100 ms"
+        path.write_text(json.dumps(value))
+        self.child_extra_files["a"] = {"a/timing.txt": "100 ms\n"}
+        code, result, seen = self.run_recording_final_check_bases(path)
+        self.assertEqual(1, len(seen), seen)
+        second_base, second_head = seen[0]
+        self.assertEqual(second_head, second_base)
+        self.assertNotEqual(first_base, second_base)
+        self.assertIn("a/timing.txt", git(self.project, "ls-tree", "-r", "--name-only", second_base).splitlines())
+        # A revision of the final check alone retires its run in place; a commit made on the branch since moves
+        # the head, and the new run starts there while the program's own checks keep their earlier base.
+        workspace = Path(self.records(result)["integration"]["workspace"])
+        (workspace / "tests").mkdir(exist_ok=True)
+        (workspace / "tests" / "fixture.txt").write_text("kept\n")
+        git(workspace, "add", "tests/fixture.txt")
+        git(workspace, *program.GIT_IDENTITY, "commit", "-qm", "A person's fixture")
+        value["workstreams"][3]["brief"] = "Validate the whole flow twice"
+        path.write_text(json.dumps(value))
+        code, result, seen = self.run_recording_final_check_bases(path)
+        self.assertEqual(1, len(seen), seen)
+        third_base, third_head = seen[0]
+        self.assertEqual((third_head, git(workspace, "rev-parse", "HEAD")), (third_base, third_base))
+        self.assertNotEqual(second_base, third_base)
+        self.assertEqual(second_base, self.records(result)["integration"]["base_commit"])
 
     def test_a_workstream_waiting_for_approval_loses_it_when_its_part_of_the_agreement_changes(self):
         value = with_requirements(manifest())
@@ -225,6 +285,9 @@ class AgreementTests(ProgramHarness):
         second = self.launches_of("a")[1]
         self.assertFalse(second["resume"])  # the old plan's run is retired, never resumed
         self.assertEqual(first["workspace"], second["workspace"])
+        # Retired in place: its proof base is the worktree's original commit, without the earlier run's work.
+        self.assertIn("RE-CHECK:", second["brief"])
+        self.assertNotIn("guard:", second["brief"])
         self.assertEqual(first["run_dir"], self.records(result)["a"]["retired_runs"][0]["run_dir"])
 
     def test_an_interface_change_request_takes_approval_from_its_producer_and_users(self):

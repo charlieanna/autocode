@@ -1049,7 +1049,7 @@ def suite_health(receipt) -> str:
 def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regression_command=None,
            reported=None, base_suite=None, timeout=DEFAULT_TIMEOUT, dependencies_from=None,
            independent_dependencies=None, allow_no_test=False, new_behavior=False, preserve_only=False,
-           base_patch=None) -> dict:
+           base_patch=None, guards=()) -> dict:
     """Verify the candidate in ``workspace`` against ``base``; see module docstring.
 
     ``base_patch`` is a patch file applied to ``base`` wherever the proof runs "the original
@@ -1065,8 +1065,14 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
     be test files alone, and each new test must pass on the base and on the candidate. It
     may also change no test at all, when the tests the cases name already exist; the diff may
     then be empty (a validation-only re-check of a merged workstream). The suite runs on the
-    candidate, and its tests that pass there and on base are the ``pass_to_pass`` the cases
-    are matched against (_held_guards).
+    candidate (_suite_guards).
+
+    ``guards`` are the exact test names the plan's guards give. A guard may name a test the
+    project already had in a file the change leaves alone, which the targeted run never sees: the
+    whole suite then also runs on the base with the change's test files (base_with_tests), so each
+    test runs with the content the candidate has, and its tests that pass there and on the candidate
+    are kept as ``suite_pass_to_pass``, with the candidate's failures as ``failed_on_candidate``
+    (autocode_regression.check_cases decides which guard may use them).
 
     ``dependencies_from`` is the checkout make_tree copies dependencies and ignored code
     from. ``independent_dependencies=False`` says an earlier Builder of this run worked in
@@ -1109,7 +1115,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                               f"--{'regression' if kind == 'regression' else 'test'}-command to verify with "
                               "a command you trust")
 
-    trees = {}
+    trees, hidden = {}, []
     try:
         if (changes or existing_guards) and (commands["regression"] or commands["suite"]):
             trees["candidate"] = make_tree(workspace, base, run_dir / "scratch" / "candidate", workspace, changes,
@@ -1170,13 +1176,20 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                                                             independent=independent_dependencies))
             _judge_suite(on_candidate, comparable, fail, unverified, notes,
                          allow_empty_base=allow_empty_base)
-            if existing_guards:
-                hidden = [path for path in _generated_sources(dependencies_from) if is_test_path(path)]
-                if hidden:
-                    # make_tree copies them into both trees, so a guard could rest on a test base never held.
-                    unverified.append("Ignored test files are copied into the proof trees, so the guards cannot "
-                                      "be shown to rest on tests the base revision holds: " + ", ".join(hidden[:5]))
-                _held_guards(on_candidate, comparable, proof)
+            # make_tree copies ignored test files into both trees, so a guard could rest on a test base never held.
+            hidden = [path for path in _generated_sources(dependencies_from) if is_test_path(path)]
+            if hidden and existing_guards:
+                unverified.append("Ignored test files are copied into the proof trees, so the guards cannot "
+                                  "be shown to rest on tests the base revision holds: " + ", ".join(hidden[:5]))
+            with_tests = None
+            if guards and "base_with_tests" in trees and not hidden:
+                # Without a targeted command the whole suite already ran there (regression_on_base).
+                with_tests = (checks.get("regression_on_base") if not commands["regression"] else None) or \
+                    run_suite(framework, commands["suite"], trees["base_with_tests"], run_dir,
+                              "suite-on-base-with-tests", timeout=timeout)
+                checks.setdefault("regression_on_base" if not commands["regression"] else
+                                  "suite_on_base_with_tests", with_tests)
+            _suite_guards(on_candidate, comparable, proof, unchanged=existing_guards, with_tests=with_tests)
         elif sources or preserve_only:
             unverified.append("No project test command was found; existing behavior was not checked "
                               "(pass --test-command)")
@@ -1202,6 +1215,7 @@ def verify(workspace, base, run_dir, *, framework=None, suite_command=None, regr
                           "output": base_suite["receipt"]["output"]} if base_suite else None),
             "fail_to_pass": proof.get("fail_to_pass"), "pass_to_pass": proof.get("pass_to_pass"),
             "not_run_on_base": proof.get("not_run_on_base"), "failed_on_candidate": proof.get("failed_on_candidate"),
+            "suite_pass_to_pass": proof.get("suite_pass_to_pass"), "ignored_test_files": hidden,
             "checks": checks}
 
 
@@ -1310,20 +1324,31 @@ def _judge_regression(on_candidate, on_base, fail, unverified, notes, proof, rev
         unverified.append("The regression tests timed out on base; no complete fail-to-pass proof exists")
 
 
-def _held_guards(on_candidate, base_suite, proof):
-    """Guards proven by tests the source already had: the suite's tests that passed on base and on the candidate.
+def _suite_guards(on_candidate, base_suite, proof, *, unchanged, with_tests=None):
+    """What the whole suite shows about guards (preserve cases), with complete per-test results on both runs.
 
-    No test changed, so nothing can flip (``fail_to_pass`` is empty) and every test ran on base. The
-    candidate's failures are kept too (``failed_on_candidate``): a guard with a failing variant does not
-    hold, even when that variant already failed on base. Without complete per-test results on both runs
-    the lists stay unset, and the cases cannot be matched.
+    When no test changed (``unchanged``), nothing can flip and the base suite ran the same tests, so its
+    tests that pass on base and on the candidate are the proof's own ``pass_to_pass``. Otherwise
+    ``with_tests`` is the suite on the base with the change's test files: its tests that pass there and on
+    the candidate (``suite_pass_to_pass``) ran the same content on the original code and the change, which
+    the pristine base cannot show once a test, fixture or golden file changed. ``failed_on_candidate`` is
+    the candidate's failures: a guard with a failing variant does not hold, even when that variant already
+    failed on base.
     """
     candidate = on_candidate.get("results")
-    base = ((base_suite or {}).get("receipt") or {}).get("results")
-    if not (candidate and base and candidate.get("complete") and base.get("complete")):
+    if not (candidate and candidate.get("complete")):
         return
-    proof.update(fail_to_pass=[], pass_to_pass=sorted(set(base["passed"]) & set(candidate["passed"])),
-                 not_run_on_base=[], failed_on_candidate=sorted(candidate["failed"]))
+    if unchanged:
+        base = ((base_suite or {}).get("receipt") or {}).get("results")
+        if base and base.get("complete"):
+            passing = sorted(set(base["passed"]) & set(candidate["passed"]))
+            proof.update(fail_to_pass=[], pass_to_pass=passing, not_run_on_base=[], suite_pass_to_pass=passing,
+                         failed_on_candidate=sorted(candidate["failed"]))
+        return
+    before = (with_tests or {}).get("results")
+    if before and before.get("complete") and not with_tests.get("timed_out"):
+        proof.update(suite_pass_to_pass=sorted(set(before["passed"]) & set(candidate["passed"])),
+                     failed_on_candidate=sorted(candidate["failed"]))
 
 
 def _seam_names(workspace, base, changes, receipt):

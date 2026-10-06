@@ -469,7 +469,9 @@ def _criterion_line(cid, criterion):
     return f"- {cid}: {criterion.get('criterion', '')}" + (f" ({'; '.join(extra)})" if extra else "")
 
 
-def compose_brief(manifest, workstream, state):
+def compose_brief(manifest, workstream, state, *, from_head=False):
+    """The workstream's brief. ``from_head``: its new run is proven against the head it starts from (the final
+    check, or a fresh worktree), so code already on the branch is in its base and a re-check may guard it."""
     shared = manifest.get("shared", {})
     others = {row["id"]: row for row in manifest["workstreams"] if row["id"] != workstream["id"]}
     merged = [wid for wid, record in state["workstreams"].items() if record.get("status") == "MERGED" and wid in others]
@@ -479,7 +481,10 @@ def compose_brief(manifest, workstream, state):
         lines += [f"RE-CHECK: {record['stale_reason']}. An earlier plan for this workstream no longer applies: plan "
                   "against the agreement below, keep what still conforms, change what does not, and verify again. "
                   "Where the files already conform, plan a validation-only task (kind validate) that proves it, not "
-                  "an implementation with nothing to change.", ""]
+                  "an implementation with nothing to change." + (
+                      " Mark a criterion the code on this branch already satisfies guard:, naming the test that "
+                      "already proves it; keep test: for what this re-check adds or changes, since a test: "
+                      "criterion needs a change that makes its test pass." if from_head else ""), ""]
     lines += ["Program outcome: " + manifest["brief"].strip()]
     if state.get("agreement", {}).get("revision"):
         lines.append(f"Program agreement revision {state['agreement']['revision']}, approved by the user.")
@@ -555,6 +560,16 @@ def compose_brief(manifest, workstream, state):
     if inherited:
         lines += ["Inherited requirements: keep each as an acceptance criterion of your plan with exactly this id "
                   f"({', '.join(inherited)}). A plan that drops one is rejected by the program.", ""]
+    if workstream["kind"] == "integration":
+        # A live final check copied the parent's test: marks, which its regression proof cannot pass on a
+        # base that already delivers them (2026-10-06).
+        lines += ["Proof marks: every code workstream is merged on this branch, so the code this run starts from "
+                  "already delivers the criteria above, and their test: marks record how each workstream proved "
+                  "new behavior on its own base. In your plan, mark each criterion the merged product already "
+                  "satisfies guard:, naming the test a merged workstream already has, so the runner checks that it "
+                  "passes before and after your change; a journey test you add without changing the product is a "
+                  "guard: too. Keep test: for an integration defect you repair, whose test fails on this branch "
+                  "before your fix.", ""]
     if workstream["kind"] == "integration":
         lines += ["Ownership exception: you may repair integration defects across merged workstreams, "
                   "including tracked files outside your declared paths; do not expand the approved scope "
@@ -710,11 +725,19 @@ def launch(project, program_dir, manifest, workstream, record, state, options):
 
     Returns the child's status view after the invocation, or None when it cannot be read.
     """
+    from_head = workstream["kind"] == "integration"  # its new run's base is rewritten below
     if workstream["kind"] == "integration":
         workspace = Path(state["integration"]["workspace"])
         with STATE_LOCK:
             record.update(workspace=str(workspace), branch=state["integration"]["branch"])
             record.setdefault("base_commit", integration_head(state))
+            if not record.get("run_dir"):
+                # A new run takes its regression-proof base from the worktree's task-workspace.json
+                # (autocode_run_setup): the integration head it starts from, not the commit this shared
+                # worktree was made from. A live final check proved the merged product against the
+                # seed (2026-10-06). The program's own checks keep record["base_commit"].
+                util.atomic_json(workspaces.keep_out_of_git(workspace) / "task-workspace.json",
+                                 {**state["integration"], "base_commit": integration_head(state)})
     elif not record.get("workspace"):
         base = integration_head(state)
         suffix = uuid.uuid4().hex[:8]
@@ -722,14 +745,14 @@ def launch(project, program_dir, manifest, workstream, record, state, options):
                          f"autocode/program-{state['key']}/{workstream['id']}-{suffix}", base)
         with STATE_LOCK:
             record.update(workspace=data["workspace"], branch=data["branch"], base_commit=base)
-        workspace = Path(data["workspace"])
+        workspace, from_head = Path(data["workspace"]), True
     else:
         workspace = Path(record["workspace"])
     artifact = program_dir / workstream["id"]
     artifact.mkdir(parents=True, exist_ok=True)
     if not record.get("run_dir"):
         # brief.md is the brief that started the workstream's current run; resuming it leaves that alone.
-        brief = compose_brief(manifest, workstream, state)
+        brief = compose_brief(manifest, workstream, state, from_head=from_head)
         (artifact / "brief.md").write_text(brief + "\n")
     with STATE_LOCK:
         if not record.get("run_dir"):

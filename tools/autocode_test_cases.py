@@ -188,6 +188,17 @@ def _test_function(test_id: str) -> str:
     return tests[-1] if tests else (names[-1] if names else "")
 
 
+def function_name(test_id: str) -> str:
+    """The test's own function name inside a runner's id."""
+    return _test_function(test_id)
+
+
+def named_in(test_id: str, text: str) -> bool:
+    """Whether ``text`` (a file's source) names the test's own function."""
+    name = _test_function(test_id)
+    return bool(name) and re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", text) is not None
+
+
 def match_cases(cases: list[dict], test_ids: list[str], *, framework=None) -> dict[str, list[str]]:
     """Match an approved exact test name, or a diagnosis case's id-based test name."""
     matched = {}
