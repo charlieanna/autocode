@@ -108,6 +108,21 @@ class LaunchContainment(unittest.TestCase):
         self.assertIn(self.policy['scratch'], updated)
         self.assertNotIn('--output .autocode/evidence/<unique-name>.json', updated)
 
+    def test_every_capture_example_names_the_one_location_a_contained_stage_can_write(self):
+        # Live self-build 2026-10-06: a contained Validator's prompt named the run directory (COMMON) and the
+        # scratch (provider contract) for the same receipts; the sandbox lets it write only the scratch.
+        import autocode_check_replay as check_replay
+        import autocode_support as support
+        from providers import opencode
+        prompt = opencode.prompt_for_schema(support.COMMON + check_replay.VALIDATOR_NOTE + '\nCURRENT HANDOFF DATA\n'
+                                            + json.dumps({'workspace': str(self.root)}), {}, self.root / 'events.jsonl')
+        updated = launch.containment_prompt(prompt, {'tool_containment': self.policy})
+        instructions = updated.split('\nCURRENT HANDOFF DATA\n')[0]
+        scratch_example = '--output ' + self.policy['scratch'] + '/evidence-<unique-name>.json'
+        self.assertEqual(2, instructions.count(scratch_example))
+        self.assertEqual(2, instructions.count('<unique-name>.json'))
+        self.assertIn('replaces any other evidence or scratch directory named above', instructions)
+
     def test_changed_policy_is_a_prelaunch_hold_not_report_repair(self):
         with mock.patch.object(containment, 'verify', side_effect=RuntimeError('changed policy')):
             with self.assertRaises(util.Paused) as caught:

@@ -104,8 +104,11 @@ def containment_prompt(prompt, worker):
     policy = worker.get('tool_containment')
     if not policy:
         return prompt
-    prompt = prompt.replace('--output .autocode/evidence/<unique-name>.json',
-                            '--output ' + str(Path(policy['scratch']) / 'evidence-<unique-name>.json'))
+    # The kernel boundary lets the stage write only its scratch, so every capture example names it:
+    # the provider contract's and COMMON's alike, never a location the stage could not write.
+    for example in ('--output .autocode/evidence/<unique-name>.json',
+                    '--output <run-directory>/evidence/<unique-name>.json'):
+        prompt = prompt.replace(example, '--output ' + str(Path(policy['scratch']) / 'evidence-<unique-name>.json'))
     marker = '\nCURRENT HANDOFF DATA\n'
     before, separator, after = prompt.rpartition(marker)
     if not separator:
@@ -116,7 +119,9 @@ def containment_prompt(prompt, worker):
                    'Use only the shell tool and approved commands. Application files remain read-only '
                    'unless this stage is the Builder. Temporary test output and captured evidence must '
                    'go below tool_containment.scratch, never an external /tmp directory or another '
-                   'stage\'s state, events, or receipts. A denial is a blocker, not permission to bypass.\n')
+                   'stage\'s state, events, or receipts. It is the only place under .autocode/ this stage '
+                   'can write, so it replaces any other evidence or scratch directory named above. '
+                   'A denial is a blocker, not permission to bypass.\n')
     return before + instruction + marker + json.dumps(data, indent=2)
 
 
