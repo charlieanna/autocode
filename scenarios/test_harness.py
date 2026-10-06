@@ -1232,6 +1232,52 @@ class TurnTests(unittest.TestCase):
                 with self.subTest(name), self.assertRaisesRegex(ValueError, re.escape(error)):
                     catalog.load(name)
 
+    def test_no_turn_s_message_may_begin_another_s_even_without_turn_paths(self):
+        # The scripted model also serves per-turn reports (.fake-turns) by the message a task starts with.
+        with tempfile.TemporaryDirectory() as root:
+            bad = Path(root) / "bad"
+            bad.mkdir()
+            (bad / "brief.md").write_text("Do it.")
+            (bad / "scenario.toml").write_text('title = "t"\ncategory = "conversation"\n' + "".join(
+                f'[[turn]]\nafter = "complete"\nsay = "{say}"\n' for say in ("Go on.", "Go on. Now.")))
+            with patch.object(catalog, "CATALOG", Path(root)), \
+                    self.assertRaisesRegex(ValueError, "no turn's message may begin another's"):
+                catalog.load("bad")
+
+    def test_a_solution_s_scripted_turn_reports_are_never_part_of_the_project(self):
+        from harness.project import materialize, overlay_paths
+        with tempfile.TemporaryDirectory() as root:
+            solution = Path(root) / "solution"
+            (solution / ".fake-turns" / "0").mkdir(parents=True)
+            (solution / ".fake-turns" / "0" / "review_design.json").write_text("{}")
+            (solution / "review").mkdir()
+            (solution / "review" / "design-review.json").write_text("{}")
+            self.assertEqual(["review/design-review.json"], overlay_paths(solution))
+            project = materialize(Path(root) / "no-seed", Path(root) / "project", solution)
+            self.assertEqual(["review/design-review.json"], sorted(workspace_files(project)))
+
+    def test_each_turn_keeps_the_files_it_changed_as_it_left_them(self):
+        """A report revised in place by the next turn is still there, as each turn left it."""
+        with tempfile.TemporaryDirectory() as root:
+            project, out = Path(root) / "project", Path(root) / "out"
+            (project / ".autocode" / "runs" / "r1").mkdir(parents=True)
+            (project / ".autocode" / "runs" / "r1" / "state.json").write_text("{}")
+            out.mkdir()
+            driver = Driver(project, out, [], {}, autocode=[], max_steps=5, timeout_seconds=60)
+            reports = iter(["revision 1", "revision 2"])
+
+            def call(kind, *args, **kwargs):
+                (project / "review").mkdir(exist_ok=True)
+                (project / "review" / "design-review.json").write_text(next(reports))
+            done = {"done": True, "needs": {"kind": "none"}, "status": "TASK_COMPLETE"}
+            with patch.object(driver, "call", side_effect=call), patch.object(driver, "view", return_value=done):
+                driver.drive("Do it.", (catalog.Turn("complete", "Go on."),))
+                record = run.run_record(driver, {"stages": []})
+            self.assertEqual(["revision 1", "revision 2"],
+                             [(Path(turn["kept_files"]) / "review" / "design-review.json").read_text()
+                              for turn in record["turns"]])
+            self.assertEqual([["review/design-review.json"]] * 2, [turn["changed_files"] for turn in record["turns"]])
+
     def test_the_design_turn_may_also_add_its_design_to_the_folder_s_index(self):
         design_document = catalog.load("discuss-then-design-then-build").oracle().__globals__["design_document"]
         written = {"changed_files": ["docs/design/README.md", "docs/design/metadata-cache.md"]}
@@ -1501,6 +1547,25 @@ class FakeRunTests(unittest.TestCase):
         self.assertEqual(verdict.FALSE_COMPLETE, result["verdict"], result["summary"])
         failing = [check["name"] for check in result["checks"] if not check["ok"]]
         self.assertEqual(["design_turn_changed_only_its_report"], failing)
+
+    def test_a_design_review_is_revised_in_the_same_run_as_the_user_answers_it(self):
+        result = self.run_fake("reference", "design-review-with-answers")
+        self.assertEqual(verdict.PASS, result["verdict"], result["summary"])
+        self.assertEqual(["design"] * 3, [turn["workflow"] for turn in result["turns"]])
+        # Each reply runs the Architect again on the same review: nothing is built or gathered.
+        self.assertEqual([["recognize_workflow", "review_design"]] * 3,
+                         [turn["model_stage_names"] for turn in result["turns"]])
+
+    def test_a_revision_that_ignores_an_answer_or_renumbers_its_concerns_never_passes(self):
+        for solution, judged, failing in (
+                ("broken/answer-ignored", verdict.FALSE_COMPLETE, "ordering_blocking_after_first_answer"),
+                ("broken/still-blocking", verdict.FALSE_COMPLETE, "ordering_resolved_after_second_answer"),
+                # The runner refuses a revision that drops earlier ids, and its repairs, and stops.
+                ("broken/rewritten", verdict.HONEST_BLOCKER, "revised_not_rewritten")):
+            with self.subTest(solution):
+                result = self.run_fake(solution, "design-review-with-answers")
+                self.assertEqual(judged, result["verdict"], result["summary"])
+                self.assertIn(failing, [check["name"] for check in result["checks"] if not check["ok"]])
 
     def test_a_turn_after_a_stop_is_never_said_and_the_run_is_an_honest_blocker(self):
         # implement-design-conflict stops, as expected; a follow-up after its completion is never reached.

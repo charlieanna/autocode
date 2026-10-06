@@ -170,13 +170,14 @@ def load(scenario_id: str) -> Scenario:
                            for p in row) for row in turn_paths)):
         raise ValueError(f"{scenario_id}: [fake] turn_paths needs one list of relative path prefixes per turn, "
                          f"the brief included ({len(turns) + 1})")
-    # The scripted model tells turns apart by the message the handoff's task starts with, so a
-    # message may not begin another (an identical one does) or the brief, which is turn 0's task.
+    # The scripted model tells turns apart by the message the handoff's task starts with (it serves
+    # turn_paths and per-turn reports by it), so a message may not begin another (an identical one
+    # does) or the brief, which is turn 0's task.
     brief = (root / "brief.md").read_text().strip()
     says = [turn.say for turn in turns]
-    if turn_paths and (any(i != j and says[j].startswith(says[i]) for i in range(len(says)) for j in range(len(says)))
-                       or any(brief.startswith(say) for say in says)):
-        raise ValueError(f"{scenario_id}: with [fake] turn_paths no turn's message may begin another's or the brief")
+    if any(i != j and says[j].startswith(says[i]) for i in range(len(says)) for j in range(len(says))) \
+            or any(brief.startswith(say) for say in says):
+        raise ValueError(f"{scenario_id}: no turn's message may begin another's or the brief")
     return Scenario(
         id=scenario_id, dir=root, title=meta["title"], category=meta["category"],
         brief=brief, requires=tuple(meta.get("requires", ())),

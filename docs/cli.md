@@ -77,7 +77,7 @@ a new run instead; `autocode resume` never does.
 | `--answer 'Q1=…'` | Answer a question the run is waiting on (repeatable; the status view's `needs.kind` is `answer`). Requires the current `--resolver-token` shown by Resolver. A finished run waits on none: the questions in its report take `--follow-up` (see [Waiting or finished](#waiting-or-finished)). |
 | `--answer route-sol=MODEL` | At a quota stop (`PAUSED_BUDGET`) or a content-filter refusal (`PAUSED_CONTENT_FILTER`), name the model the stopped role continues on; the only operational question `--answer` takes. Requires the current `--resolver-token`. The model must suit the role's engine, be listed by OpenCode on OpenCode runs and keep the cross-model rule; otherwise the run stays paused with the question open. Sets the stopped attempt aside as `--abandon-stage` does and records a `route_assignment`; continue with `--resume-paused`. The resume-flag form is `--abandon-stage ATTEMPT`, then `--resume-paused --sol-model MODEL`. A stopped workflow job (`needs.kind` `retry_job` with `needs.route`) takes `--answer route-ROLE=MODEL --job-retry-token TOKEN` instead: no resolver token, no `--abandon-stage`, no `--ROLE-model` flag; it issues a new job retry token, so continue with `--resume-paused --retry-failed-stage --job-retry-token NEW_TOKEN` ([Waiting or finished](#waiting-or-finished)). See [Models](models.md#when-a-roles-quota-runs-out). |
 | `--feedback '…'` | Send a correction; returns to discovery and requires fresh approval. With `--adaptive-planning`, feedback on a plan shown for approval goes to the Planner, which revises it. |
-| `--follow-up '…'` | Say the next thing to a finished run ("Fix them." after a review): the run recognizes the new job and continues in the same run directory. Finished runs only (`TASK_COMPLETE`); any other run exits 2 unchanged. After a design turn, "Build it." builds that design as approved: it is checked against the code first (`check_design`). The message is saved as feedback that planning can cite for requested contract changes; the new plan still needs approval. |
+| `--follow-up '…'` | Say the next thing to a finished run ("Fix them." after a review): the run recognizes the new job and continues in the same run directory. Finished runs only (`TASK_COMPLETE`); any other run exits 2 unchanged. After a design review, the reply revises that review: the Architect keeps every concern under its id, keeps a settled one as resolved with what settled it, and adds the revision to `revisions` in `review/design-review.json` ([Replying to a design review](#replying-to-a-design-review)). After a design turn, "Build it." builds that design as approved: it is checked against the code first (`check_design`). The message is saved as feedback that planning can cite for requested contract changes; the new plan still needs approval. |
 | `--delegate Q1` | Accept a question's proposed default. Requires the current `--resolver-token` shown by Resolver. |
 | `--delegate-all --review-token 'r3:<hash>'` | Delegate every pending question marked `delegable` with a proposed default, on the exact displayed revision. Refuses the whole call if any question lacks a default, is not delegable, has a protected or missing category (cost, quota, permission, external side effect, requested outcome), or asks about a rejected assumption. Never approves; invalidates any existing approval. |
 | `--reject-assumption A1 --review-token 'r3:<hash>'` | Reject a structured assumption from the displayed requirements handoff (repeatable). A stale token, or a handoff refreshed since display, is refused. Never approves; invalidates any existing approval. |
@@ -117,6 +117,33 @@ the questions in its report with --follow-up TEXT", and `--feedback`, `--edit-go
 `--follow-up` is also refused when a run started after the latest finished one has not finished:
 the message lists that run, and the command that continues the finished one anyway. Through
 `TaskRun` these raise `TaskRunError`.
+
+#### Replying to a design review
+
+A design review never waits for its questions: the run completes with them in
+`review/design-review.json`, and you answer with `--follow-up` ("Ordering is per-domain."). The
+Architect is asked to keep a concern that is a problem only under one answer to its question
+advisory until you answer. A reply recognized as design makes the Architect revise the same
+review instead of writing a new one. It is asked to:
+
+- keep every earlier concern under its id, open or resolved, and to drop or renumber none;
+- keep a concern the reply settles with `status` `resolved` and a `resolution` saying what
+  settled it (an answer can also make a concern blocking), and to add a concern only for a
+  problem the reply exposes;
+- drop the questions the reply answered and keep the others under their ids.
+
+The runner refuses a revision that leaves out an earlier concern id, uses an id twice, resolves
+a concern without a resolution or resolves one raised in that revision, or whose verdict is not
+`request_changes` exactly when an open concern is blocking. A reply that names a different
+design gets a fresh review (revision 1); a reply asking for a new design hands it to the build
+pipeline, as a first request would.
+
+`revision` is the review's number, and `revisions` keeps one entry per review: the message that
+prompted it (`said`, null for the run's first review), its feedback receipt (`event_id`), the
+verdict, and the ids of its open blocking, open advisory and resolved concerns and of its
+questions. The report you reply to must be the one the Architect wrote: if
+`review/design-review.json` was edited since, `--follow-up` exits 2 with "changed since the
+Architect's review; restore it or start a new run".
 
 ### Execution and recovery
 

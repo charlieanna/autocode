@@ -20,6 +20,7 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
 
+import autocode_regression as regression  # noqa: E402
 import autocode_verify as verify  # noqa: E402
 import scenario_references as references  # noqa: E402
 import task_scenarios as scenarios  # noqa: E402
@@ -471,6 +472,107 @@ class VerifyCase(unittest.TestCase):
                 rejected = project.verify()
                 self.assertEqual(verify.FAIL, rejected['verdict'], rejected)
 
+    @staticmethod
+    def _narrowed_package_suite():
+        # Existing Node project whose suite is `npm test --silent`. The candidate
+        # breaks add() and narrows scripts.test so the old test never runs (#528).
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node --test"}}),
+            'calc.js': 'module.exports = {add: (a, b) => a + b};\n',
+            'test/calc.test.js': (
+                "const {test}=require('node:test');\n"
+                "const assert=require('node:assert/strict');\n"
+                "const {add}=require('../calc.js');\n"
+                "test('add',()=>assert.equal(add(2,3),5));\n"),
+        }
+        candidate = {
+            'calc.js': 'module.exports = {add: (a, b) => a - b, mul: (a, b) => a * b};\n',
+            'package.json': json.dumps({"scripts": {"test": "node --test test/feature.test.js"}}),
+            'test/feature.test.js': (
+                "const {test}=require('node:test');\n"
+                "const assert=require('node:assert/strict');\n"
+                "const {mul}=require('../calc.js');\n"
+                "test('mul',()=>assert.equal(mul(2,3),6));\n"),
+        }
+        return seed, candidate
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_narrowing_the_package_test_script_cannot_hide_a_break_from_the_suite(self):
+        seed, candidate = self._narrowed_package_suite()
+        project = self.project(seed)
+        project.write(candidate)
+        result = project.verify(new_behavior=True)
+        self.assertEqual('npm test --silent', result['commands']['suite'], result)
+        self.assertEqual(['test/feature.test.js::mul'], result['fail_to_pass'], result)
+        self.assertEqual(verify.UNVERIFIED, result['verdict'], result)
+        self.assertTrue(any('redefined' in reason for reason in result['unverified']), result)
+        self.assertEqual([], result['failures'], result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_the_same_break_without_narrowing_the_script_still_fails(self):
+        seed, candidate = self._narrowed_package_suite()
+        candidate = {**candidate, 'package.json': seed['package.json']}
+        project = self.project(seed)
+        project.write(candidate)
+        result = project.verify(new_behavior=True)
+        self.assertEqual(verify.FAIL, result['verdict'], result)
+        self.assertTrue(any('passes on base but fails on the candidate' in reason
+                            for reason in result['failures']), result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_a_package_json_change_that_leaves_scripts_alone_still_passes(self):
+        seed = {
+            'package.json': json.dumps({"scripts": {"test": "node --test"}}),
+            'calc.js': 'module.exports = {add: (a, b) => a + b};\n',
+            'test/calc.test.js': (
+                "const {test}=require('node:test');\n"
+                "const assert=require('node:assert/strict');\n"
+                "const {add}=require('../calc.js');\n"
+                "test('add',()=>assert.equal(add(2,3),5));\n"),
+        }
+        project = self.project(seed)
+        project.write({
+            'calc.js': 'module.exports = {add: (a, b) => a + b, mul: (a, b) => a * b};\n',
+            'package.json': json.dumps({
+                "scripts": {"test": "node --test"},
+                "dependencies": {"left-pad": "1.3.0"},
+            }),
+            'test/feature.test.js': (
+                "const {test}=require('node:test');\n"
+                "const assert=require('node:assert/strict');\n"
+                "const {mul}=require('../calc.js');\n"
+                "test('mul',()=>assert.equal(mul(2,3),6));\n"),
+        })
+        result = project.verify(new_behavior=True)
+        self.assertEqual(verify.PASS, result['verdict'], result)
+        self.assertFalse(any('redefined' in reason for reason in result['unverified']), result)
+        self.assertIn('test/feature.test.js::mul', result['fail_to_pass'], result)
+
+    @unittest.skipUnless(shutil.which('node') and shutil.which('npm'), 'Node and npm are required')
+    def test_a_first_node_project_defining_its_test_script_still_passes(self):
+        project = self.project({'README.md': 'A new project.\n'})
+        project.write({
+            'package.json': json.dumps({"scripts": {"test": "node --test"}}),
+            'calc.js': 'module.exports = {add: (a, b) => a + b};\n',
+            'test/calc.test.js': (
+                "const {test}=require('node:test');\n"
+                "const assert=require('node:assert/strict');\n"
+                "const {add}=require('../calc.js');\n"
+                "test('add',()=>assert.equal(add(2,3),5));\n"),
+        })
+        result = project.verify(new_behavior=True)
+        self.assertEqual('npm test --silent', result['commands']['suite'], result)
+        self.assertEqual(verify.PASS, result['verdict'], result)
+
+    def test_suite_package_script_names_the_script_an_npm_command_runs(self):
+        self.assertEqual('test', verify._suite_package_script('npm test --silent'))
+        self.assertEqual('test', verify._suite_package_script('yarn test'))
+        self.assertEqual('test', verify._suite_package_script('pnpm run test'))
+        self.assertEqual('test:unit', verify._suite_package_script('npm run test:unit'))
+        self.assertIsNone(verify._suite_package_script('node --test a.test.js'))
+        self.assertIsNone(verify._suite_package_script('npm test && echo done'))
+        self.assertIsNone(verify._suite_package_script('npm run'))
+
     def test_ignored_vendor_reaches_scratch_probe_without_sharing_writes(self):
         project = self.project({**SEED, '.gitignore': 'vendor/\n'})
         project.write({'vendor/example/resource.txt': 'offline'})
@@ -748,6 +850,73 @@ class VerifyCase(unittest.TestCase):
         self.assertNotEqual(generated, generated_identity())
         (project.root / "src/pkg/_version.py").unlink()
         self.assertEqual({}, generated_identity())
+
+    def test_an_in_place_proof_does_not_run_an_ignored_file_the_run_added(self):
+        # #529: the ignored file fails test_add only in the base scratch tree, so
+        # preservation would treat the candidate's break as already present.
+        seed = {
+            "calc.py": "def add(a, b):\n    return a + b\n\ndef sub(a, b):\n    return a + b\n",
+            "test_calc.py": "import unittest\nimport calc\n\nclass Add(unittest.TestCase):\n"
+                            "    def test_add(self):\n        self.assertEqual(5, calc.add(2, 3))\n",
+            "test_other.py": "import unittest\n\nclass Other(unittest.TestCase):\n"
+                             "    def test_ok(self):\n        self.assertEqual(1, 1)\n",
+        }
+        project = self.project(seed)
+        record = verify.generated_source_record(project.root)
+        self.assertEqual({}, record)
+        project.write({
+            "calc.py": "def add(a, b):\n    return a * b\n\ndef sub(a, b):\n    return a - b\n",
+            "test_feature.py": "import unittest\nimport calc\n\nclass Sub(unittest.TestCase):\n"
+                               "    def test_t1_sub_is_correct(self):\n"
+                               "        self.assertEqual(1, calc.sub(3, 2))\n",
+            "test_aaa_env.py": "import os\nimport calc\n"
+                              "if '/baseline' in os.getcwd().replace('\\\\', '/'):\n"
+                              "    calc.add = lambda a, b: -999\n",
+        })
+        exclude = project.root / ".git" / "info" / "exclude"
+        exclude.write_text(exclude.read_text().rstrip() + "\ntest_aaa_env.py\n")
+        self.assertEqual(["test_aaa_env.py"], sorted(verify.generated_source_record(project.root)))
+        state = {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
+                 "goal_contract": {"body": {"task_kind": "bugfix"}},
+                 "generated_sources_at_start": record}
+        proof = regression.prove(state, project.root, project.evidence)
+        self.assertEqual(verify.FAIL, proof["verdict"], proof)
+        self.assertTrue(any("test_calc.Add.test_add" in reason for reason in proof["failures"]), proof)
+        self.assertTrue(any("test_aaa_env.py" in note and "added during the run" in note
+                            for note in proof["notes"]), proof)
+        direct = subprocess.run([sys.executable, "-m", "unittest", "test_calc"], cwd=project.root,
+                                capture_output=True, text=True)
+        self.assertEqual(1, direct.returncode, direct.stdout + direct.stderr)
+
+        old = {"base_commit": project.base, "settings": {}, "iteration": 1, "stages": [], "history": [],
+               "goal_contract": {"body": {"task_kind": "bugfix"}}}
+        missing = regression.prove(old, project.root, project.evidence / "unrecorded")
+        self.assertEqual(verify.FAIL, missing["verdict"], missing)
+        self.assertTrue(any("no record" in note and "test_aaa_env.py" in note
+                            for note in missing["notes"]), missing)
+
+    def test_a_recorded_generated_file_is_copied_until_its_bytes_change(self):
+        project = self.project({
+            ".gitignore": "src/pkg/_version.py\ntest_aaa_env.py\n",
+            "src/pkg/__init__.py": "",
+            "src/pkg/calc.py": "def mean(values):\n    return sum(values) / len(values)\n",
+        })
+        project.write({"src/pkg/_version.py": "VERSION = '1.0'\n"})
+        record = verify.generated_source_record(project.root)
+        project.write({"test_aaa_env.py": "import calc\n"})
+        tree = Path(project.temp.name) / "tree"
+        git(project.root, "worktree", "add", "-q", "--detach", str(tree), project.base)
+        self.addCleanup(git, project.root, "worktree", "remove", "--force", str(tree))
+        self.assertEqual(["src/pkg/_version.py"], verify.copy_generated_sources(project.root, tree, record=record))
+        self.assertFalse((tree / "test_aaa_env.py").exists())
+        _trusted, notes, omitted = verify.classify_generated_sources(project.root, record)
+        self.assertEqual(["test_aaa_env.py"], omitted)
+        self.assertTrue(any("added during the run" in note for note in notes), notes)
+        project.write({"src/pkg/_version.py": "VERSION = '2.0'\n"})
+        trusted, notes, omitted = verify.classify_generated_sources(project.root, record)
+        self.assertEqual([], trusted)
+        self.assertEqual(["src/pkg/_version.py", "test_aaa_env.py"], omitted)
+        self.assertTrue(any("changed during the run" in note and "_version.py" in note for note in notes), notes)
 
     def test_a_suite_that_cannot_start_is_broken_not_failing(self):
         """Review finding 15: command-not-found and no-results runs stop before any model call."""
