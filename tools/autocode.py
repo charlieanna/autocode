@@ -21,11 +21,13 @@ from pathlib import Path
 from typing import Any
 import copy
 import uuid
+from contextlib import ExitStack
 try:
     from . import autocode_support as support, autocode_completion as completion_gate, autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_providers, autocode_opencode as opencode, autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_escalation as escalation, autocode_failures as failures, autocode_jobs as jobs
     from . import autocode_regression as regression, autocode_checkout_lock as checkout_lock, autocode_format_correction as format_correction, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
     from . import autocode_dependency as dependency, autocode_status_command as status_command, autocode_follow_up as follow_up, autocode_util as util, autocode_stray_writes as stray_writes, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
     from . import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
+    from . import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery
     from . import autocode_run_view as run_view, autocode_workflows as workflows, autocode_agent_env as agent_env, autocode_worktrees as worktrees, autocode_event_log as event_log, autocode_rework_policy as rework_policy
 except ImportError:
     import autocode_dependency as dependency, autocode_status_command as status_command, autocode_verbose as verbose, autocode_status, autocode_artifacts as artifacts, autocode_report_repair_context as report_repair_context, autocode_stuck_repair_context as stuck_repair_context
@@ -33,6 +35,7 @@ except ImportError:
     import autocode_goals as goals, autocode_goal_lifecycle as lifecycle, autocode_interventions as interventions, autocode_checkout_lock as checkout_lock
     import autocode_providers, autocode_opencode as opencode, autocode_run_view as run_view, autocode_provider_launch as provider_launch, autocode_verification_plan as verification_plan, autocode_task_preflight as task_preflight
     import autocode_stop as stop_policy, autocode_status as status_records, autocode_readonly_events as readonly_events
+    import autocode_supervision as supervision, autocode_supervision_cli as supervision_cli, autocode_supervision_recovery as supervision_recovery
     import autocode_process as processes, autocode_registry as registry, autocode_planning as planning, autocode_rework_policy as rework_policy
     import autocode_escalation as escalation, autocode_failures as failures, autocode_planning_metadata as planning_metadata, model_catalogue, autocode_resolver_recovery as resolver_recovery, autocode_visual_runtime as visual_runtime, autocode_visual_profile as visual_profile
 
@@ -455,7 +458,7 @@ def run_role(
     interrupted = False
     cleanup_error = None
     worker_path = run_dir / "active-processes.json"
-    with processes.interruption_handler(), prompt_file.open("r") as stdin, event_log.open_events(events) as stdout:
+    with processes.interruption_handler(), prompt_file.open("r") as stdin, event_log.open_events(events) as stdout, ExitStack() as provider_guard:
         try:
             with interventions.admission(run_dir):
                 provider_launch.verify_containment(worker_context)
@@ -482,15 +485,24 @@ def run_role(
                 write_json(run_dir / "state.json", state)
                 child_stdin = (subprocess.DEVNULL if engine == "opencode" and configured_tool
                                and getattr(opencode, "PROMPT_MODE", "stdin") == "file" else stdin)
-                child = subprocess.Popen(command, cwd=workspace, stdin=child_stdin, stdout=stdout, stderr=subprocess.STDOUT,
-                                         text=True, **checkout_lock.child_options(workspace, child_options))
-                record["pid"] = child.pid
+                def ownership_checkpoint(metadata):
+                    # One writer before exec; status and reconciliation consume
+                    # these birth identities and the independent receipt.
+                    record.update(pid=metadata['provider']['pid'], owner=metadata['owner'], supervision=metadata)
+                    write_json(run_dir / "state.json", state)
+                child = provider_guard.enter_context(supervision.launch(
+                    command, receipt_path=base.with_suffix('.supervision.json'), timeout=stage_timeout or None,
+                    checkpoint=ownership_checkpoint, cwd=workspace, stdin=child_stdin, stdout=stdout,
+                    stderr=subprocess.STDOUT, text=True,
+                    **checkout_lock.child_options(workspace, child_options)))
         except support.Paused:
             job_source.discard_prepared(record)
             # Admission lost to a submission: no request or provider was started.
             for prepared in (prompt_file, events, base.with_suffix(".before.json"), base.with_suffix(".opencode.json")):
                 prepared.unlink(missing_ok=True)
             raise
+        except processes.ProcessError as error:
+            raise support.Paused('PAUSED_PROCESS_CLEANUP', str(error)) from error
         print(f"{autocode_status.role_name(stage, state)}: started; model={model or 'default'}; log={events}", flush=True)
         activity = ActivityMonitor(events, idle_seconds=idle_limit, tool_seconds=tool_timeout, reporter=verbose.reporter(autocode_status.role_name(stage, state), model),
                                    idle_origin=idle_origin,
@@ -532,7 +544,18 @@ def run_role(
                                     "processes": record.get("processes", []), "cleanup_error": cleanup_error})
         else:
             worker_path.unlink(missing_ok=True)
+        finally:
+            try:
+                provider_guard.close()
+            except processes.ProcessError as error:
+                cleanup_error = str(error)
+            independent = supervision.receipt(record['supervision'])
+            if independent and independent.get('cause') == 'stage_deadline':
+                timed_out = True
+            elif independent and independent.get('cause') in ('owner_lost', 'lifeline_failure', 'invalid_owner_message'):
+                interrupted = True
         if interrupted:
+            record['interrupted'] = True
             worker_path.unlink(missing_ok=True)  # wait_for_stage cleaned up before propagating the interrupt
     record.update(finished_at=now(), exit_code=exit_code, duration_seconds=time.monotonic() - started,
                   metrics=support.event_metrics(events), timed_out=timed_out)
@@ -934,6 +957,17 @@ def reconcile_active(state, run_dir, workspace):
     record = state.get("active_stage")
     if not record:
         return
+    held = None
+    if record.get('supervision'):
+        independent = supervision.receipt(record['supervision'])
+        held = supervision_recovery.hold(record, independent, attempt=attempt_id(record))
+    if held:
+        if held['timed_out']:
+            record['timed_out'] = True
+            if record.get('report_only') and automatically_recover_report_repair_timeout(state, run_dir, workspace,
+                    support.Paused(held['status'], held['reason'])):
+                return
+        raise support.Paused(held['status'], held['reason'])
     if record.get('report_only') and record.get('timed_out'):
         if automatically_recover_report_repair_timeout(state, run_dir, workspace,
                 support.Paused('PAUSED_PROVIDER_TIMEOUT', record.get('timeout_reason', 'Saved repair timeout'))):
@@ -1322,9 +1356,13 @@ def main(unit=None) -> int:
     later invocation that expects a different, or no, provider mocked."""
     global opencode
     saved_opencode = opencode
+    saved_argv = sys.argv
     try:
-        return _main_body(unit)
+        with supervision_cli.guard(saved_argv[1:]) as argv:
+            sys.argv = [saved_argv[0], *argv]
+            return _main_body(unit)
     finally:
+        sys.argv = saved_argv
         opencode = saved_opencode
 
 

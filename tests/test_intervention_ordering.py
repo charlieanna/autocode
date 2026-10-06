@@ -1,4 +1,5 @@
 """Deterministic lifecycle races using only isolated state and fake providers."""
+from .supervision_fixture import launcher
 import contextlib
 import copy
 import json
@@ -190,7 +191,7 @@ class InterventionOrderingTests(unittest.TestCase):
         controller = runner.processes.process_table({os.getpid()})
         with patch.object(runner.processes, 'process_table', return_value=controller) as table, \
              patch.object(support, 'snapshot', return_value=snapshot), \
-             patch.object(runner.subprocess, 'Popen', side_effect=launch), \
+             patch.object(runner.supervision, 'launch', launcher(launch)), \
              patch.object(runner.processes, 'wait_for_stage', side_effect=wait):
             with self.assertRaisesRegex(support.Paused, 'interrupted'):
                 self.role()

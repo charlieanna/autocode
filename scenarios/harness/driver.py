@@ -33,7 +33,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import profiles
+from . import attempts, profiles
 from .processes import CallTimeout, SupervisionUnavailable, run_cli
 from .project import overlay_paths
 
@@ -60,6 +60,10 @@ def leaves_for_person(need: dict) -> bool:
 
 class DriveError(RuntimeError):
     """The harness could not take the run any further."""
+
+
+class InterruptedDrive(DriveError):
+    """The CLI was interrupted; its delivery and remaining usage are ungraded."""
 
 
 class TurnNotReached(DriveError):
@@ -143,9 +147,11 @@ class Driver:
         """The run's status view from `autocode --status` (docs/task-run.md)."""
         proc = self.call("status", "--status", action=True, record=False)
         try:
-            return json.loads(proc.stdout)["view"]
+            view = json.loads(proc.stdout)["view"]
         except (ValueError, KeyError) as error:
             raise DriveError(f"--status returned no status view: {error}") from None
+        attempts.observe(self.root, view)
+        return view
 
     def call(self, kind: str, *extra: str, task: str | None = None, action: bool = False,
              record: bool = True) -> subprocess.CompletedProcess:
@@ -167,13 +173,14 @@ class Driver:
                *([] if action else ["--no-chat", *flags]), *extra]
         started = time.monotonic()
         try:
-            proc = run_cli(cmd, env=self.env, cwd=self.root, timeout=remaining)
+            proc = run_cli(cmd, env=self.env, cwd=self.root, timeout=remaining,
+                           lifeline={"root": self.root / "cli-calls", "kind": kind, "deadline": self.deadline})
         except SupervisionUnavailable as error:
             raise DriveError(str(error)) from None
         except CallTimeout as error:
             detail = ("; cleanup incomplete: " + "; ".join(error.cleanup_errors)
                       if error.cleanup_errors else "; captured workers stopped")
-            raise DriveError(f"{kind} was still running when the time budget ran out{detail}") from None
+            raise InterruptedDrive(f"{kind} was still running when the time budget ran out{detail}") from None
         if record:
             step = {"kind": kind, "args": list(extra), "exit": proc.returncode,
                     "seconds": round(time.monotonic() - started, 1),
@@ -183,6 +190,8 @@ class Driver:
                 handle.write(json.dumps(step) + "\n")
         # Usage errors also exit 2, so recognize argparse's message rather than trusting the code.
         usage_error = proc.returncode == 2 and proc.stderr.startswith("usage:")
+        if proc.returncode < 0:
+            raise InterruptedDrive(f"{kind} exited on signal {-proc.returncode}; delivery and usage remain ungraded")
         if usage_error or proc.returncode not in ((0,) if action else (0, 2)):
             raise DriveError(f"{kind} exited {proc.returncode}: {(proc.stderr or proc.stdout).strip()[-500:]}")
         return proc

@@ -13,6 +13,7 @@ except ImportError:
 def render(runner, state, args, workspace, run_dir):
     active = state.get("active_stage")
     worker_state = runner.processes.recorded_worker_state(active) if active else None
+    liveness = runner.supervision.observe(active["supervision"]) if active and active.get("supervision") else None
     active_finished = runner.stage_completed(state, active) if active else None
     stale = bool(active and state.get("status") == "RUNNING"
                  and worker_state and worker_state.get("checked")
@@ -41,10 +42,17 @@ def render(runner, state, args, workspace, run_dir):
                 or inspected.get('inspected_source_revision') != current['revision']):
             completion_current = False
     public_view = runner.run_view.view(state, completion_current=completion_current,
-                                       visual_acceptance=visual_acceptance,
+                                       visual_acceptance=visual_acceptance, liveness=liveness,
                                        stale_report_repair=runner.stale_report_repair(state, workspace) is not None)
     if inspected is not None:
         public_view['verification'] = inspected
+    supervision_state = public_view.get('liveness', {})
+    lost_supervisor = supervision_state.get('kind') in ('unsupervised', 'interrupted')
+    if active and not active.get('finished_at'):
+        lost_supervisor = lost_supervisor or any(
+            supervision_state.get(key, {}).get('checked') and supervision_state[key].get('alive') is False
+            for key in ('owner', 'keeper'))
+    stale = stale or bool(active and state.get('status') == 'RUNNING' and lost_supervisor)
     checkpoint = runner.milestones.summary(state)
     stage = (active or {}).get("stage") or state.get("next_stage")
     next_action = (f"AutoResolver must reconcile retained attempt {runner.attempt_id(active)} before any provider call"
@@ -66,8 +74,8 @@ def render(runner, state, args, workspace, run_dir):
         if completion_current is True:
             public_view["progressive"]["outstanding_product_criteria"] = []
     if stale:
-        print(f"STALE CHECKPOINT: saved status is RUNNING but the recorded "
-              f"{active.get('stage')} workers are gone and no terminal report was saved. "
+        print(f"STALE CHECKPOINT: saved status is RUNNING but the retained "
+              f"{active.get('stage')} attempt has no current supervised result. "
               "AutoResolver must reconcile the retained attempt before any further provider call.", file=sys.stderr)
     if stale_check:
         print("STALE CHECKPOINT: the runner executing the regression check is gone. "
