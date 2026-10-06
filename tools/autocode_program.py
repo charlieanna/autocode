@@ -542,9 +542,9 @@ def compose_brief(manifest, workstream, state, *, from_head=False):
     if workstream["kind"] == "code":
         # A live skeleton checked that `export` was an unknown command; the export workstream then made it valid,
         # and the re-run check undid a correct merge (2026-10-06).
-        lines += ["Your checks are re-run after every later workstream merges, so check only what the finished "
-                  "product keeps: never that a command, option or file a later workstream adds is missing, unknown "
-                  "or refused.", ""]
+        lines += ["Your checks are re-run after every later workstream merges, once your work is committed, so "
+                  "check only what the finished product keeps: never git status or uncommitted files, and never "
+                  "that a command, option or file a later workstream adds is missing, unknown or refused.", ""]
     lines += ["This workstream's objective:", workstream["brief"].strip(), ""]
     if workstream.get("acceptance_criteria"):
         criteria = agreement.requirements(manifest)

@@ -312,6 +312,23 @@ class ScratchReplayTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exited 1"):
             self.replay("test -f local-only.txt")
 
+    def test_a_check_that_runs_git_status_is_refused_before_anything_runs(self):
+        # A live skeleton's check ended in a grep over git status: it passed while its files were uncommitted, and
+        # failed once the program committed and merged them, which undid a correct merge (2026-10-06).
+        live = ("sh -c 'find notes tests -type f -not -name \"*.pyc\" | sort; "
+                "git status --short --untracked-files=all | grep -v pycache'")
+        for command in (live, "git -C . status --porcelain", "sh -c 'test -z \"$(git status --porcelain)\"'"):
+            with self.subTest(command=command):
+                with self.assertRaises(ValueError) as refused:
+                    self.replay(command)
+                self.assertIn("runs git status", str(refused.exception))
+                self.assertIn(check_replay.WORKTREE_STATE_HINT, str(refused.exception))
+        self.assertFalse(self.run_dir.exists() and any(self.run_dir.rglob("check-01")))  # refused, never run
+        for command in ("git log -1 --format=%s", "sh -c 'git ls-files | grep -v status'", "test -f app.txt"):
+            with self.subTest(command=command):
+                self.assertEqual("PASS", self.replay(command)["verdict"])
+        self.assertIn("Never cite a check that runs git status", check_replay.VALIDATOR_NOTE)
+
     def test_file_inventory_must_exclude_git_metadata_even_when_it_is_a_file(self):
         code = ("from pathlib import Path; "
                 "found = {p.name for p in Path('.').iterdir() if p.is_file() and p.name != 'local-only.txt'}; "
