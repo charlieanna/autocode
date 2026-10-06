@@ -22,7 +22,7 @@ try:
     from . import autocode_evidence_snapshot as evidence_snapshot
     from .autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
                                 model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
-    from . import autocode_receipts as receipts, autocode_usage as token_usage
+    from . import autocode_receipts as receipts, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines
     from . import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal
     from .autocode_event_matching import same_command
 except ImportError:
@@ -33,7 +33,7 @@ except ImportError:
     import autocode_evidence_snapshot as evidence_snapshot
     from autocode_util import (Paused, atomic_json, changed_paths, criteria_definition, digest, file_hash,
                                model_output_schema, now, read, run_lock, snapshot, validate_schema, workspace_lock)
-    import autocode_receipts as receipts, autocode_usage as token_usage
+    import autocode_receipts as receipts, autocode_usage as token_usage, autocode_provider_error_lines as provider_error_lines
     import autocode_event_matching as event_matching, autocode_event_metrics as event_summary, autocode_provider_refusal as provider_refusal
     from autocode_event_matching import same_command
 
@@ -75,7 +75,8 @@ def terminal_failure_reason(path):
 def failure_status(path):
     # Inspect actual provider errors, not arbitrary tool logs mentioning errors.
     failures = [e for e in events(path) if e.get("type") in ("turn.failed", "error")]
-    text = json.dumps(failures).lower()
+    # A command-line tool can end with the failed request as plain text instead (#562).
+    text = "\n".join([json.dumps(failures), *provider_error_lines.trailing(path)]).lower()
     # A content-filter refusal is about this model, not the work: the same model is likely to refuse again.
     if provider_refusal.refusal(failures):
         return provider_refusal.STATUS

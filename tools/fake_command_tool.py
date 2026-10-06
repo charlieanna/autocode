@@ -117,6 +117,12 @@ if data.get("report_repair"):
                  "untested_behavior": [], "recommended_checks": []})
     raise SystemExit(0)
 stage = data.get("stage", "terra")
+if stage == "sol" and os.environ.get("AUTOCODE_FIXTURE_PLAIN_ERROR"):
+    # A human-readable CLI (``codex exec`` without --json): tool output, then the provider's own error.
+    print("exec\nbash -lc 'python -m unittest' in .\n exited 1 in 120ms:\n"
+          "ERROR: test_retry_after_429 (tests.test_client.RetryTests.test_retry_after_429)\nFAILED (errors=1)", flush=True)
+    print(os.environ["AUTOCODE_FIXTURE_PLAIN_ERROR"], file=sys.stderr, flush=True)
+    raise SystemExit(1)
 contract = data["goal_contract"] or {"revision": 0, "hash": ""}
 common = {"contract_revision": contract["revision"], "contract_hash": contract["hash"],
           "task_id": (data.get("current_task") or {}).get("id", ""),
