@@ -96,8 +96,11 @@ def refused_retry(row, result):
     worker = result.get("quota_worker")
     if result.get("status") != quota_route.REFUSAL_STATUS or not worker:
         return None
-    child = util.read(Path(row["run_dir"]) / "state.json")
-    if worker.get("model") and child["settings"]["roles"]["terra"].get("model") != worker["model"]:
+    try:
+        routed = util.read(Path(row["run_dir"]) / "state.json")["settings"]["roles"]["terra"].get("model")
+    except (OSError, ValueError, KeyError, TypeError):
+        routed = None  # unreadable: never assume the route moved
+    if worker.get("model") and routed and routed != worker["model"]:
         return None
     return (f"Builder {row['milestone_id']} was refused by its provider's content filter on "
             f"{worker.get('model') or 'its model'}, and the same model is likely to refuse it again, so "
