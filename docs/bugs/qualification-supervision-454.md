@@ -47,7 +47,9 @@ a leaked threading lock with SIGINT and SIGTERM ignored. Of 351 fake scenario
 runs given two signals 0 to 200 ms apart, 3 hung and 76 had one of the other
 outcomes; no provider outlived its controller. Ctrl-C is taken over only from
 Python's default handler, so an ignored (background job) or replaced SIGINT is
-left alone.
+left alone. The stage cleanup itself (stopping the provider tree and joining its
+process worker) ignores SIGHUP as it already ignored SIGINT and SIGTERM, so a
+hangup that arrives first during it, as a provider ends, no longer cuts it short.
 
 Qualification on macOS uses fake providers only: controller SIGKILL, process-group
 SIGKILL, SIGHUP, controlling PTY close, harness SIGKILL, keeper loss before/after

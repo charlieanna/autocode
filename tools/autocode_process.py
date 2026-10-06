@@ -323,6 +323,10 @@ class ProcessTree:
             self.signal(list(frozen.values()), signal.SIGCONT)
 
 
+# A stage's cleanup ignores every signal interruption_handler turns into an interrupt.
+INTERRUPTS = tuple(getattr(signal, name) for name in ('SIGINT', 'SIGTERM', 'SIGHUP') if hasattr(signal, name))
+
+
 @contextmanager
 def interruption_handler():
     """Turn SIGTERM, SIGHUP and Ctrl-C into one KeyboardInterrupt naming the signal.
@@ -529,7 +533,7 @@ def wait_for_stage(child, timeout, checkpoint, *, activity=None, activity_checkp
     finally:
         # Interruption or a failed save must not let the process worker escape
         # this call. Callbacks stay serialized on the controller thread.
-        handlers = {sig: signal.signal(sig, signal.SIG_IGN) for sig in (signal.SIGINT, signal.SIGTERM)}
+        handlers = {sig: signal.signal(sig, signal.SIG_IGN) for sig in INTERRUPTS}
         try:
             receipts.cancel.set()
             if receipts.started:

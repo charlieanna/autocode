@@ -837,6 +837,28 @@ time.sleep(30)
                 finally:
                     signal.signal(signal.SIGINT, previous)
 
+    def test_cleanup_ignores_a_hangup_as_it_ignores_sigint_and_sigterm(self):
+        # The hangup that raised inside cleanup, most often while it joined the process
+        # worker, cut it short and left the provider to its keeper (#454).
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            self.addCleanup(signal.signal, sig, signal.signal(sig, signal.SIG_DFL))
+        self.addCleanup(signal.signal, signal.SIGINT, signal.signal(signal.SIGINT, signal.default_int_handler))
+        join = processes.process_receipts.ReceiptWorker.join
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            with self.subTest(signal=signal.Signals(sig).name):
+                child = subprocess.Popen([sys.executable, '-c', 'pass'], start_new_session=True)
+                self.addCleanup(lambda child=child: child.poll() is None and (child.kill(), child.wait()))
+                def signalled_join(worker, sig=sig):
+                    os.kill(os.getpid(), sig)
+                    return join(worker)
+                try:
+                    with processes.interruption_handler(), \
+                            patch.object(processes.process_receipts.ReceiptWorker, 'join', signalled_join):
+                        result = processes.wait_for_stage(child, 5, lambda rows: None)
+                except KeyboardInterrupt:
+                    self.fail('a signal during cleanup interrupted it')
+                self.assertEqual((0, False), result)
+
 
 if __name__ == '__main__':
     unittest.main()
