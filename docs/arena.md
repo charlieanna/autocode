@@ -13,7 +13,7 @@ Use one operator at a time: concurrent catalog writers are not supported.
 
 ## Start with the included projects
 
-The checkout includes three real upstream bug cases in [`arena/catalog.json`](../arena/catalog.json).
+The checkout includes six pinned upstream bug cases in [`arena/catalog.json`](../arena/catalog.json).
 Each has a problem description and a self-contained oracle under `arena/cases/`.
 The catalog pins the full baseline and reference commit IDs; preparation fetches
 those commits, verifies that the baseline fails and the reference passes, and
@@ -72,11 +72,78 @@ this host-level setup cannot prevent a model from finding a public historical fi
 The starter holdout is public and is **not a secret or contamination-free benchmark**.
 Use fresh private holdouts before drawing general improvement conclusions.
 
-The oracles import the candidate source directly and use only Python's standard
-library. Humanize's generated version metadata is supplied in memory for source
+The starter oracles import the candidate source directly and use only Python's
+standard library. Humanize's generated version metadata is supplied in memory for source
 archive imports; its formatting implementation still comes from the candidate.
 These targeted checks do not replace each project's full upstream test suite.
 The catalog/preparation tool is distributed with the checkout, not the wheel.
+
+## Hard cases
+
+The harder group exercises interacting algorithms and lifecycle boundaries in
+larger projects. The listed module counts describe the upstream reference fixes;
+AutoCode may produce a different correct implementation.
+
+| Case ID | Upstream report | Behavior | Production modules in reference fix | Split |
+| --- | --- | --- | --- | --- |
+| `sympy-matrix-derivatives` | [SymPy #25150](https://github.com/sympy/sympy/pull/25150) and linked reports | Matrix gradients and Hessians, rectangular coordinates, noncommuting powers and tensor axes | 11 | development |
+| `django-filteredrelation-join-lifecycle` | [Django #33766](https://code.djangoproject.com/ticket/33766), [PR #16786](https://github.com/django/django/pull/16786) | Conditions that spawn joins, filtered aliases, cloning and nested subqueries | 3 | regression |
+| `pytest-stop-fixture-teardown` | [pytest #11706](https://github.com/pytest-dev/pytest/issues/11706), [PR #11721](https://github.com/pytest-dev/pytest/pull/11721) | Teardown and plugin reports after max-failure and stepwise stops | 2 | holdout |
+
+These are public historical exercises. The holdout split controls which evidence
+an improvement proposal exposes; it does not make a public fix private. Fresh
+private tasks are needed for stronger generalization claims.
+
+Prepare only these cases in a fresh destination:
+
+```sh
+.venv/bin/python arena/prepare.py --arena .autocode/arena-hard-v1 --oracle-timeout 120 \
+  --case sympy-matrix-derivatives \
+  --case django-filteredrelation-join-lifecycle \
+  --case pytest-stop-fixture-teardown
+```
+
+Install runtime and test dependencies before freezing a cohort. The oracles need
+`mpmath` for SymPy and `asgiref`/`sqlparse` for Django. The tested upstream scopes
+also use pytest, numpy, hypothesis, attrs, py, pexpect and xmlschema. Keep every
+installed version fixed through all attempts. Disable third-party pytest plugin
+autoload with `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1`; explicit setup plugins still load.
+
+Use the checkout's absolute venv interpreter in `--option=--test-command=...`.
+These bounded upstream scopes cover the affected subsystems; they are not the
+entire SymPy, Django or pytest test suites:
+
+| Case | Arguments after `python -m pytest` | Per-process setup |
+| --- | --- | --- |
+| SymPy | `-q -p no:cacheprovider sympy/core/tests/test_diff.py sympy/core/tests/test_function.py sympy/core/tests/test_args.py sympy/matrices/expressions/tests sympy/tensor/array/tests/test_array_derivatives.py sympy/tensor/array/expressions/tests` | `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1` |
+| Django | `-q -o 'python_files=test*.py' -p no:cacheprovider tests/filtered_relation tests/queries` | `PYTHONPATH="$PWD/arena/support/django" PYTEST_PLUGINS=arena_django_bootstrap` plus plugin autoload disabled |
+| pytest | `-o minversion= testing/test_runner.py testing/test_session.py testing/test_stepwise.py -q` | `PYTHONPATH="$PWD/arena/support/pytest"` plus plugin autoload disabled |
+
+The Django setup plugin uses candidate-local source, its existing test apps and
+two in-memory SQLite databases. Other database engines are outside this scope.
+The pytest `sitecustomize` helper prefers candidate source and supplies generated
+version metadata only when absent; nested pytester processes inherit that source.
+Neither helper installs or substitutes a runtime implementation. Apply each
+helper only to its own case and keep its files frozen through the attempt. The
+environment is inherited by AutoCode's collected, derived and replayed checks.
+
+For example, the Django case can be launched with:
+
+```sh
+export PATH="$PWD/.venv/bin:$PATH"
+PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+PYTHONPATH="$PWD/arena/support/django" PYTEST_PLUGINS=arena_django_bootstrap \
+.venv/bin/python tools/autocode_arena.py --arena .autocode/arena-hard-v1 \
+  run django-filteredrelation-join-lifecycle --cohort hard-baseline-v1 \
+  --i-authorize-live-model-spend --approve-benchmark-plans \
+  --timeout 3600 --oracle-timeout 120 --option=--engine=codex \
+  --option=--max-iterations=3 \
+  "--option=--test-command=$PWD/.venv/bin/python -m pytest -q -o 'python_files=test*.py' -p no:cacheprovider tests/filtered_relation tests/queries"
+```
+
+Use an oracle deadline of 120 seconds for the harder cohort; pytest's oracle
+starts several isolated child suites. Benchmark approval still covers only the
+exact plan token, never questions, human reviews, recovery or quota overrides.
 
 ## Declare a case
 

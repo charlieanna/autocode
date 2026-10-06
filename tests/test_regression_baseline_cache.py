@@ -1,24 +1,26 @@
 """The base-suite cache is keyed on the base result, not the candidate tree (#426)."""
+import shlex
 import sys
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from .test_verify import Project
+from .test_verify import Project, isolated_python
 import autocode_regression as regression
 import autocode_util as util
 import autocode_verify as verify
 
-COMMAND = f"{sys.executable} -m unittest -v"
-
 
 class BaselineIdentityTests(unittest.TestCase):
+    def setUp(self):
+        self.command = f"{shlex.quote(isolated_python(self))} -m unittest -v"
+
     def test_candidate_source_edits_do_not_change_the_binding(self):
         project = Project({"app.py": "x = 1\n", "test_app.py": "import unittest\n"})
         self.addCleanup(project.close)
-        before = verify.baseline_identity(project.root, command=COMMAND)
+        before = verify.baseline_identity(project.root, command=self.command)
         project.write({"app.py": "x = 2\n", "new_feature.py": "y = 3\n"})
-        after = verify.baseline_identity(project.root, command=COMMAND)
+        after = verify.baseline_identity(project.root, command=self.command)
         self.assertEqual(before, after)
         self.assertNotIn("source_revision", after)
         self.assertNotIn("source_metadata", after)
@@ -26,27 +28,35 @@ class BaselineIdentityTests(unittest.TestCase):
     def test_runtime_change_rebinds(self):
         project = Project({"app.py": "x = 1\n", ".gitignore": "node_modules\n"})
         self.addCleanup(project.close)
-        before = verify.baseline_identity(project.root, command=COMMAND)
+        before = verify.baseline_identity(project.root, command=self.command)
         project.write({"node_modules/left-pad/index.js": "1\n"})
-        after = verify.baseline_identity(project.root, command=COMMAND)
+        after = verify.baseline_identity(project.root, command=self.command)
         self.assertNotEqual(before.get("dependencies"), after.get("dependencies"))
 
     def test_global_interpreter_still_offers_reuse(self):
         project = Project({"app.py": "x = 1\n", "test_app.py": "import unittest\n"})
         self.addCleanup(project.close)
-        identity = verify.baseline_identity(project.root, command=COMMAND)
+        command = f"{shlex.quote(sys._base_executable)} -m unittest -v"
+        execution = verify.execution_identity(project.root, command=command)
+        self.assertEqual("fresh_execution_only", execution["cache_policy"])
+        self.assertFalse(execution["reuse_supported"])
+        identity = verify.baseline_identity(project.root, command=command)
+        self.assertEqual("baseline_runtime_identity", identity["cache_policy"])
         self.assertTrue(identity["cache_binding_complete"])
         self.assertTrue(identity["reuse_supported"])
 
 
 class BaselineCacheTests(unittest.TestCase):
+    def setUp(self):
+        self.command = f"{shlex.quote(isolated_python(self))} -m unittest -v"
+
     def _receipt(self, base, run_dir):
         directory = Path(run_dir) / "baseline"
         directory.mkdir(parents=True, exist_ok=True)
         log = directory / "suite-on-base.log"
         log.write_text("OK\n")
-        return {"base": base, "command": COMMAND,
-                "receipt": {"command": COMMAND, "exit_code": 0, "timed_out": False, "error": "",
+        return {"base": base, "command": self.command,
+                "receipt": {"command": self.command, "exit_code": 0, "timed_out": False, "error": "",
                             "output": str(log), "output_sha256": util.file_hash(log),
                             "results": {"passed": ["t"], "failed": [], "skipped": [],
                                         "collection_errors": [], "complete": True, "total": 1}},
@@ -65,7 +75,7 @@ class BaselineCacheTests(unittest.TestCase):
 
         def ready():
             return regression._baseline(state, project.root, self.run_dir,
-                                        "base-rev", verify.command_framework(COMMAND), COMMAND,
+                                        "base-rev", verify.command_framework(self.command), self.command,
                                         project.root)
 
         with mock.patch.object(verify, "baseline", side_effect=fake_baseline):
@@ -88,9 +98,9 @@ class BaselineCacheTests(unittest.TestCase):
 
         with mock.patch.object(verify, "baseline", side_effect=fake_baseline):
             regression._baseline(state, project.root, self.run_dir,
-                                 "base-a", verify.command_framework(COMMAND), COMMAND, project.root)
+                                 "base-a", verify.command_framework(self.command), self.command, project.root)
             regression._baseline(state, project.root, self.run_dir,
-                                 "base-b", verify.command_framework(COMMAND), COMMAND, project.root)
+                                 "base-b", verify.command_framework(self.command), self.command, project.root)
         self.assertEqual(["base-a", "base-b"], calls)
 
 

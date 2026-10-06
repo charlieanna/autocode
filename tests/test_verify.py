@@ -36,6 +36,17 @@ def project_file(project, path):
     return (project.root / path).read_text()
 
 
+def isolated_python(test_case):
+    """A real no-pip stdlib runtime without the mutable controller editable install."""
+    import venv
+
+    temporary = tempfile.TemporaryDirectory(prefix="verification-command-runtime-")
+    test_case.addCleanup(temporary.cleanup)
+    root = Path(temporary.name)
+    venv.EnvBuilder(with_pip=False).create(root)
+    return str(root / "bin" / "python")
+
+
 class Project:
     """A committed BUGFIX-01 seed; tests overlay candidate files on the working tree."""
 
@@ -328,6 +339,108 @@ class VerifyCase(unittest.TestCase):
         project = Project(files)
         self.addCleanup(project.close)
         return project
+
+    def proof_python(self, *, pytest=False):
+        """A real isolated runtime without this controller's editable install."""
+        import importlib.metadata
+        import importlib.util
+
+        python = isolated_python(self)
+        if pytest:
+            site = Path(subprocess.check_output(
+                [python, "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"], text=True).strip())
+            # Copy only already-installed pytest runtime packages. No install,
+            # external plugin or editable controller is needed by these tests.
+            packages = ("pytest", "_pytest", "pluggy", "packaging", "iniconfig", "pygments", "py")
+            for package in packages:
+                spec = importlib.util.find_spec(package)
+                if spec is None and package == "pygments":
+                    continue  # optional on older installed pytest versions
+                source = Path(spec.origin)
+                if spec.submodule_search_locations:
+                    shutil.copytree(source.parent, site / package, ignore=shutil.ignore_patterns("__pycache__"))
+                else:
+                    shutil.copy2(source, site / source.name)
+            for package in ("pytest", "pluggy", "packaging", "iniconfig", "pygments", "py"):
+                if not (site / package).is_dir() and not (site / (package + ".py")).is_file():
+                    continue
+                try:
+                    distribution = importlib.metadata.distribution(package)
+                except importlib.metadata.PackageNotFoundError:
+                    continue  # pytest may supply py.py without a py distribution
+                metadata = next(file for file in distribution.files if file.name == "METADATA")
+                source = Path(distribution.locate_file(metadata)).parent
+                shutil.copytree(source, site / source.name)
+            probe = subprocess.run([python, "-m", "pytest", "--version"], capture_output=True, text=True,
+                                   timeout=30, env={**os.environ, "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1"})
+            self.assertEqual(0, probe.returncode, probe.stdout + probe.stderr)
+        return python
+
+    @unittest.skipUnless(verify._python_can_import(sys.executable, "pytest"), "pytest is not installed")
+    def test_explicit_pytest_proves_modified_tests_module_in_a_unittest_repository(self):
+        import autocode_regression as regression
+
+        python = self.proof_python(pytest=True)
+        existing = ("import unittest\nfrom app import value\n"
+                    "class Existing(unittest.TestCase):\n"
+                    "    def test_one(self):\n        self.assertEqual(2, value(1))\n")
+        lifecycle = ("import unittest\nfrom app import value\n"
+                     "class Lifecycle(unittest.TestCase):\n"
+                     "    def test_one(self):\n        self.assertEqual(2, value(1))\n")
+        project = self.project({"app.py": "def value(n):\n    return n + 1\n",
+                                "tests/__init__.py": "", "tests/lifecycle/__init__.py": "",
+                                "tests/test_existing.py": existing,
+                                "tests/lifecycle/tests.py": lifecycle})
+        self.assertEqual("unittest", verify.detect_framework(project.root, python=python).name)
+        project.write({"app.py": "def value(n):\n    return 4 if n == 2 else n + 1\n",
+                       "tests/lifecycle/tests.py": lifecycle +
+                       "    def test_t1_two_is_fixed(self):\n        self.assertEqual(4, value(2))\n"})
+        suite = (f"{shlex.quote(python)} -m pytest -q -p no:cacheprovider "
+                 "tests/test_existing.py tests/lifecycle/tests.py")
+        state = {"goal_contract": {"body": {"task_kind": "bugfix"}}, "base_commit": project.base,
+                 "settings": {"regression": {"test_command": suite, "test_timeout": 30,
+                                              "python": "/missing/detected-python"}}}
+        proof = regression.prove(state, project.root, project.evidence)
+        self.assertEqual(verify.PASS, proof["verdict"], proof)
+        self.assertEqual("pytest", proof["framework"]["name"])
+        self.assertEqual(python, proof["framework"]["python"])
+        self.assertEqual("derived:pytest", proof["commands"]["regression_source"])
+        self.assertEqual(["tests.lifecycle.tests.Lifecycle::test_t1_two_is_fixed"], proof["fail_to_pass"])
+        self.assertEqual(1, proof["checks"]["regression_on_base"]["exit_code"])
+        self.assertEqual(0, proof["checks"]["regression_on_candidate"]["exit_code"])
+        receipt = json.loads(Path(proof["path"]).read_text())
+        for label in ("regression_on_base", "regression_on_candidate", "suite_on_candidate"):
+            self.assertTrue(receipt["checks"][label]["results"]["complete"], label)
+        self.assertTrue(regression.complete(state, proof["source_revision"]))
+
+        project.write({"app.py": "def value(n):\n    return n + 1  # still broken\n"})
+        broken = regression.prove(state, project.root, project.evidence)
+        self.assertEqual(verify.FAIL, broken["verdict"], broken)
+        self.assertEqual(1, broken["checks"]["regression_on_candidate"]["exit_code"])
+        self.assertFalse(regression.complete(state, broken["source_revision"]))
+
+    def test_proof_framework_detection_survives_absent_or_unknown_explicit_command(self):
+        import autocode_regression as regression
+
+        python = self.proof_python()
+        for suite in (None, f"{shlex.quote(python)} -m unittest discover -v && true"):
+            with self.subTest(suite=suite):
+                project = self.project()
+                project.write(REFERENCE)
+                options = {"python": python, "test_timeout": 30}
+                if suite:
+                    options["test_command"] = suite
+                    self.assertIsNone(verify.command_framework(suite))
+                state = {"goal_contract": {"body": {"task_kind": "bugfix"}},
+                         "base_commit": project.base, "settings": {"regression": options}}
+                proof = regression.prove(state, project.root, project.evidence)
+                self.assertEqual(verify.PASS, proof["verdict"], proof)
+                self.assertEqual("unittest", proof["framework"]["name"])
+                self.assertEqual("derived:unittest", proof["commands"]["regression_source"])
+                self.assertTrue(proof["fail_to_pass"])
+                self.assertEqual(1, proof["checks"]["regression_on_base"]["exit_code"])
+                self.assertEqual(0, proof["checks"]["regression_on_candidate"]["exit_code"])
+                self.assertTrue(regression.complete(state, proof["source_revision"]))
 
     @unittest.skipUnless(shutil.which('node'), 'Node is required for named Node proof')
     def test_node_named_case_flip_preserves_original_custom_suite(self):
@@ -696,6 +809,16 @@ class VerifyCase(unittest.TestCase):
                                         regression_command="make one")
         self.assertEqual(("make check", "explicit", "make one", "explicit"),
                          (chosen["suite"], chosen["suite_source"], chosen["regression"], chosen["regression_source"]))
+
+    def test_targeted_python_commands_include_django_tests_modules(self):
+        for name in ("pytest", "unittest"):
+            with self.subTest(framework=name):
+                framework = verify.Framework(name, "unused suite", python=sys.executable)
+                command = framework.targeted(["tests/constraints/tests.py", "tests/constraints/helpers.py",
+                                              "tests/constraints/conftest.py"])
+                self.assertIn("tests/constraints/tests.py", command)
+                self.assertNotIn("helpers.py", command)
+                self.assertNotIn("conftest.py", command)
 
     def test_test_path_classification(self):
         for path in ("tests/test_x.py", "pkg/test_x.py", "x_test.go", "src/a.test.ts", "spec/a_spec.rb",

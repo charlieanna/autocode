@@ -12,11 +12,12 @@ import autocode_process as processes
 import autocode_regression as regression
 import autocode_runner_check as runner_check
 import autocode_status as status
-from tests.test_verify import Project, REFERENCE
+from tests.test_verify import Project, REFERENCE, isolated_python
 
 
 class RunnerCheckTests(unittest.TestCase):
     def setUp(self):
+        self.python = isolated_python(self)
         self.project = Project()
         self.addCleanup(self.project.close)
         self.run = self.project.root / ".autocode" / "runs" / "fixture"
@@ -39,7 +40,7 @@ class RunnerCheckTests(unittest.TestCase):
 
     def test_status_during_baseline_and_comparison_then_clean_handoff(self):
         self.project.write(REFERENCE)
-        self.state["settings"]["regression"] = {"python": sys.executable}
+        self.state["settings"]["regression"] = {"python": self.python}
         route = copy.deepcopy(self.state["settings"])
         observed = []
         actual_baseline, actual_verify = regression.verify.baseline, regression.verify.verify
