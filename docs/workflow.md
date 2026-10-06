@@ -30,7 +30,9 @@ You → Autopilot: recognize the kind of job (build, bugfix, review, design, dis
    discuss → Analyst only: an answer with evidence tied to repository files (and the note the
             request asks for, written by the runner), repository untouched, run complete
    (a design review's or a discussion's questions do not hold the run: it completes, and you
-    answer them with --follow-up, the next turn of the same run)
+    answer them with --follow-up, the next turn of the same run; a reply to a design review
+    → the Architect revises that review in review/design-review.json as revision n+1, the same
+    concern ids kept, settled ones marked resolved, the repository outside review/ untouched)
    build → the build pipeline below;
            implementing an APPROVED design document as written, or "Build it." after a design turn
              (the design that turn wrote) → Architect checks it against the repository first,

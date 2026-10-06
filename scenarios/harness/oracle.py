@@ -16,7 +16,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-IGNORED = shutil.ignore_patterns(".git", ".autocode", "__pycache__", "*.pyc")
+# .fake-turns/ in a solution holds the scripted model's per-turn reports (fake_codex.turn_report): never
+# part of a project, so it is never materialized or copied.
+IGNORED = shutil.ignore_patterns(".git", ".autocode", "__pycache__", "*.pyc", ".fake-turns")
 
 
 @dataclass

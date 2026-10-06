@@ -1,0 +1,28 @@
+title = "Revise a design review as the user answers its questions"
+category = "conversation"
+# Issue #185. A design review asks what only the user can decide, and each reply
+# revises the same review in the same run. The seed leaves the ordering scope
+# genuinely open (events/processor.py: "has never been written down"), unlike
+# design-review-planted, whose code settles per-domain order. The design keys by
+# registry_id, and a transfer moves a domain to another registry, so per-domain
+# order breaks only across a transfer.
+#
+# Turn 1: the Architect blocks on the planted migration gap (dual-write with no
+# rollback or reconciliation), notes the unowned DLQ as advisory, and asks which
+# ordering consumers need instead of assuming one. Turn 2 answers "per-domain":
+# ordering becomes a blocking concern. Turn 3 accepts per-registry order: that
+# concern is resolved, kept under its id. Idempotency (event_id dedupe in the
+# code) and throughput (sized with per-key numbers) are covered, so a blocker
+# about them is invented. Each turn follows a completed review: a design review
+# never waits for its questions, and the reply is a --follow-up.
+
+[fake]
+check = "python3 -c \"import json; json.load(open('review/design-review.json')); print('ok')\""
+
+[[turn]]
+after = "complete"
+say = "Ordering is per-domain."
+
+[[turn]]
+after = "complete"
+say = "Per-registry is fine."
