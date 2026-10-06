@@ -92,6 +92,10 @@ def build_parser(unit, default_models) -> argparse.ArgumentParser:
     parser.add_argument("--provider", default=None,
                         help="Tool that runs each role for a new run. Default: AUTOCODE_PROVIDER, then default_provider in "
                              "~/.config/autocode/config.toml, then opencode. Other names load ~/.config/autocode/providers/<name>.toml")
+    parser.add_argument("--allow-uncontained-tools", action="store_true",
+                        help="Built-in OpenCode runs: launch the Builder, Validator and other non-planning stages with "
+                             "OpenCode's own permission checks only, without the kernel tool boundary (macOS "
+                             "sandbox-exec, conformance-tested OpenCode). Saved with the run and recorded; new run or resume")
     parser.add_argument("--joint-planning", action="store_true",
                         help="Separate requirements, planning, and independent review; default for new OpenCode runs, opt-in for Codex")
     parser.add_argument("--adaptive-planning", action=argparse.BooleanOptionalAction, default=None,
@@ -318,6 +322,8 @@ def parse(unit, argv, default_models):
         parser.error('--unlimited-iterations cannot be combined with an explicit iteration ceiling')
     if args.accept_transport_change:
         _requires_resume(parser, args, "--accept-transport-change")
+    if args.allow_uncontained_tools and (args.status or args.dry_run):
+        parser.error("--allow-uncontained-tools is saved with the run; it cannot be combined with --status or --dry-run")
     if args.retry_report:
         _requires_resume(parser, args, "--retry-report")
     # The token also binds a stopped job's model answer to the stop a person inspected (#463).

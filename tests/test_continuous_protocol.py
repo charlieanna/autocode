@@ -344,6 +344,7 @@ class ExpectedGoalCliTests(unittest.TestCase):
              patch.object(opencode, 'local_settings', return_value={'engine': 'opencode'}), \
              patch.object(model_catalogue, 'choose', side_effect=lambda settings, *a, **kw: settings), \
              patch.object(opencode, 'check_models'), patch.object(opencode, 'check_subscription_routes'), \
+             patch.object(opencode.tool_containment, 'unavailable', return_value=None), \
              patch.object(runner, 'run_role', side_effect=AssertionError('No provider may launch')), \
              patch.object(runner.build_loop, 'run', return_value=0), \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
