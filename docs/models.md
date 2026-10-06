@@ -177,8 +177,10 @@ default route; see [CLI](cli.md).
 ## When a role's quota runs out
 
 A provider that reports a used-up quota, usage limit or credits stops the stage with
-`PAUSED_BUDGET`. The stopped attempt is kept, never replayed, and AutoCode asks you
-which model the role should continue on, for example:
+`PAUSED_BUDGET`, and so does a used-up daily, weekly or monthly plan limit sent as an
+HTTP 429 (Z.AI's "Weekly/Monthly Limit Exhausted"); a per-minute rate limit does not.
+The stopped attempt is kept, never replayed, and AutoCode asks you which model the
+role should continue on, for example:
 
 ```text
 [route-sol] Tester's quota is exhausted; name the model to continue on

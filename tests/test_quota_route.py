@@ -14,6 +14,15 @@ import autocode_support as support
 QUOTA = {"type": "error", "error": {"message": "subscription usage limit reached"}}
 CAPACITY = {"type": "error", "error": {"message": "Selected model is at capacity"}}
 RATE = {"type": "turn.failed", "error": {"message": "rate limit reached (429)"}}
+# Z.AI's used-up plan, as OpenCode 1.18.33 reported it live on 2026-10-05: an HTTP 429 that never says "quota".
+PLAN_LIMIT = {"type": "error", "error": {"name": "APIError", "data": {
+    "message": "Weekly/Monthly Limit Exhausted. Your limit will reset at 2026-10-09 10:51:41",
+    "statusCode": 429, "isRetryable": True}}}
+
+
+def api_error(message, status=429):
+    return {"type": "error", "error": {"name": "APIError", "data": {
+        "message": message, "statusCode": status, "isRetryable": True}}}
 
 
 class QuotaRouteTests(unittest.TestCase):
@@ -67,6 +76,34 @@ class QuotaRouteTests(unittest.TestCase):
         for error in (CAPACITY, RATE, {"type": "error", "error": {"message": "401 unauthorized"}}):
             with self.subTest(error=error["error"]["message"]):
                 self.assertIsNone(self.stopped(self.state(error)))
+
+    def test_a_used_up_plan_sent_as_a_429_asks_for_the_completion_route(self):
+        state = self.state(PLAN_LIMIT, stage="astra_review", role="astra")
+        state["active_stage"]["route_role"] = "completion"
+        self.assertEqual("PAUSED_BUDGET", support.failure_status(state["active_stage"]["events"]))
+        asked = quota_route.question(state, self.stopped(state))
+        self.assertEqual("route-completion", asked["id"])
+        self.assertTrue(asked["question"].startswith("Completion Reviewer's quota is exhausted"))
+        # OpenCode's own events carry the session, so they go through its event normalization too.
+        for error in ({**PLAN_LIMIT, "sessionID": "ses_limit"}, api_error("Weekly limit reached, resets Oct 9"),
+                      api_error("Monthly limit exhausted"),
+                      api_error("The number of calls has reached the daily limit of your plan"),
+                      api_error("Your limit will reset at 2026-10-09 10:51:41")):
+            with self.subTest(error=error):
+                self.assertEqual("PAUSED_BUDGET", support.failure_status(self.state(error)["active_stage"]["events"]))
+
+    def test_an_ordinary_429_rate_limit_stays_a_rate_limit_and_asks_nothing(self):
+        for message in ("Rate limit reached for gpt-5.6-sol on tokens per min (TPM): Limit 30000, Used 29500, "
+                        "Requested 1200. Please try again in 1.4s.",
+                        "This request would exceed the rate limit for your organization of 50,000 input tokens "
+                        "per minute.",
+                        "High concurrency usage of this API, please reduce concurrency",
+                        "Rate limit exhausted; retry after 20s",
+                        "Your rate limit will reset at 2026-10-05 10:51:42"):
+            with self.subTest(message=message):
+                state = self.state(api_error(message))
+                self.assertEqual("PAUSED_RATE_LIMIT", support.failure_status(state["active_stage"]["events"]))
+                self.assertIsNone(self.stopped(state))
 
     def test_a_worker_run_or_an_unrouted_role_asks_nothing(self):
         worker = {**self.state(), "parent_run": "/parent"}

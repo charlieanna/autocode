@@ -79,12 +79,12 @@ def failure_status(path):
     # A content-filter refusal is about this model, not the work: the same model is likely to refuse again.
     if provider_refusal.refusal(failures):
         return provider_refusal.STATUS
-    # A model-capacity response is transient, but distinct from account rate
-    # limits and quota failures. The runner may retry it under a small budget.
-    if any(x in text for x in ("selected model is at capacity", "model is at capacity",
-                               "model capacity exceeded", "model_overloaded", "resource_exhausted")):
+    # Model capacity is transient, unlike account rate limits and quota; the runner may retry it under a small budget.
+    if re.search(r"model is at capacity|model capacity exceeded|model_overloaded|resource_exhausted", text):
         return "PAUSED_PROVIDER_CAPACITY"
-    if any(x in text for x in ("quota", "budget", "usage limit", "usage_limit", "insufficient_credit", "add credits")):
+    # A used-up plan can be a 429 that never says quota (Z.AI: "Weekly/Monthly Limit Exhausted"); a rate limit is not.
+    if (any(x in text for x in ("quota", "budget", "usage limit", "usage_limit", "insufficient_credit", "add credits"))
+            or re.search(r"(?<!rate )limit (exhausted|will reset at \d{4}-)|\b(daily|weekly|monthly) limit\b", text)):
         return "PAUSED_BUDGET"
     if any(x in text for x in ("rate_limit", "rate limit", "429")):
         return "PAUSED_RATE_LIMIT"
