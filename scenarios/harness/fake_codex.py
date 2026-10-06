@@ -931,6 +931,10 @@ def brief_observations(data: dict) -> list[dict]:
             arguments = ['brief-probe' if re.fullmatch(r'[A-Z][A-Z_]*', word) else word for word in pattern]
             bindings.append({'placeholder': variable, 'step': len(steps), 'argument': pattern.index(variable)})
             steps.append({'argv': arguments})
+        # Like the live Plan Reviewers (#452 runs on d6aded9), set up a second item, so a
+        # listing prints more than one line.
+        steps += [{'argv': ['brief-probe-2' if word == 'brief-probe' else word for word in step['argv']]}
+                  for step in steps]
         steps.append({'argv': list(declaration['observe_argv'])})
         result.append({'declaration_id': declaration['id'], 'criterion_ids': criteria,
                        'steps': steps, 'observe_step': len(steps) - 1, 'bindings': bindings})

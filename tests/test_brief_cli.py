@@ -1,6 +1,7 @@
 """Original brief output is a public completion gate, independently of delivered tests."""
 from __future__ import annotations
 
+import base64
 import json
 import os
 from pathlib import Path
@@ -82,6 +83,9 @@ class BriefCliTests(unittest.TestCase):
             self.assertEqual("PASS", observed["verdict"])
             self.assertEqual(check["observation_hash"], observed["observation_hash"])
             self.assertEqual([0] * len(observed["steps"]), [step["exit_code"] for step in observed["steps"]])
+            # The live Plan Reviewers' shape (#452 runs on d6aded9): several to-dos, one line each.
+            listing = base64.b64decode(observed["steps"][-1]["stdout_base64"]).decode().splitlines()
+            self.assertEqual(2, len(listing), listing)
         self.assertEqual(1, view["efficiency"]["delivery"]["verified_deliveries"])
         return receipt
 
