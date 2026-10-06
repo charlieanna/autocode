@@ -25,17 +25,56 @@ class PolicyTests(unittest.TestCase):
         state = json.loads(json.dumps(state))
         self.assertEqual('retry', policy.failure(state, 'e1', 'failure'))
         self.assertEqual('escalate', policy.failure(state, 'e2', 'failure'))
-        self.assertEqual(policy.DEFAULTS['strong_model'], state['settings']['roles']['terra']['model'])
+        self.assertEqual('gpt-6-sol', state['settings']['roles']['terra']['model'])
         self.assertEqual('pause', policy.failure(state, 'e3', 'failure'))
         with self.assertRaises(policy.s.Paused): policy.guard(state)
         self.assertEqual(3, len(state['builder_retry_decisions']))
 
     def test_pins_and_custom_providers_are_not_overridden(self):
-        for override in ({'model_pinned': True}, {'provider': 'custom'}):
-            state = self.state(); state['settings']['roles']['terra'].update(override)
-            policy.failure(state,'e1','failure')
-            self.assertEqual('pause',policy.failure(state,'e2','failure'))
-            self.assertEqual('gpt-6-luna',state['settings']['roles']['terra']['model'])
+        for engine in ('codex', 'opencode'):
+            for override in ({'model_pinned': True}, {'provider': 'custom'}, {'provider': 'claude'}):
+                with self.subTest(engine=engine, override=override):
+                    state = self.state()
+                    state['settings']['roles']['terra'].update(engine=engine, **override)
+                    original = copy.deepcopy(state['settings']['roles']['terra'])
+                    policy.failure(state, 'e1', 'failure')
+                    self.assertEqual('pause', policy.failure(state, 'e2', 'failure'))
+                    self.assertEqual(original, state['settings']['roles']['terra'])
+
+    def test_native_strong_model_is_bare_and_preserves_transport(self):
+        for strong in ('openai/gpt-6-sol', 'gpt-6-sol'):
+            with self.subTest(strong=strong):
+                state = self.state()
+                state['settings']['builder_retry']['strong_model'] = strong
+                state['settings']['roles']['terra'].update(engine='codex', provider='openai')
+                self.assertEqual('retry', policy.failure(state, 'e1', 'failure'))
+                self.assertEqual('escalate', policy.failure(state, 'e2', 'failure'))
+                self.assertEqual({'model': 'gpt-6-sol', 'reasoning_effort': 'xhigh',
+                                  'engine': 'codex', 'provider': 'openai'},
+                                 state['settings']['roles']['terra'])
+                self.assertEqual(strong, state['settings']['builder_retry']['strong_model'])
+                self.assertEqual('gpt-6-sol', state['builder_retry_decisions'][-1]['selected_model'])
+
+    def test_builder_role_engine_takes_precedence_over_run_engine(self):
+        for run_engine, role_engine, expected in (
+                ('opencode', 'codex', 'gpt-6-sol'),
+                ('codex', 'opencode', 'openai/gpt-6-sol')):
+            with self.subTest(run_engine=run_engine, role_engine=role_engine):
+                state = self.state()
+                state['settings']['engine'] = run_engine
+                state['settings']['roles']['terra']['engine'] = role_engine
+                policy.failure(state, 'e1', 'failure')
+                self.assertEqual('escalate', policy.failure(state, 'e2', 'failure'))
+                self.assertEqual(expected, state['settings']['roles']['terra']['model'])
+                self.assertEqual(role_engine, state['settings']['roles']['terra']['engine'])
+                self.assertEqual(run_engine, state['settings']['engine'])
+
+    def test_native_normalization_does_not_strip_another_provider_prefix(self):
+        state = self.state()
+        state['settings']['builder_retry']['strong_model'] = 'custom/gpt-6-sol'
+        policy.failure(state, 'e1', 'failure')
+        self.assertEqual('escalate', policy.failure(state, 'e2', 'failure'))
+        self.assertEqual('custom/gpt-6-sol', state['settings']['roles']['terra']['model'])
 
     def test_a_provider_that_lists_its_models_without_the_strong_one_retries_once_more_then_pauses(self):
         claude = CLAUDE_PROVIDER
@@ -149,6 +188,51 @@ class PolicyTests(unittest.TestCase):
             dispatch.enforce_cross_model_verification(state)
         self.assertEqual('PAUSED_CROSS_MODEL', raised.exception.status)
 
+    def test_native_builder_and_pinned_opencode_checker_alias_still_pause(self):
+        state = self.state()
+        checker = {'model': 'openai/gpt-6-sol', 'reasoning_effort': 'high',
+                   'engine': 'opencode', 'provider': 'openai', 'model_pinned': True}
+        state['settings']['roles']['sol'] = copy.deepcopy(checker)
+        dispatch.enforce_cross_model_verification(state)
+        policy.failure(state, 'e1', 'failure')
+        self.assertEqual('escalate', policy.failure(state, 'e2', 'failure'))
+        self.assertEqual('gpt-6-sol', state['settings']['roles']['terra']['model'])
+        self.assertEqual(checker, state['settings']['roles']['sol'])
+        with self.assertRaises(policy.s.Paused) as raised:
+            dispatch.enforce_cross_model_verification(state)
+        self.assertEqual('PAUSED_CROSS_MODEL', raised.exception.status)
+        self.assertIn('Builder/Tester', str(raised.exception))
+
+    def test_native_builder_leaves_bare_checker_collision_for_guard(self):
+        for override in ({}, {'model_pinned': True}, {'provider': 'custom'}):
+            with self.subTest(override=override):
+                state = self.state()
+                checker = {'model': 'gpt-6-sol', 'reasoning_effort': 'high',
+                           'engine': 'codex', **override}
+                state['settings']['roles']['completion'] = copy.deepcopy(checker)
+                policy.failure(state, 'e1', 'failure')
+                self.assertEqual('escalate', policy.failure(state, 'e2', 'failure'))
+                self.assertEqual(checker, state['settings']['roles']['completion'])
+                self.assertNotIn('checker_models', state['builder_retry_decisions'][-1])
+                with self.assertRaises(policy.s.Paused) as raised:
+                    dispatch.enforce_cross_model_verification(state)
+                self.assertEqual('PAUSED_CROSS_MODEL', raised.exception.status)
+                self.assertIn('Builder/Completion Reviewer', str(raised.exception))
+
+    def test_native_builder_still_swaps_compatible_opencode_checker(self):
+        state = self.state()
+        state['settings']['roles']['sol'] = {'model': 'openai/gpt-6-sol', 'reasoning_effort': 'medium',
+                                           'engine': 'opencode', 'provider': 'openai'}
+        policy.failure(state, 'e1', 'failure')
+        self.assertEqual('escalate', policy.failure(state, 'e2', 'failure'))
+        self.assertEqual('gpt-6-sol', state['settings']['roles']['terra']['model'])
+        self.assertEqual({'model': policy.DEFAULTS['checker_model'], 'reasoning_effort': 'medium',
+                          'engine': 'opencode', 'provider': 'openai'},
+                         state['settings']['roles']['sol'])
+        self.assertEqual({'sol': policy.DEFAULTS['checker_model']},
+                         state['builder_retry_decisions'][-1]['checker_models'])
+        dispatch.enforce_cross_model_verification(state)
+
     def test_a_parallel_builder_defers_its_stronger_attempt_to_the_parent(self):
         parent = self.default_routes()
         worker = copy.deepcopy(parent)
@@ -222,7 +306,7 @@ class PolicyBlackbox(unittest.TestCase):
 
     def test_strong_retry_uses_sol_high_and_integration_still_requires_review(self):
         self.seed(); self.env['BUILD_AUDIT_FAULT']='escalate_success'; self.build(); self.candidate()
-        strong = policy.DEFAULTS['strong_model']
+        strong = 'gpt-6-sol'
         self.assertEqual(['gpt-6-luna','gpt-6-luna',strong],[r['model'] for r in self.events() if r['milestone']=='M1'])
         self.assertNotEqual('TASK_COMPLETE',self.state()['status'])
 
@@ -255,7 +339,7 @@ class PolicyBlackbox(unittest.TestCase):
         self.assertFalse((self.project / 'server/health.py').exists())
         self.review()
         self.build(); self.candidate()
-        self.assertEqual(['gpt-6-luna', 'gpt-6-luna', strong], self.models('M1'))
+        self.assertEqual(['gpt-6-luna', 'gpt-6-luna', 'gpt-6-sol'], self.models('M1'))
         self.assertEqual(['retry', 'defer', 'escalate'], [d['action'] for d in self.state()['builder_retry_decisions']])
         self.review()
         self.build(); self.candidate()
@@ -267,7 +351,7 @@ class PolicyBlackbox(unittest.TestCase):
             self.assertEqual([('M2', strong), ('M1', glm), ('M3', strong)], self.checkers(stage))
 
     def test_when_every_parallel_builder_defers_the_parent_builds_each_serially(self):
-        strong, glm = policy.DEFAULTS['strong_model'], policy.DEFAULTS['checker_model']
+        strong, glm = 'gpt-6-sol', policy.DEFAULTS['checker_model']
         self.after_parallel_pair()
         self.env['BUILD_AUDIT_FAULT_MILESTONES'] = 'M1,M2'
         self.build(); self.candidate()
@@ -319,7 +403,7 @@ class PolicyBlackbox(unittest.TestCase):
                 self.assertEqual(previous, self.events(stage='astra_resolve'))
                 args += ['--resume-paused', '--retry-failed-stage']
             self.invoke('autoresolver', args, 2 if attempt==2 else 0)
-        self.assertEqual(['gpt-6-luna','gpt-6-luna',policy.DEFAULTS['strong_model']],[r['model'] for r in self.events()])
+        self.assertEqual(['gpt-6-luna','gpt-6-luna','gpt-6-sol'],[r['model'] for r in self.events()])
         self.assertEqual('PAUSED_BUILDER_RETRY_LIMIT',self.state()['status'])
         self.assertEqual(['retry','escalate','pause'],[r['action'] for r in self.state()['builder_retry_decisions']])
         self.assertEqual(2, len(self.events(stage='astra_resolve')))
@@ -330,6 +414,6 @@ class PolicyBlackbox(unittest.TestCase):
         self.env['BUILD_AUDIT_FAULT']='retry_exhausted'
         self.build(2)
         self.assertEqual('PAUSED_BUILDER_RETRY_LIMIT',self.state()['status'])
-        self.assertEqual(['gpt-6-luna','gpt-6-luna',policy.DEFAULTS['strong_model']],[r['model'] for r in self.events()])
+        self.assertEqual(['gpt-6-luna','gpt-6-luna','gpt-6-sol'],[r['model'] for r in self.events()])
         self.assertNotIn('implementation',self.state())
         self.assertNotIn('autocode',self.state().get('unit_handoffs',{}))

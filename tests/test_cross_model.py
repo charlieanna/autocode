@@ -40,6 +40,30 @@ class CrossModelTest(unittest.TestCase):
         self.assertEqual("PAUSED_CROSS_MODEL", ctx.exception.status)
         self.assertIn("Builder/Tester", str(ctx.exception))
 
+    def test_bare_and_openai_gpt_aliases_are_the_same_exact_model(self):
+        for producer, verifier, label in (("terra", "sol", "Builder/Tester"),
+                                           ("terra", "completion", "Builder/Completion Reviewer"),
+                                           ("glm", "plan_reviewer", "Planner/Plan Reviewer")):
+            for builder, checker in (("gpt-6-sol", "openai/gpt-6-sol"),
+                                     ("openai/gpt-6-sol", "gpt-6-sol")):
+                with self.subTest(producer=producer, verifier=verifier, builder=builder):
+                    state = roles(**{producer: builder, verifier: checker})
+                    with self.assertRaises(support.Paused) as ctx:
+                        dispatch.enforce_cross_model_verification(state)
+                    self.assertEqual("PAUSED_CROSS_MODEL", ctx.exception.status)
+                    self.assertIn(label + ": identical model", str(ctx.exception))
+
+    def test_different_gpt_tiers_remain_independent_across_alias_spellings(self):
+        for builder, checker in (("gpt-6-sol", "openai/gpt-6-astra"),
+                                 ("openai/gpt-6-sol", "gpt-5.6-sol"),
+                                 ("gpt-6-luna", "openai/gpt-6-sol")):
+            with self.subTest(builder=builder, checker=checker):
+                dispatch.enforce_cross_model_verification(roles(terra=builder, sol=checker))
+
+    def test_other_provider_prefixes_are_not_openai_aliases(self):
+        dispatch.enforce_cross_model_verification(roles(terra="custom/gpt-6-sol", sol="gpt-6-sol"))
+        dispatch.enforce_cross_model_verification(roles(terra="openai/custom-model", sol="custom-model"))
+
     def test_same_family_builder_completion_is_rejected(self):
         state = roles(terra="zai-coding-plan/glm-5.3",
                       sol="xiaomi-token-plan-sgp/mimo-v2.6-pro",
